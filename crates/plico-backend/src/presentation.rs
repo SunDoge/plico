@@ -6,6 +6,35 @@ pub(super) struct Presentation {
     opacity: f32,
 }
 impl Adapter {
+    /// Iterate the placed ancestor chain starting at `start`, if it is placed.
+    ///
+    /// The walk ends at the root, or early at a zero-sized intermediate that
+    /// the flattening walk omitted from `placed` while its (overflowing)
+    /// children remain placed. Such an omitted node carries no effective clip
+    /// — an empty clip would have culled its subtree — so every ancestor-chain
+    /// invariant (clip folding, hit containment, scroll propagation, focus
+    /// reveal) holds with the walk simply stopping there.
+    fn placed_chain_from(&self, start: Option<NodeId>) -> impl Iterator<Item = &PlacedNode> + '_ {
+        let mut current = start;
+        std::iter::from_fn(move || {
+            let id = current?;
+            let node = self.placed.get(*self.placed_indices.get(&id)?)?;
+            current = node.parent_node_id;
+            Some(node)
+        })
+    }
+    /// The placed chain of `id`, including `id` itself when placed.
+    pub(super) fn placed_chain(&self, id: NodeId) -> impl Iterator<Item = &PlacedNode> + '_ {
+        self.placed_chain_from(Some(id))
+    }
+    /// The placed ancestors of `id`, excluding `id` itself.
+    pub(super) fn placed_ancestors(&self, id: NodeId) -> impl Iterator<Item = &PlacedNode> + '_ {
+        let start = self
+            .placed_indices
+            .get(&id)
+            .and_then(|&index| self.placed[index].parent_node_id);
+        self.placed_chain_from(start)
+    }
     pub(super) fn update_presentation(&mut self) {
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation.is_empty() {
             self.presentation.clear();
@@ -16,21 +45,9 @@ impl Adapter {
         } else {
             let mut dirty = std::mem::take(&mut self.presentation_roots);
             for &id in &dirty {
-                let Some(&index) = self.placed_indices.get(&id) else {
-                    continue;
-                };
-                let mut ancestor = self.placed[index].parent_node_id;
-                let mut covered = false;
-                while let Some(parent) = ancestor {
-                    if dirty.contains(&parent) {
-                        covered = true;
-                        break;
-                    }
-                    ancestor = self
-                        .placed_indices
-                        .get(&parent)
-                        .and_then(|index| self.placed[*index].parent_node_id);
-                }
+                let covered = self
+                    .placed_ancestors(id)
+                    .any(|node| dirty.contains(&node.node_id));
                 if !covered {
                     self.update_presentation_subtree(id);
                 }
@@ -83,17 +100,9 @@ impl Adapter {
             return None;
         }
         let mut bounds = self.visual_bounds(id)?;
-        let mut current = Some(id);
-        while let Some(id) = current {
-            // Zero-sized intermediates are omitted from `placed` while their
-            // overflowing children are not; such a node carries no effective
-            // clip (an empty clip would have culled the subtree), so the walk
-            // stops instead of discarding the visible bounds entirely.
-            let Some(node) = self.placed_indices.get(&id).map(|i| &self.placed[*i]) else {
-                break;
-            };
+        for node in self.placed_chain(id) {
             if let Some(clip) = node.own_clip {
-                let c = self.visual_rect(id, clip.map(f64::from))?;
+                let c = self.visual_rect(node.node_id, clip.map(f64::from))?;
                 bounds = [
                     bounds[0].max(c[0] as f32),
                     bounds[1].max(c[1] as f32),
@@ -101,7 +110,6 @@ impl Adapter {
                     bounds[3].min(c[3] as f32),
                 ];
             }
-            current = node.parent_node_id;
         }
         (bounds[0] < bounds[2] && bounds[1] < bounds[3]).then_some(bounds)
     }
@@ -136,21 +144,11 @@ impl Adapter {
         {
             return false;
         }
-        let mut parent = Some(id);
-        while let Some(id) = parent {
-            // A zero-sized intermediate is omitted from `placed` while its
-            // children are not; its (necessarily empty) clip already culled
-            // any subtree it established one for, so the walk simply stops.
-            let Some(node) = self.placed_indices.get(&id).map(|i| &self.placed[*i]) else {
-                break;
-            };
-            if let Some(clip) = node.own_clip
-                && !self.layout_point(id, x, y).is_some_and(|p| inside(clip, p))
-            {
-                return false;
-            }
-            parent = node.parent_node_id;
-        }
-        true
+        self.placed_chain(id).all(|node| {
+            node.own_clip.is_none_or(|clip| {
+                self.layout_point(node.node_id, x, y)
+                    .is_some_and(|p| inside(clip, p))
+            })
+        })
     }
 }

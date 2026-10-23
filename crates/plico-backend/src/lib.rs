@@ -556,31 +556,32 @@ impl Adapter {
         if std::mem::take(&mut self.reveal_focus)
             && let Some(focused) = self.focused.and_then(|e| self.nodes.get(&e)).map(|n| n.id)
         {
-            let mut ancestor = self.placed[self.placed_indices[&focused]].parent_node_id;
-            while let Some(id) = ancestor {
-                // Zero-sized intermediates are omitted from `placed`; their
-                // children can still be placed, so the ancestor walk may end
-                // early without reaching the root.
-                let Some(p) = self.placed_indices.get(&id).map(|i| &self.placed[*i]) else {
-                    break;
-                };
-                ancestor = p.parent_node_id;
-                if !p.scroll.scrollable[1] {
+            // The chain is collected first: revealing may re-flatten and
+            // reindex `placed`, which the lazy iterator borrows.
+            let chain: Vec<NodeId> = self.placed_ancestors(focused).map(|p| p.node_id).collect();
+            for id in chain {
+                let Some(scroll) = self
+                    .placed_indices
+                    .get(&id)
+                    .map(|&index| &self.placed[index])
+                    .filter(|p| p.scroll.scrollable[1])
+                    .map(|p| p.scroll)
+                else {
                     continue;
-                }
+                };
                 self.scroll_motions.remove(&id);
                 let target = self.placed[self.placed_indices[&focused]].rect;
-                let delta = if target[1] < p.scroll.port[1] {
-                    target[1] - p.scroll.port[1]
-                } else if target[3] > p.scroll.port[3] {
-                    target[3] - p.scroll.port[3]
+                let delta = if target[1] < scroll.port[1] {
+                    target[1] - scroll.port[1]
+                } else if target[3] > scroll.port[3] {
+                    target[3] - scroll.port[3]
                 } else {
                     0.
                 };
-                let next = (p.scroll.offset[1] + delta).clamp(0., p.scroll.range[1]);
-                if next != p.scroll.offset[1] {
+                let next = (scroll.offset[1] + delta).clamp(0., scroll.range[1]);
+                if next != scroll.offset[1] {
                     focus_scrolled = true;
-                    self.scroll_offsets.insert(id, [p.scroll.offset[0], next]);
+                    self.scroll_offsets.insert(id, [scroll.offset[0], next]);
                     flatten_with_scroll_into(
                         &self.tree,
                         self.nodes[&engine.root()].id,
@@ -1185,7 +1186,7 @@ impl Adapter {
                 }
             }
             UiEvent::Wheel(w) if w.delta_y.is_finite() => {
-                let mut target = self
+                let start = self
                     .placed
                     .iter()
                     .rev()
@@ -1196,18 +1197,31 @@ impl Adapter {
                     })
                     .map(|p| p.node_id);
                 let mut remaining = w.delta_y.clamp(-1.0e6, 1.0e6) as f32;
-                while let Some(id) = target {
-                    let p = &self.placed[self.placed_indices[&id]];
-                    if p.scroll.scrollable[1] {
+                if let Some(start) = start {
+                    // Scrolling mutates offsets and motions; collect the chain
+                    // so the lazy ancestor iterator is not held across it.
+                    let chain: Vec<NodeId> = self.placed_chain(start).map(|p| p.node_id).collect();
+                    for id in chain {
+                        let Some(scroll) = self
+                            .placed_indices
+                            .get(&id)
+                            .map(|&index| &self.placed[index])
+                            .filter(|p| p.scroll.scrollable[1])
+                            .map(|p| p.scroll)
+                        else {
+                            if remaining.abs() < 0.01 {
+                                break;
+                            }
+                            continue;
+                        };
                         let old = self
                             .scroll_offsets
                             .get(&id)
                             .copied()
-                            .unwrap_or(p.scroll.offset);
+                            .unwrap_or(scroll.offset);
                         let destination = self.scroll_motions.get(&id).map_or(old[1], |m| m.target);
-                        let next = (destination + remaining).clamp(0., p.scroll.range[1]);
+                        let next = (destination + remaining).clamp(0., scroll.range[1]);
                         remaining -= next - destination;
-                        let parent = p.parent_node_id;
                         if next != destination {
                             let smooth = engine
                                 .node(self.reverse[&id])
@@ -1218,13 +1232,7 @@ impl Adapter {
                         if remaining.abs() < 0.01 {
                             break;
                         }
-                        target = parent;
-                        continue;
                     }
-                    if remaining.abs() < 0.01 {
-                        break;
-                    }
-                    target = p.parent_node_id;
                 }
             }
             UiEvent::Focus(false) => {

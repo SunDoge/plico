@@ -24,10 +24,8 @@ pub(super) struct TextSelection {
 }
 impl Adapter {
     fn selection_group(&self, engine: &Engine, id: NodeId) -> Option<Entity> {
-        let mut id = Some(id);
-        while let Some(node) = id {
-            let placed = self.placed.get(*self.placed_indices.get(&node)?)?;
-            let entity = self.reverse[&node];
+        for placed in self.placed_chain(id) {
+            let entity = self.reverse[&placed.node_id];
             let n = engine.node(entity)?;
             if n.style.disabled || n.kind.interactive() {
                 return None;
@@ -35,7 +33,6 @@ impl Adapter {
             if n.style.selectable {
                 return Some(entity);
             }
-            id = placed.parent_node_id;
         }
         None
     }

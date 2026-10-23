@@ -62,15 +62,15 @@ impl Adapter {
         if engine.node(entity)?.style.disabled || !self.modal_allows(engine, entity) {
             return None;
         }
-        let mut id = self.nodes.get(&entity)?.id;
-        loop {
-            let entity = *self.reverse.get(&id)?;
+        let start = self.nodes.get(&entity)?.id;
+        for placed in self.placed_chain(start) {
+            let entity = *self.reverse.get(&placed.node_id)?;
             let node = engine.node(entity)?;
             if node.kind == Kind::TooltipAnchor && !node.text.is_empty() && !node.style.disabled {
                 return Some(entity);
             }
-            id = self.placed[*self.placed_indices.get(&id)?].parent_node_id?;
         }
+        None
     }
     fn tooltip_anchor_visible(&self, entity: Entity) -> bool {
         let Some((width, height)) = self.viewport else {
