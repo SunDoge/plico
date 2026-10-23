@@ -22,7 +22,7 @@ pub struct Engine {
     unmatched_clicks: Vec<Vec<crate::PathKey>>,
     unmatched_values: Vec<(Vec<crate::PathKey>, f64)>,
     settle_dirty: Vec<Entity>,
-    settle_seen: std::collections::HashSet<Entity>,
+    settle_node_changes: HashMap<Entity, Changes>,
     settle_changes: Changes,
     dirty_nodes: Vec<Entity>,
     node_changes: Vec<NodeChange>,
@@ -68,7 +68,7 @@ impl Default for Engine {
             unmatched_clicks: Vec::new(),
             unmatched_values: Vec::new(),
             settle_dirty: Vec::new(),
-            settle_seen: std::collections::HashSet::new(),
+            settle_node_changes: HashMap::new(),
             settle_changes: Changes::empty(),
             dirty_nodes: Vec::new(),
             node_changes: Vec::new(),
@@ -602,7 +602,7 @@ impl Engine {
     /// semantics can no longer drift between them.
     pub fn declare_until_settled(&mut self, view: &mut dyn DeclareView) -> Result<u8, FrameError> {
         self.settle_dirty.clear();
-        self.settle_seen.clear();
+        self.settle_node_changes.clear();
         self.settle_changes = Changes::empty();
         for pass in 0..8u8 {
             self.set_theme(view.theme());
@@ -610,12 +610,17 @@ impl Engine {
                 self.reset_settle();
                 return Err(error);
             }
-            self.settle_dirty.extend(
-                self.dirty_nodes
-                    .iter()
-                    .copied()
-                    .filter(|e| self.settle_seen.insert(*e)),
-            );
+            for change in &self.node_changes {
+                match self.settle_node_changes.entry(change.entity) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        *entry.get_mut() |= change.changes;
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(change.changes);
+                        self.settle_dirty.push(change.entity);
+                    }
+                }
+            }
             self.settle_changes |= self.changes();
             if !self.changes().contains(Changes::VIEW) {
                 return Ok(pass + 1);
@@ -646,35 +651,33 @@ impl Engine {
     /// observes each change exactly once. The per-pass accessors above stay
     /// for hosts that sync after each pass instead.
     pub fn take_frame_delta(&mut self) -> FrameDelta {
-        // After the settle loop the per-pass commit has already drained
-        // pending_changes into node_changes; the union of node_changes across
-        // passes is the authoritative journal. settle_dirty adds the nodes
-        // dirtied in passes whose node_changes were cleared by a later pass.
-        let mut union: Vec<NodeChange> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        // Per-pass journals are unique by entity. Merge exact flags retained
+        // during settling, rather than allocating another set and guessing
+        // broad invalidations for nodes changed only in an earlier pass.
+        let mut union: Vec<NodeChange> =
+            Vec::with_capacity(self.settle_dirty.len().max(self.node_changes.len()));
         for change in self.node_changes.drain(..) {
-            if seen.insert(change.entity) {
-                union.push(change);
-            } else if let Some(existing) = union.iter_mut().find(|c| c.entity == change.entity) {
-                existing.changes |= change.changes;
+            if self.nodes.get(change.entity).is_some() {
+                let earlier = self
+                    .settle_node_changes
+                    .remove(&change.entity)
+                    .unwrap_or_default();
+                union.push(NodeChange {
+                    entity: change.entity,
+                    changes: change.changes | earlier,
+                });
             }
         }
-        let settle_leftovers: Vec<Entity> = self.drain_settle_dirty().collect();
-        for entity in settle_leftovers {
-            // A node dirtied in an earlier pass may have been unmounted by a
-            // later one; the removal journal covers it instead.
-            if self.nodes.get(entity).is_none() || seen.contains(&entity) {
-                continue;
+        for entity in self.settle_dirty.drain(..) {
+            if let Some(changes) = self.settle_node_changes.remove(&entity)
+                && self.nodes.get(entity).is_some()
+            {
+                union.push(NodeChange { entity, changes });
             }
-            seen.insert(entity);
-            union.push(NodeChange {
-                entity,
-                changes: Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS,
-            });
         }
-        // Nodes created during the settle loop commit all-channel changes in
-        // their first pass, so node_changes already carries them; a pass that
-        // created and settled immediately leaves nothing pending here.
+        self.settle_node_changes.clear();
+        // New nodes' first-pass flags are retained exactly like later updates;
+        // no broad fallback invalidation is needed for earlier settle passes.
         let removed: Vec<Entity> = self.drain_removed().collect();
         let mut frame = self.take_settle_changes();
         frame.remove(Changes::VIEW);
@@ -686,7 +689,7 @@ impl Engine {
     }
     fn reset_settle(&mut self) {
         self.settle_dirty.clear();
-        self.settle_seen.clear();
+        self.settle_node_changes.clear();
         self.settle_changes = Changes::empty();
     }
     fn frame_inner(

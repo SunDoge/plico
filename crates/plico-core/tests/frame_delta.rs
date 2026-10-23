@@ -192,7 +192,11 @@ fn derived_invalidation_matches_style_channel_semantics() {
         font_size: 20,
         ..base
     };
-    assert!(measure.changes_from(base).contains(Changes::MEASURE | Changes::LAYOUT));
+    assert!(
+        measure
+            .changes_from(base)
+            .contains(Changes::MEASURE | Changes::LAYOUT)
+    );
     let padding = Style {
         padding_x: Some(30.),
         ..base
