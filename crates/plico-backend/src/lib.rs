@@ -2193,7 +2193,12 @@ impl<V: View> Source<V> {
         // Paint-only frames re-encode just the dirty nodes into the previous
         // buffer: geometry, order and ancestor transforms are unchanged, so
         // each node's recorded command range can be spliced in isolation.
-        let paint_only = !self.adapter.geometry_dirty
+        // PLICO_SCENE_INCREMENTAL=0 disables the incremental path for
+        // bisecting present-layer regressions; the default is on.
+        let incremental_enabled =
+            std::env::var("PLICO_SCENE_INCREMENTAL").map_or(true, |v| v != "0");
+        let paint_only = incremental_enabled
+            && !self.adapter.geometry_dirty
             && self.adapter.stats.flatten_visits == 0
             && self.adapter.stats.layout_runs == 0
             && !self.adapter.motions.active()
