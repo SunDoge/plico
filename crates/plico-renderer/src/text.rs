@@ -184,9 +184,9 @@ type GlyphSceneEntry = (std::sync::Weak<Layout<[u8; 4]>>, Arc<Scene>);
 /// washed out — "灰蒙蒙" — compared to Chrome or Firefox. Zed compensates the
 /// same vello behaviour with a small geometric embolden; the amount here is a
 /// fraction of the FreeType synthetic-bold strength (1/24 em), tunable via
-/// `PLICO_TEXT_STEM_BOOST` (units: 1/1000 em, default 25 = ~1/40 em).
+/// `PLICO_TEXT_STEM_BOOST` (units: 1/1000 em, default 5 = ~1/200 em).
 fn stem_boost(font_size: f32, device_scale: f64) -> f64 {
-    const DEFAULT_MILLI_EM: f64 = 25.0;
+    const DEFAULT_MILLI_EM: f64 = 5.0;
     let milli_em = std::env::var("PLICO_TEXT_STEM_BOOST")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
