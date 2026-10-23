@@ -13,7 +13,7 @@ python3 scripts/check-memo-cost.py
 - `crates/plico-core/examples/memo_probe.rs`：无 renderer 的真实 Engine 声明；统计分配、节点访问、文本写入，以及声明闭包内外耗时。分配计数原子操作也包含在计时内。
 - `crates/plico-core/examples/declaration_churn.rs`：每帧全部样式变化、反转列表、插入/删除的退化检查；包含节点工作量断言。
 - `crates/plico-markdown/examples/parse_cache_probe.rs`：使用真实 `Stream::show()`，比较保留解析缓存和每次重建 Stream。固定完成消息、关闭展示动画，包含富文本；不含布局。
-- `crates/plico-backend/examples/memo_backend_probe.rs`：真实后端 retained scene 编码，虚拟时钟每次前进 16ms，比较重复声明、单节点颜色变化与宿主 opacity 动画。
+- `crates/plico-vello/examples/memo_backend_probe.rs`：真实后端 retained scene 编码，虚拟时钟每次前进 16ms，比较重复声明、单节点颜色变化与宿主 opacity 动画。
 
 均不创建窗口，不含 GPU 提交、present、操作系统事件、热重载协议或 JSON 往返；不是 FPS 测试，也不代表所有真实应用。没有实现单树 memo，因此没有完成其事件/主题/布局正确性验证。
 
@@ -122,7 +122,7 @@ PLICO_BASELINE_BIN_DIR=/tmp/plico-probes-before python3 scripts/check-memo-cost.
 
 比较要求前后使用相同探针源码、依赖版本及编译配置。快照只保留二进制，不代替源码版本记录；原始轮换三个版本的分阶段实验是本地人工运行。
 
-验证包括 plico、plico-markdown、plico-backend、plico-dev 的 254 项测试（含 doctest）。新增回归覆盖 key 重排/插删、作用域区分、重复 key 拒绝后恢复、空树删除、模拟布局/外部布局以及重复非法样式的校验缓存。仍未实现或宣称 memo 的交互正确性。
+验证包括 plico、plico-markdown、plico-vello、plico-dev 的 254 项测试（含 doctest）。新增回归覆盖 key 重排/插删、作用域区分、重复 key 拒绝后恢复、空树删除、模拟布局/外部布局以及重复非法样式的校验缓存。仍未实现或宣称 memo 的交互正确性。
 
 ## 7. 原生干净帧复用
 

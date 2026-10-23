@@ -60,7 +60,7 @@ Source::batch_stats() 返回累计计数；在工作负载前后取差值：
 执行：
 
 ```sh
-cargo test -p plico-backend --test batching
+cargo test -p plico-vello --test batching
 ```
 
 测试覆盖 100 次通知/操作合成一次唤醒与最终快照、100 个显式重建请求合成一次声明和布局、

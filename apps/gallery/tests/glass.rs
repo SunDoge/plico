@@ -1,7 +1,7 @@
-use plico_backend::Source;
 use plico_core::{Clock, VirtualClock};
 use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, PaintCommand, Scene, TextContext};
+use plico_vello::Source;
 use std::time::Duration;
 #[test]
 fn glass_background_moves_without_layout_and_pause_returns_to_idle() {

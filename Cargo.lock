@@ -3013,7 +3013,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "plico-backend"
+name = "plico-vello"
 version = "0.1.0"
 dependencies = [
  "image",
@@ -3099,7 +3099,7 @@ dependencies = [
 name = "plico-gallery"
 version = "0.1.0"
 dependencies = [
- "plico-backend",
+ "plico-vello",
  "plico-core",
  "plico-dev",
  "plico-editor",
@@ -3117,7 +3117,7 @@ dependencies = [
 name = "plico-launcher"
 version = "0.1.0"
 dependencies = [
- "plico-backend",
+ "plico-vello",
  "plico-core",
  "plico-renderer",
  "plico-shell",
@@ -3208,7 +3208,7 @@ dependencies = [
 name = "plico-services-demo"
 version = "0.1.0"
 dependencies = [
- "plico-backend",
+ "plico-vello",
  "plico-core",
  "plico-dev",
  "plico-renderer",
@@ -3262,7 +3262,7 @@ dependencies = [
 name = "plico-terminal"
 version = "0.1.0"
 dependencies = [
- "plico-backend",
+ "plico-vello",
  "plico-core",
  "plico-renderer",
  "plico-terminal-widget",
@@ -3289,11 +3289,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-web"
+name = "plico-web-host"
 version = "0.1.0"
 dependencies = [
  "js-sys",
- "plico-backend",
+ "plico-vello",
  "plico-core",
  "plico-dev",
  "plico-gallery",
@@ -3304,7 +3304,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-web-ui"
+name = "plico-web-demo"
 version = "0.1.0"
 dependencies = [
  "plico-core",

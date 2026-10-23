@@ -27,7 +27,7 @@ cargo build --lib --no-default-features # 轻量 rlib + cdylib
 plico dev                         # 常驻 host + 动态库热重载
 ```
 
-默认 `desktop` feature 启用可选的 `plico-backend` 依赖；二进制入口要求该 feature。`main.rs` 通过 `plico_backend::run(Application::default(), title)` 启动，应用逻辑留在 `lib.rs`。库提供 `rlib` 和 `cdylib` 两种产物；只有开发宿主使用动态加载，普通运行直接调用 App，不经过 JSON/FFI。
+默认 `desktop` feature 启用可选的 `plico-vello` 依赖；二进制入口要求该 feature。`main.rs` 通过 `plico_vello::run(Application::default(), title)` 启动，应用逻辑留在 `lib.rs`。库提供 `rlib` 和 `cdylib` 两种产物；只有开发宿主使用动态加载，普通运行直接调用 App，不经过 JSON/FFI。
 
 ## 目录与运行模式
 
@@ -59,7 +59,7 @@ CLI 从目录判断当前 package，workspace 根目录优先选择唯一可用�
 
 ## 开发链路
 
-第一次构建常驻的 `plico-backend` host（不依赖 gallery），再构建轻量的 app cdylib。后续由 notify 监听 Rust 源码/Cargo.toml 变化，只重新构建 app。开发构建使用 `--lib --no-default-features`，不启用桌面后端依赖；重载不重新链接 renderer，也不重启窗口。
+第一次构建常驻的 `plico-vello` host（不依赖 gallery），再构建轻量的 app cdylib。后续由 notify 监听 Rust 源码/Cargo.toml 变化，只重新构建 app。开发构建使用 `--lib --no-default-features`，不启用桌面后端依赖；重载不重新链接 renderer，也不重启窗口。
 
 产物复制到本次会话的私有路径后，原子更新 active descriptor。宿主通过 Stabby 的布局报告加载导出函数，以版本化 JSON 请求/响应交换状态与 UI 声明；成功才激活，失败保留上一版。普通 Rust panic 在模块边界转换成错误并保留 panic 消息。恢复不了应用状态时重置为 Default 并报告原因；当前恢复粒度是整个 App struct，不是逐个状态槽位。
 

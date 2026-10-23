@@ -4,7 +4,7 @@
 
 ```rust
 use plico_core::{Clock, VirtualClock};
-use plico_backend::Source;
+use plico_vello::Source;
 use std::time::Duration;
 
 let clock = VirtualClock::default();
@@ -43,4 +43,4 @@ Changes::ANIMATE 请求未来一帧，不导致同帧稳定化循环。Changes::
 
 clock 测试验证外部 Duration 时钟、共享 virtual clock、暂停、回退/溢出拒绝、同帧时间一致、UI 未来帧请求及布局 tween。应用协议测试经过 JSON + Stabby dispatch 验证 time 与 ANIMATE 的传输。尚未接入通用定时器/异步 executor、按逻辑时间的 deadline 队列、OS reduced-motion 或 Bevy Time 桥接；这些应共享这个时钟接口。
 
-可运行 `cargo run -p plico-backend --example virtual-clock` 观察 0 → 100 → 100（暂停）→ 200 ms，最后 next_frame=false。整个实验没有 sleep、线程或窗口。
+可运行 `cargo run -p plico-vello --example virtual-clock` 观察 0 → 100 → 100（暂停）→ 200 ms，最后 next_frame=false。整个实验没有 sleep、线程或窗口。

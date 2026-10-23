@@ -27,10 +27,7 @@ fn build_flags(module: bool, host_binary: Option<&str>, host_features: &[&str]) 
     if module {
         vec!["--lib".into(), "--no-default-features".into()]
     } else {
-        let mut flags = vec![
-            "--bin".into(),
-            host_binary.unwrap_or("plico-backend").into(),
-        ];
+        let mut flags = vec!["--bin".into(), host_binary.unwrap_or("plico-vello").into()];
         if host_binary.is_none() {
             flags.extend([
                 "--no-default-features".into(),
@@ -82,7 +79,7 @@ fn build(
                     path = Some(p.clone().into_std_path_buf());
                 }
                 if !module
-                    && a.target.name == host_binary.unwrap_or("plico-backend")
+                    && a.target.name == host_binary.unwrap_or("plico-vello")
                     && let Some(p) = a.executable
                 {
                     path = Some(p.into_std_path_buf());
@@ -418,7 +415,7 @@ pub fn run(
         if custom_host.is_some() {
             package
         } else {
-            "plico-backend"
+            "plico-vello"
         },
         false,
         target,
@@ -511,7 +508,7 @@ pub fn create(path: &Path, name: Option<&str>, framework: &Path) -> Result<()> {
     let core = serde_json::to_string(&framework.join("crates/plico-core")).context(JsonSnafu)?;
     let dev = serde_json::to_string(&framework.join("crates/plico-dev")).context(JsonSnafu)?;
     let backend =
-        serde_json::to_string(&framework.join("crates/plico-backend")).context(JsonSnafu)?;
+        serde_json::to_string(&framework.join("crates/plico-vello")).context(JsonSnafu)?;
     let crate_name = name.replace('-', "_");
     let manifest = format!(
         r#"[package]
@@ -527,7 +524,7 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = ["desktop"]
-desktop = ["dep:plico-backend"]
+desktop = ["dep:plico-vello"]
 
 [[bin]]
 name = "{name}"
@@ -537,7 +534,7 @@ required-features = ["desktop"]
 [dependencies]
 plico-core = {{ path = {core} }}
 plico-dev = {{ path = {dev} }}
-plico-backend = {{ path = {backend}, default-features = false, optional = true }}
+plico-vello = {{ path = {backend}, default-features = false, optional = true }}
 serde = {{ version = "1", features = ["derive"] }}
 
 # Required by the native ABI export macro; UI modules build without desktop.
@@ -586,8 +583,8 @@ plico_dev::export_app!(Application);
     std::fs::write(
         path.join("src/main.rs"),
         format!(
-            r#"fn main() -> Result<(), plico_backend::DesktopError> {{
-    plico_backend::run({crate_name}::Application::default(), "{name}")
+            r#"fn main() -> Result<(), plico_vello::DesktopError> {{
+    plico_vello::run({crate_name}::Application::default(), "{name}")
 }}
 "#
         ),

@@ -169,7 +169,7 @@ retained geometry and invalidates the scene without running Taffy. Current wheel
 handling still goes through the normal immediate declaration path. This is not
 virtualization; horizontal scroll, inertia and auto-hide are not implemented.
 
-`plico_backend::run_view_with_options` accepts a `View` without serialization.
+`plico_vello::run_view_with_options` accepts a `View` without serialization.
 Service handles and sensitive application data do not need to enter the App
 reload protocol. Disable the backend's default `hot-reload` feature for a static
 client to avoid compiling the dynamic loader and file watcher. Existing App

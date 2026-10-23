@@ -20,7 +20,7 @@ Source::set_theme_transition_duration(Duration::ZERO) 可以关闭过渡。当�
 
 ## 证据
 
-模拟时钟覆盖起止、中途反向、resize、关闭动画；Source 集成测试确认动画帧不调用应用、几何保持稳定、动画期间的点击与 prepare_for_event 不会复用过期 scene。`PLICO_THEME_REPORT_DIR=/absolute/path cargo test -p plico-backend --lib` 可生成 0/100/200 ms 的真实 Vello PNG，当前产物在 reports/theme-transition，已查看中间帧。
+模拟时钟覆盖起止、中途反向、resize、关闭动画；Source 集成测试确认动画帧不调用应用、几何保持稳定、动画期间的点击与 prepare_for_event 不会复用过期 scene。`PLICO_THEME_REPORT_DIR=/absolute/path cargo test -p plico-vello --lib` 可生成 0/100/200 ms 的真实 Vello PNG，当前产物在 reports/theme-transition，已查看中间帧。
 
 cpu-probe.json 是本机单次静态 gallery 的 build/scene 编码计时。主题切换的声明约 7 us、同步约 11 us、布局/flatten 约 6 us、scene 约 227 us；不包含 GPU/present，不能据此声称已定位用户设备上的全部卡顿。真实桌面流畅度与 GPU 驱动仍需实际运行观察。热更新端到端回归报告在 reports/hotreload，全部断言继续通过。
 

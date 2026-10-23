@@ -1,7 +1,7 @@
-use plico_backend::Source;
 use plico_core::{Clock, VirtualClock};
 use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, TextContext};
+use plico_vello::Source;
 use std::time::Duration;
 #[test]
 fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {

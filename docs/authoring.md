@@ -29,7 +29,7 @@ plico_dev::export_app!(Application);
 
 使用 `plico new PATH` 生成普通 main.rs + lib.rs 项目；desktop 是可选依赖，
 `cargo build --lib --no-default-features` 生成供通用宿主加载的模块。
-静态入口使用 `plico_backend::run(Application::default(), title)`。
+静态入口使用 `plico_vello::run(Application::default(), title)`。
 
 布局使用 Context 首参的独立函数；自定义组件也使用普通 Rust 函数。
 `#[component]` 注入调用点身份，动态列表仍使用业务 key。容器通过 `+ |cx| { ... }`

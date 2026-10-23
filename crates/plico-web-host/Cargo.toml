@@ -1,0 +1,24 @@
+[package]
+name = "plico-web-host"
+version.workspace = true
+edition.workspace = true
+description = "Browser host for Plico rendering, input and loadable UI modules"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+gallery = ["dep:plico-gallery"]
+split = ["dep:js-sys"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+plico-core.workspace = true
+plico-dev.workspace = true
+js-sys = { version = "0.3", optional = true }
+plico-vello = { path = "../plico-vello", default-features = false }
+plico-gallery = { path = "../../apps/gallery", default-features = false, optional = true }
+plico-renderer.workspace = true
+wasm-bindgen = "0.2"
+serde_json.workspace = true
+web-sys = { version = "0.3", features = ["Window", "Event", "EventTarget", "HtmlCanvasElement", "DomRect", "Element", "PointerEvent", "KeyboardEvent", "WheelEvent"] }

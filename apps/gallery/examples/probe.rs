@@ -3,9 +3,9 @@
 //! Two modes:
 //!   probe            # all pages, cold/idle/scroll/idle phases
 //!   probe --legacy   # the original Controls-page interaction script
-use plico_backend::Source;
 use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
+use plico_vello::Source;
 
 fn record(s: &Source<Gallery>, phase: &str, nodes: usize, scene_us: u128) -> serde_json::Value {
     let b = &s.adapter.stats;

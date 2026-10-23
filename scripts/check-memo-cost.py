@@ -14,7 +14,7 @@ CASES = [
     ("plico-core", "memo_probe", "core"),
     ("plico-core", "declaration_churn", "churn"),
     ("plico-markdown", "parse_cache_probe", "markdown"),
-    ("plico-backend", "memo_backend_probe", "backend"),
+    ("plico-vello", "memo_backend_probe", "backend"),
 ]
 
 

@@ -15,8 +15,8 @@
 ## 测量
 
 ```sh
-cargo run -p plico-backend --example cache
-cargo run -p plico-backend --example incremental
+cargo run -p plico-vello --example cache
+cargo run -p plico-vello --example incremental
 ```
 
 reports/cache/report.json 使用 1000 个文本节点、每种路径 80 个模拟时钟帧。下面是同一次本机 CPU 样本的中位数，包含准备和 scene 编码，不含 GPU、present、窗口事件或 FPS。两条路径均已使用共享 Scene；它们的差别是是否导出 placed 快照。

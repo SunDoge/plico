@@ -102,8 +102,8 @@ Grid 模板/区域、放置、对齐、排列方向、显示模式、box-sizing 
 
 ## 验证与剩余边界
 
-`cargo test -p plico-backend --test layout_features` 用真实 Taffy/Parley 坐标验证 fr 比例、跨度、模板更新、resize、命名区域、auto margin、四边 padding、右下定位、aspect-ratio、reverse、content-box、百分比约束、隐藏节点、文字基线、column auto-flow、dense 回填、minmax、fit-content、RTL、数值动画、快照和非法区域拒绝。Web smoke 在 1×、2× 下验证 Grid 页的布局切换、窗口缩放和后续其他页面。
+`cargo test -p plico-vello --test layout_features` 用真实 Taffy/Parley 坐标验证 fr 比例、跨度、模板更新、resize、命名区域、auto margin、四边 padding、右下定位、aspect-ratio、reverse、content-box、百分比约束、隐藏节点、文字基线、column auto-flow、dense 回填、minmax、fit-content、RTL、数值动画、快照和非法区域拒绝。Web smoke 在 1×、2× 下验证 Grid 页的布局切换、窗口缩放和后续其他页面。
 
 这还不是 Taffy 全量 API。以下尚未完整开放：Grid auto-fit/auto-fill/repeat 和任意命名网格线、calc 与尺寸的 min-content/max-content 值、四边独立 border 及其绘制、float/clear/contain、fixed 定位，以及完整独立 overflow-x/y 与横向滚动。`Display::Block/None` 已映射，但 Block 的更多特有属性还未整理为应用 API。
 
-核心 `Engine::frame` 的无渲染模拟尺寸仍是简化估算，不是另一套完整 Flex/Grid 实现；真实应用布局使用 plico-backend 的 Taffy 路径，测试高级布局也使用该路径。
+核心 `Engine::frame` 的无渲染模拟尺寸仍是简化估算，不是另一套完整 Flex/Grid 实现；真实应用布局使用 plico-vello 的 Taffy 路径，测试高级布局也使用该路径。

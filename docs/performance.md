@@ -37,8 +37,8 @@ Engine；未把模块实例跨调用保留，也未改变现有 ABI 或动态库
 执行：
 
 ```sh
-cargo run --release -p plico-backend --example performance
-cargo test -p plico-backend --test structural_sync
+cargo run --release -p plico-vello --example performance
+cargo test -p plico-vello --test structural_sync
 cargo test -p plico-services-demo --test native_services
 ```
 

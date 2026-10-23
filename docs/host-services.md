@@ -79,7 +79,7 @@ crate-type = ["rlib", "cdylib"]
 ```
 
 `host` 指向同一个 package 的 binary target。该 binary 默认 feature 应包含所需的后端和
-`plico-backend/hot-reload`，模块则继续用 `--lib --no-default-features` 构建，避免链接 renderer 和服务实现。
+`plico-vello/hot-reload`，模块则继续用 `--lib --no-default-features` 构建，避免链接 renderer 和服务实现。
 示例的 `desktop` feature 只用于可执行宿主，默认启用。
 
 main 使用 `run_service_app_with_options(app, services, window_options)`：正常运行创建

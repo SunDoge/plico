@@ -49,7 +49,7 @@ fn toolbar(cx: &mut UiContext) {
 cargo run -p plico-gallery
 # Controls：悬停或 Tab 聚焦 Increment / Reset
 cargo run -p plico-gallery --example capture -- --page controls --tooltip --out /tmp/tooltip.png
-cargo test -p plico-backend --test tooltip
+cargo test -p plico-vello --test tooltip
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 ```

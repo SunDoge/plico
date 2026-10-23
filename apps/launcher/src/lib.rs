@@ -1,8 +1,8 @@
 //! A native command palette. The catalog is synthetic; application entries are
 //! previews, never shell commands. Native buffers and host actions are not serialized.
 pub mod icons;
-use plico_backend::{HostAction, View, WindowCommand};
 use plico_core::prelude::*;
+use plico_vello::{HostAction, View, WindowCommand};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -349,7 +349,7 @@ impl Launcher {
     }
 }
 impl View for Launcher {
-    fn on_unhandled_key(&mut self, key: &plico_backend::KeyEvent) -> bool {
+    fn on_unhandled_key(&mut self, key: &plico_vello::KeyEvent) -> bool {
         if key.key == "Escape" && key.modifiers.is_empty() && !key.repeat {
             self.navigate(InputNavigation::Cancel);
             self.focus_search = true;

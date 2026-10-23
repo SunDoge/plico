@@ -1,10 +1,10 @@
 //! Work counters for clock-driven 2048 transforms; not a GPU benchmark.
-use plico_backend::Source;
 use plico_gallery::{
     Gallery, Page,
     game2048::{Direction, Game},
 };
 use plico_renderer::{FrameSource, TextContext};
+use plico_vello::Source;
 use std::time::Duration;
 fn main() {
     let clock = plico_core::VirtualClock::default();

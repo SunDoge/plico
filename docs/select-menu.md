@@ -67,7 +67,7 @@ Style.role 是后端无关的可选 WidgetRole，随 ViewNode 序列化；旧快
 ```sh
 cargo run -p plico-gallery
 # Controls → Release channel；Quick settings → Actions
-cargo test -p plico-backend --test select_menu
+cargo test -p plico-vello --test select_menu
 cargo run -p plico-gallery --example capture -- --page controls --select --out /tmp/select.png
 cargo run -p plico-gallery --example capture -- --page controls --menu --dark --width 640 --height 740 --out /tmp/menu.png
 cargo build -p plico-cli

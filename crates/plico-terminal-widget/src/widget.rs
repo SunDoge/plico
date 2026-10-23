@@ -451,12 +451,12 @@ impl TerminalWidget {
 }
 
 impl Widget for TerminalWidget {
-    fn measure(&mut self, cx: &mut plico_shell::MeasureContext<'_>) -> Option<[f32; 2]> {
+    fn measure(&mut self, cx: &mut plico_renderer::MeasureContext<'_>) -> Option<[f32; 2]> {
         self.update_font_metrics(cx.text());
         self.intrinsic_size()
     }
 
-    fn paint(&mut self, cx: &mut plico_shell::PaintContext<'_>) {
+    fn paint(&mut self, cx: &mut plico_renderer::PaintContext<'_>) {
         let [width, height] = cx.size();
         let device_scale = cx.device_scale();
         let tcx = cx.text();
@@ -586,9 +586,9 @@ impl Widget for TerminalWidget {
         true
     }
 
-    fn accessibility(&self) -> plico_shell::WidgetAccessibility {
-        plico_shell::WidgetAccessibility {
-            role: Some(plico_shell::SemanticRole::TextInput),
+    fn accessibility(&self) -> plico_renderer::WidgetAccessibility {
+        plico_renderer::WidgetAccessibility {
+            role: Some(plico_renderer::SemanticRole::TextInput),
             ..Default::default()
         }
     }
@@ -797,7 +797,7 @@ impl TerminalWidget {
         device_scale: f64,
         text: &mut TextContext,
     ) -> Scene {
-        let mut cx = plico_shell::PaintContext::new(width, height, device_scale, text);
+        let mut cx = plico_renderer::PaintContext::new(width, height, device_scale, text);
         <Self as Widget>::paint(self, &mut cx);
         cx.finish()
     }

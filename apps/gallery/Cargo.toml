@@ -9,7 +9,7 @@ default-run = "plico-gallery"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-plico-backend = { path = "../../crates/plico-backend", optional = true, default-features = false }
+plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
 plico-core.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
 plico-dev.workspace = true
@@ -17,8 +17,8 @@ serde = { workspace = true, features = ["derive"] }
 
 [features]
 default = ["desktop"]
-desktop = ["dep:plico-backend"]
-profiling = ["plico-backend/profiling"]
+desktop = ["dep:plico-vello"]
+profiling = ["plico-vello/profiling"]
 
 [[bin]]
 name = "plico-gallery"

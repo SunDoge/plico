@@ -54,8 +54,8 @@ Layout、Text、Button 提供 height、opacity、radius、background、transitio
 ```sh
 cargo plico dev
 # 点击 Animate layout；修改宿主后需要退出重启 dev。
-cargo run -p plico-backend --example layout-style
-cargo test -p plico-backend --test style_motion
+cargo run -p plico-vello --example layout-style
+cargo test -p plico-vello --test style_motion
 ```
 
 模拟时钟测试覆盖中间几何/语义/命中一致、间距和内边距、连续 retarget、卸载、结束休眠、reduced motion 和长时间 idle。核心测试覆盖显式高度缓存更新和非法属性拒绝。

@@ -37,7 +37,7 @@ Gallery → Motion 的 Exposure 控制实时 WGSL 的 uniform。scripts/check-mo
 
 ```sh
 cargo run -p plico-gallery
-cargo test -p plico-backend --test slider
+cargo test -p plico-vello --test slider
 cargo test -p plico-core --test slider
 ```
 

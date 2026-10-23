@@ -636,12 +636,12 @@ fn smooth_wheel_deltas_accumulate_into_terminal_lines() {
     let mut widget = TerminalWidget::headless(20, 2);
     widget.feed(b"one\r\ntwo\r\nthree\r\nfour");
     let wheel = |delta_y| {
-        UiEvent::Wheel(plico_shell::WheelEvent {
-            position: plico_shell::Point { x: 1.0, y: 1.0 },
+        UiEvent::Wheel(plico_renderer::WheelEvent {
+            position: plico_renderer::Point { x: 1.0, y: 1.0 },
             delta_x: 0.0,
             delta_y,
-            delta_mode: plico_shell::WheelDeltaMode::Pixel,
-            phase: plico_shell::GesturePhase::Changed,
+            delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+            phase: plico_renderer::GesturePhase::Changed,
             modifiers: Modifiers::default(),
         })
     };
@@ -665,12 +665,12 @@ fn wheel_remainders_do_not_leak_between_terminal_input_owners() {
     let mut widget = TerminalWidget::headless(20, 2);
     widget.feed(b"one\r\ntwo\r\nthree\r\nfour");
     let wheel = |delta_y| {
-        UiEvent::Wheel(plico_shell::WheelEvent {
-            position: plico_shell::Point { x: 1.0, y: 1.0 },
+        UiEvent::Wheel(plico_renderer::WheelEvent {
+            position: plico_renderer::Point { x: 1.0, y: 1.0 },
             delta_x: 0.0,
             delta_y,
-            delta_mode: plico_shell::WheelDeltaMode::Pixel,
-            phase: plico_shell::GesturePhase::Changed,
+            delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+            phase: plico_renderer::GesturePhase::Changed,
             modifiers: Modifiers::default(),
         })
     };
@@ -875,7 +875,7 @@ fn focus_loss_finishes_an_in_progress_selection_gesture() {
 fn active_selection_owns_wheel_input_in_mouse_reporting_mode() {
     let mut widget = TerminalWidget::headless(20, 2);
     widget.feed(b"one\r\ntwo\r\nthree\r\nfour\x1b[?1000h\x1b[?1006h");
-    let position = plico_shell::Point {
+    let position = plico_renderer::Point {
         x: f64::from(DEFAULT_CELL_WIDTH) * 3.75,
         y: f64::from(DEFAULT_LINE_HEIGHT) * 1.25,
     };
@@ -888,12 +888,12 @@ fn active_selection_owns_wheel_input_in_mouse_reporting_mode() {
     ));
     assert!(widget.selecting);
 
-    widget.handle_event(&UiEvent::Wheel(plico_shell::WheelEvent {
+    widget.handle_event(&UiEvent::Wheel(plico_renderer::WheelEvent {
         position,
         delta_x: 0.0,
         delta_y: 40.0,
-        delta_mode: plico_shell::WheelDeltaMode::Pixel,
-        phase: plico_shell::GesturePhase::Changed,
+        delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+        phase: plico_renderer::GesturePhase::Changed,
         modifiers: Modifiers::empty(),
     }));
 
@@ -909,29 +909,29 @@ fn active_selection_owns_wheel_input_in_mouse_reporting_mode() {
 fn mouse_reporting_sends_wheel_buttons_at_pointer_position() {
     let mut widget = TerminalWidget::headless(20, 4);
     widget.feed(b"\x1b[?1000h\x1b[?1006h");
-    let position = plico_shell::Point {
+    let position = plico_renderer::Point {
         x: f64::from(DEFAULT_CELL_WIDTH) * 2.25,
         y: f64::from(DEFAULT_LINE_HEIGHT) * 1.25,
     };
 
     for delta_y in [-40.0, 40.0] {
-        widget.handle_event(&UiEvent::Wheel(plico_shell::WheelEvent {
+        widget.handle_event(&UiEvent::Wheel(plico_renderer::WheelEvent {
             position,
             delta_x: 0.0,
             delta_y,
-            delta_mode: plico_shell::WheelDeltaMode::Pixel,
-            phase: plico_shell::GesturePhase::Changed,
+            delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+            phase: plico_renderer::GesturePhase::Changed,
             modifiers: Modifiers::default(),
         }));
     }
 
     assert_eq!(widget.take_input(), b"\x1b[<64;3;2M\x1b[<65;3;2M");
-    widget.handle_event(&UiEvent::Wheel(plico_shell::WheelEvent {
+    widget.handle_event(&UiEvent::Wheel(plico_renderer::WheelEvent {
         position,
         delta_x: 0.0,
         delta_y: -40.0,
-        delta_mode: plico_shell::WheelDeltaMode::Pixel,
-        phase: plico_shell::GesturePhase::Changed,
+        delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+        phase: plico_renderer::GesturePhase::Changed,
         modifiers: Modifiers::ALT | Modifiers::CONTROL,
     }));
     assert_eq!(widget.take_input(), b"\x1b[<88;3;2M");
@@ -969,12 +969,12 @@ fn focus_and_alternate_scroll_modes_report_to_pty() {
     assert_eq!(widget.take_input(), b"\x1b[I\x1b[O");
 
     widget.feed(b"\x1b[?1049h\x1b[?1007h");
-    widget.handle_event(&UiEvent::Wheel(plico_shell::WheelEvent {
-        position: plico_shell::Point { x: 0.0, y: 0.0 },
+    widget.handle_event(&UiEvent::Wheel(plico_renderer::WheelEvent {
+        position: plico_renderer::Point { x: 0.0, y: 0.0 },
         delta_x: 0.0,
         delta_y: -48.0,
-        delta_mode: plico_shell::WheelDeltaMode::Pixel,
-        phase: plico_shell::GesturePhase::Changed,
+        delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+        phase: plico_renderer::GesturePhase::Changed,
         modifiers: Modifiers::default(),
     }));
     assert_eq!(widget.take_input(), b"\x1b[A");

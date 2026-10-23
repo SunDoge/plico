@@ -1,12 +1,10 @@
-//! A Wabou terminal widget backed by `rio-vt`.
+//! A Plico terminal widget backed by `rio-vt`.
 //!
 //! `rio-vt` owns terminal semantics (VT parsing, grid, cursor, scrollback and
-//! PTY events). This crate is the frontend adapter: it translates Wabou input
-//! to PTY bytes and pulls Rio's visible grid into Wabou's retained paint scene.
+//! PTY events). This crate is the frontend adapter: it translates Plico input
+//! to PTY bytes and pulls Rio's visible grid into Plico's retained paint scene.
 
 #![cfg(not(target_arch = "wasm32"))]
-
-extern crate plico_renderer as plico_shell;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -19,9 +17,9 @@ use plico_renderer::{
     HostAction, ImeEvent, KeyPhase, Modifiers, PointerButton, PointerPhase, UiEvent,
     WHEEL_LINE_DELTA, WakeCallback,
 };
-use plico_shell::{PaintScene, Scene};
+use plico_renderer::{PaintScene, Scene};
 #[cfg(test)]
-use plico_shell::{
+use plico_renderer::{
     Widget, WidgetEventResult, WidgetNodeEvent, WidgetStyle,
     style::Paint,
     text::{TextContext, layout_text_styled},

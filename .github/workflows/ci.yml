@@ -95,10 +95,10 @@ jobs:
         run: cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-features
       - name: Verify profiling with and without a trace file
         run: |
-          env -u PLICO_TRACE_FILE cargo run --locked -p plico-backend --features profiling --example trace_span
-          PLICO_TRACE_FILE="$RUNNER_TEMP/plico-trace.json" cargo run --locked -p plico-backend --features profiling --example trace_span
+          env -u PLICO_TRACE_FILE cargo run --locked -p plico-vello --features profiling --example trace_span
+          PLICO_TRACE_FILE="$RUNNER_TEMP/plico-trace.json" cargo run --locked -p plico-vello --features profiling --example trace_span
       - name: Build the CLI and native development host
-        run: cargo build --locked -p plico-cli -p plico-backend
+        run: cargo build --locked -p plico-cli -p plico-vello
       - name: Verify generated app, reload recovery and native text input
         run: |
           python3 scripts/check-hotreload.py
@@ -136,9 +136,9 @@ jobs:
       - name: Check the renderer-independent core
         run: cargo check --locked -p plico-core --target wasm32-unknown-unknown
       - name: Check the gallery and split host
-        run: cargo clippy --locked -p plico-web --features gallery,split --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy --locked -p plico-web-host --features gallery,split --target wasm32-unknown-unknown -- -D warnings
       - name: Check the loadable UI module
-        run: cargo check --locked -p plico-web-ui --all-features --target wasm32-unknown-unknown
+        run: cargo check --locked -p plico-web-demo --all-features --target wasm32-unknown-unknown
 
   lvgl:
     name: LVGL backend experiment (stable)

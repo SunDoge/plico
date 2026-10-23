@@ -9,4 +9,4 @@ cargo run -p plico-gallery --example zoom
 
 示例使用 ZoomController 读取 factor 和设置缩放；支持 Ctrl + / Ctrl - / Ctrl 0，
 macOS 也支持 Command。组件读取控制器值时仍是普通声明，不建立依赖图。
-具体实现见 crates/plico-backend/src/zoom.rs 和 apps/gallery/examples/zoom.rs。
+具体实现见 crates/plico-vello/src/zoom.rs 和 apps/gallery/examples/zoom.rs。

@@ -1,7 +1,7 @@
 # WASM / 浏览器宿主
 
-Plico 现在可以在 wasm32-unknown-unknown 上编译并运行 gallery。plico-web 使用现有
-plico-backend::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / Vello。
+Plico 现在可以在 wasm32-unknown-unknown 上编译并运行 gallery。plico-web-host 使用现有
+plico-vello::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / Vello。
 组件、身份、失效分类、Taffy、文字、SVG 与 motion 共用原生实现，没有另建 DOM widget API。
 
 ## 运行 gallery
@@ -11,24 +11,24 @@ plico-backend::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
-crates/plico-web/web/build.sh
-python3 -m http.server 8080 --directory target/plico-web
+crates/plico-web-host/web/build.sh
+python3 -m http.server 8080 --directory target/plico-web-host
 ```
 
 打开 http://localhost:8080 。build.sh 可以通过 WASM_BINDGEN 环境变量指定 CLI 路径。
-生成的 WASM、JS、字体和 HTML 全部放在已忽略的 target/plico-web，不提交生成文件。
+生成的 WASM、JS、字体和 HTML 全部放在已忽略的 target/plico-web-host，不提交生成文件。
 演示字体使用仓库中已有 DejaVuSans.ttf，同时复制原许可证。
 
 只检查核心和浏览器目标：
 
 ```sh
 cargo check -p plico-core --target wasm32-unknown-unknown
-cargo check -p plico-web --features gallery --target wasm32-unknown-unknown
-cargo clippy -p plico-web --features gallery --target wasm32-unknown-unknown -- -D warnings
+cargo check -p plico-web-host --features gallery --target wasm32-unknown-unknown
+cargo clippy -p plico-web-host --features gallery --target wasm32-unknown-unknown -- -D warnings
 ```
 
 不要对原生桌面应用执行整个 workspace 的 wasm all-targets 构建。CLI、原生窗口、
-动态库 watcher 和后台 std::thread 示例仍是原生目标。单独引用 plico-backend 时应
+动态库 watcher 和后台 std::thread 示例仍是原生目标。单独引用 plico-vello 时应
 default-features=false；其默认 hot-reload feature 用于原生开发。
 
 ## 应用接入
@@ -77,8 +77,8 @@ WebHost 的主线程服务唤醒发出 plico-wake，JS 宿主监听它并安排 
 在已启动上述 HTTP server、安装 Playwright 和浏览器后运行：
 
 ```sh
-npm install --prefix /tmp/plico-web-qa playwright
-NODE_PATH=/tmp/plico-web-qa/node_modules node crates/plico-web/web/smoke.cjs
+npm install --prefix /tmp/plico-web-host-qa playwright
+NODE_PATH=/tmp/plico-web-host-qa/node_modules node crates/plico-web-host/web/smoke.cjs
 ```
 
 可用 CHROMIUM_PATH 指定已有 Chromium，可用 PLICO_WEB_URL 覆盖默认 localhost:8080。

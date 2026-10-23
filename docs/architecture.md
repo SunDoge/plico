@@ -14,17 +14,17 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
               ├─ Engine::frame：模拟尺寸实验
               └─ Engine::frame_declarations：外部后端负责测量与布局
                             ↓
-                 plico-backend Adapter
+                 plico-vello Adapter
                  稳定 Entity → Taffy NodeId
                             ↓
-                 Wabou / Parley / Vello
+                 Taffy / Parley / Vello
 ```
 
-core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。当前尚未定义完整的、跨宿主的布局/场景运行时；Wabou adapter 加上仓库内 backend 源码是可执行的边界实验，不能把它当成已经完成的通用宿主协议。
+core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。当前尚未定义完整的、跨宿主的布局/场景运行时；Plico Vello adapter 加上仓库内 renderer/shell 源码是可执行的边界实验，不能把它当成已经完成的通用宿主协议。
 
-另有 [oxivgl 最小实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
+另有 [LVGL 后端实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
 布局、文字和绘制均交给 LVGL；点击以 Entity 回到普通声明。它验证 API 子集可跨后端，
-没有引入通用 Backend trait，也不代表完整样式、交互或 MCU 平台已经可移植。
+没有引入通用 Backend trait，不代表所有样式和控件均已跨后端对齐；ESP32-P4 的验证范围见实验文档。
 
 ## 身份与存储
 
@@ -38,7 +38,7 @@ arena of records 已足以验证重用和缓存，不预先引入完整 ECS sche
 
 声明一个节点时直接查找保留记录、比较属性，不需要先创建完整的第二棵重对象树，再调用通用 tree diff。新节点分配一次；文字接受 Cow，借用内容只在变化时复制；变化的 owned String 可移入。
 
-子节点顺序通过两份可复用 Vec 比较与交换，未变化时不更新后端。Wabou adapter 在变化时 set_children，并保留已有 Taffy 节点。它目前仍会构造临时集合和输出 Vec，没有零分配承诺。
+子节点顺序通过两份可复用 Vec 比较与交换，未变化时不更新后端。Vello adapter 在变化时 set_children，并保留已有 Taffy 节点。它目前仍会构造临时集合和输出 Vec，没有零分配承诺。
 
 暂不引入通用 diff 库。只有当后端逐项 move/insert/remove 的代价值得优化时，再评估 keyed-list/LIS 算法；移动不能被误当成控件销毁重建。属性差异必须保留领域语义，例如颜色变化与字号变化的失效范围不同。
 

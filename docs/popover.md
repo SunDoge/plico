@@ -51,7 +51,7 @@ PopoverState 复用 ModalState 的 open/close/is_open 和退出期限。构建�
 cargo run -p plico-gallery
 # Controls → Quick settings
 cargo run -p plico-gallery --example capture -- --page controls --popover --out /tmp/popover.png
-cargo test -p plico-backend --test popover
+cargo test -p plico-vello --test popover
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 ```

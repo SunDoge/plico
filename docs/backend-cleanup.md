@@ -1,6 +1,10 @@
 # 后端清理
 
-当前 workspace 保留 9 个 package：plico、plico-macros、plico-dev、plico-cli、plico-gallery、plico-backend，以及 plico-renderer、plico-shell、plico-motion。
+当前 crate 职责以根目录 README 的 workspace 清单为准。自绘后端名为
+`plico-vello`，浏览器宿主为 `plico-web-host`；split-loading 的 UI 示例位于
+`apps/web-demo`（package `plico-web-demo`），不属于通用框架 crate。
+
+下文记录早期 Wabou 迁移与后端合并，不代表当前 package 数量。
 
 删除 wabou-bindgen、wabou-bindgen-macros、wabou-host-api、wabou-protocol、wabou-style、wabou-telemetry 六个独立 crate。删除旧 JS 绑定生成入口、二进制 UI 协议、utility-class/stylesheet 编译器，以及 shell 的旧 widgets feature 和实现。对应的 Specta、QuickJS、协议 intern 等依赖与无引用 fixtures 一起移除。
 

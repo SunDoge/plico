@@ -236,5 +236,5 @@ Changes 分类，不自动承诺所有后端已经获得同样性能收益。
 验证：83 项核心测试通过；真实 LVGL 属性补丁回归测试通过（高度单独更新、
 像素值不变跳过、百分比/Auto 恢复、主题变化、透明度/无背景恢复、无变化零写入）；
 既有 headless counter 的事件、复用、重排、条件卸载、迟到事件、禁用输入断言通过，
-截图已检查；plico-backend 与 plico-dev 的 cargo check 通过。交叉编译、仅 app
+截图已检查；plico-vello 与 plico-dev 的 cargo check 通过。交叉编译、仅 app
 烧录与板上自测成功，SELF_TEST=0。app 镜像 1,022,736 B。

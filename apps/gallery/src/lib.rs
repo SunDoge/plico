@@ -377,4 +377,4 @@ fn bar(ui: &mut UiContext, width: f32, height: f32, grow: f32, color: Color) {
 #[cfg(not(target_arch = "wasm32"))]
 plico_dev::export_app!(Gallery);
 #[cfg(feature = "desktop")]
-plico_backend::impl_view_for_app!(Gallery);
+plico_vello::impl_view_for_app!(Gallery);

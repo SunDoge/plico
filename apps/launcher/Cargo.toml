@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 plico-core.workspace = true
-plico-backend = { path = "../../crates/plico-backend", default-features = false }
+plico-vello = { path = "../../crates/plico-vello", default-features = false }
 
 [dev-dependencies]
 plico-renderer.workspace = true

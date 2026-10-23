@@ -1,4 +1,3 @@
-use plico_backend::Source;
 use plico_core::{Clock, VirtualClock};
 use plico_gallery::{
     Gallery, Page,
@@ -8,6 +7,7 @@ use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     TextContext, UiEvent,
 };
+use plico_vello::Source;
 use std::time::Duration;
 fn key(value: &str) -> UiEvent {
     UiEvent::Key(KeyEvent {
@@ -209,7 +209,7 @@ fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
     assert_eq!(moved.game2048.cells(), restored.game2048.cells());
     assert_eq!(moved.game2048.best, restored.game2048.best);
     // The same application handler is reached through the normal native App runner.
-    let mut source = Source::new(plico_backend::NativeApp(restored));
+    let mut source = Source::new(plico_vello::NativeApp(restored));
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 640, 740);
     assert!(source.handle_event(key("r")).handled);

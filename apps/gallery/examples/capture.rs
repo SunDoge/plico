@@ -1,7 +1,7 @@
 //! Gallery verification tool; the application itself does not parse arguments.
-use plico_backend::Source;
 use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_vello::Source;
 use snafu::{ResultExt, Snafu};
 use std::path::PathBuf;
 

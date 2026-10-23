@@ -70,7 +70,7 @@ slider 拖动、输入选择与 IME caret、tooltip 以及语义边界使用相�
 
 ```sh
 cargo test -p plico-core --test changes
-cargo test -p plico-backend --test presentation_motion
+cargo test -p plico-vello --test presentation_motion
 cargo run -p plico-gallery --example motion_probe
 ```
 

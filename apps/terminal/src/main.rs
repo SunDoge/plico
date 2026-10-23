@@ -2,10 +2,10 @@
 pub mod icons;
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use plico_backend::{SurfaceSource, View, WindowOptions};
     use plico_core::prelude::*;
     use plico_renderer::{Widget, WidgetNodeEvent};
     use plico_terminal_widget::{TerminalWidget, event};
+    use plico_vello::{SurfaceSource, View, WindowOptions};
     use snafu::{ResultExt, Snafu};
     #[derive(usage_rs::Cli)]
     #[usage(bin = "plico-terminal", about = "Plico native terminal", version)]
@@ -23,7 +23,7 @@ mod native {
         #[snafu(display("invalid command argument JSON: {source}"))]
         Arguments { source: serde_json::Error },
         #[snafu(display("terminal window failed: {source}"))]
-        Window { source: plico_backend::DesktopError },
+        Window { source: plico_vello::DesktopError },
     }
     #[derive(Default)]
     struct Chrome {
@@ -93,7 +93,7 @@ mod native {
             "terminal",
         )
         .with_events(terminal_event);
-        plico_backend::run_source_with_options(
+        plico_vello::run_source_with_options(
             source,
             WindowOptions::new()
                 .title("Plico Terminal")

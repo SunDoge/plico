@@ -6,7 +6,7 @@
 
 | 要求 | 当前实现与直接证据 | 结论 |
 |---|---|---|
-| 补充常用交互 widget | Slider、Modal、Popover、Select、Menu/MenuItem、Tooltip 已进入 core widgets/prelude 与真实后端。crates/plico-backend/tests/{slider,modal,popover,select_menu,tooltip}.rs 验证受控值、输入、导航、选择/取消、禁用、焦点、滚动、遮罩和命中，而非仅构建快照 | 已验证 |
+| 补充常用交互 widget | Slider、Modal、Popover、Select、Menu/MenuItem、Tooltip 已进入 core widgets/prelude 与真实后端。crates/plico-vello/tests/{slider,modal,popover,select_menu,tooltip}.rs 验证受控值、输入、导航、选择/取消、禁用、焦点、滚动、遮罩和命中，而非仅构建快照 | 已验证 |
 | 支持普通 Rust 组合与立即响应 | Context 首参、children、同步响应和应用持值；内容闭包在声明时调用，不保存应用回调。静态调用身份由 component 生成，SelectOption 显式业务 key；重排焦点测试在 select_menu.rs | 已验证 |
 | 接入 custom shader | core ShaderAsset/ShaderParams → ViewNode → adapter retained Surface → 内置 Wabou ShaderEffectSource/GPU。tests/shader.rs 读取实际 GPU 像素，覆盖 uniform、时间、暂停、reduced-motion、DPI、完整模块、静态复用、无效 WGSL 保留上一程序、卸载及主题转场版本隔离 | 已验证 |
 | widget 可与 shader 同屏 | Gallery Motion 的 Exposure slider 控制 WGSL uniform；tooltip.rs 实际 GPU 测试验证 shader 场景中的提示及其关闭后的 scene cache，静态提示不会随 shader 每帧重排 | 已验证 |

@@ -1,8 +1,8 @@
 #![cfg(feature = "desktop")]
-use plico_backend::{ServiceView, Source};
 use plico_dev::services::HostService;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_services_demo::{Application, TaskCommand, TaskSnapshot, TaskStatus};
+use plico_vello::{ServiceView, Source};
 #[derive(Default)]
 struct Resident {
     snapshot: TaskSnapshot,

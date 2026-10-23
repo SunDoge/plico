@@ -43,7 +43,7 @@ Gallery 的 Motion 页包含实时 WGSL aurora 和暂停按钮。shader 集成�
 
 ```sh
 cargo run -p plico-gallery
-cargo test -p plico-backend --test shader
+cargo test -p plico-vello --test shader
 cargo run -p plico-gallery --example capture -- --page motion --out /tmp/shader.png
 ```
 

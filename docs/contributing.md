@@ -47,8 +47,8 @@ GitHub Actions 的 `.github/workflows/ci.yml` 在 push、pull request 和手动�
   绘制和 profiling 双输出模式；运行实际 CLI 的生成应用、热重载失败恢复和原生文本输入脚本。
 - **WASM host and UI**：检查无渲染核心、gallery/split 浏览器宿主及可加载 UI 模块，
   宿主路径同时执行 Clippy。只检查对应浏览器 package，不把原生 workspace 强编成 WASM。
-- **oxivgl backend experiment**：单独使用固定 nightly 和 SDL2/libclang，离屏执行
-  [LVGL 最小实验](lvgl.md)；stable 全 feature 任务排除 `plico-lvgl`，默认 feature 仍可在 stable 检查。
+- **LVGL backend experiment**：使用 stable 和 SDL2/libclang，离屏执行
+  [LVGL 最小实验](lvgl.md)；普通全 feature 任务排除 `plico-lvgl` 和 P4 实验，LVGL 任务单独验证 SDL2 输入、关闭与截图。
 
 这套 CI 不等于跨平台窗口、浏览器交互或性能验收。macOS/Windows 原生窗口、完整 IME、
 浏览器 smoke 和 CPU/GPU 性能仍需对应环境验证；不把受负载影响的微秒耗时设为硬门槛。
@@ -61,7 +61,7 @@ python3 scripts/check-versions.py
 cargo run --locked -p plico-cli -- fmt --check
 cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-features
-cargo build --locked -p plico-cli -p plico-backend
+cargo build --locked -p plico-cli -p plico-vello
 python3 scripts/check-hotreload.py
 python3 scripts/check-text-input-reload.py
 ```
@@ -75,6 +75,6 @@ workspace 成员（框架、后端、CLI 和示例应用）统一使用根 `Carg
 `[workspace.package].version`，当前为 `0.1.0`。成员声明 `version.workspace = true`；
 升级时只改根版本并更新 Cargo.lock，`scripts/check-versions.py` 会拒绝单独写版本的成员。
 
-排除在 workspace 之外的 `crates/plico-backend/reference` 保留历史版本；`plico new` 创建的
+排除在 workspace 之外的 `crates/plico-vello/reference` 保留历史版本；`plico new` 创建的
 独立用户应用有自己的版本，不随框架一起修改。包版本不代替热重载协议或 ABI 的兼容性检查。
 本次统一版本没有发布 crate，也没有修改协议版本或增加自动发布流程。

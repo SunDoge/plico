@@ -53,7 +53,7 @@ Markdown 正文默认是一个共享的选择作用域，支持跨段正反向�
 
 ```sh
 cargo test -p plico-markdown
-cargo test -p plico-backend --test rich_text --test text_selection
+cargo test -p plico-vello --test rich_text --test text_selection
 cargo test -p plico-gallery --test markdown
 cargo run -p plico-gallery --example capture -- --page markdown --markdown-complete --out /tmp/markdown.png
 ```

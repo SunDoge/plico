@@ -2,10 +2,10 @@
 #[path = "../src/service.rs"]
 #[allow(dead_code)]
 mod service;
-use plico_backend::{Source, reload::ReloadView};
 use plico_dev::{host::Descriptor, services::HostService};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_services_demo::TaskStatus;
+use plico_vello::{Source, reload::ReloadView};
 use snafu::{ResultExt, Snafu};
 use std::{
     path::{Path, PathBuf},

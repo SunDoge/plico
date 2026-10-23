@@ -41,7 +41,7 @@ Overlay/Dialog、关闭请求及退出期限都走现有 ViewNode / 逻辑事件
 ```sh
 cargo run -p plico-gallery
 # Controls → Edit preferences → Save preferences → Apply changes
-cargo run -p plico-backend --example modal
+cargo run -p plico-vello --example modal
 # 原生输入、Enter 保存、取消和焦点恢复
 cargo run -p plico-gallery --example capture -- --page controls --modal --out /tmp/modal.png
 cargo build -p plico-cli

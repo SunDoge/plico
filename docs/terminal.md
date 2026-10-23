@@ -35,7 +35,7 @@ wabou-host-api、wabou-shell-api 或 wabou-protocol。
 
 ## SurfaceSource
 
-plico-backend::SurfaceSource<V,W> 把一个宿主拥有的 Widget 放进一个唯一静态 key 的布局 slot。
+plico-vello::SurfaceSource<V,W> 把一个宿主拥有的 Widget 放进一个唯一静态 key 的布局 slot。
 终端对象不放进 UI checkpoint。slot 的尺寸由 Plico 布局提供，窗口缩放后更新本地几何，
 widget scene 放在该节点的绘制位置，保留场景的裁剪和上下绘制顺序。
 
@@ -52,7 +52,7 @@ IME、图形和系统剪贴板并未宣称在所有桌面平台完成端到端�
 
 ```sh
 cargo test -p plico-terminal-widget --lib
-cargo test -p plico-backend --test native_surface
+cargo test -p plico-vello --test native_surface
 cargo build -p plico-terminal
 xvfb-run -a python3 apps/terminal/tests/native_smoke.py
 ```

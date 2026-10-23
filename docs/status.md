@@ -3,7 +3,7 @@
 ## 当前主线
 
 唯一声明模型为 immediate mode：plico-core 的 Engine / UiContext / widgets，
-plico-backend 负责真实后端。旧 crates/plico 响应式 Runtime、图实验、共享响应式 2048
+plico-vello 负责真实后端。旧 crates/plico 响应式 Runtime、图实验、共享响应式 2048
 组件与 archive-gallery / game2048 / task-workspace 旧应用已删除。
 Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
@@ -28,8 +28,9 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
 热重载为 best effort；业务状态不兼容可以重置，不保证任意 Rust 类型无损迁移。
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
-LVGL 仅有 [oxivgl 最小后端实验](lvgl.md)：容器、文本、按钮、原生对象复用和事件回传，
-不是完整后端。尚未接入 Bevy、FLTK、ESP32 或 no_std。
+[LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
+不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
+尚未接入 Bevy、FLTK 或 no_std，也不承诺其他 ESP32 型号。
 
 ## 验证入口
 
