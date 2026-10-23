@@ -4,12 +4,11 @@
 fn main() {
     let rows: &[(&str, &str)] = &[
         ("CHROME reference", "/tmp/chrome-text.png"),
-        (
-            "PLICO boost=0 (linear, uncompensated)",
-            "/tmp/compare-boost0.png",
-        ),
-        ("PLICO boost=25 (default)", "/tmp/compare-boost25.png"),
-        ("PLICO boost=40", "/tmp/compare-boost40.png"),
+        ("PLICO boost=0", "/tmp/compare-boost0.png"),
+        ("PLICO boost=5", "/tmp/compare-boost5.png"),
+        ("PLICO boost=10", "/tmp/compare-boost10.png"),
+        ("PLICO boost=15", "/tmp/compare-boost15.png"),
+        ("PLICO boost=20", "/tmp/compare-boost20.png"),
     ];
     let label_h = 22u32;
     let gap = 8u32;
