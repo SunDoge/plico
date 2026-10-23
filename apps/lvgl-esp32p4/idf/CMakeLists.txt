@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+set(COMPONENTS main)
+set(EXTRA_COMPONENT_DIRS "$ENV{PLICO_P4_BSP}")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(plico_p4_demo)

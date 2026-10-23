@@ -5,6 +5,10 @@ PLICO_IDF_BUILD must contain compile_commands.json; PLICO_CC must name the
 matching riscv32-esp-elf-gcc. Never modifies the supplied IDF project or flashes.
 """
 import json
+import hashlib
+import io
+import tarfile
+import urllib.request
 import os
 from pathlib import Path
 import shlex
@@ -13,7 +17,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / "target/esp32p4"
-REV = "ae2328976dab755bd29d97f45b3e8c4253b9adc2"
+SYS_VERSION = "9.5.4"
 TOOLCHAIN = "nightly-2026-10-15"
 
 
@@ -46,31 +50,27 @@ def main():
     args_file = STAGE / "clang-args.txt"
     write(args_file, "\n".join(args) + "\n")
 
-    # Isolated, pinned dependency copy: no patches to the desktop workspace or
-    # to the caller's firmware. Only compile wrappers; IDF supplies LVGL itself.
-    oxi = STAGE / "oxivgl"
-    if not oxi.exists():
-        run(["git", "clone", "--no-checkout", "https://github.com/emobotics-dev/oxivgl.git", str(oxi)])
-        run(["git", "checkout", "--detach", REV], cwd=oxi)
-    actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=oxi, text=True).strip()
-    if actual != REV:
-        raise SystemExit(f"Unexpected oxivgl revision: {actual}")
-
-    def original(path):
-        return subprocess.check_output(["git", "show", f"{REV}:{path}"], cwd=oxi, text=True)
-
-    overlay = ROOT / "crates/plico-lvgl/esp-idf"
-    write(oxi / "oxivgl-sys/build.rs", (overlay / "build.rs").read_text())
-    write(oxi / "oxivgl-sys/src/lib.rs", original("oxivgl-sys/src/lib.rs").replace(
-        "#![no_std]", "#![no_std]\n#![allow(unnecessary_transmutes)]"))
-    marker = "    // Image assets (all targets)"
-    oxi_build = original("build.rs")
-    if oxi_build.count(marker) != 1:
-        raise SystemExit("oxivgl asset build adapter needs review")
-    write(oxi / "build.rs", oxi_build.split(marker)[0] + "}\n")
-    driver = original("src/driver.rs").replace(
-        'not(target_os = "none")', 'not(any(target_os = "none", target_os = "espidf"))')
-    write(oxi / "src/driver.rs", driver + "\n" + (overlay / "driver.rs").read_text())
+    # Verify the registry archive using the workspace lockfile. Extract only
+    # the Rust crate: IDF supplies C headers/sources, so no vendored LVGL copy.
+    name = f"lightvgl-sys-{SYS_VERSION}"
+    package = next(p for p in tomllib.loads((ROOT / "Cargo.lock").read_text())["package"]
+                   if p["name"] == "lightvgl-sys" and p["version"] == SYS_VERSION)
+    archives = list((Path.home() / ".cargo/registry/cache").glob(f"*/{name}.crate"))
+    data = archives[0].read_bytes() if archives else urllib.request.urlopen(
+        f"https://static.crates.io/crates/lightvgl-sys/{name}.crate", timeout=60).read()
+    if hashlib.sha256(data).hexdigest() != package["checksum"]:
+        raise SystemExit("lightvgl-sys archive checksum mismatch")
+    syscrate = STAGE / name
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        for member in archive.getmembers():
+            relative = Path(member.name).relative_to(name)
+            if member.isfile() and (str(relative) == "Cargo.toml" or relative.parts[0] == "src"):
+                write(syscrate / relative, archive.extractfile(member).read().decode())
+    manifest = (syscrate / "Cargo.toml").read_text().replace(
+        '[build-dependencies.bindgen]\nversion = ">=0.71"',
+        '[build-dependencies.bindgen]\nversion = ">=0.71"\nfeatures = ["experimental"]')
+    write(syscrate / "Cargo.toml", manifest)
+    write(syscrate / "build.rs", (ROOT / "crates/plico-lvgl/esp-idf/lightvgl-build.rs").read_text())
 
     # A separate Cargo root keeps patched embedded dependencies out of the main
     # lockfile. Source files and Plico crates still come from this repository.
@@ -91,13 +91,14 @@ firmware = ["plico-lvgl/external"]
 plico-core = {{ path = {json.dumps(str(ROOT / "crates/plico-core"))} }}
 plico-lvgl = {{ path = {json.dumps(str(ROOT / "crates/plico-lvgl"))} }}
 [patch.crates-io]
-oxivgl = {{ path = {json.dumps(str(oxi))} }}
+lightvgl-sys = {{ path = {json.dumps(str(syscrate))} }}
 [profile.release]
 opt-level = "s"
 panic = "abort"
 lto = "fat"
 codegen-units = 1
 '''
+    migrated = not (STAGE / "Cargo.toml").exists() or (STAGE / "Cargo.toml").read_text() != manifest
     write(STAGE / "Cargo.toml", manifest)
     env = os.environ.copy()
     env.update(PLICO_LVGL_CLANG_ARGS=str(args_file), PLICO_CC=str(cc),
@@ -107,6 +108,9 @@ codegen-units = 1
     env["RUSTC"] = subprocess.check_output(["rustup", "which", "--toolchain", TOOLCHAIN, "rustc"], text=True).strip()
     command = [cargo, "build", "--release", "--target", "riscv32imafc-esp-espidf",
                "-Zbuild-std=std,panic_abort"]
+    # Regenerate only the isolated lockfile when migrating binding backends.
+    if migrated:
+        run([cargo, "generate-lockfile"], cwd=STAGE, env=env)
     # First resolution creates the isolated lockfile; subsequent builds lock it.
     if (STAGE / "Cargo.lock").exists():
         command.append("--locked")

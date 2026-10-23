@@ -3,6 +3,9 @@
 **/node_modules
 **/dist/
 **/__pycache__/
+/apps/lvgl-esp32p4/idf/managed_components/
+/apps/lvgl-esp32p4/idf/sdkconfig*
+!/apps/lvgl-esp32p4/idf/sdkconfig.defaults
 
 # Generated verification reports, screenshots and measurements (reproducible locally).
 **/reports/

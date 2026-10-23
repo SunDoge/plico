@@ -1,0 +1,4 @@
+# Generated table is a build-time size check only; flashing updates only the
+# existing 0x200000 app slot, never this partition table or device NVS.
+nvs,data,nvs,0x9000,0x6000,
+factory,app,factory,0x200000,8M,
