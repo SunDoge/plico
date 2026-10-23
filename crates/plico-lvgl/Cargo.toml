@@ -8,7 +8,7 @@ description = "Minimal LVGL backend experiment for Plico declarations"
 
 [features]
 default = []
-native = ["external", "dep:critical-section"]
+native = ["external"]
 # Externally initialized LVGL, using the ESP-IDF build adapter in esp-idf/.
 external = ["dep:lightvgl-sys"]
 
@@ -16,7 +16,6 @@ external = ["dep:lightvgl-sys"]
 plico-core.workspace = true
 snafu.workspace = true
 lightvgl-sys = { version = "=9.5.4", optional = true }
-critical-section = { version = "1", features = ["std"], optional = true }
 png = "0.17"
 
 [dev-dependencies]

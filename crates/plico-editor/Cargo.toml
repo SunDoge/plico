@@ -12,5 +12,3 @@ vello-common.workspace = true
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 
 [dev-dependencies]
-plico-core.workspace = true
-plico-backend = { path = "../plico-backend" }
