@@ -265,6 +265,40 @@ pub trait PaintScene {
         glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = Glyph> + Clone,
     );
+
+    /// Draw positioned glyphs already collected for a command.
+    ///
+    /// The default delegates through [`Self::draw_glyphs`]; scenes that store
+    /// the glyphs in the command move the buffer in without a second collect.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyphs_vec<'a, 's: 'a>(
+        &'s mut self,
+        font: &'a FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &'a [NormalizedCoord],
+        embolden: Vec2,
+        style: impl Into<StyleRef<'a>>,
+        brush: impl Into<BrushRef<'a>>,
+        brush_alpha: f32,
+        transform: Affine,
+        glyph_transform: Option<Affine>,
+        glyphs: Vec<Glyph>,
+    ) {
+        self.draw_glyphs(
+            font,
+            font_size,
+            hint,
+            normalized_coords,
+            embolden,
+            style,
+            brush,
+            brush_alpha,
+            transform,
+            glyph_transform,
+            glyphs.into_iter(),
+        )
+    }
     /// Draw a blurred box shadow.
     fn draw_box_shadow(
         &mut self,
@@ -455,6 +489,34 @@ impl PaintScene for Scene {
         glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = Glyph> + Clone,
     ) {
+        self.draw_glyphs_vec(
+            font,
+            font_size,
+            hint,
+            normalized_coords,
+            embolden,
+            style,
+            brush,
+            brush_alpha,
+            transform,
+            glyph_transform,
+            glyphs.collect(),
+        );
+    }
+    fn draw_glyphs_vec<'a, 's: 'a>(
+        &'s mut self,
+        font: &'a FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &'a [NormalizedCoord],
+        embolden: Vec2,
+        style: impl Into<StyleRef<'a>>,
+        brush: impl Into<BrushRef<'a>>,
+        brush_alpha: f32,
+        transform: Affine,
+        glyph_transform: Option<Affine>,
+        glyphs: Vec<Glyph>,
+    ) {
         self.commands.push(PaintCommand::GlyphRun {
             font: font.clone(),
             font_size,
@@ -466,7 +528,7 @@ impl PaintScene for Scene {
             brush_alpha,
             transform,
             glyph_transform,
-            glyphs: glyphs.collect(),
+            glyphs,
         });
     }
 

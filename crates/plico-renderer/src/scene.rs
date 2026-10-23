@@ -1,6 +1,5 @@
 //! Build a retained Wabou paint scene from the flattened layout list.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{PaintScene, Scene};
@@ -561,17 +560,29 @@ pub fn build_scene_scaled_layers(
         scene.fill(Fill::NonZero, device, base_color, None, &bg);
     }
 
-    let mut transforms = HashMap::new();
+    // Ancestor transforms keyed by depth. Enter/Exit events are balanced
+    // preorder, so a node's parent is the deepest still-open entry and its
+    // own transform stays on the stack until its Exit: no per-node hashing
+    // on the scene-encoding path.
+    let mut transforms: Vec<(usize, Affine)> = Vec::new();
     let mut layers = Vec::new();
     for event in roots.iter().flat_map(|nodes| subtree_events(nodes)) {
         let SubtreeEvent::Enter(n) = event else {
             let SubtreeEvent::Exit(n) = event else {
                 unreachable!()
             };
-            if let Some(transform) = transforms.get(&n.node_id).copied()
+            // All descendants have exited and popped their entries, so this
+            // node's own transform is on top of the stack.
+            if let Some(&(_, transform)) = transforms.last().filter(|(depth, _)| *depth == n.depth)
                 && paints_viewport(n, transform, viewport)
             {
                 draw_scrollbars(scene, n, device * transform);
+            }
+            while transforms
+                .last()
+                .is_some_and(|(depth, _)| *depth >= n.depth)
+            {
+                transforms.pop();
             }
             while layers
                 .last()
@@ -583,12 +594,17 @@ pub fn build_scene_scaled_layers(
             continue;
         };
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
-        let parent_transform = n
-            .parent_node_id
-            .and_then(|parent| transforms.get(&parent).copied())
-            .unwrap_or(Affine::IDENTITY);
+        while transforms
+            .last()
+            .is_some_and(|(depth, _)| *depth >= n.depth)
+        {
+            transforms.pop();
+        }
+        let parent_transform = transforms
+            .last()
+            .map_or(Affine::IDENTITY, |(_, transform)| *transform);
         let css_transform = resolve_node_transform(n, parent_transform);
-        transforms.insert(n.node_id, css_transform);
+        transforms.push((n.depth, css_transform));
         let node_transform = device * css_transform;
         let paints_node = paints_viewport(n, css_transform, viewport);
 

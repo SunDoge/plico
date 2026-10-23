@@ -387,7 +387,10 @@ impl TextContext {
                         })
                         .collect();
                     if !glyphs.is_empty() {
-                        scene.draw_glyphs(
+                        // The buffer moves straight into the command; the
+                        // iterator-taking entry point would collect a second
+                        // copy per run.
+                        scene.draw_glyphs_vec(
                             &font_data,
                             run.font_size() * device_scale as f32,
                             hint,
@@ -403,7 +406,7 @@ impl TextContext {
                             1.0,
                             transform,
                             glyph_transform,
-                            glyphs.into_iter(),
+                            glyphs,
                         );
                     }
                 }
@@ -454,23 +457,35 @@ fn text_layout_key(
         max_width: max_width.map(f32::to_bits),
         alignment,
         color,
-        runs: runs
-            .iter()
-            .map(|run| TextRunKey {
-                start: run.range.start,
-                end: run.range.end,
-                font_size: run.font_size.to_bits(),
-                font_weight: run.font_weight.to_bits(),
-                font_italic: run.font_italic,
-                line_height: run
-                    .line_height
-                    .map(|(value, relative)| (value.to_bits(), relative)),
-                color: run.color,
-            })
-            .collect::<Vec<_>>()
-            .into(),
+        runs: if runs.is_empty() {
+            // An empty `Arc<[TextRunKey]>` still allocates its header; key
+            // construction runs per text lookup, so share one static instead.
+            empty_runs_key()
+        } else {
+            runs.iter()
+                .map(|run| TextRunKey {
+                    start: run.range.start,
+                    end: run.range.end,
+                    font_size: run.font_size.to_bits(),
+                    font_weight: run.font_weight.to_bits(),
+                    font_italic: run.font_italic,
+                    line_height: run
+                        .line_height
+                        .map(|(value, relative)| (value.to_bits(), relative)),
+                    color: run.color,
+                })
+                .collect::<Vec<_>>()
+                .into()
+        },
         font_family: font_family.cloned(),
     }
+}
+
+/// Shared empty run key: allocating a fresh `Arc<[TextRunKey]>` header per
+/// lookup dominates steady-state text cost with plain (runless) paragraphs.
+fn empty_runs_key() -> Arc<[TextRunKey]> {
+    static EMPTY: std::sync::OnceLock<Arc<[TextRunKey]>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| Vec::new().into()).clone()
 }
 
 #[allow(clippy::too_many_arguments)]
