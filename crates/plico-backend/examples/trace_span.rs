@@ -21,8 +21,17 @@ impl View for Demo {
     }
 }
 fn main() {
-    let path = std::env::var_os("PLICO_TRACE_FILE")
-        .unwrap_or_else(|| "/tmp/plico-trace-verify.json".into());
+    let path = std::env::var_os("PLICO_TRACE_FILE").map(std::path::PathBuf::from);
+    // Without PLICO_TRACE_FILE nothing must create a trace file anywhere —
+    // in particular no default ./trace-*.json in the working directory.
+    let mut before: Vec<_> = std::fs::read_dir(".")
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("trace-"))
+        .map(|e| e.file_name())
+        .collect();
+    before.sort_unstable();
     let _tracing = plico_shell::telemetry::init_tracing();
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(Demo { revision: 0 }, clock.clone());
@@ -36,9 +45,31 @@ fn main() {
         source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
     }
     drop(_tracing);
+    let Some(path) = path else {
+        let mut after: Vec<_> = std::fs::read_dir(".")
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("trace-"))
+            .map(|e| e.file_name())
+            .collect();
+        after.sort_unstable();
+        assert_eq!(
+            after, before,
+            "default trace file created without a request"
+        );
+        println!("no PLICO_TRACE_FILE: no trace file, no default created");
+        return;
+    };
     let bytes = std::fs::read(&path).expect("trace file written");
     let content = String::from_utf8(bytes).unwrap();
     assert!(content.contains("text.shape.cache_miss"), "spans missing");
+    assert!(content.contains("frame.declare"), "declare span missing");
+    // The Chrome default filter admits only our own span targets.
+    assert!(
+        !content.contains("winit"),
+        "dependency spans leaked into the trace"
+    );
     assert!(content.trim_end().ends_with(']'), "trace not closed");
     println!(
         "{} bytes of Chrome trace at {}",

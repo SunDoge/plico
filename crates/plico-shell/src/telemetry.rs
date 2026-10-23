@@ -315,49 +315,92 @@ pub fn span(category: &str, name: &str) -> Span<'static> {
 }
 /// Install the process-wide tracing subscriber for a profiling build.
 ///
-/// `PLICO_TRACE_FILE` selects a Chrome/Perfetto JSON output path; without it
-/// spans land in a `tracing_subscriber` fmt layer on stderr. Returns a guard
-/// that must live for the whole process: Chrome writes the trace file when
-/// the subscriber is dropped. A no-op (empty guard) on non-profiling builds
-/// so call sites need no cfg.
+/// `PLICO_TRACE_FILE` selects a Chrome/Perfetto JSON output path and enables
+/// the Chrome layer; without it only the stderr fmt layer is installed and no
+/// Chrome layer exists at all (its default would create `trace-*.json` in the
+/// working directory). The fmt layer is filtered by `RUST_LOG` (default
+/// `info,wabou=trace`); the Chrome layer is filtered by `PLICO_TRACE_FILTER`
+/// (default `wabou=trace`) because a trace file is a perf artifact —
+/// dependency TRACE noise such as winit or zbus would otherwise dominate it.
+/// Returns a guard that must live for the whole process: Chrome writes the
+/// trace file when the guard is dropped. A no-op (empty guard) on
+/// non-profiling builds so call sites need no cfg.
+///
+/// When a global subscriber is already installed by the host application, the
+/// init is skipped before creating any trace file and a warning notes that
+/// profiling output is disabled. Losing a race with a concurrent installation
+/// still drops the Chrome guard normally, leaving an empty trace file, since
+/// a parked writer thread is a worse trade than one explainable empty file.
 pub fn init_tracing() -> TracingGuard {
     init_tracing_internal()
 }
 #[cfg(feature = "profiling")]
 fn init_tracing_internal() -> TracingGuard {
     use tracing_subscriber::{Layer, layer::SubscriberExt};
-    let file = std::env::var_os("PLICO_TRACE_FILE");
-    let (layer, guard) = match &file {
-        Some(path) => {
-            let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-                .file(std::path::PathBuf::from(path))
-                .include_args(true)
-                .build();
-            (
-                layer,
-                TracingGuard {
-                    _chrome: Some(guard),
-                },
-            )
-        }
-        None => (
-            tracing_chrome::ChromeLayerBuilder::new().build().0,
-            TracingGuard { _chrome: None },
-        ),
-    };
-    // Default filter: our spans plus warnings, so dependency TRACE noise
-    // (winit, zbus) stays off unless RUST_LOG asks for it explicitly.
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,wabou=trace"));
+    if tracing::dispatcher::has_been_set() {
+        // A host application installed its own subscriber; installing ours
+        // would fail anyway, so do not even create the trace file.
+        report_existing_subscriber();
+        return TracingGuard { _chrome: None };
+    }
+    let fmt_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(FMT_DEFAULT));
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(false)
         .with_writer(std::io::stderr);
+    let Some(path) = std::env::var_os("PLICO_TRACE_FILE") else {
+        // No trace file requested: never build the Chrome layer, whose
+        // default would open ./trace-{epoch}.json in the working directory.
+        let subscriber = tracing_subscriber::Registry::default().with(fmt.with_filter(fmt_filter));
+        return match tracing::subscriber::set_global_default(subscriber) {
+            Ok(()) => TracingGuard { _chrome: None },
+            Err(_) => {
+                report_existing_subscriber();
+                TracingGuard { _chrome: None }
+            }
+        };
+    };
+    let chrome_filter = tracing_subscriber::EnvFilter::try_from_env(TRACE_FILTER_ENV)
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(TRACE_DEFAULT));
+    let (chrome, guard) = tracing_chrome::ChromeLayerBuilder::new()
+        .file(std::path::PathBuf::from(&path))
+        .include_args(true)
+        .build();
     let subscriber = tracing_subscriber::Registry::default()
-        .with(fmt.with_filter(filter))
-        .with(layer);
-    let _ = tracing::subscriber::set_global_default(subscriber);
-    guard
+        .with(fmt.with_filter(fmt_filter))
+        .with(chrome.with_filter(chrome_filter));
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(()) => TracingGuard {
+            _chrome: Some(guard),
+        },
+        Err(_) => {
+            // Lost a race with another thread installing a subscriber between
+            // the check and here. Drop the guard normally: the writer thread
+            // joins and closes the just-created (empty) trace file — no
+            // threads leak and the caller's subscriber is untouched. The
+            // diagnostic names the situation so the empty file explains
+            // itself.
+            report_existing_subscriber();
+            drop(guard);
+            TracingGuard { _chrome: None }
+        }
+    }
 }
+#[cfg(feature = "profiling")]
+fn report_existing_subscriber() {
+    eprintln!(
+        "plico: a global tracing subscriber is already installed;          profiling spans will not be recorded"
+    );
+}
+/// Filter defaults kept as constants so tests can assert them.
+#[cfg(feature = "profiling")]
+pub const FMT_DEFAULT: &str = "info,wabou=trace";
+/// Default filter directives for the Chrome trace layer: perf spans only.
+#[cfg(feature = "profiling")]
+pub const TRACE_DEFAULT: &str = "wabou=trace";
+/// Environment variable overriding the Chrome layer's filter directives.
+#[cfg(feature = "profiling")]
+const TRACE_FILTER_ENV: &str = "PLICO_TRACE_FILTER";
 #[cfg(not(feature = "profiling"))]
 fn init_tracing_internal() -> TracingGuard {
     TracingGuard {}
@@ -455,5 +498,75 @@ mod contracts {
         let s = r.snapshot();
         assert_eq!(s["summaries"].as_array().unwrap().len(), 256);
         assert_eq!(s["droppedEvents"], 45);
+    }
+}
+
+#[cfg(all(test, feature = "profiling"))]
+mod tracing_setup {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    /// Records the targets of spans that actually reach a layer.
+    #[derive(Default)]
+    struct Seen {
+        span_targets: Mutex<Vec<&'static str>>,
+    }
+    struct SeenLayer(Arc<Seen>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SeenLayer {
+        fn on_new_span(
+            &self,
+            attrs: &tracing::span::Attributes<'_>,
+            _id: &tracing::span::Id,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            self.0
+                .span_targets
+                .lock()
+                .unwrap()
+                .push(attrs.metadata().target());
+        }
+    }
+    /// Targets that pass `directive`, measured by what the layer observes —
+    /// not by span introspection, which is not a reliable enabled signal.
+    fn targets_reaching_layer(directive: &str) -> Vec<&'static str> {
+        use tracing_subscriber::{EnvFilter, layer::SubscriberExt};
+        let seen = Arc::new(Seen::default());
+        use tracing_subscriber::Layer;
+        let subscriber = tracing_subscriber::Registry::default()
+            .with(SeenLayer(seen.clone()).with_filter(EnvFilter::new(directive)));
+        let dispatch = tracing::Dispatch::new(subscriber);
+        // `level:`/`target:` macro fragments need literal values, so the
+        // four probes are spelled out.
+        let probe_all = |dispatch: &tracing::Dispatch| {
+            tracing::dispatcher::with_default(dispatch, || {
+                let span = tracing::span!(target: "wabou::perf", tracing::Level::TRACE, "probe");
+                std::mem::drop(span.enter());
+            });
+            tracing::dispatcher::with_default(dispatch, || {
+                let span = tracing::span!(target: "winit", tracing::Level::TRACE, "probe");
+                std::mem::drop(span.enter());
+            });
+            tracing::dispatcher::with_default(dispatch, || {
+                let span = tracing::span!(target: "my_app", tracing::Level::INFO, "probe");
+                std::mem::drop(span.enter());
+            });
+            tracing::dispatcher::with_default(dispatch, || {
+                let span = tracing::span!(target: "my_app", tracing::Level::TRACE, "probe");
+                std::mem::drop(span.enter());
+            });
+        };
+        probe_all(&dispatch);
+        let mut targets = seen.span_targets.lock().unwrap().clone();
+        targets.sort_unstable();
+        targets
+    }
+    #[test]
+    fn filter_defaults_keep_dependency_noise_out_of_both_sinks() {
+        // The stderr layer keeps ordinary logs; the trace file is a perf
+        // artifact, so its default admits only our own span targets.
+        assert_eq!(
+            targets_reaching_layer(FMT_DEFAULT),
+            vec!["my_app", "wabou::perf"]
+        );
+        assert_eq!(targets_reaching_layer(TRACE_DEFAULT), vec!["wabou::perf"]);
     }
 }
