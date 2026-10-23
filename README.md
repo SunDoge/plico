@@ -32,7 +32,7 @@ fn main() -> Result<(), plico_core::FrameError> {
 ```sh
 cargo run -p plico-gallery
 cargo run -p plico-launcher
-cargo test --workspace --all-features
+cargo test --workspace --all-features --exclude plico-lvgl --exclude plico-lvgl-esp32p4
 
 cargo plico new /tmp/my-plico-app
 cargo plico dev /tmp/my-plico-app
@@ -66,7 +66,10 @@ plico icons check
 | apps/launcher、terminal、services-demo | launcher、终端与后台服务示例 |
 
 Rune 和 reactive Runtime/实验及其旧应用已移除；只有 immediate 声明模型。
-不宣称 ESP32、no_std、LVGL、FLTK 或 Bevy 已接入。
+不宣称 ESP32、no_std、FLTK 或 Bevy 已接入。
+
+另有 [LVGL 最小后端实验](docs/lvgl.md)，通过 oxivgl 原生控件验证同一套 API 的复用。
+它的 `native` feature 需要 nightly 和 SDL2，因此单独构建和验证，不代表已支持 ESP32。
 
 详见 [编写方式](docs/authoring.md)、[CLI](docs/cli.md)、[实现状态](docs/status.md)、
 [文档索引](docs/README.md)。提交遵循 [Cocogitto / Conventional Commits](docs/contributing.md)。

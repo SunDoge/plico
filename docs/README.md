@@ -12,6 +12,7 @@
 | [动机与开发体验](vision.md) | 为什么选择 immediate API、预期优势和实际代价 |
 | [后端清理](backend-cleanup.md) | 当前 crate 划分、删除的旧协议与保留边界 |
 | [架构与后端边界](architecture.md) | 节点身份、保留存储、声明协调、Wabou 与 Bevy |
+| [LVGL 最小后端实验](lvgl.md) | oxivgl 原生控件、相同声明 API、对象复用与点击回传 |
 | [状态、事件与提交](runtime.md) | 同步事件、稳定化、失效传播、卸载与错误边界 |
 | [缓存与输出路径](cache.md) | 共享 Scene、原生保留路径、克隆计数与 CPU 对比 |
 | [滚动声明分离](scroll-presentation.md) | 普通滚动跳过 show、按容器观察和模拟时钟对比 |

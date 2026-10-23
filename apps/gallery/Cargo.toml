@@ -1,6 +1,6 @@
 [package]
 name = "plico-gallery"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 publish = false
 default-run = "plico-gallery"

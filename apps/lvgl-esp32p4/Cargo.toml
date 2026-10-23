@@ -1,0 +1,17 @@
+[package]
+name = "plico-lvgl-esp32p4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+default = []
+firmware = ["plico-lvgl/external"]
+
+[dependencies]
+plico-core.workspace = true
+plico-lvgl = { path = "../../crates/plico-lvgl" }

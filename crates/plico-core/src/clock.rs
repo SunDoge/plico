@@ -1,9 +1,10 @@
 //! Host-injected monotonic logical time. UI code never reads Instant itself.
+#[cfg(not(target_has_atomic = "64"))]
+use portable_atomic::AtomicU64;
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::AtomicU64;
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 use web_time::Instant;
@@ -56,19 +57,25 @@ impl Clock for VirtualClock {
     }
 }
 impl VirtualClock {
+    fn update(&self, update: impl FnMut(u64) -> Option<u64>) -> Result<u64, u64> {
+        #[cfg(target_has_atomic = "64")]
+        return self
+            .nanos
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, update);
+        // portable-atomic retains the older standard-library method name.
+        #[cfg(not(target_has_atomic = "64"))]
+        self.nanos
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, update)
+    }
     pub fn advance(&self, delta: Duration) -> Result<(), ClockError> {
         let delta = u64::try_from(delta.as_nanos()).map_err(|_| ClockError::Overflow)?;
-        self.nanos
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_add(delta))
+        self.update(|n| n.checked_add(delta))
             .map_err(|_| ClockError::Overflow)?;
         Ok(())
     }
     pub fn set(&self, now: Duration) -> Result<(), ClockError> {
         let now = u64::try_from(now.as_nanos()).map_err(|_| ClockError::Overflow)?;
-        self.nanos
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |previous| {
-                (now >= previous).then_some(now)
-            })
+        self.update(|previous| (now >= previous).then_some(now))
             .map_err(|_| ClockError::Backwards)?;
         Ok(())
     }

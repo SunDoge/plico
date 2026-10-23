@@ -28,13 +28,14 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
 热重载为 best effort；业务状态不兼容可以重置，不保证任意 Rust 类型无损迁移。
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
-尚未接入 Bevy、LVGL、FLTK、ESP32 或 no_std。
+LVGL 仅有 [oxivgl 最小后端实验](lvgl.md)：容器、文本、按钮、原生对象复用和事件回传，
+不是完整后端。尚未接入 Bevy、FLTK、ESP32 或 no_std。
 
 ## 验证入口
 
 ```sh
 cargo check --workspace --all-targets
-cargo test --workspace --all-features
+cargo test --workspace --all-features --exclude plico-lvgl --exclude plico-lvgl-esp32p4
 cargo run -p plico-gallery
 cargo plico new /tmp/my-app
 cargo plico dev /tmp/my-app --headless --no-watch

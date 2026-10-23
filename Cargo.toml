@@ -6,7 +6,7 @@ exclude = ["crates/plico-backend/reference"]
 default-members = ["crates/plico-core", "crates/plico-cli", "apps/gallery"]
 
 [workspace.package]
-version = "0.1.0-alpha.4"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 

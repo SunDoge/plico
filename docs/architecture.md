@@ -22,6 +22,10 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 
 core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。当前尚未定义完整的、跨宿主的布局/场景运行时；Wabou adapter 加上仓库内 backend 源码是可执行的边界实验，不能把它当成已经完成的通用宿主协议。
 
+另有 [oxivgl 最小实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
+布局、文字和绘制均交给 LVGL；点击以 Entity 回到普通声明。它验证 API 子集可跨后端，
+没有引入通用 Backend trait，也不代表完整样式、交互或 MCU 平台已经可移植。
+
 ## 身份与存储
 
 `Key::Static`、`Key::Number` 和宏生成的 Generated ID 避免每帧分配路径字符串。component 自动身份见 identity.md。`Auto` 序号只适合子节点顺序和数量稳定的静态结构。动态列表使用业务 ID；兄弟节点重复 key 会报错。

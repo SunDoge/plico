@@ -1,8 +1,12 @@
 //! Native editor storage. Deliberately neither Debug nor Serialize.
+#[cfg(not(target_has_atomic = "64"))]
+use portable_atomic::AtomicU64;
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::{
     collections::VecDeque,
     ops::Range,
-    sync::atomic::{AtomicU64, Ordering},
     sync::{Arc, Mutex},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -58,6 +62,7 @@ fn next_revision() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
+
 impl Default for TextBuffer {
     fn default() -> Self {
         Self::new()

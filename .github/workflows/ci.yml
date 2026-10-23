@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  quality:
+    name: Formatting and workspace versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+      - name: Check shared package version
+        run: python3 scripts/check-versions.py
+      - name: Check Rust and component formatting
+        run: cargo run --locked -p plico-cli -- fmt --check
+
+  native:
+    name: Linux tests, Clippy and hot reload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      XDG_RUNTIME_DIR: /tmp/plico-ci-runtime
+      WGPU_BACKEND: vulkan
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Install native libraries, fonts and software Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libwayland-dev libxkbcommon-dev \
+            libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+      - name: Check every target and feature
+        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-targets --all-features -- -D warnings
+      - name: Run workspace tests, including headless rendering
+        run: cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-features
+      - name: Verify profiling with and without a trace file
+        run: |
+          env -u PLICO_TRACE_FILE cargo run --locked -p plico-backend --features profiling --example trace_span
+          PLICO_TRACE_FILE="$RUNNER_TEMP/plico-trace.json" cargo run --locked -p plico-backend --features profiling --example trace_span
+      - name: Build the CLI and native development host
+        run: cargo build --locked -p plico-cli -p plico-backend
+      - name: Verify generated app, reload recovery and native text input
+        run: |
+          python3 scripts/check-hotreload.py
+          python3 scripts/check-text-input-reload.py
+
+  wasm:
+    name: WASM host and UI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+      - name: Check the renderer-independent core
+        run: cargo check --locked -p plico-core --target wasm32-unknown-unknown
+      - name: Check the gallery and split host
+        run: cargo clippy --locked -p plico-web --features gallery,split --target wasm32-unknown-unknown -- -D warnings
+      - name: Check the loadable UI module
+        run: cargo check --locked -p plico-web-ui --all-features --target wasm32-unknown-unknown
+
+  lvgl:
+    name: oxivgl backend experiment (nightly)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DEP_LV_CONFIG_PATH: ${{ github.workspace }}/crates/plico-lvgl/config
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: nightly-2026-10-15
+          components: clippy
+      - name: Install oxivgl host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsdl2-dev libclang-dev pkg-config python3-png python3-lz4
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+      - name: Verify native widgets and event round-trip without a window
+        run: cargo run --locked -p plico-lvgl --features native --example counter -- --headless --out "$RUNNER_TEMP/plico-lvgl.png"
+      - name: Check the experimental adapter and example
+        run: cargo clippy --locked -p plico-lvgl --features native --all-targets -- -D warnings
