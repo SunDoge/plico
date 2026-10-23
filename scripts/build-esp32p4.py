@@ -16,7 +16,7 @@ import subprocess
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGE = ROOT / "target/esp32p4"
+STAGE = Path(os.environ.get("PLICO_P4_STAGE", ROOT / "target/esp32p4"))
 SYS_VERSION = "9.5.4"
 TOOLCHAIN = "nightly-2026-10-15"
 
@@ -75,7 +75,7 @@ def main():
     # A separate Cargo root keeps patched embedded dependencies out of the main
     # lockfile. Source files and Plico crates still come from this repository.
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-    source = ROOT / "apps/lvgl-esp32p4/src/lib.rs"
+    source = Path(os.environ.get("PLICO_P4_RUST_SOURCE", ROOT / "apps/lvgl-esp32p4/src/lib.rs")).resolve()
     manifest = f'''[package]
 name = "plico-lvgl-esp32p4"
 version = "{version}"
