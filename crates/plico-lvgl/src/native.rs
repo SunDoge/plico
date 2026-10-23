@@ -14,8 +14,10 @@ use std::collections::HashMap;
 
 #[path = "style_diff.rs"]
 mod style_diff;
+#[path = "svg.rs"]
+mod svg;
 
-type Queue = RefCell<Vec<Entity>>;
+type Queue = RefCell<Vec<(Entity, sys::lv_event_code_t)>>;
 type Route = (Entity, std::rc::Weak<Queue>);
 thread_local! {
     // Native callbacks retain no application state. Route directly to a
@@ -33,7 +35,9 @@ unsafe extern "C" fn clicked(event: *mut sys::lv_event_t) {
             if let Some((entity, queue)) = routes.borrow().get(&key)
                 && let Some(queue) = queue.upgrade()
             {
-                queue.borrow_mut().push(*entity);
+                queue
+                    .borrow_mut()
+                    .push((*entity, sys::lv_event_get_code(event)));
             }
         });
     }
@@ -47,6 +51,8 @@ pub enum Error {
     Widget,
     #[snafu(display("LVGL text cannot contain an embedded NUL"))]
     TextNul,
+    #[snafu(display("LVGL SVG raster allocation or size is invalid"))]
+    SvgRaster,
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
@@ -59,6 +65,8 @@ pub struct Stats {
     pub property_writes: usize,
     /// Complete native style resets, needed only at first binding.
     pub style_resets: usize,
+    /// SVGs rasterized this sync; unchanged icons retain their pixels.
+    pub svg_rasterizations: usize,
 }
 
 /// A mounted LVGL object; `label` holds a composite button's child label.
@@ -69,6 +77,9 @@ struct Widget {
     label: *mut Obj,
     owns_text: bool,
     button: bool,
+    editor: bool,
+    svg: Option<svg::Raster>,
+    is_svg: bool,
 }
 // The adapter is single-threaded; every handle outlives its Mounted entry.
 unsafe impl Send for Widget {}
@@ -80,7 +91,14 @@ impl Widget {
     /// change that stays within the same [`KindFamily`]. Exact-button kinds
     /// keep their identity; degraded controls ride the container family.
     fn class_matches(&self, kind: Kind) -> bool {
-        if self.button {
+        if self.is_svg || kind == Kind::Svg {
+            return self.is_svg && kind == Kind::Svg;
+        }
+        if self.editor {
+            kind == Kind::TextInput
+        } else if kind == Kind::TextInput {
+            false
+        } else if self.button {
             matches!(kind, Kind::Button | Kind::ButtonBase)
         } else if !self.label.is_null() || self.owns_text {
             matches!(kind.family(), KindFamily::Text)
@@ -104,6 +122,8 @@ pub struct Adapter {
     screen: *mut Obj,
     events: std::rc::Rc<Queue>,
     stats: Stats,
+    keyboard: *mut Obj,
+    editing: Option<Entity>,
 }
 unsafe impl Send for Adapter {}
 impl Adapter {
@@ -118,7 +138,17 @@ impl Adapter {
             screen,
             events: std::rc::Rc::new(RefCell::new(Vec::new())),
             stats: Stats::default(),
+            keyboard: std::ptr::null_mut(),
+            editing: None,
         })
+    }
+    /// Pixels retained by the currently mounted SVG nodes, excluding LVGL object overhead.
+    pub fn svg_cache_bytes(&self) -> usize {
+        self.nodes
+            .values()
+            .filter_map(|n| n.widget.svg.as_ref())
+            .map(svg::Raster::bytes)
+            .sum()
     }
     pub fn stats(&self) -> Stats {
         self.stats
@@ -168,6 +198,8 @@ impl Adapter {
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
             }
+            self.stats.svg_rasterizations += sync_svg(&mut mounted.widget, &node, engine.theme())?;
+            sync_editor(&mounted.widget, engine, change.entity)?;
             if mounted.text.as_deref() != Some(node.text)
                 && change.changes.intersects(Changes::MEASURE | Changes::PAINT)
             {
@@ -230,7 +262,7 @@ impl Adapter {
                     .and_then(|p| self.nodes.get(&p))
                     .map(|m| m.widget.object());
                 let widget = self.create(node.kind, parent)?;
-                if widget.button {
+                if widget.button || widget.editor {
                     let obj = widget.object();
                     ROUTES.with(|routes| {
                         routes
@@ -241,7 +273,11 @@ impl Adapter {
                         sys::lv_obj_add_event_cb(
                             obj,
                             Some(clicked),
-                            sys::lv_event_code_t_LV_EVENT_CLICKED,
+                            if widget.editor {
+                                sys::lv_event_code_t_LV_EVENT_ALL
+                            } else {
+                                sys::lv_event_code_t_LV_EVENT_CLICKED
+                            },
                             std::ptr::null_mut(),
                         );
                     };
@@ -287,6 +323,8 @@ impl Adapter {
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
             }
+            self.stats.svg_rasterizations += sync_svg(&mut mounted.widget, &node, engine.theme())?;
+            sync_editor(&mounted.widget, engine, id)?;
             if mounted.text.as_deref() != Some(node.text) {
                 set_text(text_target(&mounted.widget), node.text)?;
                 node.text
@@ -310,34 +348,51 @@ impl Adapter {
 
     fn create(&self, kind: Kind, parent: Option<*mut Obj>) -> Result<Widget, Error> {
         let parent = parent.unwrap_or(self.screen);
-        let (obj, label, owns_text, button) = match kind.family() {
-            KindFamily::Text => {
-                let obj = unsafe { sys::lv_label_create(parent) };
-                (obj, std::ptr::null_mut(), true, false)
+        let (obj, label, owns_text, button) = if kind == Kind::Svg {
+            (
+                unsafe { sys::lv_image_create(parent) },
+                std::ptr::null_mut(),
+                false,
+                false,
+            )
+        } else if kind == Kind::TextInput {
+            let obj = unsafe { sys::lv_textarea_create(parent) };
+            if !obj.is_null() {
+                unsafe {
+                    sys::lv_textarea_set_one_line(obj, true);
+                }
             }
-            // Exact-button kinds get native click routing; degraded controls
-            // (Switch/Checkbox/Slider) render as containers carrying their
-            // label and lose interaction.
-            KindFamily::Control => match kind {
-                Kind::Button => {
-                    let button = unsafe { sys::lv_button_create(parent) };
-                    let label = unsafe { sys::lv_label_create(button) };
-                    unsafe { sys::lv_obj_center(label) };
-                    (button, label, false, true)
+            (obj, std::ptr::null_mut(), false, false)
+        } else {
+            match kind.family() {
+                KindFamily::Text => {
+                    let obj = unsafe { sys::lv_label_create(parent) };
+                    (obj, std::ptr::null_mut(), true, false)
                 }
-                Kind::ButtonBase => {
-                    let button = unsafe { sys::lv_button_create(parent) };
-                    (button, std::ptr::null_mut(), false, true)
-                }
-                _ => {
+                // Exact-button kinds get native click routing; degraded controls
+                // (Switch/Checkbox/Slider) render as containers carrying their
+                // label and lose interaction.
+                KindFamily::Control => match kind {
+                    Kind::Button => {
+                        let button = unsafe { sys::lv_button_create(parent) };
+                        let label = unsafe { sys::lv_label_create(button) };
+                        unsafe { sys::lv_obj_center(label) };
+                        (button, label, false, true)
+                    }
+                    Kind::ButtonBase => {
+                        let button = unsafe { sys::lv_button_create(parent) };
+                        (button, std::ptr::null_mut(), false, true)
+                    }
+                    _ => {
+                        let obj = unsafe { sys::lv_obj_create(parent) };
+                        (obj, std::ptr::null_mut(), false, false)
+                    }
+                },
+                // Containers nest children; media renders as an empty box.
+                KindFamily::Container | KindFamily::Media => {
                     let obj = unsafe { sys::lv_obj_create(parent) };
                     (obj, std::ptr::null_mut(), false, false)
                 }
-            },
-            // Containers nest children; media renders as an empty box.
-            KindFamily::Container | KindFamily::Media => {
-                let obj = unsafe { sys::lv_obj_create(parent) };
-                (obj, std::ptr::null_mut(), false, false)
             }
         };
         snafu::ensure!(!obj.is_null(), WidgetSnafu);
@@ -346,22 +401,96 @@ impl Adapter {
             label,
             owns_text,
             button,
+            editor: kind == Kind::TextInput,
+            is_svg: kind == Kind::Svg,
+            svg: None,
         })
     }
 
     /// Drain native callbacks at the event boundary, before declaring again.
     /// Deleted/disabled entities are ignored; callbacks never borrow app state.
     pub fn dispatch(&mut self, engine: &mut Engine) -> usize {
+        let events = std::mem::take(&mut *self.events.borrow_mut());
         let mut count = 0;
-        for entity in self.events.borrow_mut().drain(..) {
-            if engine.node(entity).is_some_and(|n| {
-                matches!(n.kind, Kind::Button | Kind::ButtonBase) && !n.style.disabled
-            }) {
+        for (entity, code) in events {
+            let Some(node) = engine.node(entity).filter(|n| !n.style.disabled) else {
+                continue;
+            };
+            if matches!(node.kind, Kind::Button | Kind::ButtonBase)
+                && code == sys::lv_event_code_t_LV_EVENT_CLICKED
+            {
                 engine.queue_click(entity);
                 count += 1;
+            } else if node.kind == Kind::TextInput {
+                let Some((buffer, _)) = engine.input(entity) else {
+                    continue;
+                };
+                if code == sys::lv_event_code_t_LV_EVENT_VALUE_CHANGED {
+                    let obj = self.nodes[&entity].widget.object();
+                    let text = unsafe { std::ffi::CStr::from_ptr(sys::lv_textarea_get_text(obj)) }
+                        .to_string_lossy();
+                    if !buffer.with_value(|old| old == text) {
+                        buffer.set(text.as_ref().to_owned().into());
+                        count += 1;
+                    }
+                } else if code == sys::lv_event_code_t_LV_EVENT_FOCUSED
+                    || code == sys::lv_event_code_t_LV_EVENT_CLICKED
+                {
+                    self.open_keyboard(entity);
+                    count += 1;
+                } else if code == sys::lv_event_code_t_LV_EVENT_READY
+                    || code == sys::lv_event_code_t_LV_EVENT_CANCEL
+                {
+                    if code == sys::lv_event_code_t_LV_EVENT_READY {
+                        buffer.edit(plico_core::InputEdit::Submit);
+                    }
+                    self.close_keyboard();
+                    count += 1;
+                } else if code == sys::lv_event_code_t_LV_EVENT_DEFOCUSED
+                    && self.editing == Some(entity)
+                {
+                    self.close_keyboard();
+                    count += 1;
+                }
             }
         }
+        if let Some(entity) = engine.take_focus_request()
+            && self.nodes.get(&entity).is_some_and(|n| n.widget.editor)
+        {
+            self.open_keyboard(entity);
+            count += 1;
+        }
         count
+    }
+    fn open_keyboard(&mut self, entity: Entity) {
+        unsafe {
+            if self.keyboard.is_null() {
+                self.keyboard = sys::lv_keyboard_create(self.screen);
+                if self.keyboard.is_null() {
+                    return;
+                }
+                sys::lv_obj_set_size(self.keyboard, pct(100), pct(42));
+                sys::lv_obj_set_style_text_font(
+                    self.keyboard,
+                    &sys::lv_font_montserrat_24,
+                    sys::lv_part_t_LV_PART_ITEMS,
+                );
+                sys::lv_obj_align(self.keyboard, sys::lv_align_t_LV_ALIGN_BOTTOM_MID, 0, 0);
+            }
+            sys::lv_keyboard_set_textarea(self.keyboard, self.nodes[&entity].widget.object());
+            sys::lv_obj_remove_flag(self.keyboard, sys::lv_obj_flag_t_LV_OBJ_FLAG_HIDDEN);
+            sys::lv_obj_move_to_index(self.keyboard, -1);
+            self.editing = Some(entity);
+        }
+    }
+    fn close_keyboard(&mut self) {
+        if !self.keyboard.is_null() {
+            unsafe {
+                sys::lv_keyboard_set_textarea(self.keyboard, std::ptr::null_mut());
+                sys::lv_obj_add_flag(self.keyboard, sys::lv_obj_flag_t_LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+        self.editing = None;
     }
     /// Programmatic native event for headless verification, not a direct core click.
     pub fn send_click(&self, entity: Entity) -> bool {
@@ -395,6 +524,9 @@ impl Adapter {
         })
     }
     fn unmount(&mut self, entity: Entity) {
+        if self.editing == Some(entity) {
+            self.close_keyboard();
+        }
         if let Some(node) = self.nodes.remove(&entity) {
             ROUTES.with(|routes| routes.borrow_mut().remove(&(node.widget.object() as usize)));
             unsafe {
@@ -429,6 +561,13 @@ impl Adapter {
 }
 impl Drop for Adapter {
     fn drop(&mut self) {
+        self.close_keyboard();
+        if !self.keyboard.is_null() {
+            ROUTES.with(|r| r.borrow_mut().remove(&(self.keyboard as usize)));
+            unsafe {
+                sys::lv_obj_delete(self.keyboard);
+            }
+        }
         let ids: Vec<Entity> = self.nodes.keys().copied().collect();
         // Deleting a parent also deletes native children. HashMap iteration
         // order would therefore occasionally delete a dangling child pointer.
@@ -436,6 +575,48 @@ impl Drop for Adapter {
             self.unmount(id);
         }
     }
+}
+
+fn sync_svg(widget: &mut Widget, node: &NodeRef<'_>, theme: Theme) -> Result<usize, Error> {
+    if !widget.is_svg || widget.svg.as_ref().is_some_and(|r| r.matches(node, theme)) {
+        return Ok(0);
+    }
+    let raster = svg::Raster::new(node, theme)?;
+    unsafe { sys::lv_image_set_src(widget.obj, raster.image() as *const _) };
+    widget.svg = Some(raster);
+    Ok(1)
+}
+
+// Native editors own their LVGL text; snapshots retain only the accessible label.
+fn sync_editor(widget: &Widget, engine: &Engine, entity: Entity) -> Result<(), Error> {
+    if !widget.editor {
+        return Ok(());
+    }
+    let Some((buffer, hint)) = engine.input(entity) else {
+        return Ok(());
+    };
+    snafu::ensure!(
+        !hint.contains('\0') && buffer.with_value(|v| !v.contains('\0')),
+        TextNulSnafu
+    );
+    unsafe {
+        with_cstr(hint, |p| {
+            sys::lv_textarea_set_placeholder_text(widget.obj, p)
+        });
+        let visible = engine
+            .node(entity)
+            .is_some_and(|n| n.style.input_password_visible);
+        sys::lv_textarea_set_password_mode(widget.obj, buffer.is_secret() && !visible);
+        sys::lv_textarea_set_password_show_time(widget.obj, 0);
+        buffer.with_value(|value| {
+            let current =
+                std::ffi::CStr::from_ptr(sys::lv_textarea_get_text(widget.obj)).to_bytes();
+            if current != value.as_bytes() {
+                with_cstr(value, |p| sys::lv_textarea_set_text(widget.obj, p));
+            }
+        });
+    }
+    Ok(())
 }
 
 /// The per-object heap style, or null before the first bind.
@@ -461,6 +642,30 @@ fn set_text(target: Option<*mut Obj>, text: &str) -> Result<(), Error> {
     };
     with_cstr(text, |p| unsafe { sys::lv_label_set_text(target, p) });
     Ok(())
+}
+
+fn apply_scroll(obj: *mut Obj, enabled: bool) {
+    unsafe {
+        if enabled {
+            sys::lv_obj_add_flag(
+                obj,
+                sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE
+                    | sys::lv_obj_flag_t_LV_OBJ_FLAG_CLICKABLE,
+            );
+            sys::lv_obj_set_scroll_dir(obj, sys::lv_dir_t_LV_DIR_VER as _);
+            sys::lv_obj_set_scrollbar_mode(obj, sys::lv_scrollbar_mode_t_LV_SCROLLBAR_MODE_AUTO);
+        } else {
+            // Generic layout boxes must not steal presses from their enclosing
+            // button. Scroll containers remain clickable to start gestures on
+            // empty space; buttons and editors retain their native click flags.
+            let mut flags = sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE;
+            if sys::lv_obj_check_type(obj, &sys::lv_obj_class) {
+                flags |= sys::lv_obj_flag_t_LV_OBJ_FLAG_CLICKABLE;
+            }
+            sys::lv_obj_remove_flag(obj, flags);
+            sys::lv_obj_scroll_to_y(obj, 0, false);
+        }
+    }
 }
 
 fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
@@ -500,8 +705,9 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
             });
         sys::lv_style_set_width(style, width);
         sys::lv_style_set_height(style, height);
-        sys::lv_style_set_pad_top(style, s.vertical_padding() as i32);
-        sys::lv_style_set_pad_bottom(style, s.vertical_padding() as i32);
+        let pad_y = style_diff::vertical_padding(node.kind, s);
+        sys::lv_style_set_pad_top(style, pad_y);
+        sys::lv_style_set_pad_bottom(style, pad_y);
         sys::lv_style_set_pad_left(style, s.horizontal_padding() as i32);
         sys::lv_style_set_pad_right(style, s.horizontal_padding() as i32);
         sys::lv_style_set_pad_row(style, s.gap as i32);
@@ -523,6 +729,8 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
             sys::lv_style_set_bg_opa(style, 0);
         }
         sys::lv_style_set_opa(style, style_diff::opacity(s.opacity));
+        sys::lv_style_set_translate_x(style, s.translate[0].round() as i32);
+        sys::lv_style_set_translate_y(style, s.translate[1].round() as i32);
         if container_like {
             sys::lv_style_set_layout(style, sys::lv_layout_t_LV_LAYOUT_FLEX as u16);
         }
@@ -564,7 +772,7 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
         } else {
             sys::lv_obj_remove_state(obj, sys::lv_state_t_LV_STATE_DISABLED);
         }
-        sys::lv_obj_remove_flag(obj, sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE);
+        apply_scroll(obj, s.scroll_y);
     }
 }
 
@@ -575,9 +783,11 @@ mod tests {
 
     struct View {
         height: Length,
+        scroll_y: bool,
         fill: Option<plico_core::Color>,
         alpha: f32,
         opacity: f32,
+        translate: [f32; 2],
         theme: Theme,
     }
     impl DeclareView for View {
@@ -588,10 +798,12 @@ mod tests {
             let mut panel = column(cx)
                 .width(120)
                 .height(self.height)
+                .scroll_y(self.scroll_y)
                 .padding(7)
                 .radius(6.)
                 .background_alpha(self.alpha)
-                .opacity(self.opacity);
+                .opacity(self.opacity)
+                .translate(self.translate[0], self.translate[1]);
             if let Some(fill) = self.fill {
                 panel = panel.background(fill);
             }
@@ -600,7 +812,7 @@ mod tests {
             });
         }
     }
-    fn frame(engine: &mut Engine, view: &mut View, adapter: &mut Adapter) {
+    fn frame(engine: &mut Engine, view: &mut impl DeclareView, adapter: &mut Adapter) {
         engine.declare_until_settled(view).unwrap();
         let delta = engine.take_frame_delta();
         adapter.sync_delta(engine, Some(delta)).unwrap();
@@ -615,9 +827,11 @@ mod tests {
         let mut adapter = Adapter::new(&driver).unwrap();
         let mut view = View {
             height: Length::Px(40.),
+            scroll_y: false,
             fill: Some(plico_core::Color::Accent),
             alpha: 1.,
             opacity: 1.,
+            translate: [0., 0.],
             theme: Theme::default(),
         };
         frame(&mut engine, &mut view, &mut adapter);
@@ -694,6 +908,291 @@ mod tests {
         frame(&mut engine, &mut view, &mut adapter);
         assert_eq!(adapter.stats().property_writes, 0);
         assert_eq!(adapter.stats().style_updates, 0);
+        view.scroll_y = true;
+        frame(&mut engine, &mut view, &mut adapter);
+        assert!(unsafe { sys::lv_obj_has_flag(obj, sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE) });
+        assert_eq!(adapter.stats().style_resets, 0);
+        view.scroll_y = false;
+        frame(&mut engine, &mut view, &mut adapter);
+        assert!(!unsafe { sys::lv_obj_has_flag(obj, sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE) });
+        view.translate = [24., -8.];
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(
+            unsafe { number(obj, sys::_lv_style_id_t_LV_STYLE_TRANSLATE_X as _) },
+            24
+        );
+        assert_eq!(
+            unsafe { number(obj, sys::_lv_style_id_t_LV_STYLE_TRANSLATE_Y as _) },
+            -8
+        );
+        assert_eq!(adapter.stats().style_resets, 0);
+        view.translate = [0., 0.];
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(
+            unsafe { number(obj, sys::_lv_style_id_t_LV_STYLE_TRANSLATE_X as _) },
+            0
+        );
+        assert_eq!(
+            unsafe { number(obj, sys::_lv_style_id_t_LV_STYLE_TRANSLATE_Y as _) },
+            0
+        );
+        // Exercise the real native textarea/keyboard path in the same LVGL instance.
+        struct Editors {
+            height: i32,
+            font_size: u16,
+            name: plico_core::TextBuffer,
+            password: plico_core::TextBuffer,
+            reveal: bool,
+            visible: bool,
+        }
+        impl DeclareView for Editors {
+            fn theme(&self) -> Theme {
+                Theme::default()
+            }
+            fn show(&mut self, cx: &mut UiContext) {
+                if self.visible {
+                    column(cx).width(400).children(|cx| {
+                        text_input(cx, "Network", &self.name)
+                            .width(350)
+                            .height(self.height)
+                            .font_size(self.font_size)
+                            .placeholder("SSID");
+                        text_input(cx, "Password", &self.password)
+                            .width(350)
+                            .height(self.height)
+                            .font_size(self.font_size)
+                            .password_visible(self.reveal);
+                    });
+                }
+            }
+        }
+        let mut editors = Editors {
+            height: 54,
+            font_size: 16,
+            name: Default::default(),
+            password: plico_core::TextBuffer::secret(),
+            reveal: false,
+            visible: true,
+        };
+        engine.declare_until_settled(&mut editors).unwrap();
+        adapter.sync(&engine).unwrap();
+        adapter.dispatch(&mut engine);
+        let root = engine.node(engine.root()).unwrap().children[0];
+        let ids = engine.node(root).unwrap().children.to_vec();
+        let name_obj = adapter.nodes[&ids[0]].widget.object();
+        let password_obj = adapter.nodes[&ids[1]].widget.object();
+        let assert_centered = |obj| unsafe {
+            sys::lv_obj_update_layout(obj);
+            let mut outer = sys::lv_area_t {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0,
+            };
+            let mut label = sys::lv_area_t {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0,
+            };
+            sys::lv_obj_get_coords(obj, &mut outer);
+            sys::lv_obj_get_coords(sys::lv_textarea_get_label(obj), &mut label);
+            assert!(
+                ((label.y1 + label.y2) - (outer.y1 + outer.y2)).abs() <= 1,
+                "editor line must be centered: {outer:?} {label:?}"
+            );
+        };
+        // Empty input exercises the placeholder's shared content origin.
+        assert_centered(name_obj);
+        assert_centered(password_obj);
+        editors.height = 62;
+        editors.font_size = 24;
+        engine.declare_until_settled(&mut editors).unwrap();
+        let delta = engine.take_frame_delta();
+        adapter.sync_delta(&engine, Some(delta)).unwrap();
+        assert_centered(name_obj);
+        assert_centered(password_obj);
+        assert_eq!(adapter.stats().style_resets, 0);
+        unsafe {
+            with_cstr("café", |p| sys::lv_textarea_set_text(name_obj, p));
+            with_cstr("s3cret!", |p| sys::lv_textarea_set_text(password_obj, p));
+        }
+        assert_eq!(adapter.dispatch(&mut engine), 2);
+        assert_eq!(editors.name.text().as_deref(), Some("café"));
+        assert!(editors.password.text().is_none());
+        assert_eq!(editors.password.presentation().text, "•••••••");
+        assert!(unsafe { sys::lv_textarea_get_password_mode(password_obj) });
+        assert_centered(name_obj);
+        assert_centered(password_obj);
+        editors.reveal = true;
+        engine.declare_until_settled(&mut editors).unwrap();
+        let delta = engine.take_frame_delta();
+        adapter.sync_delta(&engine, Some(delta)).unwrap();
+        assert!(!unsafe { sys::lv_textarea_get_password_mode(password_obj) });
+        assert!(
+            editors.password.text().is_none(),
+            "reveal does not change snapshot secrecy"
+        );
+        unsafe {
+            sys::lv_obj_send_event(
+                password_obj,
+                sys::lv_event_code_t_LV_EVENT_CLICKED,
+                std::ptr::null_mut(),
+            );
+        }
+        adapter.dispatch(&mut engine);
+        assert_eq!(adapter.editing, Some(ids[1]));
+        assert_eq!(
+            unsafe { sys::lv_keyboard_get_textarea(adapter.keyboard) },
+            password_obj
+        );
+        unsafe {
+            sys::lv_obj_send_event(
+                password_obj,
+                sys::lv_event_code_t_LV_EVENT_READY,
+                std::ptr::null_mut(),
+            );
+        }
+        adapter.dispatch(&mut engine);
+        assert_eq!(editors.password.submitted_count(), 1);
+        assert!(adapter.editing.is_none());
+        adapter.open_keyboard(ids[1]);
+        editors.visible = false;
+        engine.declare_until_settled(&mut editors).unwrap();
+        let delta = engine.take_frame_delta();
+        adapter.sync_delta(&engine, Some(delta)).unwrap();
+        assert!(adapter.editing.is_none());
+        assert!(unsafe { sys::lv_keyboard_get_textarea(adapter.keyboard) }.is_null());
+        // Stale events must not dereference a deleted input.
+        adapter
+            .events
+            .borrow_mut()
+            .push((ids[1], sys::lv_event_code_t_LV_EVENT_VALUE_CHANGED));
+        assert_eq!(adapter.dispatch(&mut engine), 0);
+        struct IconView {
+            color: plico_core::Color,
+            size: f32,
+            source: String,
+            visible: bool,
+        }
+        impl DeclareView for IconView {
+            fn theme(&self) -> Theme {
+                Theme::default()
+            }
+            fn show(&mut self, cx: &mut UiContext) {
+                if self.visible {
+                    svg_source(cx, self.source.clone())
+                        .size(self.size, self.size)
+                        .color(self.color);
+                }
+            }
+        }
+        let mut icons = IconView {
+            color: plico_core::Color::Literal(0xff0000), size: 24., visible: true,
+            source: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path d=\"M4 4H20V20H4Z\" fill=\"currentColor\"/></svg>".into(),
+        };
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert_eq!(adapter.stats().svg_rasterizations, 1);
+        let id = engine.node(engine.root()).unwrap().children[0];
+        let object = adapter.object_id(id);
+        let image_pixel = |adapter: &Adapter| unsafe {
+            let source = sys::lv_image_get_src(adapter.nodes[&id].widget.object())
+                as *const sys::lv_image_dsc_t;
+            let image = &*source;
+            let offset =
+                (image.header.h() / 2 * image.header.stride() + image.header.w() / 2 * 4) as usize;
+            let bytes = std::slice::from_raw_parts(image.data.add(offset), 4);
+            [bytes[0], bytes[1], bytes[2], bytes[3]]
+        };
+        let assert_pixel = |actual: [u8; 4], expected: [u8; 4]| {
+            for (a, e) in actual.into_iter().zip(expected) {
+                assert!(a.abs_diff(e) <= 1, "pixel: {actual:?} != {expected:?}");
+            }
+        };
+        assert_pixel(image_pixel(&adapter), [0, 0, 255, 255]);
+        assert_eq!(adapter.svg_cache_bytes(), 24 * 24 * 4);
+        unsafe {
+            let image = &*(sys::lv_image_get_src(adapter.nodes[&id].widget.object())
+                as *const sys::lv_image_dsc_t);
+            assert_eq!((image.header.w(), image.header.h()), (24, 24));
+            assert_eq!(*image.data.add(3), 0, "outside SVG path stays transparent");
+        }
+        let source = unsafe { sys::lv_image_get_src(adapter.nodes[&id].widget.object()) };
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert_eq!(adapter.stats().svg_rasterizations, 0);
+        assert_eq!(source, unsafe {
+            sys::lv_image_get_src(adapter.nodes[&id].widget.object())
+        });
+        icons.color = plico_core::Color::Literal(0x00ff00);
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert_eq!(adapter.stats().svg_rasterizations, 1);
+        assert_eq!(adapter.object_id(id), object);
+        assert_eq!(adapter.stats().style_resets, 0);
+        assert_pixel(image_pixel(&adapter), [0, 255, 0, 255]);
+        icons.size = 32.;
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert_eq!(adapter.stats().svg_rasterizations, 1);
+        assert_pixel(image_pixel(&adapter), [0, 255, 0, 255]);
+        assert_eq!(adapter.svg_cache_bytes(), 32 * 32 * 4);
+        icons.source = icons.source.replace("currentColor", "#0000ff");
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert_pixel(image_pixel(&adapter), [255, 0, 0, 255]);
+        icons.visible = false;
+        frame(&mut engine, &mut icons, &mut adapter);
+        assert!(adapter.object_id(id).is_none());
+        assert_eq!(adapter.svg_cache_bytes(), 0);
+        struct Navigation {
+            clicked: bool,
+        }
+        impl DeclareView for Navigation {
+            fn theme(&self) -> Theme {
+                Theme::default()
+            }
+            fn show(&mut self, cx: &mut UiContext) {
+                self.clicked |= button_base(cx, "Home")
+                    .width(104)
+                    .height(56)
+                    .padding(0)
+                    .children(|cx| {
+                        column(cx)
+                            .width(104)
+                            .height(56)
+                            .align(Align::Center)
+                            .justify(Justify::Center)
+                            .children(|cx| {
+                                icon(cx, &plico_core::icons::CHECK).size(24., 24.);
+                                text(cx, "Home");
+                            });
+                    })
+                    .response
+                    .clicked();
+            }
+        }
+        let mut navigation = Navigation { clicked: false };
+        frame(&mut engine, &mut navigation, &mut adapter);
+        let button = engine.node(engine.root()).unwrap().children[0];
+        let column = engine.node(button).unwrap().children[0];
+        let button_obj = adapter.nodes[&button].widget.object();
+        let child_ids = engine.node(column).unwrap().children.to_vec();
+        for child in child_ids {
+            let area = adapter.bounds(child).unwrap();
+            let mut point = sys::lv_point_t {
+                x: (area[0] + area[2]) / 2,
+                y: (area[1] + area[3]) / 2,
+            };
+            let hit = unsafe { sys::lv_indev_search_obj(adapter.screen, &mut point) };
+            assert_eq!(hit, button_obj, "icon/text must hit the surrounding button");
+        }
+        unsafe {
+            sys::lv_obj_send_event(
+                button_obj,
+                sys::lv_event_code_t_LV_EVENT_CLICKED,
+                std::ptr::null_mut(),
+            );
+        }
+        adapter.dispatch(&mut engine);
+        frame(&mut engine, &mut navigation, &mut adapter);
+        assert!(navigation.clicked);
         // Drop also exercises child-before-parent destruction of the native tree.
     }
 }

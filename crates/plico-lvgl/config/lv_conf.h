@@ -69,7 +69,7 @@
 
 #define LV_DRAW_LAYER_MAX_MEMORY         0             /*[bytes] 0=no limit*/
 #define LV_DRAW_LAYER_SIMPLE_BUF_SIZE    (24 * 1024)   /*[bytes]*/
-#define LV_DRAW_THREAD_STACK_SIZE    (8 * 1024)   /*[bytes]*/
+#define LV_DRAW_THREAD_STACK_SIZE    (32 * 1024)   /*[bytes]*/
 
 #define LV_USE_DRAW_SW 1
 #if LV_USE_DRAW_SW == 1
@@ -148,6 +148,9 @@
  * Panicking reports through the platform's normal path, with LVGL's own log
  * line (expression, file, line) immediately above it. plico-lvgl provides
  * this symbol (a Rust panic); replace it here to halt instead. */
+#ifdef __cplusplus
+extern "C"
+#endif
 void plico_lv_assert_handler(void);
 #define LV_ASSERT_HANDLER plico_lv_assert_handler();
 
@@ -359,8 +362,9 @@ void plico_lv_assert_handler(void);
 #define LV_USE_FREETYPE 0
 #define LV_USE_TINY_TTF 0
 #define LV_USE_RLOTTIE 0
-#define LV_USE_VECTOR_GRAPHIC  0
-#define LV_USE_THORVG_INTERNAL 0
+#define LV_USE_VECTOR_GRAPHIC  1
+#define LV_USE_SVG 1
+#define LV_USE_THORVG_INTERNAL 1
 #define LV_USE_THORVG_EXTERNAL 0
 #define LV_USE_LZ4_INTERNAL  0
 #define LV_USE_LZ4_EXTERNAL  0

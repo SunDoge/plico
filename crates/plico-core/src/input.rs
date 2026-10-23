@@ -135,6 +135,11 @@ impl TextBuffer {
         let s = self.0.lock().unwrap();
         (!s.secret).then(|| s.value.to_string())
     }
+    /// Borrow the value for a native editor or transport. Never log or retain it.
+    /// Unlike `text`, this explicitly grants access to secret values.
+    pub fn with_value<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&self.0.lock().unwrap().value)
+    }
     /// Move the value out, leaving an empty editor. The caller owns zeroization.
     pub fn take(&self) -> Zeroizing<String> {
         let mut s = self.0.lock().unwrap();

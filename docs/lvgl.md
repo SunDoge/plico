@@ -72,3 +72,32 @@ ESP32-P4 采用 ESP-IDF + std 路线，入口与构建说明见
 [`apps/lvgl-esp32p4`](../apps/lvgl-esp32p4/README.md)。它输出由 BSP 调用的 Rust
 静态库，绑定复用 IDF 工程的真实 LVGL 配置，避免第二份 LVGL；显示、触摸、DMA、
 tick 和事件循环由 BSP 管理。宿主跑通或交叉编译成功都不能当作 MCU 已运行的证明。
+
+## Native SVG icons
+
+`svg(cx, &SvgAsset)` and button `.icon(&asset)` now project to a native image.
+`currentColor` resolves against the node's foreground token; explicit SVG colors
+remain unchanged. The LVGL build must enable `LV_USE_SVG`, vector graphics,
+ThorVG and snapshots. The bundled host configuration enables these; external
+ESP-IDF projects must set their own flags and drawing-thread stack size.
+
+The adapter rasterizes each mounted SVG into a transparent ARGB8888 image of its
+explicit pixel size (default 24×24). It retains that image until source, pixel size
+or resolved color changes. Unchanged frames do not parse or rasterize again.
+Unmount releases the descriptor, pixels and LVGL cache entries. Current support
+is static SVG with explicit pixel dimensions, not SVG animation or percentage
+raster sizing. `Stats::svg_rasterizations` and `Adapter::svg_cache_bytes()` expose
+render counts and retained pixel bytes; the latter excludes object overhead.
+
+The native build supplements lightvgl-sys 9.5.4's C-only build by compiling its
+own bundled ThorVG C++ files. It locates that exact installed dependency under
+Cargo's registry; custom/vendor layouts can set `PLICO_LVGL_SOURCE` to the same
+version's `vendor/lvgl` directory. ESP-IDF already builds these files itself.
+The native regression checks raster pixels, transparency, dimensions, recoloring,
+source changes, buffer reuse and release on unmount.
+
+Native layout-only objects are not clickable. Otherwise a full-size column inside
+an icon/text button consumes pointer hits before the enclosing button receives
+them. Scroll containers retain clickability for dragging on empty space; native
+buttons/editors retain their own flags. The regression uses LVGL coordinate hit
+testing on both the icon and label, rather than only injecting a button event.

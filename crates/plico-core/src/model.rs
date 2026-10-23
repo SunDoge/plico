@@ -355,6 +355,10 @@ pub struct Style {
     pub input_revision: u64,
     #[invalidates(HIT_TEST)]
     pub input_navigation: bool,
+    /// Explicit native password reveal; does not expose secrets in snapshots.
+    #[serde(default)]
+    #[invalidates(PAINT)]
+    pub input_password_visible: bool,
     #[invalidates(PAINT)]
     pub shader_revision: u64,
     #[invalidates(PAINT, SEMANTICS)]
@@ -423,6 +427,7 @@ impl Default for Style {
             checked: false,
             input_revision: 0,
             input_navigation: false,
+            input_password_visible: false,
             shader_revision: 0,
             numeric_revision: 0,
             slider: None,

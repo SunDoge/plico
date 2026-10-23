@@ -1359,6 +1359,11 @@ pub struct InputResponse {
     pub navigation: Option<crate::InputNavigation>,
 }
 impl<'t> Input<'_, '_, 't> {
+    /// Explicitly reveal a secret in a supporting native editor.
+    pub fn password_visible(mut self, visible: bool) -> Self {
+        self.inner.style.input_password_visible = visible;
+        self
+    }
     /// Focus once when mounted; subsequent frames never steal focus.
     pub fn autofocus(mut self, enabled: bool) -> Self {
         self.autofocus = enabled;

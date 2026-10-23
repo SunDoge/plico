@@ -20,6 +20,8 @@ struct Values {
     bg: u32,
     bg_opa: u8,
     opa: u8,
+    translate_x: i32,
+    translate_y: i32,
     layout: u16,
     flow: u32,
     main: u32,
@@ -42,7 +44,7 @@ impl Values {
             width: dimension(style.width, style.width_percent),
             height: dimension(style.height, style.height_percent),
             pad_x: style.horizontal_padding() as i32,
-            pad_y: style.vertical_padding() as i32,
+            pad_y: vertical_padding(kind, style),
             gap: style.gap as i32,
             radius: style.radius as i32,
             border_width: style.border_width as i32,
@@ -56,6 +58,8 @@ impl Values {
                 0
             },
             opa: opacity(style.opacity),
+            translate_x: style.translate[0].round() as i32,
+            translate_y: style.translate[1].round() as i32,
             layout: if matches!(kind.family(), KindFamily::Container | KindFamily::Control) {
                 sys::lv_layout_t_LV_LAYOUT_FLEX as u16
             } else {
@@ -83,6 +87,25 @@ impl Values {
         }
     }
 }
+/// A fixed-height single-line editor centers its line box. Using the actual
+/// native font metrics also keeps the placeholder and cursor on the same line.
+/// Content-sized editors retain their requested padding.
+pub(super) fn vertical_padding(kind: Kind, style: Style) -> i32 {
+    if kind == Kind::TextInput
+        && let Some(height) = style.height
+    {
+        let line_height = unsafe {
+            if style.font_size >= 24 {
+                sys::lv_font_montserrat_24.line_height
+            } else {
+                sys::lv_font_montserrat_16.line_height
+            }
+        };
+        return ((height as i32 - 2 * style.border_width as i32 - line_height) / 2).max(0);
+    }
+    style.vertical_padding() as i32
+}
+
 pub(super) fn opacity(value: f32) -> u8 {
     (value.clamp(0., 1.) * 255.).round() as u8
 }
@@ -96,6 +119,10 @@ pub(super) fn apply(
     let old = Values::new(before.0, before.1, before.2);
     let new = Values::new(after.0, after.1, after.2);
     let mut writes = 0;
+    if fields.intersects(StyleProperties::SCROLL_Y) && before.1.scroll_y != after.1.scroll_y {
+        super::apply_scroll(obj, after.1.scroll_y);
+        writes += if after.1.scroll_y { 3 } else { 2 };
+    }
     unsafe {
         macro_rules! mask {
             (width) => {
@@ -108,7 +135,12 @@ pub(super) fn apply(
                 StyleProperties::PADDING | StyleProperties::PADDING_X
             };
             (pad_y) => {
-                StyleProperties::PADDING | StyleProperties::PADDING_Y
+                StyleProperties::PADDING
+                    | StyleProperties::PADDING_Y
+                    | StyleProperties::HEIGHT
+                    | StyleProperties::HEIGHT_PERCENT
+                    | StyleProperties::FONT_SIZE
+                    | StyleProperties::BORDER_WIDTH
             };
             (gap) => {
                 StyleProperties::GAP
@@ -136,6 +168,12 @@ pub(super) fn apply(
             };
             (opa) => {
                 StyleProperties::OPACITY
+            };
+            (translate_x) => {
+                StyleProperties::TRANSLATE
+            };
+            (translate_y) => {
+                StyleProperties::TRANSLATE
             };
             (layout) => {
                 StyleProperties::LAYOUT
@@ -207,6 +245,16 @@ pub(super) fn apply(
         set!(bg, 1, sys::lv_obj_set_style_bg_color(obj, color(new.bg), 0));
         set!(bg_opa, 1, sys::lv_obj_set_style_bg_opa(obj, new.bg_opa, 0));
         set!(opa, 1, sys::lv_obj_set_style_opa(obj, new.opa, 0));
+        set!(
+            translate_x,
+            1,
+            sys::lv_obj_set_style_translate_x(obj, new.translate_x, 0)
+        );
+        set!(
+            translate_y,
+            1,
+            sys::lv_obj_set_style_translate_y(obj, new.translate_y, 0)
+        );
         set!(layout, 1, sys::lv_obj_set_style_layout(obj, new.layout, 0));
         set!(
             flow,
