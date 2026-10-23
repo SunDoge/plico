@@ -62,6 +62,7 @@ fn sparse_paint_animation_touches_only_active_node_and_skips_layout() {
         let stats = s.adapter.stats;
         assert_eq!(s.view.calls, calls);
         assert_eq!(stats.sync_visits, 1);
+        assert_eq!(stats.layout_style_builds, 0);
         assert_eq!(stats.layout_runs, 0);
         assert_eq!(stats.flatten_visits, 0);
         assert_eq!(stats.paint_patches, 1);
@@ -93,6 +94,7 @@ fn sparse_layout_animation_syncs_one_node_and_commits_current_geometry() {
     let nodes = s.build_frame(&mut text, 800, 30000);
     assert_eq!(s.view.calls, calls);
     assert_eq!(s.adapter.stats.sync_visits, 1);
+    assert_eq!(s.adapter.stats.layout_style_builds, 1);
     assert_eq!(s.adapter.stats.layout_runs, 1);
     assert_eq!(s.adapter.stats.flatten_visits, nodes.len());
     let first = nodes
@@ -127,6 +129,7 @@ fn declaration_journal_survives_settling_and_patches_only_the_changed_label() {
     s.handle_semantic_action(plico_renderer::SemanticAction::Click { target: id });
     let nodes = s.build_frame(&mut text, 400, 300);
     assert_eq!(s.adapter.stats.sync_visits, 1);
+    assert_eq!(s.adapter.stats.layout_style_builds, 0);
     assert_eq!(s.adapter.stats.layout_runs, 1);
     assert!(
         nodes

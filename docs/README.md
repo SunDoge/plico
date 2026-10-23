@@ -20,6 +20,8 @@
 | [声明帧与保留帧](frame-scheduling.md) | 原生失效调度、宿主动画、干净帧复用和外部状态更新契约 |
 | [声明成本与 memo 实验](memo-experiments.md) | 核心声明、Markdown 解析缓存、宿主动画与更新边界的实验和限制 |
 | [增量执行](incremental.md) | dirty journal、活跃动画、paint patch 与场景复用边界 |
+| [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
+| [Native 属性更新实验](native-property-work.md) | 复用布局样式、桌面 CPU 对照与收益限制 |
 | [绘制 motion 与失效控制](presentation-motion.md) | transform、命中/语义几何、逐节点 bitflags 与工作量 |
 | [布局 API](layout-api.md) | 统一尺寸/四边边距、Flex 扩展、Grid 轨道与命名区域 |
 | [布局与样式动画](layout-style.md) | 目标声明、真实重排、属性过渡与模拟时钟验证 |

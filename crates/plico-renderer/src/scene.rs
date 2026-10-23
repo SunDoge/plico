@@ -126,6 +126,36 @@ fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool
         && bounds.y0 <= viewport.y1
 }
 
+// A transformed clip's bounding box is conservative: rounded corners and
+// rotated edges may leave extra work, but cannot hide visible descendants.
+fn clip_bounds(clip: [f32; 4], transform: Affine) -> Option<Rect> {
+    let rect = Rect::new(
+        clip[0] as f64,
+        clip[1] as f64,
+        clip[2] as f64,
+        clip[3] as f64,
+    );
+    if clip.iter().all(|v| v.is_finite()) {
+        return Some(transform.transform_rect_bbox(rect));
+    }
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    if b != 0.0 || c != 0.0 {
+        return None;
+    }
+    let axis = |lo: f64, hi: f64, scale: f64, offset: f64| {
+        if scale == 0.0 {
+            (offset, offset)
+        } else {
+            let x = lo * scale + offset;
+            let y = hi * scale + offset;
+            (x.min(y), x.max(y))
+        }
+    };
+    let (x0, x1) = axis(rect.x0, rect.x1, a, e);
+    let (y0, y1) = axis(rect.y0, rect.y1, d, f);
+    Some(Rect::new(x0, y0, x1, y1))
+}
+
 fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     if node.scroll.opacity <= 0.0 {
         return;
@@ -541,53 +571,6 @@ pub fn build_scene_scaled(
     );
 }
 
-/// Command ranges per placed node from one full encode pass.
-///
-/// A node's range covers exactly the commands it emitted at its own Enter
-/// (its box, own layers, clips, text — not its descendants'). On a paint-only
-/// frame the tree shape, depth ordering and every ancestor transform are
-/// unchanged, so re-encoding one node's range and splicing it into the
-/// previous command buffer reproduces a full rebuild.
-#[derive(Default, Clone)]
-pub struct SceneRanges {
-    /// Enter segment plus any Exit-tail segments (scrollbars), in order.
-    ranges: std::collections::HashMap<taffy::NodeId, Vec<std::ops::Range<usize>>>,
-    /// Whether the full pass emitted a base fill before any node command,
-    /// and the color it used — an incremental pass must not reuse a base
-    /// fill recorded under a different theme.
-    base_fill: Option<Color>,
-    /// Viewport size recorded at encode time; the incremental pass must
-    /// cull against the same rectangle.
-    viewport: (u32, u32),
-    /// Nodes whose encoding reads global scene state (backdrop blur clones
-    /// the live command prefix) cannot be re-encoded in isolation.
-    unsafe_nodes: std::collections::HashSet<taffy::NodeId>,
-}
-
-impl SceneRanges {
-    /// Whether an incremental reassembly would carry the same base fill.
-    pub fn base_color_matches(&self, current: Color) -> bool {
-        self.base_fill.is_none_or(|recorded| recorded == current)
-    }
-    fn record(&mut self, node: &PlacedNode, range: std::ops::Range<usize>) {
-        if node.paint.backdrop_blur > 0. {
-            self.unsafe_nodes.insert(node.node_id);
-        }
-        self.ranges.insert(node.node_id, vec![range]);
-    }
-    fn append_tail(&mut self, node: &PlacedNode, range: std::ops::Range<usize>) {
-        if !range.is_empty()
-            && let Some(segments) = self.ranges.get_mut(&node.node_id)
-        {
-            segments.push(range);
-        }
-    }
-    /// Whether a node's range can be spliced without a full rebuild.
-    fn splicable(&self, node: &PlacedNode) -> bool {
-        !self.unsafe_nodes.contains(&node.node_id) && self.ranges.contains_key(&node.node_id)
-    }
-}
-
 /// Encode independent paint-ordered root layers without concatenating their node lists.
 pub fn build_scene_scaled_layers(
     scene: &mut Scene,
@@ -598,35 +581,6 @@ pub fn build_scene_scaled_layers(
     base_color: Color,
     device_scale: f64,
 ) {
-    build_scene_tracked(
-        scene,
-        roots,
-        tcx,
-        width,
-        height,
-        base_color,
-        device_scale,
-        None,
-    )
-}
-
-/// Full encode, optionally recording per-node command ranges for the
-/// incremental re-encoder.
-#[allow(clippy::too_many_arguments)]
-pub fn build_scene_tracked(
-    scene: &mut Scene,
-    roots: &[&[PlacedNode]],
-    tcx: &mut TextContext,
-    width: u32,
-    height: u32,
-    base_color: Color,
-    device_scale: f64,
-    mut ranges: Option<&mut SceneRanges>,
-) {
-    if let Some(ranges) = ranges.as_deref_mut() {
-        ranges.viewport = (width, height);
-        ranges.base_fill = (base_color != Color::TRANSPARENT).then_some(base_color);
-    }
     scene.reset();
     let device = Affine::scale(device_scale);
 
@@ -642,7 +596,15 @@ pub fn build_scene_tracked(
     // on the scene-encoding path.
     let mut transforms: Vec<(usize, Affine)> = Vec::new();
     let mut layers = Vec::new();
+    let mut clips: Vec<(usize, Rect)> = Vec::new();
+    let mut skipped_depth = None;
     for event in roots.iter().flat_map(|nodes| subtree_events(nodes)) {
+        if let Some(depth) = skipped_depth {
+            if matches!(event, SubtreeEvent::Exit(n) if n.depth == depth) {
+                skipped_depth = None;
+            }
+            continue;
+        }
         let SubtreeEvent::Enter(n) = event else {
             let SubtreeEvent::Exit(n) = event else {
                 unreachable!()
@@ -652,13 +614,10 @@ pub fn build_scene_tracked(
             if let Some(&(_, transform)) = transforms.last().filter(|(depth, _)| *depth == n.depth)
                 && paints_viewport(n, transform, viewport)
             {
-                let tail_start = scene.commands.len();
                 draw_scrollbars(scene, n, device * transform);
-                if let Some(ranges) = ranges.as_deref_mut() {
-                    // Scrollbars paint at Exit, after all descendants; they
-                    // belong to the node's own range as a trailing segment.
-                    ranges.append_tail(n, tail_start..scene.commands.len());
-                }
+            }
+            while clips.last().is_some_and(|(depth, _)| *depth >= n.depth) {
+                clips.pop();
             }
             while transforms
                 .last()
@@ -675,6 +634,12 @@ pub fn build_scene_tracked(
             }
             continue;
         };
+        let inherited_clip = clips.last().map_or(viewport, |(_, rect)| *rect);
+        let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+        if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
+            skipped_depth = Some(n.depth);
+            continue;
+        }
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
         while transforms
             .last()
@@ -688,9 +653,13 @@ pub fn build_scene_tracked(
         let css_transform = resolve_node_transform(n, parent_transform);
         transforms.push((n.depth, css_transform));
         let node_transform = device * css_transform;
-        let paints_node = paints_viewport(n, css_transform, viewport);
+        let paints_node = paints_viewport(n, css_transform, inherited_clip);
+        let child_clip = n
+            .own_clip
+            .and_then(|clip| clip_bounds(clip, css_transform))
+            .map_or(inherited_clip, |clip| inherited_clip.intersect(clip));
+        clips.push((n.depth, child_clip));
 
-        let range_start = scene.commands.len();
         let enc = EncodeCtx {
             node: n,
             node_transform,
@@ -702,17 +671,13 @@ pub fn build_scene_tracked(
             device_scale,
         };
         encode_node(scene, tcx, &enc, &mut layers);
-        if let Some(ranges) = ranges.as_deref_mut() {
-            ranges.record(n, range_start..scene.commands.len());
-        }
     }
     while layers.pop().is_some() {
         scene.pop_layer();
     }
 }
 
-/// Per-Enter encoding inputs; split out so the incremental re-encoder can
-/// drive it for a single node with the same ancestor transform.
+/// Per-node inputs resolved by the full scene traversal.
 struct EncodeCtx<'a> {
     node: &'a PlacedNode,
     node_transform: Affine,
@@ -820,147 +785,6 @@ fn encode_node(
     }
 }
 
-/// Re-encode only the dirty nodes into a previous scene.
-///
-/// The previous frame's command buffer and its `SceneRanges` describe a
-/// paint-only world: unchanged tree, unchanged geometry, unchanged ancestor
-/// transforms. The whole command stream is reassembled in traversal order,
-/// copying each node's recorded segments verbatim and re-encoding only the
-/// dirty ones. Copying is a memcpy per command; encoding is the expensive
-/// part, so the frame cost is O(total commands) memcpy + O(dirty) encode.
-/// Returns false when a dirty node cannot be re-encoded in isolation —
-/// callers rebuild fully instead.
-pub fn build_scene_incremental(
-    scene: &mut Scene,
-    roots: &[&[PlacedNode]],
-    previous: &Scene,
-    ranges: &SceneRanges,
-    dirty: &[taffy::NodeId],
-    tcx: &mut TextContext,
-    device_scale: f64,
-) -> bool {
-    if dirty.is_empty() {
-        return true;
-    }
-    let device = Affine::scale(device_scale);
-    let viewport = Rect::new(
-        0.,
-        0.,
-        f64::from(ranges.viewport.0),
-        f64::from(ranges.viewport.1),
-    );
-    let dirty: std::collections::HashSet<taffy::NodeId> = dirty.iter().copied().collect();
-    // A placed entry per node id for ancestor walks and dirty resolution.
-    let index: std::collections::HashMap<taffy::NodeId, &PlacedNode> = roots
-        .iter()
-        .flat_map(|n| n.iter())
-        .map(|n| (n.node_id, n))
-        .collect();
-    for &id in &dirty {
-        let Some(node) = index.get(&id) else {
-            return false;
-        };
-        if !ranges.splicable(node) {
-            return false;
-        }
-    }
-    let old = previous.commands.as_slice();
-    let mut next = Scene::new();
-    // The base fill the full pass emitted before any node.
-    if ranges.base_fill.is_some() {
-        if old.is_empty() {
-            return false;
-        }
-        next.commands.push(old[0].clone());
-    }
-    for nodes in roots {
-        for event in subtree_events(nodes) {
-            let (node, is_enter) = match event {
-                SubtreeEvent::Enter(n) => (n, true),
-                SubtreeEvent::Exit(n) => (n, false),
-            };
-            let Some(segments) = ranges.ranges.get(&node.node_id) else {
-                return false;
-            };
-            if is_enter {
-                if dirty.contains(&node.node_id) {
-                    // Re-encode this node in isolation: the ancestor transform
-                    // is unchanged on a paint-only frame, so recomputing it
-                    // from the parent chain reproduces the recorded one.
-                    let mut parent_transform = Affine::IDENTITY;
-                    let mut chain: Vec<&PlacedNode> = Vec::new();
-                    let mut current = node.parent_node_id;
-                    while let Some(id) = current
-                        && let Some(parent) = index.get(&id)
-                    {
-                        chain.push(parent);
-                        current = parent.parent_node_id;
-                    }
-                    for parent in chain.iter().rev() {
-                        parent_transform = resolve_node_transform(parent, parent_transform);
-                    }
-                    let css_transform = resolve_node_transform(node, parent_transform);
-                    let node_transform = device * css_transform;
-                    let mut scratch = Scene::new();
-                    let enc = EncodeCtx {
-                        node,
-                        node_transform,
-                        paints_node: paints_viewport(node, css_transform, viewport),
-                        has_rounded_corners: node.paint.border_radii.max() > 0.0,
-                        device,
-                        bg: &viewport,
-                        viewport,
-                        device_scale,
-                    };
-                    let mut layers = Vec::new();
-                    encode_node(&mut scratch, tcx, &enc, &mut layers);
-                    while layers.pop().is_some() {
-                        scratch.pop_layer();
-                    }
-                    next.commands.extend(scratch.commands.iter().cloned());
-                } else {
-                    // Enter segment is the first recorded range.
-                    let segment = &segments[0];
-                    if segment.end > old.len() {
-                        return false;
-                    }
-                    next.commands
-                        .extend_from_slice(&old[segment.start..segment.end]);
-                }
-            } else if !dirty.contains(&node.node_id) {
-                // Exit-tail segments (scrollbars) follow all descendants.
-                // The first segment was already consumed at Enter.
-                for segment in segments.iter().skip(1) {
-                    if segment.end > old.len() {
-                        return false;
-                    }
-                    next.commands
-                        .extend_from_slice(&old[segment.start..segment.end]);
-                }
-            } else {
-                // Dirty nodes re-emit their own Exit tail (scrollbars) with
-                // the node state just re-encoded.
-                let mut parent_transform = Affine::IDENTITY;
-                let mut chain: Vec<&PlacedNode> = Vec::new();
-                let mut current = node.parent_node_id;
-                while let Some(id) = current
-                    && let Some(parent) = index.get(&id)
-                {
-                    chain.push(parent);
-                    current = parent.parent_node_id;
-                }
-                for parent in chain.iter().rev() {
-                    parent_transform = resolve_node_transform(parent, parent_transform);
-                }
-                let transform = resolve_node_transform(node, parent_transform);
-                draw_scrollbars(&mut next, node, device * transform);
-            }
-        }
-    }
-    *scene = next;
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1026,5 +850,119 @@ mod tests {
         let (_, radius, _) = shadow_geometry(Rect::new(0.0, 0.0, 100.0, 100.0), 8.0, &shadow);
 
         assert_eq!(radius, 24.0);
+    }
+    fn test_node(depth: usize, rect: [f32; 4]) -> PlacedNode {
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let node_id = tree.new_leaf(taffy::Style::default()).unwrap();
+        let mut node = PlacedNode {
+            node_id,
+            parent_node_id: None,
+            depth: 0,
+            rect: [0.0; 4],
+            content_origin: [0.0; 2],
+            content_size: [0.0; 2],
+            clip: None,
+            clip_radius: 0.0,
+            clip_radii: CornerRadii::default(),
+            clip_depth: None,
+            own_clip: None,
+            own_clip_radius: 0.0,
+            own_clip_radii: CornerRadii::default(),
+            border_widths: [0.0; 4],
+            scroll: Default::default(),
+            paint: Default::default(),
+        };
+        node.depth = depth;
+        node.rect = rect;
+        node.paint.background = Some(Color::BLACK);
+        node
+    }
+
+    fn encoded(nodes: &[PlacedNode]) -> Scene {
+        let mut scene = Scene::new();
+        build_scene_scaled_layers(
+            &mut scene,
+            &[nodes],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.0,
+        );
+        scene
+    }
+
+    #[test]
+    fn zero_opacity_skips_descendants_but_not_siblings() {
+        let mut hidden = test_node(0, [0., 0., 50., 50.]);
+        hidden.paint.opacity = 0.;
+        let child = test_node(1, [0., 0., 20., 20.]);
+        let sibling = test_node(0, [50., 50., 80., 80.]);
+        assert_eq!(
+            encoded(&[hidden, child, sibling.clone()]).commands,
+            encoded(&[sibling]).commands
+        );
+    }
+
+    #[test]
+    fn ancestor_clip_culls_paint_inside_window() {
+        let mut parent = test_node(0, [0., 0., 20., 20.]);
+        parent.own_clip = Some([f32::NEG_INFINITY, 0., f32::INFINITY, 20.]);
+        let child = test_node(1, [30., 30., 50., 50.]);
+        assert_eq!(
+            encoded(&[parent.clone(), child]).commands,
+            encoded(&[parent]).commands
+        );
+    }
+
+    #[test]
+    fn offscreen_parent_does_not_hide_overflowing_or_transformed_children() {
+        let parent = test_node(0, [200., 200., 220., 220.]);
+        let child = test_node(1, [10., 10., 30., 30.]);
+        assert!(!encoded(&[parent.clone(), child]).commands.is_empty());
+        let mut child = test_node(1, [200., 200., 220., 220.]);
+        child.paint.runtime_transform = Some([1., 0., 0., 1., -190., -190.]);
+        assert!(!encoded(&[parent, child]).commands.is_empty());
+    }
+
+    #[test]
+    fn rotated_unbounded_clip_is_not_used_for_culling() {
+        assert!(
+            clip_bounds(
+                [f32::NEG_INFINITY, 0., f32::INFINITY, 20.],
+                Affine::rotate(0.5)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn clipped_text_does_not_populate_scene_text_caches() {
+        let mut parent = test_node(0, [0., 0., 20., 20.]);
+        parent.own_clip = Some([0., 0., 20., 20.]);
+        let mut child = test_node(1, [30., 30., 50., 50.]);
+        child.paint.text = Some(Arc::from("Must not shape"));
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
+        build_scene_scaled_layers(
+            &mut scene,
+            &[&[parent, child]],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(text.cache_entries(), (0, 0));
+    }
+
+    #[test]
+    fn transformed_clip_keeps_transformed_child_visible() {
+        let mut parent = test_node(0, [200., 200., 220., 220.]);
+        parent.own_clip = Some(parent.rect);
+        parent.paint.runtime_transform = Some([1., 0., 0., 1., -190., -190.]);
+        let child = test_node(1, [200., 200., 220., 220.]);
+        let baseline = encoded(&[parent.clone()]).commands.len();
+        assert!(encoded(&[parent, child]).commands.len() > baseline);
     }
 }

@@ -71,8 +71,6 @@ pub struct BackendStats {
     pub placed_node_clones: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
-    /// Paint-only frames satisfied by re-encoding dirty node ranges.
-    pub scene_incremental: usize,
     pub svg_parses: usize,
     pub changes: plico_core::Changes,
 }
@@ -1879,7 +1877,6 @@ pub struct Source<V: View> {
     requests: plico_core::Changes,
     target_scene: Option<(Scene, u64, u64)>,
     /// Ranges of the last fully encoded scene, for paint-only re-encoding.
-    scene_ranges: plico_renderer::scene::SceneRanges,
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
     declared_seen: HashSet<Entity>,
@@ -1914,7 +1911,6 @@ impl<V: View> Source<V> {
             last_tick: None,
             requests: plico_core::Changes::empty(),
             target_scene: None,
-            scene_ranges: Default::default(),
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
@@ -2190,50 +2186,12 @@ impl<V: View> Source<V> {
             self.adapter.stats.scene_reuses += 1;
             return;
         }
-        // Paint-only frames re-encode just the dirty nodes into the previous
-        // buffer: geometry, order and ancestor transforms are unchanged, so
-        // each node's recorded command range can be spliced in isolation.
-        // PLICO_SCENE_INCREMENTAL=0 disables the incremental path for
-        // bisecting present-layer regressions; the default is on.
-        let incremental_enabled =
-            std::env::var("PLICO_SCENE_INCREMENTAL").map_or(true, |v| v != "0");
-        let paint_only = incremental_enabled
-            && !self.adapter.geometry_dirty
-            && self.adapter.stats.flatten_visits == 0
-            && self.adapter.stats.layout_runs == 0
-            && !self.adapter.motions.active()
-            && self.adapter.scroll_motions.is_empty()
-            && self.adapter.shaders.is_empty()
-            && snapshot.is_none()
-            && !self.adapter.paint_dirty.is_empty();
-        let base_matches = self.scene_ranges.base_color_matches(self.base_color());
-        if paint_only
-            && base_matches
-            && let Some((previous, _, _)) = &self.target_scene
-            && plico_renderer::scene::build_scene_incremental(
-                scene,
-                &[self.adapter.placed.as_slice(), self.adapter.tips.layer()],
-                previous,
-                &self.scene_ranges,
-                &self.adapter.paint_dirty,
-                tcx,
-                scale,
-            )
-        {
-            self.adapter.stats.scene_incremental += 1;
-            self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
-            // Re-encoded segments changed length: the recorded ranges no
-            // longer describe this buffer, so only the next full rebuild can
-            // feed the incremental path again.
-            self.scene_ranges = Default::default();
-            return;
-        }
         self.adapter.stats.scene_builds += 1;
         let layers = match (self.adapter.shaders.is_empty(), snapshot) {
             (true, Some(nodes)) => [nodes, &[]],
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
-        plico_renderer::scene::build_scene_tracked(
+        plico_renderer::scene::build_scene_scaled_layers(
             scene,
             &layers,
             tcx,
@@ -2241,7 +2199,6 @@ impl<V: View> Source<V> {
             size.1,
             self.base_color(),
             scale,
-            Some(&mut self.scene_ranges),
         );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
     }

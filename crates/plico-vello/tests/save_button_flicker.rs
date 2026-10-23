@@ -138,11 +138,7 @@ fn hover_and_save_are_stable_on_the_retained_present_path() {
     for tick in 0..10 {
         clock.advance(Duration::from_millis(16)).unwrap();
         s.handle_event(pointer(
-            if tick % 2 == 0 {
-                PointerPhase::Move
-            } else {
-                PointerPhase::Move
-            },
+            PointerPhase::Move,
             cx + tick as f64, // small drift like a real mouse
             cy,
         ));
@@ -196,7 +192,7 @@ fn scene_placeholder() -> plico_renderer::Scene {
 }
 
 #[test]
-fn incremental_scene_splices_never_lose_button_glyphs() {
+fn scene_rebuilds_never_lose_button_glyphs() {
     let clock = Arc::new(plico_core::VirtualClock::default());
     let mut s = Source::with_clock(
         Gallery {
@@ -234,7 +230,7 @@ fn incremental_scene_splices_never_lose_button_glyphs() {
     for tick in 0..12 {
         clock.advance(Duration::from_millis(16)).unwrap();
         // Alternate on/off the button: real paint churn every other tick,
-        // exactly the motion-animated restyle the incremental path targets.
+        // exercise motion-animated restyling across scene rebuilds.
         let (x, y) = if tick % 2 == 0 {
             (cx, cy)
         } else {
@@ -258,11 +254,9 @@ fn incremental_scene_splices_never_lose_button_glyphs() {
             content, baseline,
             "tick {tick}: scene glyph content changed ({content:?} vs {baseline:?})"
         );
-        eprintln!(
-            "tick {tick}: incremental={} builds={} reuses={}",
-            s.adapter.stats.scene_incremental,
-            s.adapter.stats.scene_builds,
-            s.adapter.stats.scene_reuses
+        assert_eq!(
+            s.adapter.stats.scene_builds + s.adapter.stats.scene_reuses,
+            1
         );
     }
 }
