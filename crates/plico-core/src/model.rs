@@ -53,7 +53,44 @@ pub enum Kind {
     Switch,
     Checkbox,
 }
+/// Projection family for incremental backends without a native widget for
+/// every [`Kind`].
+///
+/// A backend that cannot map a kind exactly degrades along this
+/// classification instead of failing the sync: containers keep nesting
+/// children, text keeps rendering its label, controls keep reporting clicks,
+/// and media renders as an empty box. Interactivity is orthogonal — check
+/// [`Kind::interactive`] separately, since a degraded `TextInput` still
+/// renders text but no longer edits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KindFamily {
+    /// Holds children: Root, Column, Row, Overlay, Dialog, TooltipAnchor.
+    Container,
+    /// Renders its label: Text, TextInput.
+    Text,
+    /// Leaf control reporting clicks: Button, ButtonBase, Switch, Checkbox, Slider.
+    Control,
+    /// Visual content without interaction: Svg, Shader.
+    Media,
+}
 impl Kind {
+    /// The family a backend without a native widget for this kind should
+    /// project it onto; see [`KindFamily`].
+    pub const fn family(self) -> KindFamily {
+        match self {
+            Self::Root
+            | Self::Overlay
+            | Self::Dialog
+            | Self::TooltipAnchor
+            | Self::Column
+            | Self::Row => KindFamily::Container,
+            Self::Text | Self::TextInput => KindFamily::Text,
+            Self::Button | Self::ButtonBase | Self::Switch | Self::Checkbox | Self::Slider => {
+                KindFamily::Control
+            }
+            Self::Svg | Self::Shader => KindFamily::Media,
+        }
+    }
     pub const fn interactive(self) -> bool {
         matches!(
             self,

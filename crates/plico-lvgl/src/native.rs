@@ -7,7 +7,7 @@ use oxivgl::{
     widgets::{AsLvHandle, Button, Label, Obj, Screen, WidgetError},
 };
 use plico_core::{
-    Align, Changes, Engine, Entity, FrameDelta, Justify, Kind, NodeRef, Style, Theme,
+    Align, Changes, Engine, Entity, FrameDelta, Justify, Kind, KindFamily, NodeRef, Style, Theme,
 };
 use snafu::{OptionExt, Snafu};
 use std::{
@@ -79,14 +79,22 @@ impl Widget {
             Self::Button { button, .. } => button,
         }
     }
+    /// Family-level class matching: a native widget survives a declared kind
+    /// change that stays within the same [`KindFamily`]. Only a family change
+    /// (or the Button -> ButtonBase distinction, which changes click routing)
+    /// forces a remount.
     fn class_matches(&self, kind: Kind) -> bool {
-        matches!(
-            (self, kind),
-            (Self::Container(_), Kind::Root | Kind::Column | Kind::Row)
-                | (Self::Text(_), Kind::Text)
-                | (Self::Button { .. }, Kind::Button)
-                | (Self::ButtonBase(_), Kind::ButtonBase)
-        )
+        let widget_family = match self {
+            Self::Container(_) => KindFamily::Container,
+            Self::Text(_) => KindFamily::Text,
+            Self::Button { .. } | Self::ButtonBase(_) => {
+                return matches!(
+                    (self, kind),
+                    (Self::Button { .. }, Kind::Button) | (Self::ButtonBase(_), Kind::ButtonBase)
+                );
+            }
+        };
+        widget_family == kind.family()
     }
     fn button(&self) -> Option<&Button<'static>> {
         match self {
@@ -194,18 +202,6 @@ impl<'driver> Adapter<'driver> {
             out: &mut Vec<(Entity, Option<Entity>, usize)>,
         ) -> Result<(), Error> {
             let node = engine.node(entity).expect("live engine child");
-            snafu::ensure!(
-                matches!(
-                    node.kind,
-                    Kind::Root
-                        | Kind::Column
-                        | Kind::Row
-                        | Kind::Text
-                        | Kind::Button
-                        | Kind::ButtonBase
-                ),
-                UnsupportedSnafu { kind: node.kind }
-            );
             snafu::ensure!(!node.text.contains('\0'), TextNulSnafu);
             out.push((entity, parent, depth));
             for child in node.children {
@@ -298,16 +294,23 @@ impl<'driver> Adapter<'driver> {
 
     fn create(&self, kind: Kind, parent: Option<Entity>) -> Result<Widget, Error> {
         fn create_at(kind: Kind, parent: &impl AsLvHandle) -> Result<Widget, Error> {
-            Ok(match kind {
-                Kind::Text => Widget::Text(Label::new(parent)?),
-                Kind::ButtonBase => Widget::ButtonBase(Button::new(parent)?),
-                Kind::Button => {
-                    let button = Button::new(parent)?;
-                    let label = Label::new(&button)?;
-                    label.center();
-                    Widget::Button { label, button }
-                }
-                _ => Widget::Container(Obj::new(parent)?),
+            Ok(match kind.family() {
+                KindFamily::Text => Widget::Text(Label::new(parent)?),
+                // Exact-button kinds get native click routing; degraded
+                // controls (Switch/Checkbox/Slider) render as containers
+                // carrying their label and lose interaction.
+                KindFamily::Control => match kind {
+                    Kind::Button => {
+                        let button = Button::new(parent)?;
+                        let label = Label::new(&button)?;
+                        label.center();
+                        Widget::Button { label, button }
+                    }
+                    Kind::ButtonBase => Widget::ButtonBase(Button::new(parent)?),
+                    _ => Widget::Container(Obj::new(parent)?),
+                },
+                // Containers nest children; media renders as an empty box.
+                KindFamily::Container | KindFamily::Media => Widget::Container(Obj::new(parent)?),
             })
         }
         match parent {
