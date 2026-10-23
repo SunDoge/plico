@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("PLICO_REPORT_DIR").unwrap_or_else(|_| "reports/layout-style".into());
     std::fs::create_dir_all(&directory)?;
     let mut source = Source::new(Gallery {
-        page: plico_gallery::Page::Layout,
+        router: plico_core::Router::new(plico_gallery::Page::Layout),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

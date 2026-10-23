@@ -10,6 +10,7 @@ mod input;
 mod layout;
 mod modal;
 mod model;
+mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
 pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
@@ -33,6 +34,7 @@ pub use model::{
     TextSpan, UnmatchedPaths, WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, component, text, view};
+pub use router::{DEFAULT_HISTORY_LIMIT, Router};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
 pub use widgets::{SelectOption, SelectResponse};
@@ -131,9 +133,9 @@ pub mod prelude {
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
         GridFlow, GridLine, GridTemplate, InnerResponse, InputNavigation, InputResponse, Justify,
-        Length, Metrics, ModalState, Motion, PopoverState, Position, Response, SelectOption,
-        SelectResponse, ShaderAsset, SliderResponse, SvgAsset, TextBuffer, Theme, ToggleResponse,
-        Track, TrackSize, Ui, UiContext, VirtualList, VirtualListResponse, Widget, component, fr,
-        minmax, percent, px, text, view,
+        Length, Metrics, ModalState, Motion, PopoverState, Position, Response, Router,
+        SelectOption, SelectResponse, ShaderAsset, SliderResponse, SvgAsset, TextBuffer, Theme,
+        ToggleResponse, Track, TrackSize, Ui, UiContext, VirtualList, VirtualListResponse, Widget,
+        component, fr, minmax, percent, px, text, view,
     };
 }

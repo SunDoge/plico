@@ -32,7 +32,7 @@ fn keyboard_slide_retains_entity_and_stops_requesting_frames() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Game2048,
+            router: plico_core::Router::new(Page::Game2048),
             game2048: Game::from_cells([[0, 0, 0, 8], [0; 4], [0; 4], [0; 4]]),
             ..Default::default()
         },
@@ -84,7 +84,7 @@ fn keyboard_slide_retains_entity_and_stops_requesting_frames() {
 #[test]
 fn gallery_buttons_play_and_restart_and_board_fits_small_window() {
     let mut s = Source::new(Gallery {
-        page: Page::Game2048,
+        router: plico_core::Router::new(Page::Game2048),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -116,7 +116,7 @@ fn gallery_buttons_play_and_restart_and_board_fits_small_window() {
             assert!(node.rect[0] >= 164. && node.rect[2] <= 640.);
         }
     }
-    s.view.page = Page::Controls;
+    s.view.router.go(Page::Controls);
     frame(&mut s, &mut tcx, 640, 740);
     let before = s.view.game2048.clone();
     s.handle_event(key("ArrowLeft"));
@@ -139,7 +139,7 @@ fn game_over_and_win_present_actions_after_motion() {
         }
         let mut source = Source::with_clock(
             Gallery {
-                page: Page::Game2048,
+                router: plico_core::Router::new(Page::Game2048),
                 game2048: game,
                 ..Default::default()
             },
@@ -167,7 +167,7 @@ fn game_over_and_win_present_actions_after_motion() {
 #[test]
 fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
     let app = Gallery {
-        page: Page::Game2048,
+        router: plico_core::Router::new(Page::Game2048),
         game2048: Game::from_cells([[2, 2, 4, 0], [0; 4], [0; 4], [0; 4]]),
         ..Default::default()
     };

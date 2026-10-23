@@ -14,7 +14,7 @@ fn glass_source(dark: bool, blur: bool) -> (Source<Gallery>, plico_core::Virtual
     let mut source = Source::with_clock(
         Gallery {
             dark,
-            page: Page::Glass,
+            router: plico_core::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),
@@ -157,7 +157,7 @@ fn retained_frame_matches_direct_across_animation_frames() {
     let clock = plico_core::VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Glass,
+            router: plico_core::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),
@@ -207,7 +207,7 @@ fn blur_stays_confined_during_theme_transition() {
     let mut source = Source::with_clock(
         Gallery {
             dark: false,
-            page: Page::Glass,
+            router: plico_core::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),
@@ -248,7 +248,7 @@ fn backdrop_filter_layer_is_clipped_to_the_card() {
     let clock = plico_core::VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Glass,
+            router: plico_core::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),

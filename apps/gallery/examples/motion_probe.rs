@@ -16,7 +16,7 @@ fn main() {
     ]);
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Game2048,
+            router: plico_core::Router::new(Page::Game2048),
             game2048: game,
             ..Default::default()
         },

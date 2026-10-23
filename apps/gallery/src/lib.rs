@@ -18,7 +18,7 @@ static AURORA: plico_core::ShaderAsset = plico_core::shader_asset!("../assets/sh
 
 static LOGO: plico_core::SvgAsset = plico_core::svg_asset!("../assets/plico.svg");
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Page {
     #[default]
     Workspace,
@@ -43,7 +43,7 @@ pub struct Gallery {
     pub dark: bool,
     pub large: bool,
     pub expanded: bool,
-    pub page: Page,
+    pub router: plico_core::Router<Page>,
     pub alignment: u8,
     pub wrapped: bool,
     pub compact: bool,
@@ -65,7 +65,17 @@ impl App for Gallery {
         self.game2048.time = time.now;
     }
     fn on_key(&mut self, key: &str) -> bool {
-        self.page == Page::Game2048 && self.game2048.key(key)
+        match key {
+            "Alt+ArrowLeft" if self.router.can_back() => {
+                self.router.back();
+                true
+            }
+            "Alt+ArrowRight" if self.router.can_forward() => {
+                self.router.forward();
+                true
+            }
+            _ => self.router.show(Page::Game2048) && self.game2048.key(key),
+        }
     }
     fn theme(&self) -> Theme {
         let mut theme = if self.dark {
@@ -113,7 +123,7 @@ impl App for Gallery {
                     switch(ui, "Dark theme", &mut self.dark);
                     checkbox(ui, "Large text", &mut self.large);
                 };
-                match self.page {
+                match self.router.current() {
                     Page::Workspace => self.workspace.show(ui),
                     Page::Layout => self.layout_page(ui),
                     Page::Controls => self.controls_page(ui),
@@ -141,8 +151,8 @@ impl Gallery {
             Page::Markdown => &crate::icons::MESSAGE_SQUARE,
             Page::Glass => &crate::icons::LAYERS,
         };
-        if nav_item(ui, label, self.page == page, image).clicked() {
-            self.page = page;
+        if nav_item(ui, label, self.router.show(page), image).clicked() {
+            self.router.go(page);
         }
     }
     #[component]

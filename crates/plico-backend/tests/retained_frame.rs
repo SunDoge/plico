@@ -7,7 +7,7 @@ fn retained_and_snapshot_paths_render_identical_pixels_for_widgets_shader_and_th
     let mut text = TextContext::new();
     for page in [Page::Controls, Page::Motion] {
         let app = Gallery {
-            page,
+            router: plico_core::Router::new(page),
             ..Default::default()
         };
         let mut slow = Source::with_clock(app.clone(), clock.clone());

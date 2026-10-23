@@ -8,7 +8,7 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Markdown,
+            router: plico_core::Router::new(Page::Markdown),
             ..Default::default()
         },
         clock.clone(),
@@ -72,7 +72,7 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
     use plico_renderer::{GesturePhase, Modifiers, Point, UiEvent, WheelDeltaMode, WheelEvent};
     let clock = VirtualClock::default();
     let mut gallery = Gallery {
-        page: Page::Markdown,
+        router: plico_core::Router::new(Page::Markdown),
         ..Default::default()
     };
     gallery.markdown_chat.burst();

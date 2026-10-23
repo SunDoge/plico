@@ -2517,7 +2517,7 @@ mod theme_tests {
     fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
         let mut s = Source::new(Counting {
             gallery: gallery::Gallery {
-                page: gallery::Page::Controls,
+                router: plico_core::Router::new(gallery::Page::Controls),
                 ..Default::default()
             },
             calls: 0,

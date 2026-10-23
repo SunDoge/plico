@@ -1,0 +1,256 @@
+//! Ordered navigation state for multi-page applications.
+//!
+//! Routing is application state, not a framework subsystem: a `Router` lives
+//! in the app struct like any other field, serializes with the rest of the
+//! state through the existing snapshot machinery, and every backend renders
+//! it identically because it is just an enum comparison. The router adds
+//! what hand-rolled `page` fields keep getting wrong: a bounded history with
+//! back/forward, `replace` without history, and deep-link restoration.
+//!
+//! ```ignore
+//! enum Page { Home, Settings }
+//! struct App { router: Router<Page> }
+//! impl DeclareView for App {
+//!     fn show(&mut self, cx: &mut UiContext) {
+//!         if self.router.show(Page::Home) { home(cx); }
+//!         if self.router.show(Page::Settings) { settings(cx); }
+//!     }
+//! }
+//! ```
+use serde::{Deserialize, Serialize};
+
+fn default_limit() -> usize {
+    DEFAULT_HISTORY_LIMIT
+}
+/// Navigation history bounded per application policy.
+///
+/// The bound keeps long sessions (logs, chat) from accumulating unbounded
+/// history; the default of 32 comfortably exceeds real navigation depth.
+pub const DEFAULT_HISTORY_LIMIT: usize = 32;
+
+/// Ordered navigation state with back/forward history.
+///
+/// `Route` should be a cheap `Copy + PartialEq` enum; parameters belong in
+/// the variant, pattern-matched at the declaration site.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Router<Route> {
+    current: Route,
+    history: Vec<Route>,
+    /// Index of `current` inside `history`; backward when 0.
+    cursor: usize,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+/// Equality is the current route: two routers on the same page render the
+/// same frame regardless of how they got there.
+impl<Route: PartialEq> PartialEq for Router<Route> {
+    fn eq(&self, other: &Self) -> bool {
+        self.current == other.current
+    }
+}
+impl<Route: Default + Copy + Eq> Default for Router<Route> {
+    /// The default route's router; state snapshots that omit the field
+    /// deserialize to a fresh start on the default route.
+    fn default() -> Self {
+        Self::new(Route::default())
+    }
+}
+impl<Route: Copy + Eq> Router<Route> {
+    /// Start at `route` with an empty history and the default bound.
+    pub fn new(route: Route) -> Self {
+        Self::with_limit(route, DEFAULT_HISTORY_LIMIT)
+    }
+    /// Start at `route`, remembering at most `limit` entries.
+    pub fn with_limit(route: Route, limit: usize) -> Self {
+        Self {
+            current: route,
+            history: vec![route],
+            cursor: 0,
+            limit: limit.max(1),
+        }
+    }
+    /// The current route.
+    pub fn current(&self) -> Route {
+        self.current
+    }
+    /// Whether this route should be declared in the current frame.
+    ///
+    /// An immediate-mode conditional: every route can be probed each frame
+    /// without maintaining a match arm or ordering.
+    pub fn show(&self, route: Route) -> bool {
+        self.current == route
+    }
+    /// Navigate to `route`, pushing the previous route onto the history.
+    /// Navigating to the current route is a no-op.
+    pub fn go(&mut self, route: Route) {
+        if route == self.current {
+            return;
+        }
+        // A forward history exists only until the next navigation.
+        self.history.truncate(self.cursor + 1);
+        if self.history.len() >= self.limit {
+            // Evicting the oldest entry shifts indices down by one; pushing
+            // the new route at the tail shifts the current entry back up.
+            // The two cancel, so the cursor is already correct.
+            self.history.remove(0);
+        } else {
+            self.cursor += 1;
+        }
+        self.history.push(route);
+        self.current = route;
+    }
+    /// Navigate to `route` replacing the current history entry: the previous
+    /// route is not reachable through `back`. Redirects and detail pages
+    /// that should not stack use this.
+    pub fn replace(&mut self, route: Route) {
+        if route == self.current {
+            return;
+        }
+        self.history[self.cursor] = route;
+        self.current = route;
+    }
+    /// Step back one entry; returns the route shown after the step, which is
+    /// unchanged when already at the oldest entry.
+    pub fn back(&mut self) -> Route {
+        if self.cursor == 0 {
+            return self.current;
+        }
+        self.cursor -= 1;
+        self.current = self.history[self.cursor];
+        self.current
+    }
+    /// Step forward one entry, undoing `back`; unchanged at the newest entry.
+    pub fn forward(&mut self) -> Route {
+        if self.cursor + 1 >= self.history.len() {
+            return self.current;
+        }
+        self.cursor += 1;
+        self.current = self.history[self.cursor];
+        self.current
+    }
+    /// Whether `back` would move.
+    pub fn can_back(&self) -> bool {
+        self.cursor > 0
+    }
+    /// Whether `forward` would move.
+    pub fn can_forward(&self) -> bool {
+        self.cursor + 1 < self.history.len()
+    }
+    /// History length after truncation, for diagnostics and tests.
+    pub fn depth(&self) -> usize {
+        self.history.len()
+    }
+    /// Restore from a serialized state; deserialization goes through
+    /// `serde(default)` on the app struct, so a missing field yields the
+    /// starting route instead of failing.
+    pub fn restore(&mut self, saved: Router<Route>) {
+        if saved.history.is_empty() {
+            return;
+        }
+        self.history = saved.history;
+        self.history.truncate(self.limit);
+        // Clamp instead of trusting a stale cursor from serialized state.
+        self.cursor = saved.cursor.min(self.history.len() - 1);
+        self.current = self.history[self.cursor];
+    }
+}
+impl<Route: Copy + Eq + PartialEq> Router<Route> {
+    /// Navigation targets reachable from here, for tests and menus.
+    pub fn history(&self) -> &[Route] {
+        &self.history
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum Page {
+        #[default]
+        Home,
+        List,
+        Detail,
+    }
+    #[test]
+    fn navigation_pushes_history_and_back_forward_moves_through_it() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        router.go(Page::Detail);
+        assert!(router.show(Page::Detail));
+        assert!(router.can_back());
+        assert_eq!(router.back(), Page::List);
+        assert_eq!(router.back(), Page::Home);
+        assert!(!router.can_back());
+        assert_eq!(router.back(), Page::Home); // clamped at the oldest entry
+        assert!(router.can_forward());
+        assert_eq!(router.forward(), Page::List);
+        assert_eq!(router.forward(), Page::Detail);
+        assert!(!router.can_forward());
+        assert_eq!(router.forward(), Page::Detail);
+    }
+    #[test]
+    fn repeat_navigation_is_a_no_op_and_replace_skips_history() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        let depth = router.depth();
+        router.go(Page::List);
+        assert_eq!(router.depth(), depth);
+        router.replace(Page::Detail);
+        assert!(router.show(Page::Detail));
+        // Detail replaced List: back lands on Home, not List.
+        assert_eq!(router.back(), Page::Home);
+    }
+    #[test]
+    fn forward_history_is_discarded_by_a_new_navigation() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        router.back();
+        assert!(router.show(Page::Home));
+        router.go(Page::Detail);
+        assert!(!router.can_forward());
+        assert_eq!(router.back(), Page::Home);
+    }
+    #[test]
+    fn history_is_bounded_and_oldest_entries_are_forgotten() {
+        let mut router = Router::with_limit(Page::Home, 3);
+        router.go(Page::List);
+        router.go(Page::Detail);
+        router.go(Page::Home);
+        assert_eq!(router.depth(), 3);
+        router.go(Page::List);
+        assert_eq!(router.depth(), 3);
+        // The window now holds [Detail, Home, List]: Home was pushed once
+        // more before List evicted the original Home entry.
+        assert_eq!(router.back(), Page::Home);
+        assert_eq!(router.back(), Page::Detail);
+        assert!(!router.can_back());
+    }
+    #[test]
+    fn restore_clamps_a_stale_cursor() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        let saved = serde_json::to_value(&router).unwrap();
+        let mut restored: Router<Page> = serde_json::from_value(saved).unwrap();
+        assert!(restored.show(Page::List));
+        // A hand-corrupted cursor beyond the history length clamps safely.
+        let mut hostile = Router::new(Page::Home);
+        hostile.go(Page::List);
+        let mut value = serde_json::to_value(&hostile).unwrap();
+        value["cursor"] = serde_json::json!(99);
+        let bad: Router<Page> = serde_json::from_value(value).unwrap();
+        restored.restore(bad);
+        assert!(restored.show(Page::List) || restored.show(Page::Home));
+    }
+    #[test]
+    fn serde_round_trip_preserves_navigation() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        router.go(Page::Detail);
+        router.back();
+        let value = serde_json::to_value(&router).unwrap();
+        let mut restored: Router<Page> = serde_json::from_value(value).unwrap();
+        assert!(restored.show(Page::List));
+        assert!(restored.can_forward());
+        assert_eq!(restored.forward(), Page::Detail);
+    }
+}

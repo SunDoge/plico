@@ -61,7 +61,7 @@ fn page_from(name: &str) -> Page {
 }
 fn probe_page(page: Page) -> Vec<serde_json::Value> {
     let mut s = Source::new(Gallery {
-        page,
+        router: plico_core::Router::new(page),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -92,7 +92,7 @@ fn probe_page(page: Page) -> Vec<serde_json::Value> {
 }
 fn legacy_frames() -> Vec<serde_json::Value> {
     let mut s = Source::new(Gallery {
-        page: plico_gallery::Page::Controls,
+        router: plico_core::Router::new(plico_gallery::Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

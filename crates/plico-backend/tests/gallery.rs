@@ -54,7 +54,7 @@ fn key(key: &str, shift: bool) -> UiEvent {
 #[test]
 fn real_pointer_counter_reset_and_disabled() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -69,7 +69,7 @@ fn real_pointer_counter_reset_and_disabled() {
 #[test]
 fn controlled_toggles_publish_text_style_and_theme_same_frame() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -99,7 +99,7 @@ fn controlled_toggles_publish_text_style_and_theme_same_frame() {
 #[test]
 fn unchanged_frame_reuses_backend_and_writes_nothing() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -124,7 +124,7 @@ fn unchanged_frame_reuses_backend_and_writes_nothing() {
 #[test]
 fn theme_changes_paint_without_layout_style_writes() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -137,7 +137,7 @@ fn theme_changes_paint_without_layout_style_writes() {
 #[test]
 fn tab_space_shift_tab_and_disabled_skipping() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -195,7 +195,7 @@ fn tab_space_shift_tab_and_disabled_skipping() {
 #[test]
 fn release_outside_cancel_and_secondary_do_not_activate() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -225,7 +225,7 @@ fn release_outside_cancel_and_secondary_do_not_activate() {
 #[test]
 fn semantic_actions_route_through_controlled_state() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -240,7 +240,7 @@ fn semantic_actions_route_through_controlled_state() {
 #[test]
 fn real_layout_fits_normal_and_minimum_viewports() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -309,7 +309,7 @@ fn retained_backend_handles_reorder_remove_and_remount() {
 #[test]
 fn prepare_event_commits_new_geometry_before_next_pointer_event() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -352,7 +352,7 @@ fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
 fn expanded_motion_card_fits_minimum_viewport_and_large_text() {
     for width in [640, 920] {
         let mut source = Source::new(Gallery {
-            page: Page::Motion,
+            router: plico_core::Router::new(Page::Motion),
             expanded: true,
             large: true,
             ..Default::default()
@@ -374,12 +374,12 @@ fn typed_routes_unmount_pages_and_keep_application_state() {
     let mut s = Source::new(Gallery::default());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.view.page, Page::Workspace);
+    assert!(s.view.router.show(Page::Workspace));
     click(&mut s, &mut tcx, SemanticRole::Button, "Controls");
     click(&mut s, &mut tcx, SemanticRole::Button, "Increment");
     click(&mut s, &mut tcx, SemanticRole::Switch, "Notifications");
     click(&mut s, &mut tcx, SemanticRole::Button, "Motion");
-    assert_eq!(s.view.page, Page::Motion);
+    assert!(s.view.router.show(Page::Motion));
     assert!(
         s.adapter
             .semantics(&s.engine, 0)
@@ -404,7 +404,7 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             Page::Lists,
         ] {
             let mut s = Source::new(Gallery {
-                page,
+                router: plico_core::Router::new(page),
                 large: true,
                 expanded: true,
                 wrapped: true,
@@ -504,7 +504,7 @@ fn theme_density_changes_shared_widget_geometry_and_stabilizes() {
 #[test]
 fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     let mut s = Source::new(Gallery {
-        page: Page::Controls,
+        router: plico_core::Router::new(Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

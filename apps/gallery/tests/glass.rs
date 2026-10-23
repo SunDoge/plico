@@ -8,7 +8,7 @@ fn glass_background_moves_without_layout_and_pause_returns_to_idle() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            page: Page::Glass,
+            router: plico_core::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),

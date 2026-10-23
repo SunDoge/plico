@@ -96,7 +96,7 @@ fn run() -> Result<(), Error> {
         expanded: options.expanded,
         release_details: options.expanded,
         compact: options.compact,
-        page,
+        router: plico_core::Router::new(page),
         ..Default::default()
     };
     if options.markdown_complete {
