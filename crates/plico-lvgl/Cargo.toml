@@ -4,19 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Minimal oxivgl backend experiment for Plico declarations"
+description = "Minimal LVGL backend experiment for Plico declarations"
 
 [features]
 default = []
-native = ["external", "oxivgl/png", "dep:critical-section"]
+native = ["external", "dep:critical-section"]
 # Externally initialized LVGL, using the ESP-IDF build adapter in esp-idf/.
-external = ["dep:oxivgl"]
+external = ["dep:lightvgl-sys"]
 
 [dependencies]
 plico-core.workspace = true
 snafu.workspace = true
-oxivgl = { version = "=0.9.2", default-features = false, optional = true }
+lightvgl-sys = { version = "=9.5.4", optional = true }
 critical-section = { version = "1", features = ["std"], optional = true }
+png = "0.17"
 
 [dev-dependencies]
 usage-rs.workspace = true

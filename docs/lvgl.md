@@ -2,32 +2,31 @@
 
 `crates/plico-lvgl` 是验证 API 可替换后端的小实验，不是完整 LVGL 产品后端。
 同一个 `plico-core::Engine` 执行普通 `#[component]` / `+ |cx|` 函数；adapter
-把其保留节点映射到 oxivgl 原生对象，由 LVGL 负责布局、文字和绘制。
+把其保留节点映射到 LVGL 原生对象，由 LVGL 负责布局、文字和绘制。
 没有使用 Plico 的 Taffy、Parley、Vello、窗口层或 JSON 热重载通路。
 
 ## 运行
 
-使用发布的 oxivgl **0.9.2**（锁定 oxivgl-sys 0.2.6 / LVGL 9.5.0）。上游当前
-依赖 heapless 的 nightly feature；本实验不把主线切换到 nightly，而是默认关闭 `native`，
-在单独的 nightly CI 任务验证它。首次构建还会由上游下载并校验 LVGL C 源码，
-不要把 Cargo.lock 误解为离线构建所需的全部输入。
+使用 lightvgl-sys **9.5.4**（vendored LVGL 9.5.0，与 oxivgl 时代同版本）。绑定是
+纯 bindgen 产物，无 heapless/nightly 依赖：`native` feature 直接在 stable 工具链上构建
+和验证。oxivgl 安全封装层已移除，widget/样式/事件封装由本 crate 的 `ffi.rs` 承担
+（约 200 行）。首次构建会下载并编译 vendored LVGL C 源码，不要把 Cargo.lock 误解为
+离线构建所需的全部输入。
 
 Debian/Ubuntu：
 
 ```sh
-sudo apt-get install libsdl2-dev libclang-dev pkg-config python3-png python3-lz4
-rustup toolchain install nightly-2026-10-15 --profile minimal
+sudo apt-get install libclang-dev pkg-config
 export DEP_LV_CONFIG_PATH="$PWD/crates/plico-lvgl/config"
 
-# 真正的 SDL 桌面窗口，可点击按钮
-cargo +nightly-2026-10-15 run -p plico-lvgl --features native --example counter
-
-# 不创建窗口，执行断言并通过 LVGL 截图
-cargo +nightly-2026-10-15 run -p plico-lvgl --features native --example counter -- \
+# 无窗口模式：执行断言并通过 LVGL 截图
+cargo run -p plico-lvgl --features native --example counter -- \
   --headless --out /tmp/plico-lvgl.png
 ```
 
-这些命令在仓库根执行。`config/lv_conf.h` 基于上游默认 host 配置，保留 MIT 许可和来源，
+这些命令在仓库根执行。交互式 SDL 窗口尚未在 lightvgl-sys 路径上恢复
+（上游不 vendor `lv_sdl_window`）；需要时可在 `ffi.rs` 上加回。
+`config/lv_conf.h` 基于上游默认 host 配置，保留 MIT 许可和来源，
 使用宿主 malloc 为离屏截图分配内存；它不是低内存的 MCU 配置。
 
 ## 验证内容

@@ -146,10 +146,10 @@
  * `while(1);`, which turns any assertion — a failed allocation, a NULL object,
  * a corrupt style — into an indefinite hang with no message and no backtrace.
  * Panicking reports through the platform's normal path, with LVGL's own log
- * line (expression, file, line) immediately above it. `oxivgl` provides this
- * symbol; replace it here if your application prefers to halt. */
-void oxivgl_lv_assert_handler(void);
-#define LV_ASSERT_HANDLER oxivgl_lv_assert_handler();
+ * line (expression, file, line) immediately above it. plico-lvgl provides
+ * this symbol (a Rust panic); replace it here to halt instead. */
+void plico_lv_assert_handler(void);
+#define LV_ASSERT_HANDLER plico_lv_assert_handler();
 
 /*-------------
  * Debug

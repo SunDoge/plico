@@ -1,56 +1,47 @@
-use oxivgl::{
-    driver::LvglDriver,
-    enums::{EventCode, ObjState},
-    event::Event,
-    layout::{FlexAlign, FlexFlow},
-    style::{LV_SIZE_CONTENT, Selector, Style as NativeStyle, lv_pct},
-    widgets::{AsLvHandle, Button, Label, Obj, Screen, WidgetError},
-};
-use plico_core::{
-    Align, Changes, Engine, Entity, FrameDelta, Justify, Kind, KindFamily, NodeRef, Style, Theme,
-};
+//! Native-widget projection onto LVGL through lightvgl-sys raw bindings.
+//!
+//! The adapter consumes the same Plico core abstractions as before
+//! (`Engine`, `FrameDelta`, `KindFamily`, `Style`); only the widget layer is
+//! raw FFI. Unsafe is confined to this module's small helpers.
+use crate::ffi::{self, Obj, color, pct, with_cstr};
+use lightvgl_sys as sys;
+use plico_core::{Changes, Engine, Entity, FrameDelta, Kind, KindFamily, NodeRef, Style, Theme};
 use snafu::{OptionExt, Snafu};
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    marker::PhantomData,
-    rc::{Rc, Weak},
-};
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 type Queue = RefCell<Vec<Entity>>;
-type Route = (Entity, Weak<Queue>);
+type Route = (Entity, std::rc::Weak<Queue>);
 thread_local! {
     // Native callbacks retain no application state. Route directly to a
     // generational identity so a queued click cannot target a reused address.
     static ROUTES: RefCell<HashMap<usize, Route>> = RefCell::new(HashMap::new());
 }
-fn clicked(event: &Event) {
-    ROUTES.with(|routes| {
-        if let Some((entity, queue)) = routes
-            .borrow()
-            .get(&(event.current_target_handle() as usize))
-            && let Some(queue) = queue.upgrade()
-        {
-            queue.borrow_mut().push(*entity);
+unsafe extern "C" fn clicked(event: *mut sys::lv_event_t) {
+    unsafe {
+        let target = sys::lv_event_get_current_target(event) as *mut sys::lv_obj_t;
+        if target.is_null() {
+            return;
         }
-    });
+        let key = target as usize;
+        ROUTES.with(|routes| {
+            if let Some((entity, queue)) = routes.borrow().get(&key)
+                && let Some(queue) = queue.upgrade()
+            {
+                queue.borrow_mut().push(*entity);
+            }
+        });
+    }
 }
 
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("LVGL display must be initialized before attaching Plico"))]
     NoScreen,
-    #[snafu(display("the LVGL experiment does not implement {kind:?}"))]
-    Unsupported { kind: Kind },
+    #[snafu(display("LVGL widget creation returned NULL"))]
+    Widget,
     #[snafu(display("LVGL text cannot contain an embedded NUL"))]
     TextNul,
-    #[snafu(display("LVGL widget creation failed: {error}"))]
-    Widget { error: WidgetError },
-}
-impl From<WidgetError> for Error {
-    fn from(error: WidgetError) -> Self {
-        Self::Widget { error }
-    }
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
@@ -60,52 +51,37 @@ pub struct Stats {
     pub style_updates: usize,
     pub text_updates: usize,
 }
-enum Widget {
-    Container(Obj<'static>),
-    Text(Label<'static>),
-    ButtonBase(Button<'static>),
-    // Delete the owned label before its parent button.
-    Button {
-        label: Label<'static>,
-        button: Button<'static>,
-    },
+
+/// A mounted LVGL object; `label` holds a composite button's child label.
+struct Widget {
+    obj: *mut Obj,
+    /// Child label of a composite button. For a pure Text widget, `obj`
+    /// itself is the label and `owns_text` is set instead.
+    label: *mut Obj,
+    owns_text: bool,
+    button: bool,
 }
+// The adapter is single-threaded; every handle outlives its Mounted entry.
+unsafe impl Send for Widget {}
 impl Widget {
-    fn object(&self) -> &Obj<'static> {
-        match self {
-            Self::Container(obj) => obj,
-            Self::Text(obj) => obj,
-            Self::ButtonBase(obj) => obj,
-            Self::Button { button, .. } => button,
-        }
+    fn object(&self) -> *mut Obj {
+        self.obj
     }
     /// Family-level class matching: a native widget survives a declared kind
-    /// change that stays within the same [`KindFamily`]. Only a family change
-    /// (or the Button -> ButtonBase distinction, which changes click routing)
-    /// forces a remount.
+    /// change that stays within the same [`KindFamily`]. Exact-button kinds
+    /// keep their identity; degraded controls ride the container family.
     fn class_matches(&self, kind: Kind) -> bool {
-        let widget_family = match self {
-            Self::Container(_) => KindFamily::Container,
-            Self::Text(_) => KindFamily::Text,
-            Self::Button { .. } | Self::ButtonBase(_) => {
-                return matches!(
-                    (self, kind),
-                    (Self::Button { .. }, Kind::Button) | (Self::ButtonBase(_), Kind::ButtonBase)
-                );
-            }
-        };
-        widget_family == kind.family()
-    }
-    fn button(&self) -> Option<&Button<'static>> {
-        match self {
-            Self::Button { button, .. } | Self::ButtonBase(button) => Some(button),
-            _ => None,
+        if self.button {
+            matches!(kind, Kind::Button | Kind::ButtonBase)
+        } else if !self.label.is_null() || self.owns_text {
+            matches!(kind.family(), KindFamily::Text)
+        } else {
+            matches!(kind.family(), KindFamily::Container | KindFamily::Media)
         }
     }
 }
 struct Mounted {
     widget: Widget,
-    depth: usize,
     kind: Kind,
     style: Option<(Style, Theme)>,
     text: Option<String>,
@@ -113,46 +89,49 @@ struct Mounted {
 
 /// Single-threaded native-widget projection. The application owns its Engine
 /// and Rust state; no alternate component API or reactive graph is introduced.
-pub struct Adapter<'driver> {
+pub struct Adapter {
     nodes: HashMap<Entity, Mounted>,
-    screen: Screen,
-    events: Rc<Queue>,
+    parents: HashMap<Entity, Entity>,
+    screen: *mut Obj,
+    events: std::rc::Rc<Queue>,
     stats: Stats,
-    _driver: PhantomData<&'driver LvglDriver>,
 }
-impl<'driver> Adapter<'driver> {
-    pub fn new(_driver: &'driver LvglDriver) -> Result<Self, Error> {
+unsafe impl Send for Adapter {}
+impl Adapter {
+    pub fn new(_driver: &ffi::Driver) -> Result<Self, Error> {
+        let screen = unsafe { sys::lv_screen_active() };
+        let screen = (!screen.is_null())
+            .then_some(screen)
+            .context(NoScreenSnafu)?;
         Ok(Self {
             nodes: HashMap::new(),
-            screen: Screen::active().context(NoScreenSnafu)?,
-            events: Rc::new(RefCell::new(Vec::new())),
+            parents: HashMap::new(),
+            screen,
+            events: std::rc::Rc::new(RefCell::new(Vec::new())),
             stats: Stats::default(),
-            _driver: PhantomData,
         })
     }
     pub fn stats(&self) -> Stats {
         self.stats
     }
 
-    /// Project a successful core declaration. Preflight unsupported widgets
-    /// before modifying LVGL. Layout and drawing are both performed by LVGL.
+    /// Project a successful core declaration. Preflight NUL text before
+    /// modifying LVGL. Layout and drawing are both performed by LVGL.
     pub fn sync(&mut self, engine: &Engine) -> Result<(), Error> {
         self.sync_delta(engine, None)
     }
-
     /// Incremental projection: when the frame delta carries no structural
-    /// change (no creation, removal, reorder or kind change), only the dirtied
-    /// nodes are re-read — the full tree walk is skipped entirely.
+    /// change (no creation, removal, reorder or kind change), only the
+    /// dirtied nodes are re-read — the full tree walk is skipped entirely.
     pub fn sync_delta(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
         let Some(delta) = delta else {
-            return self.sync_full(engine);
+            return self.sync_full(engine, None);
         };
         if !delta.frame.intersects(Changes::STRUCTURE) && delta.removed.is_empty() {
             return self.sync_touched(engine, &delta);
         }
-        self.sync_structural(engine, delta)
+        self.sync_full(engine, Some(delta))
     }
-
     fn sync_touched(&mut self, engine: &Engine, delta: &FrameDelta) -> Result<(), Error> {
         self.stats = Stats::default();
         for change in &delta.changes {
@@ -163,7 +142,7 @@ impl<'driver> Adapter<'driver> {
                 continue;
             };
             if mounted.style != Some((node.style, engine.theme())) || mounted.kind != node.kind {
-                apply_style(&mounted.widget, &node, engine.theme());
+                apply_style(mounted.widget.object(), &node, engine.theme());
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
                 self.stats.style_updates += 1;
@@ -171,12 +150,7 @@ impl<'driver> Adapter<'driver> {
             if mounted.text.as_deref() != Some(node.text)
                 && change.changes.intersects(Changes::MEASURE | Changes::PAINT)
             {
-                match &mounted.widget {
-                    Widget::Text(label) | Widget::Button { label, .. } => {
-                        label.text(node.text);
-                    }
-                    Widget::Container(_) | Widget::ButtonBase(_) => {}
-                }
+                set_text(text_target(&mounted.widget), node.text)?;
                 node.text
                     .clone_into(mounted.text.get_or_insert_with(String::new));
                 self.stats.text_updates += 1;
@@ -184,40 +158,21 @@ impl<'driver> Adapter<'driver> {
         }
         Ok(())
     }
-
-    fn sync_structural(&mut self, engine: &Engine, delta: FrameDelta) -> Result<(), Error> {
-        self.sync_full_inner(engine, Some(delta))
-    }
-
-    fn sync_full(&mut self, engine: &Engine) -> Result<(), Error> {
-        self.sync_full_inner(engine, None)
-    }
-
-    fn sync_full_inner(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
-        fn walk(
-            engine: &Engine,
-            entity: Entity,
-            parent: Option<Entity>,
-            depth: usize,
-            out: &mut Vec<(Entity, Option<Entity>, usize)>,
-        ) -> Result<(), Error> {
+    fn sync_full(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
+        fn walk(engine: &Engine, entity: Entity, out: &mut Vec<Entity>) -> Result<(), Error> {
             let node = engine.node(entity).expect("live engine child");
             snafu::ensure!(!node.text.contains('\0'), TextNulSnafu);
-            out.push((entity, parent, depth));
+            out.push(entity);
             for child in node.children {
-                walk(engine, *child, Some(entity), depth + 1, out)?;
+                walk(engine, *child, out)?;
             }
             Ok(())
         }
         let mut order = Vec::new();
-        walk(engine, engine.root(), None, 0, &mut order)?;
+        walk(engine, engine.root(), &mut order)?;
         self.stats = Stats::default();
-        let mut dead: Vec<_> = match &delta {
-            Some(delta) => delta
-                .removed
-                .iter()
-                .filter_map(|id| self.nodes.get(id).map(|m| (*id, m.depth)))
-                .collect(),
+        let dead: Vec<_> = match &delta {
+            Some(delta) => delta.removed.clone(),
             None => self
                 .nodes
                 .iter()
@@ -226,32 +181,54 @@ impl<'driver> Adapter<'driver> {
                         .node(**id)
                         .is_none_or(|n| !mounted.widget.class_matches(n.kind))
                 })
-                .map(|(id, mounted)| (*id, mounted.depth))
+                .map(|(id, _)| *id)
                 .collect(),
         };
-        dead.sort_unstable_by_key(|(_, depth)| std::cmp::Reverse(*depth));
-        for (id, _) in dead {
+        for id in dead {
             self.unmount(id);
             self.stats.removed += 1;
         }
 
-        for (id, parent, depth) in &order {
+        // Record parent links from the engine's child lists as we mount.
+        self.parents.clear();
+        self.parents.insert(engine.root(), engine.root());
+        for id in &order {
             let node = engine.node(*id).expect("preflighted node");
-            if !self.nodes.contains_key(id) {
-                let widget = self.create(node.kind, *parent)?;
-                if let Some(button) = widget.button() {
+            for child in node.children {
+                self.parents.insert(*child, *id);
+            }
+        }
+        for &id in &order {
+            let node = engine.node(id).expect("preflighted node");
+            if !self.nodes.contains_key(&id) {
+                let parent = self
+                    .parents
+                    .get(&id)
+                    .copied()
+                    .filter(|p| *p != id)
+                    .and_then(|p| self.nodes.get(&p))
+                    .map(|m| m.widget.object());
+                let widget = self.create(node.kind, parent)?;
+                if widget.button {
+                    let obj = widget.object();
                     ROUTES.with(|routes| {
                         routes
                             .borrow_mut()
-                            .insert(button.handle() as usize, (*id, Rc::downgrade(&self.events)))
+                            .insert(obj as usize, (id, std::rc::Rc::downgrade(&self.events)));
                     });
-                    button.on(EventCode::CLICKED, clicked);
+                    unsafe {
+                        sys::lv_obj_add_event_cb(
+                            obj,
+                            Some(clicked),
+                            sys::lv_event_code_t_LV_EVENT_CLICKED,
+                            std::ptr::null_mut(),
+                        );
+                    };
                 }
                 self.nodes.insert(
-                    *id,
+                    id,
                     Mounted {
                         widget,
-                        depth: *depth,
                         kind: node.kind,
                         style: None,
                         text: None,
@@ -261,63 +238,75 @@ impl<'driver> Adapter<'driver> {
             } else {
                 self.stats.reused += 1;
             }
-            let mounted = self.nodes.get_mut(id).expect("mounted node");
+            let mounted = self.nodes.get_mut(&id).expect("mounted node");
             if mounted.style != Some((node.style, engine.theme())) || mounted.kind != node.kind {
-                apply_style(&mounted.widget, &node, engine.theme());
+                apply_style(mounted.widget.object(), &node, engine.theme());
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
                 self.stats.style_updates += 1;
             }
             if mounted.text.as_deref() != Some(node.text) {
-                match &mounted.widget {
-                    Widget::Text(label) | Widget::Button { label, .. } => {
-                        label.text(node.text);
-                    }
-                    Widget::Container(_) | Widget::ButtonBase(_) => {}
-                }
+                set_text(text_target(&mounted.widget), node.text)?;
                 node.text
                     .clone_into(mounted.text.get_or_insert_with(String::new));
                 self.stats.text_updates += 1;
             }
         }
-        for (id, _, _) in &order {
-            for (index, child) in engine.node(*id).unwrap().children.iter().enumerate() {
+        for &id in &order {
+            let node = engine.node(id).unwrap();
+            for (index, child) in node.children.iter().enumerate() {
                 let obj = self.nodes[child].widget.object();
-                if obj.get_index() != index as i32 {
-                    obj.move_to_index(index as i32);
+                let current = unsafe { sys::lv_obj_get_index(obj) };
+                if current != index as i32 {
+                    unsafe { sys::lv_obj_move_to_index(obj, index as i32) };
                 }
             }
         }
-        self.nodes[&engine.root()].widget.object().update_layout();
+        unsafe { sys::lv_obj_update_layout(self.nodes[&engine.root()].widget.object()) };
         Ok(())
     }
 
-    fn create(&self, kind: Kind, parent: Option<Entity>) -> Result<Widget, Error> {
-        fn create_at(kind: Kind, parent: &impl AsLvHandle) -> Result<Widget, Error> {
-            Ok(match kind.family() {
-                KindFamily::Text => Widget::Text(Label::new(parent)?),
-                // Exact-button kinds get native click routing; degraded
-                // controls (Switch/Checkbox/Slider) render as containers
-                // carrying their label and lose interaction.
-                KindFamily::Control => match kind {
-                    Kind::Button => {
-                        let button = Button::new(parent)?;
-                        let label = Label::new(&button)?;
-                        label.center();
-                        Widget::Button { label, button }
-                    }
-                    Kind::ButtonBase => Widget::ButtonBase(Button::new(parent)?),
-                    _ => Widget::Container(Obj::new(parent)?),
-                },
-                // Containers nest children; media renders as an empty box.
-                KindFamily::Container | KindFamily::Media => Widget::Container(Obj::new(parent)?),
-            })
-        }
-        match parent {
-            Some(parent) => create_at(kind, self.nodes[&parent].widget.object()),
-            None => create_at(kind, &self.screen),
-        }
+    fn create(&self, kind: Kind, parent: Option<*mut Obj>) -> Result<Widget, Error> {
+        let parent = parent.unwrap_or(self.screen);
+        let (obj, label, owns_text, button) = match kind.family() {
+            KindFamily::Text => {
+                let obj = unsafe { sys::lv_label_create(parent) };
+                (obj, std::ptr::null_mut(), true, false)
+            }
+            // Exact-button kinds get native click routing; degraded controls
+            // (Switch/Checkbox/Slider) render as containers carrying their
+            // label and lose interaction.
+            KindFamily::Control => match kind {
+                Kind::Button => {
+                    let button = unsafe { sys::lv_button_create(parent) };
+                    let label = unsafe { sys::lv_label_create(button) };
+                    unsafe { sys::lv_obj_center(label) };
+                    (button, label, false, true)
+                }
+                Kind::ButtonBase => {
+                    let button = unsafe { sys::lv_button_create(parent) };
+                    (button, std::ptr::null_mut(), false, true)
+                }
+                _ => {
+                    let obj = unsafe { sys::lv_obj_create(parent) };
+                    (obj, std::ptr::null_mut(), false, false)
+                }
+            },
+            // Containers nest children; media renders as an empty box.
+            KindFamily::Container | KindFamily::Media => {
+                let obj = unsafe { sys::lv_obj_create(parent) };
+                (obj, std::ptr::null_mut(), false, false)
+            }
+        };
+        snafu::ensure!(!obj.is_null(), WidgetSnafu);
+        Ok(Widget {
+            obj,
+            label,
+            owns_text,
+            button,
+        })
     }
+
     /// Drain native callbacks at the event boundary, before declaring again.
     /// Deleted/disabled entities are ignored; callbacks never borrow app state.
     pub fn dispatch(&mut self, engine: &mut Engine) -> usize {
@@ -334,12 +323,14 @@ impl<'driver> Adapter<'driver> {
     }
     /// Programmatic native event for headless verification, not a direct core click.
     pub fn send_click(&self, entity: Entity) -> bool {
-        if let Some(button) = self
-            .nodes
-            .get(&entity)
-            .and_then(|node| node.widget.button())
-        {
-            button.send_event(EventCode::CLICKED);
+        if let Some(mounted) = self.nodes.get(&entity).filter(|m| m.widget.button) {
+            unsafe {
+                sys::lv_obj_send_event(
+                    mounted.widget.object(),
+                    sys::lv_event_code_t_LV_EVENT_CLICKED,
+                    std::ptr::null_mut(),
+                )
+            };
             true
         } else {
             false
@@ -347,119 +338,170 @@ impl<'driver> Adapter<'driver> {
     }
     /// Diagnostic identity for reuse assertions. Never dereference this value.
     pub fn object_id(&self, entity: Entity) -> Option<usize> {
-        self.nodes
-            .get(&entity)
-            .map(|n| n.widget.object().handle() as usize)
+        self.nodes.get(&entity).map(|n| n.widget.object() as usize)
     }
     pub fn bounds(&self, entity: Entity) -> Option<[i32; 4]> {
         self.nodes.get(&entity).map(|n| {
-            let a = n.widget.object().get_coords();
-            [a.x1, a.y1, a.x2, a.y2]
+            let mut area = sys::lv_area_t {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0,
+            };
+            unsafe { sys::lv_obj_get_coords(n.widget.object(), &mut area) };
+            [area.x1, area.y1, area.x2, area.y2]
         })
     }
     fn unmount(&mut self, entity: Entity) {
         if let Some(node) = self.nodes.remove(&entity) {
-            ROUTES.with(|routes| {
-                routes
-                    .borrow_mut()
-                    .remove(&(node.widget.object().handle() as usize))
-            });
-            drop(node);
+            ROUTES.with(|routes| routes.borrow_mut().remove(&(node.widget.object() as usize)));
+            unsafe {
+                let obj = node.widget.object();
+                // Free the leaked style before LVGL cascades the deletion.
+                let style = style_of(obj);
+                if !style.is_null() {
+                    sys::lv_style_reset(style);
+                    drop(Box::from_raw(style));
+                }
+                sys::lv_obj_delete(obj);
+            };
         }
     }
 }
-impl Drop for Adapter<'_> {
+impl Drop for Adapter {
     fn drop(&mut self) {
-        let mut order: Vec<_> = self.nodes.iter().map(|(id, n)| (*id, n.depth)).collect();
-        order.sort_unstable_by_key(|(_, depth)| std::cmp::Reverse(*depth));
-        for (id, _) in order {
+        let ids: Vec<Entity> = self.nodes.keys().copied().collect();
+        for id in ids {
             self.unmount(id);
         }
     }
 }
 
-fn apply_style(widget: &Widget, node: &NodeRef<'_>, theme: Theme) {
-    let obj = widget.object();
+/// The per-object heap style, or null before the first bind.
+fn style_of(obj: *mut Obj) -> *mut sys::lv_style_t {
+    unsafe { sys::lv_obj_get_user_data(obj) as *mut sys::lv_style_t }
+}
+/// The label API applies only to text-bearing widgets.
+fn text_target(widget: &Widget) -> Option<*mut Obj> {
+    if !widget.label.is_null() {
+        Some(widget.label)
+    } else if widget.owns_text {
+        Some(widget.obj)
+    } else {
+        None
+    }
+}
+fn set_text(target: Option<*mut Obj>, text: &str) -> Result<(), Error> {
+    snafu::ensure!(!text.contains('\0'), TextNulSnafu);
+    // Containers ignore text: calling the label API on them corrupts their
+    // user data through translation-tag cleanup.
+    let Some(target) = target else {
+        return Ok(());
+    };
+    with_cstr(text, |p| unsafe { sys::lv_label_set_text(target, p) });
+    Ok(())
+}
+
+fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
     let s = node.style;
-    obj.remove_style_all();
-    let style = NativeStyle::new(|style| {
+    let container_like = matches!(
+        node.kind.family(),
+        KindFamily::Container | KindFamily::Control
+    );
+    unsafe {
+        sys::lv_obj_remove_style_all(obj);
+        // LVGL links the style by pointer, not copy: it must outlive the
+        // object. One leaked box per mounted widget; rebinding replaces the
+        // properties in place through the same leaked allocation.
+        if style_of(obj).is_null() {
+            let style = Box::into_raw(Box::new(std::mem::zeroed::<sys::lv_style_t>()));
+            sys::lv_obj_set_user_data(obj, style as *mut std::ffi::c_void);
+            sys::lv_style_init(style);
+        }
+        let style = style_of(obj);
         let width = s
             .width
             .map(|v| v as i32)
-            .or_else(|| s.width_percent.map(|v| lv_pct(v as i32)))
+            .or_else(|| s.width_percent.map(|v| pct(v as i32)))
             .unwrap_or(if node.kind == Kind::Root {
-                lv_pct(100)
+                pct(100)
             } else {
-                LV_SIZE_CONTENT
+                ffi::SIZE_CONTENT
             });
         let height = s
             .height
             .map(|v| v as i32)
-            .or_else(|| s.height_percent.map(|v| lv_pct(v as i32)))
+            .or_else(|| s.height_percent.map(|v| pct(v as i32)))
             .unwrap_or(if node.kind == Kind::Root {
-                lv_pct(100)
+                pct(100)
             } else {
-                LV_SIZE_CONTENT
+                ffi::SIZE_CONTENT
             });
-        style
-            .width(width)
-            .height(height)
-            .pad_hor(s.horizontal_padding() as i32)
-            .pad_ver(s.vertical_padding() as i32)
-            .pad_gap(s.gap as i32)
-            .radius(s.radius as i16)
-            .border_width(s.border_width as i16)
-            .border_color_hex(theme.resolve(s.border_color))
-            .text_color_hex(theme.resolve(s.foreground))
-            .text_font(if s.font_size >= 24 {
-                oxivgl::fonts::MONTSERRAT_24
-            } else {
-                oxivgl::fonts::MONTSERRAT_16
-            });
-        if let Some(color) = s.background {
-            style.bg_color_hex(theme.resolve(color)).bg_opa(255);
+        sys::lv_style_set_width(style, width);
+        sys::lv_style_set_height(style, height);
+        sys::lv_style_set_pad_top(style, s.vertical_padding() as i32);
+        sys::lv_style_set_pad_bottom(style, s.vertical_padding() as i32);
+        sys::lv_style_set_pad_left(style, s.horizontal_padding() as i32);
+        sys::lv_style_set_pad_right(style, s.horizontal_padding() as i32);
+        sys::lv_style_set_pad_row(style, s.gap as i32);
+        sys::lv_style_set_pad_column(style, s.gap as i32);
+        sys::lv_style_set_radius(style, s.radius as i32);
+        sys::lv_style_set_border_width(style, s.border_width as i32);
+        sys::lv_style_set_border_color(style, color(theme.resolve(s.border_color)));
+        sys::lv_style_set_text_color(style, color(theme.resolve(s.foreground)));
+        let font = if s.font_size >= 24 {
+            &sys::lv_font_montserrat_24
         } else {
-            style.bg_opa(0);
-        }
-        if matches!(
-            node.kind,
-            Kind::Root | Kind::Column | Kind::Row | Kind::ButtonBase
-        ) {
-            style.layout(oxivgl::layout::Layout::Flex).flex_flow(
-                if matches!(node.kind, Kind::Row | Kind::ButtonBase) {
-                    FlexFlow::Row
-                } else {
-                    FlexFlow::Column
-                },
-            );
-        }
-    });
-    obj.add_style(&style, Selector::DEFAULT).remove_scrollable();
-    if matches!(
-        node.kind,
-        Kind::Root | Kind::Column | Kind::Row | Kind::ButtonBase
-    ) {
-        let main = match s.justify.unwrap_or(Justify::Start) {
-            Justify::Center => FlexAlign::Center,
-            Justify::End => FlexAlign::End,
-            Justify::SpaceBetween => FlexAlign::SpaceBetween,
-            Justify::SpaceAround => FlexAlign::SpaceAround,
-            Justify::SpaceEvenly => FlexAlign::SpaceEvenly,
-            Justify::Start | Justify::Stretch => FlexAlign::Start,
+            &sys::lv_font_montserrat_16
         };
-        // LVGL has no flex baseline/stretch alignment; retain its start fallback.
-        let cross = match s.align.unwrap_or(Align::Start) {
-            Align::Center => FlexAlign::Center,
-            Align::End => FlexAlign::End,
-            Align::Start | Align::Stretch | Align::Baseline => FlexAlign::Start,
-        };
-        // LVGL aligns each flex track separately from the items inside it.
-        // A single row's track must also be centered in a fixed-height button.
-        obj.set_flex_align(main, cross, cross);
-    }
-    if s.disabled {
-        obj.add_state(ObjState::DISABLED);
-    } else {
-        obj.remove_state(ObjState::DISABLED);
+        sys::lv_style_set_text_font(style, font as *const sys::lv_font_t);
+        if let Some(bg) = s.background {
+            sys::lv_style_set_bg_color(style, color(theme.resolve(bg)));
+            sys::lv_style_set_bg_opa(style, 255);
+        } else {
+            sys::lv_style_set_bg_opa(style, 0);
+        }
+        if container_like {
+            sys::lv_style_set_layout(style, sys::lv_layout_t_LV_LAYOUT_FLEX as u16);
+        }
+        // add_style copies the style's property storage into the object's own
+        // style list; the stack struct is not retained.
+        sys::lv_obj_add_style(obj, style, 0);
+        if container_like {
+            let flow = if matches!(node.kind, Kind::Row | Kind::ButtonBase) {
+                sys::lv_flex_flow_t_LV_FLEX_FLOW_ROW
+            } else {
+                sys::lv_flex_flow_t_LV_FLEX_FLOW_COLUMN
+            };
+            sys::lv_obj_set_flex_flow(obj, flow);
+            let main = match s.justify.unwrap_or(plico_core::Justify::Start) {
+                plico_core::Justify::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
+                plico_core::Justify::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
+                plico_core::Justify::SpaceBetween => {
+                    sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_BETWEEN
+                }
+                plico_core::Justify::SpaceAround => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_AROUND,
+                plico_core::Justify::SpaceEvenly => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_EVENLY,
+                plico_core::Justify::Start | plico_core::Justify::Stretch => {
+                    sys::lv_flex_align_t_LV_FLEX_ALIGN_START
+                }
+            };
+            // LVGL has no flex baseline/stretch alignment; retain its start fallback.
+            let cross = match s.align.unwrap_or(plico_core::Align::Start) {
+                plico_core::Align::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
+                plico_core::Align::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
+                plico_core::Align::Start
+                | plico_core::Align::Stretch
+                | plico_core::Align::Baseline => sys::lv_flex_align_t_LV_FLEX_ALIGN_START,
+            };
+            // LVGL aligns each flex track separately from the items inside it.
+            sys::lv_obj_set_flex_align(obj, main, cross, cross);
+        }
+        if s.disabled {
+            sys::lv_obj_add_state(obj, sys::lv_state_t_LV_STATE_DISABLED);
+        } else {
+            sys::lv_obj_remove_state(obj, sys::lv_state_t_LV_STATE_DISABLED);
+        }
+        sys::lv_obj_remove_flag(obj, sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE);
     }
 }

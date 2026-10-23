@@ -1,11 +1,11 @@
 //! Minimal native-widget proof, not a second gallery.
 use plico_core::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
-use plico_lvgl::{Adapter, oxivgl};
+use plico_lvgl::{Adapter, Driver, Snapshot};
 use snafu::{OptionExt, ResultExt, Snafu};
 use std::path::PathBuf;
 
 #[derive(usage_rs::Cli)]
-#[usage(about = "Plico immediate API on native oxivgl widgets")]
+#[usage(about = "Plico immediate API on native LVGL widgets")]
 struct Options {
     #[usage(long)]
     headless: bool,
@@ -72,7 +72,7 @@ fn find(engine: &Engine, kind: Kind, text: &str) -> Entity {
     }
     visit(engine, engine.root(), kind, text).expect("declared widget")
 }
-fn frame(engine: &mut Engine, app: &mut Counter, adapter: &mut Adapter<'_>) -> Result<(), Error> {
+fn frame(engine: &mut Engine, app: &mut Counter, adapter: &mut Adapter) -> Result<(), Error> {
     engine
         .declare_until_settled(app)
         .context(DeclarationSnafu)?;
@@ -85,13 +85,10 @@ fn main() -> Result<(), Error> {
     let options = Options::parse();
     // Upstream permits one LVGL initialization per process; all calls stay on
     // this thread. There is no Plico renderer, Taffy, Parley or Vello here.
-    let driver = if options.headless {
-        oxivgl::driver::LvglDriver::init(480, 360)
-    } else {
-        oxivgl::driver::LvglDriver::sdl(480, 360)
-            .title(c"Plico / oxivgl")
-            .build()
-    };
+    // Headless software display only: the SDL window path is not part of
+    // the lightvgl-sys port yet. Interactive runs need it added back on top
+    // of lv_sdl_window_create, which lightvgl-sys does not vendor.
+    let driver = Driver::init(480, 360);
     let mut engine = Engine::default();
     engine.set_viewport(480., 360.).context(DeclarationSnafu)?;
     let mut app = Counter {
@@ -192,7 +189,7 @@ fn main() -> Result<(), Error> {
         }
     }
     if let Some(path) = options.out {
-        let snapshot = oxivgl::snapshot::Snapshot::take(&driver).context(SnapshotSnafu)?;
+        let snapshot = Snapshot::take().context(SnapshotSnafu)?;
         snapshot.write_png(&path).context(IoSnafu)?;
         println!("snapshot: {}", path.display());
     }
