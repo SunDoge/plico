@@ -175,14 +175,33 @@ type SharedTextLayout = Arc<Layout<[u8; 4]>>;
 type TextClampCacheKey = (TextLayoutKey, u32, bool);
 type GlyphSceneEntry = (std::sync::Weak<Layout<[u8; 4]>>, Arc<Scene>);
 
+/// Small-text contrast compensation for linear blending.
+///
+/// Vello composites glyph coverage linearly without a gamma step (see the
+/// linebender/vello#1694 discussion): a 50% coverage pixel is stored as 50%
+/// brightness, where gamma-correct pipelines display it at ~73%. At UI text
+/// sizes most stroke pixels sit in exactly that band, so glyphs come out
+/// washed out — "灰蒙蒙" — compared to Chrome or Firefox. Zed compensates the
+/// same vello behaviour with a small geometric embolden; the amount here is a
+/// fraction of the FreeType synthetic-bold strength (1/24 em), tunable via
+/// `PLICO_TEXT_STEM_BOOST` (units: 1/1000 em, default 25 = ~1/40 em).
+fn stem_boost(font_size: f32, device_scale: f64) -> f64 {
+    const DEFAULT_MILLI_EM: f64 = 25.0;
+    let milli_em = std::env::var("PLICO_TEXT_STEM_BOOST")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(DEFAULT_MILLI_EM);
+    f64::from(font_size) * device_scale * milli_em / 1000.0
+}
 fn synthetic_embolden(requested: bool, allowed: bool, font_size: f32, device_scale: f64) -> Vec2 {
+    let boost = stem_boost(font_size, device_scale);
     if requested && allowed {
         // Match the conventional FreeType synthetic-bold strength of roughly
         // one twenty-fourth of an em on raster-oriented platforms.
         let amount = f64::from(font_size) * device_scale / 24.0;
-        Vec2::new(amount, amount)
+        Vec2::new(amount + boost, amount + boost)
     } else {
-        Vec2::ZERO
+        Vec2::new(boost, boost)
     }
 }
 
@@ -986,11 +1005,25 @@ mod tests {
 
     #[test]
     fn outline_policy_suppresses_synthetic_bold() {
+        // The requested synthetic-bold amount is suppressed on the outline
+        // path, but the linear-blending stem boost applies everywhere; both
+        // sides must account for it.
+        let boost = stem_boost(16.0, 2.0);
         let suppressed = synthetic_embolden(true, false, 16.0, 2.0);
         let raster = synthetic_embolden(true, true, 16.0, 2.0);
 
-        assert_eq!(suppressed, Vec2::ZERO);
-        assert_eq!(raster, Vec2::new(4.0 / 3.0, 4.0 / 3.0));
+        assert_eq!(suppressed, Vec2::new(boost, boost));
+        assert_eq!(raster, Vec2::new(4.0 / 3.0 + boost, 4.0 / 3.0 + boost));
+        // A zero boost disables the compensation entirely.
+        // SAFETY: single-threaded unit test; no other thread reads the env.
+        unsafe {
+            std::env::set_var("PLICO_TEXT_STEM_BOOST", "0");
+        }
+        assert_eq!(synthetic_embolden(true, false, 16.0, 2.0), Vec2::ZERO);
+        // SAFETY: same single-threaded test cleanup.
+        unsafe {
+            std::env::remove_var("PLICO_TEXT_STEM_BOOST");
+        }
     }
 
     #[test]
