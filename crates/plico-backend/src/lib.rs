@@ -128,6 +128,9 @@ pub struct Adapter {
     font_family: Arc<str>,
     font_dirty: bool,
     selection: selection::TextSelection,
+    /// Selection state changed outside a frame; the next update must refresh
+    /// paragraphs and rects even when the backend otherwise did no work.
+    selection_dirty: bool,
     tree: TaffyTree<Paint>,
     nodes: HashMap<Entity, Retained>,
     pub placed: Vec<PlacedNode>,
@@ -179,6 +182,7 @@ impl Default for Adapter {
             font_family: Arc::from("sans-serif"),
             font_dirty: false,
             selection: Default::default(),
+            selection_dirty: true,
             tree: TaffyTree::new(),
             nodes: HashMap::new(),
             placed: Vec::new(),
@@ -615,7 +619,18 @@ impl Adapter {
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
-        self.refresh_selection(engine, tcx);
+        // Refreshing selection walks every placed text node; frames where the
+        // backend did no work and no selection state changed skip it entirely.
+        let backend_worked = self.stats.flatten_visits > 0
+            || self.stats.layout_runs > 0
+            || self.stats.paint_writes > 0
+            || self.stats.created > 0
+            || self.stats.removed > 0
+            || self.stats.text_measure_invalidations > 0;
+        if backend_worked || self.selection_dirty {
+            self.refresh_selection(engine, tcx);
+            self.selection_dirty = false;
+        }
         self.align_sliders(engine);
         self.update_shaders(engine, tcx);
         self.stats.changes |= changes

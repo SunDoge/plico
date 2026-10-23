@@ -22,6 +22,13 @@ pub(super) struct TextSelection {
     dragging: bool,
     pub(super) hovered: bool,
 }
+/// Shared empty selection rects: `Arc::from([])` allocates a header on every
+/// construction, and the no-selection path builds one per placed node per
+/// refresh.
+fn empty_rects() -> Arc<[[f32; 4]]> {
+    static EMPTY: std::sync::OnceLock<Arc<[[f32; 4]]>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| Vec::new().into()).clone()
+}
 impl Adapter {
     fn selection_group(&self, engine: &Engine, id: NodeId) -> Option<Entity> {
         for placed in self.placed_chain(id) {
@@ -81,33 +88,49 @@ impl Adapter {
         }
         self.selection.paragraphs = paragraphs;
         let ranges = self.selected_ranges();
-        for p in &mut self.placed {
-            let entity = self.reverse[&p.node_id];
-            let rects: Arc<[[f32; 4]]> = if let Some((_, start, end)) =
-                ranges.iter().find(|(e, _, _)| *e == entity)
-                && let Some(para) = self
-                    .selection
-                    .paragraphs
-                    .iter()
-                    .find(|n| n.entity == entity)
-            {
-                let a = Cursor::from_byte_index(&para.layout, *start, Affinity::Downstream);
-                let b = Cursor::from_byte_index(&para.layout, *end, Affinity::Upstream);
-                Selection::new(a, b)
-                    .geometry(&para.layout)
-                    .into_iter()
-                    .map(|(r, _)| [r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
-                    .collect()
-            } else {
-                Arc::from([])
-            };
-            if p.paint.selection_rects != rects {
-                p.paint.selection_rects = rects.clone();
+        if ranges.is_empty() {
+            // No selection anywhere: only stale rects need clearing, and the
+            // common case is that there are none to clear.
+            for p in &mut self.placed {
+                if p.paint.selection_rects.is_empty() {
+                    continue;
+                }
+                p.paint.selection_rects = empty_rects();
                 self.tree
                     .get_node_context_mut(p.node_id)
                     .unwrap()
-                    .selection_rects = rects;
+                    .selection_rects = empty_rects();
                 self.stats.paint_writes += 1;
+            }
+        } else {
+            for p in &mut self.placed {
+                let entity = self.reverse[&p.node_id];
+                let rects: Arc<[[f32; 4]]> = if let Some((_, start, end)) =
+                    ranges.iter().find(|(e, _, _)| *e == entity)
+                    && let Some(para) = self
+                        .selection
+                        .paragraphs
+                        .iter()
+                        .find(|n| n.entity == entity)
+                {
+                    let a = Cursor::from_byte_index(&para.layout, *start, Affinity::Downstream);
+                    let b = Cursor::from_byte_index(&para.layout, *end, Affinity::Upstream);
+                    Selection::new(a, b)
+                        .geometry(&para.layout)
+                        .into_iter()
+                        .map(|(r, _)| [r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
+                        .collect()
+                } else {
+                    empty_rects()
+                };
+                if p.paint.selection_rects != rects {
+                    self.tree
+                        .get_node_context_mut(p.node_id)
+                        .unwrap()
+                        .selection_rects = rects.clone();
+                    p.paint.selection_rects = rects;
+                    self.stats.paint_writes += 1;
+                }
             }
         }
     }
@@ -312,6 +335,9 @@ impl Adapter {
                 self.selection.dragging = false;
             }
             _ => {}
+        }
+        if handled {
+            self.selection_dirty = true;
         }
         handled.then_some(EventResponse {
             handled: true,
