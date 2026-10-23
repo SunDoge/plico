@@ -29,6 +29,7 @@ plico-gallery = { path = "../../apps/gallery" }
 [features]
 default = ["hot-reload"]
 hot-reload = ["plico-dev/host", "dep:notify", "dep:usage-rs"]
+profiling = ["plico-renderer/profiling", "plico-shell/profiling"]
 
 [[bin]]
 name = "plico-backend"
@@ -41,4 +42,5 @@ required-features = ["hot-reload"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 plico-shell.workspace = true
+tracing.workspace = true
 usage-rs = { workspace = true, optional = true }

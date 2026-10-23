@@ -18,6 +18,7 @@ serde = { workspace = true, features = ["derive"] }
 [features]
 default = ["desktop"]
 desktop = ["dep:plico-backend"]
+profiling = ["plico-backend/profiling"]
 
 [[bin]]
 name = "plico-gallery"

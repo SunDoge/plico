@@ -25,11 +25,13 @@ skrifa = { version = "0.44", default-features = false, features = ["std"] }
 slotmap = { workspace = true }
 snafu = { workspace = true }
 tracing = { workspace = true }
+tracing-chrome = { version = "0.7.2", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter", "registry"] }
 url = { workspace = true }
 vello-common.workspace = true
 
 [features]
-profiling = ["plico-renderer/profiling"]
+profiling = ["plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 vello-gpu = { workspace = true, features = ["wgpu", "wgpu_default", "text"] }

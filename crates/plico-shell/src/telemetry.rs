@@ -313,6 +313,61 @@ pub fn global() -> &'static Recorder {
 pub fn span(category: &str, name: &str) -> Span<'static> {
     global().span(category, name)
 }
+/// Install the process-wide tracing subscriber for a profiling build.
+///
+/// `PLICO_TRACE_FILE` selects a Chrome/Perfetto JSON output path; without it
+/// spans land in a `tracing_subscriber` fmt layer on stderr. Returns a guard
+/// that must live for the whole process: Chrome writes the trace file when
+/// the subscriber is dropped. A no-op (empty guard) on non-profiling builds
+/// so call sites need no cfg.
+pub fn init_tracing() -> TracingGuard {
+    init_tracing_internal()
+}
+#[cfg(feature = "profiling")]
+fn init_tracing_internal() -> TracingGuard {
+    use tracing_subscriber::{Layer, layer::SubscriberExt};
+    let file = std::env::var_os("PLICO_TRACE_FILE");
+    let (layer, guard) = match &file {
+        Some(path) => {
+            let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+                .file(std::path::PathBuf::from(path))
+                .include_args(true)
+                .build();
+            (
+                layer,
+                TracingGuard {
+                    _chrome: Some(guard),
+                },
+            )
+        }
+        None => (
+            tracing_chrome::ChromeLayerBuilder::new().build().0,
+            TracingGuard { _chrome: None },
+        ),
+    };
+    // Default filter: our spans plus warnings, so dependency TRACE noise
+    // (winit, zbus) stays off unless RUST_LOG asks for it explicitly.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,wabou=trace"));
+    let fmt = tracing_subscriber::fmt::layer()
+        .with_target(false)
+        .with_writer(std::io::stderr);
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(fmt.with_filter(filter))
+        .with(layer);
+    let _ = tracing::subscriber::set_global_default(subscriber);
+    guard
+}
+#[cfg(not(feature = "profiling"))]
+fn init_tracing_internal() -> TracingGuard {
+    TracingGuard {}
+}
+/// Keeps the Chrome trace writer alive; dropping it flushes the trace file.
+pub struct TracingGuard {
+    #[cfg(feature = "profiling")]
+    #[allow(dead_code)]
+    _chrome: Option<tracing_chrome::FlushGuard>,
+}
 /// Flush an explicitly requested file at resident runtime shutdown (also on error).
 pub struct ExportOnDrop;
 impl Drop for ExportOnDrop {
