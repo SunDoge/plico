@@ -541,6 +541,53 @@ pub fn build_scene_scaled(
     );
 }
 
+/// Command ranges per placed node from one full encode pass.
+///
+/// A node's range covers exactly the commands it emitted at its own Enter
+/// (its box, own layers, clips, text — not its descendants'). On a paint-only
+/// frame the tree shape, depth ordering and every ancestor transform are
+/// unchanged, so re-encoding one node's range and splicing it into the
+/// previous command buffer reproduces a full rebuild.
+#[derive(Default, Clone)]
+pub struct SceneRanges {
+    /// Enter segment plus any Exit-tail segments (scrollbars), in order.
+    ranges: std::collections::HashMap<taffy::NodeId, Vec<std::ops::Range<usize>>>,
+    /// Whether the full pass emitted a base fill before any node command,
+    /// and the color it used — an incremental pass must not reuse a base
+    /// fill recorded under a different theme.
+    base_fill: Option<Color>,
+    /// Viewport size recorded at encode time; the incremental pass must
+    /// cull against the same rectangle.
+    viewport: (u32, u32),
+    /// Nodes whose encoding reads global scene state (backdrop blur clones
+    /// the live command prefix) cannot be re-encoded in isolation.
+    unsafe_nodes: std::collections::HashSet<taffy::NodeId>,
+}
+
+impl SceneRanges {
+    /// Whether an incremental reassembly would carry the same base fill.
+    pub fn base_color_matches(&self, current: Color) -> bool {
+        self.base_fill.is_none_or(|recorded| recorded == current)
+    }
+    fn record(&mut self, node: &PlacedNode, range: std::ops::Range<usize>) {
+        if node.paint.backdrop_blur > 0. {
+            self.unsafe_nodes.insert(node.node_id);
+        }
+        self.ranges.insert(node.node_id, vec![range]);
+    }
+    fn append_tail(&mut self, node: &PlacedNode, range: std::ops::Range<usize>) {
+        if !range.is_empty()
+            && let Some(segments) = self.ranges.get_mut(&node.node_id)
+        {
+            segments.push(range);
+        }
+    }
+    /// Whether a node's range can be spliced without a full rebuild.
+    fn splicable(&self, node: &PlacedNode) -> bool {
+        !self.unsafe_nodes.contains(&node.node_id) && self.ranges.contains_key(&node.node_id)
+    }
+}
+
 /// Encode independent paint-ordered root layers without concatenating their node lists.
 pub fn build_scene_scaled_layers(
     scene: &mut Scene,
@@ -551,6 +598,35 @@ pub fn build_scene_scaled_layers(
     base_color: Color,
     device_scale: f64,
 ) {
+    build_scene_tracked(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        None,
+    )
+}
+
+/// Full encode, optionally recording per-node command ranges for the
+/// incremental re-encoder.
+#[allow(clippy::too_many_arguments)]
+pub fn build_scene_tracked(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+    mut ranges: Option<&mut SceneRanges>,
+) {
+    if let Some(ranges) = ranges.as_deref_mut() {
+        ranges.viewport = (width, height);
+        ranges.base_fill = (base_color != Color::TRANSPARENT).then_some(base_color);
+    }
     scene.reset();
     let device = Affine::scale(device_scale);
 
@@ -576,7 +652,13 @@ pub fn build_scene_scaled_layers(
             if let Some(&(_, transform)) = transforms.last().filter(|(depth, _)| *depth == n.depth)
                 && paints_viewport(n, transform, viewport)
             {
+                let tail_start = scene.commands.len();
                 draw_scrollbars(scene, n, device * transform);
+                if let Some(ranges) = ranges.as_deref_mut() {
+                    // Scrollbars paint at Exit, after all descendants; they
+                    // belong to the node's own range as a trailing segment.
+                    ranges.append_tail(n, tail_start..scene.commands.len());
+                }
             }
             while transforms
                 .last()
@@ -608,81 +690,275 @@ pub fn build_scene_scaled_layers(
         let node_transform = device * css_transform;
         let paints_node = paints_viewport(n, css_transform, viewport);
 
-        // Keep ancestor transform, opacity, and clip state even when this
-        // node's own visual bounds are offscreen: a transformed descendant can
-        // still enter the viewport. Only node-owned paint is culled here.
-        let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
-        if opacity < 1.0 {
-            scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
-            layers.push(Layer::Opacity { depth: n.depth });
-        }
-
-        if paints_node {
-            draw_backdrop(scene, n, node_transform, layers.len());
-            draw_node_box(scene, n, node_transform);
-        }
-
-        if let Some([cx0, cy0, cx1, cy1]) = n.own_clip {
-            let extent = f64::from(width.max(height)) * 4.0 + 4096.0;
-            let finite = |value: f32| {
-                if value == f32::NEG_INFINITY {
-                    -extent
-                } else if value == f32::INFINITY {
-                    extent
-                } else {
-                    f64::from(value)
-                }
-            };
-            let clip_rect = Rect::new(finite(cx0), finite(cy0), finite(cx1), finite(cy1));
-            scene.push_clip_layer(
-                node_transform,
-                &clip_rect.to_rounded_rect(n.own_clip_radii.as_f64_tuple()),
-            );
-            layers.push(Layer::Clip { depth: n.depth });
-        }
-
-        if paints_node {
-            draw_svg(scene, n, node_transform);
-            draw_vector_path(scene, n, node_transform);
-            draw_image(scene, n, node_transform);
-        }
-
-        if paints_node && let Some(ws) = &n.paint.widget {
-            // Keep rounded widget clipping inside the fragment itself. Some
-            // GPU backends do not reliably carry a parent clip across an
-            // appended scene at HiDPI; local encoding also avoids mixing
-            // absolute logical and fragment coordinates.
-            let outer_widget_clip = (!has_rounded_corners).then(|| widget_clip(n)).flatten();
-            if let Some(([cx0, cy0, cx1, cy1], radii)) = outer_widget_clip {
-                let widget_clip = Rect::new(
-                    cx0.max(0.0) as f64,
-                    cy0.max(0.0) as f64,
-                    cx1.min(width as f32) as f64,
-                    cy1.min(height as f32) as f64,
-                );
-                scene.push_clip_layer(
-                    node_transform,
-                    &widget_clip.to_rounded_rect(radii.as_f64_tuple()),
-                );
-            }
-            append_widget(
-                scene,
-                ws,
-                node_transform
-                    * Affine::translate((n.content_origin[0] as f64, n.content_origin[1] as f64)),
-            );
-            if outer_widget_clip.is_some() {
-                scene.pop_layer();
-            }
-        }
-
-        if paints_node {
-            draw_text(scene, n, tcx, node_transform, device_scale);
+        let range_start = scene.commands.len();
+        let enc = EncodeCtx {
+            node: n,
+            node_transform,
+            paints_node,
+            has_rounded_corners,
+            device,
+            bg: &bg,
+            viewport,
+            device_scale,
+        };
+        encode_node(scene, tcx, &enc, &mut layers);
+        if let Some(ranges) = ranges.as_deref_mut() {
+            ranges.record(n, range_start..scene.commands.len());
         }
     }
     while layers.pop().is_some() {
         scene.pop_layer();
     }
+}
+
+/// Per-Enter encoding inputs; split out so the incremental re-encoder can
+/// drive it for a single node with the same ancestor transform.
+struct EncodeCtx<'a> {
+    node: &'a PlacedNode,
+    node_transform: Affine,
+    paints_node: bool,
+    has_rounded_corners: bool,
+    device: Affine,
+    bg: &'a Rect,
+    viewport: Rect,
+    device_scale: f64,
+}
+fn encode_node(
+    scene: &mut Scene,
+    tcx: &mut TextContext,
+    enc: &EncodeCtx<'_>,
+    layers: &mut Vec<Layer>,
+) {
+    let EncodeCtx {
+        node: n,
+        node_transform,
+        paints_node,
+        has_rounded_corners,
+        device,
+        bg,
+        viewport,
+        device_scale,
+    } = enc;
+    let n: &PlacedNode = n;
+    let device = *device;
+    let bg = *bg;
+    let viewport = *viewport;
+    let device_scale = *device_scale;
+    let paints_node = *paints_node;
+    let has_rounded_corners = *has_rounded_corners;
+
+    // Keep ancestor transform, opacity, and clip state even when this
+    // node's own visual bounds are offscreen: a transformed descendant can
+    // still enter the viewport. Only node-owned paint is culled here.
+    let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+    if opacity < 1.0 {
+        scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
+        layers.push(Layer::Opacity { depth: n.depth });
+    }
+
+    if paints_node {
+        draw_backdrop(scene, n, *node_transform, layers.len());
+        draw_node_box(scene, n, *node_transform);
+    }
+
+    if let Some([cx0, cy0, cx1, cy1]) = n.own_clip {
+        let extent = viewport.width().max(viewport.height()) * 4.0 + 4096.0;
+        let finite = |value: f32| {
+            if value == f32::NEG_INFINITY {
+                -extent
+            } else if value == f32::INFINITY {
+                extent
+            } else {
+                f64::from(value)
+            }
+        };
+        let clip_rect = Rect::new(finite(cx0), finite(cy0), finite(cx1), finite(cy1));
+        scene.push_clip_layer(
+            *node_transform,
+            &clip_rect.to_rounded_rect(n.own_clip_radii.as_f64_tuple()),
+        );
+        layers.push(Layer::Clip { depth: n.depth });
+    }
+
+    if paints_node {
+        draw_svg(scene, n, *node_transform);
+        draw_vector_path(scene, n, *node_transform);
+        draw_image(scene, n, *node_transform);
+    }
+
+    if paints_node && let Some(ws) = &n.paint.widget {
+        // Keep rounded widget clipping inside the fragment itself. Some
+        // GPU backends do not reliably carry a parent clip across an
+        // appended scene at HiDPI; local encoding also avoids mixing
+        // absolute logical and fragment coordinates.
+        let outer_widget_clip = (!has_rounded_corners).then(|| widget_clip(n)).flatten();
+        if let Some(([cx0, cy0, cx1, cy1], radii)) = outer_widget_clip {
+            let widget_clip = Rect::new(
+                cx0.max(0.0) as f64,
+                cy0.max(0.0) as f64,
+                cx1.min(viewport.width() as f32) as f64,
+                cy1.min(viewport.height() as f32) as f64,
+            );
+            scene.push_clip_layer(
+                *node_transform,
+                &widget_clip.to_rounded_rect(radii.as_f64_tuple()),
+            );
+        }
+        append_widget(
+            scene,
+            ws,
+            *node_transform
+                * Affine::translate((n.content_origin[0] as f64, n.content_origin[1] as f64)),
+        );
+        if outer_widget_clip.is_some() {
+            scene.pop_layer();
+        }
+    }
+
+    if paints_node {
+        draw_text(scene, n, tcx, *node_transform, device_scale);
+    }
+}
+
+/// Re-encode only the dirty nodes into a previous scene.
+///
+/// The previous frame's command buffer and its `SceneRanges` describe a
+/// paint-only world: unchanged tree, unchanged geometry, unchanged ancestor
+/// transforms. The whole command stream is reassembled in traversal order,
+/// copying each node's recorded segments verbatim and re-encoding only the
+/// dirty ones. Copying is a memcpy per command; encoding is the expensive
+/// part, so the frame cost is O(total commands) memcpy + O(dirty) encode.
+/// Returns false when a dirty node cannot be re-encoded in isolation —
+/// callers rebuild fully instead.
+pub fn build_scene_incremental(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    previous: &Scene,
+    ranges: &SceneRanges,
+    dirty: &[taffy::NodeId],
+    tcx: &mut TextContext,
+    device_scale: f64,
+) -> bool {
+    if dirty.is_empty() {
+        return true;
+    }
+    let device = Affine::scale(device_scale);
+    let viewport = Rect::new(
+        0.,
+        0.,
+        f64::from(ranges.viewport.0),
+        f64::from(ranges.viewport.1),
+    );
+    let dirty: std::collections::HashSet<taffy::NodeId> = dirty.iter().copied().collect();
+    // A placed entry per node id for ancestor walks and dirty resolution.
+    let index: std::collections::HashMap<taffy::NodeId, &PlacedNode> = roots
+        .iter()
+        .flat_map(|n| n.iter())
+        .map(|n| (n.node_id, n))
+        .collect();
+    for &id in &dirty {
+        let Some(node) = index.get(&id) else {
+            return false;
+        };
+        if !ranges.splicable(node) {
+            return false;
+        }
+    }
+    let old = previous.commands.as_slice();
+    let mut next = Scene::new();
+    // The base fill the full pass emitted before any node.
+    if ranges.base_fill.is_some() {
+        if old.is_empty() {
+            return false;
+        }
+        next.commands.push(old[0].clone());
+    }
+    for nodes in roots {
+        for event in subtree_events(nodes) {
+            let (node, is_enter) = match event {
+                SubtreeEvent::Enter(n) => (n, true),
+                SubtreeEvent::Exit(n) => (n, false),
+            };
+            let Some(segments) = ranges.ranges.get(&node.node_id) else {
+                return false;
+            };
+            if is_enter {
+                if dirty.contains(&node.node_id) {
+                    // Re-encode this node in isolation: the ancestor transform
+                    // is unchanged on a paint-only frame, so recomputing it
+                    // from the parent chain reproduces the recorded one.
+                    let mut parent_transform = Affine::IDENTITY;
+                    let mut chain: Vec<&PlacedNode> = Vec::new();
+                    let mut current = node.parent_node_id;
+                    while let Some(id) = current
+                        && let Some(parent) = index.get(&id)
+                    {
+                        chain.push(parent);
+                        current = parent.parent_node_id;
+                    }
+                    for parent in chain.iter().rev() {
+                        parent_transform = resolve_node_transform(parent, parent_transform);
+                    }
+                    let css_transform = resolve_node_transform(node, parent_transform);
+                    let node_transform = device * css_transform;
+                    let mut scratch = Scene::new();
+                    let enc = EncodeCtx {
+                        node,
+                        node_transform,
+                        paints_node: paints_viewport(node, css_transform, viewport),
+                        has_rounded_corners: node.paint.border_radii.max() > 0.0,
+                        device,
+                        bg: &viewport,
+                        viewport,
+                        device_scale,
+                    };
+                    let mut layers = Vec::new();
+                    encode_node(&mut scratch, tcx, &enc, &mut layers);
+                    while layers.pop().is_some() {
+                        scratch.pop_layer();
+                    }
+                    next.commands.extend(scratch.commands.iter().cloned());
+                } else {
+                    // Enter segment is the first recorded range.
+                    let segment = &segments[0];
+                    if segment.end > old.len() {
+                        return false;
+                    }
+                    next.commands
+                        .extend_from_slice(&old[segment.start..segment.end]);
+                }
+            } else if !dirty.contains(&node.node_id) {
+                // Exit-tail segments (scrollbars) follow all descendants.
+                // The first segment was already consumed at Enter.
+                for segment in segments.iter().skip(1) {
+                    if segment.end > old.len() {
+                        return false;
+                    }
+                    next.commands
+                        .extend_from_slice(&old[segment.start..segment.end]);
+                }
+            } else {
+                // Dirty nodes re-emit their own Exit tail (scrollbars) with
+                // the node state just re-encoded.
+                let mut parent_transform = Affine::IDENTITY;
+                let mut chain: Vec<&PlacedNode> = Vec::new();
+                let mut current = node.parent_node_id;
+                while let Some(id) = current
+                    && let Some(parent) = index.get(&id)
+                {
+                    chain.push(parent);
+                    current = parent.parent_node_id;
+                }
+                for parent in chain.iter().rev() {
+                    parent_transform = resolve_node_transform(parent, parent_transform);
+                }
+                let transform = resolve_node_transform(node, parent_transform);
+                draw_scrollbars(&mut next, node, device * transform);
+            }
+        }
+    }
+    *scene = next;
+    true
 }
 
 #[cfg(test)]

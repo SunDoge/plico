@@ -54,6 +54,8 @@ fn interactive(k: Kind) -> bool {
 pub struct BackendStats {
     pub created: usize,
     pub removed: usize,
+    /// Portable layout converted into a Taffy style (before equality checks).
+    pub layout_style_builds: usize,
     pub style_writes: usize,
     pub paint_writes: usize,
     pub child_writes: usize,
@@ -69,6 +71,8 @@ pub struct BackendStats {
     pub placed_node_clones: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
+    /// Paint-only frames satisfied by re-encoding dirty node ranges.
+    pub scene_incremental: usize,
     pub svg_parses: usize,
     pub changes: plico_core::Changes,
 }
@@ -86,6 +90,7 @@ struct Retained {
     text: Arc<str>,
     children: Vec<NodeId>,
     toggle_line_height: Option<f32>,
+    had_grid: bool,
 }
 
 type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
@@ -772,137 +777,159 @@ impl Adapter {
         } else {
             Vec::new()
         };
-        let mut style = taffy::Style {
-            display: Display::Flex,
-            overflow: taffy::geometry::Point {
-                x: if visual_style.clip || visual_style.scroll_y {
-                    taffy::Overflow::Hidden
-                } else {
-                    taffy::Overflow::Visible
-                },
-                y: if visual_style.scroll_y {
-                    taffy::Overflow::Scroll
-                } else if visual_style.clip {
-                    taffy::Overflow::Hidden
-                } else {
-                    taffy::Overflow::Visible
-                },
-            },
-            flex_direction: if matches!(n.kind, Kind::Row | Kind::ButtonBase) {
-                FlexDirection::Row
-            } else {
-                FlexDirection::Column
-            },
-            align_items: visual_style.align.map_or_else(
-                || {
-                    if matches!(
-                        n.kind,
-                        Kind::Root | Kind::Column | Kind::Dialog | Kind::TooltipAnchor
-                    ) {
-                        AlignItems::STRETCH
+        // Reuse the retained layout for paint/text/transform-only updates.
+        // Grid templates remain conservative: variable-size grid data lives
+        // outside Copy Style, so layout_eq alone cannot validate them.
+        let rebuild_layout = self.nodes.get(&e).is_none_or(|previous| {
+            n.grid.is_some()
+                || previous.had_grid
+                || previous.paint_key.1 != n.kind
+                || (matches!(n.kind, Kind::Switch | Kind::Checkbox)
+                    && previous.paint_key.2.metrics != engine.theme().metrics)
+                || !visual_style.layout_eq(previous.paint_key.0)
+                || (n.kind == Kind::Root
+                    && previous.style.size
+                        != Size {
+                            width: length(width as f32),
+                            height: length(height as f32),
+                        })
+        });
+        let style = rebuild_layout.then(|| {
+            self.stats.layout_style_builds += 1;
+            let mut style = taffy::Style {
+                display: Display::Flex,
+                overflow: taffy::geometry::Point {
+                    x: if visual_style.clip || visual_style.scroll_y {
+                        taffy::Overflow::Hidden
                     } else {
-                        AlignItems::CENTER
-                    }
+                        taffy::Overflow::Visible
+                    },
+                    y: if visual_style.scroll_y {
+                        taffy::Overflow::Scroll
+                    } else if visual_style.clip {
+                        taffy::Overflow::Hidden
+                    } else {
+                        taffy::Overflow::Visible
+                    },
                 },
-                |align| match align {
-                    plico_core::Align::Start => AlignItems::START,
-                    plico_core::Align::Center => AlignItems::CENTER,
-                    plico_core::Align::End => AlignItems::END,
-                    plico_core::Align::Stretch => AlignItems::STRETCH,
-                    plico_core::Align::Baseline => AlignItems::BASELINE,
+                flex_direction: if matches!(n.kind, Kind::Row | Kind::ButtonBase) {
+                    FlexDirection::Row
+                } else {
+                    FlexDirection::Column
                 },
-            ),
-            justify_content: visual_style
-                .justify
-                .map_or(JustifyContent::NORMAL, |justify| match justify {
-                    plico_core::Justify::Start => JustifyContent::START,
-                    plico_core::Justify::Center => JustifyContent::CENTER,
-                    plico_core::Justify::End => JustifyContent::END,
-                    plico_core::Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
-                    plico_core::Justify::SpaceAround => JustifyContent::SPACE_AROUND,
-                    plico_core::Justify::SpaceEvenly => JustifyContent::SPACE_EVENLY,
-                    plico_core::Justify::Stretch => JustifyContent::STRETCH,
-                }),
-            flex_wrap: if visual_style.wrap {
-                FlexWrap::Wrap
-            } else {
-                FlexWrap::NoWrap
-            },
-            flex_grow: visual_style.grow,
-            min_size: Size {
-                width: visual_style.min_width.map_or(length(0.), length),
-                height: visual_style.min_height.map_or(auto(), length),
-            },
-            max_size: Size {
-                width: visual_style.max_width.map_or(auto(), length),
-                height: visual_style.max_height.map_or(auto(), length),
-            },
-            gap: Size {
-                width: length(visual_style.gap),
-                height: length(visual_style.gap),
-            },
-            border: Rect {
-                left: length(visual_style.border_width),
-                right: length(visual_style.border_width),
-                top: length(visual_style.border_width),
-                bottom: length(visual_style.border_width),
-            },
-            padding: Rect {
-                left: length(visual_style.horizontal_padding()),
-                right: length(visual_style.horizontal_padding()),
-                top: length(visual_style.vertical_padding()),
-                bottom: length(visual_style.vertical_padding()),
-            },
-            size: Size {
-                width: visual_style.width_percent.map_or_else(
-                    || visual_style.width.map_or(auto(), length),
-                    |v| percent(v / 100.),
+                align_items: visual_style.align.map_or_else(
+                    || {
+                        if matches!(
+                            n.kind,
+                            Kind::Root | Kind::Column | Kind::Dialog | Kind::TooltipAnchor
+                        ) {
+                            AlignItems::STRETCH
+                        } else {
+                            AlignItems::CENTER
+                        }
+                    },
+                    |align| match align {
+                        plico_core::Align::Start => AlignItems::START,
+                        plico_core::Align::Center => AlignItems::CENTER,
+                        plico_core::Align::End => AlignItems::END,
+                        plico_core::Align::Stretch => AlignItems::STRETCH,
+                        plico_core::Align::Baseline => AlignItems::BASELINE,
+                    },
                 ),
-                height: visual_style.height_percent.map_or_else(
-                    || visual_style.height.map_or(auto(), length),
-                    |v| percent(v / 100.),
-                ),
-            },
-            flex_shrink: if is_control { 0. } else { visual_style.shrink },
-            ..Default::default()
-        };
-        if let Some([left, top]) = visual_style.absolute {
-            style.position = Position::Absolute;
-            style.inset.left = length(left);
-            style.inset.top = length(top);
-        }
-        if visual_style.overlay {
-            style.position = Position::Absolute;
-            style.inset = Rect {
-                left: length(0.),
-                right: length(0.),
-                top: length(0.),
-                bottom: length(0.),
+                justify_content: visual_style
+                    .justify
+                    .map_or(JustifyContent::NORMAL, |justify| match justify {
+                        plico_core::Justify::Start => JustifyContent::START,
+                        plico_core::Justify::Center => JustifyContent::CENTER,
+                        plico_core::Justify::End => JustifyContent::END,
+                        plico_core::Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
+                        plico_core::Justify::SpaceAround => JustifyContent::SPACE_AROUND,
+                        plico_core::Justify::SpaceEvenly => JustifyContent::SPACE_EVENLY,
+                        plico_core::Justify::Stretch => JustifyContent::STRETCH,
+                    }),
+                flex_wrap: if visual_style.wrap {
+                    FlexWrap::Wrap
+                } else {
+                    FlexWrap::NoWrap
+                },
+                flex_grow: visual_style.grow,
+                min_size: Size {
+                    width: visual_style.min_width.map_or(length(0.), length),
+                    height: visual_style.min_height.map_or(auto(), length),
+                },
+                max_size: Size {
+                    width: visual_style.max_width.map_or(auto(), length),
+                    height: visual_style.max_height.map_or(auto(), length),
+                },
+                gap: Size {
+                    width: length(visual_style.gap),
+                    height: length(visual_style.gap),
+                },
+                border: Rect {
+                    left: length(visual_style.border_width),
+                    right: length(visual_style.border_width),
+                    top: length(visual_style.border_width),
+                    bottom: length(visual_style.border_width),
+                },
+                padding: Rect {
+                    left: length(visual_style.horizontal_padding()),
+                    right: length(visual_style.horizontal_padding()),
+                    top: length(visual_style.vertical_padding()),
+                    bottom: length(visual_style.vertical_padding()),
+                },
+                size: Size {
+                    width: visual_style.width_percent.map_or_else(
+                        || visual_style.width.map_or(auto(), length),
+                        |v| percent(v / 100.),
+                    ),
+                    height: visual_style.height_percent.map_or_else(
+                        || visual_style.height.map_or(auto(), length),
+                        |v| percent(v / 100.),
+                    ),
+                },
+                flex_shrink: if is_control { 0. } else { visual_style.shrink },
+                ..Default::default()
             };
-            style.size = Size {
-                width: percent(1.),
-                height: percent(1.),
-            };
-        }
-        if n.kind == Kind::Root {
-            style.size = Size {
-                width: length(width as f32),
-                height: length(height as f32),
-            };
-        }
-        if is_control && !matches!(n.kind, Kind::ButtonBase | Kind::Overlay) {
-            style.min_size.height = visual_style.min_height.map_or(length(36.), length);
-            style.padding = Rect {
-                left: length(visual_style.horizontal_padding()),
-                right: length(visual_style.horizontal_padding()),
-                top: length(visual_style.vertical_padding()),
-                bottom: length(visual_style.vertical_padding()),
-            };
-        }
-        layout_style::apply(&mut style, visual_style, n.grid);
-        if matches!(n.kind, Kind::Switch | Kind::Checkbox) {
-            style.padding.left = length(toggle::left_padding(n.kind, visual_style, engine.theme()));
-        }
+            if let Some([left, top]) = visual_style.absolute {
+                style.position = Position::Absolute;
+                style.inset.left = length(left);
+                style.inset.top = length(top);
+            }
+            if visual_style.overlay {
+                style.position = Position::Absolute;
+                style.inset = Rect {
+                    left: length(0.),
+                    right: length(0.),
+                    top: length(0.),
+                    bottom: length(0.),
+                };
+                style.size = Size {
+                    width: percent(1.),
+                    height: percent(1.),
+                };
+            }
+            if n.kind == Kind::Root {
+                style.size = Size {
+                    width: length(width as f32),
+                    height: length(height as f32),
+                };
+            }
+            if is_control && !matches!(n.kind, Kind::ButtonBase | Kind::Overlay) {
+                style.min_size.height = visual_style.min_height.map_or(length(36.), length);
+                style.padding = Rect {
+                    left: length(visual_style.horizontal_padding()),
+                    right: length(visual_style.horizontal_padding()),
+                    top: length(visual_style.vertical_padding()),
+                    bottom: length(visual_style.vertical_padding()),
+                };
+            }
+            layout_style::apply(&mut style, visual_style, n.grid);
+            if matches!(n.kind, Kind::Switch | Kind::Checkbox) {
+                style.padding.left =
+                    length(toggle::left_padding(n.kind, visual_style, engine.theme()));
+            }
+            style
+        });
         let key = (
             visual_style,
             n.kind,
@@ -915,18 +942,22 @@ impl Adapter {
         if !self.nodes.contains_key(&e) {
             let id = self
                 .tree
-                .new_leaf_with_context(style.clone(), Paint::default())
+                .new_leaf_with_context(
+                    style.as_ref().expect("new node layout").clone(),
+                    Paint::default(),
+                )
                 .unwrap();
             self.nodes.insert(
                 e,
                 Retained {
                     id,
-                    style: style.clone(),
+                    style: style.as_ref().expect("new node layout").clone(),
                     paint_key: key,
                     spans: n.spans.to_vec(),
                     text: Arc::from(n.text),
                     children: Vec::new(),
                     toggle_line_height: None,
+                    had_grid: n.grid.is_some(),
                 },
             );
             // Force the initial paint write, even for an empty label.
@@ -947,7 +978,10 @@ impl Adapter {
             self.stats.paint_writes += 1;
         }
         let retained = self.nodes.get_mut(&e).unwrap();
-        if retained.style != style {
+        retained.had_grid = n.grid.is_some();
+        if let Some(style) = style
+            && retained.style != style
+        {
             self.tree.set_style(retained.id, style.clone()).unwrap();
             retained.style = style;
             self.stats.style_writes += 1;
@@ -1844,6 +1878,8 @@ pub struct Source<V: View> {
     last_tick: Option<Instant>,
     requests: plico_core::Changes,
     target_scene: Option<(Scene, u64, u64)>,
+    /// Ranges of the last fully encoded scene, for paint-only re-encoding.
+    scene_ranges: plico_renderer::scene::SceneRanges,
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
     declared_seen: HashSet<Entity>,
@@ -1878,6 +1914,7 @@ impl<V: View> Source<V> {
             last_tick: None,
             requests: plico_core::Changes::empty(),
             target_scene: None,
+            scene_ranges: Default::default(),
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
@@ -2153,12 +2190,45 @@ impl<V: View> Source<V> {
             self.adapter.stats.scene_reuses += 1;
             return;
         }
+        // Paint-only frames re-encode just the dirty nodes into the previous
+        // buffer: geometry, order and ancestor transforms are unchanged, so
+        // each node's recorded command range can be spliced in isolation.
+        let paint_only = !self.adapter.geometry_dirty
+            && self.adapter.stats.flatten_visits == 0
+            && self.adapter.stats.layout_runs == 0
+            && !self.adapter.motions.active()
+            && self.adapter.scroll_motions.is_empty()
+            && self.adapter.shaders.is_empty()
+            && snapshot.is_none()
+            && !self.adapter.paint_dirty.is_empty();
+        let base_matches = self.scene_ranges.base_color_matches(self.base_color());
+        if paint_only
+            && base_matches
+            && let Some((previous, _, _)) = &self.target_scene
+            && plico_renderer::scene::build_scene_incremental(
+                scene,
+                &[self.adapter.placed.as_slice(), self.adapter.tips.layer()],
+                previous,
+                &self.scene_ranges,
+                &self.adapter.paint_dirty,
+                tcx,
+                scale,
+            )
+        {
+            self.adapter.stats.scene_incremental += 1;
+            self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
+            // Re-encoded segments changed length: the recorded ranges no
+            // longer describe this buffer, so only the next full rebuild can
+            // feed the incremental path again.
+            self.scene_ranges = Default::default();
+            return;
+        }
         self.adapter.stats.scene_builds += 1;
         let layers = match (self.adapter.shaders.is_empty(), snapshot) {
             (true, Some(nodes)) => [nodes, &[]],
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
-        plico_renderer::scene::build_scene_scaled_layers(
+        plico_renderer::scene::build_scene_tracked(
             scene,
             &layers,
             tcx,
@@ -2166,6 +2236,7 @@ impl<V: View> Source<V> {
             size.1,
             self.base_color(),
             scale,
+            Some(&mut self.scene_ranges),
         );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
     }

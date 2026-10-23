@@ -42,6 +42,7 @@ fn retained_and_snapshot_paths_render_identical_pixels_for_widgets_shader_and_th
                 .render_retained_frame(&mut right, &mut text, (640, 740), 1.)
                 .unwrap()
                 .0;
+
             assert_eq!(count, nodes.len());
             assert_eq!(fast.adapter.stats.placed_node_clones, 0);
             // The combined host path paints straight from retained state; it
@@ -60,6 +61,13 @@ fn retained_and_snapshot_paths_render_identical_pixels_for_widgets_shader_and_th
             let merged =
                 plico_shell::renderer::render_to_image(&merged, 640, 740, combined.base_color())
                     .unwrap();
+            if std::env::var("CMDDBG").is_ok() && left.as_raw() != right.as_raw() {
+                let ls: Vec<String> = left.iter().take(0).map(|_| String::new()).collect();
+                let _ = ls;
+                // Compare scene command streams directly.
+                eprintln!("CMDDBG left={} right={}", left.len(), right.len());
+            }
+
             assert_eq!(left.as_raw(), right.as_raw(), "{page:?} phase {phase}");
             assert_eq!(left.as_raw(), merged.as_raw(), "{page:?} phase {phase}");
             clock
