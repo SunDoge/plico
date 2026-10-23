@@ -167,6 +167,34 @@ fn append_preserves_selection_replacement_and_unmount_clear_it() {
     assert!(s.adapter.selected_text().is_none());
 }
 #[test]
+fn clicking_blank_space_clears_highlights_without_node_changes() {
+    let mut s = Source::new(Document::default());
+    let mut tcx = TextContext::new();
+    frame(&mut s, &mut tcx);
+    let a = origin(&s, "First");
+    s.handle_event(pointer(PointerPhase::Down, a[0], a[1]));
+    s.handle_event(pointer(PointerPhase::Up, a[0], a[1]));
+    s.handle_event(key("a"));
+    frame(&mut s, &mut tcx);
+    assert!(
+        s.adapter
+            .placed
+            .iter()
+            .any(|p| !p.paint.selection_rects.is_empty())
+    );
+
+    let response = s.handle_event(pointer(PointerPhase::Down, 450., 350.));
+    assert!(response.request_redraw);
+    frame(&mut s, &mut tcx);
+    assert!(s.adapter.selected_text().is_none());
+    assert!(
+        s.adapter
+            .placed
+            .iter()
+            .all(|p| p.paint.selection_rects.is_empty())
+    );
+}
+#[test]
 fn ordinary_labels_do_not_select_and_input_keeps_its_own_shortcuts() {
     let mut s = Source::new(Document::default());
     let mut tcx = TextContext::new();

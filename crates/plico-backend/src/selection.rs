@@ -268,6 +268,10 @@ impl Adapter {
                             self.pressed = None;
                             handled = true;
                         } else {
+                            // Let the pointer event continue to its target, but
+                            // invalidate highlights even if no backend node changes.
+                            self.selection_dirty |=
+                                self.selection.anchor.is_some() || self.selection.head.is_some();
                             self.selection.anchor = None;
                             self.selection.head = None;
                         }
