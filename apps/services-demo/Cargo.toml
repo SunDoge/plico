@@ -1,0 +1,52 @@
+[package]
+name = "plico-services-demo"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.plico]
+host = "plico-services-demo"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:plico-backend"]
+hot-reload = ["desktop", "plico-backend/hot-reload"]
+# Verification only: require a new UI field so the old UI checkpoint resets.
+schema-reset-fixture = []
+
+[dependencies]
+plico-core.workspace = true
+plico-dev.workspace = true
+plico-backend = { path = "../../crates/plico-backend", optional = true, default-features = false }
+serde = { workspace = true, features = ["derive"] }
+
+[[bin]]
+name = "plico-services-demo"
+required-features = ["desktop"]
+
+[[example]]
+name = "services-reload"
+required-features = ["hot-reload"]
+
+[dev-dependencies]
+serde_json.workspace = true
+snafu.workspace = true
+usage-rs.workspace = true
+tempfile.workspace = true
+plico-renderer.workspace = true
+plico-shell.workspace = true
+
+[[example]]
+name = "services-capture"
+path = "examples/capture.rs"
+required-features = ["desktop"]
+
+# The export macro generates native ABI references to this crate.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+stabby.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["stabby"]

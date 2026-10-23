@@ -1,0 +1,19 @@
+[package]
+name = "plico-launcher"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+plico-core.workspace = true
+plico-backend = { path = "../../crates/plico-backend", default-features = false }
+
+[dev-dependencies]
+plico-renderer.workspace = true
+plico-shell.workspace = true
+usage-rs.workspace = true
+snafu.workspace = true
+
+[[example]]
+name = "launcher-capture"
+path = "examples/capture.rs"

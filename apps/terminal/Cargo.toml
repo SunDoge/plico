@@ -1,0 +1,15 @@
+[package]
+name = "plico-terminal"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "Plico native terminal using the migrated Wabou terminal widget"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+plico-core.workspace = true
+plico-backend = { path = "../../crates/plico-backend", default-features = false }
+plico-terminal-widget = { path = "../../crates/plico-terminal-widget" }
+plico-renderer.workspace = true
+serde_json.workspace = true
+snafu.workspace = true
+usage-rs.workspace = true

@@ -1,0 +1,1 @@
+{"name":"plico-solid-reference","private":true,"type":"module","dependencies":{"@wabou/ui":"workspace:*","@wabou/vite":"workspace:*","solid-js":"1.9.11"}}

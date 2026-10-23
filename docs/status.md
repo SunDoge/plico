@@ -1,0 +1,54 @@
+# 实现状态与边界
+
+## 当前主线
+
+唯一声明模型为 immediate mode：plico-core 的 Engine / UiContext / widgets，
+plico-backend 负责真实后端。旧 crates/plico 响应式 Runtime、图实验、共享响应式 2048
+组件与 archive-gallery / game2048 / task-workspace 旧应用已删除。
+Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
+
+## 已实现
+
+- 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
+- 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
+- Taffy 布局、Parley 文本和 Vello 后端；字体、选择复制、输入法和 SVG。
+- Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
+- 虚拟列表、smooth scroll、宿主滚动和声明分离、条件帧调度。
+- 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
+- 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
+- usage-rs CLI、plico fmt、应用目录选择与 dev/run 分离。
+- plico icons add/check：应用拥有选择集合、生成 Rust、清单和许可证，核心仅内置四个控件图标。
+- launcher、terminal、services-demo；编辑器和 WASM 入口保留。
+
+## 当前代价和限制
+
+一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。
+依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
+原生模块协议仍有完整节点快照，不等于所有热重载帧都发送局部 patch。
+
+热重载为 best effort；业务状态不兼容可以重置，不保证任意 Rust 类型无损迁移。
+WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
+尚未接入 Bevy、LVGL、FLTK、ESP32 或 no_std。
+
+## 验证入口
+
+```sh
+cargo check --workspace --all-targets
+cargo test --workspace --all-features
+cargo run -p plico-gallery
+cargo plico new /tmp/my-app
+cargo plico dev /tmp/my-app --headless --no-watch
+cargo plico icons check --output apps/gallery/src/icons.rs
+```
+
+具体行为和局限见 [文档索引](README.md)、[声明模型](declaration-model-choice.md)、
+[帧调度](frame-scheduling.md)、[增量更新](incremental.md)、[缓存](cache.md)、
+[宿主服务](host-services.md)、[热重载协议](hotreload-protocol.md)。
+测试、截图和性能数据只代表对应版本与配置；reports 下的本地产物不提交。
+
+## 本次清理验证（2026-10-23）
+
+删除实验后，workspace all-features 测试共 606 项通过，workspace all-targets 编译通过。
+通过 plico new 创建的独立项目已完成静态入口编译和真实 headless 模块加载，
+点击 Increment 后业务状态从 0 变为 1，后续快照保持 1。
+依赖锁文件已清除 Rune、reactive_graph、Sycamore 及仅供旧实验使用的依赖。

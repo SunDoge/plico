@@ -1,0 +1,11 @@
+/target
+**/target/
+**/node_modules
+**/dist/
+**/__pycache__/
+
+# Generated verification reports, screenshots and measurements (reproducible locally).
+**/reports/
+
+# Lucide SVGs are a local generator cache; Rust, LICENSE and hashes are committed.
+crates/plico-core/assets/lucide/icons/

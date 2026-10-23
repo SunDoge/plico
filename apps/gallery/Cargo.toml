@@ -1,0 +1,67 @@
+[package]
+name = "plico-gallery"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+default-run = "plico-gallery"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+plico-backend = { path = "../../crates/plico-backend", optional = true, default-features = false }
+plico-core.workspace = true
+plico-markdown = { path = "../../crates/plico-markdown" }
+plico-dev.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+[features]
+default = ["desktop"]
+desktop = ["dep:plico-backend"]
+
+[[bin]]
+name = "plico-gallery"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[example]]
+name = "probe"
+path = "examples/probe.rs"
+required-features = ["desktop"]
+
+[[example]]
+name = "capture"
+required-features = ["desktop"]
+
+[dev-dependencies]
+plico-renderer = { workspace = true }
+plico-shell = { workspace = true }
+usage-rs = { workspace = true }
+snafu = { workspace = true }
+serde_json = { workspace = true }
+
+[[test]]
+name = "game2048"
+required-features = ["desktop"]
+
+[[example]]
+name = "motion_probe"
+required-features = ["desktop"]
+
+# The export macro generates native ABI references to this crate.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+stabby.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["stabby"]
+
+[[example]]
+name = "code_editor"
+required-features = ["desktop"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+plico-editor = { path = "../../crates/plico-editor" }
+
+[[example]]
+name = "zoom"
+required-features = ["desktop"]

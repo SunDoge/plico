@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "provider": "lucide",
+  "repository": "https://github.com/lucide-icons/lucide",
+  "commit": "02eb9161b57917ccaa262f1bf070507cddde3b08",
+  "rust_crate": "plico_core",
+  "files": {
+    "archive-restore.svg": "7b589719d9c539dcb77844ea02b7c548f354a74b2931734f57b041d4e9de8ff8",
+    "archive.svg": "78c732e34e232db63af06a2330b4448045cfdf49b48b59f2d31922df54c7bb17",
+    "code.svg": "83235d4a0352d74234f949c9fc23f89c65ff165f1b6d54a90e5f0ea5bfc2c3d7",
+    "folder.svg": "f0d92b94b797a8ab7d4c4ae33c3236c47f64068351b4e14bdb5014ee42898a39",
+    "headphones.svg": "7719585dafa921805aefc21fc3262bbcc621507610a653b84e1632236650b35a",
+    "layers.svg": "ce16d0a955e3581cda17f6b2fd5c5bc2034b405f9cecc31c8ebb8495b4afc1bb",
+    "layout-grid.svg": "b8903f61d09b1d75e55c71158277d26570962f69c2099446a251871e0a2d6678",
+    "list.svg": "ff97a7379eb962ddc3863bb59f0f45875ac8da91aac8a38a67361e7118d2d627",
+    "lock.svg": "d2cfe60cac8deaef36442b5c8218c1e61abe18222784b2a370ea090d13fca840",
+    "message-square.svg": "5812a3be783fdcd73efd2b6026e03131e4b8c6649e7d52aa2dc7bf2e2023a59d",
+    "plus.svg": "7f6af73bf1ff6c4bca3f18351c8d1bdec6749c0c2530c4de5da85d520c21df17",
+    "rotate-ccw.svg": "622685386ab4017eabfde01cd74550a20b1924df233b353f73b6b155371f2afd",
+    "save.svg": "ee9d56a7fec4b20dd6689546d41f68219ea8cbd67f99bd17a1bdaff5be6edb53",
+    "sliders-horizontal.svg": "e43a00e5eb684e6cbb61083bed2528d7a3fa5f265693eb2b5f314cd432aa65f4",
+    "sparkles.svg": "f5499f33f09d7158151e9bd2ec0faf79ff8fb57292f84fdd7286d96d0f0424d8"
+  },
+  "rust_sha256": "2c761e1badf3159cf34ada5e6c4abd88469be73f34e46608153ddf3dd89cbd0d",
+  "license_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+}

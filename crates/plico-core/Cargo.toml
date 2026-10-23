@@ -1,0 +1,20 @@
+[package]
+name = "plico-core"
+version = "0.1.0"
+edition.workspace = true
+description = "Immediate-mode Plico UI engine and shared types"
+publish = false
+
+[dependencies]
+web-time = "1.1"
+snafu.workspace = true
+serde = { workspace = true, features = ["derive"] }
+slotmap.workspace = true
+plico-macros = { path = "../plico-macros" }
+bitflags = { workspace = true, features = ["serde"] }
+
+zeroize = "1.9"
+unicode-segmentation = "1.12"
+
+[dev-dependencies]
+serde_json.workspace = true

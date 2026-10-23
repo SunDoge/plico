@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/SunDoge/wabou",
+  "commit": "739624e09693326b283ffaabfc3cc74cc7651a84",
+  "copied_on": "2026-10-20",
+  "source": "crates/wabou-terminal-widget",
+  "files_sha256": {
+    "Cargo.toml": "f191a645167e470fe230d7c74935494a0af4b5c41c77dc98a12fdedbfe834f60",
+    "README.md": "2c359100f85942cd840f20db120c2523177ba79065d9d11eb2475bbf80adf636",
+    "src/box_drawing.rs": "eb148f4edb3ff1e6912cfd7f795128f1a5d0eb9cdc7b119e4d926057d05fd25f",
+    "src/color.rs": "390845658ccee003dd417ee4c9fb109ad2cb5c9f28d288da3498b879e638bc43",
+    "src/graphics.rs": "a6f4f57122d1c46fe668bdbb7d70d4c55ead5cbef2ffdaaafe57683aea524f65",
+    "src/input_encoding.rs": "d1677ee7caa9feb48690d9ee7984a10330e4f7f0d5eceaca520daa9bc5c0b6af",
+    "src/kitty_keyboard.rs": "d62ff1c5c811b622c6c8de8adaaa703e93b53034aef5cb4429346a90d6d90434",
+    "src/lib.rs": "ee3e236a468a150560f10c71a8b8322406a5e7bef471cac453024c2e78881856",
+    "src/process.rs": "10c9b5bc4d5d9c64b44056c728aa4549b654988818fa2cadac79f3ea7823a215",
+    "src/rendering.rs": "6ef320070f1c680b3b4ee2506f668416e2b203c710213dcac76d4df1622e750a",
+    "src/selection.rs": "b5daaa3a67fc81d1466852ed05fa813d57098761c99c6999abeec83e41b378ed",
+    "src/session.rs": "fbeca7d791c5f8e9d489532efbf1be76117a36dbe22f189db6814f3cf15308c2",
+    "src/tests/input_cases.rs": "8ccda8f4eec4364266faa071314099b7b0a3d6e053b2796633f2eaed7bf3801d",
+    "src/tests/lifecycle_cases.rs": "7105ca52cfe8772ab244355979966333fa3b038f0c02c91f422c2dd62f4f4fc9",
+    "src/tests/selection_cases.rs": "ef3d2005fd3a814cd0f8a006425cf0a3c25d3bbda67225f17127b5f094ee4fb3",
+    "src/tests.rs": "bde33896376383f3fcb912aa4810d9f137eaa74ee275c664ea2b1fec853f659f",
+    "src/vello_graphics.rs": "08ce2c6842051697881ea1aba258f14fe70d07973edceb4c0a37067c61b8c0c7",
+    "src/widget.rs": "79788e532145351b5e499dc69a27116e26b413267b9f1a6d3f59362dfd05cbb7"
+  }
+}

@@ -1,0 +1,14 @@
+[package]
+name = "plico-markdown"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+plico-core.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false }
+unicode-segmentation = "1.12"
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json.workspace = true

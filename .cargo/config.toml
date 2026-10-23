@@ -1,0 +1,2 @@
+[alias]
+plico = "run --quiet -p plico-cli --bin plico --"

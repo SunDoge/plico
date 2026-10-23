@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plico · Split WASM experiment</title>
+<link rel="icon" href="data:,">
+<style>
+body{margin:0;font:14px system-ui;background:#f7f8fa;color:#222}
+header{padding:12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #ddd}
+button{padding:6px 12px}canvas{display:block;width:100%;height:calc(100vh - 60px);outline:none}
+#status{white-space:pre-wrap}
+</style>
+<header>
+<button data-version="v1">Load UI 1</button>
+<button data-version="v2">Load UI 2</button>
+<button data-version="reset">Incompatible UI</button>
+<button id="service">Advance mock service</button>
+<span id="status">Loading…</span>
+</header>
+<canvas tabindex="0" aria-label="Replaceable Plico UI"></canvas>
+<script type="module" src="./split.js"></script>
+</html>

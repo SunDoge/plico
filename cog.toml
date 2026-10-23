@@ -1,0 +1,8 @@
+# Verify the complete commit history with `cog check`.
+from_latest_tag = false
+
+[git_hooks.commit-msg]
+script = """#!/bin/sh
+set -eu
+cog verify --file "$1"
+"""

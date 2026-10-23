@@ -1,0 +1,10 @@
+[package]
+name = "plico-solid-reference"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[[bin]]
+name = "plico-solid-reference"
+path = "host.rs"
+[dependencies]
+wabou = { path = "../../../../wabou/crates/wabou" }

@@ -1,0 +1,55 @@
+[package]
+name = "plico-shell"
+version.workspace = true
+edition = "2024"
+
+license.workspace = true
+publish = false
+
+[lib]
+name = "plico_shell"
+path = "src/lib.rs"
+
+[dependencies]
+plico-renderer = { path = "../plico-renderer" }
+accesskit = "0.24.1"
+futures-util = "0.3"
+glifo = { workspace = true, features = ["png"] }
+image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
+parley = { workspace = true }
+raw-window-handle = "0.6"
+rustc-hash = "2"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+slotmap = { workspace = true }
+snafu = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+vello-common.workspace = true
+
+[features]
+profiling = ["plico-renderer/profiling"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+vello-gpu = { workspace = true, features = ["wgpu", "wgpu_default", "text"] }
+wgpu.workspace = true
+accesskit_xplat = "=0.1.1"
+arboard = { workspace = true }
+notify-rust = { workspace = true }
+open = { workspace = true }
+rfd = { workspace = true }
+wgpu-context.workspace = true
+winit = { workspace = true }
+
+pollster = "1.0"
+
+[dev-dependencies]
+taffy.workspace = true
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSView", "NSWindow", "NSScreen"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+vello-gpu = { workspace = true, features = ["webgl", "text"] }

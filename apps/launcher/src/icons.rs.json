@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "provider": "lucide",
+  "repository": "https://github.com/lucide-icons/lucide",
+  "commit": "02eb9161b57917ccaa262f1bf070507cddde3b08",
+  "rust_crate": "plico_core",
+  "files": {
+    "calculator.svg": "a6b191250b1ffabdf9fc9536662309f1b0f65336aa681d75bae9f1708baaefd0",
+    "calendar.svg": "312ac8e715ac2b71bcc942dec2e8de9c1929085474f08885af35b563f6aa7a0b",
+    "code.svg": "83235d4a0352d74234f949c9fc23f89c65ff165f1b6d54a90e5f0ea5bfc2c3d7",
+    "command.svg": "403972f508e49217baa1371f52d856a25c67eca1d324557c0455b1a657d109fc",
+    "corner-down-left.svg": "1e6eef07c5f63c794acbacd48067681e2ef81fc74a84cec619d6c567dd799679",
+    "folder.svg": "f0d92b94b797a8ab7d4c4ae33c3236c47f64068351b4e14bdb5014ee42898a39",
+    "globe.svg": "82c6b8fa0b8e8d775ec9becd86f74a4e50bff7bee4c81f7362de45348504f14d",
+    "notebook.svg": "03c9f3fa8ead15c1f64c7dd4269d4c0376d1e88f7c534acbbb716f2995942821",
+    "rotate-ccw.svg": "622685386ab4017eabfde01cd74550a20b1924df233b353f73b6b155371f2afd",
+    "search.svg": "283d371c2e433817bb9c0c8310caa6c77fa4177c0f4f1168d9c83b97af7389dc",
+    "settings.svg": "0ae27fd0f81999229e3127ac96c5b32edfea448e291d509e76212b917551d66b",
+    "sun-moon.svg": "d1b183b301763d4674e784fab326cf26c3e6dea7192a0b1e1af3709c8cae73db",
+    "terminal.svg": "4f9b6488b237757d5cb615ccd07502fa99774826839e2a99017784bdb2596f1a",
+    "x.svg": "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117"
+  },
+  "rust_sha256": "21a573f36bd97a9cfc5f02bbfddd5a3cb1c8510e31cd3bc4a6e17b5310a330cc",
+  "license_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+}

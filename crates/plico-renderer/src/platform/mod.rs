@@ -1,0 +1,39 @@
+//! Platform contracts shared by Wabou runtimes, backend shells, and extensions.
+
+#![warn(missing_docs)]
+
+pub mod accessibility;
+pub mod app_dirs;
+pub mod color;
+pub mod effect;
+mod generated;
+use generated::effect_abi;
+pub mod event;
+pub mod floating;
+mod resource;
+pub mod service;
+pub mod widget;
+pub use resource::ResourceKey;
+pub mod window;
+pub mod window_lifecycle;
+
+pub use app_dirs::{AppDirectories, AppDirectoryConfig};
+pub use color::RgbaColor;
+pub use effect::{
+    CapabilityId, ContextMenuItem, ContextMenuRequest, DialogFilter, EFFECT_ABI_VERSION,
+    EffectCompletion, EffectDispatch, EffectErrorCode, EffectExecutor, EffectId, EffectOp,
+    EffectPayload, EffectRequest, EffectResult, EffectScope, EffectTapeEntry, MenuPosition,
+    MessageDialogButtons, MessageDialogLevel, MessageDialogRequest, MethodId, NotificationRequest,
+    OpenDialogRequest, PickDirectoryRequest, RecordingEffectExecutor, ReplayEffectExecutor,
+    SaveDialogRequest, WindowCreateRequest, WindowResourceKey, initial_window_resource_key,
+};
+pub use event::*;
+pub use floating::{
+    FloatingAlign, FloatingAnchor, FloatingNodeKey, FloatingPlacement, FloatingPosition,
+    FloatingResolvedPosition, FloatingSide, resolve_floating_position,
+};
+pub use service::{HostService, HostServiceContext};
+pub use window::{WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions};
+pub use window_lifecycle::{
+    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
+};
