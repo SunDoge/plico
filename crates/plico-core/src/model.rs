@@ -1,4 +1,5 @@
 use crate::Entity;
+use crate::InvalidateChannels;
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -189,84 +190,144 @@ impl SliderSpec {
         })
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, InvalidateChannels,
+)]
 #[serde(default)]
 pub struct Style {
     #[serde(default, skip_serializing_if = "crate::LayoutStyle::is_default")]
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub layout: crate::LayoutStyle,
     /// Starts a read-only text selection scope for descendant paragraphs.
+    #[invalidates(HIT_TEST)]
     pub selectable: bool,
     /// Gaussian backdrop sigma in logical pixels, capped at 64.
+    #[invalidates(PAINT)]
     pub backdrop_blur: f32,
     /// Background tint alpha, independent of child opacity.
+    #[invalidates(PAINT)]
     pub background_alpha: f32,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub width: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub height: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub width_percent: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub height_percent: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub min_width: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub min_height: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub max_width: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub max_height: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub grow: f32,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub shrink: f32,
     /// Fill the containing block without participating in normal layout.
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub overlay: bool,
     /// Local absolute position in logical pixels; unlike overlay, this is not a portal.
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub absolute: Option<[f32; 2]>,
     /// Portable anchor identity on a trigger.
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub anchor_id: Option<u64>,
+    #[invalidates(SEMANTICS)]
     pub role: Option<WidgetRole>,
     /// Position this overlay beside the corresponding trigger.
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub popup_anchor: Option<u64>,
+    #[invalidates(SEMANTICS, HIT_TEST)]
     pub modal_open: bool,
+    #[invalidates(HIT_TEST)]
     pub dismiss_on_escape: bool,
+    #[invalidates(HIT_TEST)]
     pub dismiss_on_backdrop: bool,
     /// Host wake deadline for removing an exiting modal (in injected-clock ms).
     pub presence_until_ms: Option<u64>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub wrap: bool,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub clip: bool,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub scroll_y: bool,
     /// Smooth wheel/track paging; direct thumb dragging remains immediate.
+    #[invalidates(HIT_TEST)]
     pub smooth_scroll: bool,
     /// Follow growing content while the host scroll position remains at its end.
+    #[invalidates(HIT_TEST)]
     pub follow_end: bool,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub align: Option<Align>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub justify: Option<Justify>,
+    #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
     pub font_weight: u16,
     #[serde(default, skip_serializing_if = "FontFamily::is_default")]
+    #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
     pub font_family: FontFamily,
+    #[invalidates(PAINT)]
     pub opacity: f32,
     /// Paint-only translation in logical pixels, applied after layout.
+    #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub translate: [f32; 2],
     /// Paint-only scale around the center of the border box.
+    #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub scale: [f32; 2],
+    #[invalidates(PAINT)]
     pub radius: f32,
     /// Tween explicit dimensions, spacing and paint properties; zero snaps.
+    #[invalidates(PAINT)]
     pub transition_ms: u16,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub gap: f32,
+    #[invalidates(padding as horizontal_padding, LAYOUT, HIT_TEST, SEMANTICS)]
+    #[invalidates(padding as vertical_padding, LAYOUT, HIT_TEST, SEMANTICS)]
     pub padding: f32,
+    #[invalidates(padding_x as horizontal_padding, LAYOUT, HIT_TEST, SEMANTICS)]
     pub padding_x: Option<f32>,
+    #[invalidates(padding_y as vertical_padding, LAYOUT, HIT_TEST, SEMANTICS)]
     pub padding_y: Option<f32>,
+    #[invalidates(LAYOUT, HIT_TEST, SEMANTICS, PAINT)]
     pub border_width: f32,
+    #[invalidates(PAINT)]
     pub border_color: Color,
+    #[invalidates(PAINT)]
     pub hover_background: Option<Color>,
+    #[invalidates(PAINT)]
     pub pressed_background: Option<Color>,
+    #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
     pub font_size: u16,
     /// Keep this paragraph on one line and paint an ellipsis at its width limit.
     #[serde(default, skip_serializing_if = "is_false")]
+    #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
     pub text_ellipsis: bool,
+    #[invalidates(PAINT)]
     pub foreground: Color,
+    #[invalidates(PAINT)]
     pub background: Option<Color>,
+    #[invalidates(PAINT, SEMANTICS, HIT_TEST)]
     pub disabled: bool,
+    #[invalidates(PAINT, SEMANTICS)]
     pub checked: bool,
+    #[invalidates(PAINT, SEMANTICS)]
     pub input_revision: u64,
+    #[invalidates(HIT_TEST)]
     pub input_navigation: bool,
+    #[invalidates(PAINT)]
     pub shader_revision: u64,
+    #[invalidates(PAINT, SEMANTICS)]
     pub numeric_revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(PAINT, SEMANTICS)]
     pub slider: Option<SliderSpec>,
+    #[invalidates(SEMANTICS)]
     pub selected: Option<bool>,
+    #[invalidates(SEMANTICS)]
     pub expanded: Option<bool>,
 }
 impl Default for Style {
@@ -381,100 +442,6 @@ impl Style {
             && self.border_width.is_finite()
             && self.border_width >= 0.
             && self.font_size > 0
-    }
-    /// Whether layout inputs match; paint-only properties are deliberately excluded.
-    pub fn layout_eq(self, other: Self) -> bool {
-        self.layout == other.layout
-            && self.width == other.width
-            && self.height == other.height
-            && self.width_percent == other.width_percent
-            && self.height_percent == other.height_percent
-            && self.min_width == other.min_width
-            && self.min_height == other.min_height
-            && self.max_width == other.max_width
-            && self.max_height == other.max_height
-            && self.grow == other.grow
-            && self.shrink == other.shrink
-            && self.overlay == other.overlay
-            && self.absolute == other.absolute
-            && self.anchor_id == other.anchor_id
-            && self.popup_anchor == other.popup_anchor
-            && self.wrap == other.wrap
-            && self.clip == other.clip
-            && self.scroll_y == other.scroll_y
-            && self.align == other.align
-            && self.justify == other.justify
-            && self.gap == other.gap
-            && self.horizontal_padding() == other.horizontal_padding()
-            && self.vertical_padding() == other.vertical_padding()
-            && self.border_width == other.border_width
-            && self.font_size == other.font_size
-            && self.text_ellipsis == other.text_ellipsis
-            && self.font_weight == other.font_weight
-            && self.font_family == other.font_family
-    }
-    /// Classify invalidation by downstream work, independent of event requests.
-    pub fn changes_from(self, old: Self) -> Changes {
-        let mut changes = Changes::empty();
-        if !self.layout_eq(old) {
-            changes |= Changes::LAYOUT | Changes::HIT_TEST | Changes::SEMANTICS;
-        }
-        if self.font_size != old.font_size
-            || self.font_weight != old.font_weight
-            || self.font_family != old.font_family
-            || self.text_ellipsis != old.text_ellipsis
-        {
-            changes |= Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
-        }
-        if self.translate != old.translate || self.scale != old.scale {
-            changes |= Changes::TRANSFORM | Changes::HIT_TEST | Changes::PAINT | Changes::SEMANTICS;
-        }
-        if self.backdrop_blur != old.backdrop_blur
-            || self.background_alpha != old.background_alpha
-            || self.foreground != old.foreground
-            || self.background != old.background
-            || self.opacity != old.opacity
-            || self.radius != old.radius
-            || self.border_width != old.border_width
-            || self.border_color != old.border_color
-            || self.checked != old.checked
-            || self.disabled != old.disabled
-            || self.input_revision != old.input_revision
-            || self.shader_revision != old.shader_revision
-            || self.slider != old.slider
-            || self.numeric_revision != old.numeric_revision
-            || self.transition_ms != old.transition_ms
-            || self.hover_background != old.hover_background
-            || self.pressed_background != old.pressed_background
-        {
-            changes.insert(Changes::PAINT);
-        }
-        if self.selected != old.selected
-            || self.expanded != old.expanded
-            || self.role != old.role
-            || self.disabled != old.disabled
-            || self.checked != old.checked
-            || self.slider != old.slider
-            || self.numeric_revision != old.numeric_revision
-            || self.input_revision != old.input_revision
-            || self.modal_open != old.modal_open
-            || self.popup_anchor != old.popup_anchor
-        {
-            changes.insert(Changes::SEMANTICS);
-        }
-        if self.disabled != old.disabled
-            || self.selectable != old.selectable
-            || self.input_navigation != old.input_navigation
-            || self.smooth_scroll != old.smooth_scroll
-            || self.follow_end != old.follow_end
-            || self.modal_open != old.modal_open
-            || self.dismiss_on_escape != old.dismiss_on_escape
-            || self.dismiss_on_backdrop != old.dismiss_on_backdrop
-            || (self.opacity == 0.) != (old.opacity == 0.)
-        {
-            changes.insert(Changes::HIT_TEST);
-        }
-        changes
     }
     pub(crate) fn themed(self, kind: Kind) -> bool {
         (self.border_width > 0. && !matches!(self.border_color, Color::Literal(_)))

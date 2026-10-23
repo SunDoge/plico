@@ -5,6 +5,60 @@ fn settle(engine: &mut Engine, view: &mut impl DeclareView) -> FrameDelta {
     engine.declare_until_settled(view).unwrap();
     engine.take_frame_delta()
 }
+
+#[test]
+fn earlier_settle_pass_retains_exact_channels() {
+    struct View {
+        font: u16,
+        x: f32,
+        color: plico_core::Color,
+        rebuild: bool,
+    }
+    impl DeclareView for View {
+        fn theme(&self) -> plico_core::Theme {
+            plico_core::Theme::default()
+        }
+        fn show(&mut self, cx: &mut UiContext) {
+            text(cx, "Retained")
+                .font_size(self.font)
+                .translate(self.x, 0.)
+                .color(self.color);
+            if std::mem::take(&mut self.rebuild) {
+                cx.request_rebuild();
+            }
+        }
+    }
+    let mut engine = Engine::default();
+    let mut view = View {
+        font: 16,
+        x: 0.,
+        color: plico_core::Color::Literal(0x222222),
+        rebuild: false,
+    };
+    settle(&mut engine, &mut view);
+    view.color = plico_core::Color::Literal(0xff0000);
+    view.rebuild = true;
+    let paint = settle(&mut engine, &mut view);
+    assert_eq!(paint.changes.len(), 1);
+    assert_eq!(
+        paint.changes[0].changes,
+        Changes::PAINT,
+        "a clean second pass must not turn paint into layout invalidation"
+    );
+    view.font = 24;
+    view.x = 12.;
+    view.rebuild = true;
+    let geometry = settle(&mut engine, &mut view);
+    assert_eq!(geometry.changes.len(), 1);
+    assert!(geometry.changes[0].changes.contains(
+        Changes::MEASURE
+            | Changes::LAYOUT
+            | Changes::TRANSFORM
+            | Changes::HIT_TEST
+            | Changes::PAINT
+    ));
+    assert!(settle(&mut engine, &mut view).changes.is_empty());
+}
 #[test]
 fn steady_state_yields_an_empty_delta() {
     struct Idle;
@@ -120,4 +174,44 @@ fn style_and_text_updates_union_across_passes_and_removals_are_reported() {
         "removed entity must not also appear as changed: {:?}",
         delta.changes
     );
+}
+
+#[test]
+fn derived_invalidation_matches_style_channel_semantics() {
+    // Locks the #[invalidates] marks to the classification the journals
+    // promised; padding getters and border_width's PAINT (missing from the
+    // hand-written table) are covered.
+    use plico_core::Style;
+    let base = Style::default();
+    let paint_only = Style {
+        foreground: plico_core::Color::Literal(0xffffff),
+        ..base
+    };
+    assert_eq!(paint_only.changes_from(base), Changes::PAINT);
+    let measure = Style {
+        font_size: 20,
+        ..base
+    };
+    assert!(measure.changes_from(base).contains(Changes::MEASURE | Changes::LAYOUT));
+    let padding = Style {
+        padding_x: Some(30.),
+        ..base
+    };
+    assert!(padding.changes_from(base).contains(Changes::LAYOUT));
+    assert!(!padding.layout_eq(base));
+    let border = Style {
+        border_width: 2.,
+        ..base
+    };
+    // The old hand-written table forgot border_width's PAINT channel; the
+    // marks carry it.
+    assert_eq!(
+        border.changes_from(base),
+        Changes::LAYOUT | Changes::HIT_TEST | Changes::SEMANTICS | Changes::PAINT
+    );
+    let state_only = Style {
+        presence_until_ms: Some(10),
+        ..base
+    };
+    assert_eq!(state_only.changes_from(base), Changes::empty());
 }

@@ -516,3 +516,15 @@ fn reject_legacy_children(block: &mut Block) -> syn::Result<()> {
     check.visit_block_mut(block);
     check.0.map_or(Ok(()), Err)
 }
+
+/// Derive field-level invalidation channels for retained-style structs.
+///
+/// Annotate fields with `#[invalidates(CHANNEL, ...)]`; the derive generates
+/// `changes_from(self, old) -> Changes` and `layout_eq(self, other) -> bool`
+/// from the same marks. See `invalidates.rs` for the row grammar.
+#[proc_macro_derive(InvalidateChannels, attributes(invalidates))]
+pub fn invalidate_channels(input: TokenStream) -> TokenStream {
+    invalidates::expand_derive(input)
+}
+
+mod invalidates;

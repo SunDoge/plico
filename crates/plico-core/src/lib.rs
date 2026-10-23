@@ -31,7 +31,7 @@ pub use model::{
     Align, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, Justify, Key, Kind,
     Motion, NodeChange, NodeRef, Size, SliderSpec, Style, TextSpan, UnmatchedPaths, WidgetRole,
 };
-pub use plico_macros::{component, text, view};
+pub use plico_macros::{InvalidateChannels, component, text, view};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
 pub use widgets::{SelectOption, SelectResponse};
