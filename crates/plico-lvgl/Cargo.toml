@@ -25,6 +25,11 @@ usage-rs.workspace = true
 cc = "1"
 pkg-config = "0.3"
 
+# cc/pkg-config compile src/sdl_close.c and probe SDL2 in build.rs, which
+# cargo-machete does not scan.
+[package.metadata.cargo-machete]
+ignored = ["cc", "pkg-config"]
+
 [[example]]
 name = "counter"
 required-features = ["native"]
