@@ -1049,19 +1049,38 @@ impl Adapter {
         })
     }
     pub fn event(&mut self, engine: &mut Engine, event: UiEvent) -> EventResponse {
-        if self.tooltip_event(engine, &event) {
-            return EventResponse {
-                handled: true,
-                request_redraw: true,
-                consume_key_text: true,
-                ..EventResponse::IGNORED
-            };
-        }
-        let mut response = self.event_inner(engine, event);
-        response.request_redraw |= self.tips.needs_frame();
-        response
+        self.event_with_invalidation(engine, event).0
     }
-    fn event_inner(&mut self, engine: &mut Engine, mut event: UiEvent) -> EventResponse {
+    /// A repaint does not always require evaluating application declarations.
+    /// Keep this distinction internal; the public event response still tells
+    /// every host when it needs to present another frame.
+    fn event_with_invalidation(
+        &mut self,
+        engine: &mut Engine,
+        event: UiEvent,
+    ) -> (EventResponse, bool) {
+        if self.tooltip_event(engine, &event) {
+            return (
+                EventResponse {
+                    handled: true,
+                    request_redraw: true,
+                    consume_key_text: true,
+                    ..EventResponse::IGNORED
+                },
+                true,
+            );
+        }
+        let mut declare = true;
+        let mut response = self.event_inner(engine, event, &mut declare);
+        response.request_redraw |= self.tips.needs_frame();
+        (response, declare)
+    }
+    fn event_inner(
+        &mut self,
+        engine: &mut Engine,
+        mut event: UiEvent,
+        declare: &mut bool,
+    ) -> EventResponse {
         if let Some(response) = self.slider_event(engine, &event) {
             return response;
         }
@@ -1201,6 +1220,10 @@ impl Adapter {
                 }
             }
             UiEvent::Wheel(w) if w.delta_y.is_finite() => {
+                // Plain wheel scrolling changes host geometry. Observers only
+                // need declarations when the actual offset changes, not when
+                // a smooth-scroll destination is retargeted.
+                *declare = false;
                 let start = self
                     .placed
                     .iter()
@@ -1238,9 +1261,10 @@ impl Adapter {
                         let next = (destination + remaining).clamp(0., scroll.range[1]);
                         remaining -= next - destination;
                         if next != destination {
-                            let smooth = engine
-                                .node(self.reverse[&id])
-                                .is_some_and(|n| n.style.smooth_scroll);
+                            let entity = self.reverse[&id];
+                            let smooth = engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                            *declare |= engine.observes_scroll(entity)
+                                && !(smooth && self.smooth_scroll_enabled);
                             self.scroll_to(id, next, smooth, engine.time().now);
                             handled = true;
                         }
@@ -1956,7 +1980,7 @@ impl<V: View> Source<V> {
             if let Some((w, h)) = self.viewport {
                 self.update_backend(tcx, w, h);
             }
-        } else if scroll.changed
+        } else if (scroll.changed || self.adapter.scroll_dirty)
             && let Some((w, h)) = self.viewport
         {
             // Event targeting must use the presented scroll position even when
@@ -2037,6 +2061,7 @@ impl<V: View> Source<V> {
                 || shader_active
                 || tooltip_active
                 || scroll.changed
+                || self.adapter.scroll_dirty
                 || self.declarations_pending
             {
                 self.update_backend(tcx, width, height);
@@ -2355,12 +2380,16 @@ impl<V: View> FrameSource for Source<V> {
             }
             _ => None,
         };
-        let mut r = self.adapter.event(&mut self.engine, event);
+        let (mut r, mut declare) = self
+            .adapter
+            .event_with_invalidation(&mut self.engine, event);
         if !r.handled && fallback.is_some_and(|key| self.view.on_unhandled_key(&key)) {
+            declare = true;
             r.handled = true;
             r.request_redraw = true;
             r.consume_key_text = true;
         }
+        self.pending |= declare && r.request_redraw;
         // prepare_for_event may have committed a later scroll position before
         // this event. Request its presentation even if the event hits nothing
         // and the interpolation has just finished.
@@ -2369,7 +2398,6 @@ impl<V: View> FrameSource for Source<V> {
                 .target_scene
                 .as_ref()
                 .is_some_and(|(_, _, revision)| *revision != self.revision);
-        self.pending |= r.request_redraw;
         r
     }
     fn ime_state(&self) -> Option<plico_renderer::ImeState> {
