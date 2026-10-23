@@ -3137,8 +3137,10 @@ dependencies = [
 name = "plico-lvgl"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "critical-section",
  "lightvgl-sys",
+ "pkg-config",
  "plico-core",
  "png 0.17.16",
  "snafu",

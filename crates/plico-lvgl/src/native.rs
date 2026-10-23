@@ -5,10 +5,15 @@
 //! raw FFI. Unsafe is confined to this module's small helpers.
 use crate::ffi::{self, Obj, color, pct, with_cstr};
 use lightvgl_sys as sys;
-use plico_core::{Changes, Engine, Entity, FrameDelta, Kind, KindFamily, NodeRef, Style, Theme};
+use plico_core::{
+    Changes, Engine, Entity, FrameDelta, Kind, KindFamily, NodeRef, Style, StyleProperties, Theme,
+};
 use snafu::{OptionExt, Snafu};
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+#[path = "style_diff.rs"]
+mod style_diff;
 
 type Queue = RefCell<Vec<Entity>>;
 type Route = (Entity, std::rc::Weak<Queue>);
@@ -50,6 +55,10 @@ pub struct Stats {
     pub reused: usize,
     pub style_updates: usize,
     pub text_updates: usize,
+    /// Incremental native property setter calls (excludes initial binding).
+    pub property_writes: usize,
+    /// Complete native style resets, needed only at first binding.
+    pub style_resets: usize,
 }
 
 /// A mounted LVGL object; `label` holds a composite button's child label.
@@ -142,10 +151,22 @@ impl Adapter {
                 continue;
             };
             if mounted.style != Some((node.style, engine.theme())) || mounted.kind != node.kind {
-                apply_style(mounted.widget.object(), &node, engine.theme());
+                if let Some((old_style, old_theme)) = mounted.style {
+                    let writes = style_diff::apply(
+                        mounted.widget.object(),
+                        (mounted.kind, old_style, old_theme),
+                        (node.kind, node.style, engine.theme()),
+                        change.properties,
+                    );
+                    self.stats.property_writes += writes;
+                    self.stats.style_updates += usize::from(writes != 0);
+                } else {
+                    apply_style(mounted.widget.object(), &node, engine.theme());
+                    self.stats.style_resets += 1;
+                    self.stats.style_updates += 1;
+                }
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
-                self.stats.style_updates += 1;
             }
             if mounted.text.as_deref() != Some(node.text)
                 && change.changes.intersects(Changes::MEASURE | Changes::PAINT)
@@ -184,7 +205,7 @@ impl Adapter {
                 .map(|(id, _)| *id)
                 .collect(),
         };
-        for id in dead {
+        for id in self.children_first(dead) {
             self.unmount(id);
             self.stats.removed += 1;
         }
@@ -240,10 +261,31 @@ impl Adapter {
             }
             let mounted = self.nodes.get_mut(&id).expect("mounted node");
             if mounted.style != Some((node.style, engine.theme())) || mounted.kind != node.kind {
-                apply_style(mounted.widget.object(), &node, engine.theme());
+                if let Some((old_style, old_theme)) = mounted.style {
+                    let mut fields = node.style.diff(old_style).properties;
+                    if mounted.kind != node.kind {
+                        fields = StyleProperties::all();
+                    }
+                    if old_theme != engine.theme() {
+                        fields |= StyleProperties::BACKGROUND
+                            | StyleProperties::FOREGROUND
+                            | StyleProperties::BORDER_COLOR;
+                    }
+                    let writes = style_diff::apply(
+                        mounted.widget.object(),
+                        (mounted.kind, old_style, old_theme),
+                        (node.kind, node.style, engine.theme()),
+                        fields,
+                    );
+                    self.stats.property_writes += writes;
+                    self.stats.style_updates += usize::from(writes != 0);
+                } else {
+                    apply_style(mounted.widget.object(), &node, engine.theme());
+                    self.stats.style_resets += 1;
+                    self.stats.style_updates += 1;
+                }
                 mounted.style = Some((node.style, engine.theme()));
                 mounted.kind = node.kind;
-                self.stats.style_updates += 1;
             }
             if mounted.text.as_deref() != Some(node.text) {
                 set_text(text_target(&mounted.widget), node.text)?;
@@ -357,9 +399,11 @@ impl Adapter {
             ROUTES.with(|routes| routes.borrow_mut().remove(&(node.widget.object() as usize)));
             unsafe {
                 let obj = node.widget.object();
-                // Free the leaked style before LVGL cascades the deletion.
+                // LVGL stores this pointer; unlink it before freeing it.
                 let style = style_of(obj);
                 if !style.is_null() {
+                    sys::lv_obj_remove_style(obj, style, 0);
+                    sys::lv_obj_set_user_data(obj, std::ptr::null_mut());
                     sys::lv_style_reset(style);
                     drop(Box::from_raw(style));
                 }
@@ -367,11 +411,28 @@ impl Adapter {
             };
         }
     }
+    fn children_first(&self, mut ids: Vec<Entity>) -> Vec<Entity> {
+        ids.sort_by_cached_key(|id| {
+            let mut depth = 0;
+            let mut current = *id;
+            while let Some(parent) = self.parents.get(&current) {
+                if *parent == current {
+                    break;
+                }
+                depth += 1;
+                current = *parent;
+            }
+            std::cmp::Reverse(depth)
+        });
+        ids
+    }
 }
 impl Drop for Adapter {
     fn drop(&mut self) {
         let ids: Vec<Entity> = self.nodes.keys().copied().collect();
-        for id in ids {
+        // Deleting a parent also deletes native children. HashMap iteration
+        // order would therefore occasionally delete a dangling child pointer.
+        for id in self.children_first(ids) {
             self.unmount(id);
         }
     }
@@ -457,10 +518,11 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
         sys::lv_style_set_text_font(style, font as *const sys::lv_font_t);
         if let Some(bg) = s.background {
             sys::lv_style_set_bg_color(style, color(theme.resolve(bg)));
-            sys::lv_style_set_bg_opa(style, 255);
+            sys::lv_style_set_bg_opa(style, style_diff::opacity(s.background_alpha));
         } else {
             sys::lv_style_set_bg_opa(style, 0);
         }
+        sys::lv_style_set_opa(style, style_diff::opacity(s.opacity));
         if container_like {
             sys::lv_style_set_layout(style, sys::lv_layout_t_LV_LAYOUT_FLEX as u16);
         }
@@ -503,5 +565,135 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
             sys::lv_obj_remove_state(obj, sys::lv_state_t_LV_STATE_DISABLED);
         }
         sys::lv_obj_remove_flag(obj, sys::lv_obj_flag_t_LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plico_core::{DeclareView, Length, prelude::*};
+
+    struct View {
+        height: Length,
+        fill: Option<plico_core::Color>,
+        alpha: f32,
+        opacity: f32,
+        theme: Theme,
+    }
+    impl DeclareView for View {
+        fn theme(&self) -> Theme {
+            self.theme
+        }
+        fn show(&mut self, cx: &mut UiContext) {
+            let mut panel = column(cx)
+                .width(120)
+                .height(self.height)
+                .padding(7)
+                .radius(6.)
+                .background_alpha(self.alpha)
+                .opacity(self.opacity);
+            if let Some(fill) = self.fill {
+                panel = panel.background(fill);
+            }
+            panel.children(|cx| {
+                text(cx, "Retained child");
+            });
+        }
+    }
+    fn frame(engine: &mut Engine, view: &mut View, adapter: &mut Adapter) {
+        engine.declare_until_settled(view).unwrap();
+        let delta = engine.take_frame_delta();
+        adapter.sync_delta(engine, Some(delta)).unwrap();
+    }
+    unsafe fn number(obj: *mut Obj, prop: sys::lv_style_prop_t) -> i32 {
+        unsafe { sys::lv_obj_get_style_prop(obj, 0, prop).num }
+    }
+    #[test]
+    fn property_patches_preserve_native_state_and_restore_defaults() {
+        let driver = ffi::Driver::init(480, 800);
+        let mut engine = Engine::default();
+        let mut adapter = Adapter::new(&driver).unwrap();
+        let mut view = View {
+            height: Length::Px(40.),
+            fill: Some(plico_core::Color::Accent),
+            alpha: 1.,
+            opacity: 1.,
+            theme: Theme::default(),
+        };
+        frame(&mut engine, &mut view, &mut adapter);
+        let panel = engine.node(engine.root()).unwrap().children[0];
+        let obj = adapter.nodes[&panel].widget.object();
+        let owned_style = style_of(obj);
+
+        view.height = Length::Px(80.);
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(adapter.stats().property_writes, 1);
+        assert_eq!(adapter.stats().style_resets, 0);
+        assert_eq!(adapter.stats().created, 0);
+        assert_eq!(style_of(obj), owned_style);
+        unsafe {
+            assert_eq!(number(obj, sys::_lv_style_id_t_LV_STYLE_HEIGHT as _), 80);
+            assert_eq!(number(obj, sys::_lv_style_id_t_LV_STYLE_PAD_TOP as _), 7);
+            assert_eq!(number(obj, sys::_lv_style_id_t_LV_STYLE_RADIUS as _), 6);
+        }
+        view.height = Length::Px(80.4);
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(
+            adapter.stats().property_writes,
+            0,
+            "same native pixel value"
+        );
+
+        view.height = Length::Percent(50.);
+        frame(&mut engine, &mut view, &mut adapter);
+        unsafe {
+            assert_eq!(
+                number(obj, sys::_lv_style_id_t_LV_STYLE_HEIGHT as _),
+                pct(50)
+            );
+        }
+        view.height = Length::Auto;
+        frame(&mut engine, &mut view, &mut adapter);
+        unsafe {
+            assert_eq!(
+                number(obj, sys::_lv_style_id_t_LV_STYLE_HEIGHT as _),
+                ffi::SIZE_CONTENT
+            );
+        }
+
+        view.theme.accent = 0x123456;
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(
+            adapter.stats().property_writes,
+            1,
+            "resolve the changed theme token only"
+        );
+        unsafe {
+            let actual =
+                sys::lv_obj_get_style_prop(obj, 0, sys::_lv_style_id_t_LV_STYLE_BG_COLOR as _)
+                    .color;
+            let expected = color(0x123456);
+            assert_eq!(
+                (actual.red, actual.green, actual.blue),
+                (expected.red, expected.green, expected.blue)
+            );
+        }
+        view.alpha = 0.5;
+        view.opacity = 0.5;
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(adapter.stats().property_writes, 2);
+        view.alpha = 1.;
+        view.opacity = 1.;
+        view.fill = None;
+        frame(&mut engine, &mut view, &mut adapter);
+        unsafe {
+            assert_eq!(number(obj, sys::_lv_style_id_t_LV_STYLE_OPA as _), 255);
+            assert_eq!(number(obj, sys::_lv_style_id_t_LV_STYLE_BG_OPA as _), 0);
+        }
+        assert_eq!(adapter.stats().style_resets, 0);
+        frame(&mut engine, &mut view, &mut adapter);
+        assert_eq!(adapter.stats().property_writes, 0);
+        assert_eq!(adapter.stats().style_updates, 0);
+        // Drop also exercises child-before-parent destruction of the native tree.
     }
 }

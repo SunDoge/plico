@@ -9,6 +9,12 @@ pub struct Driver {
 }
 static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(feature = "native")]
+unsafe extern "C" {
+    fn plico_sdl_install_close_filter();
+    fn plico_sdl_close_requested() -> std::ffi::c_int;
+}
+
 unsafe extern "C" fn tick_cb() -> u32 {
     #[cfg(not(target_os = "none"))]
     {
@@ -32,6 +38,64 @@ unsafe extern "C" fn plico_lv_assert_handler() {
     panic!("LVGL assertion failed (see the log line above)");
 }
 impl Driver {
+    /// Open a fixed-size SDL2 test window with mouse and keyboard navigation.
+    /// LVGL runs on this thread; drop adapters and exit when close_requested().
+    #[cfg(feature = "native")]
+    pub fn sdl(w: i32, h: i32) -> std::io::Result<Driver> {
+        assert!(w > 0 && h > 0, "display dimensions must be positive");
+        assert!(
+            !INITIALIZED.swap(true, std::sync::atomic::Ordering::AcqRel),
+            "only one Driver may exist per process"
+        );
+        unsafe {
+            sys::lv_init();
+            plico_sdl_install_close_filter();
+            let display = sys::lv_sdl_window_create(w, h);
+            if display.is_null() {
+                return Err(std::io::Error::other("LVGL could not open an SDL2 window"));
+            }
+            sys::lv_sdl_window_set_title(display, c"Plico / LVGL".as_ptr());
+            sys::lv_sdl_window_set_resizeable(display, false);
+            let group = sys::lv_group_create();
+            let mouse = sys::lv_sdl_mouse_create();
+            let keyboard = sys::lv_sdl_keyboard_create();
+            if group.is_null() || mouse.is_null() || keyboard.is_null() {
+                return Err(std::io::Error::other(
+                    "LVGL could not create SDL2 input devices",
+                ));
+            }
+            sys::lv_group_set_default(group);
+            sys::lv_indev_set_display(mouse, display);
+            sys::lv_indev_set_display(keyboard, display);
+            sys::lv_indev_set_group(keyboard, group);
+        }
+        Ok(Driver { _private: () })
+    }
+
+    /// SDL close events are deferred so Adapter can release its widgets first.
+    #[cfg(feature = "native")]
+    pub fn close_requested(&self) -> bool {
+        unsafe { plico_sdl_close_requested() != 0 }
+    }
+
+    /// Attach to LVGL initialized and driven by an external BSP.
+    ///
+    /// # Safety
+    /// LVGL, its display and clock must already be initialized. The caller
+    /// owns the event loop and must serialize all adapter calls on its GUI
+    /// thread. Keep LVGL alive until every adapter is destroyed.
+    pub unsafe fn attach() -> Driver {
+        assert!(
+            unsafe { sys::lv_is_initialized() },
+            "LVGL is not initialized"
+        );
+        assert!(
+            !INITIALIZED.swap(true, std::sync::atomic::Ordering::AcqRel),
+            "only one Driver may exist per process"
+        );
+        Driver { _private: () }
+    }
+
     /// Headless software display: renders into an RGB565 buffer, no window.
     pub fn init(w: i32, h: i32) -> Driver {
         assert!(

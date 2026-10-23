@@ -154,8 +154,10 @@ jobs:
       - name: Install LVGL host build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libclang-dev pkg-config
+          sudo apt-get install -y --no-install-recommends libclang-dev pkg-config libsdl2-dev xvfb xauth xdotool
       - name: Verify native widgets and event round-trip without a window
         run: cargo run --locked -p plico-lvgl --features native --example counter -- --headless --out "$RUNNER_TEMP/plico-lvgl.png"
+      - name: Verify SDL mouse, keyboard and window close
+        run: xvfb-run -a python3 scripts/check-lvgl-sdl.py
       - name: Check the experimental adapter and example
         run: cargo clippy --locked -p plico-lvgl --features native --all-targets -- -D warnings

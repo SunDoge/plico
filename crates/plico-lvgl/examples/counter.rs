@@ -85,10 +85,11 @@ fn main() -> Result<(), Error> {
     let options = Options::parse();
     // Upstream permits one LVGL initialization per process; all calls stay on
     // this thread. There is no Plico renderer, Taffy, Parley or Vello here.
-    // Headless software display only: the SDL window path is not part of
-    // the lightvgl-sys port yet. Interactive runs need it added back on top
-    // of lv_sdl_window_create, which lightvgl-sys does not vendor.
-    let driver = Driver::init(480, 360);
+    let driver = if options.headless {
+        Driver::init(480, 360)
+    } else {
+        Driver::sdl(480, 360).context(IoSnafu)?
+    };
     let mut engine = Engine::default();
     engine.set_viewport(480., 360.).context(DeclarationSnafu)?;
     let mut app = Counter {
@@ -102,7 +103,7 @@ fn main() -> Result<(), Error> {
     if options.headless {
         let increment = find(&engine, Kind::ButtonBase, "Increment");
         let original = adapter.object_id(increment);
-        // Actual LVGL events run the registered oxivgl callback, which queues
+        // Actual LVGL events run the registered callback, which queues
         // only an Entity. App state changes in the next ordinary declaration.
         for _ in 0..3 {
             assert!(adapter.send_click(increment));
@@ -180,6 +181,9 @@ fn main() -> Result<(), Error> {
     } else {
         loop {
             let delay = driver.timer_handler();
+            if driver.close_requested() {
+                break;
+            }
             if adapter.dispatch(&mut engine) > 0 {
                 frame(&mut engine, &mut app, &mut adapter)?;
             }
@@ -187,6 +191,7 @@ fn main() -> Result<(), Error> {
                 delay.clamp(1, 16),
             )));
         }
+        println!("window closed: count={}", app.count);
     }
     if let Some(path) = options.out {
         let snapshot = Snapshot::take().context(SnapshotSnafu)?;

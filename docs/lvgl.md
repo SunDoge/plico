@@ -9,23 +9,28 @@
 
 使用 lightvgl-sys **9.5.4**（vendored LVGL 9.5.0，与 oxivgl 时代同版本）。绑定是
 纯 bindgen 产物，无 heapless/nightly 依赖：`native` feature 直接在 stable 工具链上构建
-和验证。oxivgl 安全封装层已移除，widget/样式/事件封装由本 crate 的 `ffi.rs` 承担
-（约 200 行）。首次构建会下载并编译 vendored LVGL C 源码，不要把 Cargo.lock 误解为
-离线构建所需的全部输入。
+和验证。oxivgl 安全封装层已移除，widget/样式/事件封装由本 crate 内部实现。
+LVGL C 源码随该 crate 打包，不需要另行下载源码；首次构建仍需要获取 Cargo
+依赖，以及系统的 C 编译器、libclang 和 SDL2 开发文件。
 
 Debian/Ubuntu：
 
 ```sh
-sudo apt-get install libclang-dev pkg-config
+sudo apt-get install libclang-dev pkg-config libsdl2-dev
 export DEP_LV_CONFIG_PATH="$PWD/crates/plico-lvgl/config"
 
+# SDL2 窗口：鼠标点击，Tab 切换焦点，Enter 激活按钮
+cargo run --locked -p plico-lvgl --features native --example counter
+
 # 无窗口模式：执行断言并通过 LVGL 截图
-cargo run -p plico-lvgl --features native --example counter -- \
+cargo run --locked -p plico-lvgl --features native --example counter -- \
   --headless --out /tmp/plico-lvgl.png
 ```
 
-这些命令在仓库根执行。交互式 SDL 窗口尚未在 lightvgl-sys 路径上恢复
-（上游不 vendor `lv_sdl_window`）；需要时可在 `ffi.rs` 上加回。
+这些命令在仓库根执行。lightvgl-sys 自带 LVGL 的 SDL 驱动源码，`native` 构建通过
+pkg-config 链接系统 SDL2。窗口目前固定为 480×360；关闭事件先通知 Rust 主循环，
+adapter 按子先父的顺序释放控件后程序退出，避免 LVGL 先删除 display 导致悬垂指针。
+`--out` 也可用于交互模式，在关闭窗口时保存最后画面。
 `config/lv_conf.h` 基于上游默认 host 配置，保留 MIT 许可和来源，
 使用宿主 malloc 为离屏截图分配内存；它不是低内存的 MCU 配置。
 
@@ -40,11 +45,21 @@ cargo run -p plico-lvgl --features native --example counter -- \
 - 文本变化更新原生 label，未变化的节点复用 LVGL 对象；重复 sync 不写样式/文本。
 - if 控制原生对象挂载/卸载；带业务 key 的 for 列表重排保留对象身份并移动原生兄弟顺序。
 - 卸载按子先父后的顺序释放对象和 callback 路由；迟到事件不会击中地址复用后的新节点。
-- 未支持的 widget 在修改原生树前报错，不静默画成一个假容器。
+- 未精确映射的 widget 按 `KindFamily` 降级；降级的交互控件不保证可操作。
 
 headless counter 会执行以上核心断言。程序注入的是 LVGL `CLICKED` 事件，实际经过
-oxivgl callback，再由 adapter 投递给 Engine；这不是物理触摸或鼠标驱动的自动化测试。
-交互模式的鼠标由 oxivgl SDL 驱动处理。一个进程只能初始化一次 LVGL，所有调用都在同一线程。
+LVGL callback，再由 adapter 投递给 Engine；这不是物理触摸或鼠标驱动的自动化测试。
+交互模式的鼠标与键盘由 LVGL SDL 驱动处理。一个进程只能初始化一次 LVGL，所有调用都在同一线程。
+
+Linux 上还可用独立的 Xvfb 显示验证真实 SDL 输入和关闭流程（先编译上述示例）：
+
+```sh
+sudo apt-get install xvfb xauth xdotool
+xvfb-run -a python3 scripts/check-lvgl-sdl.py
+```
+
+该测试点击 Increment，再用 Enter 激活，发送窗口管理器关闭消息，断言计数为 2、
+进程正常退出且生成 PNG；不会操作当前桌面的窗口。
 
 ## 未实现
 
