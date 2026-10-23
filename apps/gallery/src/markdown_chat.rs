@@ -77,11 +77,7 @@ impl Chat {
             checkbox(cx, "Reduce motion", &mut self.stream.reduced_motion);
         };
         row(cx).gap(12).align(Align::Center).wrap(true) + |cx| {
-            segmented(
-                cx,
-                &mut self.mode,
-                &["Character", "Word", "Line", "At once"],
-            );
+            segmented(cx, &mut self.mode, &["Character", "Word", "Line", "At once"]);
             self.stream.unit = [
                 RevealUnit::Character,
                 RevealUnit::Word,

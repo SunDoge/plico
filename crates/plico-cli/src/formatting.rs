@@ -214,6 +214,161 @@ impl<'p> Formatter<'p> {
         written.context(IoSnafu)?;
         Ok(output.stdout)
     }
+    /// Pack multiline argument lists onto one line when they fit, or wrap
+    /// them to as few lines as the width allows. rustfmt's one-argument-per-
+    /// line layout is kept as the fallback when even a single argument
+    /// overflows a continuation line.
+    fn pack_arguments(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
+        loop {
+            let tree = self.parse(&source)?;
+            let starts: Vec<usize> = nodes(tree.root_node())
+                .into_iter()
+                .filter(|n| n.kind() == "arguments")
+                .filter(|n| source[n.byte_range()].contains(&b'\n'))
+                .map(|n| n.start_byte())
+                .collect();
+            let mut changed = false;
+            // Right to left, reparsing after each edit, so nested calls pack
+            // before the calls that contain them.
+            for start in starts.iter().rev() {
+                let tree = self.parse(&source)?;
+                let Some(args) = nodes(tree.root_node())
+                    .into_iter()
+                    .find(|n| n.kind() == "arguments" && n.start_byte() == *start)
+                else {
+                    continue;
+                };
+                if let Some(replacement) = self.packed_arguments(&source, args)
+                    && replacement.as_slice() != &source[args.byte_range()]
+                {
+                    source.splice(args.byte_range(), replacement);
+                    changed = true;
+                    break;
+                }
+            }
+            if !changed {
+                return Ok(source);
+            }
+        }
+    }
+    fn packed_arguments(&self, source: &[u8], args: Node<'_>) -> Option<Vec<u8>> {
+        // Only call-style argument lists; other argument holders keep their
+        // layout.
+        let call = args.parent()?;
+        call.child_by_field_name("function")?;
+        for node in nodes(args) {
+            match node.kind() {
+                "line_comment" | "block_comment" => return None,
+                "raw_string_literal" | "string_literal" | "char_literal"
+                    if source[node.byte_range()].contains(&b'\n') =>
+                {
+                    return None;
+                }
+                _ => {}
+            }
+        }
+        let mut cursor = args.walk();
+        let items: Vec<_> = args.named_children(&mut cursor).collect();
+        if items.is_empty() {
+            return None;
+        }
+        if compact(&source[args.start_byte() + 1..items[0].start_byte()]) != b"" {
+            return None;
+        }
+        let close = args.end_byte() - 1;
+        let close_gap = compact(&source[items[items.len() - 1].end_byte()..close]);
+        if close_gap != b"" && close_gap != b"," {
+            return None;
+        }
+        let count = |text: &[u8]| String::from_utf8_lossy(text).chars().count();
+        let line_start = source[..args.start_byte()]
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map_or(0, |i| i + 1);
+        let prefix = &source[line_start..args.start_byte()];
+        let suffix = source[args.end_byte()..]
+            .split(|b| *b == b'\n')
+            .next()
+            .unwrap_or(b"")
+            .trim_ascii();
+        // One line when everything fits.
+        let mut joined: Vec<u8> = vec![b'('];
+        for (index, item) in items.iter().enumerate() {
+            let text = &source[item.byte_range()];
+            if text.contains(&b'\n') {
+                // An inner multiline argument must pack first (or never).
+                return None;
+            }
+            if index > 0 && compact(&source[items[index - 1].end_byte()..item.start_byte()]) != b","
+            {
+                return None;
+            }
+            if index > 0 {
+                joined.extend_from_slice(b", ");
+            }
+            joined.extend_from_slice(text);
+        }
+        joined.push(b')');
+        if count(prefix) + count(&joined) + count(suffix) <= self.width {
+            return Some(joined);
+        }
+        // Greedy fill: continuation lines one indent past the call.
+        let mut continuation: Vec<u8> = prefix
+            .iter()
+            .copied()
+            .take_while(|b| matches!(b, b' ' | b'\t'))
+            .collect();
+        if continuation.contains(&b'\t') {
+            continuation.push(b'\t');
+        } else {
+            continuation.extend_from_slice(b"    ");
+        }
+        let mut lines: Vec<Vec<u8>> = vec![Vec::new()];
+        let mut room = self.width.saturating_sub(count(prefix) + 1);
+        for item in &items {
+            let mut piece = source[item.byte_range()].to_vec();
+            piece.push(b',');
+            let piece_len = count(&piece) + 1;
+            let empty = lines.last().is_some_and(Vec::is_empty);
+            if room < piece_len && (!empty || lines.len() == 1) {
+                lines.push(Vec::new());
+                room = self.width.saturating_sub(count(&continuation));
+            }
+            let line = lines.last_mut().unwrap();
+            if !line.is_empty() {
+                line.push(b' ');
+            }
+            line.extend_from_slice(&piece);
+            room = room.saturating_sub(piece_len);
+        }
+        let last = lines.last_mut().unwrap();
+        while matches!(last.last(), Some(b',')) {
+            last.pop();
+        }
+        last.push(b')');
+        if count(prefix) + 1 + count(&lines[0]) > self.width {
+            return None;
+        }
+        for line in lines.iter().skip(1) {
+            if count(&continuation) + count(line) > self.width {
+                return None;
+            }
+        }
+        if lines
+            .last()
+            .is_some_and(|line| count(line) + count(suffix) > self.width)
+        {
+            return None;
+        }
+        let mut out = vec![b'('];
+        out.extend_from_slice(&lines[0]);
+        for line in &lines[1..] {
+            out.push(b'\n');
+            out.extend_from_slice(&continuation);
+            out.extend_from_slice(line);
+        }
+        Some(out)
+    }
     fn align_arguments(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
         // Token order stays fixed across whitespace edits. Align each argument
         // list once so shared closing lines cannot oscillate between parents.
@@ -576,10 +731,14 @@ impl<'p> Formatter<'p> {
 
     fn flatten(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
         let tree = self.parse(&source)?;
+        // Packing a call onto one line drops its trailing comma, the same
+        // normalization rustfmt performs; bare comma tokens are excluded so
+        // the preservation check still compares every other leaf.
         let fingerprint = |tree: &Tree, source: &[u8]| -> Vec<Vec<u8>> {
             nodes(tree.root_node())
                 .into_iter()
                 .filter(|n| n.child_count() == 0)
+                .filter(|n| source[n.byte_range()] != *b",")
                 .map(|n| source[n.byte_range()].to_vec())
                 .collect()
         };
@@ -658,6 +817,7 @@ impl<'p> Formatter<'p> {
             shift += replacement.len() as isize - (end - start) as isize;
             source.splice(start..end, replacement);
         }
+        source = self.pack_arguments(source)?;
         source = self.align_arguments(source)?;
         source = self.align_operator_children(source)?;
         source = self.align_arguments(source)?;
@@ -934,6 +1094,70 @@ fn screen(cx: &mut UiContext) {
             let once = formatter.format(input).unwrap();
             assert_eq!(formatter.format(&once).unwrap(), once);
         }
+    }
+
+    #[test]
+    fn argument_lists_pack_to_one_line_or_wrap_within_the_width() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("arguments.rs");
+        let input = br#"#[component]
+#[rustfmt::skip]
+fn screen(cx: &mut UiContext) {
+    if icon_button(
+        cx,
+        "Restore projects",
+        &crate::icons::ARCHIVE_RESTORE,
+        true,
+        false,
+    )
+    .clicked()
+    {
+        work();
+    }
+}
+"#;
+        let mut formatter = Formatter::new(&path, "2024", 120).unwrap();
+        let once = formatter.format(input).unwrap();
+        let output = String::from_utf8_lossy(&once);
+        assert!(
+            output.contains(
+                "if icon_button(cx, \"Restore projects\", &crate::icons::ARCHIVE_RESTORE, true, false).clicked()"
+            ),
+            "{output}"
+        );
+        assert_eq!(formatter.format(&once).unwrap(), once);
+
+        // Below the width the same call wraps greedily instead of stacking
+        // one argument per line.
+        let mut narrow = Formatter::new(&path, "2024", 72).unwrap();
+        let wrapped = narrow.format(input).unwrap();
+        let output = String::from_utf8_lossy(&wrapped);
+        assert!(
+            output.contains("if icon_button(cx, \"Restore projects\",\n        &crate::icons::ARCHIVE_RESTORE, true, false).clicked()"),
+            "{output}"
+        );
+        assert_eq!(narrow.format(&wrapped).unwrap(), wrapped);
+
+        // A single argument that cannot fit a line keeps the vertical layout.
+        let long = br#"#[component]
+#[rustfmt::skip]
+fn screen(cx: &mut UiContext) {
+    if icon_button(
+        cx,
+        "Restore every archived project including the ones hidden by the filter pane",
+        &crate::icons::ARCHIVE_RESTORE,
+        true,
+        false,
+    )
+    .clicked()
+    {
+        work();
+    }
+}
+"#;
+        let mut tiny = Formatter::new(&path, "2024", 60).unwrap();
+        let kept = tiny.format(long).unwrap();
+        assert_eq!(tiny.format(&kept).unwrap(), kept);
     }
 
     #[test]

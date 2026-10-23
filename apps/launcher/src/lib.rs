@@ -332,10 +332,7 @@ impl Launcher {
                             text(cx, entry.title).font_size(14).weight(600);
                             text(cx, entry.detail).font_size(11).color(Color::Muted);
                         };
-                        text(
-                            cx,
-                            if matches!(entry.action, Action::Preview) { "预览" } else { "执行" },
-                        ).font_size(11).color(Color::Muted);
+                        text(cx, if matches!(entry.action, Action::Preview) { "预览" } else { "执行" }).font_size(11).color(Color::Muted);
                         if selected == Some(i) {
                             icon(cx, &icons::CORNER_DOWN_LEFT).size(15., 15.).color(Color::Muted);
                         }
@@ -392,10 +389,7 @@ impl View for Launcher {
             column(cx).grow(1.) + |_cx| {};
             separator(cx);
             row(cx).height(30.).padding_x(22).gap(8).align(Align::Center) + |cx| {
-                text(
-                    cx,
-                    if self.feedback.is_empty() { "应用目录为演示数据" } else { &self.feedback },
-                ).font_size(11).color(Color::Muted);
+                text(cx, if self.feedback.is_empty() { "应用目录为演示数据" } else { &self.feedback }).font_size(11).color(Color::Muted);
             };
             row(cx).height(40.).padding_x(22).gap(8).align(Align::Center).background(Color::Panel).children(|cx| {
                 icon(cx, &icons::COMMAND).size(14., 14.).color(Color::Muted);

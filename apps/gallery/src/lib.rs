@@ -148,11 +148,7 @@ impl Gallery {
     #[component]
     #[rustfmt::skip]
     fn lists_page(&mut self, ui: &mut UiContext) {
-        heading(
-            ui,
-            "Virtual lists",
-            "A bounded viewport over a large data set.",
-        );
+        heading(ui, "Virtual lists", "A bounded viewport over a large data set.");
         column(ui).padding(16).gap(8).background(Color::Panel).radius(14.) + |ui| {
             text(ui, "10,000 virtual rows").font_size(15).weight(650);
             text(ui, "Only the visible rows are built. Scroll to explore.").color(Color::Muted);
@@ -172,11 +168,7 @@ impl Gallery {
     #[component]
     #[rustfmt::skip]
     fn controls_page(&mut self, ui: &mut UiContext) {
-        heading(
-            ui,
-            "Controls",
-            "Small interactions, shared state. Leave the page and your values stay.",
-        );
+        heading(ui, "Controls", "Small interactions, shared state. Leave the page and your values stay.");
         column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
             text(ui, "Buttons & feedback").font_size(17).weight(650);
             row(ui).gap(8).wrap(true) + |ui| {
@@ -187,13 +179,7 @@ impl Gallery {
                     self.count += 1;
                 }
                 let reset = plico_core::widgets::tooltip(ui, "Reset the counter to zero").children(|ui| {
-                    icon_button(
-                        ui,
-                        "Reset",
-                        &crate::icons::ROTATE_CCW,
-                        true,
-                        false,
-                    )
+                    icon_button(ui, "Reset", &crate::icons::ROTATE_CCW, true, false)
                 });
                 if reset.inner.clicked() {
                     self.count = 0;
@@ -202,12 +188,7 @@ impl Gallery {
             };
             row(ui).gap(12).align(Align::Center).wrap(true).children(|ui| {
                 plico_core::text!(ui, "Clicked {} times", self.count).font_size(24).weight(650).grow(1.);
-                plico_core::widgets::popover(
-                    ui,
-                    &mut self.quick_settings,
-                    "Quick settings",
-                ) + |ui|
-                {
+                plico_core::widgets::popover(ui, &mut self.quick_settings, "Quick settings") + |ui| {
                     text(ui, "Workspace").weight(650);
                     switch(ui, "Notifications", &mut self.notifications);
                     checkbox(ui, "Save automatically", &mut self.autosave);
@@ -246,10 +227,7 @@ impl Gallery {
                 }
             };
             plico_core::widgets::modal(ui, &mut self.confirm_dialog).title("Apply preferences?") + |ui| {
-                text(
-                    ui,
-                    "Your notification preference will apply to this workspace.",
-                ).color(Color::Muted);
+                text(ui, "Your notification preference will apply to this workspace.").color(Color::Muted);
                 row(ui).gap(8).justify(Justify::End).wrap(true).children(|ui| {
                     if button(ui).text("Keep editing").ghost().clicked() {
                         ui.close_modal();
@@ -287,10 +265,7 @@ impl Gallery {
         column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
             row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
                 text(ui, "Release channel").font_size(17).weight(650).grow(1.);
-                badge(
-                    ui,
-                    if self.release_channel == 0 { "Recommended" } else { "Preview" },
-                );
+                badge(ui, if self.release_channel == 0 { "Recommended" } else { "Preview" });
             };
             let channels = [
                 plico_core::SelectOption::new("stable", 0, "Stable"),
@@ -298,18 +273,9 @@ impl Gallery {
                 plico_core::SelectOption::new("nightly", 2, "Nightly"),
             ];
             row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                segmented(
-                    ui,
-                    &mut self.release_channel,
-                    &["Stable", "Beta", "Nightly"],
-                );
-                plico_core::widgets::select(
-                    ui,
-                    &mut self.channel_select,
-                    "Channel",
-                    &mut self.release_channel,
-                    &channels,
-                ).width(132.);
+                segmented(ui, &mut self.release_channel, &["Stable", "Beta", "Nightly"]);
+                plico_core::widgets::select(ui, &mut self.channel_select, "Channel", &mut self.release_channel,
+                    &channels).width(132.);
             };
             separator(ui);
             collapsible(ui, "Channel details", &mut self.release_details, |ui| {
@@ -336,11 +302,7 @@ impl Gallery {
     #[component]
     #[rustfmt::skip]
     fn motion_page(&mut self, ui: &mut UiContext) {
-        heading(
-            ui,
-            "Motion studies",
-            "One state change. Dimensions, spacing, color and opacity move together.",
-        );
+        heading(ui, "Motion studies", "One state change. Dimensions, spacing, color and opacity move together.");
         column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
             row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
                 text(ui, "Layout + style").font_size(17).weight(650).grow(1.);
@@ -359,10 +321,7 @@ impl Gallery {
                         .color(Color::Literal(0xffffff));
                 })
             };
-            text(
-                ui,
-                if self.expanded { "Expanded / 240 ms" } else { "Compact / 240 ms" },
-            ).font_size(12).color(Color::Muted);
+            text(ui, if self.expanded { "Expanded / 240 ms" } else { "Compact / 240 ms" }).font_size(12).color(Color::Muted);
         };
         column(ui).padding(16).gap(10).radius(12.).background(Color::Panel) + |ui| {
             row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
@@ -380,14 +339,8 @@ impl Gallery {
             plico_core::widgets::shader(ui, &AURORA).width_percent(100.).height(110.)
                 .values(&[(0.8 + self.exposure * 0.7) as f32]).animated(true).paused(self.shader_paused);
             #[cfg(target_arch = "wasm32")]
-            text(
-                ui,
-                "Custom WGSL shaders require WebGPU; this browser host uses WebGL2.",
-            ).color(Color::Muted);
-            text(
-                ui,
-                "Native GPU surface · injected clock · retained resources",
-            ).font_size(11).color(Color::Muted);
+            text(ui, "Custom WGSL shaders require WebGPU; this browser host uses WebGL2.").color(Color::Muted);
+            text(ui, "Native GPU surface · injected clock · retained resources").font_size(11).color(Color::Muted);
         };
     }
 }

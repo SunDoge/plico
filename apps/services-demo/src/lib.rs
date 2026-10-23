@@ -90,10 +90,7 @@ impl ServiceApp for Application {
                         .font_size(12).color(Color::Muted);
                 }
             };
-            text(
-                cx,
-                "The task is simulated; no files or network requests are made.",
-            ).font_size(11).color(Color::Muted);
+            text(cx, "The task is simulated; no files or network requests are made.").font_size(11).color(Color::Muted);
         };
     }
 }

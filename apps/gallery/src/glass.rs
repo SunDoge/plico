@@ -86,10 +86,7 @@ impl Glass {
                         self.saved = !self.saved;
                     }
                 };
-                text(
-                    cx,
-                    if self.saved { "Saved to your mixes" } else { "An ambient mix for a quiet evening" },
-                ).font_size(11);
+                text(cx, if self.saved { "Saved to your mixes" } else { "An ambient mix for a quiet evening" }).font_size(11);
             })
         };
         if self.moving {

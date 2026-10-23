@@ -13,10 +13,7 @@ impl View for Demo {
         let factor = self.zoom.factor();
         column(cx).width_percent(100.).height_percent(100.).padding(28).gap(20).scroll_y(true) + |cx| {
             text(cx, "Window zoom").font_size(28).weight(700);
-            text(
-                cx,
-                "Native scale, layout, hit testing and IME geometry share one zoom factor.",
-            ).font_size(15).color(Color::Muted);
+            text(cx, "Native scale, layout, hit testing and IME geometry share one zoom factor.").font_size(15).color(Color::Muted);
             row(cx).gap(10).align(Align::Center) + |cx| {
                 if button(cx).text("−").aria_label("Zoom out").clicked() {
                     self.zoom.set((factor - 0.25).max(0.5));

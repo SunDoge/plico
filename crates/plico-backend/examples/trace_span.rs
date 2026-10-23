@@ -40,5 +40,9 @@ fn main() {
     let content = String::from_utf8(bytes).unwrap();
     assert!(content.contains("text.shape.cache_miss"), "spans missing");
     assert!(content.trim_end().ends_with(']'), "trace not closed");
-    println!("{} bytes of Chrome trace at {}", content.len(), path.display());
+    println!(
+        "{} bytes of Chrome trace at {}",
+        content.len(),
+        path.display()
+    );
 }

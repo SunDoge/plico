@@ -278,10 +278,9 @@ impl Game {
                 };
                 column(cx).width(size).height(size).shrink(0.).radius(6.).background(BOARD) + |cx| {
                     for i in 0..16 {
-                        column(cx).key(i as u64).absolute(
-                            gap + (i % 4) as f32 * (cell + gap),
-                            gap + (i / 4) as f32 * (cell + gap),
-                        ).width(cell).height(cell).radius(3.).background(Color::Literal(0xcdc1b4)) + |_cx|
+                        column(cx).key(i as u64).absolute(gap + (i % 4) as f32 * (cell + gap),
+                            gap + (i / 4) as f32 * (cell + gap)).width(cell).height(cell).radius(3.).background(Color::Literal(0xcdc1b4))
+                        + |_cx|
                         {};
                     }
                     // A separate identity namespace lets cell and tile IDs coexist.
@@ -301,10 +300,7 @@ impl Game {
                             .align(Align::Center).justify(Justify::Center).gap(20)
                             .opacity(((elapsed - 0.35) / 0.25).clamp(0., 1.)) + |cx|
                         {
-                            text(
-                                cx,
-                                if self.over { "Game over!" } else { "You win!" },
-                            ).font_size(38).weight(750).color(INK);
+                            text(cx, if self.over { "Game over!" } else { "You win!" }).font_size(38).weight(750).color(INK);
                             row(cx).gap(10).children(|cx| {
                                 if !self.over && game_button(cx, "Keep going") {
                                     self.keep_playing = true;
