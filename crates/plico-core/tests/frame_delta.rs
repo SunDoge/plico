@@ -41,6 +41,10 @@ fn earlier_settle_pass_retains_exact_channels() {
     let paint = settle(&mut engine, &mut view);
     assert_eq!(paint.changes.len(), 1);
     assert_eq!(
+        paint.changes[0].properties,
+        plico_core::StyleProperties::FOREGROUND
+    );
+    assert_eq!(
         paint.changes[0].changes,
         Changes::PAINT,
         "a clean second pass must not turn paint into layout invalidation"
@@ -50,6 +54,11 @@ fn earlier_settle_pass_retains_exact_channels() {
     view.rebuild = true;
     let geometry = settle(&mut engine, &mut view);
     assert_eq!(geometry.changes.len(), 1);
+    assert!(
+        geometry.changes[0].properties.contains(
+            plico_core::StyleProperties::FONT_SIZE | plico_core::StyleProperties::TRANSLATE
+        )
+    );
     assert!(geometry.changes[0].changes.contains(
         Changes::MEASURE
             | Changes::LAYOUT
@@ -57,6 +66,36 @@ fn earlier_settle_pass_retains_exact_channels() {
             | Changes::HIT_TEST
             | Changes::PAINT
     ));
+    assert!(settle(&mut engine, &mut view).changes.is_empty());
+}
+
+#[test]
+fn property_patch_unions_different_fields_across_settle_passes() {
+    struct View(u8);
+    impl DeclareView for View {
+        fn theme(&self) -> plico_core::Theme {
+            plico_core::Theme::default()
+        }
+        fn show(&mut self, cx: &mut UiContext) {
+            text(cx, "Two passes")
+                .font_size(if self.0 == 0 { 16 } else { 24 })
+                .opacity(if self.0 == 2 { 0.5 } else { 1. });
+            if self.0 == 1 {
+                self.0 = 2;
+                cx.request_rebuild();
+            }
+        }
+    }
+    let mut engine = Engine::default();
+    let mut view = View(0);
+    settle(&mut engine, &mut view);
+    view.0 = 1;
+    let delta = settle(&mut engine, &mut view);
+    assert_eq!(delta.changes.len(), 1);
+    assert_eq!(
+        delta.changes[0].properties,
+        plico_core::StyleProperties::FONT_SIZE | plico_core::StyleProperties::OPACITY
+    );
     assert!(settle(&mut engine, &mut view).changes.is_empty());
 }
 #[test]

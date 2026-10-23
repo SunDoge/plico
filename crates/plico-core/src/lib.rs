@@ -29,8 +29,8 @@ pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
     Align, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, Justify, Key, Kind,
-    KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, TextSpan, UnmatchedPaths,
-    WidgetRole,
+    KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff, StyleProperties,
+    TextSpan, UnmatchedPaths, WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, component, text, view};
 pub use snapshot::{PathKey, ViewNode};
@@ -57,6 +57,7 @@ pub use ui::{
 };
 #[doc(hidden)]
 pub mod __private {
+    pub use bitflags::bitflags;
     /// Deterministic namespace hash, evaluated at compile time by macros.
     pub const fn site_id(namespace: &str, site: u32) -> u64 {
         let bytes = namespace.as_bytes();

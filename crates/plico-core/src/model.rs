@@ -577,6 +577,7 @@ pub(crate) struct Node {
     /// Invalidation accumulated where declarations mutate the node, drained by
     /// the commit pass. Replaces a retained style snapshot per node.
     pub pending_changes: Changes,
+    pub pending_properties: StyleProperties,
     pub paint_size: Option<Size>,
     pub measure_key: Option<MeasureKey>,
     pub layout_key: Option<LayoutKey>,
@@ -607,6 +608,7 @@ impl Node {
                 | Changes::SEMANTICS
                 | Changes::HIT_TEST
                 | Changes::MEASURE,
+            pending_properties: StyleProperties::all(),
             paint_size: None,
             measure_key: None,
             layout_key: None,
@@ -659,6 +661,8 @@ pub struct UnmatchedPaths {
 pub struct NodeChange {
     pub entity: crate::Entity,
     pub changes: Changes,
+    /// Exact style inputs changed, unioned across settling passes.
+    pub properties: StyleProperties,
 }
 
 /// Everything an incremental backend needs from one settled frame.

@@ -1,5 +1,35 @@
 use plico_core::{Changes, Engine, Style, prelude::*};
 #[test]
+fn property_patch_is_generated_with_channels_and_handles_restoration() {
+    use plico_core::StyleProperties as P;
+    let base = Style::default();
+    let changed = Style {
+        height: Some(80.),
+        opacity: 0.5,
+        ..base
+    };
+    let diff = changed.diff(base);
+    assert_eq!(diff.properties, P::HEIGHT | P::OPACITY);
+    assert!(diff.changes.contains(Changes::LAYOUT | Changes::PAINT));
+    assert_eq!(base.diff(changed).properties, diff.properties);
+    assert!(base.diff(base).properties.is_empty());
+    // An overridden padding input should not claim an effective change.
+    let overridden = Style {
+        padding_x: Some(7.),
+        padding_y: Some(7.),
+        ..base
+    };
+    assert!(
+        Style {
+            padding: 20.,
+            ..overridden
+        }
+        .diff(overridden)
+        .properties
+        .is_empty()
+    );
+}
+#[test]
 fn invalidation_is_specific_and_journal_is_per_node() {
     let old = Style::default();
     let transform = Style {

@@ -82,9 +82,10 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
     let struct_name = &item.ident;
     let runtime = runtime_path();
     let changes = runtime_changes();
-    let mut rows: Vec<(Expr, Vec<Ident>, bool)> = Vec::new(); // (expr self, channels, in_layout)
+    let mut rows: Vec<(Expr, Vec<Ident>, bool, Ident)> = Vec::new(); // (expr self, channels, in_layout)
     let mut errors = Vec::new();
-    for field in &fields.named {
+    let mut property_constants = Vec::new();
+    for (index, field) in fields.named.iter().enumerate() {
         // Several marks on one field are allowed; plain-field channels union,
         // and each getter mark contributes its own comparison row.
         let attrs: Vec<&syn::Attribute> = field
@@ -96,6 +97,14 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
             continue; // state-only field: no invalidation
         }
         let field_name = field.ident.as_ref().unwrap();
+        if index >= 64 {
+            return syn::Error::new(field.span(), "property masks support up to 64 fields")
+                .into_compile_error()
+                .into();
+        }
+        let property = format_ident!("{}", field_name.to_string().to_uppercase());
+        let bit = 1u64 << index;
+        property_constants.push(quote!(const #property = #bit;));
         let mut parsed_rows = Vec::new();
         let mut row_errors = Vec::new();
         for attr in attrs {
@@ -122,46 +131,51 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
         if !plain_channels.is_empty() {
             let access: Expr = parse_quote!(self.#field_name);
             let in_layout = plain_channels.iter().any(|c| c == "LAYOUT");
-            rows.push((access, plain_channels, in_layout));
+            rows.push((access, plain_channels, in_layout, property.clone()));
         }
         for (getter, channels) in getter_rows {
             let access: Expr = parse_quote!(self.#getter());
             let in_layout = channels.iter().any(|c| c == "LAYOUT");
-            rows.push((access, channels, in_layout));
+            rows.push((access, channels, in_layout, property.clone()));
         }
     }
     if let Some(first) = errors.first() {
         return first.to_compile_error().into();
     }
 
+    let properties_name = format_ident!("{}Properties", struct_name);
+    let diff_name = format_ident!("{}Diff", struct_name);
     let changes_from = {
-        let arms = rows.iter().map(|(access, channels, _)| {
+        let arms = rows.iter().map(|(access, channels, _, property)| {
             let flags = channels.iter().map(|c| quote!(#runtime::#changes::#c));
             let old_access = access_to_old(access, "old");
             quote! {
                 if #access != #old_access {
-                    changes |= #( #flags )|*;
+                    diff.changes |= #( #flags )|*;
+                    diff.properties |= #properties_name::#property;
                 }
             }
         });
         quote! {
-            /// Classify invalidation by downstream work; generated from
-            /// per-field `#[invalidates]` marks.
-            pub fn changes_from(self, old: Self) -> #runtime::#changes {
-                let mut changes = #runtime::#changes::empty();
+            /// Compute work channels and exact style properties in one pass.
+            pub fn diff(self, old: Self) -> #diff_name {
+                let mut diff = #diff_name::default();
                 #( #arms )*
-                changes
+                diff
+            }
+            pub fn changes_from(self, old: Self) -> #runtime::#changes {
+                self.diff(old).changes
             }
         }
     };
     let layout_eq = {
-        let checks = rows
-            .iter()
-            .filter(|(_, _, in_layout)| *in_layout)
-            .map(|(access, _, _)| {
-                let old_access = access_to_old(access, "other");
-                quote!( #access == #old_access )
-            });
+        let checks =
+            rows.iter()
+                .filter(|(_, _, in_layout, _)| *in_layout)
+                .map(|(access, _, _, _)| {
+                    let old_access = access_to_old(access, "other");
+                    quote!( #access == #old_access )
+                });
         quote! {
             /// Whether layout inputs match; generated from the fields whose
             /// `#[invalidates]` marks include `LAYOUT`.
@@ -171,6 +185,16 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
         }
     };
     let expanded = quote! {
+        #runtime::__private::bitflags! {
+            /// Exact style inputs changed; generated from the same field marks as work channels.
+            #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+            pub struct #properties_name: u64 { #( #property_constants )* }
+        }
+        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+        pub struct #diff_name {
+            pub changes: #runtime::#changes,
+            pub properties: #properties_name,
+        }
         impl #struct_name {
             #changes_from
             #layout_eq

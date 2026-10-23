@@ -22,7 +22,7 @@ pub struct Engine {
     unmatched_clicks: Vec<Vec<crate::PathKey>>,
     unmatched_values: Vec<(Vec<crate::PathKey>, f64)>,
     settle_dirty: Vec<Entity>,
-    settle_node_changes: HashMap<Entity, Changes>,
+    settle_node_changes: HashMap<Entity, StyleDiff>,
     settle_changes: Changes,
     dirty_nodes: Vec<Entity>,
     node_changes: Vec<NodeChange>,
@@ -517,6 +517,7 @@ impl Engine {
             self.inputs.remove(&entity);
             node.pending_changes |=
                 Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
+            node.pending_properties = StyleProperties::all();
             node.kind = kind;
             node.grid = None;
             if kind != Kind::Text {
@@ -547,7 +548,9 @@ impl Engine {
         // Diff at the mutation site: both the old and new style are in hand
         // here, so no committed-style snapshot is retained for a second pass.
         if !same_style {
-            node.pending_changes |= incoming.changes_from(node.style);
+            let diff = incoming.diff(node.style);
+            node.pending_changes |= diff.changes;
+            node.pending_properties |= diff.properties;
             node.style = incoming;
             node.style_valid = style_valid;
         }
@@ -570,6 +573,7 @@ impl Engine {
             node.style.layout.template_revision =
                 node.style.layout.template_revision.wrapping_add(1);
             node.pending_changes |= Changes::LAYOUT | Changes::HIT_TEST | Changes::SEMANTICS;
+            node.pending_properties |= StyleProperties::LAYOUT;
         }
     }
     pub(crate) fn set_spans(&mut self, entity: Entity, spans: &[crate::TextSpan]) {
@@ -613,10 +617,14 @@ impl Engine {
             for change in &self.node_changes {
                 match self.settle_node_changes.entry(change.entity) {
                     std::collections::hash_map::Entry::Occupied(mut entry) => {
-                        *entry.get_mut() |= change.changes;
+                        entry.get_mut().changes |= change.changes;
+                        entry.get_mut().properties |= change.properties;
                     }
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(change.changes);
+                        entry.insert(StyleDiff {
+                            changes: change.changes,
+                            properties: change.properties,
+                        });
                         self.settle_dirty.push(change.entity);
                     }
                 }
@@ -664,15 +672,20 @@ impl Engine {
                     .unwrap_or_default();
                 union.push(NodeChange {
                     entity: change.entity,
-                    changes: change.changes | earlier,
+                    changes: change.changes | earlier.changes,
+                    properties: change.properties | earlier.properties,
                 });
             }
         }
         for entity in self.settle_dirty.drain(..) {
-            if let Some(changes) = self.settle_node_changes.remove(&entity)
+            if let Some(diff) = self.settle_node_changes.remove(&entity)
                 && self.nodes.get(entity).is_some()
             {
-                union.push(NodeChange { entity, changes });
+                union.push(NodeChange {
+                    entity,
+                    changes: diff.changes,
+                    properties: diff.properties,
+                });
             }
         }
         self.settle_node_changes.clear();
@@ -797,6 +810,7 @@ impl Engine {
             // declaration; add the frame-global causes that only the commit
             // pass can see (ordering, measured sizes, theme).
             let mut changes = std::mem::take(&mut node.pending_changes);
+            let mut properties = std::mem::take(&mut node.pending_properties);
             if node.order_dirty {
                 changes |= Changes::STRUCTURE | Changes::LAYOUT | Changes::SEMANTICS;
             }
@@ -805,12 +819,16 @@ impl Engine {
             }
             if self.theme_dirty && node.style.themed(node.kind) {
                 changes.insert(Changes::PAINT);
+                properties |= StyleProperties::BACKGROUND
+                    | StyleProperties::FOREGROUND
+                    | StyleProperties::BORDER_COLOR;
             }
             if !changes.is_empty() {
                 self.dirty_nodes.push(id);
                 self.node_changes.push(NodeChange {
                     entity: id,
                     changes,
+                    properties,
                 });
                 self.changes |= changes;
             }
