@@ -2,11 +2,13 @@ use oxivgl::{
     driver::LvglDriver,
     enums::{EventCode, ObjState},
     event::Event,
-    layout::FlexFlow,
+    layout::{FlexAlign, FlexFlow},
     style::{LV_SIZE_CONTENT, Selector, Style as NativeStyle, lv_pct},
     widgets::{AsLvHandle, Button, Label, Obj, Screen, WidgetError},
 };
-use plico_core::{Engine, Entity, Kind, NodeRef, Style, Theme};
+use plico_core::{
+    Align, Changes, Engine, Entity, FrameDelta, Justify, Kind, NodeRef, Style, Theme,
+};
 use snafu::{OptionExt, Snafu};
 use std::{
     cell::RefCell,
@@ -127,6 +129,63 @@ impl<'driver> Adapter<'driver> {
     /// Project a successful core declaration. Preflight unsupported widgets
     /// before modifying LVGL. Layout and drawing are both performed by LVGL.
     pub fn sync(&mut self, engine: &Engine) -> Result<(), Error> {
+        self.sync_delta(engine, None)
+    }
+
+    /// Incremental projection: when the frame delta carries no structural
+    /// change (no creation, removal, reorder or kind change), only the dirtied
+    /// nodes are re-read — the full tree walk is skipped entirely.
+    pub fn sync_delta(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
+        let Some(delta) = delta else {
+            return self.sync_full(engine);
+        };
+        if !delta.frame.intersects(Changes::STRUCTURE) && delta.removed.is_empty() {
+            return self.sync_touched(engine, &delta);
+        }
+        self.sync_structural(engine, delta)
+    }
+
+    fn sync_touched(&mut self, engine: &Engine, delta: &FrameDelta) -> Result<(), Error> {
+        self.stats = Stats::default();
+        for change in &delta.changes {
+            let Some(mounted) = self.nodes.get_mut(&change.entity) else {
+                continue;
+            };
+            let Some(node) = engine.node(change.entity) else {
+                continue;
+            };
+            if mounted.style != Some((node.style, engine.theme())) || mounted.kind != node.kind {
+                apply_style(&mounted.widget, &node, engine.theme());
+                mounted.style = Some((node.style, engine.theme()));
+                mounted.kind = node.kind;
+                self.stats.style_updates += 1;
+            }
+            if mounted.text.as_deref() != Some(node.text)
+                && change.changes.intersects(Changes::MEASURE | Changes::PAINT)
+            {
+                match &mounted.widget {
+                    Widget::Text(label) | Widget::Button { label, .. } => {
+                        label.text(node.text);
+                    }
+                    Widget::Container(_) | Widget::ButtonBase(_) => {}
+                }
+                node.text
+                    .clone_into(mounted.text.get_or_insert_with(String::new));
+                self.stats.text_updates += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn sync_structural(&mut self, engine: &Engine, delta: FrameDelta) -> Result<(), Error> {
+        self.sync_full_inner(engine, Some(delta))
+    }
+
+    fn sync_full(&mut self, engine: &Engine) -> Result<(), Error> {
+        self.sync_full_inner(engine, None)
+    }
+
+    fn sync_full_inner(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
         fn walk(
             engine: &Engine,
             entity: Entity,
@@ -157,16 +216,23 @@ impl<'driver> Adapter<'driver> {
         let mut order = Vec::new();
         walk(engine, engine.root(), None, 0, &mut order)?;
         self.stats = Stats::default();
-        let mut dead: Vec<_> = self
-            .nodes
-            .iter()
-            .filter(|(id, mounted)| {
-                engine
-                    .node(**id)
-                    .is_none_or(|n| !mounted.widget.class_matches(n.kind))
-            })
-            .map(|(id, mounted)| (*id, mounted.depth))
-            .collect();
+        let mut dead: Vec<_> = match &delta {
+            Some(delta) => delta
+                .removed
+                .iter()
+                .filter_map(|id| self.nodes.get(id).map(|m| (*id, m.depth)))
+                .collect(),
+            None => self
+                .nodes
+                .iter()
+                .filter(|(id, mounted)| {
+                    engine
+                        .node(**id)
+                        .is_none_or(|n| !mounted.widget.class_matches(n.kind))
+                })
+                .map(|(id, mounted)| (*id, mounted.depth))
+                .collect(),
+        };
         dead.sort_unstable_by_key(|(_, depth)| std::cmp::Reverse(*depth));
         for (id, _) in dead {
             self.unmount(id);
@@ -366,6 +432,28 @@ fn apply_style(widget: &Widget, node: &NodeRef<'_>, theme: Theme) {
         }
     });
     obj.add_style(&style, Selector::DEFAULT).remove_scrollable();
+    if matches!(
+        node.kind,
+        Kind::Root | Kind::Column | Kind::Row | Kind::ButtonBase
+    ) {
+        let main = match s.justify.unwrap_or(Justify::Start) {
+            Justify::Center => FlexAlign::Center,
+            Justify::End => FlexAlign::End,
+            Justify::SpaceBetween => FlexAlign::SpaceBetween,
+            Justify::SpaceAround => FlexAlign::SpaceAround,
+            Justify::SpaceEvenly => FlexAlign::SpaceEvenly,
+            Justify::Start | Justify::Stretch => FlexAlign::Start,
+        };
+        // LVGL has no flex baseline/stretch alignment; retain its start fallback.
+        let cross = match s.align.unwrap_or(Align::Start) {
+            Align::Center => FlexAlign::Center,
+            Align::End => FlexAlign::End,
+            Align::Start | Align::Stretch | Align::Baseline => FlexAlign::Start,
+        };
+        // LVGL aligns each flex track separately from the items inside it.
+        // A single row's track must also be centered in a fixed-height button.
+        obj.set_flex_align(main, cross, cross);
+    }
     if s.disabled {
         obj.add_state(ObjState::DISABLED);
     } else {

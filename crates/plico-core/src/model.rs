@@ -656,3 +656,22 @@ pub struct NodeChange {
     pub entity: crate::Entity,
     pub changes: Changes,
 }
+
+/// Everything an incremental backend needs from one settled frame.
+///
+/// The engine aggregates per-pass journals into this snapshot; taking it
+/// consumes it, so a backend sees each change exactly once. New nodes always
+/// appear in `changes` with every channel set — a backend never needs to
+/// diff mounts against the arena. `removed` accumulates across the passes of
+/// a settle loop; `reordered` children are reported through `STRUCTURE` on
+/// the parent.
+#[derive(Debug, Clone, Default)]
+pub struct FrameDelta {
+    /// Live nodes whose kind, style, text, order or children changed, with
+    /// the union of change channels across settle passes.
+    pub changes: Vec<NodeChange>,
+    /// Entities unmounted since the last take.
+    pub removed: Vec<crate::Entity>,
+    /// The frame-wide change union; `VIEW` is cleared (the settle loop ended).
+    pub frame: Changes,
+}

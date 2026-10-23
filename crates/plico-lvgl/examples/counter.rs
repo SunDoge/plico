@@ -76,7 +76,10 @@ fn frame(engine: &mut Engine, app: &mut Counter, adapter: &mut Adapter<'_>) -> R
     engine
         .declare_until_settled(app)
         .context(DeclarationSnafu)?;
-    adapter.sync(engine).context(BackendSnafu)
+    let delta = engine.take_frame_delta();
+    adapter
+        .sync_delta(engine, Some(delta))
+        .context(BackendSnafu)
 }
 fn main() -> Result<(), Error> {
     let options = Options::parse();
@@ -110,11 +113,27 @@ fn main() -> Result<(), Error> {
             frame(&mut engine, &mut app, &mut adapter)?;
             assert_eq!(adapter.object_id(increment), original);
             assert_eq!(adapter.stats().created, 0);
+            // Increment frames are paint-only: the incremental path must not
+            // walk the whole tree (the structural pass counts every surviving
+            // node as reused).
+            assert_eq!(adapter.stats().reused, 0);
+            assert_eq!(adapter.stats().removed, 0);
         }
         assert_eq!(app.count, 3);
-        adapter.sync(&engine).context(BackendSnafu)?;
+        // A no-op delta skips the structural walk entirely: nothing is
+        // created, removed, or updated, and stats stay at zero.
+        let noop = plico_core::FrameDelta::default();
+        adapter
+            .sync_delta(&engine, Some(noop))
+            .context(BackendSnafu)?;
         assert_eq!(adapter.stats().style_updates, 0);
         assert_eq!(adapter.stats().text_updates, 0);
+        assert_eq!(adapter.stats().created, 0);
+        assert_eq!(adapter.stats().removed, 0);
+        // Increment clicks are paint-only frames: the incremental path handles
+        // them without a full walk (reused stays zero because it is counted
+        // only by the structural walk).
+        assert_eq!(adapter.stats().reused, 0);
 
         let item = find(&engine, Kind::Text, "Item 1");
         let item_object = adapter.object_id(item);

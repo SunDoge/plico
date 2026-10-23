@@ -637,6 +637,53 @@ impl Engine {
     pub fn take_settle_changes(&mut self) -> Changes {
         std::mem::replace(&mut self.settle_changes, Changes::empty())
     }
+    /// One settled frame's journal, aggregated for an incremental backend.
+    ///
+    /// `changes` unions the per-pass node journals and adds every node the
+    /// settle loop created (new nodes enter with all channels stale), `removed`
+    /// is the unmount journal accumulated across passes, and `frame` is the
+    /// frame-wide union with `VIEW` cleared. Taking consumes it: a backend
+    /// observes each change exactly once. The per-pass accessors above stay
+    /// for hosts that sync after each pass instead.
+    pub fn take_frame_delta(&mut self) -> FrameDelta {
+        // After the settle loop the per-pass commit has already drained
+        // pending_changes into node_changes; the union of node_changes across
+        // passes is the authoritative journal. settle_dirty adds the nodes
+        // dirtied in passes whose node_changes were cleared by a later pass.
+        let mut union: Vec<NodeChange> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for change in self.node_changes.drain(..) {
+            if seen.insert(change.entity) {
+                union.push(change);
+            } else if let Some(existing) = union.iter_mut().find(|c| c.entity == change.entity) {
+                existing.changes |= change.changes;
+            }
+        }
+        let settle_leftovers: Vec<Entity> = self.drain_settle_dirty().collect();
+        for entity in settle_leftovers {
+            // A node dirtied in an earlier pass may have been unmounted by a
+            // later one; the removal journal covers it instead.
+            if self.nodes.get(entity).is_none() || seen.contains(&entity) {
+                continue;
+            }
+            seen.insert(entity);
+            union.push(NodeChange {
+                entity,
+                changes: Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS,
+            });
+        }
+        // Nodes created during the settle loop commit all-channel changes in
+        // their first pass, so node_changes already carries them; a pass that
+        // created and settled immediately leaves nothing pending here.
+        let removed: Vec<Entity> = self.drain_removed().collect();
+        let mut frame = self.take_settle_changes();
+        frame.remove(Changes::VIEW);
+        FrameDelta {
+            changes: union,
+            removed,
+            frame,
+        }
+    }
     fn reset_settle(&mut self) {
         self.settle_dirty.clear();
         self.settle_seen.clear();
