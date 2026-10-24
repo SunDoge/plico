@@ -521,6 +521,16 @@ fn reject_legacy_children(block: &mut Block) -> syn::Result<()> {
     check.0.map_or(Ok(()), Err)
 }
 
+/// Derive Kind classification from per-variant `#[kind(...)]` annotations.
+///
+/// One annotation site per variant generates `family`, `interactive` and
+/// `leaf`, so adding a kind cannot silently miss a classification function.
+/// See `kind.rs` for the annotation grammar.
+#[proc_macro_derive(KindClass, attributes(kind))]
+pub fn kind_class(input: TokenStream) -> TokenStream {
+    kind::expand_derive(input)
+}
+
 /// Derive field-level invalidation channels for retained-style structs.
 ///
 /// Annotate fields with `#[invalidates(CHANNEL, ...)]`; the derive generates
@@ -532,3 +542,4 @@ pub fn invalidate_channels(input: TokenStream) -> TokenStream {
 }
 
 mod invalidates;
+mod kind;

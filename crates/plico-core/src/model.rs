@@ -1,5 +1,5 @@
 use crate::Entity;
-use crate::InvalidateChannels;
+use crate::{InvalidateChannels, KindClass};
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -70,33 +70,52 @@ pub(crate) struct Identity {
     pub key: Key,
     pub scope: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Each variant's classification lives in its `#[kind(...)]` annotation —
+/// family, interactivity and leafness generate from that single site, so a
+/// new kind cannot miss a classification function. Append kinds at the end
+/// to preserve existing discriminant fast paths; the wire representation
+/// uses names, not these internal discriminant values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, KindClass)]
 pub enum Kind {
+    #[kind(family = Container)]
     Root,
+    #[kind(family = Container, interactive)]
     Overlay,
+    #[kind(family = Container)]
     Dialog,
     /// Noninteractive group carrying a host-timed tooltip description.
+    #[kind(family = Container)]
     TooltipAnchor,
+    #[kind(family = Container)]
     Column,
+    #[kind(family = Container)]
     Row,
+    #[kind(family = Text, leaf)]
     Text,
+    #[kind(family = Text, interactive, leaf)]
     TextInput,
+    #[kind(family = Media, leaf)]
     Svg,
+    #[kind(family = Media, leaf)]
     Shader,
-    Slider,
-    Button,
-    ButtonBase,
-    Switch,
-    Checkbox,
-    // Append kinds to preserve existing discriminant fast paths. The wire
-    // representation uses names, not these internal discriminant values.
     /// Decoded raster image carried as hex-encoded asset bytes.
+    #[kind(family = Media, leaf)]
     Image,
+    #[kind(family = Control, interactive, leaf)]
+    Slider,
+    #[kind(family = Control, interactive, leaf)]
+    Button,
+    #[kind(family = Control, interactive, leaf)]
+    ButtonBase,
+    #[kind(family = Control, interactive, leaf)]
+    Switch,
+    #[kind(family = Control, interactive, leaf)]
+    Checkbox,
 }
-/// Legacy coarse classification, kept for source compatibility only.
-/// It does not describe layout, input capabilities or backend support. New code
-/// should inspect the specific Kind capability or typed data it needs; backends
-/// must choose their own explicit native representation and unsupported policy.
+/// Coarse projection family for backends without a native widget for every
+/// kind: an adapter degrades along this classification instead of failing.
+/// It is not a capability description — inspect [`Kind::capabilities`] for
+/// input semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KindFamily {
     /// Holds children: Root, Column, Row, Overlay, Dialog, TooltipAnchor.
@@ -105,55 +124,8 @@ pub enum KindFamily {
     Text,
     /// Leaf control reporting clicks: Button, ButtonBase, Switch, Checkbox, Slider.
     Control,
-    /// Visual content without interaction: Svg, Shader.
+    /// Visual content without interaction: Svg, Shader, Image.
     Media,
-}
-impl Kind {
-    /// Legacy coarse classification; never a backend fallback policy.
-    pub const fn family(self) -> KindFamily {
-        match self {
-            Self::Root
-            | Self::Overlay
-            | Self::Dialog
-            | Self::TooltipAnchor
-            | Self::Column
-            | Self::Row => KindFamily::Container,
-            Self::Text | Self::TextInput => KindFamily::Text,
-            Self::Button | Self::ButtonBase | Self::Switch | Self::Checkbox | Self::Slider => {
-                KindFamily::Control
-            }
-            Self::Svg | Self::Shader | Self::Image => KindFamily::Media,
-        }
-    }
-    /// Compatibility predicate for primary pointer/control interaction.
-    /// Focus, activation and selection callers should inspect capabilities.
-    pub const fn interactive(self) -> bool {
-        matches!(
-            self,
-            Self::Slider
-                | Self::Overlay
-                | Self::Button
-                | Self::ButtonBase
-                | Self::Switch
-                | Self::Checkbox
-                | Self::TextInput
-        )
-    }
-
-    #[inline(always)]
-    pub(crate) fn leaf(self) -> bool {
-        matches!(
-            self,
-            Self::Text
-                | Self::Shader
-                | Self::Svg
-                | Self::Image
-                | Self::Button
-                | Self::Switch
-                | Self::Checkbox
-                | Self::TextInput
-        )
-    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Color {

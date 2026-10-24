@@ -33,7 +33,7 @@ pub use model::{
     Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff,
     StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
-pub use plico_macros::{InvalidateChannels, component, text, view};
+pub use plico_macros::{InvalidateChannels, KindClass, component, text, view};
 pub use router::{DEFAULT_HISTORY_LIMIT, Router};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
