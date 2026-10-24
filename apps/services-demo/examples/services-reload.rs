@@ -146,7 +146,7 @@ fn run() -> Result<()> {
     );
     frame(&mut source, &mut tcx)?;
     snafu::ensure!(
-        source.view.state()["counter"] == 1,
+        source.view.state().decode::<serde_json::Value>().unwrap()["counter"] == 1,
         VerifySnafu {
             message: "compatible reload lost UI state"
         }
@@ -177,7 +177,8 @@ fn run() -> Result<()> {
         );
         frame(&mut source, &mut tcx)?;
         snafu::ensure!(
-            source.view.snapshot().reset.is_some() && source.view.state()["counter"] == 0,
+            source.view.snapshot().reset.is_some()
+                && source.view.state().decode::<serde_json::Value>().unwrap()["counter"] == 0,
             VerifySnafu {
                 message: "incompatible UI did not reset"
             }
@@ -213,7 +214,13 @@ fn run() -> Result<()> {
         s.status == TaskStatus::Cancelled
     })?;
     snafu::ensure!(
-        source.view.state().get("instance").is_none(),
+        source
+            .view
+            .state()
+            .decode::<serde_json::Value>()
+            .unwrap()
+            .get("instance")
+            .is_none(),
         VerifySnafu {
             message: "host state leaked into the UI checkpoint"
         }

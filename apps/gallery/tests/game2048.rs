@@ -172,7 +172,7 @@ fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
         ..Default::default()
     };
     let frame = plico_dev::render::<Gallery>(plico_dev::Request {
-        state: serde_json::to_value(app).unwrap(),
+        state: plico_dev::StateSnapshot::encode(&app).unwrap(),
         keys: vec!["ArrowLeft".into()],
         viewport: Some([640., 740.]),
         time: plico_core::FrameTime {
@@ -183,7 +183,7 @@ fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
     })
     .unwrap();
     assert!(frame.key_handled);
-    let moved: Gallery = serde_json::from_value(frame.state.clone()).unwrap();
+    let moved: Gallery = frame.state.decode().unwrap();
     assert_eq!(moved.game2048.cells()[0][..2], [4, 4]);
     assert_eq!(moved.game2048.score, 4);
     assert_eq!(moved.game2048.time, Duration::from_secs(10));
@@ -205,7 +205,7 @@ fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
     .unwrap();
     assert!(!next.key_handled);
     assert!(!next.requests.contains(plico_core::Changes::ANIMATE));
-    let restored: Gallery = serde_json::from_value(next.state).unwrap();
+    let restored: Gallery = next.state.decode().unwrap();
     assert_eq!(moved.game2048.cells(), restored.game2048.cells());
     assert_eq!(moved.game2048.best, restored.game2048.best);
     // The same application handler is reached through the normal native App runner.

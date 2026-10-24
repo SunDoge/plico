@@ -4,7 +4,7 @@ use notify::Watcher;
 use plico_core::{Key, PathKey, Theme, Ui, ViewNode};
 use plico_dev::host::{Descriptor, Module};
 use plico_dev::{
-    Frame, Request,
+    Frame, Request, StateSnapshot,
     services::{HostService, NoServices},
 };
 use std::{
@@ -83,7 +83,7 @@ pub struct ReloadView<S: HostService = NoServices> {
     retired: Vec<Module>,
     frame: Frame,
     // Last known-good application state; lean frames skip exchanging it.
-    state: serde_json::Value,
+    state: StateSnapshot,
     // Native input bindings by logical path: host-side buffer plus the
     // module revision last applied and the host revision/submit count last
     // sent. Edits here dispatch to the module; module edits sync back.
@@ -163,7 +163,7 @@ impl<S: HostService> ReloadView<S> {
     pub fn request_services_update(&mut self) {
         self.services_dirty = true;
     }
-    pub fn state(&self) -> &serde_json::Value {
+    pub fn state(&self) -> &StateSnapshot {
         &self.state
     }
     pub fn snapshot(&self) -> &Frame {
@@ -263,7 +263,7 @@ impl<S: HostService> ReloadView<S> {
         let result = (|| {
             let frame = self.module.call(&Request {
                 state: if lean {
-                    serde_json::Value::Null
+                    StateSnapshot::default()
                 } else {
                     self.state.clone()
                 },
@@ -325,7 +325,7 @@ impl<S: HostService> ReloadView<S> {
         }
         // Decode the whole batch before committing UI or executing any command.
         let commands = decode_commands::<S::Command>(std::mem::take(&mut frame.commands))?;
-        if !frame.state.is_null() {
+        if !frame.state.is_empty() {
             self.state = frame.state.clone();
         }
         self.frame = frame;
@@ -672,7 +672,7 @@ mod tests {
         );
         let frame = Frame {
             version: plico_dev::PROTOCOL_VERSION,
-            state: serde_json::Value::Null,
+            state: StateSnapshot::default(),
             theme: Theme::default(),
             nodes: vec![],
             reset: None,
@@ -714,7 +714,7 @@ mod tests {
     fn initial_native_inputs_and_module_edits_are_installed_without_echo() {
         let mut frame = Frame {
             version: plico_dev::PROTOCOL_VERSION,
-            state: serde_json::Value::Null,
+            state: StateSnapshot::default(),
             theme: Theme::default(),
             nodes: Vec::new(),
             reset: None,

@@ -1,3 +1,6 @@
+fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
+    plico_dev::StateSnapshot::encode(value).unwrap()
+}
 use plico_core::{PathKey, ViewNode, prelude::*};
 use plico_dev::{
     Request,
@@ -49,7 +52,10 @@ fn typed_snapshot_is_not_checkpointed_and_commands_survive_settling_exactly_once
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(first.state, serde_json::json!({"count":0}));
+    assert_eq!(
+        first.state.decode::<serde_json::Value>().unwrap(),
+        serde_json::json!({"count":0})
+    );
     assert!(first.commands.is_empty());
     let path = find(&first.nodes, &mut Vec::new()).unwrap();
     let clicked = render::<App>(Request {
@@ -59,7 +65,10 @@ fn typed_snapshot_is_not_checkpointed_and_commands_survive_settling_exactly_once
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(clicked.state, serde_json::json!({"count":1}));
+    assert_eq!(
+        clicked.state.decode::<serde_json::Value>().unwrap(),
+        serde_json::json!({"count":1})
+    );
     assert_eq!(clicked.commands, vec![serde_json::json!("Start")]);
     assert!(clicked.nodes.iter().any(|n| n.text == "Count: 1"));
     let next = render::<App>(Request {
@@ -74,13 +83,16 @@ fn typed_snapshot_is_not_checkpointed_and_commands_survive_settling_exactly_once
 #[test]
 fn incompatible_ui_resets_independently_of_host_snapshot_and_invalid_snapshot_fails() {
     let reset = render::<App>(Request {
-        state: serde_json::json!({"count":"old schema"}),
+        state: snapshot(&serde_json::json!({"count":"old schema"})),
         services: serde_json::json!({"progress":48}),
         ..Default::default()
     })
     .unwrap();
     assert!(reset.reset.is_some());
-    assert_eq!(reset.state["count"], 0);
+    assert_eq!(
+        reset.state.decode::<serde_json::Value>().unwrap()["count"],
+        0
+    );
     assert!(reset.nodes.iter().any(|n| n.text == "Progress: 48"));
     assert!(reset.commands.is_empty());
     assert!(

@@ -1,3 +1,6 @@
+fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
+    plico_dev::StateSnapshot::encode(value).unwrap()
+}
 use plico_core::{PathKey, Ui};
 use plico_dev::{App, Request, render};
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -17,7 +20,7 @@ impl App for Counter {
 #[test]
 fn logical_click_survives_recreated_arena_and_settles_once() {
     let frame = render::<Counter>(Request {
-        state: serde_json::json!({"count":7}),
+        state: snapshot(&serde_json::json!({"count":7})),
         clicks: vec![vec![
             PathKey::Named("app".into()),
             PathKey::Named("increment".into()),
@@ -25,17 +28,23 @@ fn logical_click_survives_recreated_arena_and_settles_once() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 8);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        8
+    );
     assert_eq!(frame.nodes[0].children[1].text, "Count: 8");
 }
 #[test]
 fn incompatible_state_resets_and_reports_reason() {
     let frame = render::<Counter>(Request {
-        state: serde_json::json!({"count":"old schema"}),
+        state: snapshot(&serde_json::json!({"count":"old schema"})),
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 0);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        0
+    );
     assert!(frame.reset.is_some());
 }
 #[test]
@@ -141,7 +150,7 @@ impl App for Themed {
 #[test]
 fn module_declarations_receive_app_theme_and_composite_content_survives_wire_round_trip() {
     let frame = render::<Themed>(Request {
-        state: serde_json::json!({"compact":true}),
+        state: snapshot(&serde_json::json!({"compact":true})),
         ..Default::default()
     })
     .unwrap();
@@ -191,20 +200,32 @@ fn configured_toggle_crosses_module_protocol_without_retaining_a_business_borrow
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(changed.state["checked"], true);
-    assert_eq!(changed.state["actions"], 1);
+    assert_eq!(
+        changed.state.decode::<serde_json::Value>().unwrap()["checked"],
+        true
+    );
+    assert_eq!(
+        changed.state.decode::<serde_json::Value>().unwrap()["actions"],
+        1
+    );
     assert!(changed.nodes[0].style.checked);
     assert_eq!(changed.nodes[0].style.gap, 10.);
-    let mut state = changed.state;
+    let mut state: serde_json::Value = changed.state.decode().unwrap();
     state["locked"] = true.into();
     let locked = render::<ControlledToggle>(Request {
-        state,
+        state: snapshot(&state),
         clicks: vec![path],
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(locked.state["checked"], true);
-    assert_eq!(locked.state["actions"], 1);
+    assert_eq!(
+        locked.state.decode::<serde_json::Value>().unwrap()["checked"],
+        true
+    );
+    assert_eq!(
+        locked.state.decode::<serde_json::Value>().unwrap()["actions"],
+        1
+    );
     assert!(locked.nodes[0].style.disabled);
 }
 
@@ -229,7 +250,7 @@ fn modal_identity_dismissal_and_presence_survive_serialized_app_recreation() {
     let mut app = Demo::default();
     app.state.open();
     let opened = render::<Demo>(Request {
-        state: serde_json::to_value(app).unwrap(),
+        state: snapshot(&app),
         ..Default::default()
     })
     .unwrap();
@@ -295,7 +316,10 @@ fn numeric_events_replay_across_recreated_app_and_latest_value_wins() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["value"], 7.5);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["value"],
+        7.5
+    );
     assert_eq!(frame.nodes[0].numeric.unwrap().value, 7.5);
     assert!(
         render::<Demo>(Request {
@@ -338,7 +362,7 @@ fn virtual_list_uses_portable_scroll_feedback_after_module_reconstruction() {
 #[test]
 fn request_without_optional_event_fields_deserializes() {
     // Headless scripts and older hosts may omit the event lists entirely.
-    let request: Request = serde_json::from_str(r#"{"version":2,"state":null}"#).unwrap();
+    let request: Request = serde_json::from_str(r#"{"version":3,"state":[]}"#).unwrap();
     assert!(request.clicks.is_empty());
     assert!(request.values.is_empty());
     assert_eq!(request.version, plico_dev::PROTOCOL_VERSION);
@@ -358,7 +382,10 @@ fn stale_path_events_are_counted_in_the_frame() {
     })
     .unwrap();
     // The real control consumed its click; the stale path is reported, not lost.
-    assert_eq!(frame.state["count"], 1);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        1
+    );
     assert_eq!(frame.unmatched_events, 1);
 }
 
@@ -386,11 +413,14 @@ fn panic_message_crosses_the_module_boundary() {
 fn lean_frames_reuse_retained_state_without_roundtrip() {
     // Prime with a full frame: state 7 is deserialized and retained module-side.
     let frame = render::<Counter>(Request {
-        state: serde_json::json!({"count":7}),
+        state: snapshot(&serde_json::json!({"count":7})),
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 7);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        7
+    );
     // A lean frame carries no state and returns none; the module's instance
     // keeps its count.
     let frame = render::<Counter>(Request {
@@ -398,7 +428,7 @@ fn lean_frames_reuse_retained_state_without_roundtrip() {
         ..Default::default()
     })
     .unwrap();
-    assert!(frame.state.is_null());
+    assert!(frame.state.is_empty());
     // The next full frame serializes the retained instance: still 7.
     let frame = render::<Counter>(Request {
         lean: true,
@@ -409,15 +439,18 @@ fn lean_frames_reuse_retained_state_without_roundtrip() {
         ..Default::default()
     })
     .unwrap();
-    assert!(frame.state.is_null());
+    assert!(frame.state.is_empty());
     // Full frame: host sends its copy (7), module deserializes fresh, click
     // bumps it to 8, state returns.
     let frame = render::<Counter>(Request {
-        state: serde_json::json!({"count":8}),
+        state: snapshot(&serde_json::json!({"count":8})),
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 8);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        8
+    );
 }
 
 #[test]
@@ -444,7 +477,10 @@ fn error_frames_drop_retained_state_for_crash_safety() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 1);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        1
+    );
     // A failing frame of any type must drop the retained instance: a
     // subsequent lean frame errors instead of reusing possibly half-mutated
     // state, and the next full frame rebuilds from the host's state copy.
@@ -465,17 +501,20 @@ fn error_frames_drop_retained_state_for_crash_safety() {
     ));
     // Recovery: a full frame rebuilds from host state.
     let frame = render::<Counter>(Request {
-        state: serde_json::json!({"count":1}),
+        state: snapshot(&serde_json::json!({"count":1})),
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["count"], 1);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["count"],
+        1
+    );
     let frame = render::<Counter>(Request {
         lean: true,
         ..Default::default()
     })
     .unwrap();
-    assert!(frame.state.is_null());
+    assert!(frame.state.is_empty());
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -514,14 +553,20 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
     let (_, content, _) = &frame.texts[0];
     assert_eq!(content.as_deref(), Some("hello"));
     // The application observed the change through its normal response path.
-    assert_eq!(frame.state["echoed"], "hello");
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["echoed"],
+        "hello"
+    );
     // Enter crosses as a submit counter.
     let frame = render::<Editor>(Request {
         texts: vec![(path.clone(), "hello".into(), 1)],
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.state["submitted"], true);
+    assert_eq!(
+        frame.state.decode::<serde_json::Value>().unwrap()["submitted"],
+        true
+    );
     // A later frame repeating the same absolute count must not double-submit.
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Counting {
@@ -554,7 +599,8 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
     })
     .unwrap();
     assert_eq!(
-        repeated.state["submits"], 1,
+        repeated.state.decode::<serde_json::Value>().unwrap()["submits"],
+        1,
         "absolute submit counts apply once, not per frame"
     );
 }
@@ -562,7 +608,7 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
 #[test]
 fn resumed_event_keeps_mutations_from_lean_frames_and_checkpoint_is_read_only() {
     let initial = render::<Counter>(Request {
-        state: serde_json::json!({"count":7}),
+        state: snapshot(&serde_json::json!({"count":7})),
         ..Default::default()
     })
     .unwrap();
@@ -581,7 +627,10 @@ fn resumed_event_keeps_mutations_from_lean_frames_and_checkpoint_is_read_only() 
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(checkpoint.state["count"], 8);
+    assert_eq!(
+        checkpoint.state.decode::<serde_json::Value>().unwrap()["count"],
+        8
+    );
     let event = render::<Counter>(Request {
         resume: true,
         state: initial.state,
@@ -593,7 +642,8 @@ fn resumed_event_keeps_mutations_from_lean_frames_and_checkpoint_is_read_only() 
     })
     .unwrap();
     assert_eq!(
-        event.state["count"], 9,
+        event.state.decode::<serde_json::Value>().unwrap()["count"],
+        9,
         "host checkpoint must not overwrite a live session"
     );
 }
@@ -631,7 +681,10 @@ fn resumed_inputs_survive_clicks_and_absolute_submissions_are_idempotent() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(entered.state["submits"], 1);
+    assert_eq!(
+        entered.state.decode::<serde_json::Value>().unwrap()["submits"],
+        1
+    );
     let repeated = render::<Form>(Request {
         resume: true,
         state: entered.state,
@@ -640,7 +693,8 @@ fn resumed_inputs_survive_clicks_and_absolute_submissions_are_idempotent() {
     })
     .unwrap();
     assert_eq!(
-        repeated.state["submits"], 1,
+        repeated.state.decode::<serde_json::Value>().unwrap()["submits"],
+        1,
         "same submit must not trigger twice"
     );
     let saved = render::<Form>(Request {
@@ -650,14 +704,17 @@ fn resumed_inputs_survive_clicks_and_absolute_submissions_are_idempotent() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(saved.state["saved"], "hello");
+    assert_eq!(
+        saved.state.decode::<serde_json::Value>().unwrap()["saved"],
+        "hello"
+    );
     assert_eq!(saved.text_hints[0].1, "Type here");
 }
 #[test]
 fn restoration_registers_inputs_before_clicks_and_does_not_replay_acknowledged_submit() {
     let path = vec![PathKey::Named("field".into())];
     let frame = render::<Form>(Request {
-        state: serde_json::json!({"submits":3,"saved":"old"}),
+        state: snapshot(&serde_json::json!({"submits":3,"saved":"old"})),
         texts: vec![(path.clone(), "restored".into(), 4)],
         text_baselines: vec![(path, 3)],
         clicks: vec![vec![PathKey::Named("save".into())]],
@@ -665,11 +722,13 @@ fn restoration_registers_inputs_before_clicks_and_does_not_replay_acknowledged_s
     })
     .unwrap();
     assert_eq!(
-        frame.state["saved"], "restored",
+        frame.state.decode::<serde_json::Value>().unwrap()["saved"],
+        "restored",
         "click cannot run before text restoration"
     );
     assert_eq!(
-        frame.state["submits"], 4,
+        frame.state.decode::<serde_json::Value>().unwrap()["submits"],
+        4,
         "only the pending submit is delivered"
     );
 }
@@ -686,7 +745,11 @@ fn checkpoint_does_not_run_declarations_and_old_protocol_is_rejected() {
         }
     }
     assert_eq!(
-        render::<Shows>(Request::default()).unwrap().state["count"],
+        render::<Shows>(Request::default())
+            .unwrap()
+            .state
+            .decode::<serde_json::Value>()
+            .unwrap()["count"],
         1
     );
     for _ in 0..2 {
@@ -696,7 +759,9 @@ fn checkpoint_does_not_run_declarations_and_old_protocol_is_rejected() {
                 ..Default::default()
             })
             .unwrap()
-            .state["count"],
+            .state
+            .decode::<serde_json::Value>()
+            .unwrap()["count"],
             1
         );
     }

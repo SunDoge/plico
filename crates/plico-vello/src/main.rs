@@ -190,7 +190,7 @@ fn headless(mut source: Source<ReloadView>, options: Options) -> Result<()> {
                 })
                 .map(|n| serde_json::json!({"text":n.label,"bounds":n.bounds,"focus":tree.focus}));
             Ok(
-                serde_json::json!({"tooltip":tooltip,"state":source.view.state(),"nodes":source.view.snapshot().nodes,"reloads":source.view.reloads,"error":source.view.last_error,"pid":std::process::id()}),
+                serde_json::json!({"tooltip":tooltip,"state":source.view.state().decode::<serde_json::Value>().ok(),"state_bytes":source.view.state(),"nodes":source.view.snapshot().nodes,"reloads":source.view.reloads,"error":source.view.last_error,"pid":std::process::id()}),
             )
         })();
         match response {

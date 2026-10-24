@@ -1,8 +1,8 @@
-# 热重载协议 v2 与验收边界
+# 热重载协议 v3 与验收边界
 
 
-状态：native 模块与宿主已实现，普通 JSON Request/Frame 仍用于传输；不是二进制
-协议、树增量传输或可同时承载多个 App 的会话注册表。
+状态：native 模块与宿主已实现，JSON Request/Frame 仍用于传输，其中 App checkpoint 是具名字段 MessagePack
+字节数组；不是全二进制协议、树增量传输或可同时承载多个 App 的会话注册表。
 
 ## 会话与恢复
 
@@ -20,8 +20,21 @@ checkpoint 和输入快照恢复，不无限重试轻量帧。命令解码失败
 显式恢复。它不是事务回滚：失败前不可逆的外部副作用不可能自动撤销；应用应把
 副作用交给宿主命令，整个批次解码成功后再执行。
 
-host、module 和 descriptor 都检查版本。v1 不能静默接受 v2 的会话/输入语义。
+host、module 和 descriptor 都检查版本。v1/v2 不能静默接受 v3 的 MessagePack checkpoint。
 CLI 发布 descriptor 使用 `plico_dev::PROTOCOL_VERSION`，不再手写旧版本字面量。
+
+## 状态编码
+
+App 继续 derive Serde，不需要新的 derive 宏。`StateSnapshot::encode` 使用
+`rmp-serde::to_vec_named`，直接编码 App，不经过 `serde_json::Value`。
+`decode::<T>()` 恢复状态；空快照表示无状态或 lean 帧，不等同于 MessagePack nil。
+具名字段允许忽略删除字段、通过 `#[serde(default)]` 补充新增字段；字段类型不兼容
+或快照损坏时仍回到 App::default，并报告 reset 原因。不保证任意 schema 兼容。
+二进制 blob 可使用 `serde_bytes`，非字符串 Map key 和非有限浮点值不受 JSON 限制。
+
+外层协议仍为 JSON，快照 bytes 目前编码为整数数组；这次不宣称传输体积优化。
+服务快照、命令和树仍使用原有 JSON 模型。headless 调试输出的 state 只是尽力解码的
+JSON 预览，不支持的状态显示 null，原始 state_bytes 始终可用；预览不参与恢复。
 
 ## TextInput
 

@@ -332,7 +332,7 @@ impl SplitHost {
     pub fn stats(&self) -> String {
         let view = &self.host.source.view;
         serde_json::to_string(&json!({
-            "state":view.frame.state,"reset":view.frame.reset,"error":view.last_error,
+            "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.last_error,
             "reloads":view.reloads,"calls":view.calls,
             "input_bytes":view.input_bytes,"output_bytes":view.output_bytes,
             "font_loads":self.font_loads, "text_cache":self.host.text.cache_entries(),"service":view.services,

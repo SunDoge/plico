@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="plico-vlist-") as temp:
     first, second = Path(temp) / "first.so", Path(temp) / "second.so"
     shutil.copyfile(TARGET / "debug/libplico_gallery.so", first)
     shutil.copyfile(first, second)
-    descriptor.write_text(json.dumps({"version": 2, "library": str(first)}))
+    descriptor.write_text(json.dumps({"version": 3, "library": str(first)}))
     with open("/tmp/plico-vlist-reload.log", "w") as log:
         child = subprocess.Popen([str(TARGET / "debug/plico-vello"), "dev", "--module", str(descriptor), "--headless"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True)
         messages = queue.Queue()
@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix="plico-vlist-") as temp:
             scrolled = request()
             assert "Record 00101" in texts(scrolled["nodes"])
             assert "Record 00001" not in texts(scrolled["nodes"])
-            descriptor.write_text(json.dumps({"version": 2, "library": str(second)}))
+            descriptor.write_text(json.dumps({"version": 3, "library": str(second)}))
             reloaded = request()
             assert reloaded["reloads"] == 1
             assert "Record 00101" in texts(reloaded["nodes"])
@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="plico-vlist-") as temp:
             request("scroll", x=250, y=250, delta=3600)
             third = Path(temp) / "third.so"
             shutil.copyfile(first, third)
-            descriptor.write_text(json.dumps({"version": 2, "library": str(third)}))
+            descriptor.write_text(json.dumps({"version": 3, "library": str(third)}))
             assert request()["reloads"] == 2
             time.sleep(0.2)
             continued = request()

@@ -55,8 +55,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target: nav }));
     source.build_frame(&mut tcx, 640, 740);
-    assert_eq!(source.view.state()["page"], "Game2048");
-    let before = source.view.state()["game2048"]["tiles"].clone();
+    assert_eq!(
+        source.view.state().decode::<serde_json::Value>().unwrap()["page"],
+        "Game2048"
+    );
+    let before =
+        source.view.state().decode::<serde_json::Value>().unwrap()["game2048"]["tiles"].clone();
     for value in ["ArrowLeft", "ArrowDown", "ArrowRight"] {
         assert!(source.handle_event(key(value)).handled);
         source.build_frame(&mut tcx, 640, 740);
@@ -64,9 +68,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     clock.advance(Duration::from_millis(600))?;
     source.build_frame(&mut tcx, 640, 740);
-    assert_ne!(source.view.state()["game2048"]["tiles"], before);
+    assert_ne!(
+        source.view.state().decode::<serde_json::Value>().unwrap()["game2048"]["tiles"],
+        before
+    );
     assert!(!source.has_anim());
-    let state = source.view.state().clone();
+    let state: serde_json::Value = source.view.state().decode()?;
     let revision = directory.join(format!("revision.{}", std::env::consts::DLL_EXTENSION));
     std::fs::copy(library, &revision)?;
     std::fs::write(
@@ -79,11 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(source.view.activate()?);
     source.build_frame(&mut tcx, 640, 740);
     assert_eq!(
-        source.view.state()["game2048"]["tiles"],
+        source.view.state().decode::<serde_json::Value>().unwrap()["game2048"]["tiles"],
         state["game2048"]["tiles"]
     );
     assert_eq!(
-        source.view.state()["game2048"]["score"],
+        source.view.state().decode::<serde_json::Value>().unwrap()["game2048"]["score"],
         state["game2048"]["score"]
     );
     assert!(source.last_error.is_none());

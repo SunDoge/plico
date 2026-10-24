@@ -1,4 +1,4 @@
-//! Versioned JSON/C boundary for replaceable application code; no Rust ABI crosses it.
+//! Versioned JSON/C boundary with MessagePack state; no Rust ABI crosses it.
 use plico_core::{Engine, PathKey, Theme, Ui, ViewNode};
 use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
@@ -6,7 +6,9 @@ use zeroize::Zeroizing;
 pub mod services;
 mod validation;
 pub use validation::validate_nodes;
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
+mod snapshot;
+pub use snapshot::StateSnapshot;
 #[cfg(not(target_arch = "wasm32"))]
 pub use stabby;
 #[derive(Debug, Snafu)]
@@ -15,6 +17,8 @@ pub enum Error {
     Tree { message: String },
     #[snafu(display("invalid application data: {source}"))]
     Json { source: serde_json::Error },
+    #[snafu(display("application checkpoint encoding failed: {source}"))]
+    Checkpoint { source: rmp_serde::encode::Error },
     #[snafu(display("unsupported application protocol {actual}"))]
     Protocol { actual: u32 },
     #[snafu(display("view declaration failed: {source}"))]
@@ -30,7 +34,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Request {
     pub version: u32,
-    pub state: serde_json::Value,
+    pub state: StateSnapshot,
     #[serde(default)]
     pub services: serde_json::Value,
     #[serde(default)]
@@ -69,7 +73,7 @@ impl Default for Request {
     fn default() -> Self {
         Self {
             version: PROTOCOL_VERSION,
-            state: serde_json::Value::Null,
+            state: StateSnapshot::default(),
             services: serde_json::Value::Null,
             clicks: Vec::new(),
             keys: Vec::new(),
@@ -88,7 +92,7 @@ impl Default for Request {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Frame {
     pub version: u32,
-    pub state: serde_json::Value,
+    pub state: StateSnapshot,
     pub theme: Theme,
     pub nodes: Vec<ViewNode>,
     pub reset: Option<String>,
@@ -172,10 +176,10 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
                 message: "session request arrived without retained application state"
             }
         );
-        let (app, reset) = if request.state.is_null() {
+        let (app, reset) = if request.state.is_empty() {
             (A::default(), None)
         } else {
-            match serde_json::from_value(request.state) {
+            match request.state.decode() {
                 Ok(app) => (app, None),
                 Err(error) => (A::default(), Some(error.to_string())),
             }
@@ -261,9 +265,9 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
         })
         .collect();
     let state = if request.lean {
-        serde_json::Value::Null
+        StateSnapshot::default()
     } else {
-        serde_json::to_value(&app).context(JsonSnafu)?
+        StateSnapshot::encode(app).context(CheckpointSnafu)?
     };
     let frame = Frame {
         version: PROTOCOL_VERSION,
@@ -285,7 +289,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
     RETAINED.with(|slot| *slot.borrow_mut() = Some(session));
     Ok(frame)
 }
-/// Only this small transport type has a stable native layout. UI/state remain versioned JSON.
+/// Only this small transport type has a stable native layout. The JSON envelope carries opaque MessagePack state bytes.
 #[cfg(not(target_arch = "wasm32"))]
 #[stabby::stabby]
 pub struct Reply {
