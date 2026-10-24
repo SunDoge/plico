@@ -105,6 +105,7 @@ impl<'e> Ui<'e> {
     pub fn theme(&self) -> Theme {
         self.engine.theme()
     }
+    #[inline(always)]
     fn inherited_style(&self) -> Style {
         Style {
             font_size: self.inherited.font_size,
@@ -114,6 +115,7 @@ impl<'e> Ui<'e> {
             ..Default::default()
         }
     }
+    #[inline(always)]
     pub(crate) fn with_parent<R>(
         &mut self,
         parent: Entity,
@@ -130,6 +132,7 @@ impl<'e> Ui<'e> {
         result
     }
     /// Unstyled button behavior with a mandatory accessible name and composable content.
+    #[inline(always)]
     pub fn button_base<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
@@ -139,15 +142,19 @@ impl<'e> Ui<'e> {
             styled: false,
         }
     }
+    #[inline(always)]
     pub fn column(&mut self) -> Layout<'_, 'e> {
         self.layout(Kind::Column)
     }
+    #[inline(always)]
     pub fn grid(&mut self) -> Layout<'_, 'e> {
         self.column().display(crate::Display::Grid)
     }
+    #[inline(always)]
     pub fn row(&mut self) -> Layout<'_, 'e> {
         self.layout(Kind::Row)
     }
+    #[inline(always)]
     fn layout(&mut self, kind: Kind) -> Layout<'_, 'e> {
         let key = self.engine.auto_key(self.parent);
         let style = self.inherited_style();
@@ -159,6 +166,7 @@ impl<'e> Ui<'e> {
             grid: None,
         }
     }
+    #[inline(always)]
     pub fn text_input<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
@@ -182,12 +190,14 @@ impl<'e> Ui<'e> {
             focus: false,
         }
     }
+    #[inline(always)]
     pub fn text<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Text<'u, 'e, 't> {
         Text {
             inner: self.leaf(Kind::Text, text.into()),
         }
     }
     /// Format synchronously into an engine-owned reusable scratch buffer.
+    #[inline(always)]
     pub fn text_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Text<'_, 'e, 'static> {
         use std::fmt::Write;
         if let Some(literal) = args.as_str() {
@@ -202,6 +212,7 @@ impl<'e> Ui<'e> {
         inner.recycle_text = true;
         Text { inner }
     }
+    #[inline(always)]
     pub fn svg(&mut self, asset: &crate::SvgAsset) -> Svg<'_, 'e> {
         let mut inner = self.leaf(Kind::Svg, Cow::Borrowed(asset.source()));
         inner.style.width = Some(24.);
@@ -209,7 +220,16 @@ impl<'e> Ui<'e> {
         inner.style.shrink = 0.;
         Svg { inner }
     }
+    /// Declare an embedded raster image; see [`crate::ImageAsset`].
+    pub fn image(&mut self, asset: &crate::ImageAsset) -> Image<'_, 'e> {
+        let mut inner = self.leaf(Kind::Image, Cow::Owned(asset.encoded()));
+        inner.style.width = Some(96.);
+        inner.style.height = Some(96.);
+        inner.style.shrink = 0.;
+        Image { inner }
+    }
     /// Declare generated SVG markup without requiring a leaked static asset.
+    #[inline(always)]
     pub fn svg_source(&mut self, source: String) -> Svg<'_, 'e> {
         let mut inner = self.leaf(Kind::Svg, Cow::Owned(source));
         inner.style.width = Some(24.);
@@ -217,6 +237,7 @@ impl<'e> Ui<'e> {
         inner.style.shrink = 0.;
         Svg { inner }
     }
+    #[inline(always)]
     pub fn button<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Button<'u, 'e, 't> {
         let metrics = self.theme().metrics;
         let mut inner = self.leaf(Kind::Button, text.into());
@@ -300,6 +321,7 @@ impl<'e> Ui<'e> {
     fn toggle(&mut self, kind: Kind, key: Key, label: &str, value: &mut bool) -> bool {
         self.toggle_control(kind, label, value).key(key).changed()
     }
+    #[inline(always)]
     pub(crate) fn toggle_control<'u, 't>(
         &'u mut self,
         kind: Kind,
@@ -317,6 +339,7 @@ impl<'e> Ui<'e> {
         inner.style.min_height = Some(metrics.control_height as f32);
         Toggle { inner, value }
     }
+    #[inline(always)]
     fn leaf<'u, 't>(&'u mut self, kind: Kind, text: Cow<'t, str>) -> Leaf<'u, 'e, 't> {
         let key = self.engine.auto_key(self.parent);
         if kind.interactive() && self.in_button {
@@ -342,14 +365,17 @@ pub struct Layout<'u, 'e> {
     grid: Option<crate::GridTemplate>,
 }
 impl Layout<'_, '_> {
+    #[inline(always)]
     pub fn grid_columns(mut self, tracks: impl IntoIterator<Item: Into<crate::Track>>) -> Self {
         self.grid.get_or_insert_default().columns = tracks.into_iter().map(Into::into).collect();
         self
     }
+    #[inline(always)]
     pub fn grid_rows(mut self, tracks: impl IntoIterator<Item: Into<crate::Track>>) -> Self {
         self.grid.get_or_insert_default().rows = tracks.into_iter().map(Into::into).collect();
         self
     }
+    #[inline(always)]
     pub fn grid_auto_columns(
         mut self,
         tracks: impl IntoIterator<Item: Into<crate::Track>>,
@@ -358,180 +384,223 @@ impl Layout<'_, '_> {
             tracks.into_iter().map(Into::into).collect();
         self
     }
+    #[inline(always)]
     pub fn grid_auto_rows(mut self, tracks: impl IntoIterator<Item: Into<crate::Track>>) -> Self {
         self.grid.get_or_insert_default().auto_rows = tracks.into_iter().map(Into::into).collect();
         self
     }
+    #[inline(always)]
     pub fn grid_areas(mut self, rows: impl IntoIterator<Item: Into<String>>) -> Self {
         self.grid.get_or_insert_default().areas = rows.into_iter().map(Into::into).collect();
         self
     }
+    #[inline(always)]
     pub fn grid_area(mut self, name: impl Into<String>) -> Self {
         self.grid.get_or_insert_default().area = Some(name.into());
         self
     }
+    #[inline(always)]
     pub fn min_height(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("min_height", value.into());
         self
     }
+    #[inline(always)]
     pub fn display(mut self, value: crate::Display) -> Self {
         self.style.layout.display = value;
         self
     }
+    #[inline(always)]
     pub fn flex_direction(mut self, value: crate::FlexDirection) -> Self {
         self.style.layout.flex_direction = Some(value);
         self
     }
+    #[inline(always)]
     pub fn flex_wrap(mut self, value: crate::FlexWrap) -> Self {
         self.style.layout.flex_wrap = Some(value);
         self
     }
+    #[inline(always)]
     pub fn box_sizing(mut self, value: crate::BoxSizing) -> Self {
         self.style.layout.box_sizing = value;
         self
     }
+    #[inline(always)]
     pub fn direction(mut self, value: crate::Direction) -> Self {
         self.style.layout.direction = value;
         self
     }
+    #[inline(always)]
     pub fn position(mut self, value: crate::Position) -> Self {
         self.style.layout.position = value;
         self
     }
+    #[inline(always)]
     pub fn grid_flow(mut self, value: crate::GridFlow) -> Self {
         self.style.layout.grid_flow = value;
         self
     }
+    #[inline(always)]
     pub fn align_self(mut self, value: crate::Align) -> Self {
         self.style.layout.align_self = Some(value);
         self
     }
+    #[inline(always)]
     pub fn justify_self(mut self, value: crate::Align) -> Self {
         self.style.layout.justify_self = Some(value);
         self
     }
+    #[inline(always)]
     pub fn justify_items(mut self, value: crate::Align) -> Self {
         self.style.layout.justify_items = Some(value);
         self
     }
+    #[inline(always)]
     pub fn align_content(mut self, value: crate::Justify) -> Self {
         self.style.layout.align_content = Some(value);
         self
     }
+    #[inline(always)]
     pub fn aspect_ratio(mut self, value: f32) -> Self {
         self.style.layout.aspect_ratio = Some(value);
         self
     }
+    #[inline(always)]
     pub fn flex_basis(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.layout.flex_basis = value.into();
         self
     }
+    #[inline(always)]
     pub fn flex_line_count(mut self, value: u16) -> Self {
         self.style.layout.flex_line_count = value;
         self
     }
+    #[inline(always)]
     pub fn column_gap(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.layout.gap[0] = Some(value.into());
         self
     }
+    #[inline(always)]
     pub fn row_gap(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.layout.gap[1] = Some(value.into());
         self
     }
+    #[inline(always)]
     pub fn margin(mut self, value: impl Into<crate::Length>) -> Self {
         self.style
             .set_edges("margin", crate::Edges::all(value.into()));
         self
     }
+    #[inline(always)]
     pub fn margin_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
         self.style.set_edges("margin", value);
         self
     }
+    #[inline(always)]
     pub fn margin_left(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("margin", "left", value.into());
         self
     }
+    #[inline(always)]
     pub fn margin_right(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("margin", "right", value.into());
         self
     }
+    #[inline(always)]
     pub fn margin_top(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("margin", "top", value.into());
         self
     }
+    #[inline(always)]
     pub fn margin_bottom(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("margin", "bottom", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
         self.style.set_edges("padding", value);
         self
     }
+    #[inline(always)]
     pub fn padding_left(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("padding", "left", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_right(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("padding", "right", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_top(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("padding", "top", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_bottom(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("padding", "bottom", value.into());
         self
     }
+    #[inline(always)]
     pub fn inset(mut self, value: impl Into<crate::Length>) -> Self {
         self.style
             .set_edges("inset", crate::Edges::all(value.into()));
         self
     }
+    #[inline(always)]
     pub fn inset_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
         self.style.set_edges("inset", value);
         self
     }
+    #[inline(always)]
     pub fn inset_left(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("inset", "left", value.into());
         self
     }
+    #[inline(always)]
     pub fn inset_right(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("inset", "right", value.into());
         self
     }
+    #[inline(always)]
     pub fn inset_top(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("inset", "top", value.into());
         self
     }
+    #[inline(always)]
     pub fn inset_bottom(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_edge("inset", "bottom", value.into());
         self
     }
+    #[inline(always)]
     pub fn grid_row(mut self, start: crate::GridLine, end: crate::GridLine) -> Self {
         self.style.layout.grid_row = [start, end];
         self
     }
+    #[inline(always)]
     pub fn row_span(self, count: u16) -> Self {
         self.grid_row(crate::GridLine::Auto, crate::GridLine::Span(count))
     }
+    #[inline(always)]
     pub fn grid_column(mut self, start: crate::GridLine, end: crate::GridLine) -> Self {
         self.style.layout.grid_column = [start, end];
         self
     }
+    #[inline(always)]
     pub fn column_span(self, count: u16) -> Self {
         self.grid_column(crate::GridLine::Auto, crate::GridLine::Span(count))
     }
-
+    #[inline(always)]
     pub fn translate(mut self, x: f32, y: f32) -> Self {
         self.style.translate = [x, y];
         self
     }
+    #[inline(always)]
     pub fn scale(mut self, x: f32, y: f32) -> Self {
         self.style.scale = [x, y];
         self
     }
     /// Place this container relative to its containing block, outside flex flow.
+    #[inline(always)]
     pub fn absolute(mut self, left: f32, top: f32) -> Self {
         self.style.absolute = Some([left, top]);
         self.style.layout.position = crate::Position::Absolute;
@@ -542,128 +611,158 @@ impl Layout<'_, '_> {
         }
         self
     }
+    #[inline(always)]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.key = key.into();
         self
     }
+    #[inline(always)]
     pub fn gap(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_spacing("gap", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_spacing("padding", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_x(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_spacing("padding_x", value.into());
         self
     }
+    #[inline(always)]
     pub fn padding_y(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_spacing("padding_y", value.into());
         self
     }
+    #[inline(always)]
     pub fn border(mut self, width: f32, color: Color) -> Self {
         self.style.border_width = width;
         self.style.border_color = color;
         self
     }
+    #[inline(always)]
     pub fn width(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("width", value.into());
         self
     }
+    #[inline(always)]
     pub fn height(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("height", value.into());
         self
     }
+    #[inline(always)]
     pub fn width_percent(mut self, value: f32) -> Self {
         self.style
             .set_dimension("width", crate::Length::Percent(value));
         self
     }
+    #[inline(always)]
     pub fn height_percent(mut self, value: f32) -> Self {
         self.style
             .set_dimension("height", crate::Length::Percent(value));
         self
     }
+    #[inline(always)]
     pub fn min_width(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("min_width", value.into());
         self
     }
+    #[inline(always)]
     pub fn max_height(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("max_height", value.into());
         self
     }
+    #[inline(always)]
     pub fn max_width(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_dimension("max_width", value.into());
         self
     }
+    #[inline(always)]
     pub fn grow(mut self, value: f32) -> Self {
         self.style.grow = value;
         self
     }
+    #[inline(always)]
     pub fn shrink(mut self, value: f32) -> Self {
         self.style.shrink = value;
         self
     }
     /// A bounded vertical viewport. Its children keep their intrinsic height.
     /// Animate wheel scrolling and scrollbar track paging (160ms ease-out).
+    #[inline(always)]
     pub fn smooth_scroll(mut self, enabled: bool) -> Self {
         self.style.smooth_scroll = enabled;
         self
     }
+    #[inline(always)]
     pub fn selectable(mut self, value: bool) -> Self {
         self.style.selectable = value;
         self
     }
+    #[inline(always)]
     pub fn scroll_y(mut self, value: bool) -> Self {
         self.style.scroll_y = value;
         self
     }
+    #[inline(always)]
     pub fn clip(mut self, value: bool) -> Self {
         self.style.clip = value;
         self
     }
+    #[inline(always)]
     pub fn wrap(mut self, value: bool) -> Self {
         self.style.wrap = value;
         self
     }
+    #[inline(always)]
     pub fn align(mut self, value: Align) -> Self {
         self.style.align = Some(value);
         self
     }
+    #[inline(always)]
     pub fn justify(mut self, value: Justify) -> Self {
         self.style.justify = Some(value);
         self
     }
     /// Blur the already-painted application backdrop behind this container.
+    #[inline(always)]
     pub fn backdrop_blur(mut self, sigma: f32) -> Self {
         self.style.backdrop_blur = sigma;
         self
     }
     /// Tint only the background; text and child controls remain opaque.
+    #[inline(always)]
     pub fn background_alpha(mut self, alpha: f32) -> Self {
         self.style.background_alpha = alpha;
         self
     }
+    #[inline(always)]
     pub fn opacity(mut self, value: f32) -> Self {
         self.style.opacity = value;
         self
     }
+    #[inline(always)]
     pub fn radius(mut self, px: f32) -> Self {
         self.style.radius = px;
         self
     }
+    #[inline(always)]
     pub fn motion(self, preset: Motion) -> Self {
         self.transition(preset.duration_ms())
     }
+    #[inline(always)]
     pub fn transition(mut self, milliseconds: u16) -> Self {
         self.style.transition_ms = milliseconds;
         self
     }
+    #[inline(always)]
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
         self
     }
+    #[inline(always)]
     pub fn disabled(mut self, value: bool) -> Self {
         self.style.disabled |= value;
         self
@@ -672,6 +771,7 @@ impl Layout<'_, '_> {
     /// result chains without parentheses, matching every other container:
     /// containers are never interactive, so their response reports only the
     /// inherited disabled state.
+    #[inline(always)]
     pub fn children<R>(self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
         let entity = self.ui.engine.declare(
             self.ui.parent,
@@ -695,6 +795,7 @@ impl crate::ImplicitKey for Layout<'_, '_> {
     fn key_of(&self) -> Key {
         self.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.key = key;
         self
@@ -721,6 +822,7 @@ struct Leaf<'u, 'e, 't> {
     spans: Vec<crate::TextSpan>,
 }
 impl Leaf<'_, '_, '_> {
+    #[inline(always)]
     fn children<R>(
         &mut self,
         name: &str,
@@ -757,10 +859,11 @@ impl Leaf<'_, '_, '_> {
         let inner = ui.with_parent(entity, style, true, build);
         InnerResponse { inner, response }
     }
-
+    #[inline(always)]
     fn finish(&mut self) -> (Entity, bool) {
         self.finish_controlled(None)
     }
+    #[inline(always)]
     fn finish_controlled(&mut self, value: Option<&mut bool>) -> (Entity, bool) {
         let ui = self.ui.take().unwrap();
         let text = std::mem::take(&mut self.text);
@@ -801,11 +904,13 @@ pub struct Text<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
 }
 impl Text<'_, '_, '_> {
+    #[inline(always)]
     pub fn spans(mut self, spans: &[crate::TextSpan]) -> Self {
         self.inner.spans.extend_from_slice(spans);
         self
     }
     /// Keep this paragraph on one line and truncate at the width limit.
+    #[inline(always)]
     pub fn ellipsis(mut self, enabled: bool) -> Self {
         self.inner.style.text_ellipsis = enabled;
         self
@@ -820,261 +925,323 @@ pub struct Button<'u, 'e, 't> {
 macro_rules! common {
     ($name:ident) => {
         impl $name<'_, '_, '_> {
+            #[inline(always)]
             pub fn min_width(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("min_width", value.into());
                 self
             }
+            #[inline(always)]
             pub fn max_width(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("max_width", value.into());
                 self
             }
+            #[inline(always)]
             pub fn max_height(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("max_height", value.into());
                 self
             }
+            #[inline(always)]
             pub fn height_percent(mut self, value: f32) -> Self {
                 self.inner
                     .style
                     .set_dimension("height", crate::Length::Percent(value));
                 self
             }
+            #[inline(always)]
             pub fn display(mut self, value: crate::Display) -> Self {
                 self.inner.style.layout.display = value;
                 self
             }
+            #[inline(always)]
             pub fn flex_direction(mut self, value: crate::FlexDirection) -> Self {
                 self.inner.style.layout.flex_direction = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn flex_wrap(mut self, value: crate::FlexWrap) -> Self {
                 self.inner.style.layout.flex_wrap = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn box_sizing(mut self, value: crate::BoxSizing) -> Self {
                 self.inner.style.layout.box_sizing = value;
                 self
             }
+            #[inline(always)]
             pub fn direction(mut self, value: crate::Direction) -> Self {
                 self.inner.style.layout.direction = value;
                 self
             }
+            #[inline(always)]
             pub fn position(mut self, value: crate::Position) -> Self {
                 self.inner.style.layout.position = value;
                 self
             }
+            #[inline(always)]
             pub fn grid_flow(mut self, value: crate::GridFlow) -> Self {
                 self.inner.style.layout.grid_flow = value;
                 self
             }
+            #[inline(always)]
             pub fn align_self(mut self, value: crate::Align) -> Self {
                 self.inner.style.layout.align_self = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn justify_self(mut self, value: crate::Align) -> Self {
                 self.inner.style.layout.justify_self = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn justify_items(mut self, value: crate::Align) -> Self {
                 self.inner.style.layout.justify_items = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn align_content(mut self, value: crate::Justify) -> Self {
                 self.inner.style.layout.align_content = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn aspect_ratio(mut self, value: f32) -> Self {
                 self.inner.style.layout.aspect_ratio = Some(value);
                 self
             }
+            #[inline(always)]
             pub fn flex_basis(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.layout.flex_basis = value.into();
                 self
             }
+            #[inline(always)]
             pub fn flex_line_count(mut self, value: u16) -> Self {
                 self.inner.style.layout.flex_line_count = value;
                 self
             }
+            #[inline(always)]
             pub fn column_gap(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.layout.gap[0] = Some(value.into());
                 self
             }
+            #[inline(always)]
             pub fn row_gap(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.layout.gap[1] = Some(value.into());
                 self
             }
+            #[inline(always)]
             pub fn margin(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner
                     .style
                     .set_edges("margin", crate::Edges::all(value.into()));
                 self
             }
+            #[inline(always)]
             pub fn margin_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
                 self.inner.style.set_edges("margin", value);
                 self
             }
+            #[inline(always)]
             pub fn margin_left(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("margin", "left", value.into());
                 self
             }
+            #[inline(always)]
             pub fn margin_right(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("margin", "right", value.into());
                 self
             }
+            #[inline(always)]
             pub fn margin_top(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("margin", "top", value.into());
                 self
             }
+            #[inline(always)]
             pub fn margin_bottom(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("margin", "bottom", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
                 self.inner.style.set_edges("padding", value);
                 self
             }
+            #[inline(always)]
             pub fn padding_left(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("padding", "left", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_right(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("padding", "right", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_top(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("padding", "top", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_bottom(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("padding", "bottom", value.into());
                 self
             }
+            #[inline(always)]
             pub fn inset(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner
                     .style
                     .set_edges("inset", crate::Edges::all(value.into()));
                 self
             }
+            #[inline(always)]
             pub fn inset_edges(mut self, value: crate::Edges<crate::Length>) -> Self {
                 self.inner.style.set_edges("inset", value);
                 self
             }
+            #[inline(always)]
             pub fn inset_left(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("inset", "left", value.into());
                 self
             }
+            #[inline(always)]
             pub fn inset_right(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("inset", "right", value.into());
                 self
             }
+            #[inline(always)]
             pub fn inset_top(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("inset", "top", value.into());
                 self
             }
+            #[inline(always)]
             pub fn inset_bottom(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_edge("inset", "bottom", value.into());
                 self
             }
+            #[inline(always)]
             pub fn grid_row(mut self, start: crate::GridLine, end: crate::GridLine) -> Self {
                 self.inner.style.layout.grid_row = [start, end];
                 self
             }
+            #[inline(always)]
             pub fn row_span(self, count: u16) -> Self {
                 self.grid_row(crate::GridLine::Auto, crate::GridLine::Span(count))
             }
+            #[inline(always)]
             pub fn grid_column(mut self, start: crate::GridLine, end: crate::GridLine) -> Self {
                 self.inner.style.layout.grid_column = [start, end];
                 self
             }
+            #[inline(always)]
             pub fn column_span(self, count: u16) -> Self {
                 self.grid_column(crate::GridLine::Auto, crate::GridLine::Span(count))
             }
-
+            #[inline(always)]
             pub fn key(mut self, key: impl Into<Key>) -> Self {
                 self.inner.key = key.into();
                 self
             }
+            #[inline(always)]
             pub fn weight(mut self, value: u16) -> Self {
                 self.inner.style.font_weight = value;
                 self
             }
+            #[inline(always)]
             pub fn width_percent(mut self, value: f32) -> Self {
                 self.inner
                     .style
                     .set_dimension("width", crate::Length::Percent(value));
                 self
             }
+            #[inline(always)]
             pub fn grow(mut self, value: f32) -> Self {
                 self.inner.style.grow = value;
                 self
             }
+            #[inline(always)]
             pub fn font_size(mut self, px: u16) -> Self {
                 self.inner.style.font_size = px;
                 self
             }
+            #[inline(always)]
             pub fn padding(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_spacing("padding", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_x(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_spacing("padding_x", value.into());
                 self
             }
+            #[inline(always)]
             pub fn padding_y(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_spacing("padding_y", value.into());
                 self
             }
+            #[inline(always)]
             pub fn border(mut self, width: f32, color: Color) -> Self {
                 self.inner.style.border_width = width;
                 self.inner.style.border_color = color;
                 self
             }
+            #[inline(always)]
             pub fn hover_background(mut self, color: Color) -> Self {
                 self.inner.style.hover_background = Some(color);
                 self
             }
+            #[inline(always)]
             pub fn pressed_background(mut self, color: Color) -> Self {
                 self.inner.style.pressed_background = Some(color);
                 self
             }
+            #[inline(always)]
             pub fn min_height(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("min_height", value.into());
                 self
             }
+            #[inline(always)]
             pub fn height(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("height", value.into());
                 self
             }
+            #[inline(always)]
             pub fn translate(mut self, x: f32, y: f32) -> Self {
                 self.inner.style.translate = [x, y];
                 self
             }
+            #[inline(always)]
             pub fn scale(mut self, x: f32, y: f32) -> Self {
                 self.inner.style.scale = [x, y];
                 self
             }
+            #[inline(always)]
             pub fn opacity(mut self, value: f32) -> Self {
                 self.inner.style.opacity = value;
                 self
             }
+            #[inline(always)]
             pub fn radius(mut self, px: f32) -> Self {
                 self.inner.style.radius = px;
                 self
             }
+            #[inline(always)]
             pub fn background(mut self, color: Color) -> Self {
                 self.inner.style.background = Some(color);
                 self
             }
+            #[inline(always)]
             pub fn motion(self, preset: Motion) -> Self {
                 self.transition(preset.duration_ms())
             }
+            #[inline(always)]
             pub fn transition(mut self, milliseconds: u16) -> Self {
                 self.inner.style.transition_ms = milliseconds;
                 self
             }
+            #[inline(always)]
             pub fn color(mut self, color: Color) -> Self {
                 self.inner.style.foreground = color;
                 self
             }
+            #[inline(always)]
             pub fn width(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("width", value.into());
                 self
@@ -1088,29 +1255,34 @@ common!(Button);
 common!(ButtonBase);
 common!(Toggle);
 impl<'u, 'e, 't> Button<'u, 'e, 't> {
+    #[inline(always)]
     pub(crate) fn composable(mut self) -> Self {
         self.composable = true;
         self
     }
     /// Standard text content; shares the same container as custom children.
+    #[inline(always)]
     pub fn text(mut self, text: impl Into<Cow<'t, str>>) -> Self {
         self.inner.text = text.into();
         self.composable = true;
         self
     }
     /// Decorative leading icon, sized to match the button's text.
+    #[inline(always)]
     pub fn icon(mut self, asset: &crate::SvgAsset) -> Self {
         self.icon = Some(*asset);
         self.composable = true;
         self
     }
     /// Accessible name override, required for a button with only an icon.
+    #[inline(always)]
     pub fn aria_label(mut self, label: impl Into<Cow<'t, str>>) -> Self {
         self.accessible_name = Some(label.into());
         self.composable = true;
         self
     }
     /// Custom content replaces shortcut content. An explicit accessible name wins.
+    #[inline(always)]
     pub fn children<R>(mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
         let name = self
             .accessible_name
@@ -1118,6 +1290,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
             .unwrap_or_else(|| std::mem::take(&mut self.inner.text));
         self.inner.children(&name, true, build)
     }
+    #[inline(always)]
     fn finish(&mut self) -> Response {
         if !self.composable {
             let enabled = !self.inner.style.disabled;
@@ -1145,7 +1318,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
             })
             .response
     }
-
+    #[inline(always)]
     pub fn primary(mut self) -> Self {
         self.inner.style.background = Some(Color::Accent);
         self.inner.style.border_width = 0.;
@@ -1153,11 +1326,13 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         self
     }
     /// Use the surface color as a quiet button background.
+    #[inline(always)]
     pub fn ghost(mut self) -> Self {
         self.inner.style.background = Some(Color::Surface);
         self.inner.style.border_width = 0.;
         self
     }
+    #[inline(always)]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.inner.style.disabled |= disabled;
         self
@@ -1174,6 +1349,7 @@ impl crate::ImplicitKey for Text<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
@@ -1183,6 +1359,7 @@ impl crate::ImplicitKey for Button<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
@@ -1192,6 +1369,7 @@ impl crate::ImplicitKey for ButtonBase<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
@@ -1215,21 +1393,25 @@ impl crate::ImplicitKey for Toggle<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
     }
 }
 impl Toggle<'_, '_, '_> {
+    #[inline(always)]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.inner.style.disabled |= disabled;
         self
     }
     /// Space between the indicator and the label.
+    #[inline(always)]
     pub fn gap(mut self, pixels: u16) -> Self {
         self.inner.style.gap = pixels as f32;
         self
     }
+    #[inline(always)]
     fn finish(&mut self) -> ToggleResponse {
         let enabled = !self.inner.style.disabled;
         let changed = self.inner.finish_controlled(Some(&mut *self.value)).1;
@@ -1276,25 +1458,63 @@ impl ToggleResponse {
 pub struct Svg<'u, 'e> {
     inner: Leaf<'u, 'e, 'static>,
 }
+
+/// A decoded raster image. The asset's encoded bytes are carried hex-encoded
+/// in the node's text; the backend decodes and caches by content.
+pub struct Image<'u, 'e> {
+    inner: Leaf<'u, 'e, 'static>,
+}
+impl crate::ImplicitKey for Image<'_, '_> {
+    fn key_of(&self) -> Key {
+        self.inner.key
+    }
+    #[inline(always)]
+    fn set_key(mut self, key: Key) -> Self {
+        self.inner.key = key;
+        self
+    }
+}
+impl Image<'_, '_> {
+    /// Display size in logical pixels; the aspect ratio is not preserved
+    /// automatically — the caller stretches or letterboxes explicitly.
+    #[inline(always)]
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.inner.style.width = Some(width);
+        self.inner.style.height = Some(height);
+        self
+    }
+    /// The declared display width, when set.
+    pub fn width(&self) -> Option<f32> {
+        self.inner.style.width
+    }
+    /// The declared display height, when set.
+    pub fn height(&self) -> Option<f32> {
+        self.inner.style.height
+    }
+}
 impl crate::ImplicitKey for Svg<'_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
     }
 }
 impl Svg<'_, '_> {
+    #[inline(always)]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.inner.key = key.into();
         self
     }
+    #[inline(always)]
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.inner.style.width = Some(width);
         self.inner.style.height = Some(height);
         self
     }
+    #[inline(always)]
     pub fn width_percent(mut self, value: f32) -> Self {
         self.inner
             .style
@@ -1302,14 +1522,17 @@ impl Svg<'_, '_> {
         self
     }
     /// Resolve SVG currentColor against this token; explicit SVG fills stay unchanged.
+    #[inline(always)]
     pub fn color(mut self, color: Color) -> Self {
         self.inner.style.foreground = color;
         self
     }
+    #[inline(always)]
     pub fn opacity(mut self, value: f32) -> Self {
         self.inner.style.opacity = value;
         self
     }
+    #[inline(always)]
     pub fn motion(mut self, preset: Motion) -> Self {
         self.inner.style.transition_ms = preset.duration_ms();
         self
@@ -1344,36 +1567,44 @@ pub struct ButtonBase<'u, 'e, 't> {
     styled: bool,
 }
 impl ButtonBase<'_, '_, '_> {
+    #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);
         self
     }
 
     /// Expose disclosure state to assistive technology.
+    #[inline(always)]
     pub fn expanded(mut self, value: bool) -> Self {
         self.inner.style.expanded = Some(value);
         self
     }
+    #[inline(always)]
     pub fn selected(mut self, value: bool) -> Self {
         self.inner.style.selected = Some(value);
         self
     }
+    #[inline(always)]
     pub fn gap(mut self, value: impl Into<crate::Length>) -> Self {
         self.inner.style.set_spacing("gap", value.into());
         self
     }
+    #[inline(always)]
     pub fn align(mut self, value: Align) -> Self {
         self.inner.style.align = Some(value);
         self
     }
+    #[inline(always)]
     pub fn justify(mut self, value: Justify) -> Self {
         self.inner.style.justify = Some(value);
         self
     }
+    #[inline(always)]
     pub fn disabled(mut self, value: bool) -> Self {
         self.inner.style.disabled |= value;
         self
     }
+    #[inline(always)]
     pub fn children<R>(mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
         let name = std::mem::take(&mut self.inner.text);
         self.inner.children(&name, self.styled, build)
@@ -1398,6 +1629,7 @@ impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
@@ -1405,34 +1637,41 @@ impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
 }
 impl<'t> Input<'_, '_, 't> {
     /// Explicitly reveal a secret in a supporting native editor.
+    #[inline(always)]
     pub fn password_visible(mut self, visible: bool) -> Self {
         self.inner.style.input_password_visible = visible;
         self
     }
     /// Focus once when mounted; subsequent frames never steal focus.
+    #[inline(always)]
     pub fn autofocus(mut self, enabled: bool) -> Self {
         self.autofocus = enabled;
         self
     }
     /// Explicit one-shot focus request. Applications pass true only on an action.
+    #[inline(always)]
     pub fn request_focus(mut self, requested: bool) -> Self {
         self.focus = requested;
         self
     }
     /// Route unmodified Up/Down/PageUp/PageDown/Escape into this input's response.
     /// IME composition and ordinary editor shortcuts retain priority.
+    #[inline(always)]
     pub fn navigation(mut self, enabled: bool) -> Self {
         self.inner.style.input_navigation = enabled;
         self
     }
+    #[inline(always)]
     pub fn placeholder(mut self, hint: impl Into<Cow<'t, str>>) -> Self {
         self.placeholder = hint.into();
         self
     }
+    #[inline(always)]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.inner.style.disabled |= disabled;
         self
     }
+    #[inline(always)]
     fn finish(&mut self) -> InputResponse {
         let Some(ui) = self.inner.ui.take() else {
             return InputResponse::default();
@@ -1561,29 +1800,35 @@ impl crate::ImplicitKey for Shader<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
     }
 }
 impl Shader<'_, '_, '_> {
+    #[inline(always)]
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();
         self.params.values.extend_from_slice(values);
         self
     }
+    #[inline(always)]
     pub fn time(mut self, time: f32) -> Self {
         self.params.time = time;
         self
     }
+    #[inline(always)]
     pub fn speed(mut self, speed: f32) -> Self {
         self.params.speed = speed;
         self
     }
+    #[inline(always)]
     pub fn animated(mut self, animated: bool) -> Self {
         self.params.animated = animated;
         self
     }
+    #[inline(always)]
     pub fn paused(mut self, paused: bool) -> Self {
         self.params.paused = paused;
         self
@@ -1689,16 +1934,19 @@ impl crate::ImplicitKey for Slider<'_, '_, '_> {
     fn key_of(&self) -> Key {
         self.inner.key
     }
+    #[inline(always)]
     fn set_key(mut self, key: Key) -> Self {
         self.inner.key = key;
         self
     }
 }
 impl Slider<'_, '_, '_> {
+    #[inline(always)]
     pub fn step(mut self, step: f64) -> Self {
         self.range.step = step;
         self
     }
+    #[inline(always)]
     pub fn vertical(mut self, vertical: bool) -> Self {
         self.range.vertical = vertical;
         if vertical {
@@ -1707,14 +1955,17 @@ impl Slider<'_, '_, '_> {
         }
         self
     }
+    #[inline(always)]
     pub fn reversed(mut self, reversed: bool) -> Self {
         self.range.reversed = reversed;
         self
     }
+    #[inline(always)]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.inner.style.disabled |= disabled;
         self
     }
+    #[inline(always)]
     fn finish(&mut self) -> crate::SliderResponse {
         let Some(ui) = self.inner.ui.take() else {
             return crate::SliderResponse::default();

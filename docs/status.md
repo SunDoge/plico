@@ -58,3 +58,7 @@ cargo plico icons check --output apps/gallery/src/icons.rs
 ## Optional native text
 
 Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). Ordinary widget/editor integration, desktop font settings, CoreText and DirectWrite are not implemented.
+
+## Widget input capabilities
+
+Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.

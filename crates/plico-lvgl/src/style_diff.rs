@@ -3,7 +3,7 @@
 //! property. Unchanged pixel-quantized values produce no native calls.
 use crate::ffi::{self, Obj, color, pct};
 use lightvgl_sys as sys;
-use plico_core::{Align, Justify, Kind, KindFamily, Style, StyleProperties, Theme};
+use plico_core::{Align, Justify, Kind, Style, StyleProperties, Theme};
 
 #[derive(Clone, Copy)]
 struct Values {
@@ -60,7 +60,7 @@ impl Values {
             opa: opacity(style.opacity),
             translate_x: style.translate[0].round() as i32,
             translate_y: style.translate[1].round() as i32,
-            layout: if matches!(kind.family(), KindFamily::Container | KindFamily::Control) {
+            layout: if crate::projection::uses_flex(kind) {
                 sys::lv_layout_t_LV_LAYOUT_FLEX as u16
             } else {
                 0

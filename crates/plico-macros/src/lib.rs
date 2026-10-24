@@ -192,6 +192,7 @@ impl VisitMut for Expand {
                     | "button_base"
                     | "svg"
                     | "svg_source"
+                    | "image"
             ) {
                 let site = self.site();
                 let runtime = &self.runtime;
@@ -234,6 +235,7 @@ impl VisitMut for Expand {
                             | "button"
                             | "button_base"
                             | "svg"
+                            | "image"
                             | "svg_source"
                             | "icon"
                             | "switch"

@@ -515,8 +515,11 @@ impl Engine {
         node.touched = self.epoch;
         if node.kind != kind {
             self.inputs.remove(&entity);
-            node.pending_changes |=
-                Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
+            node.pending_changes |= Changes::STRUCTURE
+                | Changes::MEASURE
+                | Changes::LAYOUT
+                | Changes::PAINT
+                | Changes::SEMANTICS;
             node.pending_properties = StyleProperties::all();
             node.kind = kind;
             node.grid = None;

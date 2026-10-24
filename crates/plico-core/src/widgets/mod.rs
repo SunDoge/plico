@@ -183,6 +183,13 @@ pub fn svg<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate:
 pub fn svg_source<'u, 'e>(cx: &'u mut crate::UiContext<'e>, source: String) -> crate::Svg<'u, 'e> {
     cx.svg_source(source)
 }
+/// Declare an embedded raster image; the backend decodes and caches it.
+pub fn image<'u, 'e>(
+    cx: &'u mut crate::UiContext<'e>,
+    asset: &crate::ImageAsset,
+) -> crate::Image<'u, 'e> {
+    cx.image(asset)
+}
 /// Declare and configure a controlled switch. Dropping it submits the declaration.
 pub fn switch<'u, 'e, 't>(
     cx: &'u mut crate::UiContext<'e>,

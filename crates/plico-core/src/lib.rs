@@ -25,7 +25,7 @@ mod theme;
 mod ui;
 pub mod widgets;
 pub use arena::{Arena, Entity};
-pub use asset::SvgAsset;
+pub use asset::{ImageAsset, SvgAsset};
 pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
@@ -54,8 +54,8 @@ where
 }
 pub use engine::DeclareView;
 pub use ui::{
-    Button, ButtonBase, InnerResponse, Input, InputResponse, Layout, Response, Shader, Slider, Svg,
-    Text, Toggle, ToggleResponse, Ui, UiContext,
+    Button, ButtonBase, Image, InnerResponse, Input, InputResponse, Layout, Response, Shader,
+    Slider, Svg, Text, Toggle, ToggleResponse, Ui, UiContext,
 };
 #[doc(hidden)]
 pub mod __private {
@@ -126,7 +126,7 @@ pub mod __private {
 pub mod prelude {
     pub use crate::widgets::{
         Button, Checkbox, Panel, Switch, badge, button, button_base, checkbox, choice, collapsible,
-        column, grid, icon, menu, menu_item, modal, nav_item, panel, popover, progress, row,
+        column, grid, icon, image, menu, menu_item, modal, nav_item, panel, popover, progress, row,
         segmented, select, separator, shader, slider, stat, svg, svg_source, switch, text,
         text_input, tooltip, virtual_list,
     };
@@ -139,3 +139,6 @@ pub mod prelude {
         VirtualListResponse, Widget, component, fr, minmax, percent, px, text, view,
     };
 }
+
+mod capabilities;
+pub use capabilities::Capabilities;

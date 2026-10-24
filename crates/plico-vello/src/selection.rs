@@ -47,8 +47,10 @@ impl Adapter {
         let mut paragraphs = Vec::new();
         for p in &self.placed {
             let entity = self.reverse[&p.node_id];
-            if engine.node(entity).is_none_or(|n| n.kind != Kind::Text)
-                || !self.modal_allows(engine, entity)
+            if engine.node(entity).is_none_or(|n| {
+                let caps = n.kind.capabilities();
+                !caps.contains(Capabilities::TEXT_SELECT) || caps.contains(Capabilities::TEXT_EDIT)
+            }) || !self.modal_allows(engine, entity)
             {
                 continue;
             }

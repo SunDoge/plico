@@ -1,16 +1,17 @@
 //! Native-widget projection onto LVGL through lightvgl-sys raw bindings.
 //!
 //! The adapter consumes the same Plico core abstractions as before
-//! (`Engine`, `FrameDelta`, `KindFamily`, `Style`); only the widget layer is
+//! (`Engine`, `FrameDelta`, `Kind`, `Style`); only the widget layer is
 //! raw FFI. Unsafe is confined to this module's small helpers.
 use crate::ffi::{self, Obj, color, pct, with_cstr};
+use crate::projection::{self, NativeClass};
 use lightvgl_sys as sys;
 use plico_core::{
-    Changes, Engine, Entity, FrameDelta, Kind, KindFamily, NodeRef, Style, StyleProperties, Theme,
+    Changes, Engine, Entity, FrameDelta, Kind, NodeRef, Style, StyleProperties, Theme,
 };
 use snafu::{OptionExt, Snafu};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[path = "style_diff.rs"]
 mod style_diff;
@@ -53,6 +54,8 @@ pub enum Error {
     TextNul,
     #[snafu(display("LVGL SVG raster allocation or size is invalid"))]
     SvgRaster,
+    #[snafu(display("LVGL does not implement node kind {kind:?}"))]
+    UnsupportedKind { kind: Kind },
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
@@ -87,24 +90,23 @@ impl Widget {
     fn object(&self) -> *mut Obj {
         self.obj
     }
-    /// Family-level class matching: a native widget survives a declared kind
-    /// change that stays within the same [`KindFamily`]. Exact-button kinds
-    /// keep their identity; degraded controls ride the container family.
+    /// Reuse only objects with the same native representation. A change in
+    /// interaction or core classification cannot silently change the object class.
     fn class_matches(&self, kind: Kind) -> bool {
-        if self.is_svg || kind == Kind::Svg {
-            return self.is_svg && kind == Kind::Svg;
-        }
-        if self.editor {
-            kind == Kind::TextInput
-        } else if kind == Kind::TextInput {
-            false
+        let mounted = if self.is_svg {
+            NativeClass::Image
+        } else if self.editor {
+            NativeClass::Editor
+        } else if self.button && !self.label.is_null() {
+            NativeClass::LabeledButton
         } else if self.button {
-            matches!(kind, Kind::Button | Kind::ButtonBase)
-        } else if !self.label.is_null() || self.owns_text {
-            matches!(kind.family(), KindFamily::Text)
+            NativeClass::Button
+        } else if self.owns_text {
+            NativeClass::Label
         } else {
-            matches!(kind.family(), KindFamily::Container | KindFamily::Media)
-        }
+            NativeClass::Container
+        };
+        projection::class(kind) == Some(mounted)
     }
 }
 struct Mounted {
@@ -172,6 +174,12 @@ impl Adapter {
         self.sync_full(engine, Some(delta))
     }
     fn sync_touched(&mut self, engine: &Engine, delta: &FrameDelta) -> Result<(), Error> {
+        // Validate the complete delta before changing any native property.
+        for change in &delta.changes {
+            if let Some(node) = engine.node(change.entity) {
+                preflight(&node)?;
+            }
+        }
         self.stats = Stats::default();
         for change in &delta.changes {
             let Some(mounted) = self.nodes.get_mut(&change.entity) else {
@@ -214,7 +222,7 @@ impl Adapter {
     fn sync_full(&mut self, engine: &Engine, delta: Option<FrameDelta>) -> Result<(), Error> {
         fn walk(engine: &Engine, entity: Entity, out: &mut Vec<Entity>) -> Result<(), Error> {
             let node = engine.node(entity).expect("live engine child");
-            snafu::ensure!(!node.text.contains('\0'), TextNulSnafu);
+            preflight(&node)?;
             out.push(entity);
             for child in node.children {
                 walk(engine, *child, out)?;
@@ -224,20 +232,48 @@ impl Adapter {
         let mut order = Vec::new();
         walk(engine, engine.root(), &mut order)?;
         self.stats = Stats::default();
-        let dead: Vec<_> = match &delta {
-            Some(delta) => delta.removed.clone(),
-            None => self
-                .nodes
-                .iter()
-                .filter(|(id, mounted)| {
-                    engine
-                        .node(**id)
-                        .is_none_or(|n| !mounted.widget.class_matches(n.kind))
-                })
-                .map(|(id, _)| *id)
-                .collect(),
-        };
-        for id in self.children_first(dead) {
+        let mut dead = HashSet::new();
+        let mut remount = Vec::new();
+        if let Some(delta) = &delta {
+            dead.extend(delta.removed.iter().copied());
+            for change in &delta.changes {
+                if let (Some(mounted), Some(node)) =
+                    (self.nodes.get(&change.entity), engine.node(change.entity))
+                    && !mounted.widget.class_matches(node.kind)
+                {
+                    remount.push(change.entity);
+                }
+            }
+        } else {
+            for (&id, mounted) in &self.nodes {
+                match engine.node(id) {
+                    None => {
+                        dead.insert(id);
+                    }
+                    Some(node) if !mounted.widget.class_matches(node.kind) => remount.push(id),
+                    _ => {}
+                }
+            }
+        }
+        // Deleting an LVGL parent also deletes its native children. Retained
+        // core descendants must be unmounted/remounted too, even when their
+        // own kind has not changed. Other removed descendants are in delta.
+        while let Some(id) = remount.pop() {
+            if !self.nodes.contains_key(&id) || !dead.insert(id) {
+                continue;
+            }
+            if let Some(node) = engine.node(id) {
+                remount.extend_from_slice(node.children);
+            }
+        }
+        if !dead.is_empty() {
+            // Entity can survive a kind change. An event from the old native
+            // instance must not activate its replacement with the same Entity.
+            self.events
+                .borrow_mut()
+                .retain(|(id, _)| !dead.contains(id));
+        }
+        for id in self.children_first(dead.into_iter().collect()) {
             self.unmount(id);
             self.stats.removed += 1;
         }
@@ -348,52 +384,50 @@ impl Adapter {
 
     fn create(&self, kind: Kind, parent: Option<*mut Obj>) -> Result<Widget, Error> {
         let parent = parent.unwrap_or(self.screen);
-        let (obj, label, owns_text, button) = if kind == Kind::Svg {
-            (
+        let native_class = projection::class(kind).ok_or(Error::UnsupportedKind { kind })?;
+        let (obj, label, owns_text, button) = match native_class {
+            NativeClass::Image => (
                 unsafe { sys::lv_image_create(parent) },
                 std::ptr::null_mut(),
                 false,
                 false,
-            )
-        } else if kind == Kind::TextInput {
-            let obj = unsafe { sys::lv_textarea_create(parent) };
-            if !obj.is_null() {
-                unsafe {
-                    sys::lv_textarea_set_one_line(obj, true);
+            ),
+            NativeClass::Editor => {
+                let obj = unsafe { sys::lv_textarea_create(parent) };
+                if !obj.is_null() {
+                    unsafe { sys::lv_textarea_set_one_line(obj, true) };
                 }
+                (obj, std::ptr::null_mut(), false, false)
             }
-            (obj, std::ptr::null_mut(), false, false)
-        } else {
-            match kind.family() {
-                KindFamily::Text => {
-                    let obj = unsafe { sys::lv_label_create(parent) };
-                    (obj, std::ptr::null_mut(), true, false)
+            NativeClass::Label => (
+                unsafe { sys::lv_label_create(parent) },
+                std::ptr::null_mut(),
+                true,
+                false,
+            ),
+            NativeClass::LabeledButton => {
+                let button = unsafe { sys::lv_button_create(parent) };
+                snafu::ensure!(!button.is_null(), WidgetSnafu);
+                let label = unsafe { sys::lv_label_create(button) };
+                if label.is_null() {
+                    unsafe { sys::lv_obj_delete(button) };
+                    return Err(Error::Widget);
                 }
-                // Exact-button kinds get native click routing; degraded controls
-                // (Switch/Checkbox/Slider) render as containers carrying their
-                // label and lose interaction.
-                KindFamily::Control => match kind {
-                    Kind::Button => {
-                        let button = unsafe { sys::lv_button_create(parent) };
-                        let label = unsafe { sys::lv_label_create(button) };
-                        unsafe { sys::lv_obj_center(label) };
-                        (button, label, false, true)
-                    }
-                    Kind::ButtonBase => {
-                        let button = unsafe { sys::lv_button_create(parent) };
-                        (button, std::ptr::null_mut(), false, true)
-                    }
-                    _ => {
-                        let obj = unsafe { sys::lv_obj_create(parent) };
-                        (obj, std::ptr::null_mut(), false, false)
-                    }
-                },
-                // Containers nest children; media renders as an empty box.
-                KindFamily::Container | KindFamily::Media => {
-                    let obj = unsafe { sys::lv_obj_create(parent) };
-                    (obj, std::ptr::null_mut(), false, false)
-                }
+                unsafe { sys::lv_obj_center(label) };
+                (button, label, false, true)
             }
+            NativeClass::Button => (
+                unsafe { sys::lv_button_create(parent) },
+                std::ptr::null_mut(),
+                false,
+                true,
+            ),
+            NativeClass::Container => (
+                unsafe { sys::lv_obj_create(parent) },
+                std::ptr::null_mut(),
+                false,
+                false,
+            ),
         };
         snafu::ensure!(!obj.is_null(), WidgetSnafu);
         Ok(Widget {
@@ -668,12 +702,18 @@ fn apply_scroll(obj: *mut Obj, enabled: bool) {
     }
 }
 
+fn preflight(node: &NodeRef<'_>) -> Result<(), Error> {
+    snafu::ensure!(
+        projection::class(node.kind).is_some(),
+        UnsupportedKindSnafu { kind: node.kind }
+    );
+    snafu::ensure!(!node.text.contains('\0'), TextNulSnafu);
+    Ok(())
+}
+
 fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
     let s = node.style;
-    let container_like = matches!(
-        node.kind.family(),
-        KindFamily::Container | KindFamily::Control
-    );
+    let container_like = projection::uses_flex(node.kind);
     unsafe {
         sys::lv_obj_remove_style_all(obj);
         // LVGL links the style by pointer, not copy: it must outlive the
@@ -1193,6 +1233,130 @@ mod tests {
         adapter.dispatch(&mut engine);
         frame(&mut engine, &mut navigation, &mut adapter);
         assert!(navigation.clicked);
+        // A kind change is structural even if the core Entity and its text
+        // child survive. Remount both native objects, children before parents.
+        let mut kinds = Engine::default();
+        let mut kind_adapter = Adapter::new(&driver).unwrap();
+        struct KindView {
+            kind: Kind,
+            child: bool,
+        }
+        impl DeclareView for KindView {
+            fn theme(&self) -> Theme {
+                Theme::default()
+            }
+            fn show(&mut self, cx: &mut UiContext<'_>) {
+                cx.element(
+                    plico_core::Key::Static("changing"),
+                    self.kind,
+                    Style::default(),
+                    "Action",
+                    |cx| {
+                        if self.child {
+                            text(cx, "Kept child").key("child");
+                        }
+                    },
+                );
+            }
+        }
+        let declare_kind = |engine: &mut Engine, kind: Kind, child: bool| {
+            engine
+                .declare_until_settled(&mut KindView { kind, child })
+                .unwrap();
+        };
+        declare_kind(&mut kinds, Kind::Row, true);
+        kind_adapter.sync(&kinds).unwrap();
+        kinds.take_frame_delta();
+        let parent = kinds.node(kinds.root()).unwrap().children[0];
+        let child = kinds.node(parent).unwrap().children[0];
+        declare_kind(&mut kinds, Kind::ButtonBase, true);
+        let delta = kinds.take_frame_delta();
+        assert!(delta.frame.contains(Changes::STRUCTURE));
+        kind_adapter.sync_delta(&kinds, Some(delta)).unwrap();
+        assert_eq!(kinds.node(parent).unwrap().children, &[child]);
+        assert_eq!(kind_adapter.stats().removed, 2);
+        assert_eq!(kind_adapter.stats().created, 2);
+        assert!(unsafe {
+            sys::lv_obj_check_type(
+                kind_adapter.nodes[&parent].widget.object(),
+                &sys::lv_button_class,
+            )
+        });
+        assert!(unsafe {
+            sys::lv_obj_check_type(
+                kind_adapter.nodes[&child].widget.object(),
+                &sys::lv_label_class,
+            )
+        });
+        kind_adapter.send_click(parent);
+        declare_kind(&mut kinds, Kind::Button, false);
+        let delta = kinds.take_frame_delta();
+        kind_adapter.sync_delta(&kinds, Some(delta)).unwrap();
+        assert_eq!(
+            kind_adapter.dispatch(&mut kinds),
+            0,
+            "drop queued clicks from old native instance"
+        );
+        kind_adapter.send_click(parent);
+        assert_eq!(kind_adapter.dispatch(&mut kinds), 1);
+
+        // Preflight covers the whole tree/delta before touching retained widgets.
+        let mut preflight_engine = Engine::default();
+        let mut preflight_adapter = Adapter::new(&driver).unwrap();
+        preflight_engine
+            .frame_declarations(|cx| {
+                text(cx, "first").key("first");
+                text(cx, "safe").key("second");
+            })
+            .unwrap();
+        preflight_adapter.sync(&preflight_engine).unwrap();
+        preflight_engine.take_frame_delta();
+        let root_object = preflight_adapter.object_id(preflight_engine.root());
+        let first = preflight_engine
+            .node(preflight_engine.root())
+            .unwrap()
+            .children[0];
+        let label = preflight_adapter.nodes[&first].widget.object();
+        preflight_engine
+            .frame_declarations(|cx| {
+                text(cx, "must not be applied").key("first");
+                text(cx, "invalid\0label").key("second");
+            })
+            .unwrap();
+        let delta = preflight_engine.take_frame_delta();
+        assert!(!delta.frame.contains(Changes::STRUCTURE));
+        assert!(matches!(
+            preflight_adapter.sync_delta(&preflight_engine, Some(delta)),
+            Err(Error::TextNul)
+        ));
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(sys::lv_label_get_text(label)) }
+                .to_str()
+                .unwrap(),
+            "first"
+        );
+        preflight_engine
+            .frame_declarations(|cx| {
+                text(cx, "must not be applied").key("first");
+                plico_core::widgets::checkbox(cx, "Unsupported", &mut false);
+            })
+            .unwrap();
+        assert!(matches!(
+            preflight_adapter.sync(&preflight_engine),
+            Err(Error::UnsupportedKind {
+                kind: Kind::Checkbox
+            })
+        ));
+        assert_eq!(
+            preflight_adapter.object_id(preflight_engine.root()),
+            root_object
+        );
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(sys::lv_label_get_text(label)) }
+                .to_str()
+                .unwrap(),
+            "first"
+        );
         // Drop also exercises child-before-parent destruction of the native tree.
     }
 }

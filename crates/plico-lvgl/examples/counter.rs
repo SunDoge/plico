@@ -158,22 +158,22 @@ fn main() -> Result<(), Error> {
         app.disabled = false;
         frame(&mut engine, &mut app, &mut adapter)?;
         let before = adapter.object_id(increment);
-        // Kinds without a native widget no longer fail the sync: a checkbox
-        // degrades along KindFamily into a labelled container without
-        // interaction. A second adapter proves the projection mounts and
-        // reports bounds; the primary engine's widgets stay untouched.
-        let mut degraded = Engine::default();
-        degraded
+        // An unsupported control must fail before creating an inert substitute.
+        let mut unsupported = Engine::default();
+        unsupported
             .frame_declarations(|cx| {
-                checkbox(cx, "Degraded", &mut false);
+                checkbox(cx, "Unsupported checkbox", &mut false);
             })
             .context(DeclarationSnafu)?;
-        let mut degraded_adapter = Adapter::new(&driver).context(BackendSnafu)?;
-        degraded_adapter.sync(&degraded).context(BackendSnafu)?;
-        // Whatever node count the composite checkbox declares, the projection
-        // mounts them all and the root reports bounds.
-        assert!(degraded_adapter.bounds(degraded.root()).is_some());
-        assert!(degraded_adapter.stats().created > 0);
+        let mut probe = Adapter::new(&driver).context(BackendSnafu)?;
+        assert!(matches!(
+            probe.sync(&unsupported),
+            Err(plico_lvgl::Error::UnsupportedKind {
+                kind: Kind::Checkbox
+            })
+        ));
+        assert_eq!(probe.stats().created, 0);
+        assert!(probe.bounds(unsupported.root()).is_none());
         assert_eq!(adapter.object_id(increment), before);
         println!(
             "PASS: native click round-trip, object reuse, no-op sync, keyed reorder, conditional unmount, stale events and disabled input"

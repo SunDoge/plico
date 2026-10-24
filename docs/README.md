@@ -88,3 +88,7 @@
 ## Widget builder lifetimes
 
 [Lifetime tradeoffs](widget-builder-lifetimes.md): why configurable builders keep separate context/engine borrows, and the rejected short-context performance experiment.
+
+## Widget capabilities
+
+[Input capabilities and backend support](widget-capabilities.md): static input flags, explicit native projection, type-change remounting and declaration-cost validation.

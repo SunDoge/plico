@@ -22,10 +22,12 @@ pub trait ImplicitKey: Sized {
     fn set_key(self, key: Key) -> Self;
 
     /// Set an explicit key, overriding any automatic identity.
+    #[inline(always)]
     fn key(self, key: impl Into<Key>) -> Self {
         self.set_key(key.into())
     }
     /// Attach `site` as the generated key unless an explicit key is present.
+    #[inline(always)]
     fn site_id(self, site: u64) -> Self {
         if matches!(self.key_of(), Key::Auto(_)) {
             self.set_key(Key::Generated(site))
@@ -45,16 +47,19 @@ pub enum Key {
     Generated(u64),
 }
 impl From<&'static str> for Key {
+    #[inline(always)]
     fn from(key: &'static str) -> Self {
         Self::Static(key)
     }
 }
 impl From<u64> for Key {
+    #[inline(always)]
     fn from(key: u64) -> Self {
         Self::Number(key)
     }
 }
 impl From<usize> for Key {
+    #[inline(always)]
     fn from(key: usize) -> Self {
         Self::Number(key as u64)
     }
@@ -78,21 +83,18 @@ pub enum Kind {
     TextInput,
     Svg,
     Shader,
+    /// Decoded raster image carried as hex-encoded asset bytes.
+    Image,
     Slider,
     Button,
     ButtonBase,
     Switch,
     Checkbox,
 }
-/// Projection family for incremental backends without a native widget for
-/// every [`Kind`].
-///
-/// A backend that cannot map a kind exactly degrades along this
-/// classification instead of failing the sync: containers keep nesting
-/// children, text keeps rendering its label, controls keep reporting clicks,
-/// and media renders as an empty box. Interactivity is orthogonal — check
-/// [`Kind::interactive`] separately, since a degraded `TextInput` still
-/// renders text but no longer edits.
+/// Legacy coarse classification, kept for source compatibility only.
+/// It does not describe layout, input capabilities or backend support. New code
+/// should inspect the specific Kind capability or typed data it needs; backends
+/// must choose their own explicit native representation and unsupported policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KindFamily {
     /// Holds children: Root, Column, Row, Overlay, Dialog, TooltipAnchor.
@@ -105,8 +107,7 @@ pub enum KindFamily {
     Media,
 }
 impl Kind {
-    /// The family a backend without a native widget for this kind should
-    /// project it onto; see [`KindFamily`].
+    /// Legacy coarse classification; never a backend fallback policy.
     pub const fn family(self) -> KindFamily {
         match self {
             Self::Root
@@ -119,9 +120,11 @@ impl Kind {
             Self::Button | Self::ButtonBase | Self::Switch | Self::Checkbox | Self::Slider => {
                 KindFamily::Control
             }
-            Self::Svg | Self::Shader => KindFamily::Media,
+            Self::Svg | Self::Shader | Self::Image => KindFamily::Media,
         }
     }
+    /// Compatibility predicate for primary pointer/control interaction.
+    /// Focus, activation and selection callers should inspect capabilities.
     pub const fn interactive(self) -> bool {
         matches!(
             self,
@@ -135,12 +138,14 @@ impl Kind {
         )
     }
 
+    #[inline(always)]
     pub(crate) fn leaf(self) -> bool {
         matches!(
             self,
             Self::Text
                 | Self::Shader
                 | Self::Svg
+                | Self::Image
                 | Self::Button
                 | Self::Switch
                 | Self::Checkbox

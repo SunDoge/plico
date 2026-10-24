@@ -1,5 +1,5 @@
 //! Immediate declarations → stable Taffy nodes → Wabou's real Parley/Vello backend.
-use plico_core::{Color as Token, Engine, Entity, Kind, Theme};
+use plico_core::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
 use plico_renderer::{
     EventResponse, FrameSource, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
     layout::{
@@ -115,6 +115,23 @@ fn svg_color(source: &str, style: plico_core::Style, theme: Theme) -> Option<u32
         .contains("currentColor")
         .then(|| theme.resolve(style.foreground))
 }
+type ImageCache = HashMap<Arc<str>, Option<Arc<plico_renderer::image::RasterImage>>>;
+fn cached_image(
+    cache: &mut ImageCache,
+    stats: &mut BackendStats,
+    encoded: &str,
+) -> Option<Arc<plico_renderer::image::RasterImage>> {
+    cache
+        .entry(Arc::from(encoded))
+        .or_insert_with(|| {
+            stats.svg_parses += 1;
+            let bytes = plico_core::ImageAsset::decode(encoded)?;
+            plico_renderer::image::RasterImage::decode(&bytes)
+                .ok()
+                .map(Arc::new)
+        })
+        .clone()
+}
 fn cached_svg(
     cache: &mut SvgCache,
     stats: &mut BackendStats,
@@ -195,6 +212,7 @@ pub struct Adapter {
     dirty_scratch: HashSet<Entity>,
     synced_scratch: HashSet<Entity>,
     svg_cache: SvgCache,
+    image_cache: ImageCache,
 }
 impl Default for Adapter {
     fn default() -> Self {
@@ -246,6 +264,7 @@ impl Default for Adapter {
             dirty_scratch: HashSet::new(),
             synced_scratch: HashSet::new(),
             svg_cache: HashMap::new(),
+            image_cache: HashMap::new(),
             viewport: None,
         }
     }
@@ -319,14 +338,21 @@ impl Adapter {
         }
         dirty.extend(self.motions.drain_dirty());
         let previous_focus = self.focused;
-        for state in [&mut self.hovered, &mut self.pressed, &mut self.focused] {
+        for state in [&mut self.hovered, &mut self.pressed] {
             if state.is_some_and(|e| {
-                engine.node(e).is_none_or(|n| {
-                    (!interactive(n.kind) && n.kind != Kind::Dialog) || n.style.disabled
-                })
+                engine
+                    .node(e)
+                    .is_none_or(|n| !interactive(n.kind) || n.style.disabled)
             }) {
                 *state = None;
             }
+        }
+        if self.focused.is_some_and(|e| {
+            engine.node(e).is_none_or(|n| {
+                !n.kind.capabilities().contains(Capabilities::FOCUS) || n.style.disabled
+            })
+        }) {
+            self.focused = None;
         }
         self.sync_modal_focus(engine);
         if let Some(entity) = self.requested_focus.take()
@@ -442,6 +468,11 @@ impl Adapter {
             }
         }
         if structural || theme_changed || self.stats.svg_parses > 0 {
+            self.image_cache.retain(|encoded, _| {
+                self.nodes
+                    .values()
+                    .any(|n| n.paint_key.kind == Kind::Image && n.text == *encoded)
+            });
             self.svg_cache.retain(|source, variants| {
                 variants.retain(|color, _| {
                     self.nodes.values().any(|n| {
@@ -568,7 +599,7 @@ impl Adapter {
                 .filter_map(|n| self.reverse.get(&n.node_id).copied())
                 .filter(|e| {
                     engine.node(*e).is_some_and(|n| {
-                        interactive(n.kind) && n.kind != Kind::Overlay && !n.style.disabled
+                        n.kind.capabilities().contains(Capabilities::TAB_STOP) && !n.style.disabled
                     })
                 })
                 .collect();
@@ -830,6 +861,11 @@ impl Adapter {
         } else {
             None
         };
+        let image = if n.kind == Kind::Image {
+            cached_image(&mut self.image_cache, &mut self.stats, n.text)
+        } else {
+            None
+        };
         let is_control = interactive(n.kind);
         if recursive != SyncMode::Node
             && is_control
@@ -1057,6 +1093,7 @@ impl Adapter {
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             paint.svg = svg.clone();
+            paint.image = image.clone();
             self.tree.set_node_context(id, Some(paint)).unwrap();
             self.stats.paint_writes += 1;
         }
@@ -1130,6 +1167,7 @@ impl Adapter {
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             retained.spans = n.spans.to_vec();
             paint.svg = svg;
+            paint.image = image;
             // Paint-only changes must not invalidate Taffy's text measurement cache.
             let old = self.tree.get_node_context(retained.id).unwrap();
             let measurement_changed = old.font_family != paint.font_family
@@ -1313,7 +1351,9 @@ impl Adapter {
                     }
                     PointerPhase::Up if p.button == Some(PointerButton::Primary) => {
                         if let Some(e) = self.pressed.take().filter(|e| Some(*e) == hit)
-                            && engine.input(e).is_none()
+                            && engine.node(e).is_some_and(|n| {
+                                n.kind.capabilities().contains(Capabilities::ACTIVATE)
+                            })
                         {
                             engine.queue_click(e);
                         }
@@ -1411,9 +1451,10 @@ impl Adapter {
                 if self.focused.is_none() {
                     self.focused = self.blurred_focus.take().filter(|e| {
                         self.modal_allows(engine, *e)
-                            && engine
-                                .node(*e)
-                                .is_some_and(|n| interactive(n.kind) && !n.style.disabled)
+                            && engine.node(*e).is_some_and(|n| {
+                                n.kind.capabilities().contains(Capabilities::FOCUS)
+                                    && !n.style.disabled
+                            })
                     });
                     self.reveal_focus = true;
                     handled = self.focused.is_some();
@@ -1454,7 +1495,9 @@ impl Adapter {
                 } else if matches!(k.key.as_str(), "Enter" | " " | "Space")
                     && !k.repeat
                     && let Some(e) = self.focused
-                    && engine.node(e).is_some_and(|n| !n.style.disabled)
+                    && engine.node(e).is_some_and(|n| {
+                        !n.style.disabled && n.kind.capabilities().contains(Capabilities::ACTIVATE)
+                    })
                 {
                     self.focus_visible = true;
                     engine.queue_click(e);
@@ -1627,9 +1670,9 @@ impl Adapter {
             _ => return false,
         };
         let Some(e) = self
-            .tab_order
+            .placed
             .iter()
-            .copied()
+            .filter_map(|p| self.reverse.get(&p.node_id).copied())
             .find(|e| semantic_id(*e) == target)
         else {
             return false;
@@ -1637,9 +1680,27 @@ impl Adapter {
         if !self.modal_allows(engine, e) || !engine.node(e).is_some_and(|n| !n.style.disabled) {
             return false;
         }
+        let caps = engine.node(e).unwrap().kind.capabilities();
+        let allowed = match action {
+            SemanticAction::Focus { .. } | SemanticAction::Blur { .. } => {
+                caps.contains(Capabilities::FOCUS)
+            }
+            SemanticAction::Click { .. } => {
+                caps.intersects(Capabilities::ACTIVATE | Capabilities::FOCUS)
+            }
+            SemanticAction::SetNumericValue { .. }
+            | SemanticAction::Increment { .. }
+            | SemanticAction::Decrement { .. } => caps.contains(Capabilities::VALUE_EDIT),
+            _ => false,
+        };
+        if !allowed {
+            return false;
+        }
         let action = if matches!(action, SemanticAction::Click { .. })
-            && engine.node(e).is_some_and(|n| n.kind == Kind::Slider)
-        {
+            && engine.node(e).is_some_and(|n| {
+                n.kind.capabilities().contains(Capabilities::FOCUS)
+                    && !n.kind.capabilities().contains(Capabilities::ACTIVATE)
+            }) {
             SemanticAction::Focus { target }
         } else {
             action
@@ -1669,7 +1730,15 @@ impl Adapter {
             return false;
         }
         match action {
-            SemanticAction::Click { .. } => engine.queue_click(e),
+            SemanticAction::Click { .. } => {
+                if !engine
+                    .node(e)
+                    .is_some_and(|n| n.kind.capabilities().contains(Capabilities::ACTIVATE))
+                {
+                    return false;
+                }
+                engine.queue_click(e);
+            }
             SemanticAction::Focus { .. } => {
                 self.focused = Some(e);
                 self.focus_visible = true;
@@ -1750,6 +1819,7 @@ fn make_paint(
                 kind,
                 Kind::Svg
                     | Kind::Shader
+                    | Kind::Image
                     | Kind::Slider
                     | Kind::ButtonBase
                     | Kind::TextInput
