@@ -11,6 +11,21 @@ fn test_png() -> ImageAsset {
     ImageAsset::new(PNG)
 }
 
+fn find_image(engine: &Engine) -> plico_core::Entity {
+    fn walk(engine: &Engine, id: plico_core::Entity) -> Option<plico_core::Entity> {
+        if engine.node(id).unwrap().kind == plico_core::Kind::Image {
+            return Some(id);
+        }
+        engine
+            .node(id)
+            .unwrap()
+            .children
+            .iter()
+            .find_map(|&c| walk(engine, c))
+    }
+    walk(engine, engine.root()).unwrap()
+}
+
 #[test]
 fn image_node_carries_lossless_asset_bytes() {
     let asset = test_png();
@@ -51,3 +66,59 @@ fn image_node_carries_lossless_asset_bytes() {
     let second = find_image(&engine);
     assert_eq!(first, second);
 }
+
+#[test]
+fn runtime_loaded_images_declare_and_swap_content() {
+    // Two distinct 1x1 colors, loaded as runtime bytes (from_bytes) — the
+    // node's channel text follows the content, so swapping the asset
+    // re-declares rather than silently keeping stale pixels.
+    let mut engine = Engine::default();
+    let red = ImageAsset::from_bytes(test_png_bytes());
+    engine
+        .frame_declarations(|cx| {
+            image(cx, &red).size(20., 20.);
+        })
+        .unwrap();
+    let first = find_image(&engine);
+    let first_text = engine.node(first).unwrap().text.to_string();
+
+    // Same bytes again: identity and content unchanged.
+    let red_again = ImageAsset::from_bytes(test_png_bytes());
+    engine
+        .frame_declarations(|cx| {
+            image(cx, &red_again).size(20., 20.);
+        })
+        .unwrap();
+    assert_eq!(first, find_image(&engine));
+    assert_eq!(engine.node(first).unwrap().text, first_text);
+
+    // Different content under the same identity: the channel text changes,
+    // which is what drives backend re-decode and paint.
+    let blue = ImageAsset::from_bytes(blue_png_bytes());
+    engine
+        .frame_declarations(|cx| {
+            image(cx, &blue).size(20., 20.);
+        })
+        .unwrap();
+    assert_eq!(first, find_image(&engine));
+    assert_ne!(engine.node(first).unwrap().text, first_text);
+}
+
+fn test_png_bytes() -> &'static [u8] {
+    TEST_PNG
+}
+
+fn blue_png_bytes() -> &'static [u8] {
+    BLUE_PNG
+}
+
+const TEST_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
+    0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 218, 99, 248, 207, 192, 0, 0, 3, 1,
+    1, 0, 247, 3, 65, 67, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+const BLUE_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
+    0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 218, 99, 248, 207, 192, 0, 0, 1, 61,
+    0, 59, 247, 3, 56, 11, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];

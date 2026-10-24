@@ -25,24 +25,42 @@ macro_rules! svg_asset {
 /// `char` below 0x100, so the encoding is lossless, UTF-8-safe and comparable
 /// for change detection, at 2× the encoded size. Static icons and thumbnails
 /// dominate; runtime-generated images should go through a host widget scene.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImageAsset {
-    data: &'static [u8],
+    /// Embedded bytes, or None when the asset owns runtime-loaded bytes.
+    data: Option<&'static [u8]>,
+    /// Runtime-loaded bytes (PNG/JPEG/ICO/WebP as loaded). Empty when the
+    /// asset wraps embedded bytes.
+    owned: Vec<u8>,
 }
 impl ImageAsset {
     /// Wrap embedded image bytes produced by [`image_asset!`].
     pub const fn new(data: &'static [u8]) -> Self {
-        Self { data }
+        Self {
+            data: Some(data),
+            owned: Vec::new(),
+        }
+    }
+    /// Wrap runtime-loaded image bytes — a downloaded avatar, a generated
+    /// thumbnail, anything not known at compile time. The bytes are copied
+    /// once into the asset; declaring the same asset repeatedly does not
+    /// re-copy, and swapping in a new asset re-declares and re-decodes.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self {
+            data: None,
+            owned: bytes.to_vec(),
+        }
     }
     /// The encoded image bytes.
-    pub const fn data(self) -> &'static [u8] {
-        self.data
+    pub fn data(&self) -> &[u8] {
+        self.data.unwrap_or(&self.owned)
     }
     /// The hex encoding used as the node's change-detection text.
-    pub fn encoded(self) -> String {
+    pub fn encoded(&self) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut out = String::with_capacity(self.data.len() * 2);
-        for &byte in self.data {
+        let data = self.data();
+        let mut out = String::with_capacity(data.len() * 2);
+        for &byte in data {
             out.push(HEX[(byte >> 4) as usize] as char);
             out.push(HEX[(byte & 0xf) as usize] as char);
         }

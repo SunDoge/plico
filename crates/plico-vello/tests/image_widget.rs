@@ -32,7 +32,7 @@ fn find_image(engine: &Engine) -> plico_core::Entity {
 
 #[test]
 fn image_node_carries_lossless_asset_bytes() {
-    let asset = *test_png();
+    let asset = test_png().clone();
     let encoded = asset.encoded();
     assert_eq!(ImageAsset::decode(&encoded).unwrap(), asset.data());
     let mut engine = Engine::default();
