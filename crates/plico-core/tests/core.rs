@@ -51,7 +51,7 @@ fn color_changes_skip_measurement_and_layout() {
 #[test]
 fn content_changes_measure_only_affected_leaf() {
     let mut engine = Engine::default();
-    let view = |ui: &mut Ui<'_>, edited: bool| {
+    let view = |ui: &mut UiContext<'_>, edited: bool| {
         for i in 0..100usize {
             ui.text(if edited && i == 42 {
                 "edited"
@@ -76,7 +76,7 @@ fn content_changes_measure_only_affected_leaf() {
 #[test]
 fn font_changes_propagate_size_through_ancestors() {
     let mut engine = Engine::default();
-    let view = |ui: &mut Ui<'_>, size| {
+    let view = |ui: &mut UiContext<'_>, size| {
         let _ = ui.column().key("panel").children(|ui| {
             ui.text("title").key("title").font_size(size);
         });
@@ -114,7 +114,7 @@ fn explicit_width_and_intrinsic_width_are_distinct_cache_inputs() {
 #[test]
 fn keyed_reordering_preserves_handles_and_text_measurement() {
     let mut engine = Engine::default();
-    let view = |ui: &mut Ui<'_>, order: &[u64]| {
+    let view = |ui: &mut UiContext<'_>, order: &[u64]| {
         for &key in order {
             ui.text("item").key(key);
         }
@@ -136,7 +136,7 @@ fn keyed_reordering_preserves_handles_and_text_measurement() {
 #[test]
 fn removed_subtrees_reject_old_handles_and_can_remount() {
     let mut engine = Engine::default();
-    let view = |ui: &mut Ui<'_>| {
+    let view = |ui: &mut UiContext<'_>| {
         let _ = ui.column().key("panel").children(|ui| {
             ui.text("child").key("child");
         });

@@ -1,6 +1,6 @@
-use plico_core::{Engine, Ui, component};
+use plico_core::{Engine, UiContext, component};
 #[component]
-fn settings(ui: &mut Ui<'_>, large: bool) {
+fn settings(ui: &mut UiContext<'_>, large: bool) {
     ui.column().gap(12).padding(16).children(|ui| {
         ui.text("Settings").font_size(if large { 28 } else { 20 });
         ui.text("Immediate declarations, retained storage.");

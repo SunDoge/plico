@@ -1,5 +1,5 @@
 //! Immediate modal declarations with portable presence state and host-owned motion.
-use crate::{Align, Color, Justify, Key, Kind, Motion, Style, Ui};
+use crate::{Align, Color, Justify, Key, Kind, Motion, Style, UiContext};
 use std::borrow::Cow;
 
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -25,7 +25,7 @@ pub struct ModalResponse<R> {
     pub dismissed: bool,
 }
 pub struct Modal<'u, 'e, 's> {
-    ui: &'u mut Ui<'e>,
+    ui: &'u mut UiContext<'e>,
     state: &'s mut ModalState,
     key: Key,
     title: Cow<'s, str>,
@@ -37,7 +37,7 @@ pub struct Modal<'u, 'e, 's> {
     panel_role: Option<crate::WidgetRole>,
     max_height: Option<f32>,
 }
-impl<'e> Ui<'e> {
+impl<'e> UiContext<'e> {
     pub fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
         let key = self.engine.auto_key(self.parent);
         Modal {
@@ -113,7 +113,7 @@ impl<'s> Modal<'_, '_, 's> {
         self.escape = enabled;
         self
     }
-    pub fn children<R>(self, build: impl FnOnce(&mut Ui<'_>) -> R) -> ModalResponse<R> {
+    pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> ModalResponse<R> {
         let Self {
             ui,
             state,
@@ -152,13 +152,13 @@ impl<'s> Modal<'_, '_, 's> {
             };
         }
         // Hash logical ancestry, never arena handles: identity survives replay/reload.
-        let mut hash = crate::__private::StableHasher::new();
+        let mut hash = crate::macro_support::StableHasher::new();
         hash.write(b"plico.modal.portal");
         hash.write_u64(ui.scope);
         let mut ancestor = ui.parent;
         while ancestor != ui.engine.root {
             let identity = ui.engine.nodes.get(ancestor).unwrap().identity;
-            hash.write_u64(crate::__private::key_seed(identity.key));
+            hash.write_u64(crate::macro_support::key_seed(identity.key));
             hash.write_u64(identity.scope);
             ancestor = identity.parent;
         }
@@ -179,7 +179,7 @@ impl<'s> Modal<'_, '_, 's> {
             ..Default::default()
         };
         let root = ui.engine.root;
-        let mut portal = Ui {
+        let mut portal = UiContext {
             engine: ui.engine,
             parent: root,
             scope,
@@ -272,7 +272,7 @@ pub struct Popover<'u, 'e, 's> {
     disabled: bool,
     trigger_text: Option<&'s str>,
 }
-impl<'e> Ui<'e> {
+impl<'e> UiContext<'e> {
     pub fn popover<'u, 's>(
         &'u mut self,
         state: &'s mut PopoverState,
@@ -321,15 +321,15 @@ impl<'s> Popover<'_, '_, 's> {
         self.modal.panel_role = Some(role);
         self
     }
-    pub fn children<R>(mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> ModalResponse<R> {
-        let mut hash = crate::__private::StableHasher::new();
+    pub fn children<R>(mut self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> ModalResponse<R> {
+        let mut hash = crate::macro_support::StableHasher::new();
         hash.write(b"plico.popover.anchor");
-        hash.write_u64(crate::__private::key_seed(self.modal.key));
+        hash.write_u64(crate::macro_support::key_seed(self.modal.key));
         hash.write_u64(self.modal.ui.scope);
         let mut ancestor = self.modal.ui.parent;
         while ancestor != self.modal.ui.engine.root {
             let identity = self.modal.ui.engine.nodes.get(ancestor).unwrap().identity;
-            hash.write_u64(crate::__private::key_seed(identity.key));
+            hash.write_u64(crate::macro_support::key_seed(identity.key));
             hash.write_u64(identity.scope);
             ancestor = identity.parent;
         }
@@ -390,7 +390,7 @@ impl<'s> Popover<'_, '_, 's> {
 /// Native addition spelling for the consuming children operation.
 impl<F, R> std::ops::Add<F> for Modal<'_, '_, '_>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Output = ModalResponse<R>;
     fn add(self, build: F) -> Self::Output {
@@ -400,7 +400,7 @@ where
 
 impl<F, R> std::ops::Add<F> for Popover<'_, '_, '_>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Output = ModalResponse<R>;
     fn add(self, build: F) -> Self::Output {

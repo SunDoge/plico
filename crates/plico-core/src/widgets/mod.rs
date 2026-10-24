@@ -15,7 +15,7 @@
 //! }
 //! Engine::default().frame_declarations(settings).unwrap();
 //! ```
-use crate::{Color, InnerResponse, Motion, Response, SvgAsset, Ui, Widget};
+use crate::{Color, InnerResponse, Motion, Response, SvgAsset, UiContext, Widget};
 use std::borrow::Cow;
 
 #[derive(Default, Clone, Copy)]
@@ -69,7 +69,7 @@ impl<'a> Button<'a> {
         self.motion = Some(motion);
         self
     }
-    fn bind<'u, 'e>(&self, ui: &'u mut Ui<'e>) -> crate::Button<'u, 'e, '_> {
+    fn bind<'u, 'e>(&self, ui: &'u mut UiContext<'e>) -> crate::Button<'u, 'e, '_> {
         let mut button = ui.button(self.label.as_ref()).disabled(self.disabled);
         match self.variant {
             Variant::Primary => button = button.primary(),
@@ -86,7 +86,7 @@ impl<'a> Button<'a> {
     }
     pub fn children<F, R>(self, content: F) -> ContentButton<'a, F>
     where
-        F: FnOnce(&mut Ui<'_>) -> R,
+        F: FnOnce(&mut UiContext<'_>) -> R,
     {
         ContentButton {
             button: self,
@@ -96,7 +96,7 @@ impl<'a> Button<'a> {
 }
 impl Widget for Button<'_> {
     type Response = Response;
-    fn show(self, ui: &mut Ui<'_>) -> Response {
+    fn show(self, ui: &mut UiContext<'_>) -> Response {
         let button = self.bind(ui);
         if let Some(icon) = self.icon {
             button.icon(icon).text(self.label.as_ref()).response()
@@ -112,10 +112,10 @@ pub struct ContentButton<'a, F> {
 }
 impl<F, R> Widget for ContentButton<'_, F>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Response = InnerResponse<R>;
-    fn show(self, ui: &mut Ui<'_>) -> Self::Response {
+    fn show(self, ui: &mut UiContext<'_>) -> Self::Response {
         self.button.bind(ui).children(self.content)
     }
 }
@@ -136,7 +136,7 @@ macro_rules! toggle {
         }
         impl Widget for $name<'_> {
             type Response = bool;
-            fn show(self, ui: &mut Ui<'_>) -> bool {
+            fn show(self, ui: &mut UiContext<'_>) -> bool {
                 ui.$method(self.label.as_ref(), self.value)
             }
         }
@@ -237,21 +237,21 @@ pub fn text_input<'u, 'e, 't>(
 
 /// A window-level modal portal. Its content closure executes immediately.
 pub fn modal<'u, 'e, 's>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     state: &'s mut crate::ModalState,
 ) -> crate::Modal<'u, 'e, 's> {
     cx.modal(state)
 }
 
 pub fn shader<'u, 'e>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     asset: &crate::ShaderAsset,
 ) -> crate::Shader<'u, 'e, 'static> {
     cx.shader(asset)
 }
 
 pub fn slider<'u, 'e, 't>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     label: impl Into<Cow<'t, str>>,
     value: &'t mut f64,
     range: std::ops::RangeInclusive<f64>,
@@ -261,7 +261,7 @@ pub fn slider<'u, 'e, 't>(
 
 /// Declare a trigger and a portable anchored popup.
 pub fn popover<'u, 'e, 's>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     state: &'s mut crate::PopoverState,
     label: impl Into<Cow<'s, str>>,
 ) -> crate::Popover<'u, 'e, 's> {

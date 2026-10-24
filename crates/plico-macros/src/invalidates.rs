@@ -185,7 +185,7 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
         }
     };
     let expanded = quote! {
-        #runtime::__private::bitflags! {
+        #runtime::macro_support::bitflags! {
             /// Exact style inputs changed; generated from the same field marks as work channels.
             #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
             pub struct #properties_name: u64 { #( #property_constants )* }

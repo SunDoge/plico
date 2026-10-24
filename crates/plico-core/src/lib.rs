@@ -41,24 +41,29 @@ pub use widgets::{SelectOption, SelectResponse};
 /// A widget builds immediately. Its data and callbacks never enter the retained node arena.
 pub trait Widget {
     type Response;
-    fn show(self, ui: &mut Ui<'_>) -> Self::Response;
+    fn show(self, ui: &mut UiContext<'_>) -> Self::Response;
 }
 impl<F, R> Widget for F
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Response = R;
-    fn show(self, ui: &mut Ui<'_>) -> R {
+    fn show(self, ui: &mut UiContext<'_>) -> R {
         self(ui)
     }
 }
 pub use engine::DeclareView;
 pub use ui::{
     Button, ButtonBase, Image, InnerResponse, Input, InputResponse, Layout, Response, Shader,
-    Slider, Svg, Text, Toggle, ToggleResponse, Ui, UiContext,
+    Slider, Svg, Text, Toggle, ToggleResponse, UiContext,
 };
-#[doc(hidden)]
-pub mod __private {
+/// Implementation surface that `plico-macros` generated code links against.
+///
+/// These are as public and stable as any other API: the macros compile into
+/// downstream code that references these items by path. `site_id` and the
+/// FNV-1a hasher back deterministic identity across builds; `bitflags` is
+/// re-exported because generated invalidation flags need it in scope.
+pub mod macro_support {
     pub use bitflags::bitflags;
     /// Deterministic namespace hash, evaluated at compile time by macros.
     pub const fn site_id(namespace: &str, site: u32) -> u64 {
@@ -135,7 +140,7 @@ pub mod prelude {
         GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
         InputResponse, Justify, Length, Metrics, ModalState, Motion, PopoverState, Position,
         Response, Router, SelectOption, SelectResponse, ShaderAsset, SliderResponse, SvgAsset,
-        TextBuffer, Theme, ToggleResponse, Track, TrackSize, Ui, UiContext, VirtualList,
+        TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
         VirtualListResponse, Widget, component, fr, minmax, percent, px, text, view,
     };
 }

@@ -3,7 +3,7 @@ use crate::{Key, WidgetRole, prelude::*};
 use std::borrow::Cow;
 
 pub fn menu<'u, 'e, 's>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     state: &'s mut PopoverState,
     label: impl Into<Cow<'s, str>>,
 ) -> crate::Popover<'u, 'e, 's> {
@@ -13,14 +13,14 @@ pub fn menu<'u, 'e, 's>(
 }
 /// Activating a command also requests closure of its containing popover.
 pub struct MenuItem<'u, 'e, 's> {
-    cx: Option<&'u mut Ui<'e>>,
+    cx: Option<&'u mut UiContext<'e>>,
     label: Cow<'s, str>,
     key: Key,
     disabled: bool,
     icon: Option<&'s crate::SvgAsset>,
 }
 pub fn menu_item<'u, 'e, 's>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     label: impl Into<Cow<'s, str>>,
 ) -> MenuItem<'u, 'e, 's> {
     let key = cx.engine.auto_key(cx.parent);
@@ -122,7 +122,7 @@ pub struct SelectResponse {
 }
 /// Controlled value and option borrows last only until the declaration is consumed.
 pub struct Select<'u, 'e, 's, T: Clone + PartialEq> {
-    cx: Option<&'u mut Ui<'e>>,
+    cx: Option<&'u mut UiContext<'e>>,
     state: &'s mut PopoverState,
     label: &'s str,
     selected: &'s mut T,
@@ -134,7 +134,7 @@ pub struct Select<'u, 'e, 's, T: Clone + PartialEq> {
     motion: Motion,
 }
 pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
-    cx: &'u mut Ui<'e>,
+    cx: &'u mut UiContext<'e>,
     state: &'s mut PopoverState,
     label: &'s str,
     selected: &'s mut T,

@@ -1,5 +1,5 @@
 //! Versioned JSON/C boundary with MessagePack state; no Rust ABI crosses it.
-use plico_core::{Engine, PathKey, Theme, Ui, ViewNode};
+use plico_core::{Engine, PathKey, Theme, UiContext, ViewNode};
 use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 use zeroize::Zeroizing;
@@ -119,7 +119,7 @@ impl<A: App> plico_core::DeclareView for AppView<'_, A> {
     fn theme(&self) -> plico_core::Theme {
         App::theme(self.0)
     }
-    fn show(&mut self, ui: &mut plico_core::Ui<'_>) {
+    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
         App::show(self.0, ui)
     }
 }
@@ -137,7 +137,7 @@ pub trait App: Default + Serialize + DeserializeOwned {
     fn on_key(&mut self, _key: &str) -> bool {
         false
     }
-    fn show(&mut self, ui: &mut Ui<'_>);
+    fn show(&mut self, ui: &mut UiContext<'_>);
     fn theme(&self) -> Theme {
         Theme::default()
     }

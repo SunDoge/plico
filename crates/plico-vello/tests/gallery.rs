@@ -286,12 +286,12 @@ fn real_layout_fits_normal_and_minimum_viewports() {
 
 #[test]
 fn retained_backend_handles_reorder_remove_and_remount() {
-    use plico_core::{Engine, Ui};
+    use plico_core::{Engine, UiContext};
     use plico_vello::Adapter;
     let mut e = Engine::default();
     let mut a = Adapter::default();
     let mut tcx = TextContext::new();
-    let draw = |ui: &mut Ui<'_>, ids: &[u64]| {
+    let draw = |ui: &mut UiContext<'_>, ids: &[u64]| {
         for id in ids {
             ui.text("item").key(*id);
         }
@@ -339,7 +339,7 @@ fn prepare_event_commits_new_geometry_before_next_pointer_event() {
 fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     struct Invalid(bool);
     impl View for Invalid {
-        fn show(&mut self, ui: &mut plico_core::Ui<'_>) {
+        fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
             ui.text("first").key("a");
             if self.0 {
                 ui.text("second").key("a");

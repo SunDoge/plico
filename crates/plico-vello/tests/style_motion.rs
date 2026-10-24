@@ -1,4 +1,4 @@
-use plico_core::{Color, Ui};
+use plico_core::{Color, UiContext};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, SemanticRole,
     TextContext, UiEvent,
@@ -13,7 +13,7 @@ struct Demo {
     mounted: bool,
 }
 impl View for Demo {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.declarations += 1;
         if !self.mounted {
             return;
@@ -127,7 +127,7 @@ fn animated_spacing_reflows_children_and_updates_semantic_bounds() {
         calls: usize,
     }
     impl View for Spacing {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             self.calls += 1;
             ui.column()
                 .key("panel")
@@ -199,7 +199,7 @@ fn input_after_long_idle_starts_a_new_transition_instead_of_finishing_it() {
 fn events_automatically_settle_text_declared_before_the_handler() {
     struct Counter(u32);
     impl View for Counter {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text(format!("Count: {}", self.0));
             if ui.button("Increment").clicked() {
                 self.0 += 1;

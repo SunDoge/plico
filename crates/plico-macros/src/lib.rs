@@ -51,7 +51,7 @@ impl Expand {
         self.next += 1;
         let namespace = &self.namespace;
         let runtime = &self.runtime;
-        quote!({ const SITE: u64 = #runtime::__private::site_id(#namespace, #n); SITE })
+        quote!({ const SITE: u64 = #runtime::macro_support::site_id(#namespace, #n); SITE })
     }
     fn is_ui(&self, expr: &Expr) -> bool {
         matches!(expr,Expr::Path(path) if path.path.is_ident(&self.ui))
@@ -431,16 +431,16 @@ pub fn component(args: TokenStream, input: TokenStream) -> TokenStream {
         // Container declarations return InnerResponse even in statement position;
         // a unit component discards the container's response wrapper.
         *function.block = parse_quote!({
-            const COMPONENT: u64 = #runtime::__private::site_id(#namespace, u32::MAX);
-            #ui.__scope(COMPONENT, |#ui| {
+            const COMPONENT: u64 = #runtime::macro_support::site_id(#namespace, u32::MAX);
+            #ui.scope(COMPONENT, |#ui| {
                 let _ = &#ui;
                 let _ = #body;
             })
         });
     } else {
         *function.block = parse_quote!({
-            const COMPONENT: u64 = #runtime::__private::site_id(#namespace, u32::MAX);
-            #ui.__scope(COMPONENT, |#ui| {
+            const COMPONENT: u64 = #runtime::macro_support::site_id(#namespace, u32::MAX);
+            #ui.scope(COMPONENT, |#ui| {
                 let _ = &#ui;
                 #body
             })
@@ -490,7 +490,7 @@ fn scoped_call(call: &Expr, ui: &Ident, site: Tokens) -> Expr {
         .into_compile_error();
         parse_quote!({#error})
     } else {
-        parse_quote!(#ui.__scope(#site, |#ui| #call))
+        parse_quote!(#ui.scope(#site, |#ui| #call))
     }
 }
 

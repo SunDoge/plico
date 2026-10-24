@@ -1908,7 +1908,7 @@ macro_rules! __plico_app_view_methods {
         fn on_unhandled_key(&mut $this, key: &$crate::KeyEvent) -> bool {
             key.modifiers.is_empty() && $crate::__app_protocol::App::on_key($app, &key.key)
         }
-        fn show(&mut $this, ui: &mut $crate::__ui_core::Ui<'_>) {
+        fn show(&mut $this, ui: &mut $crate::__ui_core::UiContext<'_>) {
             $crate::__app_protocol::App::show($app, ui);
         }
         fn theme(&$this) -> $crate::__ui_core::Theme {
@@ -1984,7 +1984,7 @@ pub trait View {
     fn snapshot_changed(&self) -> bool {
         false
     }
-    fn show(&mut self, ui: &mut plico_core::Ui<'_>);
+    fn show(&mut self, ui: &mut plico_core::UiContext<'_>);
     fn theme(&self) -> Theme {
         Theme::default()
     }
@@ -1995,7 +1995,7 @@ impl<V: View> plico_core::DeclareView for ViewChild<'_, V> {
     fn theme(&self) -> plico_core::Theme {
         View::theme(self.0)
     }
-    fn show(&mut self, ui: &mut plico_core::Ui<'_>) {
+    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
         View::show(self.0, ui)
     }
 }
@@ -2642,7 +2642,7 @@ mod theme_tests {
         calls: usize,
     }
     impl View for Counting {
-        fn show(&mut self, ui: &mut plico_core::Ui<'_>) {
+        fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
             self.calls += 1;
             plico_dev::App::show(&mut self.gallery, ui)
         }

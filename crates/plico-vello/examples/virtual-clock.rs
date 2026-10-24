@@ -1,12 +1,12 @@
 //! External logical time drives UI frames without sleeping or opening a window.
-use plico_core::{Clock, Ui, VirtualClock, component};
+use plico_core::{Clock, UiContext, VirtualClock, component};
 use plico_renderer::{FrameSource, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
 struct Timer;
 impl View for Timer {
     #[component]
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         ui.column().gap(8).children(|ui| {
             ui.text(format!("{} ms", ui.now().as_millis()));
             if ui.now() < Duration::from_millis(200) {

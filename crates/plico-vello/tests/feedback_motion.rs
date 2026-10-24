@@ -1,4 +1,4 @@
-use plico_core::{Ui, VirtualClock};
+use plico_core::{UiContext, VirtualClock};
 use plico_renderer::{FrameSource, PaintCommand, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
@@ -9,7 +9,7 @@ struct Feedback {
     calls: usize,
 }
 impl View for Feedback {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         ui.switch("Toggle", &mut self.checked);
     }

@@ -1,6 +1,6 @@
 use crate::WebHost;
 use js_sys::Function;
-use plico_core::{FrameTime, Key, PathKey, Theme, Ui, ViewNode};
+use plico_core::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::{Frame, PROTOCOL_VERSION, Request};
 use plico_renderer::FrameSource;
 use plico_vello::View;
@@ -105,7 +105,7 @@ impl RemoteView {
         self.accept(frame);
         Ok(())
     }
-    fn replay(&mut self, ui: &mut Ui<'_>) {
+    fn replay(&mut self, ui: &mut UiContext<'_>) {
         struct Replay<'a> {
             keys: &'a mut HashMap<Vec<PathKey>, u64>,
             next: &'a mut u64,
@@ -114,7 +114,12 @@ impl RemoteView {
             scrolls: &'a mut Vec<(Vec<PathKey>, [f32; 2])>,
         }
         impl Replay<'_> {
-            fn nodes(&mut self, ui: &mut Ui<'_>, nodes: &[ViewNode], path: &mut Vec<PathKey>) {
+            fn nodes(
+                &mut self,
+                ui: &mut UiContext<'_>,
+                nodes: &[ViewNode],
+                path: &mut Vec<PathKey>,
+            ) {
                 for n in nodes {
                     path.push(n.key.clone());
                     let key = *self.keys.entry(path.clone()).or_insert_with(|| {
@@ -222,7 +227,7 @@ impl View for RemoteView {
             }
         }
     }
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         let resized = self.viewport != ui.viewport_size();
         self.viewport = ui.viewport_size();
         let clicks = std::mem::take(&mut self.pending);

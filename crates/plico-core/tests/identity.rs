@@ -1,4 +1,4 @@
-use plico_core::{Engine, Entity, Ui, component};
+use plico_core::{Engine, Entity, UiContext, component};
 fn named(engine: &Engine, label: &str) -> Entity {
     fn visit(engine: &Engine, e: Entity, label: &str) -> Option<Entity> {
         let node = engine.node(e)?;
@@ -10,7 +10,7 @@ fn named(engine: &Engine, label: &str) -> Entity {
     visit(engine, engine.root(), label).unwrap()
 }
 #[component]
-fn conditional(ui: &mut Ui<'_>, extra: bool, clicks: &mut u32, enabled: &mut bool) {
+fn conditional(ui: &mut UiContext<'_>, extra: bool, clicks: &mut u32, enabled: &mut bool) {
     ui.column().children(|ui| {
         if extra {
             ui.text("Optional");
@@ -52,13 +52,13 @@ fn conditional_siblings_and_nested_views_keep_identity_and_queued_clicks() {
     assert_eq!(clicks, 1);
 }
 #[component]
-fn child(ui: &mut Ui<'_>, label: &str) {
+fn child(ui: &mut UiContext<'_>, label: &str) {
     ui.column().children(|ui| {
         ui.button(label);
     })
 }
 #[component]
-fn repeated(ui: &mut Ui<'_>, first: bool) {
+fn repeated(ui: &mut UiContext<'_>, first: bool) {
     if first {
         child(ui, "A");
     }
@@ -77,7 +77,7 @@ fn repeated_component_calls_have_distinct_scopes_and_survive_branches() {
     assert_eq!(named(&e, "C"), c);
 }
 #[component]
-fn list(ui: &mut Ui<'_>, ids: &[u64]) {
+fn list(ui: &mut UiContext<'_>, ids: &[u64]) {
     for id in ids {
         ui.keyed(*id, |ui| child(ui, if *id == 1 { "One" } else { "Two" }));
     }
@@ -97,7 +97,7 @@ fn explicit_business_keys_keep_component_instances_when_list_reorders() {
     assert_ne!(named(&e, "One"), one);
 }
 #[component]
-fn manual(ui: &mut Ui<'_>, ids: &[u64]) {
+fn manual(ui: &mut UiContext<'_>, ids: &[u64]) {
     for id in ids {
         let _ = ui.row().key(*id).children(|ui| {
             ui.text(if *id == 1 { "One" } else { "Two" });
@@ -114,7 +114,7 @@ fn builder_key_overrides_generated_id_and_survives_reorder() {
     assert_eq!(named(&e, "One"), one);
 }
 #[component]
-fn missing_key(ui: &mut Ui<'_>) {
+fn missing_key(ui: &mut UiContext<'_>) {
     for _ in 0..2 {
         ui.text("Repeated");
     }
@@ -153,11 +153,11 @@ fn snapshot_keys_restore_clicks_in_a_fresh_engine() {
 struct Sections;
 impl Sections {
     #[component]
-    fn item(&self, ui: &mut Ui<'_>, label: &str) {
+    fn item(&self, ui: &mut UiContext<'_>, label: &str) {
         ui.text(label);
     }
     #[component]
-    fn show(&self, ui: &mut Ui<'_>) {
+    fn show(&self, ui: &mut UiContext<'_>) {
         self.item(ui, "Method A");
         self.item(ui, "Method B");
     }
@@ -171,7 +171,7 @@ fn repeated_component_methods_are_scoped_at_their_invocations() {
 #[test]
 fn component_children_keep_static_nodes_when_a_branch_changes() {
     #[component]
-    fn render(ui: &mut Ui<'_>, extra: bool) {
+    fn render(ui: &mut UiContext<'_>, extra: bool) {
         ui.column().children(|ui| {
             if extra {
                 ui.text("Extra");
@@ -190,7 +190,7 @@ fn component_children_keep_static_nodes_when_a_branch_changes() {
 fn changes_distinguish_view_requests_from_geometry_and_paint_diff() {
     use plico_core::{Changes, Color};
     let mut e = Engine::default();
-    fn content(ui: &mut Ui<'_>, height: f32, color: u32) {
+    fn content(ui: &mut UiContext<'_>, height: f32, color: u32) {
         ui.text("Box")
             .key("box")
             .height(height)

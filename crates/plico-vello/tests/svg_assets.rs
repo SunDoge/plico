@@ -1,4 +1,4 @@
-use plico_core::{Motion, SvgAsset, Ui, VirtualClock, component};
+use plico_core::{Motion, SvgAsset, UiContext, VirtualClock, component};
 use plico_renderer::{FrameSource, TextContext};
 use plico_vello::{Source, View};
 use std::{sync::Arc, time::Duration};
@@ -13,7 +13,7 @@ struct Icons {
 }
 impl View for Icons {
     #[component]
-    fn show(&mut self, ui: &mut Ui) {
+    fn show(&mut self, ui: &mut UiContext) {
         if self.visible {
             let asset = if self.invalid { &BAD } else { &ICON };
             ui.svg(asset)

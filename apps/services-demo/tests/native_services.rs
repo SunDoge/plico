@@ -116,7 +116,7 @@ impl plico_dev::services::ServiceApp for ProjectionApp {
     type Command = ();
     fn show(
         &mut self,
-        cx: &mut plico_core::Ui<'_>,
+        cx: &mut plico_core::UiContext<'_>,
         services: &mut plico_dev::services::Services<u64, ()>,
     ) {
         self.observed = *services.snapshot();

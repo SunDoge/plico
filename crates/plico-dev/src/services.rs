@@ -1,6 +1,6 @@
 //! Typed, value-only bridge. Host resources and callbacks never cross the module ABI.
 use crate::{App, Frame, Request, Result};
-use plico_core::{FrameTime, Theme, Ui};
+use plico_core::{FrameTime, Theme, UiContext};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use std::sync::Arc;
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -84,7 +84,11 @@ impl<S, C> Services<S, C> {
 pub trait ServiceApp: Default + Serialize + DeserializeOwned {
     type Snapshot: Default + Serialize + DeserializeOwned;
     type Command: Serialize + DeserializeOwned;
-    fn show(&mut self, ui: &mut Ui<'_>, services: &mut Services<Self::Snapshot, Self::Command>);
+    fn show(
+        &mut self,
+        ui: &mut UiContext<'_>,
+        services: &mut Services<Self::Snapshot, Self::Command>,
+    );
     fn theme(&self) -> Theme {
         Theme::default()
     }
@@ -139,7 +143,7 @@ impl<A: ServiceApp> App for ServiceModule<A> {
             .map(|c| serde_json::to_value(c).map_err(|source| crate::Error::Json { source }))
             .collect()
     }
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.app.show(ui, &mut self.services);
     }
     fn theme(&self) -> Theme {

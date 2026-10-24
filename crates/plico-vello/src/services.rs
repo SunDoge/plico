@@ -68,7 +68,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         }
         handled
     }
-    fn show(&mut self, ui: &mut plico_core::Ui<'_>) {
+    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
         self.refresh_snapshot();
         self.app.show(ui, &mut self.context);
         let commands = self.context.take_commands();

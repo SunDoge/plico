@@ -1,5 +1,5 @@
 //! Deterministic real-render captures; no native window or sleeps.
-use plico_core::Ui;
+use plico_core::UiContext;
 use plico_gallery::Gallery;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
@@ -86,7 +86,7 @@ struct Batch {
     calls: usize,
 }
 impl View for Batch {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         for id in 0..self.count {
             ui.text("Animated")

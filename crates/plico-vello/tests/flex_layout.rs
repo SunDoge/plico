@@ -1,4 +1,4 @@
-use plico_core::{Align, Justify, Ui};
+use plico_core::{Align, Justify, UiContext};
 use plico_renderer::{FrameSource, TextContext};
 use plico_vello::{Source, View};
 struct Flex {
@@ -6,7 +6,7 @@ struct Flex {
     wrap: bool,
 }
 impl View for Flex {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         let _ = ui
             .row()
             .key("row")
@@ -95,7 +95,7 @@ fn cross_axis_changes_invalidate_geometry_and_settle() {
 }
 struct Wrap(bool);
 impl View for Wrap {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         let _ = ui.row().width(180.).gap(10).wrap(self.0).children(|ui| {
             for i in 0..3usize {
                 let _ = ui.column().key(i).width(80.).height(30.).children(|ui| {

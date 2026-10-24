@@ -1,4 +1,4 @@
-use plico_core::{Changes, Ui, VirtualClock};
+use plico_core::{Changes, UiContext, VirtualClock};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
@@ -19,7 +19,7 @@ impl Sparse {
     }
 }
 impl View for Sparse {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         for (i, label) in self.labels.iter().enumerate() {
             ui.text(label.as_str())
@@ -110,7 +110,7 @@ fn sparse_layout_animation_syncs_one_node_and_commits_current_geometry() {
 fn declaration_journal_survives_settling_and_patches_only_the_changed_label() {
     struct Counter(u32);
     impl View for Counter {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text(format!("Count: {}", self.0)).key("count");
             if ui.button("Increment").key("increment").clicked() {
                 self.0 += 1;
@@ -167,7 +167,7 @@ fn failed_declaration_does_not_hide_property_changes_from_the_next_commit() {
         invalid: bool,
     }
     impl View for Repair {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text("Box").key("box").width(self.width);
             if self.invalid {
                 ui.text("Duplicate").key("box");
@@ -201,7 +201,7 @@ fn failed_declaration_does_not_hide_property_changes_from_the_next_commit() {
 fn manual_declaration_preserves_pending_backend_work_until_commit() {
     struct Width(f32);
     impl View for Width {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text("Box").width(self.0);
         }
     }
@@ -222,7 +222,7 @@ fn manual_declaration_preserves_pending_backend_work_until_commit() {
 fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     struct Controls(bool);
     impl View for Controls {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.button("A").key("a").disabled(self.0);
             ui.button("B").key("b");
         }

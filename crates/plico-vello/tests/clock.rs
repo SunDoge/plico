@@ -1,4 +1,4 @@
-use plico_core::{Clock, FrameTime, Ui, VirtualClock, component};
+use plico_core::{Clock, FrameTime, UiContext, VirtualClock, component};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
@@ -9,7 +9,7 @@ struct Timed {
 }
 impl View for Timed {
     #[component]
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.seen.push(ui.time());
         ui.text(format!("Time: {}", ui.now().as_millis()));
         if ui.button("Increment").clicked() {
@@ -61,7 +61,7 @@ fn injected_clock_drives_ui_pause_and_future_frames_without_sleep() {
 fn injected_clock_drives_host_layout_tweens_too() {
     struct BoxView(bool);
     impl View for BoxView {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text("Box")
                 .width(if self.0 { 300. } else { 100. })
                 .transition(200);

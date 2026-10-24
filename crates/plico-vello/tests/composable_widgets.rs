@@ -14,7 +14,7 @@ struct Demo {
 }
 impl View for Demo {
     #[component]
-    fn show(&mut self, ui: &mut Ui) {
+    fn show(&mut self, ui: &mut UiContext) {
         if ui
             .button("Save")
             .primary()

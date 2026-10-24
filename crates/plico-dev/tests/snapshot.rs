@@ -1,4 +1,4 @@
-use plico_core::Ui;
+use plico_core::UiContext;
 use plico_dev::{App, Request, StateSnapshot, render};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -12,7 +12,7 @@ struct RichState {
     nan: f64,
 }
 impl App for RichState {
-    fn show(&mut self, _: &mut Ui<'_>) {}
+    fn show(&mut self, _: &mut UiContext<'_>) {}
 }
 
 #[test]

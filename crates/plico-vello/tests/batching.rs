@@ -1,4 +1,4 @@
-use plico_core::{Ui, prelude::*};
+use plico_core::{UiContext, prelude::*};
 use plico_dev::services::{HostService, ServiceApp, Services, Wake};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{ServiceView, Source, View};
@@ -62,7 +62,7 @@ struct App {
 impl ServiceApp for App {
     type Snapshot = u64;
     type Command = u64;
-    fn show(&mut self, cx: &mut Ui, services: &mut Services<u64, u64>) {
+    fn show(&mut self, cx: &mut UiContext, services: &mut Services<u64, u64>) {
         self.calls += 1;
         self.observed = *services.snapshot();
         text!(cx, "Progress {}", self.observed);
@@ -146,7 +146,7 @@ fn settling_preserves_every_command_and_commits_backend_once() {
 #[derive(Default)]
 struct Counter(usize);
 impl View for Counter {
-    fn show(&mut self, cx: &mut Ui) {
+    fn show(&mut self, cx: &mut UiContext) {
         if button(cx).text("Increment").clicked() {
             self.0 += 1;
         }

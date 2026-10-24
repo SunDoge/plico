@@ -1,7 +1,7 @@
 //! Adversarial inputs for declaration fast paths: changing styles/order/membership.
-use plico_core::{Color, Engine, Ui};
+use plico_core::{Color, Engine, UiContext};
 use std::time::Instant;
-fn show(cx: &mut Ui<'_>, mode: &str, phase: usize) {
+fn show(cx: &mut UiContext<'_>, mode: &str, phase: usize) {
     for slot in 0..1000u64 {
         let id = match mode {
             "reverse" if phase == 1 => 999 - slot,

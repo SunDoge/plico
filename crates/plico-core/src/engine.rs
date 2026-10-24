@@ -1,11 +1,11 @@
-use crate::{Entity, Theme, arena::Arena, model::*, ui::Ui};
+use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
 use std::{borrow::Cow, collections::HashMap};
 
 /// A view the engine can settle: theme and declarations, driven per pass.
 /// Implemented by application types on both the native and reload paths.
 pub trait DeclareView {
     fn theme(&self) -> crate::Theme;
-    fn show(&mut self, ui: &mut crate::Ui<'_>);
+    fn show(&mut self, ui: &mut crate::UiContext<'_>);
 }
 /// Single-threaded, retained storage behind an immediate declaration API.
 pub struct Engine {
@@ -593,13 +593,16 @@ impl Engine {
                 Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
         }
     }
-    pub fn frame(&mut self, view: impl FnOnce(&mut Ui<'_>)) -> Result<FrameStats, FrameError> {
+    pub fn frame(
+        &mut self,
+        view: impl FnOnce(&mut UiContext<'_>),
+    ) -> Result<FrameStats, FrameError> {
         self.frame_inner(view, true)
     }
     /// Commit declarations while an external backend owns measurement and layout.
     pub fn frame_declarations(
         &mut self,
-        view: impl FnOnce(&mut Ui<'_>),
+        view: impl FnOnce(&mut UiContext<'_>),
     ) -> Result<FrameStats, FrameError> {
         self.frame_inner(view, false)
     }
@@ -710,7 +713,7 @@ impl Engine {
     }
     fn frame_inner(
         &mut self,
-        view: impl FnOnce(&mut Ui<'_>),
+        view: impl FnOnce(&mut UiContext<'_>),
         measure: bool,
     ) -> Result<FrameStats, FrameError> {
         self.epoch = self
@@ -746,7 +749,7 @@ impl Engine {
             font_size: self.theme.metrics.font_size,
             ..Default::default()
         };
-        view(&mut Ui {
+        view(&mut UiContext {
             engine: self,
             parent,
             scope: 0,

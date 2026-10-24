@@ -9,16 +9,14 @@ pub struct UiContext<'e> {
     pub(crate) inherited: Style,
     pub(crate) in_button: bool,
 }
-/// Compatibility name for the UI build context.
-pub type Ui<'e> = UiContext<'e>;
-impl<'e> Ui<'e> {
+impl<'e> UiContext<'e> {
     pub fn element<R>(
         &mut self,
         key: Key,
         kind: Kind,
         style: Style,
         text: &str,
-        children: impl FnOnce(&mut Ui<'_>) -> R,
+        children: impl FnOnce(&mut UiContext<'_>) -> R,
     ) -> (R, bool) {
         self.element_with_grid(key, kind, style, text, None, children)
     }
@@ -30,7 +28,7 @@ impl<'e> Ui<'e> {
         mut style: Style,
         text: &str,
         grid: Option<&crate::GridTemplate>,
-        children: impl FnOnce(&mut Ui<'_>) -> R,
+        children: impl FnOnce(&mut UiContext<'_>) -> R,
     ) -> (R, bool) {
         style.disabled |= self.inherited.disabled;
         if kind.interactive() && self.in_button {
@@ -121,7 +119,7 @@ impl<'e> Ui<'e> {
         parent: Entity,
         style: Style,
         in_button: bool,
-        build: impl FnOnce(&mut Ui<'_>) -> R,
+        build: impl FnOnce(&mut UiContext<'_>) -> R,
     ) -> R {
         let old = (self.parent, self.inherited, self.in_button);
         self.parent = parent;
@@ -281,12 +279,18 @@ impl<'e> Ui<'e> {
         self.engine.changes.insert(Changes::VIEW);
     }
     #[doc(hidden)]
-    pub fn __scope<R>(&mut self, site: u64, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let scope = crate::__private::site_id("plico.scope", 0) ^ self.scope.rotate_left(17) ^ site;
+    /// Open a child declaration scope: node identity inside `build` is
+    /// namespaced under `site`, so equal call sites in sibling scopes cannot
+    /// collide. `keyed` is the public spelling; the component macro drives
+    /// this directly with its generated site identity.
+    #[doc(hidden)]
+    pub fn scope<R>(&mut self, site: u64, build: impl FnOnce(&mut UiContext<'_>) -> R) -> R {
+        let scope =
+            crate::macro_support::site_id("plico.scope", 0) ^ self.scope.rotate_left(17) ^ site;
         let parent = self.parent;
         let previous_auto = self.engine.nodes.get(parent).unwrap().auto;
         self.engine.nodes.get_mut(parent).unwrap().auto = 0;
-        let mut ui = Ui {
+        let mut ui = UiContext {
             engine: &mut *self.engine,
             parent,
             scope,
@@ -299,9 +303,13 @@ impl<'e> Ui<'e> {
     }
 
     /// Stable logical group for repeated components in a dynamic list; no layout node.
-    pub fn keyed<R>(&mut self, key: impl Into<Key>, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let scope = crate::__private::key_seed(key.into());
-        self.__scope(scope, build)
+    pub fn keyed<R>(
+        &mut self,
+        key: impl Into<Key>,
+        build: impl FnOnce(&mut UiContext<'_>) -> R,
+    ) -> R {
+        let scope = crate::macro_support::key_seed(key.into());
+        self.scope(scope, build)
     }
     pub fn switch(&mut self, label: &str, value: &mut bool) -> bool {
         let key = self.engine.auto_key(self.parent);
@@ -358,7 +366,7 @@ impl<'e> Ui<'e> {
     }
 }
 pub struct Layout<'u, 'e> {
-    ui: &'u mut Ui<'e>,
+    ui: &'u mut UiContext<'e>,
     key: Key,
     kind: Kind,
     style: Style,
@@ -772,7 +780,7 @@ impl Layout<'_, '_> {
     /// containers are never interactive, so their response reports only the
     /// inherited disabled state.
     #[inline(always)]
-    pub fn children<R>(self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
+    pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> InnerResponse<R> {
         let entity = self.ui.engine.declare(
             self.ui.parent,
             self.key,
@@ -803,7 +811,7 @@ impl crate::ImplicitKey for Layout<'_, '_> {
 }
 impl<F, R> std::ops::Add<F> for Layout<'_, '_>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Output = InnerResponse<R>;
 
@@ -813,7 +821,7 @@ where
 }
 
 struct Leaf<'u, 'e, 't> {
-    ui: Option<&'u mut Ui<'e>>,
+    ui: Option<&'u mut UiContext<'e>>,
     key: Key,
     kind: Kind,
     style: Style,
@@ -827,7 +835,7 @@ impl Leaf<'_, '_, '_> {
         &mut self,
         name: &str,
         styled: bool,
-        build: impl FnOnce(&mut Ui<'_>) -> R,
+        build: impl FnOnce(&mut UiContext<'_>) -> R,
     ) -> InnerResponse<R> {
         let ui = self.ui.take().expect("one declaration");
         let mut style = self.style;
@@ -1283,7 +1291,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     }
     /// Custom content replaces shortcut content. An explicit accessible name wins.
     #[inline(always)]
-    pub fn children<R>(mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
+    pub fn children<R>(mut self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> InnerResponse<R> {
         let name = self
             .accessible_name
             .take()
@@ -1605,7 +1613,7 @@ impl ButtonBase<'_, '_, '_> {
         self
     }
     #[inline(always)]
-    pub fn children<R>(mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
+    pub fn children<R>(mut self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> InnerResponse<R> {
         let name = std::mem::take(&mut self.inner.text);
         self.inner.children(&name, self.styled, build)
     }
@@ -1745,7 +1753,7 @@ pub struct Shader<'u, 'e, 't> {
     params: crate::ShaderParams,
 }
 common!(Shader);
-impl<'e> Ui<'e> {
+impl<'e> UiContext<'e> {
     pub fn shader<'u>(&'u mut self, asset: &crate::ShaderAsset) -> Shader<'u, 'e, 'static> {
         let mut inner = self.leaf(Kind::Shader, Cow::Borrowed(asset.source()));
         inner.style.width = Some(320.);
@@ -1854,7 +1862,7 @@ pub struct Slider<'u, 'e, 't> {
     range: crate::NumericRange,
 }
 common!(Slider);
-impl<'e> Ui<'e> {
+impl<'e> UiContext<'e> {
     pub fn slider<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
@@ -2010,7 +2018,7 @@ impl Drop for Slider<'_, '_, '_> {
 
 impl<F, R> std::ops::Add<F> for Button<'_, '_, '_>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Output = InnerResponse<R>;
     fn add(self, build: F) -> Self::Output {
@@ -2020,7 +2028,7 @@ where
 
 impl<F, R> std::ops::Add<F> for ButtonBase<'_, '_, '_>
 where
-    F: FnOnce(&mut Ui<'_>) -> R,
+    F: FnOnce(&mut UiContext<'_>) -> R,
 {
     type Output = InnerResponse<R>;
     fn add(self, build: F) -> Self::Output {

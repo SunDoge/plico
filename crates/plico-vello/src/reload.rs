@@ -1,7 +1,7 @@
 //! UI-thread replay of an application module; the rendering host never restarts.
 use crate::View;
 use notify::Watcher;
-use plico_core::{Key, PathKey, Theme, Ui, ViewNode};
+use plico_core::{Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::host::{Descriptor, Module};
 use plico_dev::{
     Frame, Request, StateSnapshot,
@@ -339,7 +339,7 @@ impl<S: HostService> ReloadView<S> {
         }
         Ok(())
     }
-    fn replay(&mut self, ui: &mut Ui<'_>) {
+    fn replay(&mut self, ui: &mut UiContext<'_>) {
         struct Replay<'a> {
             keys: &'a mut HashMap<Vec<PathKey>, u64>,
             next: &'a mut u64,
@@ -349,7 +349,12 @@ impl<S: HostService> ReloadView<S> {
             texts: &'a HashMap<Vec<PathKey>, HostInput>,
         }
         impl Replay<'_> {
-            fn nodes(&mut self, ui: &mut Ui<'_>, nodes: &[ViewNode], path: &mut Vec<PathKey>) {
+            fn nodes(
+                &mut self,
+                ui: &mut UiContext<'_>,
+                nodes: &[ViewNode],
+                path: &mut Vec<PathKey>,
+            ) {
                 for n in nodes {
                     path.push(n.key.clone());
                     let key = *self.keys.entry(path.clone()).or_insert_with(|| {
@@ -518,7 +523,7 @@ impl<S: HostService> View for ReloadView<S> {
     fn set_frame_time(&mut self, time: plico_core::FrameTime) {
         self.time = time;
     }
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         // The module already supplied a settled frame on load/activation.
         // Hover, presentation and animation frames need only replay that frame.
         let resized = self.viewport != ui.viewport_size();

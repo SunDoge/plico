@@ -7,7 +7,7 @@ struct Custom<'a> {
 }
 impl Widget for Custom<'_> {
     type Response = usize;
-    fn show(self, ui: &mut Ui) -> usize {
+    fn show(self, ui: &mut UiContext) -> usize {
         ui.text(self.label);
         *self.amount += 1;
         *self.amount
@@ -23,7 +23,7 @@ fn entity(engine: &Engine, label: &str) -> plico_core::Entity {
         .unwrap()
 }
 #[component]
-fn siblings(ui: &mut Ui, extra: bool, count: &mut usize) {
+fn siblings(ui: &mut UiContext, extra: bool, count: &mut usize) {
     if extra {
         ui.add(Custom {
             label: "optional",
@@ -52,14 +52,14 @@ fn application_widget_is_statically_dispatched_and_keeps_identity_when_a_sibling
 }
 #[test]
 fn direct_show_and_plain_component_function_support_borrowed_state() {
-    fn plain(ui: &mut Ui) -> u32 {
+    fn plain(ui: &mut UiContext) -> u32 {
         ui.text("plain");
         7
     }
     let mut engine = Engine::default();
     let mut count = 0;
     #[component]
-    fn show(ui: &mut Ui, count: &mut usize) {
+    fn show(ui: &mut UiContext, count: &mut usize) {
         assert_eq!(
             Custom {
                 label: "custom",

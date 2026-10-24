@@ -1,4 +1,4 @@
-use plico_core::{Theme, Ui};
+use plico_core::{Theme, UiContext};
 use plico_renderer::{FrameSource, TextContext};
 use plico_vello::{Source, View};
 
@@ -10,7 +10,7 @@ impl View for Panel {
     fn theme(&self) -> Theme {
         self.theme
     }
-    fn show(&mut self, cx: &mut Ui<'_>) {
+    fn show(&mut self, cx: &mut UiContext<'_>) {
         cx.column()
             .width(self.width)
             .height(40.)

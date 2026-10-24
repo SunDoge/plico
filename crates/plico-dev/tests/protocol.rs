@@ -1,14 +1,14 @@
 fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
     plico_dev::StateSnapshot::encode(value).unwrap()
 }
-use plico_core::{PathKey, Ui};
+use plico_core::{PathKey, UiContext};
 use plico_dev::{App, Request, render};
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Counter {
     count: u64,
 }
 impl App for Counter {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         ui.column().key("app").children(|ui| {
             if ui.button("Increment").key("increment").clicked() {
                 self.count += 1;
@@ -60,7 +60,7 @@ fn incompatible_protocol_is_rejected() {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Unstable;
 impl App for Unstable {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         ui.request_rebuild();
     }
 }
@@ -74,7 +74,7 @@ fn unstable_view_is_an_error() {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Panics;
 impl App for Panics {
-    fn show(&mut self, _: &mut Ui<'_>) {
+    fn show(&mut self, _: &mut UiContext<'_>) {
         panic!("app failed")
     }
 }
@@ -93,7 +93,7 @@ fn logical_frame_time_and_animation_requests_cross_the_application_protocol() {
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Timer;
     impl App for Timer {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text(format!(
                 "{} / {}",
                 ui.now().as_millis(),
@@ -141,7 +141,7 @@ impl App for Themed {
         theme
     }
     #[plico_core::component]
-    fn show(&mut self, ui: &mut Ui) {
+    fn show(&mut self, ui: &mut UiContext) {
         ui.button("Composite").primary().children(|ui| {
             ui.text("Body");
         });
@@ -237,7 +237,7 @@ fn modal_identity_dismissal_and_presence_survive_serialized_app_recreation() {
     }
     impl App for Demo {
         #[plico_core::component]
-        fn show(&mut self, cx: &mut Ui<'_>) {
+        fn show(&mut self, cx: &mut UiContext<'_>) {
             plico_core::widgets::column(cx).children(|cx| {
                 plico_core::widgets::modal(cx, &mut self.state)
                     .title("Portable dialog")
@@ -302,7 +302,7 @@ fn numeric_events_replay_across_recreated_app_and_latest_value_wins() {
         value: f64,
     }
     impl App for Demo {
-        fn show(&mut self, cx: &mut Ui<'_>) {
+        fn show(&mut self, cx: &mut UiContext<'_>) {
             plico_core::widgets::slider(cx, "Volume", &mut self.value, 0.0..=10.0)
                 .key("volume")
                 .step(0.5);
@@ -392,7 +392,7 @@ fn stale_path_events_are_counted_in_the_frame() {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Panicky;
 impl App for Panicky {
-    fn show(&mut self, _ui: &mut Ui<'_>) {
+    fn show(&mut self, _ui: &mut UiContext<'_>) {
         panic!("exploded during declaration");
     }
 }
@@ -487,7 +487,7 @@ fn error_frames_drop_retained_state_for_crash_safety() {
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Unstable2;
     impl App for Unstable2 {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.request_rebuild();
         }
     }
@@ -525,7 +525,7 @@ struct Editor {
     submitted: bool,
 }
 impl App for Editor {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         let response = ui.text_input("Edit", &self.buffer).response();
         if response.changed {
             self.echoed = self.buffer.text().unwrap_or_default();
@@ -575,7 +575,7 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
         submits: u64,
     }
     impl App for Counting {
-        fn show(&mut self, ui: &mut Ui<'_>) {
+        fn show(&mut self, ui: &mut UiContext<'_>) {
             if ui.text_input("Edit", &self.buffer).response().submitted {
                 self.submits += 1;
             }
@@ -656,7 +656,7 @@ struct Form {
     saved: String,
 }
 impl App for Form {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         if ui
             .text_input("Value", &self.buffer)
             .placeholder("Type here")
@@ -740,7 +740,7 @@ fn checkpoint_does_not_run_declarations_and_old_protocol_is_rejected() {
         count: u64,
     }
     impl App for Shows {
-        fn show(&mut self, _: &mut Ui<'_>) {
+        fn show(&mut self, _: &mut UiContext<'_>) {
             self.count += 1;
         }
     }

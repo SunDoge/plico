@@ -1,4 +1,4 @@
-use plico_core::{Theme, Ui, VirtualClock};
+use plico_core::{Theme, UiContext, VirtualClock};
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
@@ -14,7 +14,7 @@ struct Demo {
     fade: bool,
 }
 impl View for Demo {
-    fn show(&mut self, ui: &mut Ui<'_>) {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         plico_core::text!(ui, "Count {}", self.count)
             .key("label")

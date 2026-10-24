@@ -1,6 +1,6 @@
-use plico_core::{Engine, FrameError, Ui};
+use plico_core::{Engine, FrameError, UiContext};
 
-fn list(ui: &mut Ui<'_>, ids: &[u64]) {
+fn list(ui: &mut UiContext<'_>, ids: &[u64]) {
     for id in ids {
         ui.row().key(*id).children(|ui| {
             ui.text("value").key("value");
@@ -52,7 +52,7 @@ fn ordered_hint_preserves_key_identity_through_edits_and_removals() {
 #[test]
 fn ordered_hint_checks_scope_and_duplicate_keys_after_reuse() {
     let mut engine = Engine::default();
-    let scoped = |ui: &mut Ui<'_>, scopes: &[u64]| {
+    let scoped = |ui: &mut UiContext<'_>, scopes: &[u64]| {
         for scope in scopes {
             ui.keyed(*scope, |ui| {
                 ui.text("scoped").key("same");

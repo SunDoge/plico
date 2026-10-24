@@ -1,6 +1,6 @@
 //! Core-only update-cost experiment, not a memo API or renderer benchmark.
 //! Run: cargo run --release -p plico --example memo_probe
-use plico_core::{Engine, Ui};
+use plico_core::{Engine, UiContext};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed},
@@ -59,7 +59,7 @@ impl Fixture {
                 .collect(),
         }
     }
-    fn show(&self, ui: &mut Ui<'_>, labels: Labels, changed: bool) {
+    fn show(&self, ui: &mut UiContext<'_>, labels: Labels, changed: bool) {
         for (i, label) in self.labels.iter().enumerate() {
             ui.row().key(i).gap(8.).padding(4.).children(|ui| {
                 match labels {
