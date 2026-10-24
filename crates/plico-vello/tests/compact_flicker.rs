@@ -77,7 +77,7 @@ fn compact_toggle_settles_within_one_frame() {
     // Advance several vsyncs; after the first, every subsequent frame must
     // be identical (scene bytes AND stats) — continuing churn is what reads
     // as flicker.
-    let mut previous: Option<Vec<u8>> = None;
+    let mut previous = None;
     let mut churn = 0;
     for tick in 0..6 {
         clock.advance(Duration::from_millis(16)).unwrap();
@@ -85,14 +85,6 @@ fn compact_toggle_settles_within_one_frame() {
         let nodes = s.build_frame(&mut tcx, 400, 300);
         plico_renderer::scene::build_scene(&mut scene, &nodes, &mut tcx, 400, 300, s.base_color());
         let stats = s.adapter.stats;
-        let payload = serde_json::to_vec(&(
-            stats.scene_builds,
-            stats.paint_writes,
-            stats.style_writes,
-            stats.flatten_visits,
-            stats.layout_runs,
-        ))
-        .unwrap();
         if tick > 0 {
             // After the toggle frame, stats must be all-zero (steady state).
             if stats.paint_writes > 0 || stats.style_writes > 0 || stats.flatten_visits > 0 {
@@ -103,8 +95,13 @@ fn compact_toggle_settles_within_one_frame() {
                 );
             }
         }
-        previous = Some(payload);
-        let _ = previous;
+        if let Some(previous) = &previous {
+            assert_eq!(
+                &scene.commands, previous,
+                "tick {tick}: scene changed after settling"
+            );
+        }
+        previous = Some(scene.commands.clone());
     }
     assert_eq!(churn, 0, "backend keeps rewriting after the compact toggle");
 }
@@ -119,7 +116,7 @@ fn compact_toggle_is_atomic_on_the_host_paint_path() {
     s.view.compact = true;
     s.request_rebuild();
     let mut snapshots = Vec::new();
-    for tick in 0..4 {
+    for _ in 0..4 {
         clock.advance(Duration::from_millis(16)).unwrap();
         let mut scene = plico_renderer::Scene::new();
         s.build_and_paint(&mut scene, &mut tcx, 400, 300, 1.);

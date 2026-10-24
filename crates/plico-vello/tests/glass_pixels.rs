@@ -5,7 +5,7 @@
 //! and (b) during continuous background motion the blurred output tracks the
 //! moving background instead of freezing.
 use plico_gallery::{Gallery, Page};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{FrameSource, Scene, SemanticRole, TextContext};
 use plico_vello::Source;
 use std::time::Duration;
 
@@ -34,18 +34,37 @@ fn render(source: &mut Source<Gallery>, tcx: &mut TextContext) -> image::RgbaIma
         .expect("offscreen render")
 }
 
-/// Glass card geometry in the default 1120x820 capture, with a tolerance for
-/// the blur halo bleeding up to the filter extent outside... no: the clip must
-/// confine the output, but the card's own rounded corners keep a 1-2px AA band.
-const CARD: (u32, u32, u32, u32) = (222, 326, 556, 570);
-/// The "Blur background" checkbox indicator legitimately differs.
-const CHECKBOX: (u32, u32, u32, u32) = (190, 165, 220, 200);
+/// Read the actual layout: font metrics and checkbox styles vary by platform.
+/// Only the glass output and its toggling checkbox may differ.
+fn allowed_regions(source: &Source<Gallery>, scale: f32) -> [[f32; 4]; 2] {
+    let cards: Vec<_> = source
+        .adapter
+        .placed
+        .iter()
+        .filter(|node| node.paint.backdrop_blur > 0.)
+        .collect();
+    assert_eq!(cards.len(), 1, "expected one glass card");
+    let semantics = source.adapter.semantics(&source.engine, 0);
+    let checkbox = semantics
+        .node_by_role(SemanticRole::CheckBox, "Blur background", None)
+        .expect("blur checkbox")
+        .bounds;
+    [cards[0].rect, checkbox].map(|rect| {
+        // Include the output's antialiased border, not the filter's blur radius.
+        [
+            rect[0] * scale - 2.,
+            rect[1] * scale - 2.,
+            rect[2] * scale + 2.,
+            rect[3] * scale + 2.,
+        ]
+    })
+}
 
-fn outside(a: (u32, u32)) -> bool {
-    let (cx0, cy0, cx1, cy1) = CARD;
-    let (bx0, by0, bx1, by1) = CHECKBOX;
-    !(cx0 <= a.0 && a.0 <= cx1 && cy0 <= a.1 && a.1 <= cy1)
-        && !(bx0 <= a.0 && a.0 <= bx1 && by0 <= a.1 && a.1 <= by1)
+fn outside(point: (u32, u32), regions: &[[f32; 4]]) -> bool {
+    let (x, y) = (point.0 as f32, point.1 as f32);
+    !regions
+        .iter()
+        .any(|r| r[0] <= x && x <= r[2] && r[1] <= y && y <= r[3])
 }
 
 #[test]
@@ -59,12 +78,14 @@ fn blur_only_changes_pixels_inside_the_glass_card() {
         render(&mut off, &mut tcx);
         clock_on.advance(Duration::from_millis(1000)).unwrap();
         clock_off.advance(Duration::from_millis(1000)).unwrap();
-        let on = render(&mut on, &mut tcx);
+        let on_image = render(&mut on, &mut tcx);
+        let regions = allowed_regions(&on, 1.);
+        let on = on_image;
         let off = render(&mut off, &mut tcx);
         let mut outside_diffs = Vec::new();
         for y in (0..820).step_by(2) {
             for x in (0..1120).step_by(2) {
-                if outside((x, y)) {
+                if outside((x, y), &regions) {
                     let a = on.get_pixel(x, y).0;
                     let b = off.get_pixel(x, y).0;
                     if a != b {
@@ -123,17 +144,14 @@ fn blur_stays_inside_the_card_at_hidpi() {
             plico_shell::renderer::render_to_image(&scene, 2240, 1640, source.base_color())
                 .expect("offscreen render")
         };
-        let on = frame(&mut on, &clock_on);
+        let on_image = frame(&mut on, &clock_on);
+        let regions = allowed_regions(&on, 2.);
+        let on = on_image;
         let off = frame(&mut off, &clock_off);
-        // Card and checkbox geometry double at 2x.
-        let (cx0, cy0, cx1, cy1) = (444u32, 652u32, 1112u32, 1140u32);
-        let (bx0, by0, bx1, by1) = (380u32, 330u32, 440u32, 400u32);
         let mut outside_diffs = Vec::new();
         for y in (0..1640).step_by(4) {
             for x in (0..2240).step_by(4) {
-                let inside_card = cx0 <= x && x <= cx1 && cy0 <= y && y <= cy1;
-                let inside_box = bx0 <= x && x <= bx1 && by0 <= y && y <= by1;
-                if !inside_card && !inside_box {
+                if outside((x, y), &regions) {
                     let a = on.get_pixel(x, y).0;
                     let b = off.get_pixel(x, y).0;
                     if a != b {

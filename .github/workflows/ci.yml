@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
+      - uses: actions-rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
         with:
           toolchain: stable
       - name: Check the whole workspace compiles on Windows
@@ -131,7 +131,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown
           components: clippy
       - name: Check the renderer-independent core
         run: cargo check --locked -p plico-core --target wasm32-unknown-unknown
