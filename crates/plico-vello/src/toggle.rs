@@ -2,7 +2,7 @@
 use plico_core::{Kind, Style, Theme};
 use plico_renderer::{PaintScene, Scene};
 use vello_common::{
-    kurbo::{Affine, Circle, Rect, RoundedRect},
+    kurbo::{Affine, Circle, Rect, RoundedRect, Stroke},
     peniko::{BlendMode, Fill},
 };
 
@@ -42,12 +42,17 @@ pub(crate) fn paint(
 ) -> Scene {
     let g = Geometry::new(kind, style, theme);
     let progress = progress.clamp(0., 1.) as f64;
-    let mix = |shift: u32| {
-        let from = ((theme.muted >> shift) & 255) as f64;
+    let mix = |from: u32, shift: u32| {
+        let from = ((from >> shift) & 255) as f64;
         let to = ((theme.accent >> shift) & 255) as f64;
         (from + (to - from) * progress).round() as u32
     };
-    let bg = super::rgb((mix(16) << 16) | (mix(8) << 8) | mix(0));
+    let from = if kind == Kind::Switch {
+        theme.muted
+    } else {
+        theme.panel
+    };
+    let bg = super::rgb((mix(from, 16) << 16) | (mix(from, 8) << 8) | mix(from, 0));
     // Scene fragments are relative to content origin; indicator lives in left padding.
     let x = -g.width - g.gap;
     let y = (line_height as f64 - g.height) / 2.;
@@ -64,6 +69,26 @@ pub(crate) fn paint(
         None,
         &RoundedRect::new(x, y, x + g.width, y + g.height, radius),
     );
+    if kind == Kind::Checkbox {
+        let border = super::rgb(
+            (mix(theme.muted, 16) << 16) | (mix(theme.muted, 8) << 8) | mix(theme.muted, 0),
+        );
+        // Stroke inside the allocated indicator box; density does not change
+        // the one-logical-pixel outline or its alignment with the label.
+        scene.stroke(
+            &Stroke::new(1.),
+            Affine::IDENTITY,
+            border,
+            None,
+            &RoundedRect::new(
+                x + 0.5,
+                y + 0.5,
+                x + g.width - 0.5,
+                y + g.height - 0.5,
+                (radius - 0.5).max(0.),
+            ),
+        );
+    }
     let foreground = super::rgb(theme.on_accent);
     if kind == Kind::Switch {
         let center = g.height / 2.;

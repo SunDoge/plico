@@ -228,7 +228,8 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
         }
     }
     use plico_renderer::{SemanticAction, SemanticRole};
-    let mut s = Source::new(Controls(false));
+    let clock = VirtualClock::default();
+    let mut s = Source::with_clock(Controls(false), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
     let snapshot = s.adapter.semantics(&s.engine, 0);
@@ -241,9 +242,11 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Focus { target: a }));
-    let nodes = s.build_frame(&mut text, 400, 300);
+    s.build_frame(&mut text, 400, 300);
     assert_eq!(s.adapter.stats.sync_visits, 1);
     assert_eq!(s.adapter.stats.layout_runs, 0);
+    clock.advance(Duration::from_millis(200)).unwrap();
+    let nodes = s.build_frame(&mut text, 400, 300);
     assert_eq!(
         nodes
             .iter()
@@ -255,6 +258,8 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     );
     s.view.0 = true;
     s.request_rebuild();
+    s.build_frame(&mut text, 400, 300);
+    clock.advance(Duration::from_millis(200)).unwrap();
     let nodes = s.build_frame(&mut text, 400, 300);
     assert!(s.adapter.semantics(&s.engine, 0).focus.is_none());
     assert_eq!(s.adapter.stats.layout_runs, 0);

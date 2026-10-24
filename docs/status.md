@@ -12,7 +12,10 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - Taffy 布局、Parley 文本和 Vello 后端；字体、选择复制、输入法和 SVG。
+- 普通文字默认不额外几何加粗，保留 hint 与真实字重，避免淡边；显式扩张按实际扩张量收紧轮廓容差，避免直边变斜。Linux 默认优先 Noto 中英文字体栈，保留应用字体覆盖能力。
+- hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
+- Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
 - 虚拟列表、smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
 - 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
@@ -54,6 +57,10 @@ cargo plico icons check --output apps/gallery/src/icons.rs
 通过 plico new 创建的独立项目已完成静态入口编译和真实 headless 模块加载，
 点击 Increment 后业务状态从 0 变为 1，后续快照保持 1。
 依赖锁文件已清除 Rune、reactive_graph、Sycamore 及仅供旧实验使用的依赖。
+
+[FLTK + Taffy 后端实验](fltk.md) 已在 Linux/X11 验证共享设置页、原生输入/按钮回调、嵌套卸载、滚动与 keyed 重排。它是独立的可选实验；样式、窗口功能、热重载及其他平台尚未达到 Vello 后端的覆盖范围。
+
+FLTK 共享工作台现包含 Router 前进/后退、响应式 Grid、固定表头滚动列表，以及基于注入时钟的侧栏/详情栏/任务进度动画。FLTK 宿主按 ANIMATE 请求调度有限帧，结束后阻塞等待事件；尚未自动支持全部 `.motion(...)` 样式插值，见 [实验范围](fltk.md)。
 
 ## Optional native text
 

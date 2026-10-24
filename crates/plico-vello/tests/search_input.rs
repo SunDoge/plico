@@ -55,6 +55,7 @@ fn autofocus_is_mount_scoped_explicit_request_and_focus_restore_are_one_shot() {
         "autofocus must not steal focus"
     );
     s.view.request = true;
+    s.request_rebuild();
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(s.adapter.focused(), Some(input));
     s.handle_event(UiEvent::Focus(false));
@@ -62,9 +63,11 @@ fn autofocus_is_mount_scoped_explicit_request_and_focus_restore_are_one_shot() {
     s.handle_event(UiEvent::Focus(true));
     assert_eq!(s.adapter.focused(), Some(input));
     s.view.mount = false;
+    s.request_rebuild();
     s.build_frame(&mut tcx, 400, 300);
     assert!(s.adapter.focused().is_none());
     s.view.mount = true;
+    s.request_rebuild();
     s.build_frame(&mut tcx, 400, 300);
     assert!(s.adapter.focused().is_some());
     assert_ne!(
@@ -74,6 +77,7 @@ fn autofocus_is_mount_scoped_explicit_request_and_focus_restore_are_one_shot() {
     );
     s.view.disabled = true;
     s.view.request = true;
+    s.request_rebuild();
     s.build_frame(&mut tcx, 400, 300);
     assert!(s.adapter.focused().is_none());
 }
@@ -121,6 +125,7 @@ fn window_key_fallback_does_not_intercept_editing_composition_or_modal_input() {
     assert_eq!(s.view.fallback, 1);
     // Repeated requests for an input behind a modal must not break the focus trap.
     s.view.request = true;
+    s.request_rebuild();
     s.build_frame(&mut tcx, 400, 300);
     assert!(s.ime_state().is_none());
 }

@@ -249,8 +249,21 @@ fn real_layout_fits_normal_and_minimum_viewports() {
             s.view.large = large;
             frame(&mut s, &mut tcx, width);
             for p in &s.adapter.placed {
-                let r = p.rect;
+                let mut r = p.rect;
                 assert!(r.iter().all(|n| n.is_finite()));
+                // Scroll content may extend beyond the viewport; its visible
+                // intersection must remain bounded by the scrollport.
+                if let Some(clip) = p.clip {
+                    r = [
+                        r[0].max(clip[0]),
+                        r[1].max(clip[1]),
+                        r[2].min(clip[2]),
+                        r[3].min(clip[3]),
+                    ];
+                    if r[0] >= r[2] || r[1] >= r[3] {
+                        continue;
+                    }
+                }
                 assert!(
                     r[0] >= -0.5 && r[1] >= -0.5 && r[2] <= width as f32 + 0.5 && r[3] <= 780.5,
                     "{r:?}"

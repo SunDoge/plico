@@ -30,9 +30,13 @@ fn assert_family(source: &Source<Demo>, family: &str) {
 }
 #[test]
 fn configured_fonts_survive_style_updates_and_switching_invalidates_measurement() {
-    let mut source = Source::new(Demo::default()).with_font_family("serif");
+    let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
     source.build_frame(&mut text, 500, 400);
+    assert_family(&source, plico_renderer::text::DEFAULT_UI_FONT_FAMILY);
+    source.set_font_family("serif");
+    source.build_frame(&mut text, 500, 400);
+    assert!(source.adapter.stats.layout_runs > 0);
     assert_family(&source, "serif");
     source.set_font_family("monospace");
     source.build_frame(&mut text, 500, 400);

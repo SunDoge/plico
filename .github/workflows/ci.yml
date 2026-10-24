@@ -64,7 +64,7 @@ jobs:
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
             fonts-dejavu-core fonts-noto-cjk
       - name: Check every target and feature
-        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --exclude plico-fltk --exclude plico-backend-settings --all-targets --all-features -- -D warnings
 
   native:
     name: Linux tests and hot reload
@@ -92,7 +92,9 @@ jobs:
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
       - name: Run workspace tests, including headless rendering
-        run: cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-features
+        run: cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --exclude plico-fltk --exclude plico-backend-settings --all-features
+      - name: Verify the shared routed workspace on Vello
+        run: cargo test --locked -p plico-backend-settings --features vello --all-targets
       - name: Verify profiling with and without a trace file
         run: |
           env -u PLICO_TRACE_FILE cargo run --locked -p plico-vello --features profiling --example trace_span
@@ -116,7 +118,7 @@ jobs:
         with:
           toolchain: stable
       - name: Check the whole workspace compiles on Windows
-        run: cargo check --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-targets --all-features
+        run: cargo check --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --exclude plico-fltk --exclude plico-backend-settings --all-targets --all-features
       - name: Run renderer-independent core tests
         run: cargo test --locked -p plico-core --all-features
 
@@ -164,3 +166,31 @@ jobs:
         run: xvfb-run -a python3 scripts/check-lvgl-sdl.py
       - name: Check the experimental adapter and example
         run: cargo clippy --locked -p plico-lvgl --features native --all-targets -- -D warnings
+
+  fltk:
+    name: FLTK and Taffy backend experiment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Install FLTK build and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config \
+            libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
+            libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
+            xvfb xauth fonts-noto-cjk
+      - name: Check the experimental adapter and shared settings view
+        run: cargo clippy --locked -p plico-fltk -p plico-backend-settings --features plico-backend-settings/fltk --all-targets -- -D warnings
+      - name: Check animation math and deadline pacing
+        run: |
+          cargo test --locked -p plico-fltk --features native --lib
+          cargo test --locked -p plico-backend-settings --lib
+      - name: Verify native event round-trip, retention and window captures
+        run: xvfb-run -a python3 scripts/check-fltk.py

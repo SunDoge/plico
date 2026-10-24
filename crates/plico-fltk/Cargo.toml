@@ -1,0 +1,17 @@
+[package]
+name = "plico-fltk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Experimental native FLTK controls with Plico declarations and Taffy layout"
+
+[features]
+default = []
+native = ["dep:fltk"]
+
+[dependencies]
+plico-core.workspace = true
+taffy.workspace = true
+snafu.workspace = true
+fltk = { version = "1.5", optional = true, features = ["use-ninja"] }

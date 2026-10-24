@@ -13,6 +13,7 @@
 | [后端清理](backend-cleanup.md) | 当前 crate 划分、删除的旧协议与保留边界 |
 | [Crate 命名与迁移](crate-names.md) | Vello 后端、Web host 与 Web demo 的新名称及外部应用迁移 |
 | [架构与后端边界](architecture.md) | 节点身份、保留存储、声明协调、Wabou 与 Bevy |
+| [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
 | [状态、事件与提交](runtime.md) | 同步事件、稳定化、失效传播、卸载与错误边界 |
 | [缓存与输出路径](cache.md) | 共享 Scene、原生保留路径、克隆计数与 CPU 对比 |
@@ -21,6 +22,8 @@
 | [声明成本与 memo 实验](memo-experiments.md) | 核心声明、Markdown 解析缓存、宿主动画与更新边界的实验和限制 |
 | [增量执行](incremental.md) | dirty journal、活跃动画、paint patch 与场景复用边界 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
+| [Pango/Cairo 文字对照](pango-text-comparison.md) | 排版指标、相同 Parley glyph 的绘制对照与文字清晰度排查 |
+| [文字渲染排查结论](text-rendering-investigation.md) | 精确基线、Chrome 对照、字体回退与覆盖率策略的证据及限制 |
 | [Native 属性更新实验](native-property-work.md) | 复用布局样式、桌面 CPU 对照与收益限制 |
 | [绘制 motion 与失效控制](presentation-motion.md) | transform、命中/语义几何、逐节点 bitflags 与工作量 |
 | [布局 API](layout-api.md) | 统一尺寸/四边边距、Flex 扩展、Grid 轨道与命名区域 |

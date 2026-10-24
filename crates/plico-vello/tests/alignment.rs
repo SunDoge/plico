@@ -163,3 +163,105 @@ fn paint_and_measure_use_the_content_width_of_padded_text() {
     assert!(layout.len() > 1);
     assert!(layout.width() <= node.content_size[0] + 1.);
 }
+
+#[test]
+fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
+    #[derive(Default)]
+    struct Tall {
+        checked: bool,
+        long: bool,
+    }
+    impl View for Tall {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).gap(8).children(|cx| {
+                cx.button("Legacy action").width(220.).height(80.);
+                checkbox(
+                    cx,
+                    if self.long { LONG } else { "保存更改 Agjp" },
+                    &mut self.checked,
+                )
+                .width(220.)
+                .height(120.);
+            });
+        }
+    }
+    let clock = plico_core::VirtualClock::default();
+    let mut s = Source::with_clock(Tall::default(), clock.clone());
+    let mut tcx = TextContext::new();
+    for long in [false, true] {
+        s.view.long = long;
+        s.request_rebuild();
+        s.build_frame(&mut tcx, 400, 500);
+        s.view.checked = !s.view.checked;
+        s.request_rebuild();
+        for millis in [0, 35, 70, 105, 140, 180] {
+            clock.advance(Duration::from_millis(millis)).unwrap();
+            s.build_frame(&mut tcx, 400, 500);
+            for node in s.adapter.placed.iter().filter(|n| n.paint.text.is_some()) {
+                let text = plico_renderer::scene::layout_node_text(&mut tcx, node).unwrap();
+                let text_center = node.content_origin[1] + text.height() / 2.;
+                let control_center = (node.rect[1] + node.rect[3]) / 2.;
+                assert!(
+                    (text_center - control_center).abs() < 1.,
+                    "{:?} at {:?}",
+                    node.paint.text,
+                    node.content_origin
+                );
+                if node.paint.text.as_deref() == Some("Legacy action") {
+                    assert!(
+                        (node.content_origin[0] + text.width() / 2.
+                            - (node.rect[0] + node.rect[2]) / 2.)
+                            .abs()
+                            < 1.
+                    );
+                } else {
+                    let first = text.lines().next().unwrap().metrics().line_height;
+                    assert!((marker_center(node) - first as f64 / 2.).abs() < 0.001);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn constrained_button_keeps_icon_size_and_one_line_label_and_accessible_name() {
+    const LABEL: &str = "保存更改 — a long action label";
+    struct Narrow;
+    impl View for Narrow {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            button(cx).text(LABEL).icon(&ICON).width(140.).height(40.);
+        }
+    }
+    let mut s = Source::new(Narrow);
+    let mut tcx = TextContext::new();
+    s.build_frame(&mut tcx, 200, 120);
+    let icon = s
+        .adapter
+        .placed
+        .iter()
+        .find(|n| n.paint.svg.is_some())
+        .unwrap();
+    let label = s
+        .adapter
+        .placed
+        .iter()
+        .find(|n| n.paint.text.is_some())
+        .unwrap();
+    let layout = plico_renderer::scene::layout_node_text(&mut tcx, label).unwrap();
+    assert_eq!(layout.len(), 1);
+    assert!(layout.width() <= label.content_size[0] + 1.);
+    assert_eq!(icon.rect[2] - icon.rect[0], 16.);
+    assert!(
+        ((icon.rect[1] + icon.rect[3]) / 2. - (label.content_origin[1] + layout.height() / 2.))
+            .abs()
+            <= 1.
+    );
+    assert!(
+        s.adapter
+            .semantics(&s.engine, 0)
+            .node_by_role(plico_renderer::SemanticRole::Button, LABEL, None)
+            .is_some()
+    );
+}
