@@ -18,6 +18,10 @@ pub fn tooltip<'u, 'e, 't>(
     }
 }
 impl crate::ImplicitKey for Tooltip<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
@@ -26,10 +30,6 @@ impl crate::ImplicitKey for Tooltip<'_, '_, '_> {
     }
 }
 impl Tooltip<'_, '_, '_> {
-    pub fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
-    }
     pub fn children<R>(self, build: impl FnOnce(&mut Ui<'_>) -> R) -> InnerResponse<R> {
         let style = Style {
             font_size: self.cx.inherited.font_size,

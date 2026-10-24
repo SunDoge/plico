@@ -1,5 +1,5 @@
 //! Composed controls use the same public API as application components.
-use crate::{Layout, icons, prelude::*};
+use crate::{Key, Layout, icons, prelude::*};
 
 /// A noninteractive status label. Color follows the current theme.
 #[component]
@@ -40,6 +40,10 @@ pub fn panel<'u, 'e>(
     }
 }
 impl crate::ImplicitKey for Panel<'_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.layout = self.layout.key(key);
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         self.layout = self.layout.site_id(site);
         self

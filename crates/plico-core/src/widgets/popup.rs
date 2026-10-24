@@ -33,6 +33,10 @@ pub fn menu_item<'u, 'e, 's>(
     }
 }
 impl<'s> crate::ImplicitKey for MenuItem<'_, '_, 's> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
@@ -41,10 +45,6 @@ impl<'s> crate::ImplicitKey for MenuItem<'_, '_, 's> {
     }
 }
 impl<'s> MenuItem<'_, '_, 's> {
-    pub fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
-    }
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -158,6 +158,10 @@ pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
     }
 }
 impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
@@ -166,10 +170,6 @@ impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
     }
 }
 impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
-    pub fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
-    }
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self

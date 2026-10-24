@@ -34,6 +34,7 @@ mod services;
 pub use services::ServiceView;
 #[cfg(not(target_arch = "wasm32"))]
 pub use services::{ServiceDesktopError, run_service_app_with_options};
+mod button_state;
 mod shader;
 mod slider;
 mod style_motion;
@@ -83,12 +84,28 @@ enum SyncMode {
 struct Retained {
     id: NodeId,
     style: taffy::Style,
-    paint_key: (plico_core::Style, Kind, Theme, bool, bool, bool, f32),
+    paint_key: PaintKey,
     spans: Vec<plico_core::TextSpan>,
     text: Arc<str>,
     children: Vec<NodeId>,
     toggle_line_height: Option<f32>,
     had_grid: bool,
+}
+
+/// Everything that feeds one node's paint: the retained copy is compared
+/// against the freshly computed key to decide whether to rewrite the paint
+/// payload. The progress floats animate every frame, so their comparison is
+/// the "same interpolated value" check, not an epsilon test.
+#[derive(Clone, PartialEq)]
+struct PaintKey {
+    style: plico_core::Style,
+    kind: Kind,
+    theme: Theme,
+    hovered: bool,
+    pressed: bool,
+    focused: bool,
+    checked_progress: f32,
+    focus_progress: f32,
 }
 
 type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
@@ -182,7 +199,7 @@ pub struct Adapter {
 impl Default for Adapter {
     fn default() -> Self {
         Self {
-            font_family: Arc::from("sans-serif"),
+            font_family: Arc::from(plico_renderer::text::DEFAULT_UI_FONT_FAMILY),
             font_dirty: false,
             selection: Default::default(),
             selection_dirty: true,
@@ -374,8 +391,8 @@ impl Adapter {
             for &e in &dirty {
                 if let Some(node) = engine.node(e) {
                     if let Some(previous) = self.nodes.get(&e) {
-                        tab_dirty |= previous.paint_key.0.disabled != node.style.disabled
-                            || previous.paint_key.1 != node.kind;
+                        tab_dirty |= previous.paint_key.style.disabled != node.style.disabled
+                            || previous.paint_key.kind != node.kind;
                     }
                     self.sync(
                         engine,
@@ -428,11 +445,13 @@ impl Adapter {
             self.svg_cache.retain(|source, variants| {
                 variants.retain(|color, _| {
                     self.nodes.values().any(|n| {
-                        let (style, kind, theme, ..) = n.paint_key;
-                        (kind == Kind::Svg
+                        let PaintKey {
+                            style, kind, theme, ..
+                        } = &n.paint_key;
+                        (*kind == Kind::Svg
                             && n.text == *source
-                            && svg_color(source, style, theme) == *color)
-                            || (kind == Kind::Checkbox
+                            && svg_color(source, *style, *theme) == *color)
+                            || (*kind == Kind::Checkbox
                                 && source.as_ref() == plico_core::icons::CHECK.source()
                                 && *color == Some(theme.on_accent))
                     })
@@ -531,13 +550,13 @@ impl Adapter {
             }
             self.scroll_dirty = false;
             for index in 0..self.placed.len() {
-                self.align_toggle(index, tcx);
+                self.align_control_text(index, tcx);
                 self.align_input(index, tcx, engine);
             }
         } else {
             for dirty in 0..self.paint_dirty.len() {
                 if let Some(&index) = self.placed_indices.get(&self.paint_dirty[dirty]) {
-                    self.align_toggle(index, tcx);
+                    self.align_control_text(index, tcx);
                     self.align_input(index, tcx, engine);
                 }
             }
@@ -603,7 +622,7 @@ impl Adapter {
         if focus_scrolled {
             self.position_popovers(engine, tcx, width, height);
             for index in 0..self.placed.len() {
-                self.align_toggle(index, tcx);
+                self.align_control_text(index, tcx);
                 self.align_input(index, tcx, engine);
             }
         }
@@ -662,18 +681,44 @@ impl Adapter {
                 .map(|(index, node)| (node.node_id, index)),
         );
     }
-    /// Inline indicators share the shaped first line's center, including wrapped labels.
-    fn align_toggle(&mut self, index: usize, tcx: &mut TextContext) {
+    /// Center the shaped text block in leaf controls. Indicators then follow its
+    /// first line, so wrapped labels do not drag the marker to the paragraph center.
+    fn align_control_text(&mut self, index: usize, tcx: &mut TextContext) {
         let placed = &mut self.placed[index];
         let Some(&entity) = self.reverse.get(&placed.node_id) else {
             return;
         };
         let retained = self.nodes.get_mut(&entity).unwrap();
-        let (style, kind, theme, _, _, _, progress) = retained.paint_key;
-        if !matches!(kind, Kind::Switch | Kind::Checkbox) {
+        let PaintKey {
+            style,
+            kind,
+            theme,
+            checked_progress: progress,
+            ..
+        } = retained.paint_key;
+        if !matches!(kind, Kind::Button | Kind::Switch | Kind::Checkbox) {
             return;
         }
-        let line_height = plico_renderer::scene::layout_node_text(tcx, placed)
+        let text_layout = plico_renderer::scene::layout_node_text(tcx, placed);
+        if let Some(text) = &text_layout {
+            let geometry = self.tree.layout(placed.node_id).unwrap();
+            // Rebuild from the box every time: paint-only animation frames reuse
+            // placed nodes, and adding an offset would accumulate vertical drift.
+            placed.content_origin[1] = placed.rect[1]
+                + geometry.border.top
+                + geometry.padding.top
+                + (placed.content_size[1] - text.height()).max(0.) / 2.;
+            if kind == Kind::Button {
+                placed.content_origin[0] = placed.rect[0]
+                    + geometry.border.left
+                    + geometry.padding.left
+                    + (placed.content_size[0] - text.width()).max(0.) / 2.;
+            }
+        }
+        if kind == Kind::Button {
+            return;
+        }
+        let line_height = text_layout
             .and_then(|layout| layout.lines().next().map(|line| line.metrics().line_height))
             .unwrap_or(placed.content_size[1]);
         if placed.paint.widget.is_some() && retained.toggle_line_height == Some(line_height) {
@@ -719,10 +764,26 @@ impl Adapter {
         self.stats.sync_visits += 1;
         let n = engine.node(e).unwrap();
         let mut target = n.style;
+        let styled_button = n.kind == Kind::Button || n.style.styled_button;
+        if n.style.styled_button && n.style.disabled {
+            // Core attenuates composed buttons for all backends. This backend
+            // moves that attenuation into the host-owned interaction weights.
+            target.opacity /= 0.45;
+        }
         if n.kind == Kind::Slider {
             target.checked = self.pressed == Some(e);
         }
-        if interactive(n.kind) && !target.disabled {
+        if styled_button {
+            target.background = target.background.or(Some(Token::Control));
+            let inferred = match target.background {
+                Some(Token::Control) => (Some(Token::ControlHover), Some(Token::ControlPressed)),
+                Some(Token::Accent) => (Some(Token::AccentHover), Some(Token::AccentPressed)),
+                _ => (None, None),
+            };
+            target.hover_background = target.hover_background.or(inferred.0);
+            target.pressed_background = target.pressed_background.or(inferred.1);
+        }
+        if interactive(n.kind) && !styled_button && !target.disabled {
             let base = target
                 .background
                 .or((n.kind == Kind::Button).then_some(Token::Control));
@@ -742,6 +803,22 @@ impl Adapter {
         let visual_style =
             self.motions
                 .style(e, target, engine.theme(), !self.nodes.contains_key(&e));
+        let (visual_style, focus_progress) = if styled_button {
+            self.motions.button_style(
+                e,
+                visual_style,
+                engine.theme(),
+                button_state::Interaction {
+                    hovered: self.hovered == Some(e),
+                    pressed: self.pressed == Some(e),
+                    focused: self.focus_visible && self.focused == Some(e),
+                    disabled: target.disabled,
+                },
+            )
+        } else {
+            self.motions.remove_button(e);
+            (visual_style, 0.)
+        };
         let checked_progress = self.motions.checked(e, n.style.checked);
         let svg = if n.kind == Kind::Svg {
             cached_svg(
@@ -781,10 +858,10 @@ impl Adapter {
         let rebuild_layout = self.nodes.get(&e).is_none_or(|previous| {
             n.grid.is_some()
                 || previous.had_grid
-                || previous.paint_key.1 != n.kind
+                || previous.paint_key.kind != n.kind
                 || (matches!(n.kind, Kind::Switch | Kind::Checkbox)
-                    && previous.paint_key.2.metrics != engine.theme().metrics)
-                || !visual_style.layout_eq(previous.paint_key.0)
+                    && previous.paint_key.theme.metrics != engine.theme().metrics)
+                || !visual_style.layout_eq(previous.paint_key.style)
                 || (n.kind == Kind::Root
                     && previous.style.size
                         != Size {
@@ -928,15 +1005,17 @@ impl Adapter {
             }
             style
         });
-        let key = (
-            visual_style,
-            n.kind,
-            engine.theme(),
-            self.hovered == Some(e),
-            self.pressed == Some(e),
-            (self.focus_visible || n.kind == Kind::TextInput) && self.focused == Some(e),
+        let key = PaintKey {
+            style: visual_style,
+            kind: n.kind,
+            theme: engine.theme(),
+            hovered: self.hovered == Some(e),
+            pressed: self.pressed == Some(e),
+            focused: (self.focus_visible || n.kind == Kind::TextInput) && self.focused == Some(e),
             checked_progress,
-        );
+            focus_progress,
+        };
+        let visual_style = key.style;
         if !self.nodes.contains_key(&e) {
             let id = self
                 .tree
@@ -950,7 +1029,7 @@ impl Adapter {
                 Retained {
                     id,
                     style: style.as_ref().expect("new node layout").clone(),
-                    paint_key: key,
+                    paint_key: key.clone(),
                     spans: n.spans.to_vec(),
                     text: Arc::from(n.text),
                     children: Vec::new(),
@@ -967,8 +1046,14 @@ impl Adapter {
                 visual_style,
                 self.nodes[&e].text.clone(),
                 engine.theme(),
-                (key.3, key.4, key.5, key.6),
+                (key.hovered, key.pressed, key.focused, key.checked_progress),
                 self.font_family.clone(),
+            );
+            apply_button_focus(
+                &mut paint,
+                styled_button,
+                key.focus_progress,
+                engine.theme(),
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             paint.svg = svg.clone();
@@ -985,7 +1070,7 @@ impl Adapter {
             self.stats.style_writes += 1;
             self.geometry_dirty = true;
         }
-        let visual_changes = visual_style.changes_from(retained.paint_key.0);
+        let visual_changes = visual_style.changes_from(retained.paint_key.style);
         self.stats.changes |= visual_changes;
         if visual_changes.contains(plico_core::Changes::TRANSFORM) {
             fn has_anchor(engine: &Engine, entity: Entity) -> bool {
@@ -996,7 +1081,7 @@ impl Adapter {
             self.anchor_motion_dirty |= has_anchor(engine, e);
         }
         if visual_changes.contains(plico_core::Changes::TRANSFORM)
-            || visual_style.opacity != retained.paint_key.0.opacity
+            || visual_style.opacity != retained.paint_key.style.opacity
         {
             self.presentation_dirty = true;
             self.presentation_roots.insert(retained.id);
@@ -1006,14 +1091,15 @@ impl Adapter {
             Kind::Switch | Kind::Checkbox | Kind::Slider | Kind::TextInput
         ) && visual_changes.contains(plico_core::Changes::LAYOUT))
             || visual_changes.intersects(plico_core::Changes::PAINT | plico_core::Changes::MEASURE)
-            || retained.paint_key.1 != key.1
-            || retained.paint_key.2 != key.2
+            || retained.paint_key.kind != key.kind
+            || retained.paint_key.theme != key.theme
+            || retained.paint_key.focus_progress != key.focus_progress
             || (
-                retained.paint_key.3,
-                retained.paint_key.4,
-                retained.paint_key.5,
-                retained.paint_key.6,
-            ) != (key.3, key.4, key.5, key.6)
+                retained.paint_key.hovered,
+                retained.paint_key.pressed,
+                retained.paint_key.focused,
+                retained.paint_key.checked_progress,
+            ) != (key.hovered, key.pressed, key.focused, key.checked_progress)
             || retained.text.as_ref() != n.text
             || retained.spans != n.spans
             || self
@@ -1029,11 +1115,17 @@ impl Adapter {
             }
             let mut paint = make_paint(
                 n.kind,
-                visual_style,
+                key.style,
                 retained.text.clone(),
                 engine.theme(),
-                (key.3, key.4, key.5, key.6),
+                (key.hovered, key.pressed, key.focused, key.checked_progress),
                 self.font_family.clone(),
+            );
+            apply_button_focus(
+                &mut paint,
+                styled_button,
+                key.focus_progress,
+                engine.theme(),
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             retained.spans = n.spans.to_vec();
@@ -1634,6 +1726,15 @@ fn rich_runs(
         })
         .collect()
 }
+fn apply_button_focus(paint: &mut Paint, styled: bool, progress: f32, theme: Theme) {
+    if styled {
+        paint.outline_width = if progress > 0. { 2. } else { 0. };
+        paint.outline_offset = 2.;
+        paint.outline_color =
+            (progress > 0.).then(|| resolve(Token::Focus, theme).with_alpha(progress));
+    }
+}
+
 fn make_paint(
     kind: Kind,
     style: plico_core::Style,
@@ -1698,7 +1799,7 @@ fn make_paint(
         }));
     }
     if interactive(kind) {
-        if style.disabled && kind != Kind::ButtonBase {
+        if style.disabled && !matches!(kind, Kind::ButtonBase | Kind::Button) {
             p.opacity *= 0.45;
         }
         if kind == Kind::Button && p.background.is_none() {

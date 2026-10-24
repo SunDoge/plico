@@ -692,6 +692,10 @@ impl Layout<'_, '_> {
 /// Native operator spelling for the consuming children operation.
 /// The closure receives the child context; its return value is preserved.
 impl crate::ImplicitKey for Layout<'_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site);
@@ -1170,6 +1174,10 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
 }
 
 impl crate::ImplicitKey for Text<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1178,6 +1186,10 @@ impl crate::ImplicitKey for Text<'_, '_, '_> {
     }
 }
 impl crate::ImplicitKey for Button<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1186,6 +1198,10 @@ impl crate::ImplicitKey for Button<'_, '_, '_> {
     }
 }
 impl crate::ImplicitKey for ButtonBase<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1208,6 +1224,10 @@ pub struct Toggle<'u, 'e, 't> {
     value: &'t mut bool,
 }
 impl crate::ImplicitKey for Toggle<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1272,6 +1292,10 @@ pub struct Svg<'u, 'e> {
     inner: Leaf<'u, 'e, 'static>,
 }
 impl crate::ImplicitKey for Svg<'_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1389,6 +1413,10 @@ pub struct InputResponse {
     pub navigation: Option<crate::InputNavigation>,
 }
 impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1551,6 +1579,10 @@ impl<'e> Ui<'e> {
     }
 }
 impl crate::ImplicitKey for Shader<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
@@ -1678,6 +1710,10 @@ impl<'e> Ui<'e> {
     }
 }
 impl crate::ImplicitKey for Slider<'_, '_, '_> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.inner.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);

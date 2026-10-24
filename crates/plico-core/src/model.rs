@@ -11,6 +11,8 @@ fn is_false(value: &bool) -> bool {
 /// [`crate::Key`] keep it. App-defined builders implement this trait so the
 /// macro can key them the same way as the built-in widgets.
 pub trait ImplicitKey: Sized {
+    /// Set an explicit key, overriding any automatic identity.
+    fn key(self, key: impl Into<Key>) -> Self;
     /// Attach `site` as the generated key unless an explicit key is present.
     fn site_id(self, site: u64) -> Self;
 }

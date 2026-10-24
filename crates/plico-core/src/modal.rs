@@ -84,6 +84,10 @@ impl<'e> Ui<'e> {
     }
 }
 impl<'s> crate::ImplicitKey for Modal<'_, '_, 's> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = key.into();
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site);
@@ -92,10 +96,6 @@ impl<'s> crate::ImplicitKey for Modal<'_, '_, 's> {
     }
 }
 impl<'s> Modal<'_, '_, 's> {
-    pub fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
-    }
     pub fn title(mut self, title: impl Into<Cow<'s, str>>) -> Self {
         self.title = title.into();
         self
@@ -289,16 +289,16 @@ impl<'e> Ui<'e> {
     }
 }
 impl<'s> crate::ImplicitKey for Popover<'_, '_, 's> {
+    fn key(mut self, key: impl Into<Key>) -> Self {
+        self.modal = self.modal.key(key);
+        self
+    }
     fn site_id(mut self, site: u64) -> Self {
         self.modal = self.modal.site_id(site);
         self
     }
 }
 impl<'s> Popover<'_, '_, 's> {
-    pub fn key(mut self, key: impl Into<Key>) -> Self {
-        self.modal = self.modal.key(key);
-        self
-    }
     pub fn width(mut self, width: f32) -> Self {
         self.modal = self.modal.width(width);
         self
