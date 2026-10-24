@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plico 文字 A/B 对照</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 24px; background: #242426; color: #eee; font: 16px system-ui, sans-serif; }
+  h1 { font-size: 22px; margin-bottom: 12px; }
+  p { max-width: 70ch; line-height: 1.6; }
+  .controls { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; }
+  label { display: flex; gap: 8px; align-items: center; }
+  select, button { font: inherit; padding: 8px 12px; color: inherit; background: #353538;
+    border: 1px solid #777; border-radius: 5px; }
+  button[aria-pressed="true"] { background: #284c70; border-color: #a0cfff; }
+  button:focus-visible, select:focus-visible { outline: 2px solid #a0cfff; outline-offset: 3px; }
+  #modes { display: flex; flex-wrap: wrap; gap: 8px; }
+  #description { min-height: 3.2em; }
+  #viewport { position: fixed; left: 0; top: 0; overflow: hidden; box-sizing: content-box; }
+  #sample { position: absolute; left: 0; max-width: none; }
+  #status { color: #b9b9c0; }
+</style>
+<h1>Plico 文字 A/B 对照</h1>
+<p>按 1–4 切换同一行文字。图片按原物理像素显示，页面会根据浏览器 DPR 调整 CSS 尺寸。
+  这里显示的是离屏实验结果，不是浏览器自己绘制的文字。</p>
+<div class="controls">
+  <label>主题 <select id="theme"><option value="dark">深色</option><option value="light">浅色</option></select></label>
+  <label>字号 <select id="size"><option>12</option><option selected>14</option><option>16</option></select></label>
+  <label>字重 <select id="weight"><option value="400">Regular 400</option><option value="500">Medium 500</option></select></label>
+  <label>样张 DPI <select id="scale"><option>1</option><option selected>1.75</option></select></label>
+</div>
+<div id="modes" aria-label="渲染方案"></div>
+<p id="description"></p>
+<div id="viewport"><img id="sample" alt="中英文字形对照样本"></div>
+<p id="status" role="status" aria-live="polite"></p>
+<p>4 是离线文字覆盖率预览，尚未接入正式 renderer。比较时请关注：文字是否发灰、
+  横竖笔画是否均匀、封闭区域是否糊成一团；不要只选择看起来最粗的一组。</p>
+<script>
+const embeddedImages = {};
+const variants = [
+  ['system-default', '1 Generic 回退', '显式 sans-serif 字体回退；hint 开启，不默认做额外几何加粗。'],
+  ['noto-default', '2 修复后默认', 'Noto 字体栈、真实字重、hint 开启，不默认做额外几何加粗。'],
+  ['noto-coarse-embolden', '3 旧加粗策略', '相同 Noto 字体栈，但恢复修复前几何加粗 2 与 0.1px 扩张容差。'],
+  ['noto-coverage', '4 Coverage', 'Noto、hint 开启，取消几何加粗，应用冻结的源亮度覆盖率模型。']
+];
+const byId = id => document.getElementById(id);
+let selected=0, generation=0;
+const buttons = variants.map((variant,index) => {
+  const button=document.createElement('button');button.textContent=variant[1];
+  button.addEventListener('click',()=>{selected=index;render()});
+  byId('modes').append(button);return button;
+});
+async function render() {
+  const current=++generation;
+  document.body.dataset.state='loading';
+  const theme=byId('theme').value, scale=Number(byId('scale').value);
+  const size=Number(byId('size').value), weight=Number(byId('weight').value);
+  const variant=variants[selected];
+  buttons.forEach((button,index)=>button.setAttribute('aria-pressed',String(index===selected)));
+  byId('description').textContent=variant[2];
+  const filename=variant[0]==='noto-coverage'?'coverage-preview.png':`plico-text-quality-${scale}x.png`;
+  const image=byId('sample');
+  try {
+    await new Promise((resolve,reject)=>{
+      image.onload=resolve;image.onerror=reject;
+      const path=`${theme}/${scale}/${variant[0]}/${filename}`;
+      image.src=embeddedImages[path] ?? path;
+    });
+    if(current!==generation)return;
+    const dpr=devicePixelRatio, row=[12,14,16].indexOf(size)+(weight===500?3:0);
+    const height=40*scale, viewport=byId('viewport');
+    document.body.style.paddingTop=`${height/dpr+24}px`;
+    viewport.style.width=`${image.naturalWidth/dpr}px`;
+    viewport.style.height=`${height/dpr}px`;
+    viewport.style.background=theme==='dark'?'#18181b':'#f7f7f8';
+    image.style.width=`${image.naturalWidth/dpr}px`;
+    image.style.height=`${image.naturalHeight/dpr}px`;
+    image.style.top=`${-row*height/dpr}px`;
+    const bounds=viewport.getBoundingClientRect();
+    document.body.dataset.metrics=JSON.stringify({dpr,x:bounds.left*dpr,y:bounds.top*dpr,
+      width:bounds.width*dpr,height:bounds.height*dpr,sourceY:row*height,variant:variant[0]});
+    document.body.dataset.state='ready';
+    byId('status').textContent=`${variant[1]} · ${size}px / ${weight} · 样张 ${scale}x · 浏览器 DPR ${dpr} · 一个图像像素 = 一个物理像素`;
+  } catch(error) {
+    if(current!==generation)return;
+    document.body.dataset.state='error';
+    byId('status').textContent=`无法读取样张：${error}。请先运行 compare-small-text.py。`;
+  }
+}
+for(const id of ['theme','size','weight','scale'])byId(id).addEventListener('change',render);
+document.addEventListener('keydown',event=>{
+  if(event.ctrlKey||event.metaKey||event.altKey||event.target.tagName==='SELECT')return;
+  const index=Number(event.key)-1;
+  if(index>=0&&index<variants.length){selected=index;render()}
+});
+window.addEventListener('resize',render);
+render();
+</script>
+</html>
