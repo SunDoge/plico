@@ -47,6 +47,7 @@ winit = { workspace = true }
 pollster = "1.0"
 
 [dev-dependencies]
+usage-rs.workspace = true
 taffy.workspace = true
 tempfile = "3"
 
