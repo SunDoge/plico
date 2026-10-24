@@ -17,6 +17,12 @@ pub struct VirtualListResponse {
     pub rendered: Range<usize>,
     pub offset: f32,
 }
+impl<'u, 'e> crate::ImplicitKey for VirtualList<'u, 'e> {
+    fn site_id(mut self, site: u64) -> Self {
+        self.layout = self.layout.site_id(site);
+        self
+    }
+}
 impl<'u, 'e> VirtualList<'u, 'e> {
     pub(crate) fn new(cx: &'u mut UiContext<'e>, count: usize, row_height: f32) -> Self {
         assert!(
@@ -36,11 +42,6 @@ impl<'u, 'e> VirtualList<'u, 'e> {
             overscan: 2,
             reveal: None,
         }
-    }
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
-        self.layout = self.layout.__implicit_key(site);
-        self
     }
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.layout = self.layout.key(key);

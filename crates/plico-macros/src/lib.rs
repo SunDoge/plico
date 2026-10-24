@@ -194,7 +194,8 @@ impl VisitMut for Expand {
                     | "svg_source"
             ) {
                 let site = self.site();
-                *expr = parse_quote!((#call).__implicit_key(#site));
+                let runtime = &self.runtime;
+                *expr = parse_quote!(#runtime::ImplicitKey::site_id(#call, #site));
             } else if matches!(name.as_str(), "switch" | "checkbox") && call.args.len() == 2 {
                 let site = self.site();
                 let runtime = &self.runtime;
@@ -243,10 +244,11 @@ impl VisitMut for Expand {
                 false
             };
             let site = self.site();
+            let runtime = &self.runtime;
             if constructor || self.builder_root {
                 // A borrowing builder cannot escape a temporary scope closure.
                 // Attach its call-site identity directly, just like Ui methods.
-                *expr = parse_quote!((#call).__implicit_key(#site));
+                *expr = parse_quote!(#runtime::ImplicitKey::site_id(#call, #site));
             } else {
                 let ui = &self.ui;
                 let original: Expr = parse_quote!(#call);

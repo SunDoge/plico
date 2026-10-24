@@ -542,13 +542,6 @@ impl Layout<'_, '_> {
         }
         self
     }
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
-        if matches!(self.key, Key::Auto(_)) {
-            self.key = Key::Generated(site);
-        }
-        self
-    }
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.key = key.into();
         self
@@ -698,6 +691,14 @@ impl Layout<'_, '_> {
 }
 /// Native operator spelling for the consuming children operation.
 /// The closure receives the child context; its return value is preserved.
+impl crate::ImplicitKey for Layout<'_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.key, Key::Auto(_)) {
+            self.key = Key::Generated(site);
+        }
+        self
+    }
+}
 impl<F, R> std::ops::Add<F> for Layout<'_, '_>
 where
     F: FnOnce(&mut Ui<'_>) -> R,
@@ -734,6 +735,7 @@ impl Leaf<'_, '_, '_> {
             style.gap = ui.theme().metrics.space(2) as f32;
         }
         style.disabled |= ui.inherited.disabled;
+        style.styled_button = styled;
         if styled && style.disabled {
             style.opacity *= 0.45;
         }
@@ -986,13 +988,6 @@ macro_rules! common {
                 self.grid_column(crate::GridLine::Auto, crate::GridLine::Span(count))
             }
 
-            #[doc(hidden)]
-            pub fn __implicit_key(mut self, site: u64) -> Self {
-                if matches!(self.inner.key, Key::Auto(_)) {
-                    self.inner.key = Key::Generated(site);
-                }
-                self
-            }
             pub fn key(mut self, key: impl Into<Key>) -> Self {
                 self.inner.key = key.into();
                 self
@@ -1142,7 +1137,9 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                         .size(size, size);
                 }
                 if !text.is_empty() {
-                    cx.text(text.as_ref()).key(Key::Static("__button_text"));
+                    cx.text(text.as_ref())
+                        .key(Key::Static("__button_text"))
+                        .ellipsis(true);
                 }
             })
             .response
@@ -1172,6 +1169,30 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     }
 }
 
+impl crate::ImplicitKey for Text<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
+}
+impl crate::ImplicitKey for Button<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
+}
+impl crate::ImplicitKey for ButtonBase<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
+}
 impl Drop for Button<'_, '_, '_> {
     fn drop(&mut self) {
         if self.composable && self.inner.ui.is_some() {
@@ -1185,6 +1206,14 @@ impl Drop for Button<'_, '_, '_> {
 pub struct Toggle<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
     value: &'t mut bool,
+}
+impl crate::ImplicitKey for Toggle<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
 }
 impl Toggle<'_, '_, '_> {
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -1242,14 +1271,15 @@ impl ToggleResponse {
 pub struct Svg<'u, 'e> {
     inner: Leaf<'u, 'e, 'static>,
 }
-impl Svg<'_, '_> {
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
+impl crate::ImplicitKey for Svg<'_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
         if matches!(self.inner.key, Key::Auto(_)) {
             self.inner.key = Key::Generated(site);
         }
         self
     }
+}
+impl Svg<'_, '_> {
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.inner.key = key.into();
         self
@@ -1357,6 +1387,14 @@ pub struct InputResponse {
     pub changed: bool,
     pub submitted: bool,
     pub navigation: Option<crate::InputNavigation>,
+}
+impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
 }
 impl<'t> Input<'_, '_, 't> {
     /// Explicitly reveal a secret in a supporting native editor.
@@ -1512,6 +1550,14 @@ impl<'e> Ui<'e> {
         }
     }
 }
+impl crate::ImplicitKey for Shader<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
+    }
+}
 impl Shader<'_, '_, '_> {
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();
@@ -1629,6 +1675,14 @@ impl<'e> Ui<'e> {
             node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
         }
         input.map(|_| range.value)
+    }
+}
+impl crate::ImplicitKey for Slider<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        if matches!(self.inner.key, Key::Auto(_)) {
+            self.inner.key = Key::Generated(site);
+        }
+        self
     }
 }
 impl Slider<'_, '_, '_> {

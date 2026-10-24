@@ -17,14 +17,15 @@ pub fn tooltip<'u, 'e, 't>(
         description: description.into(),
     }
 }
-impl Tooltip<'_, '_, '_> {
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
+impl crate::ImplicitKey for Tooltip<'_, '_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
         }
         self
     }
+}
+impl Tooltip<'_, '_, '_> {
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.key = key.into();
         self

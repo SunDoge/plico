@@ -7,10 +7,10 @@ pub mod glass;
 mod layout_demo;
 pub mod markdown_chat;
 pub mod workspace;
-use components::{icon_button, nav_item};
+use components::icon_button;
 use plico_core::widgets::{
-    badge, button, checkbox, collapsible, column, progress, row, segmented, separator, svg, switch,
-    text, virtual_list,
+    badge, button, checkbox, collapsible, column, nav_item, progress, row, segmented, separator,
+    svg, switch, text, virtual_list,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -96,7 +96,7 @@ impl App for Gallery {
     fn show(&mut self, ui: &mut UiContext) {
         let m = ui.theme().metrics;
         row(ui).width_percent(100.).height_percent(100.).align(Align::Stretch) + |ui| {
-            column(ui).width(164.).shrink(0.).padding(12).gap(12).background(Color::Panel) + |ui| {
+            column(ui).width(192.).shrink(0.).padding(12).gap(12).background(Color::Panel) + |ui| {
                 row(ui).gap(8) + |ui| {
                     svg(ui, &LOGO).size(26., 26.);
                     text(ui, "plico").font_size(23).weight(750);
@@ -151,7 +151,7 @@ impl Gallery {
             Page::Markdown => &crate::icons::MESSAGE_SQUARE,
             Page::Glass => &crate::icons::LAYERS,
         };
-        if nav_item(ui, label, self.router.show(page), image).clicked() {
+        if nav_item(ui, label, self.router.show(page), Some(image)).clicked() {
             self.router.go(page);
         }
     }
@@ -179,134 +179,151 @@ impl Gallery {
     #[rustfmt::skip]
     fn controls_page(&mut self, ui: &mut UiContext) {
         heading(ui, "Controls", "Small interactions, shared state. Leave the page and your values stay.");
-        column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-            text(ui, "Buttons & feedback").font_size(17).weight(650);
-            row(ui).gap(8).wrap(true) + |ui| {
-                let increment = plico_core::widgets::tooltip(ui, "Add one to the counter").children(|ui| {
-                    icon_button(ui, "Increment", &crate::icons::PLUS, true, true)
-                });
-                if increment.inner.clicked() {
-                    self.count += 1;
-                }
-                let reset = plico_core::widgets::tooltip(ui, "Reset the counter to zero").children(|ui| {
-                    icon_button(ui, "Reset", &crate::icons::ROTATE_CCW, true, false)
-                });
-                if reset.inner.clicked() {
-                    self.count = 0;
-                }
-                icon_button(ui, "Disabled", &crate::icons::LOCK, false, false);
-            };
-            row(ui).gap(12).align(Align::Center).wrap(true).children(|ui| {
-                plico_core::text!(ui, "Clicked {} times", self.count).font_size(24).weight(650).grow(1.);
-                plico_core::widgets::popover(ui, &mut self.quick_settings, "Quick settings") + |ui| {
-                    text(ui, "Workspace").weight(650);
-                    switch(ui, "Notifications", &mut self.notifications);
-                    checkbox(ui, "Save automatically", &mut self.autosave);
-                    separator(ui);
-                    row(ui).gap(8).align(Align::Center).children(|ui| {
-                        if button(ui).text("Done").primary().clicked() {
-                            ui.close_popover();
-                        }
-                        plico_core::widgets::menu(ui, &mut self.action_menu, "Actions") + |ui| {
-                            if plico_core::widgets::menu_item(ui, "Increment count")
-                                .icon(&crate::icons::PLUS).clicked()
-                            {
-                                self.count += 1;
-                            }
-                            if plico_core::widgets::menu_item(ui, "Reset count")
-                                .icon(&crate::icons::ROTATE_CCW).disabled(self.count == 0).clicked()
-                            {
-                                self.count = 0;
-                            }
-                        };
-                    })
+        column(ui).height(0.).grow(1.).scroll_y(true).gap(16) + |ui| {
+            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                text(ui, "Buttons & feedback").font_size(17).weight(650);
+                row(ui).gap(8).wrap(true) + |ui| {
+                    let increment =
+                        plico_core::widgets::tooltip(ui, "Add one to the counter").children(|ui| {
+                            icon_button(ui, "Increment", &crate::icons::PLUS, true, true)
+                        });
+                    if increment.inner.clicked() {
+                        self.count += 1;
+                    }
+                    let reset =
+                        plico_core::widgets::tooltip(ui, "Reset the counter to zero").children(|ui| {
+                            icon_button(ui, "Reset", &crate::icons::ROTATE_CCW, true, false)
+                        });
+                    if reset.inner.clicked() {
+                        self.count = 0;
+                    }
+                    icon_button(ui, "Disabled", &crate::icons::LOCK, false, false);
                 };
-            })
-        };
-        let mut applied = false;
-        plico_core::widgets::modal(ui, &mut self.dialog).title("Workspace preferences") + |ui| {
-            text(ui, "Choose how this workspace keeps you up to date.").color(Color::Muted);
-            checkbox(ui, "Enable notifications", &mut self.preview_notifications);
-            separator(ui);
-            row(ui).gap(8).justify(Justify::End).wrap(true) + |ui| {
-                if button(ui).text("Cancel").ghost().clicked() {
-                    ui.close_modal();
-                }
-                if button(ui).text("Save preferences").primary().clicked() {
-                    self.confirm_dialog.open();
-                }
-            };
-            plico_core::widgets::modal(ui, &mut self.confirm_dialog).title("Apply preferences?") + |ui| {
-                text(ui, "Your notification preference will apply to this workspace.").color(Color::Muted);
-                row(ui).gap(8).justify(Justify::End).wrap(true).children(|ui| {
-                    if button(ui).text("Keep editing").ghost().clicked() {
-                        ui.close_modal();
-                    }
-                    if button(ui).text("Apply changes").primary().clicked() {
-                        self.notifications = self.preview_notifications;
-                        applied = true;
-                        ui.close_modal();
-                    }
+                row(ui).gap(12).align(Align::Center).wrap(true).children(|ui| {
+                    plico_core::text!(ui, "Clicked {} times", self.count).font_size(24).weight(650)
+                        .grow(1.);
+                    plico_core::widgets::popover(ui, &mut self.quick_settings, "Quick settings") + |ui| {
+                        text(ui, "Workspace").weight(650);
+                        switch(ui, "Notifications", &mut self.notifications);
+                        checkbox(ui, "Save automatically", &mut self.autosave);
+                        separator(ui);
+                        row(ui).gap(8).align(Align::Center).children(|ui| {
+                            if button(ui).text("Done").primary().clicked() {
+                                ui.close_popover();
+                            }
+                            plico_core::widgets::menu(ui, &mut self.action_menu, "Actions") + |ui| {
+                                if plico_core::widgets::menu_item(ui, "Increment count")
+                                    .icon(&crate::icons::PLUS).clicked()
+                                {
+                                    self.count += 1;
+                                }
+                                if plico_core::widgets::menu_item(ui, "Reset count")
+                                    .icon(&crate::icons::ROTATE_CCW).disabled(self.count == 0).clicked()
+                                {
+                                    self.count = 0;
+                                }
+                            };
+                        })
+                    };
                 })
             };
-        };
-        if applied {
-            self.dialog.close();
-            ui.request_rebuild();
-        }
-        column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-            text(ui, "Preferences").font_size(17).weight(650);
-            row(ui).gap(8).wrap(true) + |ui| {
-                switch(ui, "Notifications", &mut self.notifications).motion(Motion::Smooth);
-                if button(ui).text("Edit preferences").font_size(12).clicked() {
-                    self.preview_notifications = self.notifications;
-                    self.dialog.open();
-                }
+            let mut applied = false;
+            plico_core::widgets::modal(ui, &mut self.dialog).title("Workspace preferences") + |ui| {
+                text(ui, "Choose how this workspace keeps you up to date.").color(Color::Muted);
+                checkbox(ui, "Enable notifications", &mut self.preview_notifications);
+                separator(ui);
+                row(ui).gap(8).justify(Justify::End).wrap(true) + |ui| {
+                    if button(ui).text("Cancel").ghost().clicked() {
+                        ui.close_modal();
+                    }
+                    if button(ui).text("Save preferences").primary().clicked() {
+                        self.confirm_dialog.open();
+                    }
+                };
+                plico_core::widgets::modal(ui, &mut self.confirm_dialog).title("Apply preferences?") + |ui| {
+                    text(ui, "Your notification preference will apply to this workspace.").color(Color::Muted);
+                    row(ui).gap(8).justify(Justify::End).wrap(true).children(|ui| {
+                        if button(ui).text("Keep editing").ghost().clicked() {
+                            ui.close_modal();
+                        }
+                        if button(ui).text("Apply changes").primary().clicked() {
+                            self.notifications = self.preview_notifications;
+                            applied = true;
+                            ui.close_modal();
+                        }
+                    })
+                };
             };
-            row(ui).gap(8).wrap(true) + |ui| {
-                checkbox(ui, "Save automatically", &mut self.autosave);
-                checkbox(ui, "Disabled", &mut self.autosave).disabled(true);
-            };
-            text(
-                ui,
-                if self.notifications { "Notifications are enabled" } else { "Notifications are paused" },
-            ).font_size(12).color(Color::Muted);
-        };
-        column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-            row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                text(ui, "Release channel").font_size(17).weight(650).grow(1.);
-                badge(ui, if self.release_channel == 0 { "Recommended" } else { "Preview" });
-            };
-            let channels = [
-                plico_core::SelectOption::new("stable", 0, "Stable"),
-                plico_core::SelectOption::new("beta", 1, "Beta"),
-                plico_core::SelectOption::new("nightly", 2, "Nightly"),
-            ];
-            row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                segmented(ui, &mut self.release_channel, &["Stable", "Beta", "Nightly"]);
-                plico_core::widgets::select(ui, &mut self.channel_select, "Channel", &mut self.release_channel,
-                    &channels).width(132.);
-            };
-            separator(ui);
-            collapsible(ui, "Channel details", &mut self.release_details, |ui| {
-                progress(
-                    ui,
-                    "Validation coverage",
-                    match self.release_channel {
-                        1 => 0.75,
-                        2 => 0.4,
-                        _ => 1.,
-                    },
-                );
+            if applied {
+                self.dialog.close();
+                ui.request_rebuild();
+            }
+            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                text(ui, "Preferences").font_size(17).weight(650);
+                row(ui).gap(8).wrap(true) + |ui| {
+                    switch(ui, "Notifications", &mut self.notifications).motion(Motion::Smooth);
+                    if button(ui).text("Edit preferences").font_size(12).clicked() {
+                        self.preview_notifications = self.notifications;
+                        self.dialog.open();
+                    }
+                };
+                row(ui).gap(8).wrap(true) + |ui| {
+                    checkbox(ui, "Save automatically", &mut self.autosave);
+                    checkbox(ui, "Disabled", &mut self.autosave).disabled(true);
+                };
                 text(
                     ui,
-                    match self.release_channel {
-                        1 => "Early access with occasional breaking changes.",
-                        2 => "Daily builds for testing the latest changes.",
-                        _ => "Tested releases for everyday projects.",
-                    },
-                ).color(Color::Muted).font_size(12);
-            });
+                    if self.notifications { "Notifications are enabled" } else { "Notifications are paused" },
+                ).font_size(12).color(Color::Muted);
+            };
+            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+                    text(ui, "Release channel").font_size(17).weight(650).grow(1.);
+                    badge(ui, if self.release_channel == 0 { "Recommended" } else { "Preview" });
+                };
+                let channels = [
+                    plico_core::SelectOption::new("stable", 0, "Stable"),
+                    plico_core::SelectOption::new("beta", 1, "Beta"),
+                    plico_core::SelectOption::new("nightly", 2, "Nightly"),
+                ];
+                row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+                    segmented(ui, &mut self.release_channel, &["Stable", "Beta", "Nightly"]);
+                    plico_core::widgets::select(ui, &mut self.channel_select, "Channel",
+                        &mut self.release_channel, &channels).width(132.);
+                };
+                separator(ui);
+                collapsible(ui, "Channel details", &mut self.release_details, |ui| {
+                    progress(
+                        ui,
+                        "Validation coverage",
+                        match self.release_channel {
+                            1 => 0.75,
+                            2 => 0.4,
+                            _ => 1.,
+                        },
+                    );
+                    text(
+                        ui,
+                        match self.release_channel {
+                            1 => "Early access with occasional breaking changes.",
+                            2 => "Daily builds for testing the latest changes.",
+                            _ => "Tested releases for everyday projects.",
+                        },
+                    ).color(Color::Muted).font_size(12);
+                });
+            };
+            column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                text(ui, "Icon & label alignment").font_size(17).weight(650);
+                row(ui).gap(8).wrap(true) + |ui| {
+                    button(ui).icon(&crate::icons::SAVE).text("Save changes").height(40.);
+                    button(ui).icon(&crate::icons::SAVE).text("保存更改").height(40.);
+                    button(ui).icon(&crate::icons::SAVE).text("Agjp 0123").font_size(18).height(40.);
+                    button(ui).icon(&crate::icons::SAVE).text("A long action label that stays on one line")
+                        .width(180.).height(40.);
+                };
+                text(ui, "Icons keep their size; constrained action labels truncate without losing their accessible name.")
+                    .font_size(12).color(Color::Muted);
+            };
         };
     }
     #[component]

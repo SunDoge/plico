@@ -4,6 +4,17 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Attaches a stable call-site identity to a builder for automatic node keys.
+///
+/// The `#[component]` macro injects `site_id` at builder call sites inside
+/// component functions; builders that already carry an explicit
+/// [`crate::Key`] keep it. App-defined builders implement this trait so the
+/// macro can key them the same way as the built-in widgets.
+pub trait ImplicitKey: Sized {
+    /// Attach `site` as the generated key unless an explicit key is present.
+    fn site_id(self, site: u64) -> Self;
+}
+
 /// Static labels and numeric business IDs require no per-frame String allocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -349,6 +360,9 @@ pub struct Style {
     pub background: Option<Color>,
     #[invalidates(PAINT, SEMANTICS, HIT_TEST)]
     pub disabled: bool,
+    /// Styled composite button; native hosts may animate its disabled attenuation.
+    #[invalidates(PAINT)]
+    pub styled_button: bool,
     #[invalidates(PAINT, SEMANTICS)]
     pub checked: bool,
     #[invalidates(PAINT, SEMANTICS)]
@@ -424,6 +438,7 @@ impl Default for Style {
             foreground: Color::Foreground,
             background: None,
             disabled: false,
+            styled_button: false,
             checked: false,
             input_revision: 0,
             input_navigation: false,

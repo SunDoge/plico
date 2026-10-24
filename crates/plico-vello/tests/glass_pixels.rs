@@ -301,5 +301,10 @@ fn backdrop_filter_layer_is_clipped_to_the_card() {
         (x1 - x0) < 400. && (y1 - y0) < 300.,
         "filter clip {filter_clips:?} covers the card, not the 1120x820 viewport"
     );
-    assert!((220. ..230.).contains(&x0) && (310. ..335.).contains(&y0));
+    // The content inset follows the 192px sidebar; keep this range tracking
+    // deliberate layout changes rather than silent drift.
+    assert!(
+        (244. ..260.).contains(&x0) && (310. ..335.).contains(&y0),
+        "clip bounds moved: {filter_clips:?}"
+    );
 }

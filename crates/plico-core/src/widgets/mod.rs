@@ -97,15 +97,11 @@ impl<'a> Button<'a> {
 impl Widget for Button<'_> {
     type Response = Response;
     fn show(self, ui: &mut Ui<'_>) -> Response {
+        let button = self.bind(ui);
         if let Some(icon) = self.icon {
-            self.bind(ui)
-                .children(|ui| {
-                    ui.svg(icon).size(18., 18.);
-                    ui.text(self.label.as_ref());
-                })
-                .response
+            button.icon(icon).text(self.label.as_ref()).response()
         } else {
-            self.bind(ui).response()
+            button.response()
         }
     }
 }
@@ -219,7 +215,9 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 }
 
 mod composite;
-pub use composite::{badge, choice, collapsible, progress, segmented, separator};
+pub use composite::{
+    Panel, badge, choice, collapsible, nav_item, panel, progress, segmented, separator, stat,
+};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

@@ -1,5 +1,5 @@
 //! Composed controls use the same public API as application components.
-use crate::{icons, prelude::*};
+use crate::{Layout, icons, prelude::*};
 
 /// A noninteractive status label. Color follows the current theme.
 #[component]
@@ -12,6 +12,130 @@ pub fn badge(cx: &mut UiContext, label: &str) {
         .radius(m.radius as f32)
         .background(Color::Selection)
         .color(Color::Accent);
+}
+
+/// A titled content panel: the card container repeated across applications
+/// (sidebar sections, metric groups, inspector cards). Padding, gap, radius
+/// and colors derive from the current theme metrics.
+pub struct Panel<'u, 'e> {
+    layout: Layout<'u, 'e>,
+    title: Option<&'u str>,
+    font_size: u16,
+}
+/// Start a panel with an optional title row above the content.
+pub fn panel<'u, 'e>(
+    cx: &'u mut UiContext<'e>,
+    title: impl Into<Option<&'u str>>,
+) -> Panel<'u, 'e> {
+    let m = cx.theme().metrics;
+    Panel {
+        layout: column(cx)
+            .padding(m.space(4))
+            .gap(m.space(3))
+            .radius(m.radius as f32 + 4.)
+            .background(Color::Panel)
+            .border(1., Color::Border),
+        title: title.into(),
+        font_size: m.font_size,
+    }
+}
+impl crate::ImplicitKey for Panel<'_, '_> {
+    fn site_id(mut self, site: u64) -> Self {
+        self.layout = self.layout.site_id(site);
+        self
+    }
+}
+impl Panel<'_, '_> {
+    /// Override the derived inner padding, in theme space steps.
+    pub fn padding(mut self, padding: u16) -> Self {
+        self.layout = self.layout.padding(padding);
+        self
+    }
+    /// Panel content under the optional title. The closure's return value is
+    /// preserved.
+    pub fn children<R>(self, content: impl FnOnce(&mut UiContext) -> R) -> InnerResponse<R> {
+        let title = self.title;
+        let font_size = self.font_size;
+        self.layout.children(|cx| {
+            if let Some(title) = title {
+                text(cx, title).font_size(font_size).weight(650);
+            }
+            content(cx)
+        })
+    }
+}
+/// Native `+ |cx| { ... }` children spelling for panels.
+impl<F, R> std::ops::Add<F> for Panel<'_, '_>
+where
+    F: FnOnce(&mut UiContext) -> R,
+{
+    type Output = InnerResponse<R>;
+    fn add(self, build: F) -> Self::Output {
+        self.children(build)
+    }
+}
+
+/// A labeled statistic: small muted label, large value, optional muted
+/// caption. The card shape repeated across dashboards.
+#[component]
+pub fn stat(cx: &mut UiContext, label: &str, value: &str, caption: Option<&str>) {
+    let m = cx.theme().metrics;
+    let _ = panel(cx, None).padding(m.space(3)).children(|cx| {
+        text(cx, label)
+            .font_size(m.label_size)
+            .weight(600)
+            .color(Color::Muted);
+        text(cx, value).font_size(m.font_size + 12).weight(700);
+        if let Some(caption) = caption {
+            text(cx, caption)
+                .font_size(m.label_size)
+                .color(Color::Muted);
+        }
+    });
+}
+
+/// A sidebar navigation entry bound to a [`crate::Router`]-owned route.
+/// Selected state colors follow the theme; the icon is optional. The
+/// declaration site owns the navigation call on [`Response::clicked`].
+#[component]
+pub fn nav_item(
+    cx: &mut UiContext,
+    label: &str,
+    selected: bool,
+    icon: Option<&crate::SvgAsset>,
+) -> Response {
+    let m = cx.theme().metrics;
+    button_base(cx, label)
+        .width_percent(100.)
+        .padding_x(m.space(2))
+        .padding_y(m.space(1))
+        .height(m.control_height as f32 + 4.)
+        .radius(m.radius as f32)
+        .background(if selected {
+            Color::Selection
+        } else {
+            Color::Panel
+        })
+        .hover_background(Color::ControlHover)
+        .pressed_background(Color::ControlPressed)
+        .color(if selected {
+            Color::Accent
+        } else {
+            Color::Muted
+        })
+        .selected(selected)
+        .transition(m.interaction_ms)
+        .gap(m.spacing)
+        .children(|cx| {
+            if let Some(icon) = icon {
+                crate::widgets::icon(cx, icon);
+            }
+            text(cx, label)
+                .weight(if selected { 600 } else { 400 })
+                .font_size(m.font_size)
+                .ellipsis(true);
+        })
+        .response
 }
 
 /// A horizontal divider that stretches to the available width.

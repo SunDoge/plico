@@ -1,5 +1,5 @@
-use crate::components::{icon_button, panel, project_tile};
-use plico_core::widgets::{checkbox, column, row, switch, text};
+use crate::components::{icon_button, project_tile};
+use plico_core::widgets::{checkbox, column, panel, row, switch, text};
 use plico_core::{Color, Justify, UiContext, component};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

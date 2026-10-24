@@ -32,14 +32,15 @@ pub fn menu_item<'u, 'e, 's>(
         icon: None,
     }
 }
-impl<'s> MenuItem<'_, '_, 's> {
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
+impl<'s> crate::ImplicitKey for MenuItem<'_, '_, 's> {
+    fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
         }
         self
     }
+}
+impl<'s> MenuItem<'_, '_, 's> {
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.key = key.into();
         self
@@ -78,9 +79,9 @@ impl<'s> MenuItem<'_, '_, 's> {
             .hover_background(Color::ControlHover)
             .children(|cx| {
                 if let Some(icon) = self.icon {
-                    svg(cx, icon).size(16., 16.);
+                    crate::widgets::icon(cx, icon);
                 }
-                text(cx, self.label.as_ref()).grow(1.);
+                text(cx, self.label.as_ref()).grow(1.).ellipsis(true);
             })
             .response;
         if response.clicked() {
@@ -156,14 +157,15 @@ pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
         motion: Motion::Quick,
     }
 }
-impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
-    #[doc(hidden)]
-    pub fn __implicit_key(mut self, site: u64) -> Self {
+impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
+    fn site_id(mut self, site: u64) -> Self {
         if matches!(self.key, Key::Auto(_)) {
             self.key = Key::Generated(site)
         }
         self
     }
+}
+impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         self.key = key.into();
         self
@@ -233,11 +235,16 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
                         .radius(m.radius as f32)
                         .background(if on { Color::Selection } else { Color::Panel })
                         .children(|cx| {
-                            text(cx, option.label).grow(1.);
+                            text(cx, option.label).grow(1.).ellipsis(true);
+                            let side = cx.inherited.font_size.saturating_add(2) as f32;
                             if on {
-                                svg(cx, &crate::icons::CHECK).size(16., 16.);
+                                svg(cx, &crate::icons::CHECK).size(side, side);
                             } else {
-                                let _ = column(cx).width(16.).height(16.).children(|_cx| {});
+                                let _ = column(cx)
+                                    .width(side)
+                                    .height(side)
+                                    .shrink(0.)
+                                    .children(|_cx| {});
                             }
                         })
                         .response;

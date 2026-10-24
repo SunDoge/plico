@@ -29,9 +29,9 @@ pub use asset::SvgAsset;
 pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
-    Align, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, Justify, Key, Kind,
-    KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff, StyleProperties,
-    TextSpan, UnmatchedPaths, WidgetRole,
+    Align, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, ImplicitKey, Justify,
+    Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff,
+    StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, component, text, view};
 pub use router::{DEFAULT_HISTORY_LIMIT, Router};
@@ -125,17 +125,17 @@ pub mod __private {
 /// Recommended imports for application and custom widget modules.
 pub mod prelude {
     pub use crate::widgets::{
-        Button, Checkbox, Switch, badge, button, button_base, checkbox, choice, collapsible,
-        column, grid, icon, menu, menu_item, modal, popover, progress, row, segmented, select,
-        separator, shader, slider, svg, svg_source, switch, text, text_input, tooltip,
-        virtual_list,
+        Button, Checkbox, Panel, Switch, badge, button, button_base, checkbox, choice, collapsible,
+        column, grid, icon, menu, menu_item, modal, nav_item, panel, popover, progress, row,
+        segmented, select, separator, shader, slider, stat, svg, svg_source, switch, text,
+        text_input, tooltip, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
-        GridFlow, GridLine, GridTemplate, InnerResponse, InputNavigation, InputResponse, Justify,
-        Length, Metrics, ModalState, Motion, PopoverState, Position, Response, Router,
-        SelectOption, SelectResponse, ShaderAsset, SliderResponse, SvgAsset, TextBuffer, Theme,
-        ToggleResponse, Track, TrackSize, Ui, UiContext, VirtualList, VirtualListResponse, Widget,
-        component, fr, minmax, percent, px, text, view,
+        GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
+        InputResponse, Justify, Length, Metrics, ModalState, Motion, PopoverState, Position,
+        Response, Router, SelectOption, SelectResponse, ShaderAsset, SliderResponse, SvgAsset,
+        TextBuffer, Theme, ToggleResponse, Track, TrackSize, Ui, UiContext, VirtualList,
+        VirtualListResponse, Widget, component, fr, minmax, percent, px, text, view,
     };
 }
