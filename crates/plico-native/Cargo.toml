@@ -1,0 +1,29 @@
+[package]
+name = "plico-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru"]
+
+[dependencies]
+snafu.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cairo-rs = { version = "0.18", optional = true }
+pango = { version = "0.18", optional = true }
+pangocairo = { version = "0.18", optional = true }
+lru = { version = "0.18.5", optional = true }
+
+[[example]]
+name = "system_text"
+required-features = ["linux-text"]
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+plico-renderer.workspace = true
+plico-shell.workspace = true
+image = { workspace = true, features = ["png"] }
+vello-common.workspace = true

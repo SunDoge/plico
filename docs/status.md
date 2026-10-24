@@ -54,3 +54,7 @@ cargo plico icons check --output apps/gallery/src/icons.rs
 通过 plico new 创建的独立项目已完成静态入口编译和真实 headless 模块加载，
 点击 Increment 后业务状态从 0 变为 1，后续快照保持 1。
 依赖锁文件已清除 Rune、reactive_graph、Sycamore 及仅供旧实验使用的依赖。
+
+## Optional native text
+
+Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). Ordinary widget/editor integration, desktop font settings, CoreText and DirectWrite are not implemented.

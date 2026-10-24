@@ -80,3 +80,7 @@
 - [trailing_closure 展开器评审](experiments/trailing-closure-review.md)：用户提供实现的 AST/span 机制、逻辑或冲突与 GUI API 边界。
 
 - [Native window zoom](window-zoom.md): host scaling, input/IME projection and gallery verification example.
+
+## Optional native services
+
+[Linux native text](native-text.md): Pango/Cairo layout, physical-pixel bitmaps, bounded caching and GPU comparison. Opt-in; ordinary text widgets still use Parley/Vello.

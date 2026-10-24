@@ -60,7 +60,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libwayland-dev libxkbcommon-dev \
+            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
             fonts-dejavu-core fonts-noto-cjk
       - name: Check every target and feature
@@ -86,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libwayland-dev libxkbcommon-dev \
+            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
             libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk
           mkdir -p "$XDG_RUNTIME_DIR"
