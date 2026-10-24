@@ -1,0 +1,41 @@
+[workspace]
+# Released versions come from Git tags; never publish to a Cargo registry.
+git_only = true
+release_always = false
+semver_check = false
+dependencies_update = false
+# Every package shares workspace.package.version and the same baseline tag.
+git_tag_name = "v{{ version }}"
+git_tag_enable = false
+git_release_enable = false
+changelog_update = false
+
+[[package]]
+name = "plico-cli"
+# One repository tag, rather than a tag for every crate and demo.
+git_tag_enable = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = [
+    "plico-backend-settings",
+    "plico-core",
+    "plico-dev",
+    "plico-editor",
+    "plico-fltk",
+    "plico-gallery",
+    "plico-launcher",
+    "plico-lvgl",
+    "plico-lvgl-esp32p4",
+    "plico-macros",
+    "plico-markdown",
+    "plico-motion",
+    "plico-native",
+    "plico-renderer",
+    "plico-services-demo",
+    "plico-shell",
+    "plico-terminal",
+    "plico-terminal-widget",
+    "plico-vello",
+    "plico-web-demo",
+    "plico-web-host",
+]

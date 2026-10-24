@@ -32,7 +32,7 @@ cog commit feat "add controlled text input" ui
 cog check
 ```
 
-按独立行为组织提交，描述改动结果。只运行与改动相关的检查；代码改动可根据范围运行 cargo test、cargo clippy 与格式检查。当前不配置自动发布、版本 bump 或打 tag。
+按独立行为组织提交，描述改动结果。只运行与改动相关的检查；代码改动可根据范围运行 cargo test、cargo clippy 与格式检查。版本更新和 Git tag 由下述 release-plz 流程管理；暂不发布到 crates.io。
 
 ## CI
 
@@ -77,4 +77,35 @@ workspace 成员（框架、后端、CLI 和示例应用）统一使用根 `Carg
 
 排除在 workspace 之外的 `crates/plico-vello/reference` 保留历史版本；`plico new` 创建的
 独立用户应用有自己的版本，不随框架一起修改。包版本不代替热重载协议或 ABI 的兼容性检查。
-本次统一版本没有发布 crate，也没有修改协议版本或增加自动发布流程。
+统一包版本不改变协议版本；目前通过 release-plz 管理 Git-only 发布。
+
+## Git-only release
+
+`.github/workflows/release.yml` 使用固定版本的 release-plz。main 更新时先执行
+`release`，再执行 `release-pr`：普通提交只创建或更新 release PR；合并
+`release-plz-*` 分支的 PR 后，才创建统一的 `vX.Y.Z` tag。也可在 main 手动运行
+Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不等待 CI。
+
+`release-plz.toml` 使用 `git_only = true`，以 Git tag 为版本基线，不从 Cargo registry 查询已发布版本，
+也不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
+目前关闭 GitHub Release 和安装包上传。所有成员继续继承 workspace 版本，
+只由 `plico-cli` 创建 tag，其他 package 的变更汇总进根 `CHANGELOG.md`。
+第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
+新增 workspace 成员时，将它加入 `changelog_include`。
+
+仓库 Settings → Actions → General 必须允许 Actions 创建 PR。
+workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触发后续 CI。
+如果需要 release PR 和 tag 自动触发其他 workflow，配置仓库 secret
+`RELEASE_PLZ_TOKEN`，使用仅对本仓库拥有 Contents 与 Pull requests 读写权限的
+fine-grained PAT，workflow 会优先使用它。没有这个 secret 时，可由维护者手动
+关闭并重新打开 release PR 以触发 CI。这里不需要设置任何 Cargo registry secret。
+
+本地验证不会创建远端 PR、推送 tag 或发布 crate：
+
+```sh
+mise install
+mise exec -- python3 scripts/check-release.py
+```
+
+该脚本在临时仓库中验证首次版本、仅改独立后端时的统一版本升级、changelog 汇总和
+无变更重跑稳定性。它不会更改当前工作区、版本或 tag。

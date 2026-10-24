@@ -1,3 +1,4 @@
 [tools]
 cocogitto = "latest"
+release-plz = "0.4.0"
 "github:bnjbvr/cargo-machete" = "latest"
