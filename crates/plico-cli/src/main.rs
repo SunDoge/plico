@@ -8,6 +8,7 @@ use std::{
 mod development;
 mod formatting;
 mod icons;
+mod packaging;
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("icons: {message}"))]
@@ -91,6 +92,21 @@ enum Action {
         no_default_features: bool,
         #[usage(double_dash = "required")]
         arguments: Vec<OsString>,
+    },
+    /// Build a release application directory with resources and a Linux desktop entry.
+    Bundle {
+        path: Option<PathBuf>,
+        #[usage(short = 'p', long)]
+        package: Option<String>,
+        #[usage(long)]
+        bin: Option<String>,
+        #[usage(long)]
+        features: Option<String>,
+        #[usage(long)]
+        no_default_features: bool,
+        /// Destination directory; must not already exist.
+        #[usage(long)]
+        output: Option<PathBuf>,
     },
     /// Render the static gallery to a PNG without opening a window.
     Render {
@@ -198,6 +214,9 @@ fn run() -> Result<u8> {
         }
         | Action::Run {
             path: Some(path), ..
+        }
+        | Action::Bundle {
+            path: Some(path), ..
         } => base_directory.join(path),
         _ => base_directory.clone(),
     };
@@ -258,6 +277,27 @@ fn run() -> Result<u8> {
                     arguments,
                 },
             );
+        }
+        Action::Bundle {
+            package,
+            bin,
+            features,
+            no_default_features,
+            output,
+            ..
+        } => {
+            return packaging::run(
+                &directory,
+                &manifest,
+                packaging::Options {
+                    package,
+                    bin,
+                    features,
+                    no_default_features,
+                    output,
+                },
+            )
+            .map(|()| 0);
         }
         Action::New { .. } => unreachable!(),
         Action::Icons { .. } => unreachable!(),

@@ -184,7 +184,7 @@ fn reloadable(package: &cargo_metadata::Package) -> bool {
         .any(|t| t.crate_types.contains(&cargo_metadata::CrateType::CDyLib))
 }
 #[derive(Clone, Copy)]
-enum Mode {
+pub(super) enum Mode {
     Dev,
     Run,
 }
@@ -202,7 +202,7 @@ impl Mode {
         }
     }
 }
-fn select_package<'m>(
+pub(super) fn select_package<'m>(
     metadata: &'m cargo_metadata::Metadata,
     directory: &Path,
     explicit: Option<&str>,
