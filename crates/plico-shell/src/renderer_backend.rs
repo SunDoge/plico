@@ -30,6 +30,19 @@ const DEFAULT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 const DEFAULT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8Unorm;
 const DEFAULT_TOLERANCE: f64 = 0.1;
 
+fn glyph_embolden(amount: vello_common::kurbo::Vec2) -> FontEmbolden {
+    // A fixed 0.1px tolerance can exceed small stem boosts. Kurbo then
+    // skips joins and turns aligned stem edges into slightly diagonal edges.
+    let smallest = [amount.x.abs(), amount.y.abs()]
+        .into_iter()
+        .filter(|value| *value > 0.)
+        .reduce(f64::min);
+    let tolerance = smallest.map_or(DEFAULT_TOLERANCE, |value| {
+        (value * 0.1).clamp(f64::MIN_POSITIVE, DEFAULT_TOLERANCE)
+    });
+    FontEmbolden::new(Diagonal2::new(amount.x, amount.y)).with_tolerance(tolerance)
+}
+
 fn font_uses_bitmap_strikes(data: &[u8], index: u32) -> bool {
     skrifa::FontRef::from_index(data, index)
         .is_ok_and(|font| font.cbdt().is_ok() || font.sbix().is_ok())
@@ -535,7 +548,7 @@ impl PaintScene for GpuPainter<'_> {
                     .font_size(font_size)
                     .hint(hint)
                     .normalized_coords(normalized_coords)
-                    .font_embolden(FontEmbolden::new(Diagonal2::new(embolden.x, embolden.y)))
+                    .font_embolden(glyph_embolden(embolden))
                     .glyph_transform(glyph_transform.unwrap_or_default())
                     .fill_glyphs(glyphs.map(|glyph| glifo::Glyph {
                         id: glyph.id,
@@ -763,6 +776,32 @@ impl ImageRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_stem_expansion_preserves_axis_aligned_edges() {
+        use vello_common::kurbo::{PathSeg, Vec2, expand_path};
+        for amount in [0.024, 0.049, 0.056] {
+            let settings = glyph_embolden(Vec2::new(amount, amount));
+            assert!(settings.tolerance < amount);
+            let path = expand_path(
+                vello_common::kurbo::Rect::new(20., 20., 21., 44.).to_path(0.1),
+                settings.amount,
+                settings.join,
+                settings.miter_limit,
+                settings.tolerance,
+            );
+            for segment in path.segments() {
+                let PathSeg::Line(line) = segment else {
+                    panic!("rectangle remains straight")
+                };
+                assert!(
+                    line.p0.x == line.p1.x || line.p0.y == line.p1.y,
+                    "stem expansion must not slant straight edges: {line:?}"
+                );
+            }
+        }
+        assert_eq!(glyph_embolden(Vec2::ZERO).tolerance, DEFAULT_TOLERANCE);
+    }
 
     #[test]
     fn ordinary_outline_fonts_do_not_use_the_grayscale_atlas() {

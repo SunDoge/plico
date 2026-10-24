@@ -54,3 +54,6 @@ usage-rs = "7.0.0"
 [profile.dev]
 opt-level = 1
 incremental = true
+
+[patch.crates-io]
+glifo = { path = "vendor/glifo" }

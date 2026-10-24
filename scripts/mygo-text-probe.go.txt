@@ -1,0 +1,90 @@
+// Loaded through go test -overlay; the MyGO checkout remains unchanged.
+package raster
+
+import (
+	"encoding/json"
+	"fmt"
+	"image"
+	"image/png"
+	"math"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/text"
+)
+
+func TestPlicoTextComparison(t *testing.T) {
+	var c struct {
+		Width, Height          int
+		Background, Foreground string
+		FontFamily             string
+		Scales                 []float32
+		Rows                   []struct {
+			Text              string
+			Size, X, Baseline float32
+			Weight            int
+		}
+	}
+	data, err := os.ReadFile(os.Getenv("PLICO_MYGO_CASE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(data, &c); err != nil {
+		t.Fatal(err)
+	}
+	color := func(s string) scene.Color {
+		var r, g, b uint8
+		if _, e := fmt.Sscanf(s, "#%02x%02x%02x", &r, &g, &b); e != nil {
+			t.Fatal(e)
+		}
+		return scene.Color{R: r, G: g, B: b, A: 255}
+	}
+	sys := text.Shared()
+	// Pre-size the fixture atlas; production retries painting after MakeRoom.
+	sys.MaskAtlas = scene.NewAtlas(1, 2048, 2048)
+	hint := os.Getenv("PLICO_MYGO_HINT")
+	if hint == "" {
+		hint = "medium"
+	}
+	sys.SetFontRendering("gray", hint, "rgb")
+	fg, bg := color(c.Foreground), color(c.Background)
+	for _, scale := range c.Scales {
+		sys.BeginFrame()
+		s := &scene.Scene{Width: int(math.Round(float64(float32(c.Width) * scale))), Height: int(math.Round(float64(float32(c.Height) * scale))), Clear: bg, MaskAtlas: sys.MaskAtlas, ColorAtlas: sys.ColorAtlas, Text: sys.TextParams()}
+		for _, row := range c.Rows {
+			l := sys.Layout(text.Params{Text: row.Text, Style: text.Style{Family: c.FontFamily, Size: row.Size, Weight: row.Weight, Lang: "zh-CN"}})
+			if len(l.Lines) != 1 {
+				t.Fatalf("expected one line: %d", len(l.Lines))
+			}
+			line := l.Lines[0]
+			t.Logf("scale=%g size=%g weight=%d advance=%g baseline=%g", scale, row.Size, row.Weight, line.Width, line.Baseline)
+			baseline := sys.Baseline(row.Baseline * scale)
+			for _, g := range line.Glyphs {
+				pen := (row.X + g.X) * scale
+				gi := sys.Glyph(g.Font, g.ID, scale, pen, text.ShadeOf(fg.R, fg.G, fg.B), true)
+				if !gi.OK {
+					continue
+				}
+				s.Glyphs = append(s.Glyphs, scene.Glyph{X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: fg, Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin})
+			}
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, End: int32(len(s.Glyphs))})
+		if sys.Full() {
+			t.Fatal("fixture atlas full; comparison would omit glyphs")
+		}
+		dst := NewImage(s.Width, s.Height)
+		Render(dst, s)
+		path := filepath.Join(os.Getenv("PLICO_MYGO_OUTPUT"), fmt.Sprintf("mygo-%s-%gx.png", hint, scale))
+		f, e := os.Create(path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		e = png.Encode(f, &image.RGBA{Pix: dst.RGBA(), Stride: 4 * dst.W, Rect: image.Rect(0, 0, dst.W, dst.H)})
+		f.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+}

@@ -1,8 +1,8 @@
 //! Small-text rendering probe: renders the same sentences at 12/13/14/16px
 //! through the plico pipeline, and prints ink statistics per line for
 //! comparison against a reference browser rendering of the same page.
-//! `PLICO_TEXT_STEM_BOOST` (milli-em, default 8) tunes the linear-blending
-//! compensation described in text.rs.
+//! `PLICO_TEXT_STEM_BOOST` (milli-em, default 0) controls the
+//! geometric weight tuning described in text.rs.
 use plico_renderer::{
     PaintScene, Scene, TextContext,
     style::TextAlign,

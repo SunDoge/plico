@@ -175,26 +175,50 @@ type SharedTextLayout = Arc<Layout<[u8; 4]>>;
 type TextClampCacheKey = (TextLayoutKey, u32, bool);
 type GlyphSceneEntry = (std::sync::Weak<Layout<[u8; 4]>>, Arc<Scene>);
 
-/// Small-text contrast compensation for linear blending.
+/// Default UI font stack. Explicit application stacks always take precedence.
+/// Linux prefers matching Noto Latin/CJK faces, including native Medium weights,
+/// before the platform's generic fallback list. Missing families remain optional.
+/// Applications targeting other CJK regions can override the family stack.
+pub const DEFAULT_UI_FONT_FAMILY: &str = if cfg!(target_os = "linux") {
+    "Noto Sans, Noto Sans CJK SC, sans-serif"
+} else {
+    "sans-serif"
+};
+
+/// Optional geometric small-text weight tuning, in milli-em.
 ///
-/// Vello composites glyph coverage linearly without a gamma step (see the
-/// linebender/vello#1694 discussion): a 50% coverage pixel is stored as 50%
-/// brightness, where gamma-correct pipelines display it at ~73%. At UI text
-/// sizes most stroke pixels sit in exactly that band, so glyphs come out
-/// washed out — "灰蒙蒙" — compared to Chrome or Firefox. Zed compensates the
-/// same vello behaviour with a small geometric embolden; the amount here is a
-/// fraction of the FreeType synthetic-bold strength (1/24 em), tunable via
-/// `PLICO_TEXT_STEM_BOOST` (units: 1/1000 em, default 2 = 1/500 em).
+/// This expands outlines; it is not gamma correction. Controlled mask tests
+/// show that Vello image alpha compositing closely agrees with Cairo, while
+/// text appearance also depends on hinting, pixel phase, and text-specific
+/// coverage transfer (see docs/pango-text-comparison.md). Do not infer a
+/// universal blending defect from a perceived difference in text weight.
+/// Disabled by default: expanding a hinted outline pushes its edges off the
+/// pixel grid and introduces faint fringe pixels. Prefer real font weights.
+/// `PLICO_TEXT_STEM_BOOST` is an explicit override in units of 1/1000 em.
+fn stem_boost_milli_em(value: Option<&str>) -> f64 {
+    value
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.)
+}
+
 fn stem_boost(font_size: f32, device_scale: f64) -> f64 {
-    const DEFAULT_MILLI_EM: f64 = 2.0;
-    let milli_em = std::env::var("PLICO_TEXT_STEM_BOOST")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(DEFAULT_MILLI_EM);
+    let value = std::env::var("PLICO_TEXT_STEM_BOOST").ok();
+    let milli_em = stem_boost_milli_em(value.as_deref());
     f64::from(font_size) * device_scale * milli_em / 1000.0
 }
 fn synthetic_embolden(requested: bool, allowed: bool, font_size: f32, device_scale: f64) -> Vec2 {
     let boost = stem_boost(font_size, device_scale);
+    embolden_amount(requested, allowed, font_size, device_scale, boost)
+}
+
+fn embolden_amount(
+    requested: bool,
+    allowed: bool,
+    font_size: f32,
+    device_scale: f64,
+    boost: f64,
+) -> Vec2 {
     if requested && allowed {
         // Match the conventional FreeType synthetic-bold strength of roughly
         // one twenty-fourth of an em on raster-oriented platforms.
@@ -563,11 +587,9 @@ pub fn layout_text_styled_with_spacing(
         parley::FontStyle::Normal
     }));
     builder.push_default(StyleProperty::LetterSpacing(letter_spacing));
-    if let Some(family) = font_family {
-        builder.push_default(StyleProperty::FontFamily(parley::FontFamily::from(
-            family.as_ref(),
-        )));
-    }
+    builder.push_default(StyleProperty::FontFamily(parley::FontFamily::from(
+        font_family.map_or(DEFAULT_UI_FONT_FAMILY, |family| family.as_ref()),
+    )));
     if let Some((value, relative)) = line_height {
         builder.push_default(StyleProperty::LineHeight(if relative {
             parley::LineHeight::FontSizeRelative(value)
@@ -1005,25 +1027,38 @@ mod tests {
 
     #[test]
     fn outline_policy_suppresses_synthetic_bold() {
-        // The requested synthetic-bold amount is suppressed on the outline
-        // path, but the linear-blending stem boost applies everywhere; both
-        // sides must account for it.
-        let boost = stem_boost(16.0, 2.0);
-        let suppressed = synthetic_embolden(true, false, 16.0, 2.0);
-        let raster = synthetic_embolden(true, true, 16.0, 2.0);
+        assert_eq!(embolden_amount(true, false, 16., 2., 0.), Vec2::ZERO);
+        assert_eq!(embolden_amount(false, true, 16., 2., 0.), Vec2::ZERO);
+        assert_eq!(
+            embolden_amount(true, true, 16., 2., 0.),
+            Vec2::new(4. / 3., 4. / 3.)
+        );
+        let boost = 0.064;
+        assert_eq!(
+            embolden_amount(true, false, 16., 2., boost),
+            Vec2::new(boost, boost)
+        );
+        assert_eq!(
+            embolden_amount(true, true, 16., 2., boost),
+            Vec2::new(4. / 3. + boost, 4. / 3. + boost)
+        );
+    }
 
-        assert_eq!(suppressed, Vec2::new(boost, boost));
-        assert_eq!(raster, Vec2::new(4.0 / 3.0 + boost, 4.0 / 3.0 + boost));
-        // A zero boost disables the compensation entirely.
-        // SAFETY: single-threaded unit test; no other thread reads the env.
-        unsafe {
-            std::env::set_var("PLICO_TEXT_STEM_BOOST", "0");
+    #[test]
+    fn stem_boost_is_opt_in_and_rejects_non_finite_values() {
+        for value in [
+            None,
+            Some(""),
+            Some("invalid"),
+            Some("NaN"),
+            Some("inf"),
+            Some("-inf"),
+        ] {
+            assert_eq!(stem_boost_milli_em(value), 0.);
         }
-        assert_eq!(synthetic_embolden(true, false, 16.0, 2.0), Vec2::ZERO);
-        // SAFETY: same single-threaded test cleanup.
-        unsafe {
-            std::env::remove_var("PLICO_TEXT_STEM_BOOST");
-        }
+        assert_eq!(stem_boost_milli_em(Some("0")), 0.);
+        assert_eq!(stem_boost_milli_em(Some("2")), 2.);
+        assert_eq!(stem_boost_milli_em(Some("-2")), -2.);
     }
 
     #[test]
@@ -1400,10 +1435,3 @@ mod tests {
         assert_eq!(context.cache.len(), 2);
     }
 }
-
-/// Default system font preference used by the native UI backend.
-pub const DEFAULT_UI_FONT_FAMILY: &str = if cfg!(target_os = "linux") {
-    "Noto Sans, Noto Sans CJK SC, sans-serif"
-} else {
-    "sans-serif"
-};
