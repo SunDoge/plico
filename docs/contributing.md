@@ -83,13 +83,14 @@ workspace 成员（框架、后端、CLI 和示例应用）统一使用根 `Carg
 
 `.github/workflows/release.yml` 使用固定版本的 release-plz。main 更新时先执行
 `release`，再执行 `release-pr`：普通提交只创建或更新 release PR；合并
-`release-plz-*` 分支的 PR 后，才创建统一的 `vX.Y.Z` tag。也可在 main 手动运行
+`release-plz-*` 分支的 PR 后，才创建统一的 `vX.Y.Z` tag 和 GitHub Release，
+Release 说明来自根 changelog。也可在 main 手动运行
 Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不等待 CI。
 
 `release-plz.toml` 使用 `git_only = true`，以 Git tag 为版本基线，不从 Cargo registry 查询已发布版本，
 也不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
-目前关闭 GitHub Release 和安装包上传。所有成员继续继承 workspace 版本，
-只由 `plico-cli` 创建 tag，其他 package 的变更汇总进根 `CHANGELOG.md`。
+目前不上传安装包。所有成员继续继承 workspace 版本，
+只由 `plico-cli` 创建 tag 和 GitHub Release，其他 package 的变更汇总进根 `CHANGELOG.md`。
 第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
 新增 workspace 成员时，将它加入 `changelog_include`。
 

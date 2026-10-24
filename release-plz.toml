@@ -12,8 +12,9 @@ changelog_update = false
 
 [[package]]
 name = "plico-cli"
-# One repository tag, rather than a tag for every crate and demo.
+# One repository tag and GitHub Release, rather than one for every crate and demo.
 git_tag_enable = true
+git_release_enable = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [

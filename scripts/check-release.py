@@ -19,6 +19,7 @@ assert workspace["git_tag_enable"] is False
 assert workspace["release_always"] is False
 assert workspace["git_tag_name"] == "v{{ version }}"
 assert [p["name"] for p in config["package"] if p.get("git_tag_enable")] == ["plico-cli"]
+assert [p["name"] for p in config["package"] if p.get("git_release_enable")] == ["plico-cli"]
 
 
 def run(args, cwd):

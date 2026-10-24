@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release:
-    name: Create Git tag
+    name: Create Git tag and GitHub Release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
