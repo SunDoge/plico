@@ -84,3 +84,7 @@
 ## Optional native services
 
 [Linux native text](native-text.md): Pango/Cairo layout, physical-pixel bitmaps, bounded caching and GPU comparison. Opt-in; ordinary text widgets still use Parley/Vello.
+
+## Widget builder lifetimes
+
+[Lifetime tradeoffs](widget-builder-lifetimes.md): why configurable builders keep separate context/engine borrows, and the rejected short-context performance experiment.
