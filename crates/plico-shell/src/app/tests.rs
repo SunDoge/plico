@@ -44,7 +44,7 @@ use crate::text::TextContext;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Waker;
-use winit::event::{MouseButton, PointerSource};
+use winit::event::PointerSource;
 use winit::keyboard::{Key, NamedKey};
 use winit::raw_window_handle::WaylandWindowHandle;
 use winit::window::{ImeHint, ImePurpose as WinitImePurpose};
@@ -507,6 +507,8 @@ fn ime_composition_state_follows_windows_and_wayland_event_sequences() {
 #[cfg(target_os = "linux")]
 #[test]
 fn pointer_selection_clears_linux_preedit_before_the_pointer_event() {
+    use winit::event::MouseButton;
+
     let events = Arc::new(Mutex::new(Vec::new()));
     let mut app = App::new(Box::new(EventRecordingSource(events.clone())));
     app.ime_composing = true;
