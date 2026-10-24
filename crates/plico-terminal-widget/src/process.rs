@@ -1,5 +1,6 @@
 //! Terminal launch configuration and PTY child-process lifecycle.
 
+#[cfg(unix)]
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::time::{Duration, Instant};
@@ -50,6 +51,38 @@ pub(super) fn pty_spawn_parts(launch: &LaunchConfig) -> (String, Vec<String>) {
         }
         args.extend(launch.args.iter().cloned());
         ("/usr/bin/env".into(), args)
+    }
+}
+
+/// Use the platform's supported PTY constructor (ConPTY on Windows).
+pub(super) fn spawn_pty(
+    launch: &LaunchConfig,
+    size: rio_vt::event::WindowSize,
+) -> std::io::Result<teletypewriter::Pty> {
+    let (command, args) = pty_spawn_parts(launch);
+    #[cfg(unix)]
+    {
+        teletypewriter::create_pty_with_spawn(
+            Some(&command),
+            args,
+            &launch.cwd,
+            None,
+            size.cols,
+            size.rows,
+            size.width,
+            size.height,
+        )
+    }
+    #[cfg(windows)]
+    {
+        teletypewriter::create_pty(
+            Some(&command),
+            args,
+            &launch.cwd,
+            None,
+            size.cols,
+            size.rows,
+        )
     }
 }
 

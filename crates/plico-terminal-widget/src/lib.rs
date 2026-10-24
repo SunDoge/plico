@@ -41,7 +41,6 @@ use rio_vt::performer::Machine;
 use rio_vt::performer::handler::Processor;
 use rio_vt::selection::{Selection, SelectionRange, SelectionType};
 use rustc_hash::FxHashMap;
-use teletypewriter::create_pty_with_spawn;
 use vello_common::kurbo::{Affine, Rect, Stroke};
 use vello_common::peniko::{Color, Fill};
 
@@ -61,12 +60,11 @@ use clock_bridge::TerminalClock;
 pub use color::TerminalColor;
 use graphics::TerminalGraphics;
 use input_encoding::*;
+#[cfg(unix)]
+use process::spawn_child_reaper;
+use process::{LaunchConfig, default_shell_command, validate_launch_command};
 #[cfg(test)]
-use process::quote_windows_command_arg;
-use process::{
-    LaunchConfig, default_shell_command, pty_spawn_parts, spawn_child_reaper,
-    validate_launch_command,
-};
+use process::{pty_spawn_parts, quote_windows_command_arg};
 use rendering::*;
 pub use session::{
     TerminalEventKind, TerminalFrame, TerminalInputResult, TerminalInvalidation, TerminalNodeEvent,
@@ -466,18 +464,7 @@ impl TerminalWidget {
             return;
         }
         let winsize = self.size.winsize();
-        let (command, args) = pty_spawn_parts(&launch);
-        match create_pty_with_spawn(
-            Some(&command),
-            args,
-            &launch.cwd,
-            None,
-            winsize.cols,
-            winsize.rows,
-            winsize.width,
-            winsize.height,
-        )
-        .and_then(|pty| {
+        match process::spawn_pty(&launch, winsize).and_then(|pty| {
             #[cfg(unix)]
             {
                 self.child_pid = Some(*pty.child.pid);
