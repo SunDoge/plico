@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+# Used by #[serde(with = "serde_bytes")] in the MessagePack checkpoint test.
+[package.metadata.cargo-machete]
+ignored = ["serde_bytes"]
+
 [features]
 host = ["dep:libloading", "dep:tempfile", "stabby/libloading"]
 

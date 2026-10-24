@@ -38,7 +38,7 @@ jobs:
       - name: Check Rust and component formatting
         run: cargo run --locked -p plico-cli -- fmt --check
       - name: Report unused dependencies
-        run: mise exec -- cargo-machete --with-metadata
+        run: mise exec -- python3 scripts/check-dependencies.py
 
   lint:
     name: Linux Clippy
