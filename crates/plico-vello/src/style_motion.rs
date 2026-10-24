@@ -12,6 +12,7 @@ struct Entry {
 }
 pub(crate) struct StyleMotions {
     arena: MotionArena<42>,
+    buttons: super::button_state::ButtonStates,
     entries: HashMap<Entity, Entry>,
     time: Option<Instant>,
     owners: HashMap<MotionId, Entity>,
@@ -23,6 +24,7 @@ impl Default for StyleMotions {
     fn default() -> Self {
         Self {
             arena: Default::default(),
+            buttons: Default::default(),
             entries: Default::default(),
             time: None,
             owners: HashMap::new(),
@@ -34,12 +36,14 @@ impl Default for StyleMotions {
 }
 impl StyleMotions {
     pub fn active(&self) -> bool {
-        self.arena.is_active()
+        self.arena.is_active() || self.buttons.active()
     }
     pub fn advance(&mut self, now: Instant) -> bool {
         // Include the final exact sample even though active becomes false.
         let dirty = self.active();
         if let Some(previous) = self.time {
+            self.buttons
+                .advance(now.saturating_duration_since(previous), &mut self.dirty);
             self.arena
                 .advance_into(now.saturating_duration_since(previous), &mut self.sampled);
             for id in &self.sampled {
@@ -54,6 +58,8 @@ impl StyleMotions {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
+            self.dirty.extend(self.buttons.entities());
+            self.buttons.clear();
             self.arena = Default::default();
             self.dirty.extend(self.entries.keys().copied());
             self.entries.clear();
@@ -61,6 +67,7 @@ impl StyleMotions {
         }
     }
     pub fn remove(&mut self, entity: Entity) {
+        self.buttons.remove(entity);
         if let Some(entry) = self.entries.remove(&entity) {
             self.arena.remove(entry.id);
             self.owners.remove(&entry.id);
@@ -71,9 +78,23 @@ impl StyleMotions {
     }
     /// Theme reveal replaces the entire palette; do not crossfade its target again.
     pub fn snap_theme(&mut self) {
+        self.buttons.clear();
         self.arena = Default::default();
         self.entries.clear();
         self.owners.clear();
+    }
+    pub fn remove_button(&mut self, entity: Entity) {
+        self.buttons.remove(entity);
+    }
+    pub fn button_style(
+        &mut self,
+        entity: Entity,
+        style: Style,
+        theme: Theme,
+        input: super::button_state::Interaction,
+    ) -> (Style, f32) {
+        self.buttons
+            .style(entity, style, theme, input, self.enabled)
     }
     pub fn checked(&self, entity: Entity, target: bool) -> f32 {
         self.entries

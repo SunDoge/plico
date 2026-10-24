@@ -83,13 +83,15 @@ pub enum Kind {
     TextInput,
     Svg,
     Shader,
-    /// Decoded raster image carried as hex-encoded asset bytes.
-    Image,
     Slider,
     Button,
     ButtonBase,
     Switch,
     Checkbox,
+    // Append kinds to preserve existing discriminant fast paths. The wire
+    // representation uses names, not these internal discriminant values.
+    /// Decoded raster image carried as hex-encoded asset bytes.
+    Image,
 }
 /// Legacy coarse classification, kept for source compatibility only.
 /// It does not describe layout, input capabilities or backend support. New code

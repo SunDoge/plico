@@ -45,7 +45,7 @@ adapter 按子先父的顺序释放控件后程序退出，避免 LVGL 先删除
 - 文本变化更新原生 label，未变化的节点复用 LVGL 对象；重复 sync 不写样式/文本。
 - if 控制原生对象挂载/卸载；带业务 key 的 for 列表重排保留对象身份并移动原生兄弟顺序。
 - 卸载按子先父后的顺序释放对象和 callback 路由；迟到事件不会击中地址复用后的新节点。
-- 后端显式选择原生对象类型；Switch、Checkbox、Slider、Shader 尚未实现，返回 `UnsupportedKind`，不再变成无行为的容器。完整树和增量变更都会先检查不支持的 kind 与 NUL 文本，再修改原生对象。
+- 后端显式选择原生对象类型；Switch、Checkbox、Slider、Image、Shader 尚未实现，返回 `UnsupportedKind`，不再变成无行为的容器。完整树和增量变更都会先检查不支持的 kind 与 NUL 文本，再修改原生对象。
 - Overlay、Dialog、TooltipAnchor 当前只映射容器结构，不代表实现了 Vello 的模态焦点、弹层或 tooltip 行为。
 
 headless counter 会执行以上核心断言。程序注入的是 LVGL `CLICKED` 事件，实际经过

@@ -57,7 +57,7 @@ container decision comes from this native representation, not a core input famil
 Kind changes mark `STRUCTURE`, even when Entity stays stable. Changing a native
 class remounts the object and its retained descendants, children before parents;
 a labeled button and a bare composite button are distinct representations. Queued
-events from the replaced native instance are discarded. Unimplemented Switch, Checkbox, Slider and
+events from the replaced native instance are discarded. Unimplemented Switch, Checkbox, Slider, Image and
 Shader return `UnsupportedKind`, rather than silently becoming inert containers.
 Full sync and incremental patches preflight unsupported kinds and NUL text before
 modifying native objects, preserving the previously mounted tree on those errors.
@@ -109,4 +109,6 @@ baseline put the ordinary borrowed/format!/text! cases within roughly -4% to +2%
 and insert/remove were about 22% faster. These are local observations, not hard
 cross-platform guarantees or proof that all small regressions are excluded. No
 new per-node capability storage, shared ownership or allocation was introduced.
-Concurrent Image work was excluded from these measurements and this commit.
+These measurements isolate the capability/inlining work; they do not benchmark
+the concurrently developed Image path. New kinds are appended to preserve the
+existing discriminant fast paths.

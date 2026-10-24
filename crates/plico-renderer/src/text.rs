@@ -1400,3 +1400,10 @@ mod tests {
         assert_eq!(context.cache.len(), 2);
     }
 }
+
+/// Default system font preference used by the native UI backend.
+pub const DEFAULT_UI_FONT_FAMILY: &str = if cfg!(target_os = "linux") {
+    "Noto Sans, Noto Sans CJK SC, sans-serif"
+} else {
+    "sans-serif"
+};

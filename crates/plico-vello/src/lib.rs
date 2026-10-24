@@ -1670,10 +1670,14 @@ impl Adapter {
             _ => return false,
         };
         let Some(e) = self
-            .placed
+            .tab_order
             .iter()
-            .filter_map(|p| self.reverse.get(&p.node_id).copied())
+            .copied()
             .find(|e| semantic_id(*e) == target)
+            .or_else(|| {
+                self.modal_dialog(engine)
+                    .filter(|e| semantic_id(*e) == target)
+            })
         else {
             return false;
         };
