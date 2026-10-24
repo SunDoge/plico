@@ -1,0 +1,221 @@
+use crate::Error;
+use plico_renderer::{PaintCommand, Scene};
+use skia_safe::{Color4f, Font, FontHinting, FontMgr, Matrix, Paint, Path, PathBuilder, Point};
+use snafu::ResultExt;
+use vello_common::{
+    kurbo::{Affine, PathEl, Shape},
+    peniko::{Brush, Color, Fill, Style},
+};
+
+/// Reusable CPU raster surface. This does not create a window or GPU context.
+pub struct SkiaSurface {
+    surface: skia_safe::Surface,
+    fonts: std::collections::HashMap<(u64, u32), skia_safe::Typeface>,
+    font_manager: FontMgr,
+    frame_valid: bool,
+}
+
+impl SkiaSurface {
+    /// Allocate a surface; dimensions must be nonzero signed 32-bit values.
+    pub fn new(width: u32, height: u32) -> Result<Self, Error> {
+        if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
+            return Err(Error::InvalidSize { width, height });
+        }
+        let surface = skia_safe::surfaces::raster_n32_premul((width as i32, height as i32))
+            .ok_or(Error::Surface)?;
+        Ok(Self {
+            surface,
+            fonts: Default::default(),
+            font_manager: FontMgr::new(),
+            frame_valid: false,
+        })
+    }
+
+    /// Replace the previous frame and return tightly packed, premultiplied RGBA.
+    /// An error never returns partial frame pixels. The next call resets the surface.
+    pub fn render_scene(&mut self, scene: &Scene, background: Color) -> Result<Vec<u8>, Error> {
+        self.frame_valid = false;
+        self.surface.canvas().restore_to_count(1);
+        self.surface.canvas().clear(color(background));
+        let result = self.replay(scene);
+        self.surface.canvas().restore_to_count(1);
+        result?;
+        let info = skia_safe::ImageInfo::new(
+            (self.surface.width(), self.surface.height()),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Premul,
+            None,
+        );
+        let mut bytes = vec![0; info.min_row_bytes() * self.surface.height() as usize];
+        if !self
+            .surface
+            .read_pixels(&info, &mut bytes, info.min_row_bytes(), (0, 0))
+        {
+            return Err(Error::ReadPixels);
+        }
+        self.frame_valid = true;
+        Ok(bytes)
+    }
+
+    /// Save the most recently rendered frame as PNG.
+    pub fn write_png(&mut self, path: &std::path::Path) -> Result<(), Error> {
+        if !self.frame_valid {
+            return Err(Error::NoFrame);
+        }
+        let data = self
+            .surface
+            .image_snapshot()
+            .encode(None, skia_safe::EncodedImageFormat::PNG, 100)
+            .ok_or(Error::Encode)?;
+        std::fs::write(path, data.as_bytes()).context(crate::WriteSnafu)
+    }
+
+    fn replay(&mut self, scene: &Scene) -> Result<(), Error> {
+        let mut depth = 0usize;
+        for command in &scene.commands {
+            let canvas = self.surface.canvas();
+            match command {
+                PaintCommand::Fill {
+                    fill,
+                    transform,
+                    brush,
+                    shape,
+                    ..
+                } => {
+                    let paint = paint(brush)?;
+                    let mut path = path(shape);
+                    path.set_fill_type(match fill {
+                        Fill::NonZero => skia_safe::PathFillType::Winding,
+                        Fill::EvenOdd => skia_safe::PathFillType::EvenOdd,
+                    });
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    canvas.draw_path(&path, &paint);
+                    canvas.restore();
+                }
+                PaintCommand::PushClip { transform, clip } => {
+                    canvas.save();
+                    canvas.clip_path(&path(clip).make_transform(&matrix(*transform)), None, true);
+                    depth += 1;
+                }
+                PaintCommand::PopLayer => {
+                    if depth == 0 {
+                        return Err(Error::ClipStack);
+                    }
+                    canvas.restore();
+                    depth -= 1;
+                }
+                PaintCommand::GlyphRun {
+                    font,
+                    font_size,
+                    hint,
+                    normalized_coords,
+                    embolden,
+                    style,
+                    brush,
+                    brush_alpha,
+                    transform,
+                    glyph_transform,
+                    glyphs,
+                } => {
+                    if normalized_coords.iter().any(|c| *c != 0) {
+                        return unsupported("variable font coordinates");
+                    }
+                    if *embolden != Default::default() || glyph_transform.is_some() {
+                        return unsupported("synthetic glyph transform/embolden");
+                    }
+                    if !matches!(style, Style::Fill(Fill::NonZero)) {
+                        return unsupported("stroked/even-odd glyphs");
+                    }
+                    let key = (font.data.id(), font.index);
+                    if let std::collections::hash_map::Entry::Vacant(entry) = self.fonts.entry(key)
+                    {
+                        let face = self
+                            .font_manager
+                            .new_from_bytes(font.data.as_ref(), font.index)
+                            .ok_or(Error::Font)?;
+                        entry.insert(face);
+                    }
+                    let mut skfont = Font::new(self.fonts[&key].clone(), *font_size);
+                    skfont.set_edging(skia_safe::font::Edging::AntiAlias);
+                    skfont.set_subpixel(true);
+                    skfont.set_hinting(if *hint {
+                        FontHinting::Normal
+                    } else {
+                        FontHinting::None
+                    });
+                    let mut paint = paint(brush)?;
+                    paint.set_alpha_f(paint.alpha_f() * brush_alpha);
+                    let ids: Vec<u16> = glyphs
+                        .iter()
+                        .map(|g| u16::try_from(g.id).map_err(|_| Error::GlyphId))
+                        .collect::<Result<_, _>>()?;
+                    let positions: Vec<Point> =
+                        glyphs.iter().map(|g| Point::new(g.x, g.y)).collect();
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    canvas.draw_glyphs_at(&ids, positions.as_slice(), (0., 0.), &skfont, &paint);
+                    canvas.restore();
+                }
+                PaintCommand::PushLayer { .. } => return unsupported("PushLayer"),
+                PaintCommand::Stroke { .. } => return unsupported("Stroke"),
+                PaintCommand::BoxShadow { .. } => return unsupported("BoxShadow"),
+                PaintCommand::Svg { .. } => return unsupported("Svg"),
+                PaintCommand::Shader { .. } => return unsupported("Shader"),
+            }
+        }
+        if depth != 0 {
+            return Err(Error::ClipStack);
+        }
+        Ok(())
+    }
+}
+
+fn unsupported<T>(command: &'static str) -> Result<T, Error> {
+    Err(Error::Unsupported { command })
+}
+fn color(color: Color) -> Color4f {
+    let [r, g, b, a] = color.components;
+    Color4f::new(r, g, b, a)
+}
+fn paint(brush: &Brush) -> Result<Paint, Error> {
+    let Brush::Solid(value) = brush else {
+        return unsupported("gradient/image brush");
+    };
+    let mut paint = Paint::new(color(*value), None);
+    paint.set_anti_alias(true);
+    Ok(paint)
+}
+fn matrix(transform: Affine) -> Matrix {
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    Matrix::new_all(
+        a as f32, c as f32, e as f32, b as f32, d as f32, f as f32, 0., 0., 1.,
+    )
+}
+fn path(shape: &impl Shape) -> Path {
+    let mut builder = PathBuilder::new();
+    for element in shape.to_path(0.1).elements() {
+        match *element {
+            PathEl::MoveTo(p) => {
+                builder.move_to((p.x as f32, p.y as f32));
+            }
+            PathEl::LineTo(p) => {
+                builder.line_to((p.x as f32, p.y as f32));
+            }
+            PathEl::QuadTo(c, p) => {
+                builder.quad_to((c.x as f32, c.y as f32), (p.x as f32, p.y as f32));
+            }
+            PathEl::CurveTo(a, b, p) => {
+                builder.cubic_to(
+                    (a.x as f32, a.y as f32),
+                    (b.x as f32, b.y as f32),
+                    (p.x as f32, p.y as f32),
+                );
+            }
+            PathEl::ClosePath => {
+                builder.close();
+            }
+        }
+    }
+    builder.detach()
+}

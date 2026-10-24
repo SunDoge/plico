@@ -1,0 +1,26 @@
+[package]
+name = "plico-skia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Skia rasterizing backend for the Plico command stream"
+
+[features]
+default = []
+# Consumes the backend-neutral command stream with Skia raster surfaces.
+raster = ["dep:skia-safe", "dep:plico-renderer", "dep:vello-common"]
+
+[dependencies]
+plico-renderer = { path = "../plico-renderer", optional = true }
+skia-safe = { version = "0.153", optional = true }
+vello-common = { workspace = true, optional = true }
+snafu.workspace = true
+
+[dev-dependencies]
+plico-shell.workspace = true
+image = { workspace = true, features = ["png"] }
+
+[[example]]
+name = "compare"
+required-features = ["raster"]
