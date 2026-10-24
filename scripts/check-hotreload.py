@@ -60,10 +60,12 @@ with tempfile.TemporaryDirectory(prefix='plico reload proof ') as temp:
         source.write_text(schema)
         reset=wait_for(lambda v:'Schema changed' in texts(v.get('nodes',[])))
         assert reset['state']['count']=='' and reset['pid']==pid,reset
-        source.write_text(schema.replace("fn show(&mut self, cx: &mut UiContext) {", "fn show(&mut self, cx: &mut UiContext) { panic!(\"candidate panic\");"))
+        # CI denies warnings: fail at runtime, not with an unreachable-code diagnostic.
+        source.write_text(schema.replace("fn show(&mut self, cx: &mut UiContext) {", "fn show(&mut self, cx: &mut UiContext) { if std::hint::black_box(true) { panic!(\"candidate panic\"); }"))
         failed=wait_for(lambda v:'panicked' in str(v.get('error','')))
         assert failed['state']['count']=='' and failed['pid']==pid,failed
-        mismatched=schema.replace('plico_dev::export_app!(Application);', '#[stabby::export] pub extern "C" fn plico_app_render(_input: stabby::vec::Vec<u8>) -> u32 { 0 }')
+        # Keep the exported fixture body warning-free under stabby macro expansion.
+        mismatched=schema.replace('plico_dev::export_app!(Application);', '#[stabby::export] pub extern "C" fn plico_app_render(_input: stabby::vec::Vec<u8>) -> u32 { std::hint::black_box(()); 0 }')
         source.write_text(mismatched)
         rejected=wait_for(lambda v:'ABI layout check' in str(v.get('error','')))
         assert rejected['pid']==pid and rejected['state']['count']=='',rejected
