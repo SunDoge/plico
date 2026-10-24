@@ -18,12 +18,11 @@ pub struct VirtualListResponse {
     pub offset: f32,
 }
 impl<'u, 'e> crate::ImplicitKey for VirtualList<'u, 'e> {
-    fn key(mut self, key: impl Into<Key>) -> Self {
-        self.layout = self.layout.key(key);
-        self
+    fn key_of(&self) -> Key {
+        self.layout.key_of()
     }
-    fn site_id(mut self, site: u64) -> Self {
-        self.layout = self.layout.site_id(site);
+    fn set_key(mut self, key: Key) -> Self {
+        self.layout = self.layout.set_key(key);
         self
     }
 }

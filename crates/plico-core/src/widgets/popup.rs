@@ -33,14 +33,11 @@ pub fn menu_item<'u, 'e, 's>(
     }
 }
 impl<'s> crate::ImplicitKey for MenuItem<'_, '_, 's> {
-    fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
+    fn key_of(&self) -> Key {
+        self.key
     }
-    fn site_id(mut self, site: u64) -> Self {
-        if matches!(self.key, Key::Auto(_)) {
-            self.key = Key::Generated(site)
-        }
+    fn set_key(mut self, key: Key) -> Self {
+        self.key = key;
         self
     }
 }
@@ -158,14 +155,11 @@ pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
     }
 }
 impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
-    fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
+    fn key_of(&self) -> Key {
+        self.key
     }
-    fn site_id(mut self, site: u64) -> Self {
-        if matches!(self.key, Key::Auto(_)) {
-            self.key = Key::Generated(site)
-        }
+    fn set_key(mut self, key: Key) -> Self {
+        self.key = key;
         self
     }
 }

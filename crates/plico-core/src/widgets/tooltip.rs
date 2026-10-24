@@ -18,14 +18,11 @@ pub fn tooltip<'u, 'e, 't>(
     }
 }
 impl crate::ImplicitKey for Tooltip<'_, '_, '_> {
-    fn key(mut self, key: impl Into<Key>) -> Self {
-        self.key = key.into();
-        self
+    fn key_of(&self) -> Key {
+        self.key
     }
-    fn site_id(mut self, site: u64) -> Self {
-        if matches!(self.key, Key::Auto(_)) {
-            self.key = Key::Generated(site)
-        }
+    fn set_key(mut self, key: Key) -> Self {
+        self.key = key;
         self
     }
 }

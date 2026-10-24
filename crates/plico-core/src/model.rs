@@ -11,10 +11,28 @@ fn is_false(value: &bool) -> bool {
 /// [`crate::Key`] keep it. App-defined builders implement this trait so the
 /// macro can key them the same way as the built-in widgets.
 pub trait ImplicitKey: Sized {
+    /// The key this builder currently carries; `Auto` means unassigned.
+    ///
+    /// Internal protocol backing the [`Self::key`] and [`Self::site_id`]
+    /// defaults; applications implement the two accessors only.
+    #[doc(hidden)]
+    fn key_of(&self) -> Key;
+    /// Overwrite the carried key unconditionally.
+    #[doc(hidden)]
+    fn set_key(self, key: Key) -> Self;
+
     /// Set an explicit key, overriding any automatic identity.
-    fn key(self, key: impl Into<Key>) -> Self;
+    fn key(self, key: impl Into<Key>) -> Self {
+        self.set_key(key.into())
+    }
     /// Attach `site` as the generated key unless an explicit key is present.
-    fn site_id(self, site: u64) -> Self;
+    fn site_id(self, site: u64) -> Self {
+        if matches!(self.key_of(), Key::Auto(_)) {
+            self.set_key(Key::Generated(site))
+        } else {
+            self
+        }
+    }
 }
 
 /// Static labels and numeric business IDs require no per-frame String allocation.
