@@ -25,7 +25,11 @@ struct Built {
 }
 fn build_flags(module: bool, host_binary: Option<&str>, host_features: &[&str]) -> Vec<OsString> {
     if module {
-        vec!["--lib".into(), "--no-default-features".into()]
+        let mut flags = vec!["--lib".into(), "--no-default-features".into()];
+        if !host_features.is_empty() {
+            flags.extend(["--features".into(), host_features.join(",").into()]);
+        }
+        flags
     } else {
         let mut flags = vec!["--bin".into(), host_binary.unwrap_or("plico-vello").into()];
         if host_binary.is_none() {
@@ -387,6 +391,18 @@ pub fn run(
         } else {
             &[]
         };
+    // New apps expose an ABI-only feature; keep older apps with direct exports working.
+    let module_features: &[&str] = if selected.features.contains_key("abi") {
+        &["abi"]
+    } else if selected
+        .dependencies
+        .iter()
+        .any(|dependency| dependency.name == "plico-dev")
+    {
+        &["plico-dev/abi"]
+    } else {
+        &[]
+    };
     let target = if env::var_os("CARGO_TARGET_DIR").is_some() {
         metadata.target_directory.clone().into_std_path_buf()
     } else {
@@ -427,7 +443,15 @@ pub fn run(
         .prefix("plico-dev-")
         .tempdir_in(target)
         .context(IoSnafu)?;
-    let module = build(directory, manifest, package, true, target, None, &[])?;
+    let module = build(
+        directory,
+        manifest,
+        package,
+        true,
+        target,
+        None,
+        module_features,
+    )?;
     publish(module, session.path(), &report_path, 0)?;
     let mut command = Command::new(host.path);
     command.current_dir(directory);
@@ -467,7 +491,15 @@ pub fn run(
                         eprintln!("[plico] watcher: {e}");
                     }
                 }
-                match build(directory, manifest, package, true, target, None, &[]) {
+                match build(
+                    directory,
+                    manifest,
+                    package,
+                    true,
+                    target,
+                    None,
+                    module_features,
+                ) {
                     Ok(module) => {
                         revision += 1;
                         publish(module, session.path(), &report_path, revision)?;
@@ -523,6 +555,7 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
+abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
 desktop = ["dep:plico-vello"]
 
@@ -539,7 +572,7 @@ serde = {{ version = "1", features = ["derive"] }}
 
 # Required by the native ABI export macro; UI modules build without desktop.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-stabby = "=72.1.16"
+stabby = {{ version = "=72.1.16", optional = true }}
 
 [profile.dev]
 opt-level = 1
@@ -575,7 +608,7 @@ impl plico_dev::App for Application {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 plico_dev::export_app!(Application);
 "#,
     )
@@ -603,10 +636,12 @@ mod tests {
     use super::*;
     #[test]
     fn module_and_host_features_are_separate() {
-        let module = build_flags(true, None, &["hot-reload"]);
+        let module = build_flags(true, None, &["abi"]);
         assert!(module.contains(&"--lib".into()));
         assert!(module.contains(&"--no-default-features".into()));
-        assert!(!module.contains(&"--features".into()));
+        assert!(module.contains(&"--features".into()));
+        assert!(module.contains(&"abi".into()));
+        assert!(!module.contains(&"hot-reload".into()));
         assert!(!module.contains(&"--config".into()));
         let host = build_flags(false, Some("app"), &["hot-reload"]);
         assert!(!host.contains(&"--no-default-features".into()));

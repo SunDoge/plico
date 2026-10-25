@@ -79,7 +79,7 @@ crate-type = ["rlib", "cdylib"]
 ```
 
 `host` 指向同一个 package 的 binary target。该 binary 默认 feature 应包含所需的后端和
-`plico-vello/hot-reload`，模块则继续用 `--lib --no-default-features` 构建，避免链接 renderer 和服务实现。
+`plico-vello/hot-reload`，模块则继续用 `--lib --no-default-features --features abi` 构建，避免链接 renderer 和服务实现。
 示例的 `desktop` feature 只用于可执行宿主，默认启用。
 
 main 使用 `run_service_app_with_options(app, services, window_options)`：正常运行创建
@@ -122,10 +122,10 @@ UI 状态不兼容可以重置；服务快照或消息协议不兼容则拒绝�
 真实动态库验证使用受控 worker，不靠 sleep 等待业务进度。先建立两个 UI 版本：
 
 ```sh
-cargo build -p plico-services-demo --lib --no-default-features
+cargo build -p plico-services-demo --lib --no-default-features --features abi
 mkdir -p target/services-verification
 cp target/debug/libplico_services_demo.so target/services-verification/original.so
-cargo build -p plico-services-demo --lib --no-default-features --features schema-reset-fixture
+cargo build -p plico-services-demo --lib --no-default-features --features abi,schema-reset-fixture
 cp target/debug/libplico_services_demo.so target/services-verification/reset.so
 cargo run -p plico-services-demo --features hot-reload --example services-reload -- \
   --module target/services-verification/original.so \
@@ -144,3 +144,15 @@ cargo run -p plico-services-demo --features hot-reload --example services-reload
 静态 ServiceView 支持通过 HostService::snapshot_revision 复用 typed snapshot；默认仍为 eager，使用约定与动态路径边界见 [性能说明](performance.md)。
 
 宿主唤醒会在 Source 层合并，服务 poll 应处理可用结果批次，见 [批次边界](batching.md)。
+
+
+## ABI feature
+
+普通静态应用不需要 stabby。`plico-dev/abi` 才启用 ABI 类型、dispatch 和导出宏；
+`plico-dev/host` 包含 abi，再启用动态库加载。应用的 `abi` feature 同时启用
+`plico-dev/abi` 和 optional stabby（stabby export 宏的 ABI report 仍需要直接依赖）。
+导出调用使用 `#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]`。
+
+`plico dev` 自动为 UI 模块开启 abi，且不启用 desktop；`plico run` 保持正常应用
+features。旧应用未定义 abi 时，CLI 对直接依赖 plico-dev 的应用启用 plico-dev/abi。
+手动编译可替换模块需要 `--lib --no-default-features --features abi`。

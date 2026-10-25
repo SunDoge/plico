@@ -72,12 +72,15 @@ fn unstable_view_is_an_error() {
     ));
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 struct Panics;
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 impl App for Panics {
     fn show(&mut self, _: &mut UiContext<'_>) {
         panic!("app failed")
     }
 }
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[test]
 fn panic_is_contained_inside_module_boundary() {
     let input = serde_json::to_vec(&Request::default()).unwrap();
@@ -88,6 +91,7 @@ fn panic_is_contained_inside_module_boundary() {
     assert!(String::from_utf8(output).unwrap().contains("panicked"));
 }
 
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[test]
 fn logical_frame_time_and_animation_requests_cross_the_application_protocol() {
     #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -390,13 +394,16 @@ fn stale_path_events_are_counted_in_the_frame() {
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 struct Panicky;
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 impl App for Panicky {
     fn show(&mut self, _ui: &mut UiContext<'_>) {
         panic!("exploded during declaration");
     }
 }
 
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[test]
 fn panic_message_crosses_the_module_boundary() {
     // The panic payload must stay diagnosable after catch_unwind.
@@ -772,4 +779,106 @@ fn checkpoint_does_not_run_declarations_and_old_protocol_is_rejected() {
         }),
         Err(plico_dev::Error::Protocol { actual: 1 })
     ));
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct PrivateCounter;
+impl App for PrivateCounter {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        let count = ui.state(|| 0_u32);
+        ui.text(format!("Count: {}", count.get())).key("count");
+        if ui.button("Increment").key("increment").clicked() {
+            count.update(|n| *n += 1);
+        }
+    }
+}
+#[test]
+fn component_local_state_survives_dev_session_and_resets_on_reload() {
+    let frame = render::<PrivateCounter>(Request::default()).unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 0");
+    let frame = render::<PrivateCounter>(Request {
+        resume: true,
+        clicks: vec![vec![PathKey::Named("increment".into())]],
+        ..Default::default()
+    })
+    .unwrap();
+    // Text declared before the click must be corrected by automatic settling.
+    assert_eq!(frame.nodes[0].text, "Count: 1");
+    let frame = render::<PrivateCounter>(Request {
+        resume: true,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 1");
+    let frame = render::<PrivateCounter>(Request {
+        state: frame.state,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 0");
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct PersistentCounter;
+fn persistent_counter(ui: &mut UiContext) {
+    let count = ui.persisted_state("count", || 0_u32);
+    ui.text(format!("Count: {}", count.get())).key("count");
+    if ui.button("Increment").key("increment").clicked() {
+        count.update(|n| *n += 1);
+    }
+}
+impl App for PersistentCounter {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        persistent_counter(ui);
+    }
+}
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct NewPersistentCounter {
+    required: String,
+}
+impl App for NewPersistentCounter {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        persistent_counter(ui);
+    }
+}
+#[test]
+fn persistent_slots_survive_checkpoints_and_incompatible_app_reset() {
+    render::<PersistentCounter>(Request::default()).unwrap();
+    let frame = render::<PersistentCounter>(Request {
+        resume: true,
+        lean: true,
+        clicks: vec![vec![PathKey::Named("increment".into())]],
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 1");
+    assert!(frame.state.is_empty());
+    let checkpoint = render::<PersistentCounter>(Request {
+        checkpoint: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .state;
+    // Public decode still reads the App, not the internal session envelope.
+    assert_eq!(
+        checkpoint.decode::<serde_json::Value>().unwrap(),
+        plico_dev::StateSnapshot::encode(&PersistentCounter)
+            .unwrap()
+            .decode::<serde_json::Value>()
+            .unwrap()
+    );
+    let frame = render::<PersistentCounter>(Request {
+        state: checkpoint.clone(),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 1");
+    assert!(frame.reset.is_none());
+    let frame = render::<NewPersistentCounter>(Request {
+        state: checkpoint,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(frame.nodes[0].text, "Count: 1");
+    assert!(frame.reset.is_some());
 }

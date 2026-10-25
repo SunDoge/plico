@@ -15,7 +15,7 @@ gallery 是应用而不是后端依赖：main.rs 启动桌面入口，lib.rs 定
 ```sh
 cargo run -p plico-gallery
 cargo plico render --out /tmp/gallery.png
-cargo build -p plico-gallery --lib --no-default-features
+cargo build -p plico-gallery --lib --no-default-features --features abi
 cargo plico dev
 ```
 

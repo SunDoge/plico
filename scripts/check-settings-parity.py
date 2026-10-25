@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cross-backend pixel parity for the shared settings app.
 
-Drives settings-vello and settings-skia through the same route/theme state
+Drives the settings app with --backend vello and --backend skia through the same route/theme state
 machine on one Xvfb display and captures each state twice. The assertion is
 self-calibrating rather than a magic absolute tolerance: rendering the *same*
 state on both backends must be closer (RMSE) than rendering *different* states
@@ -44,7 +44,7 @@ def drive(backend, server):
         WGPU_BACKEND="vulkan",
     )
     captures = {}
-    with WindowApp(TARGET / "debug" / f"settings-{backend}", env, REPORT / f"{backend}.log") as app:
+    with WindowApp(TARGET / "debug" / "plico-backend-settings", env, REPORT / f"{backend}.log", args=["--backend", backend]) as app:
         app.window(f"no {backend} settings window")
         app.focus()
         app.wait_for_frame(REPORT / f"{backend}-ready.png")

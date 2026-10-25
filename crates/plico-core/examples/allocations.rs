@@ -72,12 +72,13 @@ fn main() {
     let count = 10_000;
     let mut engine = Engine::default();
     let cold = measured(&mut engine, count, Color::Literal(0x222222), false);
-    measured(&mut engine, count, Color::Literal(0x222222), false);
+    let second = measured(&mut engine, count, Color::Literal(0x222222), false);
+    assert_eq!((second.0, second.1), (0, 0));
     let idle = measured(&mut engine, count, Color::Literal(0x222222), false);
     let color = measured(&mut engine, count, Color::Literal(0x333333), false);
     let text = measured(&mut engine, count, Color::Literal(0x333333), true);
     println!(
-        "cold: {cold:?}\nunchanged: {idle:?}\ncolor: {color:?}\ntext (same capacity): {text:?}"
+        "cold: {cold:?}\nsecond: {second:?}\nunchanged: {idle:?}\ncolor: {color:?}\ntext (same capacity): {text:?}"
     );
     assert_eq!(
         (idle.0, idle.1, idle.2.measure_calls, idle.2.layout_runs),

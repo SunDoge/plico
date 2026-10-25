@@ -9,16 +9,16 @@ from plico_smoke import Xvfb, WindowApp
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
 REPORT = ROOT / "reports/skia-settings"
-BINARY = TARGET / "debug/settings-skia"
+BINARY = TARGET / "debug/plico-backend-settings"
 
 subprocess.run(
-    ["cargo", "build", "--locked", "-p", "plico-backend-settings", "--features", "skia", "--bin", "settings-skia"],
+    ["cargo", "build", "--locked", "-p", "plico-backend-settings", "--features", "skia", "--bin", "plico-backend-settings"],
     cwd=ROOT, check=True,
 )
 REPORT.mkdir(parents=True, exist_ok=True)
 with Xvfb() as server:
     env = server.env(PLICO_SKIA_DEVICE="llvmpipe", PLICO_COMPARE_VELLO=None, PLICO_PERFORMANCE_HUD="1")
-    with WindowApp(BINARY, env, REPORT / "window.log") as app:
+    with WindowApp(BINARY, env, REPORT / "window.log", args=["--backend", "skia"]) as app:
         app.window("no settings window")
         app.wait(lambda: "Skia Vulkan window renderer initialized" in app.log_text, "renderer not initialized")
         app.focus()

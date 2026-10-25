@@ -12,6 +12,8 @@ vello = ["dep:plico-vello", "dep:plico-renderer", "dep:plico-runtime"]
 skia = ["dep:plico-runtime", "dep:plico-renderer", "dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
 
 [dependencies]
+usage-rs.workspace = true
+snafu.workspace = true
 plico-core.workspace = true
 plico-skia = { path = "../../crates/plico-skia", optional = true, features = ["raster"] }
 tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
@@ -23,16 +25,6 @@ plico-vello = { path = "../../crates/plico-vello", optional = true, default-feat
 plico-runtime = { path = "../../crates/plico-runtime", optional = true }
 plico-shell = { path = "../../crates/plico-shell", optional = true }
 
-[[bin]]
-name = "settings-fltk"
-path = "src/bin/fltk.rs"
-required-features = ["fltk"]
-
-[[bin]]
-name = "settings-vello"
-path = "src/bin/vello.rs"
-required-features = ["vello"]
-
 [[example]]
 name = "fltk_probe"
 required-features = ["fltk"]
@@ -40,11 +32,6 @@ required-features = ["fltk"]
 [[example]]
 name = "fltk_schedule_probe"
 required-features = ["fltk"]
-
-[[bin]]
-name = "settings-skia"
-path = "src/bin/skia.rs"
-required-features = ["skia"]
 
 [dev-dependencies]
 vello-common.workspace = true

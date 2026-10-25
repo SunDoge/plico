@@ -3416,7 +3416,9 @@ dependencies = [
  "plico-shell",
  "plico-skia",
  "plico-vello",
+ "snafu",
  "tracing-subscriber",
+ "usage-rs",
  "vello_common",
 ]
 
@@ -3445,6 +3447,7 @@ dependencies = [
  "bitflags 2.13.2",
  "plico-macros",
  "portable-atomic",
+ "rmp-serde",
  "serde",
  "serde_json",
  "slotmap",

@@ -15,6 +15,9 @@ pub struct Engine {
     pub(crate) epoch: u64,
     pub(crate) stats: FrameStats,
     pub(crate) error: Option<FrameError>,
+    declarations: Vec<(Entity, Entity)>,
+    pub(crate) locals: crate::local::LocalStore,
+    pub(crate) storage: crate::storage::StateStorage,
     removed: Vec<Entity>,
     /// Entities removed since the last drain, kept across declaration passes so
     /// a host syncing once after a settle loop still sees every removal.
@@ -63,6 +66,9 @@ impl Default for Engine {
             epoch: 0,
             stats: FrameStats::default(),
             error: None,
+            declarations: Vec::new(),
+            locals: Default::default(),
+            storage: Default::default(),
             removed: Vec::new(),
             removed_since_sync: Vec::new(),
             unmatched_clicks: Vec::new(),
@@ -93,6 +99,36 @@ impl Default for Engine {
     }
 }
 impl Engine {
+    /// Serialize only when a host requests a checkpoint, never during normal frames.
+    pub fn persisted_snapshot(&self) -> Result<crate::StateStorageSnapshot, crate::StorageError> {
+        self.storage.snapshot()
+    }
+    /// Atomically replace storage. Call before declaring restored UI.
+    pub fn restore_persisted(
+        &mut self,
+        snapshot: crate::StateStorageSnapshot,
+    ) -> Result<(), crate::StorageError> {
+        self.storage.restore(snapshot)
+    }
+    /// Export storage bytes for host-managed local storage or disk files.
+    pub fn dump_persisted(&self) -> Result<Vec<u8>, crate::StorageError> {
+        rmp_serde::to_vec_named(&self.persisted_snapshot()?)
+            .map_err(|source| crate::StorageError::Encode { source })
+    }
+    /// Decode and validate before replacing live storage; malformed input is atomic.
+    pub fn load_persisted(&mut self, bytes: &[u8]) -> Result<(), crate::StorageError> {
+        let snapshot = rmp_serde::from_slice(bytes)
+            .map_err(|source| crate::StorageError::Decode { source })?;
+        self.restore_persisted(snapshot)
+    }
+    pub fn clear_persisted(&mut self) {
+        self.storage.clear();
+    }
+    /// Per-slot migration failures; only incompatible slots are reset.
+    pub fn take_persisted_resets(&mut self) -> Vec<String> {
+        self.storage.take_resets()
+    }
+
     /// Accessible name: explicit text wins; composable buttons derive it from text descendants.
     pub fn accessible_name(&self, entity: Entity) -> Option<Cow<'_, str>> {
         let node = self.nodes.get(entity)?;
@@ -461,6 +497,19 @@ impl Engine {
         node.auto += 1;
         key
     }
+    /// Release declaration scratch and excess child-list capacity after a large
+    /// page is closed. Entity identities, pending events and deltas are preserved.
+    /// The next declaration may allocate again; ordinary frames reuse capacity.
+    pub fn trim_declaration_buffers(&mut self) {
+        self.declarations.clear();
+        self.declarations.shrink_to_fit();
+        self.format_buffer.clear();
+        self.format_buffer.shrink_to_fit();
+        for (_, node) in self.nodes.iter_mut() {
+            node.children.shrink_to_fit();
+        }
+    }
+
     pub(crate) fn declare(
         &mut self,
         parent: Entity,
@@ -477,7 +526,7 @@ impl Engine {
         let ordered = self
             .nodes
             .get(parent)
-            .and_then(|node| node.children.get(node.next_children.len()).copied())
+            .and_then(|node| node.children.get(node.declared_children).copied())
             .filter(|id| {
                 self.nodes
                     .get(*id)
@@ -509,7 +558,8 @@ impl Engine {
                 .get_or_insert(FrameError::DuplicateKey { parent, key });
             return entity;
         }
-        node.next_children.clear();
+        node.declared_children = 0;
+        node.order_dirty = false;
         node.scroll_observed.set(false);
         node.auto = 0;
         node.touched = self.epoch;
@@ -558,11 +608,11 @@ impl Engine {
             node.style_valid = style_valid;
         }
         self.stats.visited += 1;
-        self.nodes
-            .get_mut(parent)
-            .unwrap()
-            .next_children
-            .push(entity);
+        let parent_node = self.nodes.get_mut(parent).unwrap();
+        parent_node.order_dirty |=
+            parent_node.children.get(parent_node.declared_children) != Some(&entity);
+        parent_node.declared_children += 1;
+        self.declarations.push((parent, entity));
         entity
     }
     pub(crate) fn set_grid(&mut self, entity: Entity, grid: Option<&crate::GridTemplate>) {
@@ -739,25 +789,33 @@ impl Engine {
             self.unmatched_clicks.clear();
             self.unmatched_values.clear();
         }
-        let root = self.nodes.get_mut(self.root).unwrap();
-        root.touched = self.epoch;
-        root.auto = 0;
-        root.scroll_observed.set(false);
-        root.next_children.clear();
-        let parent = self.root;
+        let frame_root = self.root;
         let inherited = crate::Style {
             font_size: self.theme.metrics.font_size,
             ..Default::default()
         };
+        let namespace = self.nodes.get(frame_root).unwrap().identity.scope;
+        let in_button = false;
+        let root = self.nodes.get_mut(frame_root).unwrap();
+        root.touched = self.epoch;
+        root.auto = 0;
+        root.scroll_observed.set(false);
+        root.declared_children = 0;
+        root.order_dirty = false;
+        self.declarations.clear();
+        let parent = frame_root;
         view(&mut UiContext {
             engine: self,
             parent,
-            scope: 0,
+            scope: namespace,
             inherited,
-            in_button: false,
+            in_button,
         });
         if let Some(error) = self.error.take() {
             return Err(error);
+        }
+        if self.locals.take_changed() | self.storage.take_changed() {
+            self.changes.insert(Changes::VIEW);
         }
         self.removed.clear();
         // A successful pass declares each entity at most once (duplicate keys
@@ -776,42 +834,61 @@ impl Engine {
             self.inputs.remove(&id);
             self.stats.removed += 1;
         }
-        self.removed_since_sync.extend(self.removed.iter().copied());
-        // Portals draw after ordinary content, regardless of declaration nesting.
-        // The common frame has no portal: scanning is enough and allocates nothing.
-        // With portals, partition stably through the reusable removal list;
-        // `sort_by_key` would allocate a scratch buffer on every frame.
-        let mut roots = std::mem::take(&mut self.nodes.get_mut(self.root).unwrap().next_children);
-        let overlay = |id: &Entity| self.nodes.get(*id).is_some_and(|n| n.kind == Kind::Overlay);
-        if roots.iter().any(overlay) {
-            let scratch = &mut self.removed;
-            scratch.clear();
-            scratch.extend(roots.iter().copied().filter(|id| !overlay(id)));
-            scratch.extend(roots.iter().copied().filter(overlay));
-            roots.copy_from_slice(scratch);
-            scratch.clear();
-        }
-        self.nodes.get_mut(self.root).unwrap().next_children = roots;
-        // Simulated layout needs committed children first. External-layout
-        // hosts can fuse this work into the change-journal pass below.
-        if measure {
-            for (_, node) in self.nodes.iter_mut() {
-                node.order_dirty = node.children != node.next_children;
-                if node.order_dirty {
-                    self.stats.order_changes += 1;
-                }
-                std::mem::swap(&mut node.children, &mut node.next_children);
+        self.locals.retain(|parent, epoch| {
+            if self.nodes.get(parent).is_none() {
+                return false;
             }
+            if epoch == self.epoch {
+                return true;
+            }
+            false
+        });
+        self.removed_since_sync.extend(self.removed.iter().copied());
+        // Keep the old hierarchy intact until declaration succeeds. A single
+        // contiguous journal replaces a pending Vec allocation on every parent.
+        // Portals are compared in their committed (stable partitioned) order.
+        let has_portals = self.declarations.iter().any(|&(parent, id)| {
+            parent == self.root && self.nodes.get(id).unwrap().kind == Kind::Overlay
+        });
+        self.removed.clear();
+        if has_portals {
+            for overlay in [false, true] {
+                self.removed
+                    .extend(self.declarations.iter().filter_map(|&(parent, id)| {
+                        (parent == self.root
+                            && (self.nodes.get(id).unwrap().kind == Kind::Overlay) == overlay)
+                            .then_some(id)
+                    }));
+            }
+            let root = self.nodes.get_mut(self.root).unwrap();
+            root.order_dirty = root.children != self.removed;
+        }
+        for (_, node) in self.nodes.iter_mut() {
+            node.order_dirty |= node.children.len() != node.declared_children;
+            if node.order_dirty {
+                self.stats.order_changes += 1;
+                node.children.clear();
+            }
+        }
+        for &(parent, entity) in &self.declarations {
+            if !has_portals || parent != self.root {
+                let node = self.nodes.get_mut(parent).unwrap();
+                if node.order_dirty {
+                    node.children.push(entity);
+                }
+            }
+        }
+        if has_portals {
+            let root = self.nodes.get_mut(self.root).unwrap();
+            if root.order_dirty {
+                root.children.extend_from_slice(&self.removed);
+            }
+        }
+        self.removed.clear();
+        if measure {
             self.layout(self.root, self.width);
         }
         for (id, node) in self.nodes.iter_mut() {
-            if !measure {
-                node.order_dirty = node.children != node.next_children;
-                if node.order_dirty {
-                    self.stats.order_changes += 1;
-                }
-                std::mem::swap(&mut node.children, &mut node.next_children);
-            }
             // Drain invalidation accumulated at each mutation site during
             // declaration; add the frame-global causes that only the commit
             // pass can see (ordering, measured sizes, theme).
@@ -955,5 +1032,105 @@ impl Engine {
             }
         }
         self.nodes.get(entity).unwrap().size != previous
+    }
+}
+
+#[cfg(test)]
+mod declaration_storage_tests {
+    use super::*;
+
+    #[test]
+    fn failed_declaration_preserves_order_and_next_pass_recovers() {
+        let mut engine = Engine::default();
+        engine
+            .frame(|cx| {
+                cx.text("A").key("a");
+                cx.text("B").key("b");
+            })
+            .unwrap();
+        let original = engine.node(engine.root()).unwrap().children.to_vec();
+        assert!(
+            engine
+                .frame(|cx| {
+                    cx.text("B").key("b");
+                    cx.text("B").key("b");
+                })
+                .is_err()
+        );
+        assert_eq!(engine.node(engine.root()).unwrap().children, original);
+        engine
+            .frame(|cx| {
+                cx.text("B").key("b");
+                cx.text("A").key("a");
+            })
+            .unwrap();
+        assert_eq!(
+            engine.node(engine.root()).unwrap().children,
+            [original[1], original[0]]
+        );
+    }
+
+    #[test]
+    fn interleaved_portals_do_not_report_false_order_changes() {
+        let mut engine = Engine::default();
+        for measure in [true, false] {
+            let view = |cx: &mut UiContext<'_>| {
+                for (key, kind) in [("overlay", Kind::Overlay), ("normal", Kind::Text)] {
+                    let root = cx.engine.root;
+                    cx.engine.declare(
+                        root,
+                        key.into(),
+                        0,
+                        kind,
+                        Style::default(),
+                        Cow::Borrowed(""),
+                    );
+                }
+            };
+            let first = engine.frame_inner(view, measure).unwrap();
+            let children = engine.node(engine.root()).unwrap().children;
+            assert_eq!(engine.node(children[0]).unwrap().kind, Kind::Text);
+            assert_eq!(engine.node(children[1]).unwrap().kind, Kind::Overlay);
+            let second = engine.frame_inner(view, measure).unwrap();
+            assert_eq!(second.order_changes, 0);
+            assert!(first.created == 0 || first.order_changes > 0);
+        }
+    }
+
+    #[test]
+    fn trim_releases_scratch_without_losing_handles_or_pending_events() {
+        let mut engine = Engine::default();
+        engine
+            .frame(|cx| {
+                for i in 0..1024_u64 {
+                    cx.button("item").key(i);
+                }
+            })
+            .unwrap();
+        engine
+            .frame(|cx| {
+                cx.button("item").key(0_u64);
+            })
+            .unwrap();
+        let id = engine.node(engine.root()).unwrap().children[0];
+        engine.queue_click(id);
+        assert!(engine.declarations.capacity() >= 1024);
+        assert!(engine.nodes.get(engine.root).unwrap().children.capacity() >= 1024);
+        engine.trim_declaration_buffers();
+        assert_eq!(engine.declarations.capacity(), 0);
+        assert_eq!(
+            engine.nodes.get(engine.root).unwrap().children.capacity(),
+            1
+        );
+        assert_eq!(engine.node(engine.root()).unwrap().children, [id]);
+        let mut clicked = false;
+        let stats = engine
+            .frame(|cx| {
+                clicked = cx.button("item").key(0_u64).clicked();
+            })
+            .unwrap();
+        assert!(clicked);
+        assert_eq!(stats.created, 0);
+        assert_eq!(stats.order_changes, 0);
     }
 }

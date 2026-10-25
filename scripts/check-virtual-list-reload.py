@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-subprocess.run(["cargo", "build", "-p", "plico-gallery", "-p", "plico-vello", "--lib", "--bin", "plico-vello", "--quiet"], cwd=ROOT, check=True)
+subprocess.run(["cargo", "build", "-p", "plico-gallery", "-p", "plico-vello", "--features", "plico-gallery/abi", "--lib", "--bin", "plico-vello", "--quiet"], cwd=ROOT, check=True)
 
 def texts(nodes):
     return [node["text"] for node in nodes] + [value for node in nodes for value in texts(node["children"])]
