@@ -23,7 +23,7 @@ Cargo 的 `rustc-wrapper` 配置。需要覆盖命令时设置 `PLICO_CARGO=/pat
 cd /tmp/my-plico-app
 cargo run                         # 静态链接应用，打开桌面窗口
 cargo run --release               # 发布构建，无需 CLI 或动态模块
-cargo build --lib --no-default-features # 轻量 rlib + cdylib
+cargo build --lib --no-default-features --features abi # 轻量 rlib + cdylib
 plico dev                         # 常驻 host + 动态库热重载
 ```
 
@@ -49,8 +49,8 @@ CLI 从目录判断当前 package，workspace 根目录优先选择唯一可用�
 | 模式 | 应用/宿主 features | UI 模块 |
 |---|---|---|
 | run | 应用默认 features，通常 desktop | 静态链接，不加载开发描述符 |
-| dev 通用宿主 | 后端显式 hot-reload | --lib --no-default-features |
-| dev 自定义宿主 | 保留应用默认 features；定义 hot-reload 时额外启用它 | --lib --no-default-features |
+| dev 通用宿主 | 后端显式 hot-reload | --lib --no-default-features --features abi |
+| dev 自定义宿主 | 保留应用默认 features；定义 hot-reload 时额外启用它 | --lib --no-default-features --features abi |
 
 新模板提供 `desktop` 与 `hot-reload` feature，后者映射到后端的动态加载能力。
 旧自定义宿主没有该 feature 时暂按原配置构建；建议迁移到上述约定。
@@ -59,7 +59,7 @@ CLI 从目录判断当前 package，workspace 根目录优先选择唯一可用�
 
 ## 开发链路
 
-第一次构建常驻的 `plico-vello` host（不依赖 gallery），再构建轻量的 app cdylib。后续由 notify 监听 Rust 源码/Cargo.toml 变化，只重新构建 app。开发构建使用 `--lib --no-default-features`，不启用桌面后端依赖；重载不重新链接 renderer，也不重启窗口。
+第一次构建常驻的 `plico-vello` host（不依赖 gallery），再构建轻量的 app cdylib。后续由 notify 监听 Rust 源码/Cargo.toml 变化，只重新构建 app。开发构建使用 `--lib --no-default-features --features abi`，不启用桌面后端依赖；重载不重新链接 renderer，也不重启窗口。
 
 产物复制到本次会话的私有路径后，原子更新 active descriptor。宿主通过 Stabby 的布局报告加载导出函数，以版本化 JSON 请求/响应交换状态与 UI 声明；成功才激活，失败保留上一版。普通 Rust panic 在模块边界转换成错误并保留 panic 消息。恢复不了应用状态时重置为 Default 并报告原因；当前恢复粒度是整个 App struct，不是逐个状态槽位。
 
@@ -146,7 +146,7 @@ python3 scripts/check-hotreload.py
 
 当前旧代码映像保持映射至进程结束，避免 TLS/析构地址悬空，长时间大量重载会增加地址空间/内存占用；可重启 dev 回收。Stabby 简化并校验 ABI，不提供进程隔离，不能恢复原生崩溃、abort、OOM 或任意 unsafe 错误。只加载可信的本地应用代码。宿主输入、文字编辑和异步任务等后续能力仍需分别完善。
 
-内置 gallery 同样是普通应用：`cargo run -p plico-gallery` 打开窗口，`cargo plico render --out /tmp/gallery.png` 离屏绘制；`cargo plico render/probe` 调用 gallery 的独立验证示例。后端仅在测试中依赖 gallery，生产依赖方向为 gallery → backend。`cargo build -p plico-gallery --lib --no-default-features` 构建轻量热重载模块。
+内置 gallery 同样是普通应用：`cargo run -p plico-gallery` 打开窗口，`cargo plico render --out /tmp/gallery.png` 离屏绘制；`cargo plico render/probe` 调用 gallery 的独立验证示例。后端仅在测试中依赖 gallery，生产依赖方向为 gallery → backend。`cargo build -p plico-gallery --lib --no-default-features --features abi` 构建轻量热重载模块。
 
 ## Gallery 验证工具
 

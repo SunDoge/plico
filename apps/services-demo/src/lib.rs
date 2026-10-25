@@ -94,5 +94,5 @@ impl ServiceApp for Application {
         };
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 plico_dev::export_service_app!(Application);

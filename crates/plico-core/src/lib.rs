@@ -8,6 +8,10 @@ mod engine;
 pub mod icons;
 mod input;
 mod layout;
+mod local;
+mod storage;
+pub use local::LocalState;
+pub use storage::{StateStorageSnapshot, StorageError};
 mod modal;
 mod model;
 mod router;
@@ -28,8 +32,6 @@ pub use arena::{Arena, Entity};
 pub use asset::{ImageAsset, SvgAsset};
 pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
-#[cfg(feature = "experimental-scopes")]
-pub use engine::RetainedScope;
 pub use model::{
     Align, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, ImplicitKey, Justify,
     Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff,

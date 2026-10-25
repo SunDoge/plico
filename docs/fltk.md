@@ -6,8 +6,8 @@ performing layout. It is not a complete replacement for the Vello backend.
 ## Run the same routed workspace with either backend
 
 ```sh
-cargo run -p plico-backend-settings --features fltk --bin settings-fltk
-cargo run -p plico-backend-settings --features vello --bin settings-vello
+cargo run -p plico-backend-settings --features fltk
+cargo run -p plico-backend-settings --features vello
 ```
 
 `apps/backend-settings/src/lib.rs` contains the shared view and ordinary Rust
@@ -114,8 +114,8 @@ native dependencies.
 For a coarse Linux comparison of the identical view:
 
 ```sh
-cargo build --release -p plico-backend-settings --features fltk --bin settings-fltk --example fltk_probe
-cargo build --release -p plico-backend-settings --features vello --bin settings-vello
+cargo build --release -p plico-backend-settings --features fltk --bins --example fltk_probe
+cargo build --release -p plico-backend-settings --features vello
 xvfb-run -a python3 scripts/compare-settings-backends.py
 ```
 
@@ -144,3 +144,13 @@ not compare complete distribution packages. GPU initialization/shared libraries
 influence Vello's RSS. These measurements establish a useful lightweight-backend
 experiment, not an across-the-board performance ranking. The earlier 680×700
 single-form measurements should not be compared directly to this larger view.
+
+
+Settings 应用统一使用 `apps/backend-settings/src/main.rs`。单后端通过 Cargo feature
+选择即可；同时启用多个后端时，默认依次选择 Vello、Skia、FLTK，也可显式指定：
+
+```sh
+cargo run -p plico-backend-settings --features vello,skia -- --backend skia
+```
+
+未启用后端或选择未编译的后端会报错，不隐式构建其他后端。

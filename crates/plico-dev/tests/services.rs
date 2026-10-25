@@ -105,7 +105,9 @@ fn incompatible_ui_resets_independently_of_host_snapshot_and_invalid_snapshot_fa
 }
 
 #[derive(Default, Serialize, Deserialize)]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 struct FailingApp;
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 impl ServiceApp for FailingApp {
     type Snapshot = Projection;
     type Command = Command;
@@ -114,6 +116,7 @@ impl ServiceApp for FailingApp {
         panic!("synthetic declaration failure");
     }
 }
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[test]
 fn a_panicking_declaration_cannot_publish_its_outbox() {
     let bytes = serde_json::to_vec(&Request::default()).unwrap();

@@ -4,12 +4,13 @@ use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 use zeroize::Zeroizing;
 pub mod services;
+pub mod tasks;
 mod validation;
 pub use validation::validate_nodes;
 pub const PROTOCOL_VERSION: u32 = 3;
 mod snapshot;
 pub use snapshot::StateSnapshot;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub use stabby;
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -19,6 +20,8 @@ pub enum Error {
     Json { source: serde_json::Error },
     #[snafu(display("application checkpoint encoding failed: {source}"))]
     Checkpoint { source: rmp_serde::encode::Error },
+    #[snafu(display("persistent UI state failed: {source}"))]
+    Storage { source: plico_core::StorageError },
     #[snafu(display("unsupported application protocol {actual}"))]
     Protocol { actual: u32 },
     #[snafu(display("view declaration failed: {source}"))]
@@ -167,7 +170,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
         None
     };
     let fresh = retained.is_none();
-    let (mut session, reset) = if let Some(session) = retained {
+    let (mut session, mut reset) = if let Some(session) = retained {
         (session, None)
     } else {
         snafu::ensure!(
@@ -176,7 +179,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
                 message: "session request arrived without retained application state"
             }
         );
-        let (app, reset) = if request.state.is_empty() {
+        let (app, mut reset) = if request.state.is_empty() {
             (A::default(), None)
         } else {
             match request.state.decode() {
@@ -184,13 +187,17 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
                 Err(error) => (A::default(), Some(error.to_string())),
             }
         };
-        (
-            Box::new(Session {
-                app,
-                engine: Engine::default(),
-            }),
-            reset,
-        )
+        let mut engine = Engine::default();
+        match request.state.persisted() {
+            Ok(Some(storage)) => {
+                if let Err(error) = engine.restore_persisted(storage) {
+                    reset = Some(format!("persistent UI state reset: {error}"));
+                }
+            }
+            Ok(None) => {}
+            Err(error) => reset = Some(format!("invalid checkpoint: {error}")),
+        }
+        (Box::new(Session { app, engine }), reset)
     };
     let mut key_handled = false;
     if !request.checkpoint {
@@ -267,8 +274,17 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
     let state = if request.lean {
         StateSnapshot::default()
     } else {
-        StateSnapshot::encode(app).context(CheckpointSnafu)?
+        let storage = engine.persisted_snapshot().context(StorageSnafu)?;
+        StateSnapshot::encode_session(app, storage).context(CheckpointSnafu)?
     };
+    let resets = engine.take_persisted_resets();
+    if !resets.is_empty() {
+        let detail = format!("persistent slots reset: {}", resets.join("; "));
+        reset = Some(match reset {
+            Some(previous) => format!("{previous}; {detail}"),
+            None => detail,
+        });
+    }
     let frame = Frame {
         version: PROTOCOL_VERSION,
         state,
@@ -290,25 +306,25 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
     Ok(frame)
 }
 /// Only this small transport type has a stable native layout. The JSON envelope carries opaque MessagePack state bytes.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[stabby::stabby]
 pub struct Reply {
     pub status: u32,
     pub bytes: stabby::vec::Vec<u8>,
 }
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub type RenderFn = extern "C" fn(stabby::vec::Vec<u8>) -> Reply;
 /// Reactive modules register a checked C callback carrying an opaque host token.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub type WakeFn = extern "C" fn(u64);
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub type SetWakeFn = extern "C" fn(u64, WakeFn) -> u32;
 /// A panic may not unwind through the exported function boundary.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub fn dispatch<A: App + 'static>(input: stabby::vec::Vec<u8>) -> Reply {
     dispatch_with(input, render::<A>)
 }
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 fn dispatch_with(input: stabby::vec::Vec<u8>, render: fn(Request) -> Result<Frame>) -> Reply {
     let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let request = serde_json::from_slice(&input).context(JsonSnafu)?;
@@ -332,6 +348,7 @@ fn dispatch_with(input: stabby::vec::Vec<u8>, render: fn(Request) -> Result<Fram
     }
 }
 /// Applications also declare a direct stabby dependency for its export macro's ABI reports.
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! export_app {
     ($app:ty) => {
@@ -343,7 +360,7 @@ macro_rules! export_app {
 }
 /// Panic payload as a reportable message; keeps the developer-facing reason a
 /// module failed instead of discarding it at the boundary.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         (*message).to_owned()

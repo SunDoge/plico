@@ -9,7 +9,8 @@ publish = false
 ignored = ["serde_bytes"]
 
 [features]
-host = ["dep:libloading", "dep:tempfile", "stabby/libloading"]
+abi = ["dep:stabby"]
+host = ["abi", "dep:libloading", "dep:tempfile", "stabby/libloading"]
 
 [dependencies]
 zeroize = { workspace = true }
@@ -22,7 +23,7 @@ snafu.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libloading = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
-stabby.workspace = true
+stabby = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_bytes = "0.11"

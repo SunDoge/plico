@@ -10,6 +10,42 @@ pub struct UiContext<'e> {
     pub(crate) in_button: bool,
 }
 impl<'e> UiContext<'e> {
+    /// Component-local storage. Call sites are independent of declaration order.
+    /// Use `keyed` around repeated component instances in dynamic lists.
+    #[track_caller]
+    pub fn state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> crate::LocalState<T> {
+        let site = std::panic::Location::caller();
+        self.engine
+            .locals
+            .get(self.parent, self.scope, site, self.engine.epoch, init)
+    }
+
+    /// Named storage retained across unmounts. The host chooses disk persistence.
+    pub fn persisted_state<T: serde::Serialize + serde::de::DeserializeOwned + 'static>(
+        &mut self,
+        name: &str,
+        init: impl FnOnce() -> T,
+    ) -> crate::LocalState<T> {
+        let key = self.storage_key(name);
+        self.engine.storage.get(key, init)
+    }
+    fn storage_key(&self, name: &str) -> crate::storage::StorageKey {
+        crate::storage::StorageKey {
+            path: self.engine.logical_path(self.parent),
+            scope: self.scope,
+            name: name.to_owned(),
+        }
+    }
+    pub fn remove_persisted_state(&mut self, name: &str) -> bool {
+        let key = self.storage_key(name);
+        self.engine.storage.remove(&key)
+    }
+    /// Remove this exact logical parent/component namespace, not its descendants.
+    pub fn clear_persisted_scope(&mut self) {
+        let path = self.engine.logical_path(self.parent);
+        self.engine.storage.clear_scope(&path, self.scope);
+    }
+
     pub fn element<R>(
         &mut self,
         key: Key,
@@ -774,22 +810,6 @@ impl Layout<'_, '_> {
     pub fn disabled(mut self, value: bool) -> Self {
         self.style.disabled |= value;
         self
-    }
-    /// Preserve this container's committed children without executing them.
-    /// Experimental: async runtimes use the anchor for later local declarations.
-    #[cfg(feature = "experimental-scopes")]
-    pub fn retain(self) -> crate::RetainedScope {
-        let entity = self.ui.engine.declare(
-            self.ui.parent,
-            self.key,
-            self.ui.scope,
-            self.kind,
-            self.style,
-            Cow::Borrowed(""),
-        );
-        self.ui.engine.set_grid(entity, self.grid.as_ref());
-        self.ui.engine.preserve_children(entity);
-        self.ui.engine.retained_token(entity)
     }
 
     /// Declare this container's children. Returns `InnerResponse<R>` so the

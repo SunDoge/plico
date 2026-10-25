@@ -40,7 +40,6 @@ wgpu-context = { package = "wgpu_context", version = "0.10.0" }
 winit = "=0.31.0-beta.3"
 
 plico-core = { path = "crates/plico-core" }
-plico-async = { path = "crates/plico-async" }
 plico-renderer = { path = "crates/plico-renderer" }
 plico-shell = { path = "crates/plico-shell" }
 

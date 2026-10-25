@@ -538,12 +538,6 @@ pub enum FrameError {
     EpochExhausted,
     #[snafu(display("declarations did not settle after eight passes"))]
     DidNotSettle,
-    #[cfg(feature = "experimental-scopes")]
-    #[snafu(display("retained UI scope {entity:?} is no longer mounted"))]
-    MissingScope { entity: Entity },
-    #[cfg(feature = "experimental-scopes")]
-    #[snafu(display("a retained subtree cannot declare nodes outside its anchor"))]
-    ScopeEscape,
 }
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct MeasureKey {
@@ -595,8 +589,6 @@ pub(crate) struct Node {
     pub numeric: Option<crate::NumericRange>,
     pub children: Vec<Entity>,
     pub declared_children: usize,
-    #[cfg(feature = "experimental-scopes")]
-    pub retained: bool,
     pub touched: u64,
     pub auto: u32,
     pub scroll_observed: std::cell::Cell<bool>,
@@ -625,8 +617,6 @@ impl Node {
             numeric: None,
             children: Vec::new(),
             declared_children: 0,
-            #[cfg(feature = "experimental-scopes")]
-            retained: false,
             touched: 0,
             auto: 0,
             scroll_observed: std::cell::Cell::new(false),

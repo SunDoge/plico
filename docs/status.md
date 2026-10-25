@@ -27,13 +27,15 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
 - [Skia / Vello 对照实验](skia.md)：同一 Scene 和 Parley glyph 的 CPU / Vulkan Skia 回放、四档缩放截图；另提供实验性 Vulkan 窗口后端，尚不支持完整 gallery。
 
-## 可选实验：plico-async
+## 同步组件的 local state 与宿主任务
 
-独立 crate 提供共享 Engine 上的 coroutine scope，支持同步父级挂载、普通局部状态、
-显式输入唤醒、嵌套取消与选定 MessagePack 检查点恢复。需要 core 的 experimental-scopes
-feature；默认应用模型仍是 immediate App::show。没有依赖图或新宏。
-局部声明省去多 Engine 回放，但提交/布局仍扫描保留树；真实后端适配与全局 portal
-尚未完成。见 [async 组件](async-components.md)。
+`UiContext::state` 按父节点、组件作用域与调用位置保存局部状态；读写 handle 不借用
+UiContext，变化触发现有 settle 流程，卸载释放。普通 state 在热重载时重置；
+persisted_state 使用显式名称，跨卸载保留，dev checkpoint 独立恢复各槽；宿主可导入/导出
+MessagePack 字节实现磁盘或浏览器存储，不默认自动落盘。
+`plico_dev::tasks::Task` 封装宿主 Future 的结果、唤醒、替换与取消；执行器及服务快照
+仍由应用提供，不让 Future 穿越模块 ABI。TaskService 提供单任务服务协议，
+UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。见 [说明](local-state-and-tasks.md)。
 
 ## 当前代价和限制
 

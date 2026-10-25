@@ -3404,16 +3404,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "plico-async"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "rmp-serde",
- "serde",
- "snafu",
-]
-
-[[package]]
 name = "plico-backend-settings"
 version = "0.1.0"
 dependencies = [
@@ -3426,7 +3416,9 @@ dependencies = [
  "plico-shell",
  "plico-skia",
  "plico-vello",
+ "snafu",
  "tracing-subscriber",
+ "usage-rs",
  "vello_common",
 ]
 
@@ -3455,6 +3447,7 @@ dependencies = [
  "bitflags 2.13.2",
  "plico-macros",
  "portable-atomic",
+ "rmp-serde",
  "serde",
  "serde_json",
  "slotmap",

@@ -88,8 +88,9 @@ class Xvfb:
 class WindowApp:
     """One native app process under test on an existing Xvfb display."""
 
-    def __init__(self, binary, env, log, cwd=ROOT, settle=0.05):
+    def __init__(self, binary, env, log, cwd=ROOT, settle=0.05, args=()):
         self.binary = str(binary)
+        self.args = tuple(args)
         self.env = env
         self.log = Path(log)
         self.cwd = cwd
@@ -101,7 +102,7 @@ class WindowApp:
     def __enter__(self):
         self.log.write_text("")
         self.process = subprocess.Popen(
-            [self.binary], cwd=self.cwd, env=self.env,
+            [self.binary, *self.args], cwd=self.cwd, env=self.env,
             stdout=self.log.open("w"), stderr=subprocess.STDOUT,
         )
         return self

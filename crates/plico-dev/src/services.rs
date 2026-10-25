@@ -159,12 +159,13 @@ impl<A: ServiceApp> App for ServiceModule<A> {
 pub fn render<A: ServiceApp + 'static>(request: Request) -> Result<Frame> {
     crate::render::<ServiceModule<A>>(request)
 }
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 pub fn dispatch<A: ServiceApp + 'static>(input: crate::stabby::vec::Vec<u8>) -> crate::Reply {
     crate::dispatch_with(input, render::<A>)
 }
 
 /// Export one module entry point; all component internals remain ordinary Rust.
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! export_service_app {
     ($app:ty) => {
@@ -173,6 +174,16 @@ macro_rules! export_service_app {
             $crate::services::dispatch::<$app>(input)
         }
     };
+}
+
+impl<I, T, E> Services<crate::tasks::TaskStatus<T, E>, crate::tasks::TaskCommand<I>> {
+    /// Access a host-owned task's status and send start/cancel/reset commands.
+    pub fn task(&mut self) -> crate::tasks::TaskUi<'_, I, T, E> {
+        crate::tasks::TaskUi {
+            status: &self.snapshot,
+            commands: &mut self.commands,
+        }
+    }
 }
 
 #[cfg(test)]

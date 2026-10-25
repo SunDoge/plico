@@ -15,6 +15,7 @@ impl App for RichState {
     fn show(&mut self, _: &mut UiContext<'_>) {}
 }
 
+#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 #[test]
 fn non_json_state_survives_the_actual_dispatch_envelope() {
     let original = RichState {

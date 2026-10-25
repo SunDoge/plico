@@ -1,12 +1,6 @@
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
 use std::{borrow::Cow, collections::HashMap};
 
-#[cfg(feature = "experimental-scopes")]
-#[path = "retained.rs"]
-mod retained;
-#[cfg(feature = "experimental-scopes")]
-pub use retained::RetainedScope;
-
 /// A view the engine can settle: theme and declarations, driven per pass.
 /// Implemented by application types on both the native and reload paths.
 pub trait DeclareView {
@@ -22,16 +16,8 @@ pub struct Engine {
     pub(crate) stats: FrameStats,
     pub(crate) error: Option<FrameError>,
     declarations: Vec<(Entity, Entity)>,
-    #[cfg(feature = "experimental-scopes")]
-    partial_root: Option<Entity>,
-    #[cfg(feature = "experimental-scopes")]
-    scope_owner: usize,
-    #[cfg(feature = "experimental-scopes")]
-    scope_created: Vec<Entity>,
-    #[cfg(feature = "experimental-scopes")]
-    scope_members: std::collections::HashSet<Entity>,
-    #[cfg(feature = "experimental-scopes")]
-    scope_stack: Vec<Entity>,
+    pub(crate) locals: crate::local::LocalStore,
+    pub(crate) storage: crate::storage::StateStorage,
     removed: Vec<Entity>,
     /// Entities removed since the last drain, kept across declaration passes so
     /// a host syncing once after a settle loop still sees every removal.
@@ -81,16 +67,8 @@ impl Default for Engine {
             stats: FrameStats::default(),
             error: None,
             declarations: Vec::new(),
-            #[cfg(feature = "experimental-scopes")]
-            partial_root: None,
-            #[cfg(feature = "experimental-scopes")]
-            scope_owner: retained::next_owner(),
-            #[cfg(feature = "experimental-scopes")]
-            scope_created: Vec::new(),
-            #[cfg(feature = "experimental-scopes")]
-            scope_members: Default::default(),
-            #[cfg(feature = "experimental-scopes")]
-            scope_stack: Vec::new(),
+            locals: Default::default(),
+            storage: Default::default(),
             removed: Vec::new(),
             removed_since_sync: Vec::new(),
             unmatched_clicks: Vec::new(),
@@ -121,6 +99,36 @@ impl Default for Engine {
     }
 }
 impl Engine {
+    /// Serialize only when a host requests a checkpoint, never during normal frames.
+    pub fn persisted_snapshot(&self) -> Result<crate::StateStorageSnapshot, crate::StorageError> {
+        self.storage.snapshot()
+    }
+    /// Atomically replace storage. Call before declaring restored UI.
+    pub fn restore_persisted(
+        &mut self,
+        snapshot: crate::StateStorageSnapshot,
+    ) -> Result<(), crate::StorageError> {
+        self.storage.restore(snapshot)
+    }
+    /// Export storage bytes for host-managed local storage or disk files.
+    pub fn dump_persisted(&self) -> Result<Vec<u8>, crate::StorageError> {
+        rmp_serde::to_vec_named(&self.persisted_snapshot()?)
+            .map_err(|source| crate::StorageError::Encode { source })
+    }
+    /// Decode and validate before replacing live storage; malformed input is atomic.
+    pub fn load_persisted(&mut self, bytes: &[u8]) -> Result<(), crate::StorageError> {
+        let snapshot = rmp_serde::from_slice(bytes)
+            .map_err(|source| crate::StorageError::Decode { source })?;
+        self.restore_persisted(snapshot)
+    }
+    pub fn clear_persisted(&mut self) {
+        self.storage.clear();
+    }
+    /// Per-slot migration failures; only incompatible slots are reset.
+    pub fn take_persisted_resets(&mut self) -> Vec<String> {
+        self.storage.take_resets()
+    }
+
     /// Accessible name: explicit text wins; composable buttons derive it from text descendants.
     pub fn accessible_name(&self, entity: Entity) -> Option<Cow<'_, str>> {
         let node = self.nodes.get(entity)?;
@@ -497,15 +505,6 @@ impl Engine {
         self.declarations.shrink_to_fit();
         self.format_buffer.clear();
         self.format_buffer.shrink_to_fit();
-        #[cfg(feature = "experimental-scopes")]
-        {
-            self.scope_created.clear();
-            self.scope_created.shrink_to_fit();
-            self.scope_stack.clear();
-            self.scope_stack.shrink_to_fit();
-            self.scope_members.clear();
-            self.scope_members.shrink_to_fit();
-        }
         for (_, node) in self.nodes.iter_mut() {
             node.children.shrink_to_fit();
         }
@@ -520,13 +519,6 @@ impl Engine {
         style: Style,
         text: Cow<'_, str>,
     ) -> Entity {
-        #[cfg(feature = "experimental-scopes")]
-        if let Some(root) = self.partial_root
-            && !self.in_subtree(parent, root)
-        {
-            self.error.get_or_insert(FrameError::ScopeEscape);
-            return parent;
-        }
         let identity = Identity { parent, key, scope };
         // Stable sibling order is the common case. Position is only a lookup
         // hint: verify the full identity before bypassing the hash table. A
@@ -546,10 +538,6 @@ impl Engine {
         } else {
             let id = self.nodes.insert(Node::new(identity, kind));
             self.lookup.insert(identity, id);
-            #[cfg(feature = "experimental-scopes")]
-            if self.partial_root.is_some() {
-                self.scope_created.push(id);
-            }
             self.stats.created += 1;
             id
         };
@@ -571,10 +559,6 @@ impl Engine {
             return entity;
         }
         node.declared_children = 0;
-        #[cfg(feature = "experimental-scopes")]
-        {
-            node.retained = false;
-        }
         node.order_dirty = false;
         node.scroll_observed.set(false);
         node.auto = 0;
@@ -782,14 +766,6 @@ impl Engine {
         view: impl FnOnce(&mut UiContext<'_>),
         measure: bool,
     ) -> Result<FrameStats, FrameError> {
-        self.frame_target(view, measure, None)
-    }
-    fn frame_target(
-        &mut self,
-        view: impl FnOnce(&mut UiContext<'_>),
-        measure: bool,
-        target: Option<Entity>,
-    ) -> Result<FrameStats, FrameError> {
         self.epoch = self
             .epoch
             .checked_add(1)
@@ -805,9 +781,7 @@ impl Engine {
             self.changes.insert(Changes::PAINT);
         }
         self.error = None;
-        #[cfg(feature = "experimental-scopes")]
-        self.scope_created.clear();
-        if measure && target.is_none() {
+        if measure {
             // The simulated-measurement path owns the whole tree; nobody drains
             // removals or unmatched events, so per-frame clearing keeps both
             // accumulators bounded.
@@ -815,23 +789,12 @@ impl Engine {
             self.unmatched_clicks.clear();
             self.unmatched_values.clear();
         }
-        #[cfg(feature = "experimental-scopes")]
-        if let Some(target) = target {
-            self.prepare_partial(target);
-        }
-        let frame_root = target.unwrap_or(self.root);
-        let inherited = if target.is_some() {
-            self.nodes.get(frame_root).unwrap().style
-        } else {
-            crate::Style {
-                font_size: self.theme.metrics.font_size,
-                ..Default::default()
-            }
+        let frame_root = self.root;
+        let inherited = crate::Style {
+            font_size: self.theme.metrics.font_size,
+            ..Default::default()
         };
         let namespace = self.nodes.get(frame_root).unwrap().identity.scope;
-        #[cfg(feature = "experimental-scopes")]
-        let in_button = self.scope_in_button(frame_root);
-        #[cfg(not(feature = "experimental-scopes"))]
         let in_button = false;
         let root = self.nodes.get_mut(frame_root).unwrap();
         root.touched = self.epoch;
@@ -851,6 +814,9 @@ impl Engine {
         if let Some(error) = self.error.take() {
             return Err(error);
         }
+        if self.locals.take_changed() | self.storage.take_changed() {
+            self.changes.insert(Changes::VIEW);
+        }
         self.removed.clear();
         // A successful pass declares each entity at most once (duplicate keys
         // return above). If all live nodes were visited, none can be removed.
@@ -868,6 +834,15 @@ impl Engine {
             self.inputs.remove(&id);
             self.stats.removed += 1;
         }
+        self.locals.retain(|parent, epoch| {
+            if self.nodes.get(parent).is_none() {
+                return false;
+            }
+            if epoch == self.epoch {
+                return true;
+            }
+            false
+        });
         self.removed_since_sync.extend(self.removed.iter().copied());
         // Keep the old hierarchy intact until declaration succeeds. A single
         // contiguous journal replaces a pending Vec allocation on every parent.
@@ -964,19 +939,10 @@ impl Engine {
         }
         self.theme_dirty = false;
         self.viewport_dirty = false;
-        #[cfg(feature = "experimental-scopes")]
-        {
-            self.retain_scope_events(target);
-            if target.is_some() {
-                return Ok(self.stats);
-            }
-        }
-        #[cfg(not(feature = "experimental-scopes"))]
         self.clicks.clear();
         // Leftover path-addressed events survived no declaration this pass;
         // keep them observable instead of silently discarding them.
         self.unmatched_clicks.append(&mut self.click_paths);
-        #[cfg(not(feature = "experimental-scopes"))]
         self.values.clear();
         self.unmatched_values.append(&mut self.value_paths);
         Ok(self.stats)

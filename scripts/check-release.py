@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Exercise Git-only releases in a disposable snapshot; never push or publish."""
-import io
 import json
 from pathlib import Path
 import subprocess
 import sys
-import tarfile
+import shutil
 import tempfile
 import tomllib
 
@@ -31,11 +30,20 @@ def run(args, cwd):
 
 with tempfile.TemporaryDirectory(prefix="plico-release-") as directory:
     checkout = Path(directory)
-    archive = subprocess.check_output(["git", "archive", "HEAD"], cwd=ROOT)
-    with tarfile.open(fileobj=io.BytesIO(archive)) as files:
-        files.extractall(checkout, filter="data")
-    # Use the current config, even before it has been committed.
-    (checkout / "release-plz.toml").write_text((ROOT / "release-plz.toml").read_text())
+    # Validate the current publishable tree, including uncommitted additions and
+    # deletions. Ignored reports/build outputs and .git never enter the fixture.
+    paths = subprocess.check_output([
+        "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z",
+    ], cwd=ROOT).decode().split("\0")
+    for name in paths:
+        if not name:
+            continue
+        source = ROOT / name
+        if not source.is_file() and not source.is_symlink():
+            continue
+        destination = checkout / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination, follow_symlinks=False)
     metadata = json.loads(run([
         "cargo", "metadata", "--locked", "--no-deps", "--format-version", "1",
     ], checkout))
