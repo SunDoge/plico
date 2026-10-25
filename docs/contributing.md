@@ -41,7 +41,8 @@ GitHub Actions 的 `.github/workflows/ci.yml` 在 main 分支 push、pull reques
 到 commit，Cargo 依赖按任务缓存，不依赖本机 mbx、原 Wabou checkout 或 Lucide SVG 缓存。
 质量检查每轮都执行；仅文档、Dependabot 配置、release-plz 配置等已知非构建输入变化时，
 跳过原生和 WASM 构建。`scripts/ci-changes.py` 对其他路径一律保留完整检查，历史读取失败
-也回退到完整检查；手动运行始终全量验证。PR 只恢复 Cargo 缓存，由 main 更新缓存。
+也回退到完整检查；main 还会对照上次成功 CI 的提交，避免漏测被取消运行中的源码变化。
+手动运行始终全量验证。PR 只恢复 Cargo 缓存，由 main 更新缓存。
 Skia 在同一个 window feature 图中同时执行普通与 ignored Vulkan 测试，避免切换 feature 后
 重复编译；窗口例子不启用无关的默认热重载 feature。
 
