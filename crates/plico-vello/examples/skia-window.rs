@@ -64,3 +64,39 @@ fn main() -> Result<(), plico_vello::DesktopError> {
             .renderer(renderer),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plico_vello::testing::{Command, Driver};
+
+    #[test]
+    fn counter_keyboard_flow_uses_explicit_semantic_focus() {
+        let mut ui = Driver::new(Counter::default(), 820, 480).unwrap();
+        ui.execute(Command::Click {
+            role: "button".into(),
+            label: "Increment".into(),
+            occurrence: None,
+        })
+        .unwrap();
+        assert_eq!(ui.source.view.count, 1);
+        ui.resize(1000, 640).unwrap();
+        ui.execute(Command::Focus {
+            role: "button".into(),
+            label: "Increment".into(),
+            occurrence: None,
+        })
+        .unwrap();
+        ui.execute(Command::Key {
+            key: "Enter".into(),
+        })
+        .unwrap();
+        assert_eq!(ui.source.view.count, 2);
+        ui.execute(Command::Key { key: "Tab".into() }).unwrap();
+        ui.execute(Command::Key {
+            key: "Enter".into(),
+        })
+        .unwrap();
+        assert_eq!(ui.source.view.count, 0);
+    }
+}

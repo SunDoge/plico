@@ -2710,3 +2710,6 @@ pub use surface::SurfaceSource;
 
 mod zoom;
 pub use zoom::{ZoomController, ZoomSource};
+
+/// Semantic command protocol and deterministic headless test driver.
+pub mod testing;

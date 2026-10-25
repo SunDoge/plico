@@ -1,4 +1,4 @@
-use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
+use plico_renderer::{FrameSource, Scene, SemanticRole, TextContext};
 use plico_vello::{Source, reload::ReloadView};
 use snafu::{ResultExt, Snafu};
 use std::{
@@ -114,34 +114,33 @@ fn headless(mut source: Source<ReloadView>, options: Options) -> Result<()> {
                 Err(error) => source.view.last_error = Some(error.to_string()),
             }
             let command: DevCommand = serde_json::from_str(&line).context(JsonSnafu)?;
-            if let DevCommand::Click { role, label } | DevCommand::Focus { role, label } = &command
-            {
-                let role = SemanticRole::from_name(role).ok_or_else(|| Error::Input {
-                    message: "unknown semantic role".into(),
-                })?;
-                let tree = source.adapter.semantics(&source.engine, 0);
-                let n = tree
-                    .node_by_role(role, label, None)
-                    .ok_or_else(|| Error::Input {
-                        message: format!("control not found: {label}"),
-                    })?;
-                source.handle_semantic_action(if matches!(command, DevCommand::Focus { .. }) {
-                    SemanticAction::Focus { target: n.id }
-                } else {
-                    SemanticAction::Click { target: n.id }
-                });
-            }
-            if let DevCommand::SetValue { label, value } = &command {
-                let tree = source.adapter.semantics(&source.engine, 0);
-                let node = tree
-                    .node_by_role(SemanticRole::Slider, label, None)
-                    .ok_or_else(|| Error::Input {
-                        message: "slider not found".into(),
-                    })?;
-                source.handle_semantic_action(SemanticAction::SetNumericValue {
-                    target: node.id,
+            use plico_runtime::testing::Command;
+            let shared = match &command {
+                DevCommand::Snapshot => Some(Command::Snapshot),
+                DevCommand::Click { role, label } => Some(Command::Click {
+                    role: role.clone(),
+                    label: label.clone(),
+                    occurrence: None,
+                }),
+                DevCommand::Focus { role, label } => Some(Command::Focus {
+                    role: role.clone(),
+                    label: label.clone(),
+                    occurrence: None,
+                }),
+                DevCommand::SetValue { label, value } => Some(Command::SetValue {
+                    label: label.clone(),
                     value: *value,
-                });
+                }),
+                DevCommand::Text { text } => Some(Command::Text { text: text.clone() }),
+                DevCommand::Key { key } => Some(Command::Key { key: key.clone() }),
+                _ => None,
+            };
+            if let Some(shared) = shared {
+                plico_runtime::testing::dispatch(&mut source, &mut tcx, &shared).map_err(
+                    |error| Error::Input {
+                        message: error.to_string(),
+                    },
+                )?;
             }
             if let DevCommand::Scroll { x, y, delta } = &command {
                 source.handle_event(plico_renderer::UiEvent::Wheel(plico_renderer::WheelEvent {
@@ -152,28 +151,6 @@ fn headless(mut source: Source<ReloadView>, options: Options) -> Result<()> {
                     phase: plico_renderer::GesturePhase::Changed,
                     modifiers: plico_renderer::Modifiers::empty(),
                 }));
-            }
-            match &command {
-                DevCommand::Text { text } => {
-                    source.prepare_for_event(&mut tcx);
-                    source.handle_event(plico_renderer::UiEvent::TextInput(text.clone()));
-                }
-                DevCommand::Key { key } => {
-                    source.prepare_for_event(&mut tcx);
-                    source.handle_event(plico_renderer::UiEvent::Key(plico_renderer::KeyEvent {
-                        phase: plico_renderer::KeyPhase::Down,
-                        key: key.clone(),
-                        key_without_modifiers: key.clone(),
-                        code: String::new(),
-                        text: None,
-                        text_with_all_modifiers: None,
-                        location: plico_renderer::KeyLocation::Standard,
-                        modifiers: plico_renderer::Modifiers::empty(),
-                        repeat: false,
-                        synthetic: false,
-                    }));
-                }
-                _ => {}
             }
             source.build_frame(&mut tcx, options.width, options.height);
             if let DevCommand::Capture { out } = command {
