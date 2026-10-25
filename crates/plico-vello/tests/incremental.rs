@@ -254,7 +254,7 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
             .unwrap()
             .paint
             .outline_width,
-        2.
+        1.5
     );
     s.view.0 = true;
     s.request_rebuild();

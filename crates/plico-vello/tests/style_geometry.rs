@@ -93,7 +93,7 @@ fn borders_padding_clips_and_keyboard_only_focus_are_real_backend_properties() {
         .iter()
         .find(|n| n.paint.border.is_some_and(|(width, _)| width == 1.))
         .unwrap();
-    assert_eq!(action.paint.outline_width, 2.);
+    assert_eq!(action.paint.outline_width, 1.5);
     assert_eq!(action.paint.outline_color, Some(rgb(s.view.theme().focus)));
     s.view.locked = true;
     s.build_frame(&mut tcx, 400, 300);

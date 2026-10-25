@@ -523,7 +523,16 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     click(&mut s, &mut tcx, SemanticRole::Button, "Beta");
-    assert_eq!(s.view.release_channel, 1);
+    assert_eq!(
+        named(&s, SemanticRole::Button, "Beta").states.selected,
+        Some(true)
+    );
+    // The channel now lives in component-local persisted state; it must
+    // survive leaving and re-entering the page without a view-struct field.
+    s.view.router.go(Page::Layout);
+    frame(&mut s, &mut tcx, 920);
+    s.view.router.go(Page::Controls);
+    frame(&mut s, &mut tcx, 920);
     assert_eq!(
         named(&s, SemanticRole::Button, "Beta").states.selected,
         Some(true)
