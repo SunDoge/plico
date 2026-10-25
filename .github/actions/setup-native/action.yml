@@ -17,7 +17,7 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
-          pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
+          pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 \
           libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
           libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk \
           xvfb xdotool imagemagick vulkan-validationlayers
