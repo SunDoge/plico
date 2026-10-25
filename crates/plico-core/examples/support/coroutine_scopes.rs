@@ -2,6 +2,9 @@
 use super::*;
 use plico_core::{Arena, Entity};
 
+#[path = "coroutine_composite.rs"]
+mod composite;
+
 type Task = Pin<Box<dyn Future<Output = ()>>>;
 
 // Same identity ingredients as component-generated widget keys. Written by hand
@@ -307,6 +310,7 @@ pub(super) fn run() {
     println!("scopes: independent counter/network wake, retained siblings, parent cancellation OK");
     identity_demo();
     props_demo();
+    composite::run();
 }
 
 fn identity_demo() {
