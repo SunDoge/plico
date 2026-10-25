@@ -29,7 +29,6 @@ pub enum TaskCommand {
 #[derive(Default, Serialize, Deserialize)]
 pub struct Application {
     pub counter: u64,
-    pub details: bool,
     #[cfg(feature = "schema-reset-fixture")]
     pub incompatible_fixture: bool,
 }
@@ -39,7 +38,7 @@ impl ServiceApp for Application {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext, services: &mut Services<TaskSnapshot, TaskCommand>) {
-        let task = services.snapshot().clone();
+        let task = services.snapshot_shared();
         let running = task.status == TaskStatus::Running;
         column(cx).padding(28).gap(20).width_percent(100.).height_percent(100.) + |cx| {
             row(cx).align(Align::Center).gap(12) + |cx| {
@@ -84,14 +83,22 @@ impl ServiceApp for Application {
                     }
                     plico_core::text!(cx, "{}", self.counter).font_size(18).weight(650);
                 };
-                checkbox(cx, "Show reload notes", &mut self.details);
-                if self.details {
-                    text(cx,"Compatible edits preserve this counter. An incompatible view reset leaves the task running.")
-                        .font_size(12).color(Color::Muted);
-                }
+                reload_notes(cx);
             };
             text(cx, "The task is simulated; no files or network requests are made.").font_size(11).color(Color::Muted);
         };
+    }
+}
+#[component]
+#[rustfmt::skip]
+fn reload_notes(cx: &mut UiContext) {
+    let details = cx.persisted_state("expanded", || false);
+    details.update(|open| {
+        checkbox(cx, "Show reload notes", open);
+    });
+    if details.get() {
+        text(cx,"Compatible edits preserve this counter. An incompatible view reset leaves the task running.")
+            .font_size(12).color(Color::Muted);
     }
 }
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
