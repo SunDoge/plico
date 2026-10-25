@@ -1804,8 +1804,8 @@ fn rich_runs(
 }
 fn apply_button_focus(paint: &mut Paint, styled: bool, progress: f32, theme: Theme) {
     if styled {
-        paint.outline_width = if progress > 0. { 2. } else { 0. };
-        paint.outline_offset = 2.;
+        paint.outline_width = if progress > 0. { 1.5 } else { 0. };
+        paint.outline_offset = 1.;
         paint.outline_color =
             (progress > 0.).then(|| resolve(Token::Focus, theme).with_alpha(progress));
     }
@@ -1883,8 +1883,8 @@ fn make_paint(
             p.background = Some(resolve(Token::Control, theme));
         }
         if focus {
-            p.outline_width = 2.;
-            p.outline_offset = 2.;
+            p.outline_width = 1.5;
+            p.outline_offset = 1.;
             p.outline_color = Some(resolve(Token::Focus, theme));
         }
     }
