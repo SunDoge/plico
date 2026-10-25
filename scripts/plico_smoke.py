@@ -181,6 +181,17 @@ class WindowApp:
         self.assert_log_clean()
         return path
 
+    def wait_for_frame(self, path, timeout=20):
+        """Wait for real UI pixels rather than assuming pipeline startup took <400ms.
+
+        The smoke apps have nonuniform content in their first frame. X11 maps
+        their windows before the first GPU submission, initially exposing black.
+        """
+        def ready():
+            self.capture(path, settle=0)
+            return int(self.run("identify", "-format", "%k", str(path))) > 1
+        self.wait(ready, "window never presented its first nonuniform frame", timeout=timeout)
+
     def capture_hash(self, path, settle=0.4):
         self.capture(path, settle)
         return self.run("identify", "-format", "%#", str(path))

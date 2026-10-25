@@ -22,6 +22,7 @@ with Xvfb() as server:
         app.window("no settings window")
         app.wait(lambda: "Skia Vulkan window renderer initialized" in app.log_text, "renderer not initialized")
         app.focus()
+        app.wait_for_frame(REPORT / "ready.png")
 
         def capture(name):
             return app.capture_hash(REPORT / (name + ".png"))

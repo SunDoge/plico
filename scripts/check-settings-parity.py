@@ -47,6 +47,7 @@ def drive(backend, server):
     with WindowApp(TARGET / "debug" / f"settings-{backend}", env, REPORT / f"{backend}.log") as app:
         app.window(f"no {backend} settings window")
         app.focus()
+        app.wait_for_frame(REPORT / f"{backend}-ready.png")
         for name, clicks in STATES:
             for x, y in clicks:
                 app.click(x, y)

@@ -22,8 +22,7 @@ with Xvfb() as server:
     with WindowApp(BINARY, env, REPORT / "window.log") as app:
         app.window("no native window")
         app.wait(lambda: "Skia Vulkan window renderer initialized" in app.log_text, "renderer not initialized")
-        time.sleep(.5)
-        app.run("import", "-window", app.window(), str(REPORT / "initial.png"))
+        app.wait_for_frame(REPORT / "initial.png")
         app.focus()
         app.click(70, 178)
         app.wait(lambda: "count=1" in app.log_text, "pointer click did not reach app")
