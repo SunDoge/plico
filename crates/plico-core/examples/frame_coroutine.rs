@@ -16,6 +16,9 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
+#[path = "support/coroutine_allocations.rs"]
+mod allocation_counts;
+
 #[path = "support/coroutine_scopes.rs"]
 mod scopes;
 
@@ -313,6 +316,10 @@ async fn workflow(ui: AsyncUi, completion: Completion) {
 }
 
 fn main() {
+    if std::env::var_os("PLICO_COROUTINE_BENCH").is_some() {
+        scopes::benchmark();
+        return;
+    }
     let dropped = Arc::new(AtomicBool::new(false));
     let mut host = Host::new(|ui| Box::pin(counter(ui, dropped.clone())));
     assert_eq!(host.pump(), 1);

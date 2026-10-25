@@ -2,6 +2,11 @@
 //! This skips idle business Futures, but still replays/scans the entire tree.
 use super::*;
 use plico_core::{FrameStats, Key, Kind};
+#[path = "coroutine_benchmark.rs"]
+mod benchmark;
+pub(super) fn benchmark() {
+    benchmark::run();
+}
 
 #[derive(Default)]
 struct Composite {

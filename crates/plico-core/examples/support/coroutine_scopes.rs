@@ -5,6 +5,10 @@ use plico_core::{Arena, Entity};
 #[path = "coroutine_composite.rs"]
 mod composite;
 
+pub(super) fn benchmark() {
+    composite::benchmark();
+}
+
 type Task = Pin<Box<dyn Future<Output = ()>>>;
 
 // Same identity ingredients as component-generated widget keys. Written by hand
