@@ -11,6 +11,7 @@ runs:
       with:
         toolchain: stable
         components: clippy
+        cache-save-if: ${{ github.ref == 'refs/heads/main' }}
         cache-shared-key: native-${{ inputs.cache-key }}
     - name: Install native libraries, fonts and software Vulkan
       shell: bash

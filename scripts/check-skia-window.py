@@ -13,7 +13,7 @@ REPORT = ROOT / "reports/skia-window"
 BINARY = TARGET / "debug/examples/skia-window"
 
 subprocess.run(
-    ["cargo", "build", "--locked", "-p", "plico-vello", "--features", "skia", "--example", "skia-window"],
+    ["cargo", "build", "--locked", "-p", "plico-vello", "--no-default-features", "--features", "skia", "--example", "skia-window"],
     cwd=ROOT, check=True,
 )
 REPORT.mkdir(parents=True, exist_ok=True)
