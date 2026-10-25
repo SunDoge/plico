@@ -583,3 +583,41 @@ fn focus_loss_cancels_pressed_pointers_and_resets_physical_modifiers() {
         ]
     );
 }
+
+#[test]
+fn file_uris_preserve_unicode_and_reject_non_file_resources() {
+    let path = std::env::temp_dir().join("工作区 with spaces.txt");
+    let uri = url::Url::from_file_path(&path).unwrap();
+    assert_eq!(file_uri_path(uri.as_str()), Some(path));
+    assert!(file_uri_path("https://example.com/file").is_none());
+    // Windows supports file://server/share as a native UNC path.
+    #[cfg(not(target_os = "windows"))]
+    assert!(file_uri_path("file://localhost.evil/tmp/file").is_none());
+}
+
+#[test]
+fn dropped_files_wait_for_data_in_either_arrival_order() {
+    for data_first in [true, false] {
+        let mut drag = IncomingFileDrag {
+            serial: winit::event_loop::AsyncRequestSerial::get(),
+            paths: None,
+            position: Some(Point { x: 10., y: 20. }),
+            dropped: false,
+        };
+        if data_first {
+            drag.paths = Some(vec!["file.txt".into()]);
+        } else {
+            drag.dropped = true;
+        }
+        assert!(drag.drop_event().is_none());
+        if data_first {
+            drag.dropped = true;
+        } else {
+            drag.paths = Some(vec!["file.txt".into()]);
+        }
+        let event = drag.drop_event().unwrap();
+        assert_eq!(event.paths, vec![std::path::PathBuf::from("file.txt")]);
+        assert_eq!(event.position, Some(Point { x: 10., y: 20. }));
+        assert!(drag.drop_event().is_none(), "deliver only once");
+    }
+}

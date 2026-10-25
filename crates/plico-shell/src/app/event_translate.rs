@@ -217,6 +217,14 @@ pub(super) fn pointer_source_properties(
             primary,
             ..PointerProperties::default()
         },
+        // `PointerSource` is non-exhaustive upstream; unknown device kinds
+        // degrade to the same properties as `Unknown`.
+        _ => PointerProperties {
+            id: device_pointer_id(3, device_id),
+            pointer_type: PointerType::Unknown,
+            primary,
+            ..PointerProperties::default()
+        },
     }
 }
 
@@ -250,6 +258,12 @@ pub(super) fn pointer_kind_properties(
             primary,
             ..PointerProperties::default()
         },
+        _ => PointerProperties {
+            id: device_pointer_id(3, device_id),
+            pointer_type: PointerType::Unknown,
+            primary,
+            ..PointerProperties::default()
+        },
     }
 }
 
@@ -274,6 +288,12 @@ pub(super) fn button_source_properties(
         },
         ButtonSource::TabletTool { data, .. } => tablet_properties(device_id, primary, data),
         ButtonSource::Unknown(_) => PointerProperties {
+            id: device_pointer_id(3, device_id),
+            pointer_type: PointerType::Unknown,
+            primary,
+            ..PointerProperties::default()
+        },
+        _ => PointerProperties {
             id: device_pointer_id(3, device_id),
             pointer_type: PointerType::Unknown,
             primary,

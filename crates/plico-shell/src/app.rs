@@ -16,6 +16,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::cursor::{Cursor, CursorIcon};
+use winit::data_transfer::TypeHint;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ButtonSource, ElementState, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -54,6 +55,31 @@ slotmap::new_key_type! {
     struct WindowSlotKey;
 }
 
+/// Convert a `file://` URI (as delivered by winit's uri-list data transfer)
+/// into a native path, percent-decoding escapes. Non-file URIs are dropped.
+fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
+    url::Url::parse(uri).ok()?.to_file_path().ok()
+}
+
+struct IncomingFileDrag {
+    serial: winit::event_loop::AsyncRequestSerial,
+    paths: Option<Vec<std::path::PathBuf>>,
+    position: Option<Point>,
+    dropped: bool,
+}
+impl IncomingFileDrag {
+    fn drop_event(&mut self) -> Option<FileDropEvent> {
+        if !self.dropped {
+            return None;
+        }
+        Some(FileDropEvent {
+            phase: FileDropPhase::Dropped,
+            paths: self.paths.take()?,
+            position: self.position,
+        })
+    }
+}
+
 struct PendingWindowEffect {
     id: crate::EffectId,
     op: crate::EffectOp,
@@ -87,6 +113,8 @@ pub struct App {
     pointer_states: HashMap<PointerId, (Point, u32, PointerProperties)>,
     ime_requested: bool,
     ime_enabled: bool,
+    /// Keep dropped transfers until their asynchronous URI data arrives.
+    file_drags: HashMap<winit::data_transfer::DataTransferId, IncomingFileDrag>,
     ime_composing: bool,
     ime_state: Option<crate::ImeState>,
     startup_error: Arc<Mutex<Option<crate::Error>>>,
@@ -211,6 +239,7 @@ impl App {
             pointer_states: HashMap::new(),
             ime_requested: false,
             ime_enabled: false,
+            file_drags: HashMap::new(),
             ime_composing: false,
             ime_state: None,
             startup_error: Arc::new(Mutex::new(None)),
@@ -1050,6 +1079,8 @@ impl App {
                     WheelDeltaMode::Pixel,
                 )
             }
+            // Non-exhaustive upstream: unknown scroll units degrade to pixels.
+            _ => (0., 0., WheelDeltaMode::Pixel),
         };
         // Winit's wheel event has no position, so expose the latest logical
         // pointer position as a stable framework invariant.
@@ -1218,6 +1249,8 @@ impl ApplicationHandler for App {
                 primary,
                 button,
                 state,
+                // Activation clicks are folded into regular pointer presses.
+                is_macos_activation_click: _,
             } => {
                 let properties = button_source_properties(device_id, primary, &button);
                 self.handle_pointer_button(position, button, state, properties);
@@ -1313,6 +1346,9 @@ impl ApplicationHandler for App {
                         after_bytes,
                     },
                     winit::event::Ime::Disabled => ImeEvent::Disabled,
+                    // `Ime` is non-exhaustive upstream; unknown IME lifecycle
+                    // events carry no text and do not change composition state.
+                    _ => return,
                 };
                 self.dispatch_event(UiEvent::Ime(event));
             }
@@ -1320,33 +1356,82 @@ impl ApplicationHandler for App {
                 self.dispatch_focus_change(focused);
                 self.sync_window_metrics();
             }
-            WindowEvent::DragEntered { paths, position } => {
+            WindowEvent::DragEntered { id, position } => {
+                let position = position.map(|p| self.logical_pointer_position(p));
+                match event_loop.fetch_data_transfer(id, &TypeHint::UriList) {
+                    Ok(serial) => {
+                        self.file_drags.insert(
+                            id,
+                            IncomingFileDrag {
+                                serial,
+                                paths: None,
+                                position,
+                                dropped: false,
+                            },
+                        );
+                        let _ = event_loop
+                            .set_valid_dnd_actions(id, &[winit::event_loop::DndAction::Copy]);
+                    }
+                    Err(error) => tracing::warn!(%error, "could not request dropped file URIs"),
+                }
                 self.dispatch_event(UiEvent::FileDrop(FileDropEvent {
                     phase: FileDropPhase::Entered,
-                    paths,
-                    position: Some(self.logical_pointer_position(position)),
+                    paths: Vec::new(),
+                    position,
                 }));
             }
-            WindowEvent::DragMoved { position } => {
+            WindowEvent::DragPosition { id, position, .. } => {
+                let position = self.logical_pointer_position(position);
+                if let Some(drag) = self.file_drags.get_mut(&id) {
+                    drag.position = Some(position);
+                }
                 self.dispatch_event(UiEvent::FileDrop(FileDropEvent {
                     phase: FileDropPhase::Moved,
                     paths: Vec::new(),
-                    position: Some(self.logical_pointer_position(position)),
+                    position: Some(position),
                 }));
             }
-            WindowEvent::DragLeft { position } => {
-                self.dispatch_event(UiEvent::FileDrop(FileDropEvent {
-                    phase: FileDropPhase::Left,
-                    paths: Vec::new(),
-                    position: position.map(|position| self.logical_pointer_position(position)),
-                }));
+            WindowEvent::DragLeft { id } => {
+                if let Some(drag) = self.file_drags.remove(&id) {
+                    self.dispatch_event(UiEvent::FileDrop(FileDropEvent {
+                        phase: FileDropPhase::Left,
+                        paths: Vec::new(),
+                        position: drag.position,
+                    }));
+                }
             }
-            WindowEvent::DragDropped { paths, position } => {
-                self.dispatch_event(UiEvent::FileDrop(FileDropEvent {
-                    phase: FileDropPhase::Dropped,
-                    paths,
-                    position: Some(self.logical_pointer_position(position)),
-                }));
+            WindowEvent::DragDropped { id, .. } => {
+                let event = self.file_drags.get_mut(&id).and_then(|drag| {
+                    drag.dropped = true;
+                    drag.drop_event()
+                });
+                if let Some(event) = event {
+                    self.file_drags.remove(&id);
+                    self.dispatch_event(UiEvent::FileDrop(event));
+                }
+            }
+            WindowEvent::DataTransferReceived { id, serial, value } => {
+                let event = self
+                    .file_drags
+                    .get_mut(&id)
+                    .filter(|drag| drag.serial == serial)
+                    .and_then(|drag| {
+                        // A failed/unsupported URI decode completes with no paths,
+                        // rather than leaving a dropped transfer pending forever.
+                        drag.paths = Some(
+                            value
+                                .try_as_uris()
+                                .map(|uris| {
+                                    uris.iter().filter_map(|uri| file_uri_path(uri)).collect()
+                                })
+                                .unwrap_or_default(),
+                        );
+                        drag.drop_event()
+                    });
+                if let Some(event) = event {
+                    self.file_drags.remove(&id);
+                    self.dispatch_event(UiEvent::FileDrop(event));
+                }
             }
             _ => {}
         }
