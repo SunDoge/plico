@@ -2,6 +2,8 @@
 use super::*;
 use crate::allocation_counts;
 use std::{hint::black_box, time::Instant};
+#[path = "coroutine_isolation.rs"]
+mod isolation;
 
 fn work(mut value: u64, rounds: usize) -> u64 {
     for _ in 0..rounds {
@@ -219,6 +221,10 @@ fn row(model: &str, count: usize, rounds: usize, scenario: &str, mut samples: Ve
 pub(super) fn run() {
     if cfg!(debug_assertions) {
         panic!("run benchmark with --release");
+    }
+    if std::env::var("PLICO_COROUTINE_BENCH").as_deref() == Ok("isolation") {
+        isolation::run();
+        return;
     }
     eprintln!(
         "simulation: 21 samples, 5 warmups, nanoseconds; allocated bytes are cumulative requests, not retained memory"

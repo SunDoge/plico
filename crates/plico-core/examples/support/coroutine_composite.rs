@@ -15,6 +15,12 @@ struct Composite {
 }
 impl Composite {
     fn commit(&mut self, scopes: &Scopes) -> FrameStats {
+        let stats = self.replay(scopes);
+        self.rebuild_routes(scopes);
+        stats
+    }
+
+    fn replay(&mut self, scopes: &Scopes) -> FrameStats {
         fn nodes(
             cx: &mut UiContext<'_>,
             local: &Engine,
@@ -95,6 +101,10 @@ impl Composite {
             s.host.ui.session.borrow_mut().engine.queue_click(id);
             s.host.ui.invalidate();
         }
+        stats
+    }
+
+    fn rebuild_routes(&mut self, scopes: &Scopes) {
         self.routes.clear();
         fn map_nodes(
             global: &Engine,
@@ -139,7 +149,6 @@ impl Composite {
                 map_scope(&self.engine, forest, scopes, id, &mut self.routes);
             }
         }
-        stats
     }
 
     fn button(&self, scope: Entity, label: &str) -> Entity {
