@@ -36,7 +36,7 @@ cog check
 
 ## CI
 
-GitHub Actions 的 `.github/workflows/ci.yml` 在 push、pull request 和手动触发时运行，
+GitHub Actions 的 `.github/workflows/ci.yml` 在 main 分支 push、pull request 和手动触发时运行，
 使用 stable Rust、Cargo.lock 和只读仓库权限；同一分支的新运行取消旧运行。Action 固定
 到 commit，Cargo 依赖按任务缓存，不依赖本机 mbx、原 Wabou checkout 或 Lucide SVG 缓存。
 
