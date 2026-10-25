@@ -77,6 +77,9 @@ impl AsyncUi {
         let mut output = None;
         session.engine.frame(|cx| output = Some(draw(cx))).unwrap();
         session.declarations += 1;
+        if session.engine.changes().contains(plico_core::Changes::VIEW) {
+            self.invalidate();
+        }
         Poll::Ready(output.unwrap())
     }
 
@@ -212,24 +215,44 @@ async fn counter(ui: AsyncUi, dropped: Arc<AtomicBool>) {
     let mut count: i32 = ui.state("count", || 0);
     let mut transient = 0;
     loop {
-        let incremented = ui
-            .frame(|cx| {
-                let mut clicked = false;
-                let _ = column(cx).gap(12.).padding(24.)
-                    + |cx| {
-                        text!(cx, "Count: {count}");
-                        text!(cx, "Transient: {transient}");
-                        clicked = button(cx).text("Increment").key("increment").clicked();
-                    };
-                clicked
-            })
-            .await;
-        if incremented {
-            count += 1;
-            transient += 1;
-            ui.invalidate(); // Explicit invalidation: ordinary locals aren't tracked.
-        }
+        ui.frame(|cx| {
+            let _ = column(cx).gap(12.).padding(24.)
+                + |cx| {
+                    text!(cx, "Count: {count}");
+                    text!(cx, "Transient: {transient}");
+                    if button(cx).text("Increment").key("increment").clicked() {
+                        count += 1;
+                        transient += 1;
+                        cx.request_rebuild();
+                    }
+                };
+        })
+        .await;
         ui.checkpoint("count", &count);
+    }
+}
+
+// A second component: local form data and synchronous handlers stay together.
+// TextBuffer is the existing input/selection storage, not a new signal wrapper.
+async fn settings(ui: AsyncUi) {
+    let name = TextBuffer::new();
+    name.set(ui.state::<String>("name", || "Alice".into()).into());
+    let mut enabled: bool = ui.state("enabled", || false);
+    let mut saved = String::new();
+    loop {
+        ui.frame(|cx| {
+            text_input(cx, "Name", &name).key("name");
+            checkbox(cx, "Enabled", &mut enabled).key("enabled");
+            text!(cx, "Enabled: {enabled}");
+            text!(cx, "Saved: {saved}");
+            if button(cx).text("Save").key("save").clicked() {
+                saved = name.text().unwrap_or_default();
+                cx.request_rebuild();
+            }
+        })
+        .await;
+        ui.checkpoint("name", &name.text().unwrap_or_default());
+        ui.checkpoint("enabled", &enabled);
     }
 }
 
@@ -328,6 +351,15 @@ fn main() {
         "counter: local mutation, idle, same-pass repoll, checkpoint restore/reset, cancellation OK"
     );
 
+    let mut form = Host::new(|ui| Box::pin(settings(ui)));
+    form.pump();
+    form.click("enabled");
+    form.click("save");
+    assert!(form.has_text("Enabled: true"));
+    assert!(form.has_text("Saved: Alice"));
+    assert_eq!(form.pump(), 0);
+    println!("form: inline local edits, save handler and idle OK");
+
     let completion = Completion::default();
     let mut flow = Host::new(|ui| Box::pin(workflow(ui, completion.clone())));
     flow.pump();
@@ -364,6 +396,30 @@ mod tests {
         host.pump();
         assert_eq!(host.ui.session.borrow().declarations, declarations);
         assert!(!host.has_text("Deleted: 7"));
+    }
+
+    #[test]
+    fn form_handles_input_and_save_inline_then_restores_selected_state() {
+        let mut host = Host::new(|ui| Box::pin(settings(ui)));
+        host.pump();
+        let buffer = {
+            let session = host.ui.session.borrow();
+            let id = session.engine.find(session.engine.root(), "name").unwrap();
+            session.engine.input(id).unwrap().0.clone()
+        };
+        buffer.set("Bob".to_owned().into());
+        host.ui.invalidate(); // Represents the native input event.
+        host.pump();
+        host.click("enabled");
+        assert!(host.has_text("Enabled: true"));
+        host.click("save");
+        assert!(host.has_text("Saved: Bob"));
+        assert_eq!(host.pump(), 0);
+        host.reload(|ui| Box::pin(settings(ui)));
+        assert!(host.has_text("Enabled: true"));
+        assert!(host.has_text("Saved: ")); // Transient feedback is not checkpointed.
+        host.click("save");
+        assert!(host.has_text("Saved: Bob"));
     }
 
     #[test]

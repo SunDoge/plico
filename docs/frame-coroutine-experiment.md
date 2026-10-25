@@ -19,13 +19,18 @@ cargo test --locked -p plico-core --example frame_coroutine
 任务 Waker 时才推进 pass；这不是通用 executor，也不是按 vsync 不停 poll。
 
 计数器展示 `let mut count: i32 = ui.state("count", || 0)`：state 返回普通值，
-不追踪其修改。每次处理完交互显式 checkpoint，修改影响已声明的文字时显式 invalidate。
+不追踪其修改。每次处理完交互显式 checkpoint，修改影响已声明的文字时调用现有 `cx.request_rebuild()`，桥接器将 VIEW 标记转换成宿主唤醒。
 这里没有通过语法自动发现依赖。
 
 恢复实验序列化检查点、丢弃旧 Future，再从函数开头创建新 Future。count 恢复，
 未保存的 transient 重置，类型不兼容时初始化。这不是实际动态库 reload 验证，
 也不恢复 await 位置。实验检查点使用已有 dev-dependency serde_json；正式协议仍由
 plico-dev 管理，未修改其格式。
+
+计数器的点击判断和 `count += 1` 已放在同一个同步声明闭包里，不再返回点击事件到外层。
+新增表单验证局部 enabled、现有 TextBuffer 输入、就地 Save 处理、恢复选定字段而重置
+临时反馈。普通局部值不需要 wrapper，但输入仍复用已有 TextBuffer 的编辑与选择存储。
+同步处理能直接就地执行；真正的 await 仍不能放进同步 children 闭包，这个边界未解决。
 
 另一个流程验证确认 → 等待外部任务 → 结果显示。任务真正保存并触发 Waker，
 不依赖 poll 次数模拟完成。等待时宿主可以停帧，任务完成后唤醒。取消会 drop Future
