@@ -15,7 +15,7 @@ bitflags = { workspace = true }
 bytemuck.workspace = true
 glifo = { workspace = true, features = ["png"] }
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
-lru = "0.18.5"
+lru = "0.19.0"
 naga.workspace = true
 parley = { workspace = true }
 rustc-hash = "2"

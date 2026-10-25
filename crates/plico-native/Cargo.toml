@@ -16,7 +16,7 @@ snafu.workspace = true
 cairo-rs = { version = "0.18", optional = true }
 pango = { version = "0.18", optional = true }
 pangocairo = { version = "0.18", optional = true }
-lru = { version = "0.18.5", optional = true }
+lru = { version = "0.19.0", optional = true }
 
 [[example]]
 name = "system_text"
