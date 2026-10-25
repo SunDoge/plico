@@ -385,7 +385,7 @@ pub fn component(args: TokenStream, input: TokenStream) -> TokenStream {
     };
     if function.sig.asyncness.is_some()
         || function.sig.constness.is_some()
-        || function.sig.unsafety.is_some()
+        || matches!(function.sig.safety, syn::Safety::Unsafe(_))
     {
         return syn::Error::new_spanned(
             &function.sig,
