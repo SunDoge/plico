@@ -5,6 +5,10 @@ edition.workspace = true
 description = "Immediate-mode Plico UI engine and shared types"
 publish = false
 
+[features]
+# Opt-in retained subtree transactions used by plico-async experiments.
+experimental-scopes = []
+
 [dependencies]
 web-time = "1.1"
 snafu.workspace = true

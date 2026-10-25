@@ -775,6 +775,23 @@ impl Layout<'_, '_> {
         self.style.disabled |= value;
         self
     }
+    /// Preserve this container's committed children without executing them.
+    /// Experimental: async runtimes use the anchor for later local declarations.
+    #[cfg(feature = "experimental-scopes")]
+    pub fn retain(self) -> crate::RetainedScope {
+        let entity = self.ui.engine.declare(
+            self.ui.parent,
+            self.key,
+            self.ui.scope,
+            self.kind,
+            self.style,
+            Cow::Borrowed(""),
+        );
+        self.ui.engine.set_grid(entity, self.grid.as_ref());
+        self.ui.engine.preserve_children(entity);
+        self.ui.engine.retained_token(entity)
+    }
+
     /// Declare this container's children. Returns `InnerResponse<R>` so the
     /// result chains without parentheses, matching every other container:
     /// containers are never interactive, so their response reports only the

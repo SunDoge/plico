@@ -15,6 +15,7 @@
 | [架构与后端边界](architecture.md) | 节点身份、保留存储、声明协调、Wabou 与 Bevy |
 | [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
+| [可选 async 组件](async-components.md) | plico-async、共享 Engine 子树、混排挂载、唤醒与恢复边界 |
 | [Coroutine 写法对照](coroutine-authoring-comparison.md) | 同状态/事件序列下的局部状态、顺序流程与 async children 候选 |
 | [Frame coroutine 实验](frame-coroutine-experiment.md) | 普通局部状态、scope/输入合成、检查点恢复与 immediate 仿真性能对照 |
 | [状态、事件与提交](runtime.md) | 同步事件、稳定化、失效传播、卸载与错误边界 |

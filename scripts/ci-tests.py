@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = {
-    "core": ["plico-cli", "plico-dev", "plico-core", "plico-macros", "plico-editor",
+    "core": ["plico-cli", "plico-dev", "plico-core", "plico-async", "plico-macros", "plico-editor",
              "plico-motion", "plico-markdown", "plico-native", "plico-terminal-widget", "plico-web-demo"],
     "rendering": ["plico-renderer", "plico-shell", "plico-runtime", "plico-vello"],
     "apps": ["plico-gallery", "plico-web-host", "plico-launcher", "plico-services-demo", "plico-terminal"],

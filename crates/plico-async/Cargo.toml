@@ -1,0 +1,13 @@
+[package]
+name = "plico-async"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Experimental optional coroutine scopes for Plico's immediate widgets"
+publish = false
+
+[dependencies]
+plico-core = { workspace = true, features = ["experimental-scopes"] }
+snafu.workspace = true
+serde.workspace = true
+rmp-serde.workspace = true

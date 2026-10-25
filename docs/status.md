@@ -27,6 +27,14 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
 - [Skia / Vello 对照实验](skia.md)：同一 Scene 和 Parley glyph 的 CPU / Vulkan Skia 回放、四档缩放截图；另提供实验性 Vulkan 窗口后端，尚不支持完整 gallery。
 
+## 可选实验：plico-async
+
+独立 crate 提供共享 Engine 上的 coroutine scope，支持同步父级挂载、普通局部状态、
+显式输入唤醒、嵌套取消与选定 MessagePack 检查点恢复。需要 core 的 experimental-scopes
+feature；默认应用模型仍是 immediate App::show。没有依赖图或新宏。
+局部声明省去多 Engine 回放，但提交/布局仍扫描保留树；真实后端适配与全局 portal
+尚未完成。见 [async 组件](async-components.md)。
+
 ## 当前代价和限制
 
 一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。

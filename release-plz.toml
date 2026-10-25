@@ -20,6 +20,7 @@ changelog_path = "CHANGELOG.md"
 changelog_include = [
     "plico-backend-settings",
     "plico-core",
+    "plico-async",
     "plico-dev",
     "plico-editor",
     "plico-fltk",
