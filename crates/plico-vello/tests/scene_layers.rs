@@ -110,7 +110,7 @@ fn unchanged_backdrop_is_reencoded_when_its_prefix_changes() {
 
 #[test]
 fn workspace_hover_matches_full_encoding() {
-    use plico_gallery::{Gallery, Page};
+    use gallery::{Gallery, Page};
     use plico_renderer::{Modifiers, Point, PointerEvent, PointerPhase, UiEvent};
     let mut source = Source::with_clock(
         Gallery {

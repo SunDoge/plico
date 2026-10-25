@@ -1,18 +1,18 @@
 # Launcher 与命令面板
 
-`plico-launcher` 是独立的 `lib.rs + main.rs` 应用，复用当前 Plico 原生后端。
+`launcher` 是独立的 `lib.rs + main.rs` 应用，复用当前 Plico 原生后端。
 它验证搜索 → 选择 → 确认 → 反馈的完整流程，不扫描机器上的应用，不执行任意命令。
 应用目录是固定演示数据，应用条目只预览；切换主题、清除搜索和关闭窗口是真实动作。
 
 ```sh
-cargo run -p plico-launcher
-cargo test -p plico-launcher
+cargo run -p launcher
+cargo test -p launcher
 # 可选：隔离 X11 原生窗口回归，需要 xvfb-run 与 xdotool
-cargo build -p plico-launcher
+cargo build -p launcher
 xvfb-run -a python3 apps/launcher/scripts/check-native.py
-cargo run -p plico-launcher --example launcher-capture -- --out /tmp/launcher.png
-cargo run -p plico-launcher --example launcher-capture -- --out /tmp/launcher-light.png --light --width 520
-cargo run -p plico-launcher --example launcher-capture -- --out /tmp/launcher-empty.png --query zzzzz
+cargo run -p launcher --example launcher-capture -- --out /tmp/launcher.png
+cargo run -p launcher --example launcher-capture -- --out /tmp/launcher-light.png --light --width 520
+cargo run -p launcher --example launcher-capture -- --out /tmp/launcher-empty.png --query zzzzz
 ```
 
 ## 框架接口

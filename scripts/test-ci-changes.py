@@ -20,7 +20,7 @@ class BuildInputs(unittest.TestCase):
 
     def test_code_dependencies_build_tools_and_unknown_files_keep_full_coverage(self):
         for path in ["crates/new/src/lib.rs", "Cargo.lock", "Cargo.toml", ".cargo/config.toml",
-                     ".github/workflows/ci.yml", ".github/actions/setup-native/action.yml",
+                     ".github/workflows/ci.yml", ".github/workflows/release.yml",
                      "scripts/check-hotreload.py", "crates/plico-lvgl/config/lv_conf.h", "new.unknown"]:
             with self.subTest(path=path):
                 self.assertTrue(changes.requires_build(["README.md", path]))

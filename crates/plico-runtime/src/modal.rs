@@ -86,7 +86,6 @@ impl Adapter {
             } else {
                 self.departing_popup = None;
             }
-            self.focus_visible = true;
         }
         for root in roots.iter().skip(shared) {
             fn find_anchor(engine: &Engine, e: Entity, token: u64) -> Option<Entity> {
@@ -175,7 +174,6 @@ impl Adapter {
                     .or_else(|| first(engine, dialog, true))
                     .or_else(|| first(engine, dialog, false))
                     .or(Some(dialog));
-                self.focus_visible = true;
                 self.reveal_focus = true;
             }
         } else if self.focused.is_none() && !self.modal_stack.is_empty() {

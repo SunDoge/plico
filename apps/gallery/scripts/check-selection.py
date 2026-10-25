@@ -1,4 +1,4 @@
-"""After cargo build -p plico-gallery: xvfb-run -a python3 apps/gallery/scripts/check-selection.py.
+"""After cargo build -p gallery: xvfb-run -a python3 apps/gallery/scripts/check-selection.py.
 Requires xdotool, xclip; set PLICO_SELECTION_CAPTURE for an optional screenshot.
 """
 import json
@@ -23,7 +23,7 @@ def wait_for(check,seconds=20):
     raise AssertionError("selection smoke timeout")
 with tempfile.TemporaryDirectory(prefix="plico-selection-") as folder:
     with (Path(folder)/"app.log").open("w") as log:
-        app=subprocess.Popen([str(ROOT/"target/debug/plico-gallery")],cwd=ROOT,
+        app=subprocess.Popen([str(ROOT/"target/debug/gallery")],cwd=ROOT,
             env=dict(os.environ,WINIT_UNIX_BACKEND="x11",WAYLAND_DISPLAY=""),stdout=log,stderr=log)
         try:
             def find():

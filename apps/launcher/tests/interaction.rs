@@ -1,4 +1,4 @@
-use plico_launcher::{Category, Launcher};
+use launcher::{Category, Launcher};
 use plico_renderer::{
     FrameSource, ImeEvent, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction,
     SemanticRole, TextContext, UiEvent,

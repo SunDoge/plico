@@ -5,7 +5,7 @@ use crate::Error;
 use plico_renderer::{PaintScene, Scene, svg::usvg};
 use vello_common::{
     kurbo::{Affine, BezPath, Cap, Join, Point, Stroke},
-    peniko::{BlendMode, Color, Fill},
+    peniko::{BlendMode, Brush, Color, ColorStop, Extend, Fill, Gradient, color::DynamicColor},
 };
 
 pub(crate) fn commands(tree: &usvg::Tree) -> Result<Scene, Error> {
@@ -16,17 +16,57 @@ pub(crate) fn commands(tree: &usvg::Tree) -> Result<Scene, Error> {
 fn unsupported<T>(command: &'static str) -> Result<T, Error> {
     Err(Error::Unsupported { command })
 }
-fn brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Result<Color, Error> {
+fn brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Result<(Brush, Affine), Error> {
+    let stops = |stops: &[usvg::Stop]| {
+        stops
+            .iter()
+            .map(|stop| ColorStop {
+                offset: stop.offset().get(),
+                color: DynamicColor::from_alpha_color(Color::from_rgba8(
+                    stop.color().red,
+                    stop.color().green,
+                    stop.color().blue,
+                    (stop.opacity() * opacity).to_u8(),
+                )),
+            })
+            .collect::<Vec<_>>()
+    };
+    let extend = |mode| match mode {
+        usvg::SpreadMethod::Pad => Extend::Pad,
+        usvg::SpreadMethod::Repeat => Extend::Repeat,
+        usvg::SpreadMethod::Reflect => Extend::Reflect,
+    };
     match paint {
-        usvg::Paint::Color(c) => Ok(Color::from_rgba8(
-            c.red,
-            c.green,
-            c.blue,
-            (opacity.get() * 255.).round() as u8,
+        usvg::Paint::Color(c) => Ok((
+            Color::from_rgba8(c.red, c.green, c.blue, opacity.to_u8()).into(),
+            Affine::IDENTITY,
         )),
-        _ => unsupported("SVG gradient/pattern"),
+        usvg::Paint::LinearGradient(g) => Ok((
+            Gradient::new_linear(
+                (f64::from(g.x1()), f64::from(g.y1())),
+                (f64::from(g.x2()), f64::from(g.y2())),
+            )
+            .with_stops(stops(g.stops()).as_slice())
+            .with_extend(extend(g.spread_method()))
+            .into(),
+            affine(&g.transform()),
+        )),
+        usvg::Paint::RadialGradient(g) => Ok((
+            Gradient::new_two_point_radial(
+                (f64::from(g.fx()), f64::from(g.fy())),
+                0.,
+                (f64::from(g.cx()), f64::from(g.cy())),
+                g.r().get(),
+            )
+            .with_stops(stops(g.stops()).as_slice())
+            .with_extend(extend(g.spread_method()))
+            .into(),
+            affine(&g.transform()),
+        )),
+        usvg::Paint::Pattern(_) => unsupported("SVG pattern"),
     }
 }
+
 fn group(scene: &mut Scene, node_group: &usvg::Group) -> Result<(), Error> {
     if node_group.mask().is_some()
         || !node_group.filters().is_empty()
@@ -65,14 +105,15 @@ fn group(scene: &mut Scene, node_group: &usvg::Group) -> Result<(), Error> {
                 let transform = affine(&p.abs_transform());
                 let fill = |scene: &mut Scene| -> Result<(), Error> {
                     if let Some(fill) = p.fill() {
+                        let (brush, brush_transform) = brush(fill.paint(), fill.opacity())?;
                         scene.fill(
                             match fill.rule() {
                                 usvg::FillRule::NonZero => Fill::NonZero,
                                 usvg::FillRule::EvenOdd => Fill::EvenOdd,
                             },
                             transform,
-                            brush(fill.paint(), fill.opacity())?,
-                            None,
+                            &brush,
+                            Some(brush_transform),
                             &geometry,
                         );
                     }
@@ -83,11 +124,12 @@ fn group(scene: &mut Scene, node_group: &usvg::Group) -> Result<(), Error> {
                         if s.linejoin() == usvg::LineJoin::MiterClip {
                             return unsupported("SVG miter-clip");
                         }
+                        let (brush, brush_transform) = brush(s.paint(), s.opacity())?;
                         scene.stroke(
                             &stroke(s),
                             transform,
-                            brush(s.paint(), s.opacity())?,
-                            None,
+                            &brush,
+                            Some(brush_transform),
                             &geometry,
                         );
                     }

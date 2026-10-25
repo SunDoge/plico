@@ -73,7 +73,7 @@ def main():
             pattern=rf"^(?:{key}=.*|# {key} is not set)$"
             text=re.sub(pattern,desired,text,flags=re.M) if re.search(pattern,text,re.M) else text.rstrip()+"\n"+desired+"\n"
         config.write_text(text)
-    archive=STAGE/"build/riscv32imafc-esp-espidf/release/libplico_lvgl_esp32p4.a"
+    archive=STAGE/"build/riscv32imafc-esp-espidf/release/liblvgl_esp32p4.a"
     archive.parent.mkdir(parents=True,exist_ok=True)
     if not archive.exists():run([cc.with_name("riscv32-esp-elf-ar"),"rcs",archive])
     env.update(PLICO_P4_BSP=str(vendor/"firmware/brookesia/components/esp32_p4_wifi6_touch_lcd_4_3"),

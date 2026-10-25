@@ -14,7 +14,7 @@ if not (REFERENCE / "node_modules").is_dir():
     raise SystemExit(
         "Optional legacy Solid comparison requires dependencies installed locally in "
         "reference/node_modules; this script no longer links to Wabou node_modules. "
-        "For the maintained Rust gallery, run: cargo run -p plico-gallery"
+        "For the maintained Rust gallery, run: cargo run -p gallery"
     )
 CLI = WABOU / "target/debug/wabou"
 

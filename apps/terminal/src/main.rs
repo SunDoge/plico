@@ -4,11 +4,11 @@ pub mod icons;
 mod native {
     use plico_core::prelude::*;
     use plico_renderer::{Widget, WidgetNodeEvent};
-    use plico_terminal_widget::{TerminalWidget, event};
+    use plico_terminal::{TerminalWidget, event};
     use plico_vello::{SurfaceSource, View, WindowOptions};
     use snafu::{ResultExt, Snafu};
     #[derive(usage_rs::Cli)]
-    #[usage(bin = "plico-terminal", about = "Plico native terminal", version)]
+    #[usage(bin = "terminal", about = "Plico native terminal", version)]
     struct Args {
         #[usage(long)]
         command: Option<String>,

@@ -1,8 +1,46 @@
 # Plico
 
-使用普通 Rust 和原生 `+ |cx| { ... }` 声明界面。事件驱动重新声明，保留树比较属性，
-按变化更新布局、文字和绘制缓存；动画和滚动可以由宿主独立推进。
-Plico 是后续 GUI 开发的主仓库，原 Wabou 暂停开发。
+**A GUI framework that respects Rust’s borrow checker.**
+
+[![CI](https://github.com/SunDoge/plico/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SunDoge/plico/actions/workflows/ci.yml)
+
+English · [简体中文](README.zh-CN.md)
+
+Write UI with ordinary Rust functions, `if`, `for`, and borrowed data. Handle a
+click where you declare the button. Plico combines an immediate-mode authoring
+API with retained nodes, layout, text, and rendering caches underneath.
+
+**Alpha / 0.1.0 in development.** APIs are evolving; crates are not yet published.
+
+## Why Plico?
+
+- **Work with the borrow checker.** UI declarations and their children closures
+  run synchronously. Borrow application data for a declaration, handle events
+  inline, and release those borrows when it returns. No mandatory signal wrappers,
+  hook ordering, or long-lived event closures capturing your application state.
+- **Rust syntax, less visual noise.** `column(cx).gap(12.) + |cx| { ... }` is native
+  Rust operator overloading. Use ordinary functions for custom components.
+  `#[component]` supplies call-site identity; dynamic lists use business keys.
+  `plico fmt` keeps builder chains compact and nested layouts readable.
+- **Immediate API, retained work.** Business updates rerun declarations and compare
+  properties against retained nodes. Layout, text and paint invalidation are
+  tracked separately. Host-driven scrolling and presentation animations can
+  advance without rerunning application `show`; idle views need no continuous loop.
+- **Local state when you need it.** Keep shared data in ordinary structs, or use
+  `cx.state` for component-local state. Named `cx.persisted_state` slots support
+  best-effort checkpoint restoration and explicit MessagePack storage export.
+- **A short development loop.** Ordinary `main.rs` + `lib.rs` projects, directory-based
+  CLI commands, and native module hot reload. The host keeps its window and services
+  alive; compatible state is restored, incompatible state can reset. Async work
+  stays in host tasks, outside the reloadable UI module.
+- **Room for different backends.** Vello is the main desktop path. Optional Skia,
+  FLTK + Taffy, LVGL, and browser/WASM paths explore the same declaration model.
+  LVGL has been tested on an ESP32-P4 with ESP-IDF.
+
+## A small example
+
+The same function can borrow state owned by its caller. There is no stored event
+callback, and the children closure does not need to be `'static`.
 
 ```rust
 use plico_core::prelude::*;
@@ -18,62 +56,69 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
         }
     };
 }
-
-fn main() -> Result<(), plico_core::FrameError> {
-    let mut engine = plico_core::Engine::default();
-    let mut count = 0;
-    engine.frame(|cx| counter(cx, &mut count))?;
-    Ok(())
-}
 ```
 
-## 运行与开发
+Use it inside `plico_dev::App::show`. Application state remains normal Rust data;
+components do not need a trait implementation. See [authoring](docs/authoring.md)
+and [local state and tasks](docs/local-state-and-tasks.md).
+
+## Try it
+
+From this checkout:
 
 ```sh
-cargo run -p plico-gallery
-cargo run -p plico-launcher
-cargo test --workspace --all-features --exclude plico-lvgl --exclude plico-lvgl-esp32p4
+cargo run -p gallery
+cargo run -p launcher
+cargo run -p backend-settings
 
+# Generate and develop an ordinary Rust application.
 cargo plico new /tmp/my-plico-app
 cargo plico dev /tmp/my-plico-app
 cargo plico run /tmp/my-plico-app
-cargo plico dev apps/gallery
-cargo plico render --out /tmp/gallery.png
-cargo plico fmt --check
 
-# 在应用目录按需生成图标
-plico icons add lucide:save lucide:search
-plico icons check
+# Develop the gallery or format UI declarations.
+cargo plico dev apps/gallery
+cargo plico fmt --check
 ```
 
-新项目的 lib.rs 实现 `plico_dev::App`，main.rs 通过 `plico_vello` 静态启动。
-开发模式保持宿主和窗口，重载 UI 动态库；兼容状态经 Serde 恢复，不兼容时重置。
-默认核心不依赖布局、渲染和窗口。项目处于 alpha，尚未发布 crate。
+The gallery includes layout and controls, motion, 2048, streaming Markdown, and
+in-app backdrop blur. The CLI also generates application-owned SVG icon sets
+on demand, so builds do not need an icon registry or all icons bundled together.
+See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
+[platform dependencies](docs/native-dependencies.md).
 
-## 目录
+## Backends and boundaries
 
-| 路径 | 内容 |
-|---|---|
-| crates/plico-core | immediate 声明、保留节点、事件、共享类型与失效标记 |
-| crates/plico-lvgl | LVGL 原生控件后端和桌面测试入口 |
-| crates/plico-runtime | 宿主无关的声明运行时：Engine adapter、Source、View 与动效，不依赖窗口与 GPU |
-| crates/plico-vello | 桌面窗口宿主与开发 CLI：启动器、热重载入口和 Skia/Vello 后端选择 |
-| crates/plico-dev | 模块协议、状态恢复、服务桥与动态库加载 |
-| crates/plico-cli | usage-rs CLI、构建监听、formatter 和按需图标生成 |
-| crates/plico-macros | 调用点身份与声明语法辅助 |
-| crates/plico-markdown、plico-editor | 流式 Markdown 与编辑器嵌入 |
-| crates/plico-web-host | 浏览器窗口、输入与 WASM host 入口 |
-| apps/lvgl-esp32p4 | ESP32-P4 / ESP-IDF 固件实验 |
-| apps/web-demo | split-loading 的可加载 UI 示例（plico-web-demo） |
-| crates/plico-renderer、plico-shell、plico-motion、plico-terminal-widget | Plico 内维护的渲染、平台和窗口代码，不依赖原 checkout |
-| apps/gallery | 控件、布局、动画、2048、流式 Markdown 和毛玻璃 |
-| apps/launcher、terminal、services-demo | launcher、终端与后台服务示例 |
+| Path | Current scope |
+| --- | --- |
+| Vello | Main desktop host, Taffy layout, Parley text, input/IME, SVG and animations |
+| Skia | Optional CPU/Vulkan replay and experimental Vulkan window backend; incomplete coverage |
+| FLTK + Taffy | Experimental native widgets and shared settings app; limited styling/platform coverage |
+| LVGL | Experimental native-widget mapping, SDL2/offscreen validation, ESP32-P4 / ESP-IDF hardware tests |
+| Web / WASM | Browser host and split host/UI loading experiments |
 
-Rune 和 reactive Runtime/实验及其旧应用已移除；只有 immediate 声明模型。
-ESP32-P4 / ESP-IDF 为已上板验证的实验路径，尚未接入 no_std、FLTK 或 Bevy。
+Plico is **not** a fine-grained reactive runtime. A business declaration still
+executes view code and reconciles nodes; the entire pipeline is not O(changes).
+Caching and host-side animation reduce repeated work without changing that model.
+Hot reload is best effort, not arbitrary Rust state migration. Backends do not
+yet have feature parity; Bevy and `no_std` are not integrated.
 
-[LVGL 后端实验](docs/lvgl.md) 使用 lightvgl-sys，在 stable 上提供 SDL2 和离屏验证；
-设备端接入与限制见 [ESP32-P4 示例](apps/lvgl-esp32p4/README.md)。
+## Project map
 
-详见 [编写方式](docs/authoring.md)、[CLI](docs/cli.md)、[实现状态](docs/status.md)、
-[文档索引](docs/README.md)。提交遵循 [Cocogitto / Conventional Commits](docs/contributing.md)。
+Framework libraries live in `crates/` with the `plico-` prefix; applications live
+in `apps/` without it.
+
+| Area | Packages / directories |
+| --- | --- |
+| Renderer-independent declarations | `plico-core`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
+| Runtime and desktop host | `plico-runtime`, `plico-vello` |
+| Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-motion`, `plico-native` |
+| Alternative backends | `plico-skia`, `plico-fltk`, `plico-lvgl`, `plico-web-host` |
+| Development tools | `plico-cli`, `plico-dev`, `plico-macros` |
+| Rich content | `plico-markdown`, `plico-editor`, `plico-terminal` |
+| Applications | `apps/gallery`, `backend-settings`, `launcher`, `terminal`, `services-demo`, `web-demo`, `lvgl-esp32p4` |
+
+Plico maintains the reused Wabou code here; normal builds do not require a Wabou checkout.
+
+[Documentation](docs/README.md) · [Implementation status](docs/status.md) ·
+[Architecture](docs/architecture.md) · [Contributing](docs/contributing.md)

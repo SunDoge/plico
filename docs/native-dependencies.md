@@ -33,8 +33,8 @@ gallery/services-demo 的直接 stabby 依赖由 export 宏生成的 ABI 代码�
 
 ```sh
 cargo machete
-cargo tree -p plico-gallery --edges normal
-cargo tree -p plico-terminal --edges normal
+cargo tree -p gallery --edges normal
+cargo tree -p terminal --edges normal
 ```
 
 扫描没有未解释的闲置直接依赖，不表示每个已使用依赖都无法进一步替换或 feature 化。

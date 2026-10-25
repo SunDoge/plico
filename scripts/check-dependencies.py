@@ -21,7 +21,7 @@ if not manifests:
     sys.exit("No workspace members found")
 # Static app builds must not pull in the optional native module ABI. Keep this
 # separate from all-features CI, whose feature unification intentionally enables it.
-for package in ("plico-gallery", "plico-services-demo"):
+for package in ("gallery", "services-demo"):
     tree = subprocess.check_output([
         "cargo", "tree", "--locked", "-p", package, "--edges", "normal", "--prefix", "none", "--format", "{p}",
     ], cwd=ROOT, text=True)

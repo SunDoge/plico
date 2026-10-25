@@ -1,6 +1,6 @@
 //! Executable-owned worker. No code from a reloadable module runs on this thread.
 use plico_dev::services::{HostService, Wake};
-use plico_services_demo::{TaskCommand, TaskSnapshot, TaskStatus};
+use services_demo::{TaskCommand, TaskSnapshot, TaskStatus};
 use std::{
     sync::{
         Arc, Mutex,

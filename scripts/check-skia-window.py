@@ -27,16 +27,24 @@ with Xvfb() as server:
         app.click(70, 178)
         app.wait(lambda: "count=1" in app.log_text, "pointer click did not reach app")
         app.run("import", "-window", app.window(), str(REPORT / "clicked.png"))
+        # Pointer activation has already focused Increment. Verify keyboard
+        # activation here, without assuming how X11 restores focus after remap.
+        log_start = len(app.log_text)
+        app.keys("Return")
+        app.wait(lambda: "count=2" in app.log_text[log_start:], "keyboard increment did not reach app")
+        log_start = len(app.log_text)
+        app.keys("Tab", "Return")
+        app.wait(lambda: "count=0" in app.log_text[log_start:], "keyboard reset did not reach app")
         for width, height in [(960, 600), (700, 520), (1000, 640), (820, 480), (1000, 640)]:
             app.resize(width, height)
             time.sleep(.15)
         app.run("import", "-window", app.window(), str(REPORT / "resized.png"))
         assert app.run("identify", "-format", "%wx%h", str(REPORT / "resized.png")) == "1000x640"
         app.unmap_map()
-        app.keys("Tab", "Return")
-        app.wait(lambda: "count=2" in app.log_text, "keyboard activation did not reach app")
-        app.keys("Tab", "Return")
-        app.wait(lambda: "count=0" in app.log_text, "keyboard reset did not reach app")
+        app.wait_for_frame(REPORT / "remapped.png")
+        log_start = len(app.log_text)
+        app.click(70, 178)
+        app.wait(lambda: "count=1" in app.log_text[log_start:], "pointer input did not recover after remap")
         time.sleep(.2)
         app.assert_log_clean()
         app.run("xdotool", "keydown", "--window", app.window(), "Escape")

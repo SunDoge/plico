@@ -53,8 +53,8 @@ WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编�
 
 ```sh
 cargo check --workspace --all-targets
-cargo test --workspace --all-features --exclude plico-lvgl --exclude plico-lvgl-esp32p4
-cargo run -p plico-gallery
+cargo test --workspace --all-features --exclude plico-lvgl --exclude lvgl-esp32p4
+cargo run -p gallery
 cargo plico new /tmp/my-app
 cargo plico dev /tmp/my-app --headless --no-watch
 cargo plico icons check --output apps/gallery/src/icons.rs

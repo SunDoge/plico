@@ -6,7 +6,7 @@
 ## 运行与接入
 
 ```sh
-cargo run -p plico-gallery --example code_editor
+cargo run -p gallery --example code_editor
 ```
 
 新增 `plico-editor` crate，公开 `CodeEditorState` 和实现后端 `Widget` 的
@@ -63,7 +63,7 @@ let source = SurfaceSource::new(view, editor, "code-editor");
 ```sh
 cargo test -p plico-editor
 cargo clippy -p plico-editor --all-targets -- -D warnings
-cargo build -p plico-gallery --example code_editor
+cargo build -p gallery --example code_editor
 python3 crates/plico-editor/scripts/check-native.py
 ```
 

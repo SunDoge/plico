@@ -1,11 +1,11 @@
 [package]
-name = "plico-services-demo"
+name = "services-demo"
 version.workspace = true
 edition.workspace = true
 publish = false
 
 [package.metadata.plico]
-host = "plico-services-demo"
+host = "services-demo"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -25,7 +25,7 @@ plico-vello = { path = "../../crates/plico-vello", optional = true, default-feat
 serde = { workspace = true, features = ["derive"] }
 
 [[bin]]
-name = "plico-services-demo"
+name = "services-demo"
 required-features = ["desktop"]
 
 [[example]]

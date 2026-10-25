@@ -22,7 +22,7 @@ The normal native gallery supports the keyboard shortcuts. The interactive
 button/input verification demo is:
 
 ```sh
-cargo run -p plico-gallery --example zoom
+cargo run -p gallery --example zoom
 ```
 
 The example includes buttons, a text input (for selection and IME verification),

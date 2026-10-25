@@ -1,4 +1,4 @@
-//! Native editor gallery: cargo run -p plico-gallery --example code_editor
+//! Native editor gallery: cargo run -p gallery --example code_editor
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), plico_vello::DesktopError> {
     use plico_core::prelude::*;
@@ -18,7 +18,7 @@ fn main() -> Result<(), plico_vello::DesktopError> {
             column(cx).width_percent(100.).height_percent(100.).padding(20).gap(12).background(Color::Literal(0x10151e))
                 .children(|cx| {
                 row(cx).gap(12).align(Align::Center).children(|cx| {
-                    svg(cx, &plico_gallery::icons::CODE).size(22.,22.).color(Color::Literal(0x89b4fa));
+                    svg(cx, &gallery::icons::CODE).size(22.,22.).color(Color::Literal(0x89b4fa));
                     text(cx, "Code editor").font_size(24).weight(700).color(Color::Literal(0xe2e8f0)).grow(1.);
                     if button(cx).text("Undo").clicked() { self.state.undo(); }
                     if button(cx).text("Redo").clicked() { self.state.redo(); }

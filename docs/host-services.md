@@ -7,7 +7,7 @@ UI 状态、类型化消息与展示快照。普通运行走直接 Rust 调用�
 ## 运行完整示例
 
 ```sh
-cargo run -p plico-services-demo
+cargo run -p services-demo
 cargo plico dev apps/services-demo
 ```
 
@@ -122,12 +122,12 @@ UI 状态不兼容可以重置；服务快照或消息协议不兼容则拒绝�
 真实动态库验证使用受控 worker，不靠 sleep 等待业务进度。先建立两个 UI 版本：
 
 ```sh
-cargo build -p plico-services-demo --lib --no-default-features --features abi
+cargo build -p services-demo --lib --no-default-features --features abi
 mkdir -p target/services-verification
-cp target/debug/libplico_services_demo.so target/services-verification/original.so
-cargo build -p plico-services-demo --lib --no-default-features --features abi,schema-reset-fixture
-cp target/debug/libplico_services_demo.so target/services-verification/reset.so
-cargo run -p plico-services-demo --features hot-reload --example services-reload -- \
+cp target/debug/libservices_demo.so target/services-verification/original.so
+cargo build -p services-demo --lib --no-default-features --features abi,schema-reset-fixture
+cp target/debug/libservices_demo.so target/services-verification/reset.so
+cargo run -p services-demo --features hot-reload --example services-reload -- \
   --module target/services-verification/original.so \
   --reset-module target/services-verification/reset.so
 ```
@@ -138,7 +138,7 @@ cargo run -p plico-services-demo --features hot-reload --example services-reload
 
 另在隔离 X11 中执行了真正的 `plico dev apps/services-demo`：启动任务并增加 UI counter，
 保存一次 UI 源码触发 watcher，确认宿主 PID 和 counter 保留，进度条继续变化。
-本地截图可用 `cargo run -p plico-services-demo --example services-capture -- --running --out reports/services/running.png`
+本地截图可用 `cargo run -p services-demo --example services-capture -- --running --out reports/services/running.png`
 生成。报告与截图不参与提交。
 
 静态 ServiceView 支持通过 HostService::snapshot_revision 复用 typed snapshot；默认仍为 eager，使用约定与动态路径边界见 [性能说明](performance.md)。

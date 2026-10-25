@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-subprocess.run(["cargo", "build", "-p", "plico-gallery", "-p", "plico-vello", "--features", "plico-gallery/abi", "--lib", "--bin", "plico-vello", "--quiet"], cwd=ROOT, check=True)
+subprocess.run(["cargo", "build", "-p", "gallery", "-p", "plico-vello", "--features", "gallery/abi", "--lib", "--bin", "plico-vello", "--quiet"], cwd=ROOT, check=True)
 
 def texts(nodes):
     return [node["text"] for node in nodes] + [value for node in nodes for value in texts(node["children"])]
@@ -20,7 +20,7 @@ def texts(nodes):
 with tempfile.TemporaryDirectory(prefix="plico-vlist-") as temp:
     descriptor = Path(temp) / "active.json"
     first, second = Path(temp) / "first.so", Path(temp) / "second.so"
-    shutil.copyfile(TARGET / "debug/libplico_gallery.so", first)
+    shutil.copyfile(TARGET / "debug/libgallery.so", first)
     shutil.copyfile(first, second)
     descriptor.write_text(json.dumps({"version": 3, "library": str(first)}))
     with open("/tmp/plico-vlist-reload.log", "w") as log:

@@ -22,7 +22,7 @@ tracing.workspace = true
 notify = { workspace = true, optional = true }
 
 [dev-dependencies]
-plico-gallery = { path = "../../apps/gallery" }
+gallery = { path = "../../apps/gallery" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 plico-shell.workspace = true

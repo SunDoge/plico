@@ -31,9 +31,9 @@ Validation:
 
 ```sh
 cargo test -p plico-vello --tests
-cargo run -p plico-gallery --example capture -- --page controls --out /tmp/controls.png
-cargo run -p plico-gallery --example capture -- --page controls --dark --out /tmp/controls-dark.png
-cargo run -p plico-gallery --example capture -- --page controls --large --width 640 --height 780 --out /tmp/controls-narrow.png
+cargo run -p gallery --example capture -- --page controls --out /tmp/controls.png
+cargo run -p gallery --example capture -- --page controls --dark --out /tmp/controls-dark.png
+cargo run -p gallery --example capture -- --page controls --large --width 640 --height 780 --out /tmp/controls-narrow.png
 ```
 
 Alignment tests cover density, font sizes, wrapping, resizing, tall controls,

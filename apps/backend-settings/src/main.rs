@@ -5,7 +5,7 @@ use snafu::Snafu;
 
 #[derive(usage_rs::Cli)]
 #[usage(
-    bin = "plico-backend-settings",
+    bin = "backend-settings",
     about = "Shared settings UI for Vello, Skia and FLTK"
 )]
 struct Options {
@@ -37,7 +37,7 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("plico-backend-settings: {error}");
+            eprintln!("backend-settings: {error}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -61,7 +61,7 @@ fn run() -> Result<(), Error> {
     match backend {
         #[cfg(feature = "vello")]
         "vello" => plico_vello::run_source_with_options(
-            plico_vello::Source::new(plico_backend_settings::Settings::default()),
+            plico_vello::Source::new(backend_settings::Settings::default()),
             plico_vello::WindowOptions::new()
                 .title("Plico settings — Vello")
                 .initial_inner_size(1100, 820),
@@ -77,7 +77,7 @@ fn run() -> Result<(), Error> {
                 .init();
             plico_shell::run_window_with_options(
                 Box::new(plico_runtime::Source::new(
-                    plico_backend_settings::Settings::default(),
+                    backend_settings::Settings::default(),
                 )),
                 plico_renderer::WindowOptions::new()
                     .title("Plico settings — Skia")
@@ -88,7 +88,7 @@ fn run() -> Result<(), Error> {
         }
         #[cfg(feature = "fltk")]
         "fltk" => plico_fltk::run(
-            plico_backend_settings::Settings::default(),
+            backend_settings::Settings::default(),
             "Plico settings — FLTK",
             1100,
             820,

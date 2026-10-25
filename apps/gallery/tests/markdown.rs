@@ -1,5 +1,5 @@
+use gallery::{Gallery, Page};
 use plico_core::{Clock, VirtualClock};
-use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, TextContext};
 use plico_vello::Source;
 use std::time::Duration;
@@ -40,7 +40,7 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
     assert!(!source.view.markdown_chat.stream.is_revealing());
     assert_eq!(
         source.view.markdown_chat.stream.received(),
-        plico_gallery::markdown_chat::REPLY
+        gallery::markdown_chat::REPLY
     );
     assert!(
         source

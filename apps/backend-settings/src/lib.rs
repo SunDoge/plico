@@ -1,31 +1,19 @@
 //! A routed desktop workspace shared by the FLTK, Vello and Skia backends.
 mod animation;
+mod color_icons;
 mod icons;
 use animation::Animations;
 use plico_core::{DeclareView, Router, TextBuffer, Theme, prelude::*};
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico_core::Route)]
 pub enum Page {
     #[default]
+    #[route(icon = color_icons::HOME)]
     Overview,
+    #[route(icon = color_icons::CHART_MULTIPLE)]
     Activity,
+    #[route(icon = color_icons::SETTINGS)]
     Preferences,
-}
-impl Page {
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Overview => "Overview",
-            Self::Activity => "Activity",
-            Self::Preferences => "Preferences",
-        }
-    }
-    fn image(self) -> &'static SvgAsset {
-        match self {
-            Self::Overview => &icons::LAYOUT_DASHBOARD,
-            Self::Activity => &icons::ACTIVITY,
-            Self::Preferences => &icons::SETTINGS,
-        }
-    }
 }
 pub struct Settings {
     pub router: Router<Page>,
@@ -39,7 +27,6 @@ pub struct Settings {
     pub inspector: bool,
     pub reduced_motion: bool,
     pub selected_project: u64,
-    pub reverse_activity: bool,
     animations: Animations,
 }
 impl Default for Settings {
@@ -58,7 +45,6 @@ impl Default for Settings {
             inspector: false,
             reduced_motion: false,
             selected_project: 1,
-            reverse_activity: false,
             animations: Animations::default(),
         }
     }
@@ -121,7 +107,7 @@ impl DeclareView for Settings {
                 };
                 row(cx).gap(12).wrap(true) + |cx| {
                     column(cx).width(0.).grow(1.).min_width(120.).gap(6) + |cx| {
-                        text(cx, self.router.current().title()).font_size(28).weight(700);
+                        text(cx, self.router.current().label()).font_size(28).weight(700);
                         text(cx, match self.router.current() {
                             Page::Overview => "A native workspace. Flex, Grid and retained controls working together.",
                             Page::Activity => "A keyed list, a fixed header and a native scroll viewport.",
@@ -165,23 +151,13 @@ impl Settings {
         + |cx|
         {
             row(cx).gap(8).height(38.) + |cx| {
-                svg(cx, &icons::LAYOUT_DASHBOARD).size(26., 26.).color(Color::Accent);
+                svg(cx, &color_icons::APPS).size(26., 26.);
                 if expanded {
                     text(cx, "plico").font_size(23).weight(700);
                 }
             };
             column(cx).gap(8) + |cx| {
-                for page in [Page::Overview, Page::Activity, Page::Preferences] {
-                    cx.keyed(page as u64, |cx| {
-                        let selected = self.router.current() == page;
-                        let label = page.title();
-                        let nav = nav_item(cx, label, selected, Some(page.image()));
-                        if nav.clicked() {
-                            self.router.go(page);
-                            cx.request_rebuild();
-                        }
-                    });
-                }
+                nav_menu(cx, &mut self.router);
             };
             column(cx).height(0.).grow(1.) + |_cx| {};
             if button(cx).icon(&icons::PANEL_LEFT_CLOSE).aria_label("Toggle sidebar").height(36.)
@@ -222,7 +198,14 @@ impl Settings {
                     ] {
                         cx.keyed(id, |cx| {
                             row(cx).gap(10).padding_y(8) + |cx| {
-                                icon(cx, &icons::FOLDER).color(Color::Accent);
+                                icon(
+                                    cx,
+                                    if id == 3 {
+                                        &color_icons::PUZZLE_PIECE
+                                    } else {
+                                        &color_icons::APPS
+                                    },
+                                );
                                 column(cx).width(0.).grow(1.).gap(4) + |cx| {
                                     text(cx, title).weight(600);
                                     text(cx, note).font_size(12).color(Color::Muted);
@@ -286,13 +269,14 @@ impl Settings {
     #[component]
     #[rustfmt::skip]
     fn activity(&mut self, cx: &mut UiContext) {
+        let reverse = cx.persisted_state("reverse-order", || false);
         row(cx).gap(12) + |cx| {
             text(cx, "30 local events").color(Color::Muted).grow(1.);
             if button(cx).text("Reverse order").clicked() {
-                self.reverse_activity = !self.reverse_activity;
-                cx.request_rebuild();
+                reverse.update(|value| *value = !*value);
             }
         };
+        let reverse = reverse.get();
         // Share the actual column sizes across rows, not independent intrinsic
         // fr tracks. Reserve a small gutter for native or overlay scrollbars.
         let available =
@@ -305,7 +289,7 @@ impl Settings {
         activity_row(cx, "EVENT", "WORKSPACE", "STATE", true, tracks);
         column(cx).height(0.).grow(1.).scroll_y(true).gap(4) + |cx| {
             for index in 0..30u64 {
-                let id = if self.reverse_activity { 29 - index } else { index };
+                let id = if reverse { 29 - index } else { index };
                 cx.keyed(id, |cx| {
                     activity_row(cx, format_args!("Sync checkpoint {:02}", id + 1),
                         if id % 2 == 0 { "Desktop client" } else { "Design system" },

@@ -227,7 +227,7 @@ fn error(message: impl AsRef<str>) -> JsValue {
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
 pub struct Gallery {
-    host: WebHost<plico_vello::NativeApp<plico_gallery::Gallery>>,
+    host: WebHost<plico_vello::NativeApp<gallery::Gallery>>,
 }
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
@@ -235,10 +235,7 @@ impl Gallery {
     #[wasm_bindgen(constructor)]
     pub fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Self, JsValue> {
         Ok(Self {
-            host: WebHost::new(
-                canvas,
-                plico_vello::NativeApp(plico_gallery::Gallery::default()),
-            )?,
+            host: WebHost::new(canvas, plico_vello::NativeApp(gallery::Gallery::default()))?,
         })
     }
     pub fn load_font(&mut self, bytes: Vec<u8>) {

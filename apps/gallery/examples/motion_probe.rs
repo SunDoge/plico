@@ -1,5 +1,5 @@
 //! Work counters for clock-driven 2048 transforms; not a GPU benchmark.
-use plico_gallery::{
+use gallery::{
     Gallery, Page,
     game2048::{Direction, Game},
 };

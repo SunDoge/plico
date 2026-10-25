@@ -30,7 +30,7 @@ STATES = [
 SAME_STATE_MAX_FACTOR = 0.5  # same-state cross-backend RMSE must stay under half the baseline
 
 subprocess.run(
-    ["cargo", "build", "--locked", "-p", "plico-backend-settings", "--features", "skia,vello", "--bins"],
+    ["cargo", "build", "--locked", "-p", "backend-settings", "--features", "skia,vello", "--bins"],
     cwd=ROOT, check=True,
 )
 REPORT.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ def drive(backend, server):
         WGPU_BACKEND="vulkan",
     )
     captures = {}
-    with WindowApp(TARGET / "debug" / "plico-backend-settings", env, REPORT / f"{backend}.log", args=["--backend", backend]) as app:
+    with WindowApp(TARGET / "debug" / "backend-settings", env, REPORT / f"{backend}.log", args=["--backend", backend]) as app:
         app.window(f"no {backend} settings window")
         app.focus()
         app.wait_for_frame(REPORT / f"{backend}-ready.png")

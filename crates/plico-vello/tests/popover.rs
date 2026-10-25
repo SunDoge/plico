@@ -257,3 +257,37 @@ fn popup_animation_frames_keep_application_and_layout_idle() {
     assert_eq!(s.view.shows, before);
     assert_eq!(s.adapter.stats.layout_runs, 0);
 }
+
+#[test]
+fn automatic_popup_focus_preserves_pointer_or_keyboard_modality() {
+    let clock = plico_core::VirtualClock::default();
+    let mut source = Source::with_clock(Demo::default(), clock.clone());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 400, 400);
+    action(&mut source, "Options", false);
+    source.build_frame(&mut text, 400, 400);
+    clock.advance(Duration::from_secs(1)).unwrap();
+    let nodes = source.build_frame(&mut text, 400, 400);
+    assert!(source.view.popup.is_open());
+    assert!(
+        nodes.iter().all(|n| n.paint.outline_width == 0.),
+        "automatic popup focus must not opt pointer users into focus rings"
+    );
+    action(&mut source, "Apply", false);
+    source.build_frame(&mut text, 400, 400);
+    clock.advance(Duration::from_secs(1)).unwrap();
+    let nodes = source.build_frame(&mut text, 400, 400);
+    assert!(
+        nodes.iter().all(|n| n.paint.outline_width == 0.),
+        "restoring focus must preserve pointer modality too"
+    );
+    action(&mut source, "Options", true);
+    action(&mut source, "Options", false);
+    source.build_frame(&mut text, 400, 400);
+    clock.advance(Duration::from_secs(1)).unwrap();
+    let nodes = source.build_frame(&mut text, 400, 400);
+    assert!(
+        nodes.iter().any(|n| n.paint.outline_width > 0.),
+        "keyboard focus must remain visible inside the popup"
+    );
+}

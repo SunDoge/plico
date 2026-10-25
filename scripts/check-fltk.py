@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-subprocess.run(["cargo", "build", "--locked", "-p", "plico-backend-settings",
+subprocess.run(["cargo", "build", "--locked", "-p", "backend-settings",
                 "--features", "fltk", "--example", "fltk_probe", "--example", "fltk_schedule_probe"], cwd=ROOT, check=True)
 with tempfile.TemporaryDirectory(prefix="plico-fltk-") as tmp:
     env = dict(os.environ, PLICO_FLTK_PROBE_OUT=str(Path(tmp) / "settings"))

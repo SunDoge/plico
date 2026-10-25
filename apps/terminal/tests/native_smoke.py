@@ -1,4 +1,4 @@
-"""Run after cargo build -p plico-terminal, under xvfb-run -a."""
+"""Run after cargo build -p terminal, under xvfb-run -a."""
 import ctypes
 import json
 import os
@@ -51,7 +51,7 @@ def request_close(window):
     x.XCloseDisplay.argtypes=[ctypes.c_void_p]
     x.XCloseDisplay(display)
 
-with tempfile.TemporaryDirectory(prefix="plico-terminal-") as directory:
+with tempfile.TemporaryDirectory(prefix="terminal-") as directory:
     folder = Path(directory)
     before, after, received = [folder / n for n in ("before", "after", "received")]
     command = (
@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="plico-terminal-") as directory:
     env = dict(os.environ, WINIT_UNIX_BACKEND="x11", WAYLAND_DISPLAY="")
     with (folder / "app.log").open("w") as log:
         process = subprocess.Popen(
-            [str(ROOT / "target/debug/plico-terminal"), "--command", "/bin/sh",
+            [str(ROOT / "target/debug/terminal"), "--command", "/bin/sh",
              "--command-args", json.dumps(["-c", command])],
             cwd=ROOT, env=env, stdout=log, stderr=log,
         )
@@ -83,9 +83,9 @@ with tempfile.TemporaryDirectory(prefix="plico-terminal-") as directory:
             xdo("windowfocus", "--sync", win)
             xdo("mousemove", "--window", win, 180, 170)
             xdo("click", 1)
-            xdo("type", "--clearmodifiers", "--delay", 20, "plico-terminal-smoke")
+            xdo("type", "--clearmodifiers", "--delay", 20, "terminal-smoke")
             xdo("key", "Return")
-            wait_for(lambda: received.exists() and received.read_text() == "plico-terminal-smoke")
+            wait_for(lambda: received.exists() and received.read_text() == "terminal-smoke")
             # Repeated Plico UI declarations must not replace the PTY.
             xdo("mousemove", "--window", win, 900, 30)
             xdo("click", 1)

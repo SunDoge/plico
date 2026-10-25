@@ -1,5 +1,5 @@
 [package]
-name = "plico-web-demo"
+name = "web-demo"
 version.workspace = true
 edition.workspace = true
 description = "Loadable UI demo for the Plico split-WASM browser host"

@@ -1,6 +1,6 @@
 # 应用内毛玻璃
 
-运行 `cargo run -p plico-gallery`，进入 **Glass**。可调 Blur、Tint，关闭 Blur background 对比原始边界，关闭 Move background 暂停背景。音乐卡片是演示内容；Save mix 仅改变本地界面状态。
+运行 `cargo run -p gallery`，进入 **Glass**。可调 Blur、Tint，关闭 Blur background 对比原始边界，关闭 Move background 暂停背景。音乐卡片是演示内容；Save mix 仅改变本地界面状态。
 
 ```rust
 use plico_core::prelude::*;
@@ -40,9 +40,9 @@ Scene 构建时截取面板之前的绘制前缀，补齐前缀中尚未关闭�
 ```sh
 cargo test -p plico-vello --test backdrop
 cargo test -p plico-vello --test glass_pixels
-cargo test -p plico-gallery --test glass
-cargo run -p plico-gallery --example capture -- --page glass --out /tmp/glass.png
-cargo run -p plico-gallery --example capture -- --page glass --dark --width 760 --height 740 --out /tmp/glass-dark.png
+cargo test -p gallery --test glass
+cargo run -p gallery --example capture -- --page glass --out /tmp/glass.png
+cargo run -p gallery --example capture -- --page glass --dark --width 760 --height 740 --out /tmp/glass-dark.png
 ```
 
 真实 GPU 像素测试在 1×、2× 下验证面板内红蓝边界混合、面板外不变、圆角裁剪及前景不模糊；另外验证静态 Scene 命令共享、背景移动后的结果更新。Gallery 使用虚拟时钟验证背景运动不触发文字测量和布局、暂停后回到空闲。Web smoke 在 1×、2× 下比较玻璃区域开关前后的截图，并继续验证其余页面、resize 和 idle；见 `crates/plico-web-host/web/smoke.cjs`。

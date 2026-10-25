@@ -91,3 +91,12 @@ embedded `SvgAsset`. It has the same size/color/motion builder and supports
 `.width_percent(100.)`. Cache generated markup when data changes; source strings
 are still owned by declarations, while the renderer retains unchanged SVGs.
 This does not embed a WebView or require leaking strings as static assets.
+
+
+## 应用中的彩色图标
+
+backend-settings 和 gallery 的导航使用 Fluent System Icons 的 Color SVG，普通
+操作按钮继续使用 Lucide。显式 fill/gradient 保持资源原色，currentColor 才使用主题色。
+每个应用只包含实际用到的资源，位于 assets/fluent，附 MIT LICENSE 和来源 revision。
+`python3 scripts/update-fluent-icons.py` 从固定 revision 更新选择集合；普通构建不联网，
+不引入 NPM、字体图标或全量图标注册表。该脚本独立于 Lucide 的 plico icons 命令。

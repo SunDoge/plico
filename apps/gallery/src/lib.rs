@@ -1,3 +1,5 @@
+mod calendar;
+mod color_icons;
 pub mod icons;
 use plico_core::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
@@ -9,7 +11,7 @@ pub mod markdown_chat;
 pub mod workspace;
 use components::icon_button;
 use plico_core::widgets::{
-    badge, button, checkbox, collapsible, column, nav_item, progress, row, segmented, separator,
+    badge, button, checkbox, collapsible, column, nav_menu, progress, row, segmented, separator,
     svg, switch, text, virtual_list,
 };
 
@@ -18,17 +20,37 @@ static AURORA: plico_core::ShaderAsset = plico_core::shader_asset!("../assets/sh
 
 static LOGO: plico_core::SvgAsset = plico_core::svg_asset!("../assets/plico.svg");
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Default,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    plico_core::Route,
+)]
 pub enum Page {
     #[default]
+    #[route(label = "Workspace", icon = color_icons::APPS)]
     Workspace,
+    #[route(label = "Layout", icon = color_icons::HOME)]
     Layout,
+    #[route(label = "Controls", icon = color_icons::SETTINGS)]
     Controls,
+    #[route(label = "Motion", icon = color_icons::DESIGN_IDEAS)]
     Motion,
+    #[route(label = "Lists", icon = color_icons::TEXT_BULLET_LIST_SQUARE)]
     Lists,
+    #[route(label = "2048", icon = color_icons::PUZZLE_PIECE)]
     Game2048,
+    #[route(label = "Markdown chat", icon = color_icons::CHAT)]
     Markdown,
+    #[route(label = "Glass", icon = color_icons::IMAGE)]
     Glass,
+    #[route(label = "Calendar", icon = color_icons::CALENDAR)]
+    Calendar,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -47,7 +69,6 @@ pub struct Gallery {
     pub alignment: u8,
     pub wrapped: bool,
     pub compact: bool,
-    pub release_channel: usize,
     pub release_details: bool,
     pub workspace: workspace::Workspace,
     pub dialog: plico_core::ModalState,
@@ -56,8 +77,6 @@ pub struct Gallery {
     pub channel_select: plico_core::PopoverState,
     pub confirm_dialog: plico_core::ModalState,
     pub preview_notifications: bool,
-    pub shader_paused: bool,
-    pub exposure: f64,
 }
 
 impl App for Gallery {
@@ -103,14 +122,7 @@ impl App for Gallery {
                 };
                 text(ui, "INTERFACE LAB").font_size(10).weight(600).color(Color::Muted);
                 column(ui).gap(6).padding(0) + |ui| {
-                    self.nav(ui, Page::Workspace, "Workspace");
-                    self.nav(ui, Page::Layout, "Layout");
-                    self.nav(ui, Page::Controls, "Controls");
-                    self.nav(ui, Page::Motion, "Motion");
-                    self.nav(ui, Page::Lists, "Lists");
-                    self.nav(ui, Page::Game2048, "2048");
-                    self.nav(ui, Page::Markdown, "Markdown chat");
-                    self.nav(ui, Page::Glass, "Glass");
+                    nav_menu(ui, &mut self.router);
                 };
                 column(ui).grow(1.).children(|_ui| {});
                 checkbox(ui, "Compact", &mut self.compact);
@@ -132,6 +144,7 @@ impl App for Gallery {
                     Page::Game2048 => self.game2048.show(ui),
                     Page::Markdown => self.markdown_chat.show(ui),
                     Page::Glass => self.glass.show(ui),
+                    Page::Calendar => calendar::page(ui),
                 }
             })
         };
@@ -139,22 +152,6 @@ impl App for Gallery {
 }
 
 impl Gallery {
-    #[component]
-    fn nav(&mut self, ui: &mut UiContext, page: Page, label: &'static str) {
-        let image = match page {
-            Page::Workspace => &crate::icons::FOLDER,
-            Page::Layout => &crate::icons::LAYOUT_GRID,
-            Page::Controls => &crate::icons::SLIDERS_HORIZONTAL,
-            Page::Motion => &crate::icons::SPARKLES,
-            Page::Lists => &crate::icons::LIST,
-            Page::Game2048 => &crate::icons::LAYOUT_GRID,
-            Page::Markdown => &crate::icons::MESSAGE_SQUARE,
-            Page::Glass => &crate::icons::LAYERS,
-        };
-        if nav_item(ui, label, self.router.show(page), Some(image)).clicked() {
-            self.router.go(page);
-        }
-    }
     #[component]
     #[rustfmt::skip]
     fn lists_page(&mut self, ui: &mut UiContext) {
@@ -276,42 +273,7 @@ impl Gallery {
                     if self.notifications { "Notifications are enabled" } else { "Notifications are paused" },
                 ).font_size(12).color(Color::Muted);
             };
-            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-                row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                    text(ui, "Release channel").font_size(17).weight(650).grow(1.);
-                    badge(ui, if self.release_channel == 0 { "Recommended" } else { "Preview" });
-                };
-                let channels = [
-                    plico_core::SelectOption::new("stable", 0, "Stable"),
-                    plico_core::SelectOption::new("beta", 1, "Beta"),
-                    plico_core::SelectOption::new("nightly", 2, "Nightly"),
-                ];
-                row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                    segmented(ui, &mut self.release_channel, &["Stable", "Beta", "Nightly"]);
-                    plico_core::widgets::select(ui, &mut self.channel_select, "Channel",
-                        &mut self.release_channel, &channels).width(132.);
-                };
-                separator(ui);
-                collapsible(ui, "Channel details", &mut self.release_details, |ui| {
-                    progress(
-                        ui,
-                        "Validation coverage",
-                        match self.release_channel {
-                            1 => 0.75,
-                            2 => 0.4,
-                            _ => 1.,
-                        },
-                    );
-                    text(
-                        ui,
-                        match self.release_channel {
-                            1 => "Early access with occasional breaking changes.",
-                            2 => "Daily builds for testing the latest changes.",
-                            _ => "Tested releases for everyday projects.",
-                        },
-                    ).color(Color::Muted).font_size(12);
-                });
-            };
+            release_channel(ui, &mut self.channel_select, &mut self.release_details);
             column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
                 text(ui, "Icon & label alignment").font_size(17).weight(650);
                 row(ui).gap(8).wrap(true) + |ui| {
@@ -350,26 +312,79 @@ impl Gallery {
             };
             text(ui, if self.expanded { "Expanded / 240 ms" } else { "Compact / 240 ms" }).font_size(12).color(Color::Muted);
         };
-        column(ui).padding(16).gap(10).radius(12.).background(Color::Panel) + |ui| {
-            row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-                text(ui, "Custom WGSL").font_size(17).weight(650).grow(1.);
-                text(ui, "Exposure").font_size(12).color(Color::Muted);
-                plico_core::widgets::slider(ui, "Exposure", &mut self.exposure, -1.0..=1.0).step(0.05)
-                    .width(120.);
-                if button(ui).text(if self.shader_paused { "Resume shader" } else { "Pause shader" }).ghost()
-                    .font_size(12).clicked()
-                {
-                    self.shader_paused = !self.shader_paused;
-                }
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            plico_core::widgets::shader(ui, &AURORA).width_percent(100.).height(110.)
-                .values(&[(0.8 + self.exposure * 0.7) as f32]).animated(true).paused(self.shader_paused);
-            #[cfg(target_arch = "wasm32")]
-            text(ui, "Custom WGSL shaders require WebGPU; this browser host uses WebGL2.").color(Color::Muted);
-            text(ui, "Native GPU surface · injected clock · retained resources").font_size(11).color(Color::Muted);
-        };
+        shader_demo(ui);
     }
+}
+
+#[component]
+#[rustfmt::skip]
+fn release_channel(ui: &mut UiContext, menu: &mut plico_core::PopoverState, details: &mut bool) {
+    let channel = ui.persisted_state("selected", || 0_usize);
+    let mut selected = channel.get();
+    column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+        row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+            text(ui, "Release channel").font_size(17).weight(650).grow(1.);
+            badge(ui, if selected == 0 { "Recommended" } else { "Preview" });
+        };
+        let channels = [
+            plico_core::SelectOption::new("stable", 0, "Stable"),
+            plico_core::SelectOption::new("beta", 1, "Beta"),
+            plico_core::SelectOption::new("nightly", 2, "Nightly"),
+        ];
+        row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+            segmented(ui, &mut selected, &["Stable", "Beta", "Nightly"]);
+            plico_core::widgets::select(ui, menu, "Channel", &mut selected, &channels).width(132.);
+        };
+        separator(ui);
+        collapsible(ui, "Channel details", details, |ui| {
+            progress(
+                ui,
+                "Validation coverage",
+                match selected {
+                    1 => 0.75,
+                    2 => 0.4,
+                    _ => 1.,
+                },
+            );
+            text(
+                ui,
+                match selected {
+                    1 => "Early access with occasional breaking changes.",
+                    2 => "Daily builds for testing the latest changes.",
+                    _ => "Tested releases for everyday projects.",
+                },
+            ).color(Color::Muted).font_size(12);
+        });
+    };
+    channel.set(selected);
+}
+
+#[component]
+#[rustfmt::skip]
+fn shader_demo(ui: &mut UiContext) {
+    let paused = ui.persisted_state("paused", || false);
+    let exposure = ui.persisted_state("exposure", || 0_f64);
+    let mut current_exposure = exposure.get();
+    column(ui).padding(16).gap(10).radius(12.).background(Color::Panel) + |ui| {
+        row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+            text(ui, "Custom WGSL").font_size(17).weight(650).grow(1.);
+            text(ui, "Exposure").font_size(12).color(Color::Muted);
+            plico_core::widgets::slider(ui, "Exposure", &mut current_exposure, -1.0..=1.0).step(0.05)
+                .width(120.);
+            if button(ui).text(if paused.get() { "Resume shader" } else { "Pause shader" }).ghost()
+                .font_size(12).clicked()
+            {
+                paused.update(|value| *value = !*value);
+            }
+        };
+        exposure.set(current_exposure);
+        #[cfg(not(target_arch = "wasm32"))]
+        plico_core::widgets::shader(ui, &AURORA).width_percent(100.).height(110.)
+            .values(&[(0.8 + current_exposure * 0.7) as f32]).animated(true).paused(paused.get());
+        #[cfg(target_arch = "wasm32")]
+        text(ui, "Custom WGSL shaders require WebGPU; this browser host uses WebGL2.").color(Color::Muted);
+        text(ui, "Native GPU surface · injected clock · retained resources").font_size(11).color(Color::Muted);
+    };
 }
 
 #[component]

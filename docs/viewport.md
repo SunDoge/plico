@@ -4,7 +4,7 @@
 ZoomSource 在宿主层统一缩放布局、绘制、命中测试和输入法几何；缩放状态不要求写入业务 checkpoint。
 
 ```sh
-cargo run -p plico-gallery --example zoom
+cargo run -p gallery --example zoom
 ```
 
 示例使用 ZoomController 读取 factor 和设置缩放；支持 Ctrl + / Ctrl - / Ctrl 0，

@@ -8,6 +8,8 @@
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
 | [2048 对照](2048.md) | MyGo 游戏切片、棋子身份、时钟动画、键盘与模块恢复 |
 | [Viewport 与缩放](viewport.md) | 宿主尺寸输入、响应式布局、百分比宽度与新桌面 zoom 示例 |
+| [Rust 测试协议](testing.md) | 共享语义命令、虚拟时钟、离屏应用测试与窗口验收边界 |
+| [Route enum 元信息](router.md) | Route derive、静态导航列表、标签、图标与稳定逻辑 ID |
 | [Gallery 与路由](gallery.md) | 页面状态、flex 展台、基础 motion 与 SVG 边界 |
 | [动机与开发体验](vision.md) | 为什么选择 immediate API、预期优势和实际代价 |
 | [后端清理](backend-cleanup.md) | 当前 crate 划分、删除的旧协议与保留边界 |

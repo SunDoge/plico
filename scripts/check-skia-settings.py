@@ -9,10 +9,10 @@ from plico_smoke import Xvfb, WindowApp
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
 REPORT = ROOT / "reports/skia-settings"
-BINARY = TARGET / "debug/plico-backend-settings"
+BINARY = TARGET / "debug/backend-settings"
 
 subprocess.run(
-    ["cargo", "build", "--locked", "-p", "plico-backend-settings", "--features", "skia", "--bin", "plico-backend-settings"],
+    ["cargo", "build", "--locked", "-p", "backend-settings", "--features", "skia", "--bin", "backend-settings"],
     cwd=ROOT, check=True,
 )
 REPORT.mkdir(parents=True, exist_ok=True)

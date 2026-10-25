@@ -90,7 +90,7 @@ PLICO_SKIA_DEVICE='RTX 5080' WGPU_ADAPTER_NAME='RTX 5080' WGPU_BACKEND=vulkan \
 
 - 非默认 blend mode 与图层/背景滤镜；
 - 不对称端点描边、渐变及图片 brush、自定义 WGSL shader；
-- SVG 的渐变、pattern、图片、mask、filter、clip 和非默认 blend；
+- SVG 的 pattern、图片、mask、filter、clip 和非默认 blend；
 - 非默认 variable font 坐标、合成 italic/embolden、stroke glyph。
 
 当前尚不能完整回放 gallery。下一阶段应逐类补齐命令和像素检查，
@@ -120,16 +120,21 @@ Wayland/Intel GPU 已验证窗口初始化及呈现。其他平台尚未验证�
 ### 共享 Settings 应用
 
 ```sh
-cargo run -p plico-backend-settings --features skia
-cargo run -p plico-backend-settings --features vello
+cargo run -p backend-settings --features skia
+cargo run -p backend-settings --features vello
 python3 scripts/check-skia-settings.py
 python3 scripts/check-settings-parity.py
 ```
 
 三个页面直接复用同一 Settings 实现，包括 router、Details 动画、进度条、主题、
-Grid、滚动列表和文字输入。Lucide SVG 使用原 usvg 树转换为实色路径与描边；
+Grid、滚动列表和文字输入。Lucide 和所选 Fluent Color SVG 使用原 usvg 树转换为实色/渐变路径与描边；
 转换后的指令按 document 身份缓存，源文档释放后在后续帧清理。
 `check-settings-parity.py` 在同一 Xvfb 上把两个后端驱动到相同路由与主题状态，
 要求同状态跨后端 RMSE 低于不同状态基线的一半——用于发现较大的视觉偏差，不证明结构完全一致或光栅化像素相同。
 窗口烟测的共享机制位于 `scripts/plico_smoke.py`（Xvfb 生命周期、xdotool 输入与截图）。
 深浅主题、宽窄布局及动画中间帧有独立 Skia 回放测试；窗口脚本检查真实呈现和输入。
+
+
+SVG 线性/径向渐变已支持（含 stop opacity、局部 gradientTransform 与 spread），
+供 Fluent Color 图标使用；当前只实现 sRGB 插值，sweep、pattern 和其他插值空间
+仍返回明确错误。渐变同时用于 Skia CPU 和 Vulkan 回放。

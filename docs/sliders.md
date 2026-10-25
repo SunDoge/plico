@@ -36,7 +36,7 @@ Engine.queue_value 与 queue_value_path 收集有限标量，同一目标在一�
 Gallery → Motion 的 Exposure 控制实时 WGSL 的 uniform。scripts/check-modal-reload.py 在打开的 modal 内通过 headless SetValue 改变滑块，校验步进、应用状态、shader payload 和真实 cdylib 替换后的保留。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 cargo test -p plico-vello --test slider
 cargo test -p plico-core --test slider
 ```

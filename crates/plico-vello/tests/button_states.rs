@@ -144,7 +144,7 @@ fn focus_ring_fades_without_layout_and_cleans_up_on_blur() {
     clock.advance(Duration::from_millis(32)).unwrap();
     let nodes = source.build_frame(&mut text, 300, 200);
     let paint = &nodes.iter().find(|n| n.depth == 1).unwrap().paint;
-    assert_eq!(paint.outline_width, 2.);
+    assert_eq!(paint.outline_width, 1.5);
     let alpha = paint.outline_color.unwrap().to_rgba8().a;
     assert!(
         alpha > 0 && alpha < 255,

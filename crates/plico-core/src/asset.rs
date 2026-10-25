@@ -34,7 +34,7 @@ pub struct ImageAsset {
     owned: Vec<u8>,
 }
 impl ImageAsset {
-    /// Wrap embedded image bytes produced by [`image_asset!`].
+    /// Wrap embedded image bytes.
     pub const fn new(data: &'static [u8]) -> Self {
         Self {
             data: Some(data),
@@ -80,12 +80,4 @@ impl ImageAsset {
         }
         Some(out)
     }
-}
-/// Embed one image relative to the calling source file, using Rust's
-/// include_bytes!.
-#[macro_export]
-macro_rules! image_asset {
-    ($path:literal) => {
-        $crate::ImageAsset::new(include_bytes!($path))
-    };
 }

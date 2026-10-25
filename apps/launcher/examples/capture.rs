@@ -1,4 +1,4 @@
-use plico_launcher::Launcher;
+use launcher::Launcher;
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_vello::Source;
 use snafu::{ResultExt, Snafu};

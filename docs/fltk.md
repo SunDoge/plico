@@ -6,8 +6,8 @@ performing layout. It is not a complete replacement for the Vello backend.
 ## Run the same routed workspace with either backend
 
 ```sh
-cargo run -p plico-backend-settings --features fltk
-cargo run -p plico-backend-settings --features vello
+cargo run -p backend-settings --features fltk
+cargo run -p backend-settings --features vello
 ```
 
 `apps/backend-settings/src/lib.rs` contains the shared view and ordinary Rust
@@ -94,7 +94,7 @@ frames explicitly. Its frame timer is not tied to compositor VSync.
 
 ```sh
 xvfb-run -a python3 scripts/check-fltk.py
-cargo clippy -p plico-fltk -p plico-backend-settings --all-targets --all-features -- -D warnings
+cargo clippy -p plico-fltk -p backend-settings --all-targets --all-features -- -D warnings
 ```
 
 The native probe checks real button/input callbacks, TextBuffer round-trip,
@@ -114,8 +114,8 @@ native dependencies.
 For a coarse Linux comparison of the identical view:
 
 ```sh
-cargo build --release -p plico-backend-settings --features fltk --bins --example fltk_probe
-cargo build --release -p plico-backend-settings --features vello
+cargo build --release -p backend-settings --features fltk --bins --example fltk_probe
+cargo build --release -p backend-settings --features vello
 xvfb-run -a python3 scripts/compare-settings-backends.py
 ```
 
@@ -150,7 +150,7 @@ Settings 应用统一使用 `apps/backend-settings/src/main.rs`。单后端通�
 选择即可；同时启用多个后端时，默认依次选择 Vello、Skia、FLTK，也可显式指定：
 
 ```sh
-cargo run -p plico-backend-settings --features vello,skia -- --backend skia
+cargo run -p backend-settings --features vello,skia -- --backend skia
 ```
 
 未启用后端或选择未编译的后端会报错，不隐式构建其他后端。

@@ -1,7 +1,7 @@
 fn main() -> Result<(), plico_vello::DesktopError> {
     plico_vello::run_source_with_options(
         plico_vello::ZoomSource::new(Box::new(plico_vello::Source::new(plico_vello::NativeApp(
-            plico_gallery::Gallery::default(),
+            gallery::Gallery::default(),
         )))),
         plico_vello::WindowOptions::new()
             .title("Plico gallery")

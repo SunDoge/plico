@@ -4,7 +4,10 @@ use skia_safe::{Color4f, Font, FontHinting, FontMgr, Matrix, Paint, Path, PathBu
 use snafu::ResultExt;
 use vello_common::{
     kurbo::{Affine, PathEl, Shape},
-    peniko::{Brush, Color, Fill, Style},
+    peniko::{
+        Brush, Color, Extend, Fill, GradientKind, InterpolationAlphaSpace, Style,
+        color::{ColorSpaceTag, Srgb},
+    },
 };
 
 /// Reusable CPU raster surface. This does not create a window or GPU context.
@@ -109,10 +112,10 @@ impl SkiaSurface {
                     fill,
                     transform,
                     brush,
+                    brush_transform,
                     shape,
-                    ..
                 } => {
-                    let paint = paint(brush)?;
+                    let paint = paint(brush, *brush_transform)?;
                     let mut path = path(shape);
                     path.set_fill_type(match fill {
                         Fill::NonZero => skia_safe::PathFillType::Winding,
@@ -174,7 +177,7 @@ impl SkiaSurface {
                     } else {
                         FontHinting::None
                     });
-                    let mut paint = paint(brush)?;
+                    let mut paint = paint(brush, None)?;
                     paint.set_alpha_f(paint.alpha_f() * brush_alpha);
                     let ids: Vec<u16> = glyphs
                         .iter()
@@ -212,13 +215,13 @@ impl SkiaSurface {
                     style,
                     transform,
                     brush,
+                    brush_transform,
                     shape,
-                    ..
                 } => {
                     if style.start_cap != style.end_cap {
                         return unsupported("asymmetric stroke caps");
                     }
-                    let mut paint = paint(brush)?;
+                    let mut paint = paint(brush, *brush_transform)?;
                     paint.set_style(skia_safe::paint::Style::Stroke);
                     paint.set_stroke_width(style.width as f32);
                     paint.set_stroke_miter(style.miter_limit as f32);
@@ -324,14 +327,66 @@ fn color(color: Color) -> Color4f {
     let [r, g, b, a] = color.components;
     Color4f::new(r, g, b, a)
 }
-fn paint(brush: &Brush) -> Result<Paint, Error> {
-    let Brush::Solid(value) = brush else {
-        return unsupported("gradient/image brush");
-    };
-    let mut paint = Paint::new(color(*value), None);
+fn paint(brush: &Brush, transform: Option<Affine>) -> Result<Paint, Error> {
+    let mut paint = Paint::default();
     paint.set_anti_alias(true);
+    match brush {
+        Brush::Solid(value) => {
+            paint.set_color4f(color(*value), None);
+        }
+        Brush::Gradient(value) => {
+            use skia_safe::gradient::{self, interpolation, shaders};
+            if value.interpolation_cs != ColorSpaceTag::Srgb {
+                return unsupported("gradient interpolation color space");
+            }
+            let colors: Vec<Color4f> = value
+                .stops
+                .iter()
+                .map(|stop| color(stop.color.to_alpha_color::<Srgb>()))
+                .collect();
+            let positions: Vec<f32> = value.stops.iter().map(|stop| stop.offset).collect();
+            let tile = match value.extend {
+                Extend::Pad => skia_safe::TileMode::Clamp,
+                Extend::Repeat => skia_safe::TileMode::Repeat,
+                Extend::Reflect => skia_safe::TileMode::Mirror,
+            };
+            let gradient = gradient::Gradient::new(
+                gradient::Colors::new(&colors, Some(&positions), tile, None),
+                gradient::Interpolation {
+                    in_premul: match value.interpolation_alpha_space {
+                        InterpolationAlphaSpace::Premultiplied => interpolation::InPremul::Yes,
+                        InterpolationAlphaSpace::Unpremultiplied => interpolation::InPremul::No,
+                    },
+                    color_space: interpolation::ColorSpace::SRGB,
+                    ..Default::default()
+                },
+            );
+            let matrix = matrix(transform.unwrap_or(Affine::IDENTITY));
+            let point = |p: vello_common::kurbo::Point| Point::new(p.x as f32, p.y as f32);
+            let shader = match value.kind {
+                GradientKind::Linear(g) => shaders::linear_gradient(
+                    (point(g.start), point(g.end)),
+                    &gradient,
+                    Some(&matrix),
+                ),
+                GradientKind::Radial(g) => shaders::two_point_conical_gradient(
+                    (point(g.start_center), g.start_radius),
+                    (point(g.end_center), g.end_radius),
+                    &gradient,
+                    Some(&matrix),
+                ),
+                GradientKind::Sweep(_) => return unsupported("sweep gradient"),
+            }
+            .ok_or(Error::Unsupported {
+                command: "invalid gradient",
+            })?;
+            paint.set_shader(shader);
+        }
+        Brush::Image(_) => return unsupported("image brush"),
+    }
     Ok(paint)
 }
+
 fn matrix(transform: Affine) -> Matrix {
     let [a, b, c, d, e, f] = transform.as_coeffs();
     Matrix::new_all(

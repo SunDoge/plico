@@ -8,12 +8,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = {
     "core": ["plico-cli", "plico-dev", "plico-core", "plico-macros", "plico-editor",
-             "plico-motion", "plico-markdown", "plico-native", "plico-terminal-widget", "plico-web-demo"],
+             "plico-motion", "plico-markdown", "plico-native", "plico-terminal", "web-demo"],
     "rendering": ["plico-renderer", "plico-shell", "plico-runtime", "plico-vello"],
-    "apps": ["plico-gallery", "plico-web-host", "plico-launcher", "plico-services-demo", "plico-terminal"],
+    "apps": ["gallery", "plico-web-host", "launcher", "services-demo", "terminal"],
 }
 # These packages have dedicated backend jobs, or require physical ESP hardware.
-SEPARATE = {"plico-fltk", "plico-lvgl", "plico-lvgl-esp32p4", "plico-skia", "plico-backend-settings"}
+SEPARATE = {"plico-fltk", "plico-lvgl", "lvgl-esp32p4", "plico-skia", "backend-settings"}
 FEATURES = {
     "core": ["--all-features"],
     # Skia is tested in its own job; do not pull its native build into every shard.

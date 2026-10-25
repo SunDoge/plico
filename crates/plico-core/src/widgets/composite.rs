@@ -141,6 +141,33 @@ pub fn nav_item(
         .response
 }
 
+/// Render one sidebar entry per route, in declaration order. Each entry is
+/// keyed by the route's stable ID, shows its label and optional icon, and
+/// navigates on click; the current route renders selected. Routes enumerate
+/// themselves via `#[derive(Route)]`'s `ALL`, so adding a variant updates the
+/// menu, the IDs and the labels in one place.
+///
+/// ```ignore
+/// #[derive(Clone, Copy, Route)]
+/// enum Page { Workspace, Settings }
+/// nav_menu(ui, &mut self.router);
+/// ```
+#[component]
+pub fn nav_menu<Route: crate::Route + Copy + Eq>(
+    cx: &mut UiContext,
+    router: &mut crate::Router<Route>,
+) {
+    let routes = router.targets();
+    for &route in routes {
+        cx.keyed(route.id(), |cx| {
+            if nav_item(cx, route.label(), router.show(route), route.icon()).clicked() {
+                router.go(route);
+                cx.request_rebuild();
+            }
+        });
+    }
+}
+
 /// A horizontal divider that stretches to the available width.
 #[component]
 pub fn separator(cx: &mut UiContext) {

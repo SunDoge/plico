@@ -39,7 +39,7 @@ Engine；未把模块实例跨调用保留，也未改变现有 ABI 或动态库
 ```sh
 cargo run --release -p plico-vello --example performance
 cargo test -p plico-vello --test structural_sync
-cargo test -p plico-services-demo --test native_services
+cargo test -p services-demo --test native_services
 ```
 
 探针使用实际 render_retained_frame 路径，包含声明、后端同步和 CPU 场景编码；

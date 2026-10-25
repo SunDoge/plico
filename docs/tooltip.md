@@ -46,9 +46,9 @@ fn toolbar(cx: &mut UiContext) {
 参考本机 MyGO ui/tooltip.go 的 600ms/400ms、键盘焦点、最内层提示、激活抑制与指针穿透；Wabou ui/src/components/tooltip.tsx 的非交互层、描述关系和焦点不恢复规则。没有复制其中的 Go engine 或 Solid signal/timer 实现。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 # Controls：悬停或 Tab 聚焦 Increment / Reset
-cargo run -p plico-gallery --example capture -- --page controls --tooltip --out /tmp/tooltip.png
+cargo run -p gallery --example capture -- --page controls --tooltip --out /tmp/tooltip.png
 cargo test -p plico-vello --test tooltip
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py

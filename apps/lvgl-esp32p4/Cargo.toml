@@ -1,5 +1,5 @@
 [package]
-name = "plico-lvgl-esp32p4"
+name = "lvgl-esp32p4"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

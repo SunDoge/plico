@@ -1,5 +1,5 @@
 //! Gallery verification tool; the application itself does not parse arguments.
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_vello::Source;
 use snafu::{ResultExt, Snafu};
@@ -79,10 +79,11 @@ fn run() -> Result<(), Error> {
         "2048" => Page::Game2048,
         "markdown" => Page::Markdown,
         "glass" => Page::Glass,
+        "calendar" => Page::Calendar,
         _ => {
             return Err(Error::Input {
                 message:
-                    "page must be workspace, layout, controls, motion, lists, 2048, markdown or glass"
+                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass or calendar"
                         .into(),
             });
         }
@@ -105,7 +106,7 @@ fn run() -> Result<(), Error> {
         app.markdown_chat.follow = false;
     }
     if options.game_sample {
-        app.game2048 = plico_gallery::game2048::Game::from_cells([
+        app.game2048 = gallery::game2048::Game::from_cells([
             [2, 2, 4, 8],
             [4, 8, 16, 32],
             [8, 16, 64, 128],
@@ -115,8 +116,7 @@ fn run() -> Result<(), Error> {
         app.game2048.best = 8192;
     }
     if options.game_move {
-        app.game2048
-            .move_dir(plico_gallery::game2048::Direction::Left);
+        app.game2048.move_dir(gallery::game2048::Direction::Left);
     }
     if options.empty {
         for project in &mut app.workspace.projects {
@@ -130,7 +130,7 @@ fn run() -> Result<(), Error> {
     if options.modal {
         app.dialog.open();
     }
-    if options.popover {
+    if options.popover && page != Page::Calendar {
         app.quick_settings.open();
     }
     if options.select {
@@ -147,6 +147,18 @@ fn run() -> Result<(), Error> {
     let mut source = Source::with_clock(app, clock.clone());
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, options.width, options.height);
+    if options.popover && page == Page::Calendar {
+        let target = source
+            .adapter
+            .semantics(&source.engine, 0)
+            .node_by_role(plico_renderer::SemanticRole::Button, "Pick a date", None)
+            .ok_or_else(|| Error::Input {
+                message: "calendar picker trigger missing".into(),
+            })?
+            .id;
+        source.handle_semantic_action(plico_renderer::SemanticAction::Click { target });
+        source.build_frame(&mut tcx, options.width, options.height);
+    }
     if options.tooltip {
         let tree = source.adapter.semantics(&source.engine, 0);
         let target = tree

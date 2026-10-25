@@ -77,7 +77,7 @@ def main():
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     source = Path(os.environ.get("PLICO_P4_RUST_SOURCE", ROOT / "apps/lvgl-esp32p4/src/lib.rs")).resolve()
     manifest = f'''[package]
-name = "plico-lvgl-esp32p4"
+name = "lvgl-esp32p4"
 version = "{version}"
 edition = "2024"
 [workspace]
@@ -115,7 +115,7 @@ codegen-units = 1
     if (STAGE / "Cargo.lock").exists():
         command.append("--locked")
     run(command, cwd=STAGE, env=env)
-    print(STAGE / "build/riscv32imafc-esp-espidf/release/libplico_lvgl_esp32p4.a")
+    print(STAGE / "build/riscv32imafc-esp-espidf/release/liblvgl_esp32p4.a")
 
 
 if __name__ == "__main__":
