@@ -37,7 +37,7 @@ vello-gpu = { package = "vello_gpu", version = "0.3.0", default-features = false
 plico-motion = { path = "crates/plico-motion" }
 wgpu = "30"
 wgpu-context = { package = "wgpu_context", version = "0.10.0" }
-winit = "=0.31.0-beta.2"
+winit = "=0.31.0-beta.3"
 
 plico-core = { path = "crates/plico-core" }
 plico-renderer = { path = "crates/plico-renderer" }

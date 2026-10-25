@@ -15,7 +15,7 @@ external = ["dep:lightvgl-sys"]
 [dependencies]
 plico-core.workspace = true
 snafu.workspace = true
-lightvgl-sys = { version = "=9.5.4", optional = true }
+lightvgl-sys = { version = "=9.5.5", optional = true }
 png = "0.17"
 
 [dev-dependencies]
