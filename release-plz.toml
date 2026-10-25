@@ -32,6 +32,7 @@ changelog_include = [
     "plico-motion",
     "plico-native",
     "plico-renderer",
+    "plico-runtime",
     "plico-services-demo",
     "plico-shell",
     "plico-skia",
