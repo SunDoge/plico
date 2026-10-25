@@ -15,6 +15,7 @@ name = "plico-cli"
 # One repository tag and GitHub Release, rather than one for every crate and demo.
 git_tag_enable = true
 git_release_enable = true
+git_release_name = "Plico v{{ version }}"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
