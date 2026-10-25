@@ -174,3 +174,20 @@ Service handles and sensitive application data do not need to enter the App
 reload protocol. Disable the backend's default `hot-reload` feature for a static
 client to avoid compiling the dynamic loader and file watcher. Existing App
 launch helpers and the CLI reload host remain available.
+
+### Generic font families
+
+Text, control and layout builders expose `.font_family(FontFamily::Monospace)`
+(and `SansSerif`, `Serif`, `Default`). Layout and button content inherit the
+family; `Default` resolves to the configured window family. The Vello runtime
+uses the selected family for both text measurement and painting, and keeps
+unchanged per-node font choices in its retained paint cache.
+
+```rust
+use plico_core::prelude::*;
+fn code(cx: &mut UiContext) {
+    column(cx).font_family(FontFamily::Monospace).children(|cx| {
+        text(cx, "let value = 42;");
+    });
+}
+```

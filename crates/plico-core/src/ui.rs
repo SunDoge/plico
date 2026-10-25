@@ -144,6 +144,7 @@ impl<'e> UiContext<'e> {
         Style {
             font_size: self.inherited.font_size,
             font_weight: self.inherited.font_weight,
+            font_family: self.inherited.font_family,
             foreground: self.inherited.foreground,
             disabled: self.inherited.disabled,
             ..Default::default()
@@ -663,6 +664,12 @@ impl Layout<'_, '_> {
     #[inline(always)]
     pub fn gap(mut self, value: impl Into<crate::Length>) -> Self {
         self.style.set_spacing("gap", value.into());
+        self
+    }
+    #[inline(always)]
+    /// Inherit this generic family in descendant text and controls.
+    pub fn font_family(mut self, family: crate::FontFamily) -> Self {
+        self.style.font_family = family;
         self
     }
     #[inline(always)]
@@ -1204,6 +1211,12 @@ macro_rules! common {
             #[inline(always)]
             pub fn font_size(mut self, px: u16) -> Self {
                 self.inner.style.font_size = px;
+                self
+            }
+            /// Select a portable generic font family for this control or text.
+            #[inline(always)]
+            pub fn font_family(mut self, family: crate::FontFamily) -> Self {
+                self.inner.style.font_family = family;
                 self
             }
             #[inline(always)]

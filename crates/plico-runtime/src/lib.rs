@@ -1055,6 +1055,7 @@ impl Adapter {
             focus_progress,
         };
         let visual_style = key.style;
+        let font_family = resolve_font_family(visual_style.font_family, &self.font_family);
         if !self.nodes.contains_key(&e) {
             let id = self
                 .tree
@@ -1086,7 +1087,7 @@ impl Adapter {
                 self.nodes[&e].text.clone(),
                 engine.theme(),
                 (key.hovered, key.pressed, key.focused, key.checked_progress),
-                self.font_family.clone(),
+                font_family.clone(),
             );
             apply_button_focus(
                 &mut paint,
@@ -1148,7 +1149,7 @@ impl Adapter {
                 .unwrap()
                 .font_family
                 .as_deref()
-                != Some(self.font_family.as_ref());
+                != Some(font_family.as_ref());
         if paint_needed {
             if retained.text.as_ref() != n.text {
                 retained.text = Arc::from(n.text);
@@ -1159,7 +1160,7 @@ impl Adapter {
                 retained.text.clone(),
                 engine.theme(),
                 (key.hovered, key.pressed, key.focused, key.checked_progress),
-                self.font_family.clone(),
+                font_family.clone(),
             );
             apply_button_focus(
                 &mut paint,
@@ -1782,6 +1783,20 @@ impl Adapter {
 fn semantic_id(e: Entity) -> u64 {
     e.raw()
 }
+fn resolve_font_family(family: plico_core::FontFamily, default: &Arc<str>) -> Arc<str> {
+    use plico_core::FontFamily;
+    use std::sync::LazyLock;
+    static MONO: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("monospace"));
+    static SANS: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("sans-serif"));
+    static SERIF: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("serif"));
+    match family {
+        FontFamily::Default => default.clone(),
+        FontFamily::Monospace => MONO.clone(),
+        FontFamily::SansSerif => SANS.clone(),
+        FontFamily::Serif => SERIF.clone(),
+    }
+}
+
 fn rich_runs(
     spans: &[plico_core::TextSpan],
     style: plico_core::Style,
