@@ -23,7 +23,7 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 - plico icons add/check：应用拥有选择集合、生成 Rust、清单和许可证，核心仅内置四个控件图标。
 - launcher、terminal、services-demo；编辑器和 WASM 入口保留。
 
-- [Skia / Vello 对照实验](skia.md)：同一 Scene 和 Parley glyph 的 CPU Skia 回放、四档缩放截图；不是完整窗口后端。
+- [Skia / Vello 对照实验](skia.md)：同一 Scene 和 Parley glyph 的 CPU / Vulkan Skia 回放、四档缩放截图；不是完整窗口后端。
 
 ## 当前代价和限制
 

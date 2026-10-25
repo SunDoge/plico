@@ -9,7 +9,7 @@ use vello_common::{
 
 /// Reusable CPU raster surface. This does not create a window or GPU context.
 pub struct SkiaSurface {
-    surface: skia_safe::Surface,
+    pub(crate) surface: skia_safe::Surface,
     fonts: std::collections::HashMap<(u64, u32), skia_safe::Typeface>,
     font_manager: FontMgr,
     frame_valid: bool,
@@ -23,23 +23,42 @@ impl SkiaSurface {
         }
         let surface = skia_safe::surfaces::raster_n32_premul((width as i32, height as i32))
             .ok_or(Error::Surface)?;
-        Ok(Self {
+        Ok(Self::from_surface(surface))
+    }
+
+    pub(crate) fn from_surface(surface: skia_safe::Surface) -> Self {
+        Self {
             surface,
             fonts: Default::default(),
             font_manager: FontMgr::new(),
             frame_valid: false,
-        })
+        }
     }
 
     /// Replace the previous frame and return tightly packed, premultiplied RGBA.
     /// An error never returns partial frame pixels. The next call resets the surface.
     pub fn render_scene(&mut self, scene: &Scene, background: Color) -> Result<Vec<u8>, Error> {
+        self.draw_scene(scene, background)?;
+        self.read_pixels()
+    }
+
+    /// Record drawing without allocating or reading back a pixel buffer.
+    pub fn draw_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
         self.frame_valid = false;
         self.surface.canvas().restore_to_count(1);
         self.surface.canvas().clear(color(background));
         let result = self.replay(scene);
         self.surface.canvas().restore_to_count(1);
         result?;
+        self.frame_valid = true;
+        Ok(())
+    }
+
+    /// Read the successful frame as premultiplied RGBA.
+    pub fn read_pixels(&mut self) -> Result<Vec<u8>, Error> {
+        if !self.frame_valid {
+            return Err(Error::NoFrame);
+        }
         let info = skia_safe::ImageInfo::new(
             (self.surface.width(), self.surface.height()),
             skia_safe::ColorType::RGBA8888,
@@ -51,10 +70,16 @@ impl SkiaSurface {
             .surface
             .read_pixels(&info, &mut bytes, info.min_row_bytes(), (0, 0))
         {
+            self.frame_valid = false;
             return Err(Error::ReadPixels);
         }
         self.frame_valid = true;
         Ok(bytes)
+    }
+
+    #[cfg(feature = "vulkan")]
+    pub(crate) fn invalidate(&mut self) {
+        self.frame_valid = false;
     }
 
     /// Save the most recently rendered frame as PNG.

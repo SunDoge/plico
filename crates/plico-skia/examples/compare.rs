@@ -52,6 +52,20 @@ fn main() -> Result<(), Error> {
         eprintln!("No CJK font: set PLICO_PROBE_CJK_FONT to include Chinese samples");
     }
     let background = Color::from_rgb8(247, 248, 250);
+    #[cfg(feature = "vulkan")]
+    let mut gpu = {
+        let gpu = match std::env::var("PLICO_SKIA_DEVICE") {
+            Ok(name) => plico_skia::SkiaGpuSurface::with_device(900, 560, &name),
+            Err(_) => plico_skia::SkiaGpuSurface::new(900, 560),
+        }
+        .context(SkiaSnafu)?;
+        println!(
+            "Skia Vulkan device: {} (software: {})",
+            gpu.device_name(),
+            gpu.is_software_device()
+        );
+        gpu
+    };
     for scale in [1., 1.25, 1.5, 2.] {
         let (width, height) = ((900. * scale) as u32, (560. * scale) as u32);
         let mut scene = Scene::new();
@@ -155,6 +169,33 @@ fn main() -> Result<(), Error> {
         image::imageops::overlay(&mut pair, &vello, width as i64, 0);
         pair.save(output.join(format!("compare-{scale}.png")))
             .context(ImageSnafu)?;
+        #[cfg(feature = "vulkan")]
+        {
+            gpu.resize(width, height).context(SkiaSnafu)?;
+            // Normal drawing only submits GPU work. Screenshot export is the
+            // explicit synchronization/readback boundary.
+            gpu.draw_scene(&scene, background).context(SkiaSnafu)?;
+            let gpu_path = output.join(format!("skia-gpu-{scale}.png"));
+            gpu.write_png(&gpu_path).context(SkiaSnafu)?;
+            let pixels = image::open(gpu_path).context(ImageSnafu)?.to_rgba8();
+            let cpu_gpu_changed = skia
+                .pixels()
+                .zip(pixels.pixels())
+                .filter(|(a, b)| a != b)
+                .count();
+            let gpu_vello_changed = pixels
+                .pixels()
+                .zip(vello.pixels())
+                .filter(|(a, b)| a != b)
+                .count();
+            println!(
+                "{scale}x pixel differences (not quality scores): CPU/GPU Skia {cpu_gpu_changed}; GPU Skia/Vello {gpu_vello_changed}; total {}",
+                width as u64 * height as u64
+            );
+            image::imageops::overlay(&mut pair, &pixels, 0, 0);
+            pair.save(output.join(format!("compare-gpu-{scale}.png")))
+                .context(ImageSnafu)?;
+        }
         println!(
             "{scale}x: {} commands, {}x{}; left Skia CPU, right Vello GPU; font {font_path}",
             scene.commands.len(),

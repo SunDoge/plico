@@ -3565,6 +3565,7 @@ dependencies = [
 name = "plico-skia"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "image",
  "plico-renderer",
  "plico-shell",

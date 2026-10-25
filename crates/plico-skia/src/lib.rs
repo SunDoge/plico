@@ -1,6 +1,7 @@
-//! Experimental Skia CPU consumer for Plico's retained paint commands.
+//! Experimental Skia CPU and Vulkan consumers for Plico's retained paint commands.
 //!
-//! Enable `raster` to replay a scene. Layout and shaping remain in Plico;
+//! Enable `raster` for CPU drawing or `vulkan` for Ganesh GPU render targets.
+//! Layout and shaping remain in Plico;
 //! unsupported commands return errors rather than producing incomplete images.
 
 /// Failure to replay or export a scene.
@@ -26,9 +27,27 @@ pub enum Error {
     Encode,
     #[snafu(display("PNG write failed: {source}"))]
     Write { source: std::io::Error },
+    #[cfg(feature = "vulkan")]
+    #[snafu(display("Vulkan loader unavailable: {source}"))]
+    VulkanLoader { source: ash::LoadingError },
+    #[cfg(feature = "vulkan")]
+    #[snafu(display("Vulkan {operation} failed: {source}"))]
+    Vulkan {
+        operation: &'static str,
+        source: ash::vk::Result,
+    },
+    #[snafu(display("GPU initialization failed: {message}"))]
+    Gpu { message: &'static str },
+    #[snafu(display("Skia GPU submission failed"))]
+    Submit,
 }
 
 #[cfg(feature = "raster")]
 mod raster;
 #[cfg(feature = "raster")]
 pub use raster::SkiaSurface;
+
+#[cfg(feature = "vulkan")]
+mod vulkan;
+#[cfg(feature = "vulkan")]
+pub use vulkan::SkiaGpuSurface;

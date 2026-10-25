@@ -4,18 +4,21 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Skia rasterizing backend for the Plico command stream"
+description = "Skia CPU and Vulkan consumers for the Plico command stream"
 
 [features]
 default = []
 # Consumes the backend-neutral command stream with Skia raster surfaces.
 raster = ["dep:skia-safe", "dep:plico-renderer", "dep:vello-common"]
+# Ganesh Vulkan render targets; never falls back to CPU raster.
+vulkan = ["raster", "skia-safe/vulkan", "skia-safe/ganesh", "dep:ash"]
 
 [dependencies]
 plico-renderer = { path = "../plico-renderer", optional = true }
 skia-safe = { version = "0.153", optional = true }
 vello-common = { workspace = true, optional = true }
 snafu.workspace = true
+ash = { version = "0.38", optional = true }
 
 [dev-dependencies]
 plico-shell.workspace = true
