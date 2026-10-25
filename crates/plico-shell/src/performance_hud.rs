@@ -23,7 +23,7 @@ pub(crate) struct PerformanceHud {
 
 impl PerformanceHud {
     pub(crate) fn from_environment() -> Self {
-        Self::new(std::env::var("WABOU_PERFORMANCE_HUD").is_ok_and(|value| parse_enabled(&value)))
+        Self::new(std::env::var("PLICO_PERFORMANCE_HUD").is_ok_and(|value| parse_enabled(&value)))
     }
 
     fn new(enabled: bool) -> Self {

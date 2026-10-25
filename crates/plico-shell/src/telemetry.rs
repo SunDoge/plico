@@ -296,11 +296,11 @@ impl Drop for Span<'_> {
     }
 }
 static GLOBAL: OnceLock<Recorder> = OnceLock::new();
-/// Process-wide recorder configured by WABOU_PROFILE.
+/// Process-wide recorder configured by PLICO_PROFILE.
 pub fn global() -> &'static Recorder {
     GLOBAL.get_or_init(|| {
         let r = Recorder::new();
-        let mode = match std::env::var("WABOU_PROFILE").as_deref() {
+        let mode = match std::env::var("PLICO_PROFILE").as_deref() {
             Ok("trace") => Mode::Trace,
             Ok("counters") => Mode::Counters,
             _ => Mode::Off,
@@ -415,7 +415,7 @@ pub struct TracingGuard {
 pub struct ExportOnDrop;
 impl Drop for ExportOnDrop {
     fn drop(&mut self) {
-        if let Some(path) = std::env::var_os("WABOU_TRACE_FILE") {
+        if let Some(path) = std::env::var_os("PLICO_TELEMETRY_FILE") {
             let result = serde_json::to_vec(&global().snapshot())
                 .map_err(|e| e.to_string())
                 .and_then(|bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()));

@@ -58,7 +58,7 @@ impl AppDirectories {
     ///
     /// This function only computes paths; it does not create directories.
     pub fn resolve(config: &AppDirectoryConfig, resource: impl AsRef<Path>) -> Option<Self> {
-        if let Some(root) = std::env::var_os("WABOU_TEST_APP_DATA_ROOT").map(PathBuf::from) {
+        if let Some(root) = std::env::var_os("PLICO_TEST_APP_DATA_ROOT").map(PathBuf::from) {
             return root.is_absolute().then(|| Self::isolated(root, resource));
         }
         let project =
