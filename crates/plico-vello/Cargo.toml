@@ -13,27 +13,21 @@ plico-dev.workspace = true
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
 snafu.workspace = true
-notify = { workspace = true, optional = true }
 
 [dev-dependencies]
 vello-common.workspace = true
-taffy.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
 plico-gallery = { path = "../../apps/gallery" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 plico-shell.workspace = true
-tracing.workspace = true
 usage-rs = { workspace = true, optional = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-plico-motion.workspace = true
 
 [features]
 skia = ["plico-shell/skia"]
 default = ["hot-reload"]
-hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:notify", "dep:usage-rs"]
+hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:usage-rs"]
 profiling = [
     "plico-runtime/profiling",
     "plico-renderer/profiling",

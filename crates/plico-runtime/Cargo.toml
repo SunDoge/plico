@@ -23,8 +23,6 @@ notify = { workspace = true, optional = true }
 
 [dev-dependencies]
 plico-gallery = { path = "../../apps/gallery" }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-image = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 plico-shell.workspace = true

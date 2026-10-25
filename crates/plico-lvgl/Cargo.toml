@@ -24,11 +24,12 @@ usage-rs.workspace = true
 [build-dependencies]
 cc = "1"
 pkg-config = "0.3"
+toml = "1"
 
-# cc/pkg-config compile src/sdl_close.c and probe SDL2 in build.rs, which
+# cc/pkg-config compile native code; toml reads the exact source version in build.rs, which
 # cargo-machete does not scan.
 [package.metadata.cargo-machete]
-ignored = ["cc", "pkg-config"]
+ignored = ["cc", "pkg-config", "toml"]
 
 [[example]]
 name = "counter"

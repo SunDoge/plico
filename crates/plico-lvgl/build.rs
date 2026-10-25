@@ -16,7 +16,7 @@ fn main() {
     build.compile("plico_sdl_close");
 }
 
-// lightvgl-sys 9.5.4 compiles .c sources only, omitting its bundled ThorVG
+// lightvgl-sys compiles .c sources only, omitting its bundled ThorVG
 // .cpp files. Compile those same sources for the native preview, with the same
 // lv_conf.h. ESP-IDF builds ThorVG itself and does not enter this path.
 fn build_thorvg() {
@@ -38,6 +38,16 @@ fn build_thorvg() {
     if !enabled {
         return;
     }
+    let manifest: toml::Table = std::fs::read_to_string("Cargo.toml")
+        .expect("read plico-lvgl manifest")
+        .parse()
+        .expect("parse plico-lvgl manifest");
+    let pinned = manifest["dependencies"]["lightvgl-sys"]["version"]
+        .as_str()
+        .expect("lightvgl-sys version");
+    let version = pinned
+        .strip_prefix('=')
+        .expect("native LVGL requires an exact lightvgl-sys pin");
     let source = std::env::var_os("PLICO_LVGL_SOURCE")
         .map(PathBuf::from)
         .or_else(|| {
@@ -47,10 +57,16 @@ fn build_thorvg() {
             std::fs::read_dir(home.join("registry/src"))
                 .ok()?
                 .filter_map(Result::ok)
-                .map(|entry| entry.path().join("lightvgl-sys-9.5.4/vendor/lvgl"))
+                .map(|entry| {
+                    entry
+                        .path()
+                        .join(format!("lightvgl-sys-{version}/vendor/lvgl"))
+                })
                 .find(|path| path.join("src/libs/thorvg/tvgCapi.cpp").exists())
         })
-        .expect("Set PLICO_LVGL_SOURCE to lightvgl-sys 9.5.4's vendor/lvgl directory");
+        .unwrap_or_else(|| {
+            panic!("Set PLICO_LVGL_SOURCE to lightvgl-sys {version}'s vendor/lvgl directory")
+        });
     let thorvg = source.join("src/libs/thorvg");
     let mut build = cc::Build::new();
     build

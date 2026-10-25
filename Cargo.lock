@@ -3531,6 +3531,7 @@ dependencies = [
  "plico-core",
  "png 0.17.16",
  "snafu",
+ "toml 1.1.8+spec-1.1.0",
  "usage-rs",
 ]
 
@@ -3619,7 +3620,6 @@ dependencies = [
 name = "plico-runtime"
 version = "0.1.0"
 dependencies = [
- "image",
  "notify",
  "parley",
  "plico-core",
@@ -3633,7 +3633,6 @@ dependencies = [
  "snafu",
  "taffy",
  "tracing",
- "tracing-subscriber",
  "vello_common",
  "web-time",
  "zeroize",
@@ -3746,19 +3745,15 @@ name = "plico-vello"
 version = "0.1.0"
 dependencies = [
  "image",
- "notify",
  "plico-core",
  "plico-dev",
  "plico-gallery",
- "plico-motion",
  "plico-renderer",
  "plico-runtime",
  "plico-shell",
  "serde",
  "serde_json",
  "snafu",
- "taffy",
- "tracing",
  "tracing-subscriber",
  "usage-rs",
  "vello_common",
