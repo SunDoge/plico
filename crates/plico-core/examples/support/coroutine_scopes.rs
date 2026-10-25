@@ -5,6 +5,12 @@ use plico_core::{Arena, Entity};
 #[path = "coroutine_composite.rs"]
 mod composite;
 
+#[path = "coroutine_comparison.rs"]
+mod comparison;
+pub(super) fn compare() {
+    comparison::run();
+}
+
 pub(super) fn benchmark() {
     composite::benchmark();
 }

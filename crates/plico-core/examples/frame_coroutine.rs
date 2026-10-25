@@ -316,6 +316,10 @@ async fn workflow(ui: AsyncUi, completion: Completion) {
 }
 
 fn main() {
+    if std::env::var_os("PLICO_COROUTINE_COMPARE").is_some() {
+        scopes::compare();
+        return;
+    }
     if std::env::var_os("PLICO_COROUTINE_BENCH").is_some() {
         scopes::benchmark();
         return;
