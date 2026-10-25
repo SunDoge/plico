@@ -543,3 +543,13 @@ pub fn invalidate_channels(input: TokenStream) -> TokenStream {
 
 mod invalidates;
 mod kind;
+
+/// Generate ALL, id, label, optional SVG icon and from_id for a fieldless route enum.
+/// Variant metadata: #[route(id = "home", label = "Home", icon = icons::HOME)].
+#[proc_macro_derive(Route, attributes(route))]
+pub fn route(input: TokenStream) -> TokenStream {
+    route::expand(parse_macro_input!(input as syn::DeriveInput))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+mod route;

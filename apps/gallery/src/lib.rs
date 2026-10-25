@@ -19,16 +19,34 @@ static AURORA: plico_core::ShaderAsset = plico_core::shader_asset!("../assets/sh
 
 static LOGO: plico_core::SvgAsset = plico_core::svg_asset!("../assets/plico.svg");
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Default,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    plico_core::Route,
+)]
 pub enum Page {
     #[default]
+    #[route(label = "Workspace", icon = color_icons::APPS)]
     Workspace,
+    #[route(label = "Layout", icon = color_icons::HOME)]
     Layout,
+    #[route(label = "Controls", icon = color_icons::SETTINGS)]
     Controls,
+    #[route(label = "Motion", icon = color_icons::DESIGN_IDEAS)]
     Motion,
+    #[route(label = "Lists", icon = color_icons::TEXT_BULLET_LIST_SQUARE)]
     Lists,
+    #[route(label = "2048", icon = color_icons::PUZZLE_PIECE)]
     Game2048,
+    #[route(label = "Markdown chat", icon = color_icons::CHAT)]
     Markdown,
+    #[route(label = "Glass", icon = color_icons::IMAGE)]
     Glass,
 }
 
@@ -101,14 +119,9 @@ impl App for Gallery {
                 };
                 text(ui, "INTERFACE LAB").font_size(10).weight(600).color(Color::Muted);
                 column(ui).gap(6).padding(0) + |ui| {
-                    self.nav(ui, Page::Workspace, "Workspace");
-                    self.nav(ui, Page::Layout, "Layout");
-                    self.nav(ui, Page::Controls, "Controls");
-                    self.nav(ui, Page::Motion, "Motion");
-                    self.nav(ui, Page::Lists, "Lists");
-                    self.nav(ui, Page::Game2048, "2048");
-                    self.nav(ui, Page::Markdown, "Markdown chat");
-                    self.nav(ui, Page::Glass, "Glass");
+                    for &page in Page::ALL {
+                        ui.keyed(page.id(), |ui| self.nav(ui, page));
+                    }
                 };
                 column(ui).grow(1.).children(|_ui| {});
                 checkbox(ui, "Compact", &mut self.compact);
@@ -138,21 +151,12 @@ impl App for Gallery {
 
 impl Gallery {
     #[component]
-    fn nav(&mut self, ui: &mut UiContext, page: Page, label: &'static str) {
-        let image = match page {
-            Page::Workspace => &color_icons::APPS,
-            Page::Layout => &color_icons::HOME,
-            Page::Controls => &color_icons::SETTINGS,
-            Page::Motion => &color_icons::DESIGN_IDEAS,
-            Page::Lists => &color_icons::TEXT_BULLET_LIST_SQUARE,
-            Page::Game2048 => &color_icons::PUZZLE_PIECE,
-            Page::Markdown => &color_icons::CHAT,
-            Page::Glass => &color_icons::IMAGE,
-        };
-        if nav_item(ui, label, self.router.show(page), Some(image)).clicked() {
+    fn nav(&mut self, ui: &mut UiContext, page: Page) {
+        if nav_item(ui, page.label(), self.router.show(page), page.icon()).clicked() {
             self.router.go(page);
         }
     }
+
     #[component]
     #[rustfmt::skip]
     fn lists_page(&mut self, ui: &mut UiContext) {

@@ -37,7 +37,7 @@ pub use model::{
     Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style, StyleDiff,
     StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
-pub use plico_macros::{InvalidateChannels, KindClass, component, text, view};
+pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text, view};
 pub use router::{DEFAULT_HISTORY_LIMIT, Router};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
@@ -143,8 +143,8 @@ pub mod prelude {
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
         GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
         InputResponse, Justify, Length, Metrics, ModalState, Motion, PopoverState, Position,
-        Response, Router, SelectOption, SelectResponse, ShaderAsset, SliderResponse, SvgAsset,
-        TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
+        Response, Route, Router, SelectOption, SelectResponse, ShaderAsset, SliderResponse,
+        SvgAsset, TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
         VirtualListResponse, Widget, component, fr, minmax, percent, px, text, view,
     };
 }
