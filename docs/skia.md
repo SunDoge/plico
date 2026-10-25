@@ -87,7 +87,8 @@ PLICO_SKIA_DEVICE='RTX 5080' WGPU_ADAPTER_NAME='RTX 5080' WGPU_BACKEND=vulkan \
 以下情况返回 Unsupported，不静默忽略或近似替换：
 
 - 非默认 blend mode、滤镜、模糊和阴影；
-- 不对称端点描边、渐变及图片 brush、SVG、自定义 WGSL shader；
+- 不对称端点描边、渐变及图片 brush、自定义 WGSL shader；
+- SVG 的渐变、pattern、图片、mask、filter、clip 和非默认 blend；
 - 非默认 variable font 坐标、合成 italic/embolden、stroke glyph。
 
 当前尚不能完整回放 gallery。下一阶段应逐类补齐命令和像素检查，
@@ -113,3 +114,16 @@ swapchain image，通过 semaphore 同步后呈现，没有 CPU 光栅上传或�
 本机已验证 X11/llvmpipe 的交互与生命周期，并通过 Vulkan validation layer 检查；
 Wayland/Intel GPU 已验证窗口初始化及呈现。其他平台尚未验证。
 此例只覆盖已支持的基础控件，不代表完整 gallery 或特效支持。
+
+### 共享 Settings 应用
+
+```sh
+cargo run -p plico-backend-settings --features skia --bin settings-skia
+cargo run -p plico-backend-settings --features vello --bin settings-vello
+python3 scripts/check-skia-settings.py
+```
+
+三个页面直接复用同一 Settings 实现，包括 router、Details 动画、进度条、主题、
+Grid、滚动列表和文字输入。Lucide SVG 使用原 usvg 树转换为实色路径与描边；
+转换后的指令按 document 身份缓存，源文档释放后在后续帧清理。
+深浅主题、宽窄布局及动画中间帧有独立 Skia 回放测试；窗口脚本检查真实呈现和输入。

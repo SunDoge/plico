@@ -9,9 +9,12 @@ publish = false
 default = []
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 vello = ["dep:plico-vello", "dep:plico-renderer"]
+skia = ["vello", "plico-vello/skia", "dep:plico-skia", "dep:tracing-subscriber"]
 
 [dependencies]
 plico-core.workspace = true
+plico-skia = { path = "../../crates/plico-skia", optional = true, features = ["raster"] }
+tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
 plico-renderer = { workspace = true, optional = true }
 plico-motion.workspace = true
 fltk-native = { package = "fltk", version = "1.5", optional = true }
@@ -35,3 +38,11 @@ required-features = ["fltk"]
 [[example]]
 name = "fltk_schedule_probe"
 required-features = ["fltk"]
+
+[[bin]]
+name = "settings-skia"
+path = "src/bin/skia.rs"
+required-features = ["skia"]
+
+[dev-dependencies]
+vello-common.workspace = true

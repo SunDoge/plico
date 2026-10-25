@@ -104,9 +104,11 @@ jobs:
         env:
           VK_INSTANCE_LAYERS: VK_LAYER_KHRONOS_validation
           VK_LAYER_ENABLES: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT
-        run: python3 scripts/check-skia-window.py
-      - name: Verify the shared routed workspace on Vello
-        run: cargo test --locked -p plico-backend-settings --features vello --all-targets
+        run: |
+          python3 scripts/check-skia-window.py
+          python3 scripts/check-skia-settings.py
+      - name: Verify the shared routed workspace on Vello and Skia
+        run: cargo test --locked -p plico-backend-settings --features skia --all-targets
       - name: Verify profiling with and without a trace file
         run: |
           env -u PLICO_TRACE_FILE cargo run --locked -p plico-vello --features profiling --example trace_span

@@ -12,6 +12,8 @@ pub struct SkiaSurface {
     pub(crate) surface: skia_safe::Surface,
     fonts: std::collections::HashMap<(u64, u32), skia_safe::Typeface>,
     font_manager: FontMgr,
+    svg_scenes:
+        std::collections::HashMap<usize, (std::sync::Weak<plico_renderer::svg::usvg::Tree>, Scene)>,
     frame_valid: bool,
 }
 
@@ -31,6 +33,7 @@ impl SkiaSurface {
             surface,
             fonts: Default::default(),
             font_manager: FontMgr::new(),
+            svg_scenes: Default::default(),
             frame_valid: false,
         }
     }
@@ -45,6 +48,8 @@ impl SkiaSurface {
     /// Record drawing without allocating or reading back a pixel buffer.
     pub fn draw_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
         self.frame_valid = false;
+        self.svg_scenes
+            .retain(|_, (tree, _)| tree.strong_count() > 0);
         self.surface.canvas().restore_to_count(1);
         self.surface.canvas().clear(color(background));
         let result = self.replay(scene);
@@ -242,7 +247,26 @@ impl SkiaSurface {
                     canvas.restore();
                 }
                 PaintCommand::BoxShadow { .. } => return unsupported("BoxShadow"),
-                PaintCommand::Svg { .. } => return unsupported("Svg"),
+                PaintCommand::Svg {
+                    document,
+                    transform,
+                } => {
+                    let key = std::sync::Arc::as_ptr(&document.0) as usize;
+                    let commands = match self.svg_scenes.entry(key) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.get().1.clone(),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let commands = crate::svg::commands(&document.0)?;
+                            entry
+                                .insert((std::sync::Arc::downgrade(&document.0), commands.clone()));
+                            commands
+                        }
+                    };
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    let result = self.replay(&commands);
+                    self.surface.canvas().restore();
+                    result?;
+                }
                 PaintCommand::Shader { .. } => return unsupported("Shader"),
             }
         }

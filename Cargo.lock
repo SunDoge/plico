@@ -3440,7 +3440,10 @@ dependencies = [
  "plico-fltk",
  "plico-motion",
  "plico-renderer",
+ "plico-skia",
  "plico-vello",
+ "tracing-subscriber",
+ "vello_common",
 ]
 
 [[package]]

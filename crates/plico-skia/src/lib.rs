@@ -50,6 +50,8 @@ pub enum Error {
 #[cfg(feature = "raster")]
 mod raster;
 #[cfg(feature = "raster")]
+mod svg;
+#[cfg(feature = "raster")]
 pub use raster::SkiaSurface;
 
 #[cfg(feature = "vulkan")]

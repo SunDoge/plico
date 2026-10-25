@@ -1,4 +1,4 @@
-//! A routed desktop workspace shared by the FLTK and Vello backends.
+//! A routed desktop workspace shared by the FLTK, Vello and Skia backends.
 mod animation;
 mod icons;
 use animation::Animations;
