@@ -2,7 +2,7 @@
 use plico_backend_settings::{Page, Settings};
 use plico_core::VirtualClock;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_vello::Source;
+use plico_runtime::Source;
 use std::time::Duration;
 fn click(source: &mut Source<Settings>, label: &str) {
     let id = source

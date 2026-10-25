@@ -383,8 +383,8 @@ fn activity_row(
         text(cx, state).font_size(13).color(if heading { Color::Muted } else { Color::Accent });
     };
 }
-#[cfg(feature = "vello")]
-impl plico_vello::View for Settings {
+#[cfg(any(feature = "vello", feature = "skia"))]
+impl plico_runtime::View for Settings {
     fn show(&mut self, cx: &mut UiContext) {
         DeclareView::show(self, cx);
     }

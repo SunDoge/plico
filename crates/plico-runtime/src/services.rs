@@ -1,7 +1,5 @@
 //! Resident service ownership for statically linked and replaceable application views.
 use crate::View;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::WindowOptions;
 use plico_dev::services::{HostService, ServiceApp, Services};
 
 pub struct ServiceView<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>>
@@ -79,45 +77,4 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
             self.services.send(command);
         }
     }
-}
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, snafu::Snafu)]
-pub enum ServiceDesktopError {
-    #[snafu(display("desktop host failed: {source}"))]
-    Desktop { source: crate::DesktopError },
-    #[cfg(feature = "hot-reload")]
-    #[snafu(display("application module failed: {source}"))]
-    Module { source: plico_dev::host::Error },
-    #[cfg(not(feature = "hot-reload"))]
-    #[snafu(display("enable plico-vello/hot-reload to run a development module"))]
-    HotReloadDisabled,
-}
-/// Normal `main.rs` entry point. In plico dev the executable remains resident and
-/// only the module is replaced; outside development this uses direct typed calls.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_service_app_with_options<A, S>(
-    app: A,
-    services: S,
-    options: WindowOptions,
-) -> Result<(), ServiceDesktopError>
-where
-    A: ServiceApp + 'static,
-    S: HostService<Snapshot = A::Snapshot, Command = A::Command> + 'static,
-{
-    if let Some(descriptor) = std::env::var_os("PLICO_DEV_MODULE") {
-        #[cfg(feature = "hot-reload")]
-        {
-            let view = crate::reload::ReloadView::with_services(descriptor.into(), services)
-                .map_err(|source| ServiceDesktopError::Module { source })?;
-            return crate::run_view_with_options(view, options)
-                .map_err(|source| ServiceDesktopError::Desktop { source });
-        }
-        #[cfg(not(feature = "hot-reload"))]
-        {
-            let _ = descriptor;
-            return Err(ServiceDesktopError::HotReloadDisabled);
-        }
-    }
-    crate::run_view_with_options(ServiceView::new(app, services), options)
-        .map_err(|source| ServiceDesktopError::Desktop { source })
 }

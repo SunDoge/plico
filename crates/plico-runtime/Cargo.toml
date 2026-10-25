@@ -1,0 +1,35 @@
+[package]
+name = "plico-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
+
+[dependencies]
+web-time = "1.1"
+plico-core.workspace = true
+parley.workspace = true
+zeroize = "1.9"
+plico-renderer.workspace = true
+plico-motion.workspace = true
+taffy.workspace = true
+vello-common.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
+plico-dev.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+notify = { workspace = true, optional = true }
+
+[dev-dependencies]
+plico-gallery = { path = "../../apps/gallery" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+plico-shell.workspace = true
+
+[features]
+default = []
+hot-reload = ["plico-dev/host", "dep:notify"]
+profiling = ["plico-renderer/profiling"]

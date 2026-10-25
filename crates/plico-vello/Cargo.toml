@@ -2,37 +2,43 @@
 name = "plico-vello"
 version.workspace = true
 edition.workspace = true
-description = "Taffy/Parley/Vello backend and desktop host integration for Plico"
+description = "Desktop window host and development CLI for the Plico runtime"
 default-run = "plico-vello"
 
 [dependencies]
-web-time = "1.1"
+plico-runtime = { path = "../plico-runtime" }
 plico-core.workspace = true
-parley.workspace = true
-zeroize = "1.9"
 plico-renderer.workspace = true
-plico-motion.workspace = true
-taffy.workspace = true
-vello-common.workspace = true
-serde_json.workspace = true
-
 plico-dev.workspace = true
-
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
 snafu.workspace = true
 notify = { workspace = true, optional = true }
 
-serde = { workspace = true, features = ["derive"] }
-
 [dev-dependencies]
+vello-common.workspace = true
+taffy.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
 plico-gallery = { path = "../../apps/gallery" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+plico-shell.workspace = true
+tracing.workspace = true
+usage-rs = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+plico-motion.workspace = true
+
 [features]
 skia = ["plico-shell/skia"]
 default = ["hot-reload"]
-hot-reload = ["plico-dev/host", "dep:notify", "dep:usage-rs"]
-profiling = ["plico-renderer/profiling", "plico-shell/profiling"]
+hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:notify", "dep:usage-rs"]
+profiling = [
+    "plico-runtime/profiling",
+    "plico-renderer/profiling",
+    "plico-shell/profiling",
+]
 
 [[bin]]
 name = "plico-vello"
@@ -42,11 +48,6 @@ required-features = ["hot-reload"]
 [[example]]
 name = "game2048-reload"
 required-features = ["hot-reload"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-plico-shell.workspace = true
-tracing.workspace = true
-usage-rs = { workspace = true, optional = true }
 
 [[example]]
 name = "skia-window"

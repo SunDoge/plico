@@ -56,7 +56,8 @@ plico icons check
 |---|---|
 | crates/plico-core | immediate 声明、保留节点、事件、共享类型与失效标记 |
 | crates/plico-lvgl | LVGL 原生控件后端和桌面测试入口 |
-| crates/plico-vello | Taffy/Parley/Vello 后端、原生应用适配和热重载宿主 |
+| crates/plico-runtime | 宿主无关的声明运行时：Engine adapter、Source、View 与动效，不依赖窗口与 GPU |
+| crates/plico-vello | 桌面窗口宿主与开发 CLI：启动器、热重载入口和 Skia/Vello 后端选择 |
 | crates/plico-dev | 模块协议、状态恢复、服务桥与动态库加载 |
 | crates/plico-cli | usage-rs CLI、构建监听、formatter 和按需图标生成 |
 | crates/plico-macros | 调用点身份与声明语法辅助 |

@@ -2,8 +2,8 @@
 use plico_backend_settings::{Page, Settings};
 use plico_core::VirtualClock;
 use plico_renderer::{FrameSource, Scene, TextContext, scene};
+use plico_runtime::Source;
 use plico_skia::SkiaSurface;
-use plico_vello::Source;
 use std::time::Duration;
 
 #[test]

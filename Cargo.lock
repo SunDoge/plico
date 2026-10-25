@@ -3440,6 +3440,8 @@ dependencies = [
  "plico-fltk",
  "plico-motion",
  "plico-renderer",
+ "plico-runtime",
+ "plico-shell",
  "plico-skia",
  "plico-vello",
  "tracing-subscriber",
@@ -3642,6 +3644,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "plico-runtime"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "notify",
+ "parley",
+ "plico-core",
+ "plico-dev",
+ "plico-gallery",
+ "plico-motion",
+ "plico-renderer",
+ "plico-shell",
+ "serde",
+ "serde_json",
+ "snafu",
+ "taffy",
+ "tracing",
+ "tracing-subscriber",
+ "vello_common",
+ "web-time",
+ "zeroize",
+]
+
+[[package]]
 name = "plico-services-demo"
 version = "0.1.0"
 dependencies = [
@@ -3749,12 +3775,12 @@ version = "0.1.0"
 dependencies = [
  "image",
  "notify",
- "parley",
  "plico-core",
  "plico-dev",
  "plico-gallery",
  "plico-motion",
  "plico-renderer",
+ "plico-runtime",
  "plico-shell",
  "serde",
  "serde_json",
@@ -3764,8 +3790,6 @@ dependencies = [
  "tracing-subscriber",
  "usage-rs",
  "vello_common",
- "web-time",
- "zeroize",
 ]
 
 [[package]]

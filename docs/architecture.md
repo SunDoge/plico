@@ -14,13 +14,13 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
               ├─ Engine::frame：模拟尺寸实验
               └─ Engine::frame_declarations：外部后端负责测量与布局
                             ↓
-                 plico-vello Adapter
+                 plico-runtime Adapter
                  稳定 Entity → Taffy NodeId
                             ↓
-                 Taffy / Parley / Vello
+                 Taffy / Parley /（plico-vello 选择 Vello 或 Skia）
 ```
 
-core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。当前尚未定义完整的、跨宿主的布局/场景运行时；Plico Vello adapter 加上仓库内 renderer/shell 源码是可执行的边界实验，不能把它当成已经完成的通用宿主协议。
+core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、View、动效）已从窗口后端中拆出为 plico-runtime；plico-vello 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
 
 另有 [LVGL 后端实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
 布局、文字和绘制均交给 LVGL；点击以 Entity 回到普通声明。它验证 API 子集可跨后端，

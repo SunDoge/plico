@@ -23,7 +23,9 @@ cargo test -p plico-backend-settings --features vello --all-targets
 See [the FLTK experiment](../../docs/fltk.md) for scope and validation.
 
 Skia uses a native Vulkan swapchain and the same Settings view, router, Taffy
-layout, Parley text, and animations as Vello. Its SVG path support covers the
+layout, Parley text, and animations as Vello. The skia feature builds directly
+against plico-runtime and plico-shell (it does not require the vello feature);
+the declaration runtime is shared by both window backends. Its SVG path support covers the
 Lucide icons used here; SVG gradients, images, masks, filters and clips still
 return explicit errors. This is an experimental backend, not full gallery parity.
 

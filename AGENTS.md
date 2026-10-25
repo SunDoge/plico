@@ -3,7 +3,7 @@
 - Plico 是后续 Rust GUI 开发的主仓库。原 Wabou 暂停开发；除非用户另行明确要求，不在原 Wabou 仓库实现功能、修复或提交改动。
 - 需要复用的 Wabou 代码直接复制到 Plico 后维护，保留必要的许可证和来源记录。Plico 的正常 Rust 构建不依赖原 Wabou checkout，不引入指向它的 path dependency 或源码 symlink。
 - 原 Wabou 可以作为只读参考；Solid gallery 对照脚本目前仍可使用其现有 CLI 和前端包。它是可选验证工具，不是 Plico 的开发或运行前提。
-- 根目录是虚拟 Cargo workspace。框架与后端 package 放在 crates/，完整示例应用放在 apps/，小型 API 示例保留在对应 crate 的 examples/；plico-core 提供不依赖渲染与窗口的 immediate Engine、共享类型和 widgets；plico-vello 是当前真实后端，plico-cli 提供开发命令。reactive 与 Rune 实验已删除，不重新引入为默认路径。
+- 根目录是虚拟 Cargo workspace。框架与后端 package 放在 crates/，完整示例应用放在 apps/，小型 API 示例保留在对应 crate 的 examples/；plico-core 提供不依赖渲染与窗口的 immediate Engine、共享类型和 widgets；plico-runtime 提供宿主无关的声明运行时（adapter、Source、View、动效）；plico-vello 是桌面窗口宿主与开发 CLI，plico-cli 提供开发命令。reactive 与 Rune 实验已删除，不重新引入为默认路径。
 - 提交使用 Cocogitto / Conventional Commits，参见 docs/contributing.md。
 - 设计目标、原实验结果与当前已实现能力要明确区分，参见 docs/README.md、docs/status.md。
 
