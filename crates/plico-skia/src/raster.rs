@@ -246,7 +246,47 @@ impl SkiaSurface {
                     canvas.draw_path(&path(shape), &paint);
                     canvas.restore();
                 }
-                PaintCommand::BoxShadow { .. } => return unsupported("BoxShadow"),
+                PaintCommand::BoxShadow {
+                    transform,
+                    rect,
+                    brush,
+                    radius,
+                    std_dev,
+                } => {
+                    // Matches Vello's BlurredRoundedRectangle: a rounded rect
+                    // blurred by a Gaussian whose sigma is std_dev, painted in
+                    // the brush color. Degenerate (inverted) rects are made
+                    // absolute, and a zero std_dev paints the solid shape.
+                    let mut paint = Paint::new(color(*brush), None);
+                    paint.set_anti_alias(true);
+                    if *std_dev > 0. {
+                        let blur = skia_safe::MaskFilter::blur(
+                            skia_safe::BlurStyle::Normal,
+                            *std_dev as f32,
+                            None,
+                        )
+                        .ok_or(Error::Unsupported {
+                            command: "BoxShadow blur",
+                        })?;
+                        paint.set_mask_filter(blur);
+                    }
+                    let rect = rect.abs();
+                    let radius = (*radius).clamp(0., rect.width().min(rect.height()) * 0.5);
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    let rrect = skia_safe::RRect::new_rect_xy(
+                        skia_safe::Rect::new(
+                            rect.x0 as f32,
+                            rect.y0 as f32,
+                            rect.x1 as f32,
+                            rect.y1 as f32,
+                        ),
+                        radius as f32,
+                        radius as f32,
+                    );
+                    canvas.draw_rrect(rrect, &paint);
+                    canvas.restore();
+                }
                 PaintCommand::Svg {
                     document,
                     transform,

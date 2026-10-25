@@ -60,12 +60,17 @@ fn submission_readback_resize_and_destruction() {
         assert_eq!(gpu.dimensions(), (32, 24));
         assert!(matches!(gpu.read_pixels(), Err(Error::NoFrame)));
         let mut unsupported = Scene::new();
-        unsupported.draw_box_shadow(
-            Affine::IDENTITY,
-            Rect::new(0., 0., 4., 4.),
-            Color::BLACK,
+        unsupported.push_layer(
+            vello_common::peniko::BlendMode::default(),
             1.,
-            2.,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 4., 4.),
+            Some(std::sync::Arc::new(
+                vello_common::filter_effects::Filter::from_function(
+                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                ),
+            )),
+            None,
         );
         assert!(matches!(
             gpu.draw_scene(&unsupported, Color::WHITE),

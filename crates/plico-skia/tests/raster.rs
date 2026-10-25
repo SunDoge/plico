@@ -40,17 +40,22 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
     let mut surface = SkiaSurface::new(16, 16).unwrap();
     let mut scene = Scene::new();
     scene.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 1., 1.));
-    scene.draw_box_shadow(
-        Affine::IDENTITY,
-        Rect::new(0., 0., 4., 4.),
-        Color::BLACK,
+    scene.push_layer(
+        vello_common::peniko::BlendMode::default(),
         1.,
-        2.,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 1., 1.),
+        Some(std::sync::Arc::new(
+            vello_common::filter_effects::Filter::from_function(
+                vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+            ),
+        )),
+        None,
     );
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "BoxShadow"
+            command: "layer filter"
         })
     ));
     assert!(matches!(
@@ -157,4 +162,71 @@ fn svg_transform_opacity_and_rejection_are_explicit() {
         })
     ));
     assert!(matches!(surface.read_pixels(), Err(Error::NoFrame)));
+}
+
+#[test]
+fn box_shadow_blurs_matches_solid_at_zero_std_dev_and_follows_transform() {
+    // A zero-blur shadow must equal the solid rounded rect it stands for.
+    let mut solid = Scene::new();
+    solid.draw_box_shadow(
+        Affine::IDENTITY,
+        Rect::new(4., 4., 12., 12.),
+        Color::BLACK,
+        1.,
+        0.,
+    );
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let bytes = surface.render_scene(&solid, Color::WHITE).unwrap();
+    assert_eq!(pixel(&bytes, 8, 8), [0, 0, 0, 255]);
+    assert_eq!(pixel(&bytes, 2, 2), [255; 4]);
+
+    // Gaussian falloff: the centre stays covered, pixels two sigma past the
+    // rect match the background, and the edge in between fades.
+    let mut blurred = Scene::new();
+    blurred.draw_box_shadow(
+        Affine::IDENTITY,
+        Rect::new(4., 4., 12., 12.),
+        Color::BLACK,
+        1.,
+        1.,
+    );
+    let bytes = surface.render_scene(&blurred, Color::WHITE).unwrap();
+    assert!(
+        pixel(&bytes, 8, 8)[0] <= 40,
+        "centre must stay covered: {:?}",
+        pixel(&bytes, 8, 8)
+    );
+    let centre = pixel(&bytes, 8, 8)[0];
+    let near_edge = pixel(&bytes, 6, 8)[0];
+    let far = pixel(&bytes, 14, 8)[0];
+    assert!(
+        near_edge >= centre,
+        "coverage must fall off away from the shape"
+    );
+    assert!(
+        far >= 240,
+        "two sigma past the rect is the background: {far}"
+    );
+    assert!(far > near_edge, "falloff must be visible");
+
+    // The transform positions the shadow; a translated shadow keeps its shape.
+    let mut moved = Scene::new();
+    moved.draw_box_shadow(
+        Affine::translate((2., 2.)),
+        Rect::new(4., 4., 12., 12.),
+        Color::BLACK,
+        1.,
+        1.,
+    );
+    let bytes = surface.render_scene(&moved, Color::WHITE).unwrap();
+    assert!(
+        pixel(&bytes, 8, 8)[0] <= 40,
+        "translated centre: {:?}",
+        pixel(&bytes, 8, 8)
+    );
+    assert!(
+        pixel(&bytes, 3, 8)[0] >= 240,
+        "old centre fades out: {:?}",
+        pixel(&bytes, 3, 8)
+    );
 }

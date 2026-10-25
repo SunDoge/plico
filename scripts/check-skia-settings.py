@@ -21,7 +21,7 @@ try:
     display = server.stdout.readline().strip()
     if not display.isdecimal():
         raise RuntimeError("Xvfb startup failed: " + server.stderr.read())
-    env = {**os.environ, "DISPLAY": ":" + display, "WINIT_UNIX_BACKEND": "x11", "WINIT_X11_SCALE_FACTOR": "1", "PLICO_SKIA_DEVICE": "llvmpipe"}
+    env = {**os.environ, "DISPLAY": ":" + display, "WINIT_UNIX_BACKEND": "x11", "WINIT_X11_SCALE_FACTOR": "1", "PLICO_SKIA_DEVICE": "llvmpipe", "PLICO_PERFORMANCE_HUD": "1"}
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("PLICO_COMPARE_VELLO", None)
     with (REPORT / "window.log").open("w") as log:
@@ -63,6 +63,10 @@ try:
             assert preferences != activity, "Preferences navigation did not change the view"
             click(1000,34)
             assert capture("dark") != preferences, "Theme did not change the view"
+            # The performance HUD panel (light fill + blurred box shadow) must
+            # stay painted in the dark theme; a failed shadow frame blanks the window.
+            hud = [int(v) for v in command("identify", "-format", "%[pixel:p{1050,60}]", str(REPORT / "dark.png")).strip("srgb(").rstrip(")").split(",")]
+            assert all(v > 180 for v in hud[:3]), f"HUD panel not painted: {hud}"
             command("xdotool", "windowsize", window, "520", "760")
             capture("narrow")
             assert command("identify", "-format", "%wx%h", str(REPORT / "narrow.png")) == "520x760"
