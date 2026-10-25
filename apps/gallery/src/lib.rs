@@ -11,7 +11,7 @@ pub mod markdown_chat;
 pub mod workspace;
 use components::icon_button;
 use plico_core::widgets::{
-    badge, button, checkbox, collapsible, column, nav_item, progress, row, segmented, separator,
+    badge, button, checkbox, collapsible, column, nav_menu, progress, row, segmented, separator,
     svg, switch, text, virtual_list,
 };
 
@@ -122,9 +122,7 @@ impl App for Gallery {
                 };
                 text(ui, "INTERFACE LAB").font_size(10).weight(600).color(Color::Muted);
                 column(ui).gap(6).padding(0) + |ui| {
-                    for &page in Page::ALL {
-                        ui.keyed(page.id(), |ui| self.nav(ui, page));
-                    }
+                    nav_menu(ui, &mut self.router);
                 };
                 column(ui).grow(1.).children(|_ui| {});
                 checkbox(ui, "Compact", &mut self.compact);
@@ -154,13 +152,6 @@ impl App for Gallery {
 }
 
 impl Gallery {
-    #[component]
-    fn nav(&mut self, ui: &mut UiContext, page: Page) {
-        if nav_item(ui, page.label(), self.router.show(page), page.icon()).clicked() {
-            self.router.go(page);
-        }
-    }
-
     #[component]
     #[rustfmt::skip]
     fn lists_page(&mut self, ui: &mut UiContext) {

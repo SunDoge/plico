@@ -5,28 +5,15 @@ mod icons;
 use animation::Animations;
 use plico_core::{DeclareView, Router, TextBuffer, Theme, prelude::*};
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico_core::Route)]
 pub enum Page {
     #[default]
+    #[route(icon = color_icons::HOME)]
     Overview,
+    #[route(icon = color_icons::CHART_MULTIPLE)]
     Activity,
+    #[route(icon = color_icons::SETTINGS)]
     Preferences,
-}
-impl Page {
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Overview => "Overview",
-            Self::Activity => "Activity",
-            Self::Preferences => "Preferences",
-        }
-    }
-    fn image(self) -> &'static SvgAsset {
-        match self {
-            Self::Overview => &color_icons::HOME,
-            Self::Activity => &color_icons::CHART_MULTIPLE,
-            Self::Preferences => &color_icons::SETTINGS,
-        }
-    }
 }
 pub struct Settings {
     pub router: Router<Page>,
@@ -120,7 +107,7 @@ impl DeclareView for Settings {
                 };
                 row(cx).gap(12).wrap(true) + |cx| {
                     column(cx).width(0.).grow(1.).min_width(120.).gap(6) + |cx| {
-                        text(cx, self.router.current().title()).font_size(28).weight(700);
+                        text(cx, self.router.current().label()).font_size(28).weight(700);
                         text(cx, match self.router.current() {
                             Page::Overview => "A native workspace. Flex, Grid and retained controls working together.",
                             Page::Activity => "A keyed list, a fixed header and a native scroll viewport.",
@@ -170,17 +157,7 @@ impl Settings {
                 }
             };
             column(cx).gap(8) + |cx| {
-                for page in [Page::Overview, Page::Activity, Page::Preferences] {
-                    cx.keyed(page as u64, |cx| {
-                        let selected = self.router.current() == page;
-                        let label = page.title();
-                        let nav = nav_item(cx, label, selected, Some(page.image()));
-                        if nav.clicked() {
-                            self.router.go(page);
-                            cx.request_rebuild();
-                        }
-                    });
-                }
+                nav_menu(cx, &mut self.router);
             };
             column(cx).height(0.).grow(1.) + |_cx| {};
             if button(cx).icon(&icons::PANEL_LEFT_CLOSE).aria_label("Toggle sidebar").height(36.)

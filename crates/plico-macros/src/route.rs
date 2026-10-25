@@ -92,19 +92,19 @@ pub(crate) fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
     let runtime = crate::runtime();
     Ok(quote! {
-        impl #name {
+        impl #runtime::Route for #name {
             /// Navigation entries in declaration order. No allocation.
-            pub const ALL: &'static [Self] = &[#(#variants),*];
+            const ALL: &'static [Self] = &[#(#variants),*];
             /// Stable logical ID. Defaults to the variant name; override before renaming.
-            pub const fn id(&self) -> &'static str { match self { #(#id_arms),* } }
+            fn id(&self) -> &'static str { match self { #(#id_arms),* } }
             /// Display label; defaults to the variant name.
-            pub const fn label(&self) -> &'static str { match self { #(#label_arms),* } }
+            fn label(&self) -> &'static str { match self { #(#label_arms),* } }
             /// Optional application-owned SVG asset.
-            pub const fn icon(&self) -> ::core::option::Option<&'static #runtime::SvgAsset> {
+            fn icon(&self) -> ::core::option::Option<&'static #runtime::SvgAsset> {
                 match self { #(#icon_arms),* }
             }
             /// Look up an exact logical ID. Unknown IDs return None.
-            pub fn from_id(id: &str) -> ::core::option::Option<Self> {
+            fn from_id(id: &str) -> ::core::option::Option<Self> {
                 match id { #(#parse_arms),*, _ => ::core::option::Option::None }
             }
         }
