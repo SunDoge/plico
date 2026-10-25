@@ -152,13 +152,13 @@ fn svg_transform_opacity_and_rejection_are_explicit() {
         assert!(p[1].abs_diff(127) <= 1 && p[2].abs_diff(127) <= 1);
         assert_eq!(pixel(&pixels, 2, 8), [255; 4]);
     }
-    let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><rect width="8" height="8" fill="url(#g)"/></svg>"#).unwrap();
+    let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><defs><pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="red"/></pattern></defs><rect width="8" height="8" fill="url(#p)"/></svg>"#).unwrap();
     let mut scene = Scene::new();
     scene.draw_svg(icon.document().clone(), Affine::IDENTITY);
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "SVG gradient/pattern"
+            command: "SVG pattern"
         })
     ));
     assert!(matches!(surface.read_pixels(), Err(Error::NoFrame)));
@@ -229,4 +229,29 @@ fn box_shadow_blurs_matches_solid_at_zero_std_dev_and_follows_transform() {
         "old centre fades out: {:?}",
         pixel(&bytes, 3, 8)
     );
+}
+
+#[test]
+fn svg_gradients_preserve_color_opacity_and_local_transforms() {
+    use plico_renderer::svg::SvgImage;
+    let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="8" gradientTransform="translate(2 0)"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><g transform="translate(2 2)"><rect x="2" width="8" height="8" fill="url(#g)" fill-opacity="0.5"/></g></svg>"#).unwrap();
+    let mut scene = Scene::new();
+    scene.draw_svg(icon.document().clone(), Affine::IDENTITY);
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+    let left = pixel(&bytes, 4, 5);
+    let right = pixel(&bytes, 11, 5);
+    assert!(left[0] > left[2] + 80, "{left:?}");
+    assert!(right[2] > right[0] + 80, "{right:?}");
+    assert!(left[1].abs_diff(127) <= 1);
+    assert_eq!(pixel(&bytes, 1, 5), [255; 4]);
+
+    let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><defs><radialGradient id="r" cx=".5" cy=".5" r=".5" fx=".25" fy=".5"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></radialGradient></defs><rect width="16" height="16" fill="url(#r)"/></svg>"#).unwrap();
+    scene.reset();
+    scene.draw_svg(icon.document().clone(), Affine::IDENTITY);
+    let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+    let focus = pixel(&bytes, 4, 8);
+    let edge = pixel(&bytes, 15, 8);
+    assert!(focus[0] > focus[2] + 150, "{focus:?}");
+    assert!(edge[2] > edge[0] + 150, "{edge:?}");
 }
