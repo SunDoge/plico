@@ -32,19 +32,20 @@ fn main() {
         .map(|e| e.file_name())
         .collect();
     before.sort_unstable();
-    let _tracing = plico_shell::telemetry::init_tracing();
-    let clock = VirtualClock::default();
-    let mut source = Source::with_clock(Demo { revision: 0 }, clock.clone());
-    let mut text = TextContext::new();
-    let mut scene = Scene::new();
-    source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
-    for frame in 0..8 {
-        clock.advance(Duration::from_millis(16)).unwrap();
-        source.view.revision = frame;
-        source.request_rebuild();
+    {
+        let _tracing = plico_shell::telemetry::init_tracing();
+        let clock = VirtualClock::default();
+        let mut source = Source::with_clock(Demo { revision: 0 }, clock.clone());
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
         source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+        for frame in 0..8 {
+            clock.advance(Duration::from_millis(16)).unwrap();
+            source.view.revision = frame;
+            source.request_rebuild();
+            source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+        }
     }
-    drop(_tracing);
     let Some(path) = path else {
         let mut after: Vec<_> = std::fs::read_dir(".")
             .into_iter()

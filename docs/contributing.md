@@ -36,53 +36,25 @@ cog check
 
 ## CI
 
-GitHub Actions 的 `.github/workflows/ci.yml` 在 main 分支 push、pull request 和手动触发时运行，
-使用 stable Rust、Cargo.lock 和只读仓库权限；同一分支的新运行取消旧运行。Action 固定
-到 commit，Cargo 依赖按任务缓存，不依赖本机 mbx、原 Wabou checkout 或 Lucide SVG 缓存。
-质量检查每轮都执行；仅文档、Dependabot 配置、release-plz 配置等已知非构建输入变化时，
-跳过原生和 WASM 构建。`scripts/ci-changes.py` 对其他路径一律保留完整检查，历史读取失败
-也回退到完整检查；main 还会对照上次成功 CI 的提交，避免漏测被取消运行中的源码变化。
-手动运行始终全量验证。PR 只恢复 Cargo 缓存，由 main 更新缓存。
-Skia 在同一个 window feature 图中同时执行普通与 ignored Vulkan 测试，避免切换 feature 后
-重复编译；窗口例子不启用无关的默认热重载 feature。
+普通 pull request / main push 保留两个 CI job：Linux **Lightweight Rust checks** 与 **Windows compile**。
+Windows 等 Linux 检查成功后再执行，纯文档改动跳过编译。Linux 负责：
 
-- **Formatting and workspace versions**：检查成员版本统一继承，使用 `plico fmt --check`
-  同时检查普通 Rust 与 `#[component]` 区域，不对 UI 强行套用 rustfmt 的布局。
-- **Linux tests**：core、rendering、apps 三组并行测试，分组在 `scripts/ci-tests.py`
-  中维护并检查 workspace 覆盖；rendering 同时验证 profiling 双输出模式。
-- **Native hot reload and text input**：独立编译 CLI/宿主，运行生成应用、热重载失败恢复
-  和原生文本输入脚本，不等待整套 workspace 测试。
-- **Skia Vulkan and native windows**：独立检查 Skia 与共享 Settings 应用，验证离屏回放、
-  Vulkan 生命周期，以及开启 validation layer 的 Xvfb 窗口交互；失败时上传窗口截图和日志。
-- **Linux Clippy**：检查普通 workspace 的全部 target/feature，警告视为错误；
-  FLTK、LVGL 和共享 Settings 由对应后端任务检查。
-- **WASM host and UI**：检查无渲染核心、gallery/split 浏览器宿主及可加载 UI 模块，
-  宿主路径同时执行 Clippy。只检查对应浏览器 package，不把原生 workspace 强编成 WASM。
-- **LVGL backend experiment**：使用 stable 和 SDL2/libclang，离屏执行
-  [LVGL 最小实验](lvgl.md)；普通全 feature 任务排除 `plico-lvgl` 和 P4 实验，LVGL 任务单独验证 SDL2 输入、关闭与截图。
+- 检查 Rust 与 component 格式、workspace 版本、测试分组配置和 Widget 边界。
+- 非纯文档变更测试 `plico-core`、`plico-macros`、`plico-motion`、`plico-dev`、
+  `plico-cli`、`plico-markdown`，以及无窗口的 runtime 语义协议测试。
+- 其余主线代码通过 workspace Clippy 检查（默认 feature）；不启用 Skia SDK、
+  FLTK、LVGL、ESP-IDF 等可选后端。`backend-settings` 使用 Vello feature 参与编译。
+- formatter、测试与 Clippy 在同一 runner 复用缓存；取消同分支的过期运行，15 分钟超时。
 
-这套 CI 不等于跨平台窗口、浏览器交互或性能验收。macOS/Windows 原生窗口、完整 IME、
-浏览器 smoke 和 CPU/GPU 性能仍需对应环境验证；不把受负载影响的微秒耗时设为硬门槛。
-离屏软件 Vulkan 也不代表真实显卡性能。脚本生成的 reports 留在 CI 工作目录，不提交。
+Windows 只运行同一主线默认 feature 的 `cargo check --all-targets`，不运行测试或桌面自动化，20 分钟超时。
 
-本地对应命令：
+CI 不启动窗口/GPU、不截图，不安装 mise 工具集、不运行 release-plz 仿真或
+cargo-machete，不设置全量/窗口验收开关，也不增加定时全量任务。
+headless 热重载进程验收、其他平台和可选后端验证脚本保留为本地工具。
 
-```sh
-python3 scripts/check-versions.py
-cargo run --locked -p plico-cli -- fmt --check
-python3 scripts/ci-tests.py --check
-python3 scripts/ci-tests.py core
-python3 scripts/ci-tests.py rendering
-python3 scripts/ci-tests.py apps
-cargo test --locked -p plico-skia -p backend-settings --features plico-skia/window,backend-settings/skia --all-targets
-cargo build --locked -p plico-cli -p plico-vello
-python3 scripts/check-hotreload.py
-python3 scripts/check-text-input-reload.py
-```
-
-WASM 还需要 `rustup target add wasm32-unknown-unknown`，具体检查命令见 workflow。
-三组测试、热重载与 Skia 任务使用独立 Cargo 缓存；新增 workspace 成员必须明确分配测试组。
-热重载脚本默认从 `target/debug` 找 CLI；自定义输出目录时设置绝对路径的 `CARGO_TARGET_DIR`。
+这是成本优先的基本门槛，不等于所有后端都通过验证。发布前按改动范围在本地检查
+可选后端、热重载、IME、窗口和性能。main 的 Git tag / GitHub Release 仍由独立
+Release workflow 管理。Actions 固定到 commit，不依赖本机 mbx 或原 Wabou checkout。
 
 ## 统一版本
 
@@ -125,3 +97,12 @@ mise exec -- python3 scripts/check-release.py
 
 该脚本在临时仓库中验证首次版本、仅改独立后端时的统一版本升级、changelog 汇总和
 无变更重跑稳定性。它不会更改当前工作区、版本或 tag。
+
+## 确定性的应用测试
+
+优先使用 [Rust 测试协议](testing.md)：`plico_runtime::testing::Driver` 驱动真实声明、布局和输入路径，
+以角色和名称定位控件，用虚拟时钟推进动画，不依赖桌面坐标、系统焦点或 sleep。
+开发宿主的 headless 命令复用同一个 dispatcher，不另写一套事件逻辑。
+
+普通 CI 不运行桌面自动化。这些 Python 窗口脚本只保留为本地验收工具，
+不提供额外的全量 CI 开关。
