@@ -3,7 +3,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::{ToTokens, quote};
 use syn::{
-    Block, Expr, FnArg, Ident, ItemFn, Pat, Token, Type,
+    Expr, FnArg, Ident, ItemFn, Pat, Token, Type,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     visit_mut::{self, VisitMut},
@@ -93,20 +93,6 @@ impl VisitMut for Expand {
         {
             let expr = binary.clone();
             *stmt = parse_quote!(let _ = #expr;);
-            return;
-        }
-        // A view! statement in mid-block position discards its response too.
-        if let syn::Stmt::Expr(syn::Expr::Macro(m), _semi) = stmt
-            && m.mac
-                .path
-                .segments
-                .last()
-                .is_some_and(|s| s.ident == "view")
-        {
-            // Re-emit through the view macro so the expansion stays identical.
-            let tokens = m.mac.tokens.clone();
-            let path = &m.mac.path;
-            *stmt = parse_quote!(let _ = #path! { #tokens };);
         }
     }
 
@@ -262,86 +248,6 @@ impl VisitMut for Expand {
     fn visit_item_mut(&mut self, _item: &mut syn::Item) {}
 }
 
-/// `view! { builder => |ui| { ... } }` mounts children on a builder.
-///
-/// Expands to `(builder).children(|ui| { ... })`. Inside `#[component]` the
-/// component macro assigns declaration identities to the enclosed builders;
-/// standalone views rely on stable declaration order. The `@`-prefixed form
-/// expands an already-expanded expression for macro reentrancy.
-#[proc_macro]
-pub fn view(input: TokenStream) -> TokenStream {
-    let tokens: Tokens = input.clone().into();
-    if matches!(tokens.into_iter().next(), Some(proc_macro2::TokenTree::Punct(p)) if p.as_char() == '@')
-    {
-        return match syn::parse::<Expanded>(input) {
-            Ok(expanded) => expanded.0.into_token_stream().into(),
-            Err(error) => error.into_compile_error().into(),
-        };
-    }
-    struct View {
-        parent: syn::Expr,
-        ui: syn::Ident,
-        body: syn::Block,
-    }
-    impl syn::parse::Parse for View {
-        fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
-            let parent = input.parse()?;
-            input.parse::<syn::Token![=>]>()?;
-            input.parse::<syn::Token![|]>()?;
-            let ui = input.parse()?;
-            input.parse::<syn::Token![|]>()?;
-            let body = input.parse()?;
-            if !input.is_empty() {
-                return Err(input.error("expected view! { builder => |ui| { ... } }"));
-            }
-            Ok(Self { parent, ui, body })
-        }
-    }
-    let view = parse_macro_input!(input as View);
-    let View {
-        parent,
-        ui,
-        mut body,
-    } = view;
-    // Nested view! statements inside this body discard their responses: only
-    // the tail expression of the block is the closure's return value.
-    fn rewrite_block(block: &mut syn::Block) {
-        let count = block.stmts.len();
-        for (index, stmt) in block.stmts.iter_mut().enumerate() {
-            // Recurse into nested closures and blocks first.
-            syn::visit_mut::visit_stmt_mut(&mut NestedViews, stmt);
-            if index + 1 == count {
-                continue; // the tail keeps its value
-            }
-            let view_tokens: Option<(syn::Macro,)> = match stmt {
-                syn::Stmt::Expr(syn::Expr::Macro(m), None) => Some((m.mac.clone(),)),
-                syn::Stmt::Macro(m) if m.semi_token.is_none() => Some((m.mac.clone(),)),
-                _ => None,
-            };
-            let view_macro = view_tokens.map(|(mac,)| mac);
-            if let Some(mac) = view_macro
-                && mac.path.segments.last().is_some_and(|s| s.ident == "view")
-                && matches!(mac.delimiter, syn::MacroDelimiter::Brace(_))
-            {
-                let tokens = mac.tokens.clone();
-                let path = mac.path.clone();
-                *stmt = parse_quote!(let _ = #path! { #tokens };);
-            }
-        }
-    }
-    struct NestedViews;
-    impl syn::visit_mut::VisitMut for NestedViews {
-        fn visit_block_mut(&mut self, block: &mut syn::Block) {
-            rewrite_block(block);
-        }
-    }
-    rewrite_block(&mut body);
-    if std::env::var("PLICO_MACRO_DBG").is_ok() {
-        eprintln!("view! body stmts: {}", body.stmts.len());
-    }
-    quote!((#parent).children(|#ui| #body)).into()
-}
-
 /// Format UI text using a reusable context buffer, with ordinary format_args! syntax.
 #[proc_macro]
 pub fn text(input: TokenStream) -> TokenStream {
@@ -406,9 +312,6 @@ pub fn component(args: TokenStream, input: TokenStream) -> TokenStream {
         .into_compile_error()
         .into();
     };
-    if let Err(error) = reject_legacy_children(&mut function.block) {
-        return error.to_compile_error().into();
-    }
     let name = &function.sig.ident;
     let runtime = runtime();
     let namespace = quote!(concat!(module_path!(), "::", stringify!(#name)));
@@ -492,33 +395,6 @@ fn scoped_call(call: &Expr, ui: &Ident, site: Tokens) -> Expr {
     } else {
         parse_quote!(#ui.scope(#site, |#ui| #call))
     }
-}
-
-// Lower valid-Rust marker statements before assigning identities.
-fn reject_legacy_children(block: &mut Block) -> syn::Result<()> {
-    struct Check(Option<syn::Error>);
-    impl VisitMut for Check {
-        fn visit_block_mut(&mut self, block: &mut Block) {
-            use syn::Stmt;
-            for statements in block.stmts.windows(3) {
-                if matches!(&statements[0], Stmt::Expr(_, Some(_)))
-                    && matches!(&statements[1], Stmt::Expr(Expr::Verbatim(tokens), Some(_)) if tokens.is_empty())
-                    && matches!(&statements[2], Stmt::Expr(Expr::Block(_), _))
-                    && self.0.is_none()
-                {
-                    self.0 = Some(syn::Error::new_spanned(
-                        &statements[0],
-                        "layout;; children was removed; use layout + |cx| { ... }; or .children(|cx| { ... })",
-                    ));
-                }
-            }
-            visit_mut::visit_block_mut(self, block);
-        }
-        fn visit_item_mut(&mut self, _: &mut syn::Item) {}
-    }
-    let mut check = Check(None);
-    check.visit_block_mut(block);
-    check.0.map_or(Ok(()), Err)
 }
 
 /// Derive Kind classification from per-variant `#[kind(...)]` annotations.

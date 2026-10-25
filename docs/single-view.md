@@ -1,7 +1,7 @@
 # view 宏实验归档
 
-`view!` 已从公开 API、应用、模板与过程宏实现中移除。
-当前使用 `#[component]` 提供身份、作用域和可选 `;; {}` 简写，原生 children 完整保留。
+`view!` 已从公开 API、应用、模板与过程宏实现中移除，`#[component]` 中的 view 语句改写与双分号迁移期检测也已删除。
+当前使用 `#[component]` 提供身份与作用域，原生 `layout + |cx| { ... }` 与 `.children(...)` 完整保留。
 见 [编写方式](authoring.md)。
 
 此前尝试在一个宏中用 `layout(cx) { ... }` 省略嵌套闭包。
