@@ -90,7 +90,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-            libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk
+            libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk \
+            xvfb xdotool imagemagick vulkan-validationlayers
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
       - name: Run workspace tests, including headless rendering
@@ -99,6 +100,11 @@ jobs:
         env:
           PLICO_SKIA_DEVICE: llvmpipe
         run: cargo test --locked -p plico-skia --features vulkan --test vulkan -- --ignored --test-threads=1
+      - name: Verify Skia window input, resizing and presentation
+        env:
+          VK_INSTANCE_LAYERS: VK_LAYER_KHRONOS_validation
+          VK_LAYER_ENABLES: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT
+        run: python3 scripts/check-skia-window.py
       - name: Verify the shared routed workspace on Vello
         run: cargo test --locked -p plico-backend-settings --features vello --all-targets
       - name: Verify profiling with and without a trace file

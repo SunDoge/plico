@@ -1939,7 +1939,7 @@ pub fn run<A: plico_dev::App + 'static>(app: A, title: &str) -> Result<(), Deskt
 }
 
 pub use plico_renderer::{
-    HostAction, KeyEvent, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
+    HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
 };
 
 /// Launch a view without requiring serializable application state.

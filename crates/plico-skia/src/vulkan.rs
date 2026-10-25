@@ -36,43 +36,7 @@ impl SkiaGpuSurface {
             return Err(Error::InvalidSize { width, height });
         }
         let owner = VulkanDevice::new(name)?;
-        let instance = owner.instance.as_ref().expect("initialized instance");
-        let device = owner.device.as_ref().expect("initialized device");
-        // Skia resolves entrypoints while make_vulkan runs. This resolver and
-        // BackendContext borrow only live handles and never escape this scope.
-        let mut context = {
-            let get_proc = |query| {
-                // SAFETY: handles came from this live loader/instance/device;
-                // Skia provides a valid NUL-terminated Vulkan function name.
-                let function = unsafe {
-                    match query {
-                        gpu::vk::GetProcOf::Instance(handle, name) => owner
-                            .entry
-                            .get_instance_proc_addr(vk::Instance::from_raw(handle as _), name),
-                        gpu::vk::GetProcOf::Device(handle, name) => {
-                            instance.get_device_proc_addr(vk::Device::from_raw(handle as _), name)
-                        }
-                    }
-                };
-                function.map_or(std::ptr::null(), |function| function as *const _)
-            };
-            // SAFETY: owner outlives the Skia context and every render target.
-            // Vulkan 1.1 is enabled; no instance or device extensions are assumed.
-            let backend = unsafe {
-                gpu::vk::BackendContext::new_builder(
-                    instance.handle().as_raw() as _,
-                    owner.physical.as_raw() as _,
-                    device.handle().as_raw() as _,
-                    (owner.queue.as_raw() as _, owner.queue_family as usize),
-                    &get_proc,
-                    Some(vk::API_VERSION_1_1.into()),
-                )
-                .build()
-            };
-            gpu::direct_contexts::make_vulkan(&backend, None).ok_or(Error::Gpu {
-                message: "Skia Ganesh context creation failed",
-            })?
-        };
+        let mut context = new_context(&owner)?;
         let info = skia_safe::ImageInfo::new(
             (width as i32, height as i32),
             skia_safe::ColorType::RGBA8888,
@@ -201,9 +165,23 @@ struct VulkanDevice {
     queue_family: u32,
     name: String,
     software: bool,
+    presentation: Option<(ash::khr::surface::Instance, vk::SurfaceKHR)>,
 }
 impl VulkanDevice {
     fn new(name: Option<&str>) -> Result<Self, Error> {
+        Self::create(name, &[], |_, _| Ok(None))
+    }
+    fn create(
+        name: Option<&str>,
+        extensions: &[*const std::ffi::c_char],
+        create_surface: impl FnOnce(
+            &Entry,
+            &ash::Instance,
+        ) -> Result<
+            Option<(ash::khr::surface::Instance, vk::SurfaceKHR)>,
+            Error,
+        >,
+    ) -> Result<Self, Error> {
         // SAFETY: ash loads the system Vulkan loader; Entry remains owned until
         // every instance/device/Skia object has been destroyed.
         let entry = unsafe { Entry::load() }.context(crate::VulkanLoaderSnafu)?;
@@ -216,9 +194,12 @@ impl VulkanDevice {
             queue_family: 0,
             name: String::new(),
             software: false,
+            presentation: None,
         };
         let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_1);
-        let info = vk::InstanceCreateInfo::default().application_info(&application);
+        let info = vk::InstanceCreateInfo::default()
+            .application_info(&application)
+            .enabled_extension_names(extensions);
         // SAFETY: info's references live through this call; no custom allocator.
         owner.instance = Some(unsafe { owner.entry.create_instance(&info, None) }.context(
             crate::VulkanSnafu {
@@ -226,6 +207,7 @@ impl VulkanDevice {
             },
         )?);
         let instance = owner.instance.as_ref().expect("initialized instance");
+        owner.presentation = create_surface(&owner.entry, instance)?;
         // SAFETY: instance is live and exclusively owned here.
         let physicals =
             unsafe { instance.enumerate_physical_devices() }.context(crate::VulkanSnafu {
@@ -250,9 +232,27 @@ impl VulkanDevice {
             // SAFETY: physical device is owned by this instance.
             let families =
                 unsafe { instance.get_physical_device_queue_family_properties(physical) };
-            let Some(index) = families.iter().position(|q| {
-                q.queue_count > 0 && q.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-            }) else {
+            let mut index = None;
+            for (i, family) in families.iter().enumerate() {
+                if family.queue_count == 0 || !family.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+                {
+                    continue;
+                }
+                if let Some((surface, handle)) = &owner.presentation {
+                    // SAFETY: physical and surface belong to this instance.
+                    if !unsafe {
+                        surface.get_physical_device_surface_support(physical, i as u32, *handle)
+                    }
+                    .context(crate::VulkanSnafu {
+                        operation: "query presentation queue",
+                    })? {
+                        continue;
+                    }
+                }
+                index = Some(i);
+                break;
+            }
+            let Some(index) = index else {
                 continue;
             };
             let rank = match properties.device_type {
@@ -276,9 +276,15 @@ impl VulkanDevice {
         // SAFETY: features are queried from the same physical device. Enable
         // supported core features so Skia's physical-feature discovery agrees.
         let features = unsafe { instance.get_physical_device_features(physical) };
+        let device_extensions = if owner.presentation.is_some() {
+            vec![ash::khr::swapchain::NAME.as_ptr()]
+        } else {
+            Vec::new()
+        };
         let info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
-            .enabled_features(&features);
+            .enabled_features(&features)
+            .enabled_extension_names(&device_extensions);
         // SAFETY: all referenced create data lives through the call. Owner's
         // Drop also handles failures before logical-device creation succeeds.
         owner.device = Some(
@@ -312,9 +318,58 @@ impl Drop for VulkanDevice {
                 let _ = device.device_wait_idle();
                 device.destroy_device(None);
             }
+            if let Some((loader, surface)) = self.presentation.take() {
+                loader.destroy_surface(surface, None);
+            }
             if let Some(instance) = self.instance.take() {
                 instance.destroy_instance(None);
             }
         }
     }
 }
+
+fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
+    let instance = owner.instance.as_ref().expect("initialized instance");
+    let device = owner.device.as_ref().expect("initialized device");
+    let context = {
+        let get_proc = |query| {
+            // SAFETY: handles came from this live loader/instance/device;
+            // Skia provides a valid NUL-terminated Vulkan function name.
+            let function = unsafe {
+                match query {
+                    gpu::vk::GetProcOf::Instance(handle, name) => owner
+                        .entry
+                        .get_instance_proc_addr(vk::Instance::from_raw(handle as _), name),
+                    gpu::vk::GetProcOf::Device(handle, name) => {
+                        instance.get_device_proc_addr(vk::Device::from_raw(handle as _), name)
+                    }
+                }
+            };
+            function.map_or(std::ptr::null(), |function| function as *const _)
+        };
+        // SAFETY: owner outlives the Skia context and every render target.
+        // Vulkan 1.1 is enabled; no instance or device extensions are assumed.
+        let backend = unsafe {
+            gpu::vk::BackendContext::new_builder(
+                instance.handle().as_raw() as _,
+                owner.physical.as_raw() as _,
+                device.handle().as_raw() as _,
+                (owner.queue.as_raw() as _, owner.queue_family as usize),
+                &get_proc,
+                Some(vk::API_VERSION_1_1.into()),
+            )
+            .build()
+        };
+        gpu::direct_contexts::make_vulkan(&backend, None).ok_or(Error::Gpu {
+            message: "Skia Ganesh context creation failed",
+        })?
+    };
+
+    Ok(context)
+}
+
+#[cfg(feature = "window")]
+#[path = "window.rs"]
+mod window;
+#[cfg(feature = "window")]
+pub use window::SkiaWindow;

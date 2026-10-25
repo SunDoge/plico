@@ -43,10 +43,24 @@ pub enum WindowBackground {
     MicaAlt,
 }
 
+/// Graphics consumer selected by the native window host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RenderBackend {
+    /// Default Vello GPU consumer.
+    #[default]
+    Vello,
+    /// Experimental Skia Vulkan consumer; requires the shell's `skia` feature.
+    Skia,
+}
+
 /// Requested properties used when creating a native window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowOptions {
+    /// Renderer used by the native window host.
+    #[serde(default)]
+    pub renderer: RenderBackend,
     /// Initial native window title.
     pub title: String,
     /// Requested logical client-area size.
@@ -74,6 +88,7 @@ pub struct WindowOptions {
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
+            renderer: RenderBackend::Vello,
             title: "wabou".into(),
             initial_inner_size: (800, 600),
             min_inner_size: None,
@@ -92,6 +107,12 @@ impl WindowOptions {
     /// Construct options with platform-friendly defaults.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Select the graphics consumer without changing the application source.
+    pub fn renderer(mut self, renderer: RenderBackend) -> Self {
+        self.renderer = renderer;
+        self
     }
 
     /// Set the initial native window title.
@@ -200,5 +221,21 @@ mod tests {
             serde_json::from_str(&encoded).expect("deserialize window options");
 
         assert_eq!(decoded, options);
+    }
+}
+
+#[cfg(test)]
+mod backend_tests {
+    use super::*;
+    #[test]
+    fn old_window_options_keep_vello_and_skia_roundtrips() {
+        let mut value = serde_json::to_value(WindowOptions::new()).unwrap();
+        value.as_object_mut().unwrap().remove("renderer");
+        let old: WindowOptions = serde_json::from_value(value).unwrap();
+        assert_eq!(old.renderer, RenderBackend::Vello);
+        let options = WindowOptions::new().renderer(RenderBackend::Skia);
+        let restored: WindowOptions =
+            serde_json::from_str(&serde_json::to_string(&options).unwrap()).unwrap();
+        assert_eq!(restored.renderer, RenderBackend::Skia);
     }
 }

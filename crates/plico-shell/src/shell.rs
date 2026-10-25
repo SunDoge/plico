@@ -16,9 +16,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes};
 
 use crate::accessibility::AccessibilityState;
-use crate::renderer_backend::WindowRenderer;
 use crate::source::{WindowInputMode, WindowLevel, WindowOptions};
 use crate::text::TextContext;
+use crate::window_renderer::WindowRenderer;
 use plico_renderer::platform::WindowBackground;
 
 /// Native rendering resources owned by one live window.
@@ -104,8 +104,8 @@ impl Shell {
         }
         let surface_width = physical_size.width.max(1);
         let surface_height = physical_size.height.max(1);
-        let mut renderer = WindowRenderer::new(transparent)?;
-        renderer.resume(window.clone(), surface_width, surface_height);
+        let mut renderer = WindowRenderer::new(options.renderer, transparent)?;
+        renderer.resume(window.clone(), surface_width, surface_height)?;
         // Expose the window after its rendering resources are ready.
         window.set_visible(true);
 
@@ -211,13 +211,18 @@ impl Shell {
     /// Render and present [`Self::scene`], returning whether presentation succeeded.
     pub fn present(&mut self, base_color: Color) -> bool {
         self.accessibility.publish_root(self.window.as_ref());
-        self.renderer.render(
+        match self.renderer.render(
             &mut self.scene,
             self.surface_size[0],
             self.surface_size[1],
             base_color,
-        );
-        true
+        ) {
+            Ok(presented) => presented,
+            Err(error) => {
+                tracing::error!(%error, "window presentation failed");
+                false
+            }
+        }
     }
 
     /// Borrow the platform window.

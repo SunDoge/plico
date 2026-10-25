@@ -40,6 +40,11 @@ pub enum Error {
     Gpu { message: &'static str },
     #[snafu(display("Skia GPU submission failed"))]
     Submit,
+    #[cfg(feature = "window")]
+    #[snafu(display("native window handle is unavailable: {source}"))]
+    Handle {
+        source: raw_window_handle::HandleError,
+    },
 }
 
 #[cfg(feature = "raster")]
@@ -51,3 +56,6 @@ pub use raster::SkiaSurface;
 mod vulkan;
 #[cfg(feature = "vulkan")]
 pub use vulkan::SkiaGpuSurface;
+
+#[cfg(feature = "window")]
+pub use vulkan::SkiaWindow;

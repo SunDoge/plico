@@ -2,7 +2,7 @@
 use plico_renderer::{PaintScene, Scene};
 use plico_skia::{Error, SkiaSurface};
 use vello_common::{
-    kurbo::{Affine, Rect, Stroke},
+    kurbo::{Affine, Rect},
     peniko::{Color, Fill},
 };
 
@@ -40,16 +40,18 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
     let mut surface = SkiaSurface::new(16, 16).unwrap();
     let mut scene = Scene::new();
     scene.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 1., 1.));
-    scene.stroke(
-        &Stroke::new(2.),
+    scene.draw_box_shadow(
         Affine::IDENTITY,
+        Rect::new(0., 0., 4., 4.),
         Color::BLACK,
-        None,
-        &Rect::new(0., 0., 4., 4.),
+        1.,
+        2.,
     );
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
-        Err(Error::Unsupported { command: "Stroke" })
+        Err(Error::Unsupported {
+            command: "BoxShadow"
+        })
     ));
     assert!(matches!(
         surface.write_png(std::path::Path::new("must-not-exist.png")),
@@ -97,4 +99,36 @@ fn fill_transform_and_premultiplied_rgba_are_preserved() {
     for (actual, expected) in pixel(&bytes, 5, 7).iter().zip([100u8, 50, 25, 128]) {
         assert!(actual.abs_diff(expected) <= 1, "{actual} != {expected}");
     }
+}
+
+#[test]
+fn stroke_and_isolated_alpha_layer_preserve_coverage() {
+    use vello_common::{
+        kurbo::{Line, Stroke},
+        peniko::BlendMode,
+    };
+    let mut scene = Scene::new();
+    scene.push_layer(
+        BlendMode::default(),
+        0.5,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 8., 16.),
+        None,
+        None,
+    );
+    scene.stroke(
+        &Stroke::new(4.),
+        Affine::IDENTITY,
+        Color::BLACK,
+        None,
+        &Line::new((0., 8.), (16., 8.)),
+    );
+    scene.pop_layer();
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+    for channel in &pixel(&bytes, 4, 8)[..3] {
+        assert!(channel.abs_diff(127) <= 1);
+    }
+    assert_eq!(pixel(&bytes, 12, 8), [255; 4]);
+    assert_eq!(pixel(&bytes, 4, 2), [255; 4]);
 }

@@ -1,7 +1,7 @@
 # Skia / Vello 绘制对照实验
 
 状态：`plico-skia` 已提供 CPU raster 和 Ganesh Vulkan 离屏 GPU consumer；
-不是可切换的桌面窗口后端，不替换默认 Vello renderer。
+另提供实验性 Vulkan 桌面窗口后端，默认仍使用 Vello renderer。
 
 ## 已实现
 
@@ -11,7 +11,7 @@ Skia 直接绘制这些 glyph，不重新测量或整形。字体文件按 Blob 
 小字号使用灰度抗锯齿、subpixel positioning 和按命令启用的 normal hinting。
 
 支持 solid fill 路径、几何 transform、nonzero/even-odd fill、变换后的路径 clip，
-以及普通 solid fill glyph run。每次 render 清空旧画面并重置 clip stack，
+对称端点描边、普通透明合成图层，以及普通 solid fill glyph run。每次 render 清空旧画面并重置 clip stack，
 失败不返回部分像素，也不能把失败帧导出为 PNG；下一帧可以正常重试。
 像素 API 返回 tightly packed premultiplied RGBA，PNG 由 Skia 编码。
 
@@ -57,7 +57,7 @@ CPU Skia 对 GPU Vello 的截图不用于判断性能胜负；GPU 对照也尚�
 `SkiaGpuSurface` 自己持有 Vulkan loader、instance、逻辑设备、graphics queue 和
 Skia Ganesh DirectContext，直接回放指令到 GPU render target。没有 CPU scene
 光栅化后再上传的中间路径。它与当前 wgpu/Vello 使用独立的设备和 context，
-不做跨设备纹理共享，也不接窗口 swapchain。
+不做跨设备纹理共享；离屏对象与窗口对象分别管理自己的 target。
 
 `draw_scene()` 绘制并提交，不读回像素，也不等待 CPU；`read_pixels()` 与
 `write_png()` 是显式同步的截图边界。`resize()` 只更换 GPU target，保留设备、
@@ -86,10 +86,30 @@ PLICO_SKIA_DEVICE='RTX 5080' WGPU_ADAPTER_NAME='RTX 5080' WGPU_BACKEND=vulkan \
 
 以下情况返回 Unsupported，不静默忽略或近似替换：
 
-- 图层合成、滤镜、模糊和阴影；
-- stroke、渐变及图片 brush、SVG、自定义 WGSL shader；
+- 非默认 blend mode、滤镜、模糊和阴影；
+- 不对称端点描边、渐变及图片 brush、SVG、自定义 WGSL shader；
 - 非默认 variable font 坐标、合成 italic/embolden、stroke glyph。
 
-当前尚不能完整回放 gallery。下一阶段应逐类补齐命令和像素检查，再接窗口 swapchain，
+当前尚不能完整回放 gallery。下一阶段应逐类补齐命令和像素检查，
 对同一 gallery 比较渲染质量、帧耗时、内存与平台兼容性。不能据此直接决定正式应用
 的默认 renderer，更不能把尚未实现的功能记录为“已支持”。
+
+## 实验性桌面窗口
+
+```sh
+cargo run -p plico-vello --features skia --example skia-window
+# 同一界面切回 Vello
+PLICO_COMPARE_VELLO=1 cargo run -p plico-vello --features skia --example skia-window
+# 独立 X11 测试环境：鼠标、键盘、resize、隐藏恢复和关闭
+python3 scripts/check-skia-window.py
+```
+
+启用 shell 的 `skia` feature 后，通过 `WindowOptions::renderer(RenderBackend::Skia)`
+选择后端。窗口复用现有 Winit、输入、布局与 Parley 管线；Skia 直接绘制 Vulkan
+swapchain image，通过 semaphore 同步后呈现，没有 CPU 光栅上传或每帧读回。
+交换链使用 FIFO，普通帧等待前一帧 fence；resize 和析构会等待设备完成工作。
+窗口格式、surface 用途或透明合成方式不满足要求时明确报错，不自动切换后端。
+
+本机已验证 X11/llvmpipe 的交互与生命周期，并通过 Vulkan validation layer 检查；
+Wayland/Intel GPU 已验证窗口初始化及呈现。其他平台尚未验证。
+此例只覆盖已支持的基础控件，不代表完整 gallery 或特效支持。

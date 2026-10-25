@@ -33,7 +33,9 @@ pub use floating::{
     FloatingResolvedPosition, FloatingSide, resolve_floating_position,
 };
 pub use service::{HostService, HostServiceContext};
-pub use window::{WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions};
+pub use window::{
+    RenderBackend, WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions,
+};
 pub use window_lifecycle::{
     WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
 };

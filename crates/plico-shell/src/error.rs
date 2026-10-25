@@ -10,6 +10,19 @@ use snafu::Snafu;
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
+    /// A requested renderer is unavailable in this build or configuration.
+    #[snafu(display("renderer initialization failed: {message}"))]
+    Renderer {
+        /// Explanation of the unsupported renderer request.
+        message: String,
+    },
+    /// Experimental Skia renderer failed.
+    #[cfg(feature = "skia")]
+    #[snafu(display("Skia renderer failed: {source}"))]
+    Skia {
+        /// Skia/Vulkan failure.
+        source: plico_skia::Error,
+    },
     /// Native window creation failed.
     #[snafu(display("failed to create window: {source}"))]
     CreateWindow {

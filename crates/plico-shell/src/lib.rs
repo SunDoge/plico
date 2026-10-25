@@ -1,8 +1,8 @@
-//! plico-shell: render a UI tree with Winit, Taffy, Parley, and Vello GPU.
+//! plico-shell: render a UI tree with Winit, Taffy, Parley, and a GPU renderer.
 //!
 //! The shell is a reusable host: a [`source::FrameSource`] produces a flattened
 //! layout list each frame; [`shell::Shell`] owns the window and selected
-//! Vello GPU backend. Plico supplies its immediate UI source through this boundary.
+//! GPU backend (Vello by default). Plico supplies its immediate UI source through this boundary.
 
 #![warn(missing_docs)]
 
@@ -28,6 +28,8 @@ mod performance_hud;
 pub mod renderer;
 #[cfg(not(target_arch = "wasm32"))]
 mod renderer_backend;
+#[cfg(not(target_arch = "wasm32"))]
+mod window_renderer;
 pub use plico_renderer::{scene, scrollbar, shader};
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shell;
@@ -69,10 +71,11 @@ pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
     FrameSource, FrameStats, GestureEvent, GesturePhase, HostAction, ImeEvent, ImeState, KeyEvent,
     KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent, PointerId, PointerPhase,
-    PointerProperties, PointerType, ScreenshotRequest, SemanticAction, SemanticCurrent,
-    SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot, SemanticSortDirection,
-    SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA, WakeCallback, WheelDeltaMode,
-    WheelEvent, WindowCommand, WindowInputMode, WindowLevel, WindowMetrics, WindowOptions,
+    PointerProperties, PointerType, RenderBackend, ScreenshotRequest, SemanticAction,
+    SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
+    SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
+    WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
+    WindowMetrics, WindowOptions,
 };
 pub use text::TextContext;
 pub use widget::{

@@ -12,6 +12,7 @@ default = []
 raster = ["dep:skia-safe", "dep:plico-renderer", "dep:vello-common"]
 # Ganesh Vulkan render targets; never falls back to CPU raster.
 vulkan = ["raster", "skia-safe/vulkan", "skia-safe/ganesh", "dep:ash"]
+window = ["vulkan", "dep:ash-window", "dep:raw-window-handle", "dep:winit"]
 
 [dependencies]
 plico-renderer = { path = "../plico-renderer", optional = true }
@@ -19,6 +20,9 @@ skia-safe = { version = "0.153", optional = true }
 vello-common = { workspace = true, optional = true }
 snafu.workspace = true
 ash = { version = "0.38", optional = true }
+ash-window = { version = "0.13", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 plico-shell.workspace = true

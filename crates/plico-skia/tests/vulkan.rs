@@ -2,7 +2,7 @@
 use plico_renderer::{PaintScene, Scene};
 use plico_skia::{Error, SkiaGpuSurface};
 use vello_common::{
-    kurbo::{Affine, Rect, Stroke},
+    kurbo::{Affine, Rect},
     peniko::{Color, Fill},
 };
 
@@ -60,12 +60,12 @@ fn submission_readback_resize_and_destruction() {
         assert_eq!(gpu.dimensions(), (32, 24));
         assert!(matches!(gpu.read_pixels(), Err(Error::NoFrame)));
         let mut unsupported = Scene::new();
-        unsupported.stroke(
-            &Stroke::new(1.),
+        unsupported.draw_box_shadow(
             Affine::IDENTITY,
+            Rect::new(0., 0., 4., 4.),
             Color::BLACK,
-            None,
-            &Rect::new(0., 0., 2., 2.),
+            1.,
+            2.,
         );
         assert!(matches!(
             gpu.draw_scene(&unsupported, Color::WHITE),

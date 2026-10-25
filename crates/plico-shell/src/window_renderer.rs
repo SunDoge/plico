@@ -1,0 +1,101 @@
+//! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
+use crate::{RenderBackend, Scene, renderer_backend};
+#[cfg(feature = "skia")]
+use snafu::ResultExt;
+use std::sync::Arc;
+use vello_common::peniko::Color;
+use winit::window::Window;
+
+pub(crate) enum WindowRenderer {
+    Vello(Box<renderer_backend::WindowRenderer>),
+    #[cfg(feature = "skia")]
+    Skia {
+        active: Option<Box<plico_skia::SkiaWindow>>,
+        transparent: bool,
+    },
+}
+impl WindowRenderer {
+    pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
+        match backend {
+            RenderBackend::Vello => renderer_backend::WindowRenderer::new(transparent)
+                .map(|renderer| Self::Vello(Box::new(renderer))),
+            RenderBackend::Skia => {
+                #[cfg(feature = "skia")]
+                {
+                    Ok(Self::Skia {
+                        active: None,
+                        transparent,
+                    })
+                }
+                #[cfg(not(feature = "skia"))]
+                {
+                    Err(crate::Error::Renderer {
+                        message: "Skia requires plico-shell's skia feature".into(),
+                    })
+                }
+            }
+        }
+    }
+    pub(crate) fn resume(
+        &mut self,
+        window: Arc<dyn Window>,
+        width: u32,
+        height: u32,
+    ) -> crate::Result<()> {
+        match self {
+            Self::Vello(renderer) => renderer.resume(window, width, height),
+            #[cfg(feature = "skia")]
+            Self::Skia {
+                active,
+                transparent,
+            } => {
+                let device = std::env::var("PLICO_SKIA_DEVICE").ok();
+                let mut renderer =
+                    plico_skia::SkiaWindow::new(window, *transparent, device.as_deref())
+                        .context(crate::error::SkiaSnafu)?;
+                tracing::info!(
+                    device = renderer.device_name(),
+                    "Skia Vulkan window renderer initialized"
+                );
+                renderer.resize(width, height);
+                *active = Some(Box::new(renderer));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        match self {
+            Self::Vello(renderer) => renderer.resize(width, height),
+            #[cfg(feature = "skia")]
+            Self::Skia {
+                active: Some(renderer),
+                ..
+            } => renderer.resize(width, height),
+            #[cfg(feature = "skia")]
+            Self::Skia { active: None, .. } => {}
+        }
+    }
+    pub(crate) fn render(
+        &mut self,
+        scene: &mut Scene,
+        width: u32,
+        height: u32,
+        color: Color,
+    ) -> crate::Result<bool> {
+        match self {
+            Self::Vello(renderer) => {
+                renderer.render(scene, width, height, color);
+                Ok(true)
+            }
+            #[cfg(feature = "skia")]
+            Self::Skia {
+                active: Some(renderer),
+                ..
+            } => renderer
+                .present(scene, color)
+                .context(crate::error::SkiaSnafu),
+            #[cfg(feature = "skia")]
+            Self::Skia { active: None, .. } => Ok(false),
+        }
+    }
+}

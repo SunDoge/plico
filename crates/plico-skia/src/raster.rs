@@ -182,8 +182,65 @@ impl SkiaSurface {
                     canvas.draw_glyphs_at(&ids, positions.as_slice(), (0., 0.), &skfont, &paint);
                     canvas.restore();
                 }
-                PaintCommand::PushLayer { .. } => return unsupported("PushLayer"),
-                PaintCommand::Stroke { .. } => return unsupported("Stroke"),
+                PaintCommand::PushLayer {
+                    blend,
+                    alpha,
+                    transform,
+                    clip,
+                    filter,
+                } => {
+                    if filter.is_some() {
+                        return unsupported("layer filter");
+                    }
+                    if *blend != vello_common::peniko::BlendMode::default() {
+                        return unsupported("layer blend mode");
+                    }
+                    let mut layer_paint = Paint::default();
+                    layer_paint.set_alpha_f(*alpha);
+                    canvas.save_layer(
+                        &skia_safe::canvas::SaveLayerRec::default().paint(&layer_paint),
+                    );
+                    canvas.clip_path(&path(clip).make_transform(&matrix(*transform)), None, true);
+                    depth += 1;
+                }
+                PaintCommand::Stroke {
+                    style,
+                    transform,
+                    brush,
+                    shape,
+                    ..
+                } => {
+                    if style.start_cap != style.end_cap {
+                        return unsupported("asymmetric stroke caps");
+                    }
+                    let mut paint = paint(brush)?;
+                    paint.set_style(skia_safe::paint::Style::Stroke);
+                    paint.set_stroke_width(style.width as f32);
+                    paint.set_stroke_miter(style.miter_limit as f32);
+                    paint.set_stroke_cap(match style.start_cap {
+                        vello_common::kurbo::Cap::Butt => skia_safe::paint::Cap::Butt,
+                        vello_common::kurbo::Cap::Round => skia_safe::paint::Cap::Round,
+                        vello_common::kurbo::Cap::Square => skia_safe::paint::Cap::Square,
+                    });
+                    paint.set_stroke_join(match style.join {
+                        vello_common::kurbo::Join::Miter => skia_safe::paint::Join::Miter,
+                        vello_common::kurbo::Join::Round => skia_safe::paint::Join::Round,
+                        vello_common::kurbo::Join::Bevel => skia_safe::paint::Join::Bevel,
+                    });
+                    if !style.dash_pattern.is_empty() {
+                        let dashes: Vec<f32> =
+                            style.dash_pattern.iter().map(|d| *d as f32).collect();
+                        let effect = skia_safe::PathEffect::dash(&dashes, style.dash_offset as f32)
+                            .ok_or(Error::Unsupported {
+                                command: "invalid dash pattern",
+                            })?;
+                        paint.set_path_effect(effect);
+                    }
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    canvas.draw_path(&path(shape), &paint);
+                    canvas.restore();
+                }
                 PaintCommand::BoxShadow { .. } => return unsupported("BoxShadow"),
                 PaintCommand::Svg { .. } => return unsupported("Svg"),
                 PaintCommand::Shader { .. } => return unsupported("Shader"),

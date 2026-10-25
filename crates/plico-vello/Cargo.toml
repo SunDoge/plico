@@ -24,10 +24,12 @@ notify = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
 plico-gallery = { path = "../../apps/gallery" }
 
 [features]
+skia = ["plico-shell/skia"]
 default = ["hot-reload"]
 hot-reload = ["plico-dev/host", "dep:notify", "dep:usage-rs"]
 profiling = ["plico-renderer/profiling", "plico-shell/profiling"]
@@ -45,3 +47,7 @@ required-features = ["hot-reload"]
 plico-shell.workspace = true
 tracing.workspace = true
 usage-rs = { workspace = true, optional = true }
+
+[[example]]
+name = "skia-window"
+required-features = ["skia"]

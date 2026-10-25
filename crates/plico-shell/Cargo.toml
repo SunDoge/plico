@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 plico-renderer = { path = "../plico-renderer" }
+plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
 accesskit = "0.24.1"
 futures-util = "0.3"
 glifo = { workspace = true, features = ["png"] }
@@ -31,6 +32,7 @@ url = { workspace = true }
 vello-common.workspace = true
 
 [features]
+skia = ["dep:plico-skia"]
 profiling = ["plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
