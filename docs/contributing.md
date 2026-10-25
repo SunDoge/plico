@@ -42,9 +42,14 @@ GitHub Actions 的 `.github/workflows/ci.yml` 在 push、pull request 和手动�
 
 - **Formatting and workspace versions**：检查成员版本统一继承，使用 `plico fmt --check`
   同时检查普通 Rust 与 `#[component]` 区域，不对 UI 强行套用 rustfmt 的布局。
-- **Linux tests, Clippy and hot reload**：安装字体、原生开发库和 Mesa 软件 Vulkan，
-  对全部 workspace target/feature 执行 Clippy（警告视为错误）和测试，包括离屏 GPU
-  绘制和 profiling 双输出模式；运行实际 CLI 的生成应用、热重载失败恢复和原生文本输入脚本。
+- **Linux tests**：core、rendering、apps 三组并行测试，分组在 `scripts/ci-tests.py`
+  中维护并检查 workspace 覆盖；rendering 同时验证 profiling 双输出模式。
+- **Native hot reload and text input**：独立编译 CLI/宿主，运行生成应用、热重载失败恢复
+  和原生文本输入脚本，不等待整套 workspace 测试。
+- **Skia Vulkan and native windows**：独立检查 Skia 与共享 Settings 应用，验证离屏回放、
+  Vulkan 生命周期，以及开启 validation layer 的 Xvfb 窗口交互；失败时上传窗口截图和日志。
+- **Linux Clippy**：检查普通 workspace 的全部 target/feature，警告视为错误；
+  FLTK、LVGL 和共享 Settings 由对应后端任务检查。
 - **WASM host and UI**：检查无渲染核心、gallery/split 浏览器宿主及可加载 UI 模块，
   宿主路径同时执行 Clippy。只检查对应浏览器 package，不把原生 workspace 强编成 WASM。
 - **LVGL backend experiment**：使用 stable 和 SDL2/libclang，离屏执行
@@ -59,14 +64,18 @@ GitHub Actions 的 `.github/workflows/ci.yml` 在 push、pull request 和手动�
 ```sh
 python3 scripts/check-versions.py
 cargo run --locked -p plico-cli -- fmt --check
-cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-targets --all-features -- -D warnings
-cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --all-features
+python3 scripts/ci-tests.py --check
+python3 scripts/ci-tests.py core
+python3 scripts/ci-tests.py rendering
+python3 scripts/ci-tests.py apps
+cargo test --locked -p plico-skia -p plico-backend-settings --features plico-skia/window,plico-backend-settings/skia --all-targets
 cargo build --locked -p plico-cli -p plico-vello
 python3 scripts/check-hotreload.py
 python3 scripts/check-text-input-reload.py
 ```
 
 WASM 还需要 `rustup target add wasm32-unknown-unknown`，具体检查命令见 workflow。
+三组测试、热重载与 Skia 任务使用独立 Cargo 缓存；新增 workspace 成员必须明确分配测试组。
 热重载脚本默认从 `target/debug` 找 CLI；自定义输出目录时设置绝对路径的 `CARGO_TARGET_DIR`。
 
 ## 统一版本

@@ -33,8 +33,10 @@ jobs:
           toolchain: stable
           components: rustfmt
       - uses: jdx/mise-action@9a35c22ab9022da3f8dbd8c6f42221c5224f78e1 # v5
-      - name: Check shared package version
-        run: python3 scripts/check-versions.py
+      - name: Check shared package version and CI test coverage
+        run: |
+          python3 scripts/check-versions.py
+          python3 scripts/ci-tests.py --check
       - name: Check Git-only release configuration
         run: mise exec -- python3 scripts/check-release.py
       - name: Check Rust and component formatting
@@ -69,9 +71,13 @@ jobs:
         run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --exclude plico-fltk --exclude plico-backend-settings --all-targets --all-features -- -D warnings
 
   native:
-    name: Linux tests and hot reload
+    name: Linux tests (${{ matrix.suite }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [core, rendering, apps]
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
       XDG_RUNTIME_DIR: /tmp/plico-ci-runtime
@@ -80,45 +86,80 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
+      - uses: ./.github/actions/setup-native
         with:
-          toolchain: stable
-          cache-shared-key: native
-      - name: Install native libraries, fonts and software Vulkan
+          cache-key: tests-${{ matrix.suite }}
+      - name: Run assigned workspace tests
+        run: python3 scripts/ci-tests.py "${{ matrix.suite }}"
+      - name: Verify profiling with and without a trace file
+        if: matrix.suite == 'rendering'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
-            libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-            libvulkan1 mesa-vulkan-drivers fonts-dejavu-core fonts-noto-cjk \
-            xvfb xdotool imagemagick vulkan-validationlayers
-          mkdir -p "$XDG_RUNTIME_DIR"
-          chmod 700 "$XDG_RUNTIME_DIR"
-      - name: Run workspace tests, including headless rendering
-        run: cargo test --locked --workspace --exclude plico-lvgl --exclude plico-lvgl-esp32p4 --exclude plico-fltk --exclude plico-backend-settings --all-features
-      - name: Verify Skia Vulkan submission, readback and resource lifecycle
+          env -u PLICO_TRACE_FILE cargo run --locked -p plico-vello --features profiling --example trace_span
+          PLICO_TRACE_FILE="$RUNNER_TEMP/plico-trace.json" cargo run --locked -p plico-vello --features profiling --example trace_span
+
+  hot-reload:
+    name: Native hot reload and text input
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      XDG_RUNTIME_DIR: /tmp/plico-ci-runtime
+      WGPU_BACKEND: vulkan
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-native
+        with:
+          cache-key: hot-reload
+      - name: Build the CLI and native development host
+        run: cargo build --locked -p plico-cli -p plico-vello
+      - name: Verify generated app and reload recovery
+        run: python3 scripts/check-hotreload.py
+      - name: Verify native text input across reload
+        run: python3 scripts/check-text-input-reload.py
+
+  skia:
+    name: Skia Vulkan and native windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      XDG_RUNTIME_DIR: /tmp/plico-ci-runtime
+      WGPU_BACKEND: vulkan
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-native
+        with:
+          cache-key: skia
+      - name: Check the Skia adapter and shared settings app
+        run: cargo clippy --locked -p plico-skia -p plico-backend-settings --features plico-skia/window,plico-backend-settings/skia --all-targets -- -D warnings
+      - name: Verify raster replay and shared settings routes
+        run: cargo test --locked -p plico-skia -p plico-backend-settings --features plico-skia/window,plico-backend-settings/skia --all-targets
+      - name: Verify Vulkan submission, readback and resource lifecycle
         env:
           PLICO_SKIA_DEVICE: llvmpipe
         run: cargo test --locked -p plico-skia --features vulkan --test vulkan -- --ignored --test-threads=1
-      - name: Verify Skia window input, resizing and presentation
+      - name: Verify window input, resizing and presentation
         env:
           VK_INSTANCE_LAYERS: VK_LAYER_KHRONOS_validation
           VK_LAYER_ENABLES: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT
         run: |
           python3 scripts/check-skia-window.py
           python3 scripts/check-skia-settings.py
-      - name: Verify the shared routed workspace on Vello and Skia
-        run: cargo test --locked -p plico-backend-settings --features skia --all-targets
-      - name: Verify profiling with and without a trace file
-        run: |
-          env -u PLICO_TRACE_FILE cargo run --locked -p plico-vello --features profiling --example trace_span
-          PLICO_TRACE_FILE="$RUNNER_TEMP/plico-trace.json" cargo run --locked -p plico-vello --features profiling --example trace_span
-      - name: Build the CLI and native development host
-        run: cargo build --locked -p plico-cli -p plico-vello
-      - name: Verify generated app, reload recovery and native text input
-        run: |
-          python3 scripts/check-hotreload.py
-          python3 scripts/check-text-input-reload.py
+
+      - name: Keep failed window captures and logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skia-window-failure
+          path: |
+            reports/skia-window/
+            reports/skia-settings/
+          if-no-files-found: ignore
+          retention-days: 7
 
   windows:
     name: Windows build and core tests
