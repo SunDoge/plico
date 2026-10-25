@@ -16,6 +16,9 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
+#[path = "support/coroutine_scopes.rs"]
+mod scopes;
+
 #[derive(Default)]
 struct WakeFlag(AtomicBool);
 impl Wake for WakeFlag {
@@ -372,6 +375,7 @@ fn main() {
     assert!(flow.has_text("Deleted: 42"));
     flow.cancel();
     println!("workflow: confirmation → sleeping task → wake → result, cleanup OK");
+    scopes::run();
 }
 
 #[cfg(test)]

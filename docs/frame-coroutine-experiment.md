@@ -38,7 +38,7 @@ plico-dev 管理，未修改其格式。
 
 ## 当前边界
 
-- 每个 Host 只有一个协程和整棵树；不支持 join、多 scope 或组件级稀疏提交。
+- 每个 Host 只有一个协程和整棵树；scope 实验组合多个 Host，仍不支持共享树局部提交或 join。
 - 确认和 loading 替换整个视图，不是覆盖在仍可交互的背景之上的 modal。
 - Engine 的声明、匹配和提交扫描仍然存在，没有属性级 reactive 性能收益。
 - 未接窗口事件循环、动画时钟、宿主服务及真实动态库；闭包渲染错误目前直接 panic。
@@ -53,3 +53,31 @@ plico-dev 管理，未修改其格式。
 不安全的栈 context 指针。收益主要是状态与流程表达，不是省掉声明执行。
 代价包括每个长期流程的 Future 存储、Engine 共享间接访问、显式失效与检查点。
 是否引入共享树 scope、自动 checkpoint 宏和宿主适配，仍需后续实验。
+
+
+## 父子 scope 实验
+
+`examples/support/coroutine_scopes.rs` 复用相同 Host，使用 generational Arena 保存
+父子所有权。每个 scope 有独立 Engine、Future、Waker 和检查点空间。输入目前由测试
+显式指定 scope，节点身份必须理解为 `(scope id, engine-local entity)`；不同 Engine
+的 Entity 不能单独用作全局输入 ID。
+
+已验证：
+
+- counter 与等待任务的流程独立推进；等待期间 counter 可点击，任务完成不重新声明兄弟。
+- 两个 counter 使用相同 state key，不共享状态；只重建一个 Future 不重新声明另一个。
+- 取消 scope 沿所有权树按子先父后清理，保留无关兄弟；父任务自然完成后也移除后代。
+- scope 删除后，旧事件被拒绝；旧任务的晚到 Waker 不会唤醒复用 arena 槽位的新 scope。
+
+这只是调度和所有权实验，不是多个组件已经可以拼成统一窗口。各 Engine 之间没有
+共同的 Taffy 布局、焦点、portal 或事件命中系统；也没有共享树、共享缓存、合成输出。
+调度使用 O(scope 数量) 的列表扫描并创建临时 ID 列表，但只 poll 被唤醒的任务。
+因此可以证明跳过兄弟业务声明，不能证明整体 O(Δ) 或减少内存；每个 scope 一个 Engine
+反而有固定内存开销。不能把它直接推广为每个 widget 一个 Engine。
+
+外部取消可以保证子先父后 Drop；父 Future 自然返回时，它内部局部值先由 Rust
+析构，宿主观察到 Ready 后才能清理后代。若父资源必须活到所有子任务结束，需要把
+这类资源放在宿主 scope 中，或先显式等待/取消子任务，不能依赖 async 局部析构顺序。
+
+下一步若继续推进，关键是共享 Engine 的局部声明事务、统一布局和组件挂载 API，
+而不是增加 DSL。当前 mount 在宿主侧完成，还没有在 async 父函数内借用并挂载子组件。
