@@ -92,6 +92,9 @@ jobs:
           cache-key: tests-${{ matrix.suite }}
       - name: Run assigned workspace tests
         run: python3 scripts/ci-tests.py "${{ matrix.suite }}"
+      - name: Guard the Widget trait boundary in application crates
+        if: matrix.suite == 'apps'
+        run: python3 scripts/check-widget-boundary.py
       - name: Verify profiling with and without a trace file
         if: matrix.suite == 'rendering'
         run: |
@@ -150,6 +153,7 @@ jobs:
         run: |
           python3 scripts/check-skia-window.py
           python3 scripts/check-skia-settings.py
+          python3 scripts/check-settings-parity.py
 
       - name: Keep failed window captures and logs
         if: failure()
@@ -159,6 +163,7 @@ jobs:
           path: |
             reports/skia-window/
             reports/skia-settings/
+            reports/settings-parity/
           if-no-files-found: ignore
           retention-days: 7
 

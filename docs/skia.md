@@ -123,9 +123,13 @@ Wayland/Intel GPU 已验证窗口初始化及呈现。其他平台尚未验证�
 cargo run -p plico-backend-settings --features skia --bin settings-skia
 cargo run -p plico-backend-settings --features vello --bin settings-vello
 python3 scripts/check-skia-settings.py
+python3 scripts/check-settings-parity.py
 ```
 
 三个页面直接复用同一 Settings 实现，包括 router、Details 动画、进度条、主题、
 Grid、滚动列表和文字输入。Lucide SVG 使用原 usvg 树转换为实色路径与描边；
 转换后的指令按 document 身份缓存，源文档释放后在后续帧清理。
+`check-settings-parity.py` 在同一 Xvfb 上把两个后端驱动到相同路由与主题状态，
+要求同状态跨后端 RMSE 低于不同状态基线的一半——用于发现较大的视觉偏差，不证明结构完全一致或光栅化像素相同。
+窗口烟测的共享机制位于 `scripts/plico_smoke.py`（Xvfb 生命周期、xdotool 输入与截图）。
 深浅主题、宽窄布局及动画中间帧有独立 Skia 回放测试；窗口脚本检查真实呈现和输入。

@@ -32,8 +32,12 @@ return explicit errors. This is an experimental backend, not full gallery parity
 ```sh
 cargo test -p plico-backend-settings --features skia --all-targets
 python3 scripts/check-skia-settings.py
+python3 scripts/check-settings-parity.py
 ```
 
 The window smoke test starts its own Xvfb display with llvmpipe, visits all three
 routes, toggles Details/theme, resizes, and saves local captures under reports/.
+The parity check drives settings-vello and settings-skia through the identical
+route state machine on one display and asserts the same-state cross-backend
+RMSE stays well below half the different-state baseline, detecting large visual drift between backends without pretending rasterizers are pixel-identical.
 See [Skia support and limitations](../../docs/skia.md).

@@ -13,6 +13,6 @@
 
 - 新应用使用普通 Rust 状态和 plico_dev::App::show；事件触发声明，后端保留节点、文字、布局与绘制缓存。静态节点不手写 key，动态列表使用业务 ID。应用不维护 changed。时间从 Clock/FrameTime 注入，不在组件中读取系统 Instant。
 
-- 新的应用代码优先使用 UiContext 首参的独立控件函数（plico_core::widgets / prelude），自定义组件优先普通函数，不要求实现 Widget trait。布局优先使用 `+ |cx| { ... }`，原生 children 保留；动态格式化文字优先 text!(cx, ...)，已有字符串直接借用。异步任务留在宿主，通过服务快照和消息回到 UI，不引入常驻业务订阅图。
+- 新的应用代码优先使用 UiContext 首参的独立控件函数（plico_core::widgets / prelude），自定义组件优先普通函数，不要求实现 Widget trait。两个 Widget trait 分界：plico_core::Widget（fn show）是应用可组合的 immediate 辅助 trait；plico_renderer::Widget（measure/paint/IME 平台契约）只允许框架 crate（editor、terminal-widget 等）实现，应用可以宿主这类 widget（调用其 trait 方法、接收 WidgetNodeEvent），但不得自行实现或触碰其 MeasureContext/PaintContext 表面；scripts/check-widget-boundary.py 在 CI 中守卫此边界。布局优先使用 `+ |cx| { ... }`，原生 children 保留；动态格式化文字优先 text!(cx, ...)，已有字符串直接借用。异步任务留在宿主，通过服务快照和消息回到 UI，不引入常驻业务订阅图。
 
 - reports/ 下的截图、日志与性能报告是本地生成产物，不参与提交；提交可重建脚本、测试断言与文档结论，文档不依赖生成文件链接。
