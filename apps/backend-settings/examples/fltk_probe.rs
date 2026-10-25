@@ -1,6 +1,6 @@
 //! Run under Xvfb; exercises the real native widgets, not a mock projection.
+use backend_settings::Settings;
 use fltk_native::{app, draw, group::Group, prelude::*, window::Window};
-use plico_backend_settings::Settings;
 use plico_core::{Engine, Entity, Kind};
 use plico_fltk::{Adapter, Event};
 use std::{io::Write, time::Instant};
@@ -81,8 +81,7 @@ fn main() {
     let mut engine = Engine::default();
     engine.set_viewport(680., 700.).unwrap();
     let mut view = Settings::default();
-    view.router
-        .replace(plico_backend_settings::Page::Preferences);
+    view.router.replace(backend_settings::Page::Preferences);
     engine.declare_until_settled(&mut view).unwrap();
     adapter.sync(&engine).unwrap();
     app::check();
@@ -189,10 +188,7 @@ fn main() {
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 500);
     frame_at(&mut engine, &mut view, &mut adapter, 800);
-    assert_eq!(
-        view.router.current(),
-        plico_backend_settings::Page::Overview
-    );
+    assert_eq!(view.router.current(), backend_settings::Page::Overview);
     let metrics: Vec<_> = ["PROJECTS", "STORAGE", "SYNC HEALTH"]
         .map(|name| adapter.bounds(named(&engine, Kind::Text, name)).unwrap())
         .to_vec();
@@ -295,18 +291,12 @@ fn main() {
     adapter.native_widget(back).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 4700);
-    assert_eq!(
-        view.router.current(),
-        plico_backend_settings::Page::Activity
-    );
+    assert_eq!(view.router.current(), backend_settings::Page::Activity);
     let forward = named(&engine, Kind::ButtonBase, "Forward");
     adapter.native_widget(forward).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 4800);
-    assert_eq!(
-        view.router.current(),
-        plico_backend_settings::Page::Preferences
-    );
+    assert_eq!(view.router.current(), backend_settings::Page::Preferences);
     view.compact = false;
     view.inspector = false;
     view.reduced_motion = true;

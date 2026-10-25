@@ -53,7 +53,7 @@ lightvgl-sys 9.5.4（按工作区 Cargo.lock 校验 registry archive），应用
 不会读取网关私有配置，也不烧录设备。首次需要联网；嵌入式依赖使用隔离的 Cargo.lock，
 不改变桌面 workspace 的依赖解析。
 
-输出：`target/esp32p4/build/riscv32imafc-esp-espidf/release/libplico_lvgl_esp32p4.a`。
+输出：`target/esp32p4/build/riscv32imafc-esp-espidf/release/liblvgl_esp32p4.a`。
 这是带 std 的目标静态库；也由上面的完整固件构建脚本调用。
 
 ## 接入 BSP

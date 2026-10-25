@@ -74,7 +74,7 @@ python3 scripts/ci-tests.py --check
 python3 scripts/ci-tests.py core
 python3 scripts/ci-tests.py rendering
 python3 scripts/ci-tests.py apps
-cargo test --locked -p plico-skia -p plico-backend-settings --features plico-skia/window,plico-backend-settings/skia --all-targets
+cargo test --locked -p plico-skia -p backend-settings --features plico-skia/window,backend-settings/skia --all-targets
 cargo build --locked -p plico-cli -p plico-vello
 python3 scripts/check-hotreload.py
 python3 scripts/check-text-input-reload.py

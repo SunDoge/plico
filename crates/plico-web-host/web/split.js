@@ -16,7 +16,7 @@ function measured(render) {
   };
 }
 async function load(version) {
-  const module=await import(`./ui-${version}/plico_web_demo.js?instance=${sequence++}`);
+  const module=await import(`./ui-${version}/web_demo.js?instance=${sequence++}`);
   await module.default();
   return measured(module.render);
 }

@@ -1,8 +1,8 @@
 //! Synthetic projection capture; no background task or live data.
 use plico_dev::services::HostService;
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_services_demo::{Application, TaskCommand, TaskSnapshot, TaskStatus};
 use plico_vello::{ServiceView, Source};
+use services_demo::{Application, TaskCommand, TaskSnapshot, TaskStatus};
 use snafu::{ResultExt, Snafu};
 use std::path::PathBuf;
 #[derive(usage_rs::Cli)]

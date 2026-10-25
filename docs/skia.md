@@ -120,8 +120,8 @@ Wayland/Intel GPU 已验证窗口初始化及呈现。其他平台尚未验证�
 ### 共享 Settings 应用
 
 ```sh
-cargo run -p plico-backend-settings --features skia
-cargo run -p plico-backend-settings --features vello
+cargo run -p backend-settings --features skia
+cargo run -p backend-settings --features vello
 python3 scripts/check-skia-settings.py
 python3 scripts/check-settings-parity.py
 ```

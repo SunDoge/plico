@@ -1,5 +1,5 @@
 //! Gallery verification tool; the application itself does not parse arguments.
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_vello::Source;
 use snafu::{ResultExt, Snafu};
@@ -105,7 +105,7 @@ fn run() -> Result<(), Error> {
         app.markdown_chat.follow = false;
     }
     if options.game_sample {
-        app.game2048 = plico_gallery::game2048::Game::from_cells([
+        app.game2048 = gallery::game2048::Game::from_cells([
             [2, 2, 4, 8],
             [4, 8, 16, 32],
             [8, 16, 64, 128],
@@ -115,8 +115,7 @@ fn run() -> Result<(), Error> {
         app.game2048.best = 8192;
     }
     if options.game_move {
-        app.game2048
-            .move_dir(plico_gallery::game2048::Direction::Left);
+        app.game2048.move_dir(gallery::game2048::Direction::Left);
     }
     if options.empty {
         for project in &mut app.workspace.projects {

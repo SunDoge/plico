@@ -449,6 +449,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "backend-settings"
+version = "0.1.0"
+dependencies = [
+ "fltk",
+ "plico-core",
+ "plico-fltk",
+ "plico-motion",
+ "plico-renderer",
+ "plico-runtime",
+ "plico-shell",
+ "plico-skia",
+ "plico-vello",
+ "snafu",
+ "tracing-subscriber",
+ "usage-rs",
+ "vello_common",
+]
+
+[[package]]
 name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1538,6 +1557,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "gallery"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-dev",
+ "plico-editor",
+ "plico-markdown",
+ "plico-renderer",
+ "plico-shell",
+ "plico-vello",
+ "serde",
+ "serde_json",
+ "snafu",
+ "stabby",
+ "usage-rs",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2284,6 +2321,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "launcher"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-renderer",
+ "plico-shell",
+ "plico-vello",
+ "snafu",
+ "usage-rs",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2494,6 +2543,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9f71e3591c7ec44d3e563e87bf14ddc2bada8519dca046e5b0e560cd004e2d"
 dependencies = [
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "lvgl-esp32p4"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-lvgl",
 ]
 
 [[package]]
@@ -3404,25 +3461,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "plico-backend-settings"
-version = "0.1.0"
-dependencies = [
- "fltk",
- "plico-core",
- "plico-fltk",
- "plico-motion",
- "plico-renderer",
- "plico-runtime",
- "plico-shell",
- "plico-skia",
- "plico-vello",
- "snafu",
- "tracing-subscriber",
- "usage-rs",
- "vello_common",
-]
-
-[[package]]
 name = "plico-cli"
 version = "0.1.0"
 dependencies = [
@@ -3495,36 +3533,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-gallery"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "plico-dev",
- "plico-editor",
- "plico-markdown",
- "plico-renderer",
- "plico-shell",
- "plico-vello",
- "serde",
- "serde_json",
- "snafu",
- "stabby",
- "usage-rs",
-]
-
-[[package]]
-name = "plico-launcher"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "plico-renderer",
- "plico-shell",
- "plico-vello",
- "snafu",
- "usage-rs",
-]
-
-[[package]]
 name = "plico-lvgl"
 version = "0.1.0"
 dependencies = [
@@ -3536,14 +3544,6 @@ dependencies = [
  "snafu",
  "toml 1.1.8+spec-1.1.0",
  "usage-rs",
-]
-
-[[package]]
-name = "plico-lvgl-esp32p4"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "plico-lvgl",
 ]
 
 [[package]]
@@ -3623,11 +3623,11 @@ dependencies = [
 name = "plico-runtime"
 version = "0.1.0"
 dependencies = [
+ "gallery",
  "notify",
  "parley",
  "plico-core",
  "plico-dev",
- "plico-gallery",
  "plico-motion",
  "plico-renderer",
  "plico-shell",
@@ -3639,23 +3639,6 @@ dependencies = [
  "vello_common",
  "web-time",
  "zeroize",
-]
-
-[[package]]
-name = "plico-services-demo"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "plico-dev",
- "plico-renderer",
- "plico-shell",
- "plico-vello",
- "serde",
- "serde_json",
- "snafu",
- "stabby",
- "tempfile",
- "usage-rs",
 ]
 
 [[package]]
@@ -3717,19 +3700,6 @@ dependencies = [
 name = "plico-terminal"
 version = "0.1.0"
 dependencies = [
- "plico-core",
- "plico-renderer",
- "plico-terminal-widget",
- "plico-vello",
- "serde_json",
- "snafu",
- "usage-rs",
-]
-
-[[package]]
-name = "plico-terminal-widget"
-version = "0.1.0"
-dependencies = [
  "libc",
  "percent-encoding",
  "plico-core",
@@ -3747,10 +3717,10 @@ dependencies = [
 name = "plico-vello"
 version = "0.1.0"
 dependencies = [
+ "gallery",
  "image",
  "plico-core",
  "plico-dev",
- "plico-gallery",
  "plico-renderer",
  "plico-runtime",
  "plico-shell",
@@ -3763,24 +3733,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-web-demo"
-version = "0.1.0"
-dependencies = [
- "plico-core",
- "plico-dev",
- "serde",
- "serde_json",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "plico-web-host"
 version = "0.1.0"
 dependencies = [
+ "gallery",
  "js-sys",
  "plico-core",
  "plico-dev",
- "plico-gallery",
  "plico-renderer",
  "plico-vello",
  "serde_json",
@@ -4479,6 +4438,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "services-demo"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-dev",
+ "plico-renderer",
+ "plico-shell",
+ "plico-vello",
+ "serde",
+ "serde_json",
+ "snafu",
+ "stabby",
+ "tempfile",
+ "usage-rs",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4995,6 +4971,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "terminal"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-renderer",
+ "plico-terminal",
+ "plico-vello",
+ "serde_json",
+ "snafu",
+ "usage-rs",
 ]
 
 [[package]]
@@ -5807,6 +5796,17 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "web-demo"
+version = "0.1.0"
+dependencies = [
+ "plico-core",
+ "plico-dev",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

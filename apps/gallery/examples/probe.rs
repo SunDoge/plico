@@ -3,7 +3,7 @@
 //! Two modes:
 //!   probe            # all pages, cold/idle/scroll/idle phases
 //!   probe --legacy   # the original Controls-page interaction script
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_vello::Source;
 
@@ -92,7 +92,7 @@ fn probe_page(page: Page) -> Vec<serde_json::Value> {
 }
 fn legacy_frames() -> Vec<serde_json::Value> {
     let mut s = Source::new(Gallery {
-        router: plico_core::Router::new(plico_gallery::Page::Controls),
+        router: plico_core::Router::new(gallery::Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

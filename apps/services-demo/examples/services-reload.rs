@@ -4,8 +4,8 @@
 mod service;
 use plico_dev::{host::Descriptor, services::HostService};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_services_demo::TaskStatus;
 use plico_vello::{Source, reload::ReloadView};
+use services_demo::TaskStatus;
 use snafu::{ResultExt, Snafu};
 use std::{
     path::{Path, PathBuf},
@@ -84,7 +84,7 @@ fn wait_for(
     source: &mut Source<ReloadView<service::TaskService>>,
     tcx: &mut TextContext,
     wakes: &mpsc::Receiver<()>,
-    done: impl Fn(&plico_services_demo::TaskSnapshot) -> bool,
+    done: impl Fn(&services_demo::TaskSnapshot) -> bool,
 ) -> Result<()> {
     for _ in 0..128 {
         source.poll_async();

@@ -24,7 +24,7 @@ custom headerbar 的拖动和窗口按钮继续使用既有 WindowCommand 接口
 
 ```sh
 cargo test -p plico-shell window_frame::tests --lib
-cargo run -p plico-launcher
+cargo run -p launcher
 ```
 
 像素测试用实际 renderer 在 1x/2x 下验证角点 alpha=0，中心和边中点 alpha=255。

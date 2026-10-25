@@ -1,9 +1,9 @@
 [package]
-name = "plico-gallery"
+name = "gallery"
 version.workspace = true
 edition.workspace = true
 publish = false
-default-run = "plico-gallery"
+default-run = "gallery"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -22,7 +22,7 @@ desktop = ["dep:plico-vello"]
 profiling = ["plico-vello/profiling"]
 
 [[bin]]
-name = "plico-gallery"
+name = "gallery"
 path = "src/main.rs"
 required-features = ["desktop"]
 

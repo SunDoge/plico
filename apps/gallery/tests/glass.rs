@@ -1,5 +1,5 @@
+use gallery::{Gallery, Page};
 use plico_core::{Clock, VirtualClock};
-use plico_gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, PaintCommand, Scene, TextContext};
 use plico_vello::Source;
 use std::time::Duration;

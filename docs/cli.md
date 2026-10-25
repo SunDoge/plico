@@ -107,7 +107,7 @@ check/test/clippy 等 Cargo 包装命令的后续参数原样转交（保留 --�
 ```sh
 plico fmt                             # 格式化整个 workspace
 plico fmt --check                     # 只检查，存在差异时返回 1
-plico fmt -p plico-gallery            # 指定一个 workspace package
+plico fmt -p gallery            # 指定一个 workspace package
 plico fmt src/lib.rs                  # 指定文件或目录
 plico fmt --width 100 src             # 组件链的平铺宽度，默认 120
 ```
@@ -146,11 +146,11 @@ python3 scripts/check-hotreload.py
 
 当前旧代码映像保持映射至进程结束，避免 TLS/析构地址悬空，长时间大量重载会增加地址空间/内存占用；可重启 dev 回收。Stabby 简化并校验 ABI，不提供进程隔离，不能恢复原生崩溃、abort、OOM 或任意 unsafe 错误。只加载可信的本地应用代码。宿主输入、文字编辑和异步任务等后续能力仍需分别完善。
 
-内置 gallery 同样是普通应用：`cargo run -p plico-gallery` 打开窗口，`cargo plico render --out /tmp/gallery.png` 离屏绘制；`cargo plico render/probe` 调用 gallery 的独立验证示例。后端仅在测试中依赖 gallery，生产依赖方向为 gallery → backend。`cargo build -p plico-gallery --lib --no-default-features --features abi` 构建轻量热重载模块。
+内置 gallery 同样是普通应用：`cargo run -p gallery` 打开窗口，`cargo plico render --out /tmp/gallery.png` 离屏绘制；`cargo plico render/probe` 调用 gallery 的独立验证示例。后端仅在测试中依赖 gallery，生产依赖方向为 gallery → backend。`cargo build -p gallery --lib --no-default-features --features abi` 构建轻量热重载模块。
 
 ## Gallery 验证工具
 
-`plico-gallery/src/main.rs` 只构造 App 和窗口选项，不包含参数解析。截图与工作量采样放在 examples/capture.rs、examples/probe.rs，由 CLI 调用；验证工具的参数继续使用 usage-rs。
+`gallery/src/main.rs` 只构造 App 和窗口选项，不包含参数解析。截图与工作量采样放在 examples/capture.rs、examples/probe.rs，由 CLI 调用；验证工具的参数继续使用 usage-rs。
 
 ```sh
 cargo plico render --out /tmp/layout.png --page layout

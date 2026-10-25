@@ -1,4 +1,4 @@
-# plico-terminal-widget
+# plico-terminal
 
 Plico 的原生终端控件，使用 rio-vt / PTY、Parley 与 Plico 的保留绘制场景。
 不依赖原 Wabou checkout、JavaScript host 或旧 UI protocol。
@@ -11,8 +11,8 @@ Plico 的原生终端控件，使用 rio-vt / PTY、Parley 与 Plico 的保留�
 具体进程组退出和平台限制见 [终端文档](../../docs/terminal.md)。
 
 ```sh
-cargo run -p plico-terminal
-cargo test -p plico-terminal-widget
+cargo run -p terminal
+cargo test -p plico-terminal
 ```
 
 源代码从 Wabou 复制后由 Plico 独立维护。原始来源与许可记录见

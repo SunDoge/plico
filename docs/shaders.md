@@ -42,9 +42,9 @@ values(&[...]) 在应用声明时创建拥有所有权的参数 Vec；动画中�
 Gallery 的 Motion 页包含实时 WGSL aurora 和暂停按钮。shader 集成测试实际检查 GPU 像素，覆盖参数、虚拟时钟、暂停/恢复、reduced-motion、2× DPI、静态帧复用、完整模块、源码错误和卸载；不是仅检查 display-list 中出现字符串。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 cargo test -p plico-vello --test shader
-cargo run -p plico-gallery --example capture -- --page motion --out /tmp/shader.png
+cargo run -p gallery --example capture -- --page motion --out /tmp/shader.png
 ```
 
 真实 cdylib 验证复用 scripts/check-modal-reload.py：在打开的弹窗内更新持续动画的 WGSL 程序，保留应用计数并回放 uniform，再关闭并卸载。此测试也修复了 headless 激活新模块后未请求声明的问题。证据见 reports/modal/reload.json 与 reports/shaders/reload.png。

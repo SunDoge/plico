@@ -65,11 +65,11 @@ Style.role 是后端无关的可选 WidgetRole，随 ViewNode 序列化；旧快
 参考本机 MyGO `ui/base.go` 的 coreSelectBase（应用持值、trigger/popup、键盘 highlight 与 choose 分离），及 Wabou Select/Popover 的业务选项、禁用项、共享浮层和约束滚动。本实现使用显式可序列化浮层状态及业务 key，不依赖 Go runtime 或保留应用输入闭包。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 # Controls → Release channel；Quick settings → Actions
 cargo test -p plico-vello --test select_menu
-cargo run -p plico-gallery --example capture -- --page controls --select --out /tmp/select.png
-cargo run -p plico-gallery --example capture -- --page controls --menu --dark --width 640 --height 740 --out /tmp/menu.png
+cargo run -p gallery --example capture -- --page controls --select --out /tmp/select.png
+cargo run -p gallery --example capture -- --page controls --menu --dark --width 640 --height 740 --out /tmp/menu.png
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 python3 scripts/check-lsp.py

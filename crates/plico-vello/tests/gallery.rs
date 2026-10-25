@@ -1,4 +1,4 @@
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
     PointerPhase, SemanticAction, SemanticRole, SemanticToggleState, TextContext, UiEvent,

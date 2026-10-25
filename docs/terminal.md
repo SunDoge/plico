@@ -1,19 +1,19 @@
 # 原生 Terminal
 
-Wabou terminal 已复制到本仓库的 plico-terminal-widget，提供 Plico 原生终端示例。
+Wabou terminal 已复制到本仓库的 plico-terminal，提供 Plico 原生终端示例。
 原 Wabou checkout 没有被修改；来源 commit 与复制前文件哈希在
 [TERMINAL-UPSTREAM.json](../backend/TERMINAL-UPSTREAM.json)，许可证沿用 backend/LICENSE。
 
 ## 运行
 
 ```sh
-cargo run -p plico-terminal
+cargo run -p terminal
 ```
 
 默认启动用户 shell。也可以直接指定程序及 JSON 参数数组：
 
 ```sh
-cargo run -p plico-terminal -- --command /bin/sh --command-args '["-l"]'
+cargo run -p terminal -- --command /bin/sh --command-args '["-l"]'
 ```
 
 参数数组直接传给 PTY 程序，不由 CLI 拼接成 shell command。
@@ -51,9 +51,9 @@ IME、图形和系统剪贴板并未宣称在所有桌面平台完成端到端�
 ## 验证
 
 ```sh
-cargo test -p plico-terminal-widget --lib
+cargo test -p plico-terminal --lib
 cargo test -p plico-vello --test native_surface
-cargo build -p plico-terminal
+cargo build -p terminal
 xvfb-run -a python3 apps/terminal/tests/native_smoke.py
 ```
 

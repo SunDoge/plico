@@ -1,6 +1,6 @@
 //! Deterministic real-render captures; no native window or sleeps.
+use gallery::Gallery;
 use plico_core::UiContext;
-use plico_gallery::Gallery;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
 use std::time::{Duration, Instant};
@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("PLICO_REPORT_DIR").unwrap_or_else(|_| "reports/layout-style".into());
     std::fs::create_dir_all(&directory)?;
     let mut source = Source::new(Gallery {
-        router: plico_core::Router::new(plico_gallery::Page::Layout),
+        router: plico_core::Router::new(gallery::Page::Layout),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

@@ -1,8 +1,8 @@
-use plico_core::{Clock, VirtualClock};
-use plico_gallery::{
+use gallery::{
     Gallery, Page,
     game2048::{Direction, Game},
 };
+use plico_core::{Clock, VirtualClock};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     TextContext, UiEvent,

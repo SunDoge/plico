@@ -1,6 +1,6 @@
 fn main() -> Result<(), plico_vello::DesktopError> {
     plico_vello::run_view_with_options(
-        plico_launcher::Launcher::default(),
+        launcher::Launcher::default(),
         plico_vello::WindowOptions::new()
             .title("Plico launcher")
             .initial_inner_size(680, 526)

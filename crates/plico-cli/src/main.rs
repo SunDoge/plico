@@ -167,22 +167,8 @@ fn workspace(directory: &Path) -> Result<PathBuf> {
 }
 fn cargo_arguments(name: &str, args: Vec<OsString>, manifest: &Path) -> Vec<OsString> {
     let prefix: &[&str] = match name {
-        "render" => &[
-            "run",
-            "--quiet",
-            "-p",
-            "plico-gallery",
-            "--example",
-            "capture",
-        ],
-        "probe" => &[
-            "run",
-            "--quiet",
-            "-p",
-            "plico-gallery",
-            "--example",
-            "probe",
-        ],
+        "render" => &["run", "--quiet", "-p", "gallery", "--example", "capture"],
+        "probe" => &["run", "--quiet", "-p", "gallery", "--example", "probe"],
         "check" => &["check", "--workspace", "--all-targets"],
         "test" => &["test", "--workspace"],
         "clippy" => &["clippy", "--workspace", "--all-targets"],

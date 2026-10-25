@@ -1,7 +1,7 @@
 # 布局 API：尺寸、Flex 与 Grid
 
 
-运行 `cargo run -p plico-gallery`，进入 **Layout**。页面展示命名 Grid 区域、1fr/2fr 比例、Flex basis 动画、auto margin 和实际文字 baseline；缩窄窗口可以观察约束的结果，内容区支持滚动。
+运行 `cargo run -p gallery`，进入 **Layout**。页面展示命名 Grid 区域、1fr/2fr 比例、Flex basis 动画、auto margin 和实际文字 baseline；缩窄窗口可以观察约束的结果，内容区支持滚动。
 
 ## 尺寸与四边间距
 

@@ -66,7 +66,7 @@ renderer/shell 及所需 Rust 依赖已复制到本仓库，目前位于 crates/
 
 ## 当前开发模块边界
 
-`plico-gallery` 只依赖核心、plico-dev、Serde 与 Stabby，已从渲染宿主中拆出。CLI dev 构建关闭静态 gallery feature 的宿主，并监听/重编译 app cdylib。host 常驻保存 Engine、Taffy 节点、字体与 GPU 资源，应用逻辑通过版本化 JSON 返回 ViewNode 描述。
+`gallery` 只依赖核心、plico-dev、Serde 与 Stabby，已从渲染宿主中拆出。CLI dev 构建关闭静态 gallery feature 的宿主，并监听/重编译 app cdylib。host 常驻保存 Engine、Taffy 节点、字体与 GPU 资源，应用逻辑通过版本化 JSON 返回 ViewNode 描述。
 
 当前热更新以 Stabby 的稳定 Vec<u8>/Reply 传输字节，以 get_stabbied 验证函数布局，不让 Rust trait object、Ui 引用或普通 Vec 跨模块。逻辑 key 路径传递点击，避免把一版模块的 arena ID 当成另一版的身份。状态用 Serde 迁移，不要求应用所有类型都有稳定 ABI。
 

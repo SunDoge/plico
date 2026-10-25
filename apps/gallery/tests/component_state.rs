@@ -1,7 +1,7 @@
 //! Local presentation values survive real route unmounts and module checkpoints.
+use gallery::{Gallery, Page};
 use plico_core::{PathKey, Router, ViewNode};
 use plico_dev::{Frame, Request, StateSnapshot, render};
-use plico_gallery::{Gallery, Page};
 fn find(nodes: &[ViewNode], label: &str, path: &mut Vec<PathKey>) -> Option<Vec<PathKey>> {
     for node in nodes {
         path.push(node.key.clone());

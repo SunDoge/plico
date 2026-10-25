@@ -5,7 +5,7 @@
 app components are plain functions taking `&mut UiContext`. The retained
 `plico_renderer::Widget` contract (measure/paint/IME/accessibility) is the
 platform-widget surface implemented by framework crates such as plico-editor
-and plico-terminal-widget. Apps may *host* such a widget (import the trait to
+and plico-terminal. Apps may *host* such a widget (import the trait to
 call methods, receive `WidgetNodeEvent`), but never implement it — and never
 touch the measure/paint context surface at all. This is a source-level guard,
 not a Rust name resolver; aliases still require review.

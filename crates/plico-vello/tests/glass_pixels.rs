@@ -4,7 +4,7 @@
 //! changes pixels inside the glass card (plus the toggling checkbox itself),
 //! and (b) during continuous background motion the blurred output tracks the
 //! moving background instead of freezing.
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::{FrameSource, Scene, SemanticRole, TextContext};
 use plico_vello::Source;
 use std::time::Duration;

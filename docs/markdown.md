@@ -1,6 +1,6 @@
 # 流式 Markdown
 
-运行 `cargo run -p plico-gallery`，打开 **Markdown chat**。完整演示集中在 gallery，不增加独立聊天 app。Launcher 的特殊窗口、terminal 的 PTY 和 services-demo 的常驻宿主验证仍有独立入口。
+运行 `cargo run -p gallery`，打开 **Markdown chat**。完整演示集中在 gallery，不增加独立聊天 app。Launcher 的特殊窗口、terminal 的 PTY 和 services-demo 的常驻宿主验证仍有独立入口。
 
 ## 组件与文档模型
 
@@ -54,10 +54,10 @@ Markdown 正文默认是一个共享的选择作用域，支持跨段正反向�
 ```sh
 cargo test -p plico-markdown
 cargo test -p plico-vello --test rich_text --test text_selection
-cargo test -p plico-gallery --test markdown
-cargo run -p plico-gallery --example capture -- --page markdown --markdown-complete --out /tmp/markdown.png
+cargo test -p gallery --test markdown
+cargo run -p gallery --example capture -- --page markdown --markdown-complete --out /tmp/markdown.png
 ```
 
 测试覆盖逐个 UTF-8 前缀的增量/全文解析一致性、引用定义、开放代码块、列表、源码替换、稳定缓存分配、Unicode 展示、结束后继续推进、checkpoint 后重建解析缓存、富文本进入真实后端和清除、范围校验、完成后空闲，以及向上滚动解除跟随。截图属于本地产物，不参与提交。
 
-原生窗口/系统剪贴板验证：先 `cargo build -p plico-gallery`，再执行 `xvfb-run -a python3 apps/gallery/scripts/check-selection.py`（需要 xdotool、xclip）。脚本在真实窗口中进入 Markdown 页、鼠标选择、全选并复制，读取系统剪贴板验证跨段内容与格式标记剥离。
+原生窗口/系统剪贴板验证：先 `cargo build -p gallery`，再执行 `xvfb-run -a python3 apps/gallery/scripts/check-selection.py`（需要 xdotool、xclip）。脚本在真实窗口中进入 Markdown 页、鼠标选择、全选并复制，读取系统剪贴板验证跨段内容与格式标记剥离。

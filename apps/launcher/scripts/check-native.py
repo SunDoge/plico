@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run under xvfb-run -a after cargo build -p plico-launcher. Requires xdotool."""
+"""Run under xvfb-run -a after cargo build -p launcher. Requires xdotool."""
 import os
 from pathlib import Path
 import subprocess
@@ -9,7 +9,7 @@ import time
 root = Path(__file__).resolve().parents[3]
 with tempfile.TemporaryFile(mode="w+") as log:
     app = subprocess.Popen(
-        [str(root / "target/debug/plico-launcher")], stdout=log, stderr=log,
+        [str(root / "target/debug/launcher")], stdout=log, stderr=log,
         env={**os.environ, "WINIT_UNIX_BACKEND": "x11", "WAYLAND_DISPLAY": ""},
     )
     try:

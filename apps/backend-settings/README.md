@@ -1,16 +1,16 @@
 # Shared backend settings demo
 
 ```sh
-cargo run -p plico-backend-settings --features fltk
-cargo run -p plico-backend-settings --features vello
-cargo run -p plico-backend-settings --features skia
+cargo run -p backend-settings --features fltk
+cargo run -p backend-settings --features vello
+cargo run -p backend-settings --features skia
 ```
 
 One `src/main.rs` runs all backends. A single enabled backend starts directly;
 with multiple features, select one explicitly (default order: Vello, Skia, FLTK):
 
 ```sh
-cargo run -p plico-backend-settings --features vello,skia -- --backend skia
+cargo run -p backend-settings --features vello,skia -- --backend skia
 ```
 
 All backends run the same Plico view and state:
@@ -25,7 +25,7 @@ Preferences remain in application state when another route unmounts the editor.
 
 ```sh
 xvfb-run -a python3 scripts/check-fltk.py
-cargo test -p plico-backend-settings --features vello --all-targets
+cargo test -p backend-settings --features vello --all-targets
 ```
 See [the FLTK experiment](../../docs/fltk.md) for scope and validation.
 
@@ -36,7 +36,7 @@ the declaration runtime is shared by both window backends. Its SVG support cover
 SVG patterns, images, masks, filters and clips still return explicit errors. This is an experimental backend, not full gallery parity.
 
 ```sh
-cargo test -p plico-backend-settings --features skia --all-targets
+cargo test -p backend-settings --features skia --all-targets
 python3 scripts/check-skia-settings.py
 python3 scripts/check-settings-parity.py
 ```

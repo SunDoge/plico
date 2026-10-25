@@ -2606,7 +2606,6 @@ impl<V: View> FrameSource for Source<V> {
 #[cfg(test)]
 mod theme_tests {
     use super::*;
-    use plico_gallery as gallery;
     use std::time::Duration;
     struct Counting {
         gallery: gallery::Gallery,

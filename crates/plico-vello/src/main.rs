@@ -204,9 +204,8 @@ fn headless(mut source: Source<ReloadView>, options: Options) -> Result<()> {
 fn static_source(options: &Options) -> Result<Box<dyn FrameSource>> {
     let _ = options;
     Err(Error::Input {
-        message:
-            "this development host requires --module; use plico dev or cargo run -p plico-gallery"
-                .into(),
+        message: "this development host requires --module; use plico dev or cargo run -p gallery"
+            .into(),
     })
 }
 

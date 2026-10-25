@@ -1,5 +1,5 @@
 [package]
-name = "plico-backend-settings"
+name = "backend-settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

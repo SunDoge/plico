@@ -13,7 +13,7 @@ Rust crate 统一位于根目录 `crates/plico-*`；本目录保留来源、许�
 | wabou-motion | plico-motion |
 | wabou-renderer | plico-renderer |
 | wabou-shell | plico-shell |
-| wabou-terminal-widget | plico-terminal-widget |
+| wabou-terminal-widget | plico-terminal |
 | plico-wabou（适配层） | plico-vello |
 
 ## 组成
@@ -21,7 +21,7 @@ Rust crate 统一位于根目录 `crates/plico-*`；本目录保留来源、许�
 - plico-renderer：Taffy 布局、Parley 文字、paint scene、widget 和 FrameSource。
 - plico-shell：Winit 窗口、平台输入、无窗口捕获与 Vello GPU 呈现。
 - plico-motion：活跃动画 arena 与补间。
-- plico-terminal-widget：按需使用的 rio-vt / PTY 终端，已移除旧 runtime/protocol 依赖，见 [终端文档](../docs/terminal.md)。
+- plico-terminal：按需使用的 rio-vt / PTY 终端，已移除旧 runtime/protocol 依赖，见 [终端文档](../docs/terminal.md)。
 - plico-renderer::platform：平台、事件、语义 contracts 和带类型的资源句柄（原 wabou-shell-api）。
 
 已移除旧 JS/TypeScript bindgen、QuickJS host API、二进制 UI protocol、utility-class stylesheet 编译器和旧可选 widget 实现。renderer 仍使用的 IrColor/IrLength/IrValue 位于 style_ir 模块；CPU telemetry 位于 shell 模块。未使用的生成 TS 与协议/样式 fixtures 同步删除。Plico 自己的组件、布局和动画继续通过 Rust API 声明。
@@ -37,7 +37,7 @@ Rust crate 统一位于根目录 `crates/plico-*`；本目录保留来源、许�
 ```sh
 cargo test --workspace
 cargo check --workspace --all-targets
-cargo plico render --out /tmp/plico-gallery.png
+cargo plico render --out /tmp/gallery.png
 ```
 
 源自上游的测试保持独立可运行。实际绘制变更应先定位布局、文字、paint 或平台层，再选择相应验证；编译成功不证明视觉正确。本机离屏 1× 截图不能代替真实平台 IME、macOS 或 HiDPI 验证。

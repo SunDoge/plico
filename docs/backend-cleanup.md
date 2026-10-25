@@ -2,7 +2,7 @@
 
 当前 crate 职责以根目录 README 的 workspace 清单为准。自绘后端名为
 `plico-vello`，浏览器宿主为 `plico-web-host`；split-loading 的 UI 示例位于
-`apps/web-demo`（package `plico-web-demo`），不属于通用框架 crate。
+`apps/web-demo`（package `web-demo`），不属于通用框架 crate。
 
 下文记录早期 Wabou 迁移与后端合并，不代表当前 package 数量。
 
@@ -13,9 +13,9 @@
 gallery 是应用而不是后端依赖：main.rs 启动桌面入口，lib.rs 定义同一个 Gallery App 和动态模块导出。desktop 为默认 feature，关闭后仍是轻量 rlib/cdylib；后端只在测试时依赖 gallery。render/probe 的 CLI 路由指向 gallery 的独立验证示例，应用入口不解析参数。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 cargo plico render --out /tmp/gallery.png
-cargo build -p plico-gallery --lib --no-default-features --features abi
+cargo build -p gallery --lib --no-default-features --features abi
 cargo plico dev
 ```
 

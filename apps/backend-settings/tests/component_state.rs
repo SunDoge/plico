@@ -1,4 +1,4 @@
-use plico_backend_settings::{Page, Settings};
+use backend_settings::{Page, Settings};
 use plico_core::{Engine, PathKey, ViewNode};
 fn find(nodes: &[ViewNode], label: &str, path: &mut Vec<PathKey>) -> Option<Vec<PathKey>> {
     for node in nodes {

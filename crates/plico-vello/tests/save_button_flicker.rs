@@ -1,7 +1,7 @@
 //! Hover-stability of the workspace action row: hovering the "Save changes"
 //! button must not move any button's geometry between frames, and the
 //! enabled/primary restyle after a save must not unmount or resize buttons.
-use plico_gallery::{Gallery, Page};
+use gallery::{Gallery, Page};
 use plico_renderer::Modifiers;
 use plico_renderer::{
     FrameSource, Point, PointerButton, PointerEvent, PointerPhase, PointerProperties, TextContext,

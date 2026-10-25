@@ -8,7 +8,7 @@ plico-shell、plico-motion 均在本仓库维护，不要求原 Wabou checkout�
 或用 Source / View 组合自定义宿主。`hot-reload` feature 提供通用动态模块宿主。
 
 ```sh
-cargo run -p plico-gallery
+cargo run -p gallery
 cargo plico dev apps/gallery
 cargo plico render --out /tmp/gallery.png
 cargo test -p plico-vello --all-features
