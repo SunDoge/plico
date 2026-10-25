@@ -13,10 +13,11 @@ ICONS = {
     "home": "Home", "settings": "Settings", "chart_multiple": "Chart Multiple",
     "apps": "Apps", "text_bullet_list_square": "Text Bullet List Square",
     "chat": "Chat", "image": "Image", "puzzle_piece": "Puzzle Piece", "design_ideas": "Design Ideas",
+    "calendar": "Calendar",
 }
 APPLICATIONS = {
     "backend-settings": ["home", "settings", "chart_multiple", "apps", "puzzle_piece"],
-    "gallery": ["apps", "home", "settings", "design_ideas", "text_bullet_list_square", "puzzle_piece", "chat", "image"],
+    "gallery": ["apps", "home", "settings", "design_ideas", "text_bullet_list_square", "puzzle_piece", "chat", "image", "calendar"],
 }
 
 def fetch(path):

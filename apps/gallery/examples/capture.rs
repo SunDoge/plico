@@ -79,10 +79,11 @@ fn run() -> Result<(), Error> {
         "2048" => Page::Game2048,
         "markdown" => Page::Markdown,
         "glass" => Page::Glass,
+        "calendar" => Page::Calendar,
         _ => {
             return Err(Error::Input {
                 message:
-                    "page must be workspace, layout, controls, motion, lists, 2048, markdown or glass"
+                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass or calendar"
                         .into(),
             });
         }
@@ -129,7 +130,7 @@ fn run() -> Result<(), Error> {
     if options.modal {
         app.dialog.open();
     }
-    if options.popover {
+    if options.popover && page != Page::Calendar {
         app.quick_settings.open();
     }
     if options.select {
@@ -146,6 +147,18 @@ fn run() -> Result<(), Error> {
     let mut source = Source::with_clock(app, clock.clone());
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, options.width, options.height);
+    if options.popover && page == Page::Calendar {
+        let target = source
+            .adapter
+            .semantics(&source.engine, 0)
+            .node_by_role(plico_renderer::SemanticRole::Button, "Pick a date", None)
+            .ok_or_else(|| Error::Input {
+                message: "calendar picker trigger missing".into(),
+            })?
+            .id;
+        source.handle_semantic_action(plico_renderer::SemanticAction::Click { target });
+        source.build_frame(&mut tcx, options.width, options.height);
+    }
     if options.tooltip {
         let tree = source.adapter.semantics(&source.engine, 0);
         let target = tree

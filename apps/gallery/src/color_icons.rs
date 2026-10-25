@@ -9,3 +9,4 @@ pub const TEXT_BULLET_LIST_SQUARE: SvgAsset =
 pub const PUZZLE_PIECE: SvgAsset = plico_core::svg_asset!("../assets/fluent/puzzle_piece.svg");
 pub const CHAT: SvgAsset = plico_core::svg_asset!("../assets/fluent/chat.svg");
 pub const IMAGE: SvgAsset = plico_core::svg_asset!("../assets/fluent/image.svg");
+pub const CALENDAR: SvgAsset = plico_core::svg_asset!("../assets/fluent/calendar.svg");

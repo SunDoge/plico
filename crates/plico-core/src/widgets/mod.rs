@@ -221,7 +221,9 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
     cx.svg(asset).size(size, size)
 }
 
+mod calendar;
 mod composite;
+pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, panel, progress, segmented, separator, stat,
 };

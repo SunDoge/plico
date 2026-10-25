@@ -1,3 +1,4 @@
+mod calendar;
 mod color_icons;
 pub mod icons;
 use plico_core::{Align, Color, Justify, Motion, Theme, UiContext, component};
@@ -48,6 +49,8 @@ pub enum Page {
     Markdown,
     #[route(label = "Glass", icon = color_icons::IMAGE)]
     Glass,
+    #[route(label = "Calendar", icon = color_icons::CALENDAR)]
+    Calendar,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -143,6 +146,7 @@ impl App for Gallery {
                     Page::Game2048 => self.game2048.show(ui),
                     Page::Markdown => self.markdown_chat.show(ui),
                     Page::Glass => self.glass.show(ui),
+                    Page::Calendar => calendar::page(ui),
                 }
             })
         };

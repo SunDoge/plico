@@ -134,7 +134,7 @@ async function generate(check: boolean) {
   if (check) {
     args.push("check", "--output", "crates/plico-core/src/icons.rs");
   } else {
-    args.push("add", "lucide:check", "lucide:chevron-down", "lucide:chevron-right", "lucide:x",
+    args.push("add", "lucide:check", "lucide:chevron-down", "lucide:chevron-left", "lucide:chevron-right", "lucide:x",
       "--output", "crates/plico-core/src/icons.rs", "--rust-crate", "crate", "--source", VENDOR);
   }
   const child = Bun.spawn(args, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
