@@ -632,3 +632,72 @@ fn culling_nested_scopes_and_clipped_shadows_preserves_other_islands() {
         );
     }
 }
+
+#[test]
+#[ignore = "Skia AA investigation: dirty clip currently changes rounded stroke coverage by 1/255"]
+fn translucent_layer_dirty_clip_precision_probe() {
+    use vello_common::kurbo::{BezPath, Cap, Join, Stroke};
+    let mut path = BezPath::new();
+    path.move_to((224.5, 456.));
+    path.curve_to(
+        (224.5, 452.9624338759306),
+        (226.96243387593063, 450.5),
+        (230., 450.5),
+    );
+    path.line_to((350., 450.5));
+    path.curve_to(
+        (353.0375661240694, 450.5),
+        (355.5, 452.9624338759306),
+        (355.5, 456.),
+    );
+    path.line_to((355.5, 477.));
+    path.curve_to(
+        (355.5, 480.0375661240694),
+        (353.0375661240694, 482.5),
+        (350., 482.5),
+    );
+    path.line_to((230., 482.5));
+    path.curve_to(
+        (226.96243387593063, 482.5),
+        (224.5, 480.0375661240694),
+        (224.5, 477.),
+    );
+    path.close_path();
+    let mut scene = Scene::new();
+    scene.push_clip_layer(Affine::IDENTITY, &Rect::new(92., 153., 1080., 766.));
+    scene.push_layer(
+        vello_common::peniko::BlendMode::default(),
+        0.45,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 1100., 820.),
+        None,
+        None,
+    );
+    scene.stroke(
+        &Stroke::new(1.).with_join(Join::Round).with_caps(Cap::Round),
+        Affine::IDENTITY,
+        Color::from_rgb8(217, 217, 222),
+        None,
+        &path,
+    );
+    scene.pop_layer();
+    scene.pop_layer();
+    let mut partial = SkiaSurface::new(1100, 820).unwrap();
+    let mut full = SkiaSurface::new(1100, 820).unwrap();
+    partial.draw_scene(&scene, Color::WHITE).unwrap();
+    partial
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            plico_renderer::DamageRegion::Rect(Rect::new(226., 86., 874., 734.)),
+        )
+        .unwrap();
+    let a = partial.read_pixels().unwrap();
+    let b = full.render_scene(&scene, Color::WHITE).unwrap();
+    let n = a
+        .chunks_exact(4)
+        .zip(b.chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(n == 0, "rounded stroke clip changed {n} pixels");
+}

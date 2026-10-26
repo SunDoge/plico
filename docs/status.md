@@ -92,6 +92,8 @@ Skia command-stream damage and per-image history, CPU culling and optional Vulka
 incremental-present hints are implemented as opt-in experiments. Normal windows
 use full drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
 pass, but the real settings theme animation exposes four one-channel-step pixels
-near a dirty clip edge; investigation continues. Vello's preserved-target partial
+near a dirty clip edge. A reduced raster probe reproduces this with a rounded
+stroke inside a translucent layer, even without command culling; investigation
+continues. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).
