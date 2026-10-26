@@ -351,3 +351,30 @@ PLICO_TEST_TTC=/path/to/font.ttc cargo test -p plico-skia --features raster --li
 全量 RSS 约 378 MiB、匿名约 163 MiB；damage RSS 约 336 MiB、匿名约 158 MiB，
 15–45 秒未继续增长。这是启动主界面测试，不是长时间歌词播放验收；
 实际播放中的旧进程需重启后再对照，不能拿不同页面/播放时长直接计算节省比例。
+
+
+### Fontique 来源缓存淘汰后的重复加载
+
+仅共享 Skia TTC 数据还不够：Parley 每次创建 layout 会推进 SourceCache 的
+淘汰代数；默认非共享缓存丢弃条目后，再次访问同一字体会创建新的 Blob ID。
+旧布局/glyph scene 仍可能持有之前的 Blob，Skia 因而也无法按 ID 复用资源。
+`TextContext::new()` 现在调用 `font_cx.source_cache.make_shared()`；它的次级
+weak 缓存可找到仍被布局持有的 Blob，不要求让来源缓存永久强持有所有字体。
+这是 Plico 保留布局与来源缓存配置的配合问题，不意味着禁用 Parley 的淘汰。
+
+回归先在旧配置下复现字体 ID 改变，修复后通过；另连续排版 600 个不同文本，
+验证自然缓存老化后 ID 仍保持不变。114 项 renderer 单元测试通过。
+
+Lyrune 的 `lyric_damage` 手动探针增加 RSS、累计字体 Blob ID 与 Ganesh 缓存
+采样；`--font-cache-stress` 每 600 帧主动淘汰来源条目，
+`--unshared-font-cache` 只用于恢复旧配置做对照。相同 10,000 帧、1.75 倍缩放、
+Intel Vulkan、真实封面及歌词逐字高亮/滚动的一次离屏结果：
+
+| 配置 | 累计字体 Blob ID | RSS 峰值 | 最终 RSS |
+| --- | ---: | ---: | ---: |
+| 旧非共享来源缓存 | 34 | 1053 MiB | 1017 MiB |
+| 共享来源缓存 | 2 | 225 MiB | 225 MiB |
+
+这是主动加速缓存淘汰的压力实验，不是用户原生窗口内存的直接测量。
+未强制淘汰的 10,000 帧对照同样维持 2 个字体 ID，RSS 约 225 MiB。
+原生窗口仍须重启并在实际播放中观察，不能将旧进程的保留副本视为新版结果。

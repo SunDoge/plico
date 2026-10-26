@@ -238,8 +238,13 @@ impl Default for TextContext {
 impl TextContext {
     /// Discover system fonts (parley default = "system" feature → fontique).
     pub fn new() -> Self {
+        let mut font_cx = FontContext::new();
+        // Parley prunes SourceCache as new layouts are built. The secondary
+        // weak cache reuses a Blob still owned by older layouts instead of
+        // reloading the same font file under a fresh identity after pruning.
+        font_cx.source_cache.make_shared();
         Self {
-            font_cx: FontContext::new(),
+            font_cx,
             layout_cx: LayoutContext::new(),
             loaded_fonts: Default::default(),
             cache: LruCache::new(NonZeroUsize::new(2048).unwrap()),
@@ -1109,6 +1114,39 @@ mod tests {
         let layout = layout_text(&mut context, "ordinary text", 16.0);
 
         assert_eq!(text_synthesis(&layout), TextSynthesis::default());
+    }
+
+    #[test]
+    fn live_layout_keeps_font_identity_after_source_cache_pruning() {
+        fn font_id(layout: &Layout<[u8; 4]>) -> u64 {
+            layout
+                .lines()
+                .flat_map(|line| line.items())
+                .find_map(|item| {
+                    if let PositionedLayoutItem::GlyphRun(run) = item {
+                        Some(run.run().font().data.id())
+                    } else {
+                        None
+                    }
+                })
+                .expect("fixture must shape a glyph run")
+        }
+        let mut context = TextContext::new();
+        let first = layout_text(&mut context, "keep this font alive", 16.);
+        let id = font_id(&first);
+        // Parley ages its source cache on every new layout. Old lyric layouts
+        // can still own a font after its source cache entry is pruned.
+        context.font_cx.source_cache.prune(0, false);
+        let second = layout_text(&mut context, "another lyric line", 16.);
+        assert_eq!(font_id(&second), id, "must reuse the still-live font Blob");
+        for frame in 0..600 {
+            let layout = layout_text(&mut context, &format!("animated line {frame}"), 16.);
+            assert_eq!(
+                font_id(&layout),
+                id,
+                "font identity changed at frame {frame}"
+            );
+        }
     }
 
     #[test]
