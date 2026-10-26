@@ -179,6 +179,7 @@ struct VulkanDevice {
     queue_family: u32,
     name: String,
     software: bool,
+    incremental_present: bool,
     presentation: Option<(ash::khr::surface::Instance, vk::SurfaceKHR)>,
 }
 impl VulkanDevice {
@@ -208,6 +209,7 @@ impl VulkanDevice {
             queue_family: 0,
             name: String::new(),
             software: false,
+            incremental_present: false,
             presentation: None,
         };
         let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_1);
@@ -290,11 +292,26 @@ impl VulkanDevice {
         // SAFETY: features are queried from the same physical device. Enable
         // supported core features so Skia's physical-feature discovery agrees.
         let features = unsafe { instance.get_physical_device_features(physical) };
-        let device_extensions = if owner.presentation.is_some() {
+        let mut device_extensions = if owner.presentation.is_some() {
             vec![ash::khr::swapchain::NAME.as_ptr()]
         } else {
             Vec::new()
         };
+        if owner.presentation.is_some() {
+            // SAFETY: physical belongs to this live instance; Vulkan returns
+            // NUL-terminated extension names in these fixed-size arrays.
+            let available = unsafe { instance.enumerate_device_extension_properties(physical) }
+                .context(crate::VulkanSnafu {
+                    operation: "query device extensions",
+                })?;
+            owner.incremental_present = available.iter().any(|extension| unsafe {
+                CStr::from_ptr(extension.extension_name.as_ptr())
+                    == ash::khr::incremental_present::NAME
+            });
+            if owner.incremental_present {
+                device_extensions.push(ash::khr::incremental_present::NAME.as_ptr());
+            }
+        }
         let info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_features(&features)

@@ -66,6 +66,10 @@ impl WindowRenderer {
                     std::env::var("PLICO_SKIA_DAMAGE_VALIDATE").as_deref(),
                     Ok("1" | "true")
                 ));
+                renderer.set_incremental_present(matches!(
+                    std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
+                    Ok("1" | "true")
+                ));
                 *active = Some(Box::new(renderer));
             }
         }
@@ -105,6 +109,7 @@ impl WindowRenderer {
                     .context(crate::error::SkiaSnafu)?;
                 if presented {
                     tracing::trace!(target: "plico::perf", damage_coverage = renderer.last_damage().coverage(width, height),
+                        present_damage_coverage = renderer.last_present_damage().coverage(width, height),
                         "Skia target damage");
                 }
                 Ok(presented)

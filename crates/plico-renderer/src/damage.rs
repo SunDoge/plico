@@ -335,4 +335,20 @@ mod tracker_tests {
             DamageRegion::Full
         );
     }
+    #[test]
+    fn display_damage_is_not_the_acquired_buffers_damage() {
+        let (a, b) = (scene(10.), scene(40.));
+        let mut buffer_a = SceneDamageTracker::default();
+        let mut buffer_b = SceneDamageTracker::default();
+        let mut display = SceneDamageTracker::default();
+        buffer_a.update(&a, 100, 100, bounds);
+        display.update(&a, 100, 100, bounds);
+        buffer_b.update(&b, 100, 100, bounds);
+        display.update(&b, 100, 100, bounds);
+        assert_eq!(buffer_a.update(&a, 100, 100, bounds), DamageRegion::Empty);
+        let DamageRegion::Rect(r) = display.update(&a, 100, 100, bounds) else {
+            panic!()
+        };
+        assert!(r.x0 <= 10. && r.x1 >= 50.);
+    }
 }

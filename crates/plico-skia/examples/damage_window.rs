@@ -20,6 +20,8 @@ struct Demo {
     window: Option<Arc<dyn Window>>,
     frame: usize,
     partial: usize,
+    hints: usize,
+    hint_supported: bool,
     font: Option<(vello_common::peniko::FontData, Vec<u16>)>,
 }
 impl ApplicationHandler for Demo {
@@ -36,6 +38,16 @@ impl ApplicationHandler for Demo {
         let device = std::env::var("PLICO_SKIA_DEVICE").ok();
         let mut renderer = SkiaWindow::new(window.clone(), false, device.as_deref()).unwrap();
         renderer.set_damage_validation(true);
+        let enabled = !matches!(
+            std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
+            Ok("0" | "false")
+        );
+        renderer.set_incremental_present(enabled);
+        self.hint_supported = enabled && renderer.incremental_present_supported();
+        println!(
+            "incremental_present_supported={}",
+            renderer.incremental_present_supported()
+        );
         println!("device={}", renderer.device_name());
         let data = vello_common::peniko::FontData::new(
             vello_common::peniko::Blob::new(Arc::new(
@@ -127,6 +139,10 @@ impl ApplicationHandler for Demo {
                         renderer.last_damage(),
                         plico_renderer::DamageRegion::Rect(_)
                     ));
+                    self.hints += usize::from(matches!(
+                        renderer.last_present_damage(),
+                        plico_renderer::DamageRegion::Rect(_)
+                    ));
                     self.frame += 1;
                 }
                 if self.frame == 60 || self.frame == 120 {
@@ -143,9 +159,12 @@ impl ApplicationHandler for Demo {
                         self.partial > 100,
                         "must exercise partial swapchain drawing"
                     );
+                    if self.hint_supported {
+                        assert!(self.hints > 100, "must exercise incremental present hints");
+                    }
                     println!(
-                        "PASS frames={} partial={} (all matched full GPU redraw)",
-                        self.frame, self.partial
+                        "PASS frames={} partial={} present_hints={} (all matched full GPU redraw)",
+                        self.frame, self.partial, self.hints
                     );
                     event_loop.exit();
                 } else {

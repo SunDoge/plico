@@ -63,7 +63,10 @@ impl Resources {
         });
         Ok(skfont)
     }
-    fn ink_bounds(&mut self, command: &PaintCommand) -> Option<vello_common::kurbo::Rect> {
+    pub(crate) fn ink_bounds(
+        &mut self,
+        command: &PaintCommand,
+    ) -> Option<vello_common::kurbo::Rect> {
         use vello_common::kurbo::Rect;
         match command {
             PaintCommand::Fill {

@@ -167,7 +167,7 @@ Adapter 的旧诊断估计不参与绘制。
 成功绘制的 scene 与 bounds，按本次 acquire 的 image 比较，而不是按上一
 显示帧比较。resize/recreate 丢弃旧目标，绘制/提交失败后重建；首次绘制与
 背景变化全量绘制。Vulkan 队列同步仍走原来的路径。
-这解决的是保留 surface 的局部绘制，尚未向平台发送 incremental-present 提示。
+这解决的是保留 surface 的局部绘制；系统 incremental-present 提示另行按需开启。
 
 - `PLICO_SKIA_DAMAGE=0`：关闭自动 damage，供 A/B 对比。
 - `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
@@ -225,3 +225,29 @@ Vello 的子区域能力与平台 incremental present 继续作为独立阶段�
 本机 24 逻辑核，按所有逻辑核归一化约 0.4%，应与单核百分比明确区分。
 Xvfb 报告缺少 DRI3，呈现路径和真实桌面不同；真实窗口的收益仍需在持续
 显示、帧率稳定的条件下测量。测量脚本和日志是本地产物，不增加 CI 窗口测试。
+
+### Vulkan incremental present（可选）
+
+`PLICO_SKIA_INCREMENTAL_PRESENT=1` 开启系统区域提示，默认关闭，避免未测量
+收益就增加逐帧比较。创建窗口设备时查询并启用 `VK_KHR_incremental_present`；
+不支持时仍按原路径提交。当前 surface transform 非 identity 时也不发送提示，
+避免把 image 坐标误当成旋转后的 surface 坐标。
+
+每张 image 的修复区域与系统提示使用两份历史。系统提示单独比较上次呈现的
+scene：A→B→A 时，buffer A 本身可能无需绘制，但屏幕仍有 B→A 的变化。
+背景变化、resize/recreate、绘制失败、无有效历史，以及目标需全量绘制时，
+提示回退 full。Full/Empty 都省略可选 pNext；Vulkan 的零个 rectangle 表示
+full 而非 empty。实际提交只附带非空、向外取整并裁到 surface 内的矩形。
+所有像素仍保持完整有效，系统忽略提示也能正确显示。
+
+约束参考 [VkPresentRegionKHR](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentRegionKHR.html)
+和 [VkPresentRegionsKHR](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentRegionsKHR.html)。
+窗口在 queue-present 前调用 Winit `pre_present_notify()`，供 Wayland 帧回调调度。
+
+本机 NVIDIA/Xvfb 探针：扩展可用，180 帧中 168 次局部绘制、164 次局部提交
+提示，所有 framebuffer 像素与全量重绘一致。这验证提交路径和区域计算，
+不证明 compositor 采用提示或节省了多少 CPU/GPU。没有安装 Khronos validation
+layer，不能把该测试当作 Vulkan validation layer 检查。
+`PLICO_SKIA_INCREMENTAL_PRESENT=0` 可在同一探针中验证无提示回退路径。
+trace 的 `present_damage_coverage` 是相邻呈现 scene 的估计覆盖率，与目标
+buffer 的 `damage_coverage` 不同；Empty 在平台接口仍退回普通提交。
