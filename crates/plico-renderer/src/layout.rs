@@ -306,6 +306,15 @@ fn compute_layout_with_widgets(
                     Size::ZERO
                 },
             );
+            // Taffy 0.15 otherwise keeps a former container's hoisted absolute
+            // children when it becomes a leaf. An empty positioning pass clears
+            // that history before rounding can visit a removed NodeId.
+            if result.oof_candidates.is_empty() {
+                result.oof_positioning_area = Some(taffy::OofPositioningArea {
+                    size: result.size,
+                    offset: taffy::Point::ZERO,
+                });
+            }
             // Taffy needs text baselines, including when fixed dimensions let it
             // skip the intrinsic measurement callback. Use the painted Parley
             // paragraph and resolve CSS percentage padding against parent width.
@@ -635,6 +644,44 @@ fn walk(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn removing_last_absolute_child_clears_hoisted_layout_state() {
+        let mut tree = TaffyTree::<Paint>::new();
+        let child = tree
+            .new_leaf(taffy::Style {
+                position: taffy::Position::Absolute,
+                size: Size {
+                    width: taffy::Dimension::length(20.),
+                    height: taffy::Dimension::length(20.),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        let root = tree
+            .new_with_children(
+                taffy::Style {
+                    size: Size {
+                        width: taffy::Dimension::length(100.),
+                        height: taffy::Dimension::length(100.),
+                    },
+                    ..Default::default()
+                },
+                &[child],
+            )
+            .unwrap();
+        for id in [root, child] {
+            tree.set_node_context(id, Some(Paint::default())).unwrap();
+        }
+        let mut text = TextContext::new();
+        compute_and_walk_with_scroll(&mut tree, root, 100., 100., &mut text, &HashMap::new());
+        tree.set_children(root, &[]).unwrap();
+        tree.remove(child).unwrap();
+        let nodes =
+            compute_and_walk_with_scroll(&mut tree, root, 100., 100., &mut text, &HashMap::new());
+        assert_eq!(nodes.len(), 1);
+        assert!(tree.hoisted_children(root).unwrap().is_empty());
+    }
 
     #[test]
     fn ample_intrinsic_space_reuses_the_unconstrained_layout() {
