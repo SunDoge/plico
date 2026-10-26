@@ -535,6 +535,9 @@ impl Adapter {
             self.stats.layout_runs = 1;
             self.stats.flatten_visits = self.placed.len();
             self.reindex_placed();
+            // The pending-geometry flag is consumed by this full flatten; a
+            // later change sets it again through the sync paths.
+            self.geometry_dirty = false;
         } else if self.scroll_dirty {
             flatten_with_scroll_into(
                 &self.tree,

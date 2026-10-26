@@ -124,3 +124,25 @@ Lyrune 同时将歌词位移从逐行绝对位置改为共同容器的 translate
 非歌词页的真实播放由宿主进度快照唤醒，不再额外请求显示器频率的应用帧。
 同一 CPU 探针在这组修改后，带图构建中位数为 74.0µs，p95 为 94.2µs；
 这些数字仍不包含窗口呈现、GPU 或音频线程。
+
+## Damage 覆盖率测量（Phase 0）
+
+`Adapter::damage()` 计算自上一呈现帧以来变化区域的并集（保守、只多不少），
+在 `presented()` 时把每帧归类为 full（整窗）或 partial（局部）并跨帧累计，
+`damage_partial_coverage()` 给出 partial 帧的平均面积占比。渲染路径未改动。
+
+测量结论（settings 与 gallery 的典型交互序列，虚拟时钟确定性驱动）：
+
+- 首帧、resize、导航、任何改文本尺寸的点击都走完整 layout，是 full 帧。
+- sidebar 宽度动画本质是布局动画（宽度声明变化 → 每帧 flatten），动画期间
+  每帧都是 full。**当前应用形态下，"纯 paint 帧"只出现在 hover/press 中间
+  态**（实测单按钮覆盖约 5% 窗口面积）。
+- 因此，桌面 partial presentation 的收益集中在 hover/focus 反馈帧；
+  文本驱动的小交互（计数、表单）在文本重排缩到子树之前都退化为 full。
+  下一阶段若继续，优先项是 Taffy 子树重排（让 label 变化只重排受影响分支），
+  而不是先做脏矩形呈现。
+
+回归测试 `crates/plico-runtime/tests/damage.rs` 固化契约：首帧/resize full；
+空区指针移动不重排；hover/press 为 partial（约 5% 覆盖）；点击改文本今日
+即 full（已记录为已知成本）。附带修复：`geometry_dirty` 在被完整 flatten
+消费后复位，此前一旦置位永不清除。
