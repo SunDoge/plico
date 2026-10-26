@@ -14,6 +14,7 @@ use winit::window::Window;
 /// Vulkan surfaces are destroyed. No frame readback or texture upload occurs.
 pub struct SkiaWindow {
     targets: Vec<SkiaSurface>,
+    resources: std::rc::Rc<std::cell::RefCell<crate::raster::Resources>>,
     swapchain: Option<Swapchain>,
     context: gpu::DirectContext,
     owner: VulkanDevice,
@@ -56,6 +57,7 @@ impl SkiaWindow {
         let size = window.surface_size();
         let mut renderer = Self {
             targets: Vec::new(),
+            resources: Default::default(),
             swapchain: None,
             context,
             owner,
@@ -223,6 +225,7 @@ impl SkiaWindow {
             &mut self.context,
             self.desired,
             self.transparent,
+            &self.resources,
         )?;
         self.targets = targets;
         self.swapchain = Some(chain);
@@ -258,6 +261,7 @@ impl Swapchain {
         context: &mut gpu::DirectContext,
         desired: [u32; 2],
         transparent: bool,
+        resources: &std::rc::Rc<std::cell::RefCell<crate::raster::Resources>>,
     ) -> Result<(Self, Vec<SkiaSurface>), Error> {
         let instance = owner.instance.as_ref().expect("live instance");
         let device = owner.device.as_ref().expect("live device");
@@ -434,7 +438,7 @@ impl Swapchain {
             .ok_or(Error::Gpu {
                 message: "Skia could not wrap swapchain image",
             })?;
-            targets.push(SkiaSurface::from_surface(surface));
+            targets.push(SkiaSurface::with_resources(surface, resources.clone()));
         }
         Ok((chain, targets))
     }

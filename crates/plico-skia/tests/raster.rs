@@ -255,3 +255,48 @@ fn svg_gradients_preserve_color_opacity_and_local_transforms() {
     assert!(focus[0] > focus[2] + 150, "{focus:?}");
     assert!(edge[2] > edge[0] + 150, "{edge:?}");
 }
+
+#[test]
+fn raster_images_preserve_transform_clip_alpha_and_format_changes() {
+    use std::sync::Arc;
+    use vello_common::peniko::{
+        Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
+    };
+    let data = ImageData {
+        data: Blob::new(Arc::new(vec![255u8, 0, 0, 128])),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: 1,
+        height: 1,
+    };
+    let mut brush = ImageBrush::new(data);
+    brush.sampler.quality = ImageQuality::Low;
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let make_scene = |brush: &ImageBrush| {
+        let mut scene = Scene::new();
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(6., 6., 10., 10.));
+        scene.draw_image(
+            brush.into(),
+            Affine::translate((4., 4.)) * Affine::scale(8.),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert_eq!(pixel(&bytes, 7, 7), [255, 127, 127, 255]);
+    assert_eq!(pixel(&bytes, 5, 5), [255; 4]);
+    // Same pixel Blob with another format must not reuse the RGBA interpretation.
+    brush.image.format = ImageFormat::Bgra8;
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert_eq!(pixel(&bytes, 7, 7), [127, 127, 255, 255]);
+    brush.sampler.alpha = 0.5;
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert!(pixel(&bytes, 7, 7)[0].abs_diff(191) <= 1);
+    assert_eq!(pixel(&bytes, 7, 7)[2], 255);
+}

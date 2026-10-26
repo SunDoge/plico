@@ -13,12 +13,32 @@ use vello_common::{
 /// Reusable CPU raster surface. This does not create a window or GPU context.
 pub struct SkiaSurface {
     pub(crate) surface: skia_safe::Surface,
+    pub(crate) resources: std::rc::Rc<std::cell::RefCell<Resources>>,
+    frame_valid: bool,
+}
+/// CPU assets are shared by the render targets of one GPU context. Per-image
+/// caches duplicate complete CJK font files and upload identical textures again.
+pub(crate) struct Resources {
     fonts: std::collections::HashMap<(u64, u32), skia_safe::Typeface>,
     font_manager: FontMgr,
     svg_scenes:
         std::collections::HashMap<usize, (std::sync::Weak<plico_renderer::svg::usvg::Tree>, Scene)>,
-    frame_valid: bool,
+    images: ImageCache,
 }
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            fonts: Default::default(),
+            font_manager: FontMgr::new(),
+            svg_scenes: Default::default(),
+            images: Default::default(),
+        }
+    }
+}
+type ImageCache = std::collections::HashMap<
+    (u64, u32, u32, u8, u8),
+    (vello_common::peniko::WeakBlob<u8>, skia_safe::Image),
+>;
 
 impl SkiaSurface {
     /// Allocate a surface; dimensions must be nonzero signed 32-bit values.
@@ -32,11 +52,15 @@ impl SkiaSurface {
     }
 
     pub(crate) fn from_surface(surface: skia_safe::Surface) -> Self {
+        Self::with_resources(surface, Default::default())
+    }
+    pub(crate) fn with_resources(
+        surface: skia_safe::Surface,
+        resources: std::rc::Rc<std::cell::RefCell<Resources>>,
+    ) -> Self {
         Self {
             surface,
-            fonts: Default::default(),
-            font_manager: FontMgr::new(),
-            svg_scenes: Default::default(),
+            resources,
             frame_valid: false,
         }
     }
@@ -51,8 +75,15 @@ impl SkiaSurface {
     /// Record drawing without allocating or reading back a pixel buffer.
     pub fn draw_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
         self.frame_valid = false;
-        self.svg_scenes
-            .retain(|_, (tree, _)| tree.strong_count() > 0);
+        {
+            let mut resources = self.resources.borrow_mut();
+            resources
+                .images
+                .retain(|_, (source, _)| source.upgrade().is_some());
+            resources
+                .svg_scenes
+                .retain(|_, (tree, _)| tree.strong_count() > 0);
+        }
         self.surface.canvas().restore_to_count(1);
         self.surface.canvas().clear(color(background));
         let result = self.replay(scene);
@@ -115,7 +146,11 @@ impl SkiaSurface {
                     brush_transform,
                     shape,
                 } => {
-                    let paint = paint(brush, *brush_transform)?;
+                    let paint = paint(
+                        brush,
+                        *brush_transform,
+                        &mut self.resources.borrow_mut().images,
+                    )?;
                     let mut path = path(shape);
                     path.set_fill_type(match fill {
                         Fill::NonZero => skia_safe::PathFillType::Winding,
@@ -161,15 +196,22 @@ impl SkiaSurface {
                         return unsupported("stroked/even-odd glyphs");
                     }
                     let key = (font.data.id(), font.index);
-                    if let std::collections::hash_map::Entry::Vacant(entry) = self.fonts.entry(key)
-                    {
-                        let face = self
-                            .font_manager
-                            .new_from_bytes(font.data.as_ref(), font.index)
-                            .ok_or(Error::Font)?;
-                        entry.insert(face);
-                    }
-                    let mut skfont = Font::new(self.fonts[&key].clone(), *font_size);
+                    let face = {
+                        let mut resources = self.resources.borrow_mut();
+                        let Resources {
+                            fonts,
+                            font_manager,
+                            ..
+                        } = &mut *resources;
+                        if let std::collections::hash_map::Entry::Vacant(entry) = fonts.entry(key) {
+                            let face = font_manager
+                                .new_from_bytes(font.data.as_ref(), font.index)
+                                .ok_or(Error::Font)?;
+                            entry.insert(face);
+                        }
+                        fonts[&key].clone()
+                    };
+                    let mut skfont = Font::new(face, *font_size);
                     skfont.set_edging(skia_safe::font::Edging::AntiAlias);
                     skfont.set_subpixel(true);
                     skfont.set_hinting(if *hint {
@@ -177,7 +219,7 @@ impl SkiaSurface {
                     } else {
                         FontHinting::None
                     });
-                    let mut paint = paint(brush, None)?;
+                    let mut paint = paint(brush, None, &mut self.resources.borrow_mut().images)?;
                     paint.set_alpha_f(paint.alpha_f() * brush_alpha);
                     let ids: Vec<u16> = glyphs
                         .iter()
@@ -221,7 +263,11 @@ impl SkiaSurface {
                     if style.start_cap != style.end_cap {
                         return unsupported("asymmetric stroke caps");
                     }
-                    let mut paint = paint(brush, *brush_transform)?;
+                    let mut paint = paint(
+                        brush,
+                        *brush_transform,
+                        &mut self.resources.borrow_mut().images,
+                    )?;
                     paint.set_style(skia_safe::paint::Style::Stroke);
                     paint.set_stroke_width(style.width as f32);
                     paint.set_stroke_miter(style.miter_limit as f32);
@@ -295,13 +341,20 @@ impl SkiaSurface {
                     transform,
                 } => {
                     let key = std::sync::Arc::as_ptr(&document.0) as usize;
-                    let commands = match self.svg_scenes.entry(key) {
-                        std::collections::hash_map::Entry::Occupied(entry) => entry.get().1.clone(),
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            let commands = crate::svg::commands(&document.0)?;
-                            entry
-                                .insert((std::sync::Arc::downgrade(&document.0), commands.clone()));
-                            commands
+                    let commands = {
+                        let mut resources = self.resources.borrow_mut();
+                        match resources.svg_scenes.entry(key) {
+                            std::collections::hash_map::Entry::Occupied(entry) => {
+                                entry.get().1.clone()
+                            }
+                            std::collections::hash_map::Entry::Vacant(entry) => {
+                                let commands = crate::svg::commands(&document.0)?;
+                                entry.insert((
+                                    std::sync::Arc::downgrade(&document.0),
+                                    commands.clone(),
+                                ));
+                                commands
+                            }
                         }
                     };
                     canvas.save();
@@ -327,7 +380,11 @@ fn color(color: Color) -> Color4f {
     let [r, g, b, a] = color.components;
     Color4f::new(r, g, b, a)
 }
-fn paint(brush: &Brush, transform: Option<Affine>) -> Result<Paint, Error> {
+fn paint(
+    brush: &Brush,
+    transform: Option<Affine>,
+    images: &mut ImageCache,
+) -> Result<Paint, Error> {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     match brush {
@@ -382,7 +439,84 @@ fn paint(brush: &Brush, transform: Option<Affine>) -> Result<Paint, Error> {
             })?;
             paint.set_shader(shader);
         }
-        Brush::Image(_) => return unsupported("image brush"),
+        Brush::Image(brush) => {
+            use skia_safe::{
+                AlphaType, ColorType, FilterMode, ImageInfo, MipmapMode, SamplingOptions,
+            };
+            use vello_common::peniko::{ImageAlphaType, ImageFormat, ImageQuality};
+            let data = &brush.image;
+            let key = (
+                data.data.id(),
+                data.width,
+                data.height,
+                data.format as u8,
+                data.alpha_type as u8,
+            );
+            if let std::collections::hash_map::Entry::Vacant(entry) = images.entry(key) {
+                let required = data.format.size_in_bytes(data.width, data.height).ok_or(
+                    Error::Unsupported {
+                        command: "image dimensions",
+                    },
+                )?;
+                if data.width == 0
+                    || data.height == 0
+                    || data.width > i32::MAX as u32
+                    || data.height > i32::MAX as u32
+                    || data.data.data().len() < required
+                {
+                    return unsupported("image dimensions or pixel data");
+                }
+                let format = match data.format {
+                    ImageFormat::Rgba8 => ColorType::RGBA8888,
+                    ImageFormat::Bgra8 => ColorType::BGRA8888,
+                    _ => return unsupported("image format"),
+                };
+                let alpha = match data.alpha_type {
+                    ImageAlphaType::Alpha => AlphaType::Unpremul,
+                    ImageAlphaType::AlphaPremultiplied => AlphaType::Premul,
+                };
+                let info = ImageInfo::new(
+                    (data.width as i32, data.height as i32),
+                    format,
+                    alpha,
+                    skia_safe::ColorSpace::new_srgb(),
+                );
+                // Copy once into immutable Skia storage; never rebuild/upload the
+                // same image resource on every replay. Metadata is part of the key.
+                let image = skia_safe::images::raster_from_data(
+                    &info,
+                    skia_safe::Data::new_copy(data.data.data()),
+                    data.width as usize * 4,
+                )
+                .ok_or(Error::Unsupported {
+                    command: "image pixel data",
+                })?;
+                entry.insert((data.data.downgrade(), image));
+            }
+            let tile = |extend| match extend {
+                Extend::Pad => skia_safe::TileMode::Clamp,
+                Extend::Repeat => skia_safe::TileMode::Repeat,
+                Extend::Reflect => skia_safe::TileMode::Mirror,
+            };
+            let sampling = match brush.sampler.quality {
+                ImageQuality::Low => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                ImageQuality::Medium => SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
+                ImageQuality::High => skia_safe::CubicResampler::mitchell().into(),
+            };
+            let local = matrix(transform.unwrap_or(Affine::IDENTITY));
+            let shader = images[&key]
+                .1
+                .to_shader(
+                    (tile(brush.sampler.x_extend), tile(brush.sampler.y_extend)),
+                    sampling,
+                    &local,
+                )
+                .ok_or(Error::Unsupported {
+                    command: "image shader",
+                })?;
+            paint.set_shader(shader);
+            paint.set_alpha_f(brush.sampler.alpha);
+        }
     }
     Ok(paint)
 }
@@ -419,4 +553,45 @@ fn path(shape: &impl Shape) -> Path {
         }
     }
     builder.detach()
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    use plico_renderer::PaintScene;
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use vello_common::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
+
+    #[test]
+    fn targets_share_one_image_resource_and_release_dead_sources() {
+        let resources = Rc::new(RefCell::new(Resources::default()));
+        let brush = ImageBrush::new(ImageData {
+            data: Blob::new(Arc::new(vec![255u8, 0, 0, 255])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::Alpha,
+            width: 1,
+            height: 1,
+        });
+        let mut scene = Scene::new();
+        scene.draw_image((&brush).into(), Affine::scale(4.));
+        let mut targets: Vec<_> = (0..3)
+            .map(|_| {
+                let surface = skia_safe::surfaces::raster_n32_premul((4, 4)).unwrap();
+                SkiaSurface::with_resources(surface, resources.clone())
+            })
+            .collect();
+        for target in &mut targets {
+            let pixels = target.render_scene(&scene, Color::WHITE).unwrap();
+            assert_eq!(&pixels[..4], &[255, 0, 0, 255]);
+            assert_eq!(
+                resources.borrow().images.len(),
+                1,
+                "one conversion for all targets"
+            );
+        }
+        drop(scene);
+        drop(brush);
+        targets[0].draw_scene(&Scene::new(), Color::WHITE).unwrap();
+        assert!(resources.borrow().images.is_empty());
+    }
 }

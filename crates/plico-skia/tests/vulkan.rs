@@ -92,3 +92,38 @@ fn missing_device_is_an_error_instead_of_cpu_fallback() {
         Err(Error::Gpu { .. })
     ));
 }
+
+#[test]
+#[ignore = "requires a Vulkan device; validates the image path used by music covers"]
+fn repeated_image_frames_keep_texture_and_background() {
+    use plico_renderer::image::RasterImage;
+    let mut gpu = SkiaGpuSurface::new(64, 64).unwrap();
+    let image = RasterImage::from_rgba(image::RgbaImage::from_pixel(
+        8,
+        8,
+        image::Rgba([240, 80, 40, 255]),
+    ));
+    let mut scene = Scene::new();
+    scene.draw_image(
+        image.brush().into(),
+        Affine::translate((8., 8.)) * Affine::scale(4.),
+    );
+    for frame in 0..30 {
+        gpu.draw_scene(&scene, Color::from_rgb8(30, 32, 48))
+            .unwrap();
+        if frame % 5 == 0 {
+            let bytes = gpu.read_pixels().unwrap();
+            assert_eq!(
+                &bytes[..4],
+                &[30, 32, 48, 255],
+                "background at frame {frame}"
+            );
+            let offset = (16 * 64 + 16) * 4;
+            assert_eq!(
+                &bytes[offset..offset + 4],
+                &[240, 80, 40, 255],
+                "image at frame {frame}"
+            );
+        }
+    }
+}
