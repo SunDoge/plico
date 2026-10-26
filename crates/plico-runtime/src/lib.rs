@@ -174,6 +174,11 @@ pub struct Adapter {
     nodes: HashMap<Entity, Retained>,
     pub placed: Vec<PlacedNode>,
     pub stats: BackendStats,
+    /// Cross-frame damage instrumentation. `stats` resets every frame, so
+    /// the Phase 0 counters accumulate here instead.
+    pub damage_full_frames: u64,
+    pub damage_partial_frames: u64,
+    pub damage_partial_area_sum: f64,
     hovered: Option<Entity>,
     pressed: Option<Entity>,
     presentation: HashMap<NodeId, presentation::Presentation>,
@@ -227,6 +232,9 @@ impl Default for Adapter {
             nodes: HashMap::new(),
             placed: Vec::new(),
             stats: BackendStats::default(),
+            damage_full_frames: 0,
+            damage_partial_frames: 0,
+            damage_partial_area_sum: 0.,
             hovered: None,
             pressed: None,
             presentation: HashMap::new(),

@@ -76,6 +76,11 @@ impl StyleMotions {
     pub fn drain_dirty(&mut self) -> std::vec::Drain<'_, Entity> {
         self.dirty.drain(..)
     }
+    /// Read-only view of the entities whose sampled values changed in the
+    /// last advance. Observers (damage instrumentation) must not consume.
+    pub fn dirty_entities(&self) -> &[Entity] {
+        &self.dirty
+    }
     /// Theme reveal replaces the entire palette; do not crossfade its target again.
     pub fn snap_theme(&mut self) {
         self.buttons.clear();
