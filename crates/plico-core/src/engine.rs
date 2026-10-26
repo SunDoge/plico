@@ -660,11 +660,19 @@ impl Engine {
             return;
         }
         if node.spans != spans {
+            let metrics_changed = node.spans.len() != spans.len()
+                || node.spans.iter().zip(spans).any(|(old, new)| {
+                    let mut metrics = old.clone();
+                    metrics.color = new.color;
+                    metrics != *new
+                });
             node.spans.clear();
             node.spans.extend_from_slice(spans);
-            node.text_revision += 1;
-            node.pending_changes |=
-                Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
+            node.pending_changes |= Changes::PAINT;
+            if metrics_changed {
+                node.text_revision += 1;
+                node.pending_changes |= Changes::MEASURE | Changes::LAYOUT | Changes::SEMANTICS;
+            }
         }
     }
     pub fn frame(

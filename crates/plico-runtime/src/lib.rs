@@ -124,16 +124,15 @@ fn cached_image(
     stats: &mut BackendStats,
     encoded: &str,
 ) -> Option<Arc<plico_renderer::image::RasterImage>> {
-    cache
-        .entry(Arc::from(encoded))
-        .or_insert_with(|| {
-            stats.svg_parses += 1;
-            let bytes = plico_core::ImageAsset::decode(encoded)?;
-            plico_renderer::image::RasterImage::decode(&bytes)
-                .ok()
-                .map(Arc::new)
-        })
-        .clone()
+    if let Some(image) = cache.get(encoded) {
+        return image.clone();
+    }
+    stats.svg_parses += 1;
+    let image = plico_core::ImageAsset::decode(encoded)
+        .and_then(|bytes| plico_renderer::image::RasterImage::decode(&bytes).ok())
+        .map(Arc::new);
+    cache.insert(Arc::from(encoded), image.clone());
+    image
 }
 fn cached_svg(
     cache: &mut SvgCache,
@@ -1178,7 +1177,16 @@ impl Adapter {
                 || old.text != paint.text
                 || old.font_size != paint.font_size
                 || old.font_weight != paint.font_weight
-                || old.text_runs != paint.text_runs;
+                || old.text_runs.len() != paint.text_runs.len()
+                || old
+                    .text_runs
+                    .iter()
+                    .zip(paint.text_runs.iter())
+                    .any(|(old, new)| {
+                        let mut metrics = old.clone();
+                        metrics.color = new.color;
+                        metrics != *new
+                    });
             *self.tree.get_node_context_mut(retained.id).unwrap() = paint;
             self.paint_dirty.push(retained.id);
             if measurement_changed {
