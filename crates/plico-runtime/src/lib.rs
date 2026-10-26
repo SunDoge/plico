@@ -124,16 +124,15 @@ fn cached_image(
     stats: &mut BackendStats,
     encoded: &str,
 ) -> Option<Arc<plico_renderer::image::RasterImage>> {
-    cache
-        .entry(Arc::from(encoded))
-        .or_insert_with(|| {
-            stats.svg_parses += 1;
-            let bytes = plico_core::ImageAsset::decode(encoded)?;
-            plico_renderer::image::RasterImage::decode(&bytes)
-                .ok()
-                .map(Arc::new)
-        })
-        .clone()
+    if let Some(image) = cache.get(encoded) {
+        return image.clone();
+    }
+    stats.svg_parses += 1;
+    let image = plico_core::ImageAsset::decode(encoded)
+        .and_then(|bytes| plico_renderer::image::RasterImage::decode(&bytes).ok())
+        .map(Arc::new);
+    cache.insert(Arc::from(encoded), image.clone());
+    image
 }
 fn cached_svg(
     cache: &mut SvgCache,
