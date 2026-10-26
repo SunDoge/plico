@@ -1178,7 +1178,16 @@ impl Adapter {
                 || old.text != paint.text
                 || old.font_size != paint.font_size
                 || old.font_weight != paint.font_weight
-                || old.text_runs != paint.text_runs;
+                || old.text_runs.len() != paint.text_runs.len()
+                || old
+                    .text_runs
+                    .iter()
+                    .zip(paint.text_runs.iter())
+                    .any(|(old, new)| {
+                        let mut metrics = old.clone();
+                        metrics.color = new.color;
+                        metrics != *new
+                    });
             *self.tree.get_node_context_mut(retained.id).unwrap() = paint;
             self.paint_dirty.push(retained.id);
             if measurement_changed {
