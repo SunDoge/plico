@@ -5,9 +5,10 @@
 
 ## 已实现
 
-同一份 `plico_renderer::Scene` 分别交给 Skia CPU 和 Vello GPU。
-文字只由 Parley 整形一次：两端使用相同字体字节、TTC index、glyph ID、位置和字号。
-Skia 直接绘制这些 glyph，不重新测量或整形。字体文件按 Blob ID / index 缓存，
+普通 Skia 窗口现在使用 SkParagraph，详见下节。原有 `compare` 探针继续将
+同一份 Parley glyph Scene 分别交给 Skia CPU 和 Vello GPU，以隔离排版差异。
+这个对照模式使用相同字体字节、TTC index、glyph ID、位置和字号；Skia 直接
+绘制这些 glyph。字体文件按 Blob ID 缓存数据，TTC face 共享该数据；
 小字号使用灰度抗锯齿、subpixel positioning 和按命令启用的 normal hinting。
 
 支持 solid fill 路径、几何 transform、nonzero/even-odd fill、变换后的路径 clip，
@@ -21,6 +22,40 @@ BlurredRoundedRectangle 语义一致，sigma 即 std_dev，退化与反向矩形
 并链接了 rust-skia 预编译库，不是源码构建；其他 target / feature 组合是否有预编译库
 取决于 rust-skia 的分发矩阵。当前 consumer 仍复用 renderer 和 vello-common 的共享
 类型与依赖，不宣称已完全解耦 Vello。
+
+## SkParagraph 普通文字路径
+
+选择 Skia 窗口 renderer 时，宿主自动安装 SkParagraph 引擎；启动日志显示
+`text_backend="skparagraph"`。Taffy 的 intrinsic width、高度、基线，普通文字
+绘制、按钮文字对齐、只读文字命中/选区均使用该引擎。Vello 默认路径继续使用
+Parley。这里共享声明与交互契约，不要求两个后端产生相同字形或断行。
+
+`plico_renderer::paragraph` 提供后端中立的请求、metrics 和选区接口；
+Scene 保留 UTF-8 段落声明及 transform，既不保存 Skia 指针，也不跨线程传递
+SkParagraph 对象。Skia 宿主的测量与绘制共享一个有界段落缓存（512 项，
+命中时再次核对完整请求）；FontCollection 统一管理系统 fallback 与注册字体。
+应用字体别名、字号/字重/斜体、字间距、行高、富文本范围、对齐、换行、
+单行省略及多行截断均映射到 SkParagraph。命中和选区在接口处转换 UTF-8 byte
+与 UTF-16 offset，避免中文、emoji 的索引被当成字节。
+
+离屏调用需在构建第一帧前执行 `surface.configure_text(&mut text_context)`；
+`SkiaSurface` 和 `SkiaGpuSurface` 都提供此接口。不安装时，已有 GlyphRun
+consumer 仍可用于 Parley/Vello 对照。Skia 按 Paragraph visitor 的实际字体、
+字形位置及 glyph bounds 缓存 ink bounds，damage 同时包含新旧文字范围。
+
+编辑器、终端、内置可编辑输入等 renderer widget 的编辑模型/绘制契约独立，
+本次不把它们的 Parley/editor 状态机转换成 SkParagraph；它们仍可发 GlyphRun。
+保留该入口不等于普通 text 节点还经过 Parley。测试要求普通 Skia text 的
+Parley layout/glyph cache 为零，并验证完整 Taffy→Scene→Skia 路径。
+
+验证：Skia 段落测试覆盖中英文/emoji 命中、跨段拖选与复制、应用字体注册、
+换行省略、缓存复用、不同缩放下文字移动/移除的精确 damage 对照。
+Lyrune 离屏歌词场景（真实封面、1.75 倍缩放、Intel Vulkan）：600 帧局部绘制
+与全量 GPU 结果逐像素一致；原生 Xvfb 歌词页启动冒烟 12 秒无 panic，
+日志确认选择 SkParagraph（不作长时间播放验收）。10,000 帧中 9816 帧局部绘制，RSS 从约 141 MiB
+预热到 156 MiB，后段基本稳定。它不代表原生窗口或所有设备的内存上限。
+Lyrune `lyric_damage` 默认选 SkParagraph，`--parley` 可保留旧路径对照；
+来源缓存压力选项仅用于 `--parley` 模式。
 
 ## 运行
 

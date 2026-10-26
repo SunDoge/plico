@@ -737,7 +737,7 @@ impl Adapter {
         if !matches!(kind, Kind::Button | Kind::Switch | Kind::Checkbox) {
             return;
         }
-        let text_layout = plico_renderer::scene::layout_node_text(tcx, placed);
+        let text_layout = plico_renderer::scene::layout_node_paragraph(tcx, placed);
         if let Some(text) = &text_layout {
             let geometry = self.tree.layout(placed.node_id).unwrap();
             // Rebuild from the box every time: paint-only animation frames reuse
@@ -745,19 +745,19 @@ impl Adapter {
             placed.content_origin[1] = placed.rect[1]
                 + geometry.border.top
                 + geometry.padding.top
-                + (placed.content_size[1] - text.height()).max(0.) / 2.;
+                + (placed.content_size[1] - text.metrics().height).max(0.) / 2.;
             if kind == Kind::Button {
                 placed.content_origin[0] = placed.rect[0]
                     + geometry.border.left
                     + geometry.padding.left
-                    + (placed.content_size[0] - text.width()).max(0.) / 2.;
+                    + (placed.content_size[0] - text.metrics().width).max(0.) / 2.;
             }
         }
         if kind == Kind::Button {
             return;
         }
         let line_height = text_layout
-            .and_then(|layout| layout.lines().next().map(|line| line.metrics().line_height))
+            .map(|layout| layout.metrics().first_line_height)
             .unwrap_or(placed.content_size[1]);
         if placed.paint.widget.is_some() && retained.toggle_line_height == Some(line_height) {
             return;

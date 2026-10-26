@@ -1,6 +1,6 @@
-//! Text layout via parley.
+//! Shared text context with host-selected ordinary paragraphs and Parley layouts.
 //!
-//! parley handles font selection (system fonts via fontique), shaping, and
+//! The default Parley path handles font selection (system fonts via fontique), shaping, and
 //! positioning. We build a `Layout` from a node's text string + font size,
 //! use it for both taffy measurement (width/height) and vello rasterisation
 //! (positioned glyph runs). Layouts are cached by width constraint so
@@ -136,6 +136,14 @@ pub struct FontAsset {
     family: Option<Arc<str>>,
 }
 impl FontAsset {
+    /// Original font bytes, shared with the registered collection.
+    pub fn bytes(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+    /// Optional private family alias.
+    pub fn family(&self) -> Option<&str> {
+        self.family.as_deref()
+    }
     /// Own an in-memory TTF/OTF file.
     pub fn new(bytes: Vec<u8>) -> Self {
         Self {
@@ -159,6 +167,9 @@ impl FontAsset {
 
 /// The lifetime of a returned [`Layout`] is tied to a borrow of this context.
 pub struct TextContext {
+    native: Option<Box<dyn crate::paragraph::ParagraphEngine>>,
+    font_assets: Vec<FontAsset>,
+    paragraph_revision: u64,
     /// Font discovery and fallback database shared by layouts.
     pub font_cx: FontContext,
     /// Scratch state used by Parley while constructing layouts.
@@ -244,6 +255,9 @@ impl TextContext {
         // reloading the same font file under a fresh identity after pruning.
         font_cx.source_cache.make_shared();
         Self {
+            native: None,
+            font_assets: Vec::new(),
+            paragraph_revision: 0,
             font_cx,
             layout_cx: LayoutContext::new(),
             loaded_fonts: Default::default(),
@@ -257,7 +271,40 @@ impl TextContext {
 
     /// Stable diagnostic name for the active ordinary-text raster backend.
     pub fn raster_backend_name(&self) -> &'static str {
-        "vello-outline"
+        self.native
+            .as_ref()
+            .map_or("vello-outline", |engine| engine.name())
+    }
+
+    /// Install the host's ordinary paragraph engine before layout.
+    pub fn set_paragraph_engine(&mut self, mut engine: Box<dyn crate::paragraph::ParagraphEngine>) {
+        for asset in &self.font_assets {
+            engine.register_font(asset);
+        }
+        self.clear_caches();
+        self.native = Some(engine);
+        self.paragraph_revision = self.paragraph_revision.wrapping_add(1);
+    }
+    /// Declare ordinary text with the current font collection's identity.
+    pub fn paragraph_request(
+        &self,
+        paint: &crate::style::Paint,
+        width: Option<f32>,
+    ) -> Option<crate::paragraph::ParagraphRequest> {
+        let mut request = crate::paragraph::ParagraphRequest::from_paint(paint, width)?;
+        request.font_revision = self.paragraph_revision;
+        Some(request)
+    }
+    /// Whether ordinary text uses a host-native paragraph implementation.
+    pub fn has_native_paragraphs(&self) -> bool {
+        self.native.is_some()
+    }
+    /// Lay out an ordinary text request with the selected host engine.
+    pub fn native_paragraph(
+        &mut self,
+        request: Arc<crate::paragraph::ParagraphRequest>,
+    ) -> Option<std::rc::Rc<dyn crate::paragraph::NativeParagraph>> {
+        Some(self.native.as_mut()?.layout(request))
     }
 
     /// Stable diagnostic name for the platform outline fallback policy.
@@ -296,6 +343,11 @@ impl TextContext {
             return false;
         }
         self.loaded_fonts.insert(key);
+        self.font_assets.push(asset.clone());
+        self.paragraph_revision = self.paragraph_revision.wrapping_add(1);
+        if let Some(engine) = &mut self.native {
+            engine.register_font(asset);
+        }
         // Browsers provide no system-font enumeration to Fontique. Register
         // explicit defaults so a loaded font can resolve generic text styles.
         #[cfg(target_arch = "wasm32")]
@@ -322,6 +374,9 @@ impl TextContext {
     /// Release derived text layouts and encoded glyph scenes while retaining
     /// the discovered and application-provided font collection.
     pub fn clear_caches(&mut self) {
+        if let Some(engine) = &mut self.native {
+            engine.clear();
+        }
         self.cache.clear();
         self.intrinsic_width_cache.clear();
         self.ellipsis_cache.clear();

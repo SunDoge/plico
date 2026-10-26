@@ -13,7 +13,7 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico-core` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
-- Taffy 布局、Parley 文本和 Vello 后端；字体、选择复制、输入法和 SVG。
+- Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
 - 普通文字默认不额外几何加粗，保留 hint 与真实字重，避免淡边；显式扩张按实际扩张量收紧轮廓容差，避免直边变斜。Linux 默认优先 Noto 中英文字体栈，保留应用字体覆盖能力。
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
@@ -27,7 +27,7 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 - plico icons add/check：应用拥有选择集合、生成 Rust、清单和许可证，核心仅内置四个控件图标。
 - launcher、terminal、services-demo；编辑器和 WASM 入口保留。
 
-- [Skia / Vello 对照实验](skia.md)：同一 Scene 和 Parley glyph 的 CPU / Vulkan Skia 回放、四档缩放截图；另提供实验性 Vulkan 窗口后端，尚不支持完整 gallery。
+- [Skia / Vello 对照实验](skia.md)：SkParagraph 普通文字、CPU / Vulkan Skia 回放和实验性 Vulkan 窗口；保留相同 Parley glyph 的多缩放对照。
 
 ## 同步组件的 local state 与宿主任务
 

@@ -205,7 +205,7 @@ fn compute_layout_with_widgets(
         width: AvailableSpace::Definite(viewport[0]),
         height: AvailableSpace::Definite(viewport[1]),
     };
-    // Measure text leaves through parley (system fonts + shaping). The closure
+    // Measure ordinary text with the selected paragraph engine. The closure
     // takes ownership of the `&mut TextContext` reborrow for the duration of
     // layout; the caller may reuse `tcx` afterwards.
     let _ = tree.compute_layout_with_measure(
@@ -253,6 +253,37 @@ fn compute_layout_with_widgets(
                                 height: content_known(known.height, avail.height),
                             };
                             let wraps = paint.wrap_text || paint.text_max_lines > 0;
+                            if measure.text().has_native_paragraphs() {
+                                let request =
+                                    measure.text().paragraph_request(paint, None).unwrap();
+                                let mut intrinsic_request = request.clone();
+                                intrinsic_request.max_lines = 0;
+                                intrinsic_request.ellipsis = false;
+                                let intrinsic = measure
+                                    .text()
+                                    .native_paragraph(std::sync::Arc::new(intrinsic_request))
+                                    .unwrap()
+                                    .metrics()
+                                    .intrinsic;
+                                let intrinsic = if wraps { intrinsic } else { [intrinsic[1]; 2] };
+                                let (width, layout_width) = text_measurement_width(
+                                    known.width,
+                                    avail.width,
+                                    wraps,
+                                    intrinsic,
+                                );
+                                let mut request = request;
+                                request.width = layout_width;
+                                let metrics = measure
+                                    .text()
+                                    .native_paragraph(std::sync::Arc::new(request))
+                                    .unwrap()
+                                    .metrics();
+                                return Size {
+                                    width,
+                                    height: known.height.unwrap_or(metrics.height),
+                                };
+                            }
                             let intrinsic = if known.width.is_none() {
                                 let [min_content, max_content] =
                                     crate::text::measure_text_intrinsic_widths(
@@ -316,7 +347,7 @@ fn compute_layout_with_widgets(
                 });
             }
             // Taffy needs text baselines, including when fixed dimensions let it
-            // skip the intrinsic measurement callback. Use the painted Parley
+            // skip the intrinsic measurement callback. Use the painted
             // paragraph and resolve CSS percentage padding against parent width.
             if let Some(paint) = ctx.as_deref()
                 && let Some(text) = &paint.text
@@ -331,33 +362,52 @@ fn compute_layout_with_widgets(
                 let width =
                     (result.size.width - padding.left - padding.right - border.left - border.right)
                         .max(0.);
-                let layout = crate::text::layout_text_styled_clamped(
-                    tcx,
-                    text.clone(),
-                    paint.font_size,
-                    paint.font_weight,
-                    paint.font_italic,
-                    paint.letter_spacing,
-                    paint.line_height,
-                    paint.text_align,
-                    crate::text::brush_for_color(paint.text_color),
-                    paint.text_runs.clone(),
-                    paint.font_family.as_ref(),
-                    paint.wrap_text.then_some(width),
-                    paint.text_max_lines,
-                    !paint.text_clip_lines,
-                );
-                let top = padding.top + border.top;
-                result.baselines = taffy::tree::Baselines {
-                    first: layout
-                        .lines()
-                        .next()
-                        .map(|line| top + line.metrics().baseline),
-                    last: layout
-                        .lines()
-                        .last()
-                        .map(|line| top + line.metrics().baseline),
-                };
+                if tcx.has_native_paragraphs() {
+                    let request = tcx
+                        .paragraph_request(
+                            paint,
+                            (paint.wrap_text || paint.text_ellipsis || paint.text_max_lines > 0)
+                                .then_some(width),
+                        )
+                        .unwrap();
+                    let metrics = tcx
+                        .native_paragraph(std::sync::Arc::new(request))
+                        .unwrap()
+                        .metrics();
+                    let top = padding.top + border.top;
+                    result.baselines = taffy::tree::Baselines {
+                        first: metrics.baselines[0].map(|b| top + b),
+                        last: metrics.baselines[1].map(|b| top + b),
+                    };
+                } else {
+                    let layout = crate::text::layout_text_styled_clamped(
+                        tcx,
+                        text.clone(),
+                        paint.font_size,
+                        paint.font_weight,
+                        paint.font_italic,
+                        paint.letter_spacing,
+                        paint.line_height,
+                        paint.text_align,
+                        crate::text::brush_for_color(paint.text_color),
+                        paint.text_runs.clone(),
+                        paint.font_family.as_ref(),
+                        paint.wrap_text.then_some(width),
+                        paint.text_max_lines,
+                        !paint.text_clip_lines,
+                    );
+                    let top = padding.top + border.top;
+                    result.baselines = taffy::tree::Baselines {
+                        first: layout
+                            .lines()
+                            .next()
+                            .map(|line| top + line.metrics().baseline),
+                        last: layout
+                            .lines()
+                            .last()
+                            .map(|line| top + line.metrics().baseline),
+                    };
+                }
             }
             result
         },

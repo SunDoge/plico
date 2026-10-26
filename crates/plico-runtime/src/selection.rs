@@ -1,13 +1,12 @@
 //! Read-only paragraph selection uses the exact shaped layouts used for painting.
 use super::*;
-use parley::{Affinity, Cursor, Selection};
 use plico_renderer::{ClipboardRequest, Point};
 
 struct Paragraph {
     entity: Entity,
     group: Entity,
     text: Arc<str>,
-    layout: Arc<parley::Layout<[u8; 4]>>,
+    layout: plico_renderer::paragraph::ParagraphLayout,
 }
 #[derive(Clone, Copy)]
 struct Endpoint {
@@ -55,7 +54,7 @@ impl Adapter {
                 continue;
             }
             if let Some(group) = self.selection_group(engine, p.node_id)
-                && let Some(layout) = plico_renderer::scene::layout_node_text(tcx, p)
+                && let Some(layout) = plico_renderer::scene::layout_node_paragraph(tcx, p)
                 && let Some(text) = &p.paint.text
             {
                 paragraphs.push(Paragraph {
@@ -115,13 +114,7 @@ impl Adapter {
                         .iter()
                         .find(|n| n.entity == entity)
                 {
-                    let a = Cursor::from_byte_index(&para.layout, *start, Affinity::Downstream);
-                    let b = Cursor::from_byte_index(&para.layout, *end, Affinity::Upstream);
-                    Selection::new(a, b)
-                        .geometry(&para.layout)
-                        .into_iter()
-                        .map(|(r, _)| [r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
-                        .collect()
+                    para.layout.selection_rects(*start..*end).into()
                 } else {
                     empty_rects()
                 };
@@ -220,14 +213,13 @@ impl Adapter {
                 continue;
             }
             let local = self.layout_point(node.node_id, point.x, point.y)?;
-            let c = Cursor::from_point(
-                &para.layout,
+            let byte = para.layout.hit_test(
                 local.x as f32 - node.content_origin[0],
                 local.y as f32 - node.content_origin[1],
             );
             best = Some(Endpoint {
                 entity: para.entity,
-                byte: c.index(),
+                byte,
             });
             distance = d;
         }

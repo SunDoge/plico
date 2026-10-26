@@ -695,8 +695,10 @@ fn translucent_layer_dirty_clip_precision_probe() {
     let a = partial.read_pixels().unwrap();
     let b = full.render_scene(&scene, Color::WHITE).unwrap();
     let n = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0.iter())
         .filter(|(a, b)| a != b)
         .count();
     assert!(n == 0, "rounded stroke clip changed {n} pixels");

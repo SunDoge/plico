@@ -22,6 +22,7 @@ pub struct SkiaSurface {
 /// CPU assets are shared by the render targets of one GPU context. Per-image
 /// caches duplicate complete CJK font files and upload identical textures again.
 pub(crate) struct Resources {
+    pub(crate) paragraphs: std::rc::Rc<std::cell::RefCell<crate::paragraph::ParagraphCache>>,
     fonts: std::collections::HashMap<u64, FontResource>,
     font_manager: FontMgr,
     svg_scenes:
@@ -36,6 +37,7 @@ struct FontResource {
 impl Default for Resources {
     fn default() -> Self {
         Self {
+            paragraphs: Default::default(),
             fonts: Default::default(),
             font_manager: FontMgr::new(),
             svg_scenes: Default::default(),
@@ -83,6 +85,14 @@ impl Resources {
     ) -> Option<vello_common::kurbo::Rect> {
         use vello_common::kurbo::Rect;
         match command {
+            PaintCommand::Paragraph { request, transform } => Some(
+                transform.transform_rect_bbox(
+                    self.paragraphs
+                        .borrow_mut()
+                        .layout(request.clone())
+                        .ink_bounds(),
+                ),
+            ),
             PaintCommand::Fill {
                 shape, transform, ..
             } => Some(transform.transform_rect_bbox(shape.bounding_box())),
@@ -146,6 +156,13 @@ type ImageCache = std::collections::HashMap<
 >;
 
 impl SkiaSurface {
+    /// Select SkParagraph for this host's ordinary text measurement and selection.
+    /// Call before constructing the first frame; painting shares the same cache.
+    pub fn configure_text(&self, text: &mut plico_renderer::TextContext) {
+        text.set_paragraph_engine(Box::new(crate::paragraph::Engine(
+            self.resources.borrow().paragraphs.clone(),
+        )));
+    }
     /// Allocate a surface; dimensions must be nonzero signed 32-bit values.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
         if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
@@ -379,6 +396,14 @@ impl SkiaSurface {
             }
             let canvas = self.surface.canvas();
             match command {
+                PaintCommand::Paragraph { request, transform } => {
+                    let paragraphs = self.resources.borrow().paragraphs.clone();
+                    let paragraph = paragraphs.borrow_mut().layout(request.clone());
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    paragraph.paint(canvas);
+                    canvas.restore();
+                }
                 PaintCommand::Fill {
                     fill,
                     transform,

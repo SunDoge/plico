@@ -8,6 +8,7 @@ pub mod layout;
 /// Renderer and value animation algorithms shared by native and web hosts.
 pub use plico_motion as motion;
 pub mod paint;
+pub mod paragraph;
 pub mod platform;
 pub mod scene;
 pub mod scrollbar;

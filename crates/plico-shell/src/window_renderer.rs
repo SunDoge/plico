@@ -15,6 +15,16 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn configure_text(&self, _text: &mut plico_renderer::TextContext) {
+        #[cfg(feature = "skia")]
+        if let Self::Skia {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.configure_text(_text);
+        }
+    }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
             Self::Vello(_) => None,

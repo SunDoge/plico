@@ -50,6 +50,11 @@ impl PartialEq for SvgDocument {
 #[derive(Clone, Debug, PartialEq)]
 #[allow(missing_docs)]
 pub enum PaintCommand {
+    /// A host-native ordinary paragraph in logical coordinates.
+    Paragraph {
+        request: Arc<crate::paragraph::ParagraphRequest>,
+        transform: Affine,
+    },
     /// Begin an isolated, clipped layer.
     PushLayer {
         /// Compositing mode.
@@ -127,7 +132,8 @@ impl PaintCommand {
             | Self::GlyphRun { transform, .. }
             | Self::BoxShadow { transform, .. }
             | Self::Svg { transform, .. }
-            | Self::Shader { transform, .. } => transform,
+            | Self::Shader { transform, .. }
+            | Self::Paragraph { transform, .. } => transform,
             Self::PopLayer => return self,
         };
         *transform = parent * *transform;
@@ -312,11 +318,23 @@ pub trait PaintScene {
     fn draw_svg(&mut self, document: SvgDocument, transform: Affine);
     /// Draw a retained custom WGSL effect.
     fn draw_shader_effect(&mut self, effect: ShaderEffect, transform: Affine);
+    /// Native paragraph commands require a compatible host painter.
+    fn draw_paragraph(
+        &mut self,
+        _request: Arc<crate::paragraph::ParagraphRequest>,
+        _transform: Affine,
+    ) {
+        panic!("native paragraph sent to a non-native painter");
+    }
 
     /// Append a retained fragment under `transform`.
     fn append_scene(&mut self, scene: Scene, transform: Affine) {
         for command in scene.commands {
             match command {
+                PaintCommand::Paragraph {
+                    request,
+                    transform: local,
+                } => self.draw_paragraph(request, transform * local),
                 PaintCommand::PushLayer {
                     blend,
                     alpha,
@@ -408,6 +426,14 @@ fn own_brush(brush: BrushRef<'_>) -> Brush {
 }
 
 impl PaintScene for Scene {
+    fn draw_paragraph(
+        &mut self,
+        request: Arc<crate::paragraph::ParagraphRequest>,
+        transform: Affine,
+    ) {
+        self.commands
+            .push(PaintCommand::Paragraph { request, transform });
+    }
     fn reset(&mut self) {
         self.commands.clear();
     }

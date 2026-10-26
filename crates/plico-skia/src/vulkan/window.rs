@@ -31,6 +31,12 @@ pub struct SkiaWindow {
     last_present_damage: DamageRegion,
 }
 impl SkiaWindow {
+    /// Use the window's shared SkParagraph engine for ordinary text.
+    pub fn configure_text(&self, text: &mut plico_renderer::TextContext) {
+        text.set_paragraph_engine(Box::new(crate::paragraph::Engine(
+            self.resources.borrow().paragraphs.clone(),
+        )));
+    }
     /// Create a present-capable Vulkan device and swapchain for a Winit window.
     pub fn new(
         window: Arc<dyn Window>,

@@ -40,6 +40,10 @@ pub struct SkiaGpuSurface {
     _thread: PhantomData<Rc<()>>,
 }
 impl SkiaGpuSurface {
+    /// Use this renderer's SkParagraph cache for host text layout.
+    pub fn configure_text(&self, text: &mut plico_renderer::TextContext) {
+        self.surface.configure_text(text);
+    }
     /// Current GPU cache accounting, without readback or synchronization.
     pub fn gpu_cache_stats(&self) -> GpuCacheStats {
         cache_stats(&self.context)
