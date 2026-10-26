@@ -152,7 +152,48 @@ LVGL 可继续使用自身布局与失效系统；Bevy 后端可使用自身渲�
 调用者负责包含旧位置、新位置和全部效果的 ink bounds。
 像素测试比较移动、重叠透明层的局部绘制与全量绘制，并验证区域外像素不变。
 
-此入口尚未连接 Adapter 的估计或窗口。窗口必须另外解决每个 buffer 的
-有效性/历史、resize、背景/主题变化和呈现失败；不能把上一显示帧的 damage
-直接套到任意 acquire 的 swapchain image。Vello 和平台 incremental present
-也独立推进，不阻塞当前全量绘制路径。
+### 自动 damage 与 Skia 窗口
+
+`SceneDamageTracker` 直接比较完整绘制指令流，和 Taffy/节点身份无关。
+它同时合并新、旧和已删除指令的 ink bounds，处理 clip/layer 范围变化；
+静态指令及 clip 不变时复用 ink bounds。未知 ink 使用 enclosing clip，
+无 clip 则回退 full。过滤器、自定义 shader、特殊混合模式回退 full。
+Skia 使用实际字体的 glyph bounds；阴影和 SVG 暂用上述保守回退。
+Adapter 的旧诊断估计不参与绘制。
+
+`draw_scene_tracked()` 已接入 Skia 窗口。每张 swapchain image 单独保存最后
+成功绘制的 scene 与 bounds，按本次 acquire 的 image 比较，而不是按上一
+显示帧比较。resize/recreate 丢弃旧目标，绘制/提交失败后重建；首次绘制与
+背景变化全量绘制。Vulkan 队列同步仍走原来的路径。
+这解决的是保留 surface 的局部绘制，尚未向平台发送 incremental-present 提示。
+
+- `PLICO_SKIA_DAMAGE=0`：关闭自动 damage，供 A/B 对比。
+- `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
+  比较局部绘制与全量绘制像素；不一致报错，默认关闭。
+- `plico::perf` trace 的 `damage_coverage` 是实际应用到目标 image 的区域比例，
+  可能比相邻显示帧的 damage 大；不要与旧的 `damage_coverage_estimate` 混用。
+
+回归覆盖多目标乱序获取、移动、删除、透明层、文字小数位移/变色、stroke、
+背景切换、失败恢复，以及 dense→sparse 的恢复。
+本地运行 `cargo run -p plico-skia --features window --example damage_window`：
+180 帧，含两次 resize；每帧都与同一 acquired image 的全量 GPU 重绘比较。
+它是手动探针，不增加 CI 的窗口测试或 GPU 账单。
+
+### 稀疏与密集更新的对照
+
+`cargo run -p plico-skia --features raster --example damage_compare`：
+1280×720、2000 条 fill 指令、40 帧预热后采样 120 帧，交替测试顺序。
+scene 构建不计时，计时内不读像素；最终像素必须一致。
+本机 dev（优化级别按 workspace）一次结果：
+
+| 场景 | 全量 p50 | tracked p50 | 平均实际覆盖率 |
+| --- | ---: | ---: | ---: |
+| 每帧改变一个局部 | 696.8µs | 309.3µs | 0.19% |
+| 每帧改变全部图元 | 691.7µs | 696.0µs | 100% |
+
+密集更新比较本身有成本；未加回退时测得约 715µs→882µs。
+当前在矩形覆盖超过 80% 时提升 full，随后 8 次绘制跳过比较，再探测一次；
+这是可调整的启发式，不影响像素正确性。探测时若还没有有效历史，要先全量
+建立历史，之后再判断覆盖率。测试保证切回稀疏后会重新进入局部绘制。
+这些数字只说明 CPU raster 的这一组负载，不代表 GPU/窗口或真实应用收益。
+Vello 的子区域能力与平台 incremental present 继续作为独立阶段验证。

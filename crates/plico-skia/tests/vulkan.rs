@@ -127,3 +127,41 @@ fn repeated_image_frames_keep_texture_and_background() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires Vulkan; compares partial GPU drawing against full GPU drawing"]
+fn damage_tracked_gpu_matches_full_redraw_and_resize() {
+    let make = || {
+        match std::env::var("PLICO_SKIA_DEVICE") {
+            Ok(name) => SkiaGpuSurface::with_device(32, 32, &name),
+            Err(_) => SkiaGpuSurface::new(32, 32),
+        }
+        .unwrap()
+    };
+    let mut partial = make();
+    let mut full = make();
+    println!("damage comparison device={}", partial.device_name());
+    for frame in 0..60 {
+        if frame == 30 {
+            partial.resize(40, 36).unwrap();
+            full.resize(40, 36).unwrap();
+        }
+        let mut scene = Scene::new();
+        if frame % 11 != 0 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::translate(((frame % 20) as f64, 0.)),
+                Color::from_rgba8(240, 80, 40, 128),
+                None,
+                &Rect::new(0., 4., 7., 20.),
+            );
+        }
+        partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        full.draw_scene(&scene, Color::WHITE).unwrap();
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.read_pixels().unwrap(),
+            "frame {frame}"
+        );
+    }
+}

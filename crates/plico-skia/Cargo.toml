@@ -31,3 +31,11 @@ image = { workspace = true, features = ["png"] }
 [[example]]
 name = "compare"
 required-features = ["raster"]
+
+[[example]]
+name = "damage_window"
+required-features = ["window"]
+
+[[example]]
+name = "damage_compare"
+required-features = ["raster"]

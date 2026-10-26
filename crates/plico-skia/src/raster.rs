@@ -16,6 +16,8 @@ pub struct SkiaSurface {
     pub(crate) resources: std::rc::Rc<std::cell::RefCell<Resources>>,
     frame_valid: bool,
     background: Option<Color>,
+    damage_tracker: plico_renderer::damage::SceneDamageTracker,
+    tracking_cooldown: u8,
 }
 /// CPU assets are shared by the render targets of one GPU context. Per-image
 /// caches duplicate complete CJK font files and upload identical textures again.
@@ -33,6 +35,91 @@ impl Default for Resources {
             font_manager: FontMgr::new(),
             svg_scenes: Default::default(),
             images: Default::default(),
+        }
+    }
+}
+impl Resources {
+    fn font(
+        &mut self,
+        font: &vello_common::peniko::FontData,
+        size: f32,
+        hint: bool,
+    ) -> Result<Font, Error> {
+        let key = (font.data.id(), font.index);
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.fonts.entry(key) {
+            let face = self
+                .font_manager
+                .new_from_bytes(font.data.as_ref(), font.index)
+                .ok_or(Error::Font)?;
+            entry.insert(face);
+        }
+        let mut skfont = Font::new(self.fonts[&key].clone(), size);
+        skfont.set_edging(skia_safe::font::Edging::AntiAlias);
+        skfont.set_subpixel(true);
+        skfont.set_hinting(if hint {
+            FontHinting::Normal
+        } else {
+            FontHinting::None
+        });
+        Ok(skfont)
+    }
+    fn ink_bounds(&mut self, command: &PaintCommand) -> Option<vello_common::kurbo::Rect> {
+        use vello_common::kurbo::Rect;
+        match command {
+            PaintCommand::Fill {
+                shape, transform, ..
+            } => Some(transform.transform_rect_bbox(shape.bounding_box())),
+            PaintCommand::Stroke {
+                shape,
+                transform,
+                style,
+                ..
+            } => {
+                // Include the largest miter/cap extension before transforming.
+                let extra = style.width.abs() * style.miter_limit.max(2.) * 0.5;
+                Some(transform.transform_rect_bbox(shape.bounding_box().inflate(extra, extra)))
+            }
+            PaintCommand::GlyphRun {
+                font,
+                font_size,
+                hint,
+                glyphs,
+                transform,
+                normalized_coords,
+                embolden,
+                style,
+                glyph_transform,
+                ..
+            } if normalized_coords.iter().all(|v| *v == 0)
+                && *embolden == Default::default()
+                && glyph_transform.is_none()
+                && matches!(style, Style::Fill(Fill::NonZero)) =>
+            {
+                let font = self.font(font, *font_size, *hint).ok()?;
+                let ids = glyphs
+                    .iter()
+                    .map(|g| u16::try_from(g.id))
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok()?;
+                let mut bounds = vec![skia_safe::Rect::default(); ids.len()];
+                font.get_bounds(&ids, &mut bounds, None);
+                let mut result: Option<Rect> = None;
+                for (glyph, r) in glyphs.iter().zip(bounds) {
+                    if r.is_empty() {
+                        continue;
+                    }
+                    let r = Rect::new(
+                        (r.left + glyph.x) as f64,
+                        (r.top + glyph.y) as f64,
+                        (r.right + glyph.x) as f64,
+                        (r.bottom + glyph.y) as f64,
+                    );
+                    result = Some(result.map_or(r, |old| old.union(r)));
+                }
+                Some(transform.transform_rect_bbox(result.unwrap_or(Rect::ZERO)))
+            }
+            // Effects and SVG use their enclosing clip; without a clip, full.
+            _ => None,
         }
     }
 }
@@ -64,6 +151,8 @@ impl SkiaSurface {
             resources,
             frame_valid: false,
             background: None,
+            damage_tracker: Default::default(),
+            tracking_cooldown: 0,
         }
     }
 
@@ -93,6 +182,7 @@ impl SkiaSurface {
         background: Color,
         damage: DamageRegion,
     ) -> Result<(), Error> {
+        self.damage_tracker.invalidate();
         let damage = if !self.frame_valid || self.background != Some(background) {
             DamageRegion::Full
         } else {
@@ -126,6 +216,62 @@ impl SkiaSurface {
         result?;
         self.frame_valid = true;
         self.background = Some(background);
+        Ok(())
+    }
+
+    /// Compute command-stream damage against this target's last successful
+    /// tracked draw, then redraw it. Each target owns an independent history.
+    /// Explicit draws and invalidation discard history conservatively.
+    pub fn draw_scene_tracked(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+    ) -> Result<DamageRegion, Error> {
+        // Dense redraws cannot repay command comparison. Probe again after a
+        // bounded cooldown; content remains correct through full redraws.
+        if self.tracking_cooldown > 0 {
+            self.tracking_cooldown -= 1;
+            self.draw_scene(scene, background)?;
+            return Ok(DamageRegion::Full);
+        }
+        let resources = &self.resources;
+        let mut tracker = std::mem::take(&mut self.damage_tracker);
+        let damage = tracker.update(
+            scene,
+            self.surface.width() as u32,
+            self.surface.height() as u32,
+            |command| resources.borrow_mut().ink_bounds(command),
+        );
+        let actual = if !self.frame_valid || self.background != Some(background) {
+            DamageRegion::Full
+        } else {
+            damage
+        };
+        let actual = if matches!(actual, DamageRegion::Rect(_))
+            && actual.coverage(self.surface.width() as u32, self.surface.height() as u32) > 0.8
+        {
+            self.tracking_cooldown = 8;
+            DamageRegion::Full
+        } else {
+            actual
+        };
+        let result = self.draw_scene_damaged(scene, background, actual);
+        if result.is_ok() {
+            self.damage_tracker = tracker;
+        }
+        result.map(|()| actual)
+    }
+
+    #[cfg(feature = "window")]
+    pub(crate) fn validate_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
+        let pixels = self.read_pixels()?;
+        let history = std::mem::take(&mut self.damage_tracker);
+        self.draw_scene(scene, background)?;
+        if self.read_pixels()? != pixels {
+            self.invalidate();
+            return Err(Error::DamageMismatch);
+        }
+        self.damage_tracker = history;
         Ok(())
     }
 
@@ -231,30 +377,7 @@ impl SkiaSurface {
                     if !matches!(style, Style::Fill(Fill::NonZero)) {
                         return unsupported("stroked/even-odd glyphs");
                     }
-                    let key = (font.data.id(), font.index);
-                    let face = {
-                        let mut resources = self.resources.borrow_mut();
-                        let Resources {
-                            fonts,
-                            font_manager,
-                            ..
-                        } = &mut *resources;
-                        if let std::collections::hash_map::Entry::Vacant(entry) = fonts.entry(key) {
-                            let face = font_manager
-                                .new_from_bytes(font.data.as_ref(), font.index)
-                                .ok_or(Error::Font)?;
-                            entry.insert(face);
-                        }
-                        fonts[&key].clone()
-                    };
-                    let mut skfont = Font::new(face, *font_size);
-                    skfont.set_edging(skia_safe::font::Edging::AntiAlias);
-                    skfont.set_subpixel(true);
-                    skfont.set_hinting(if *hint {
-                        FontHinting::Normal
-                    } else {
-                        FontHinting::None
-                    });
+                    let skfont = self.resources.borrow_mut().font(font, *font_size, *hint)?;
                     let mut paint = paint(brush, None, &mut self.resources.borrow_mut().images)?;
                     paint.set_alpha_f(paint.alpha_f() * brush_alpha);
                     let ids: Vec<u16> = glyphs

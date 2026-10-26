@@ -2,7 +2,7 @@
 use super::{VulkanDevice, new_context};
 use crate::{Error, SkiaSurface};
 use ash::vk::{self, Handle};
-use plico_renderer::Scene;
+use plico_renderer::{DamageRegion, Scene};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use skia_safe::gpu;
 use snafu::ResultExt;
@@ -22,6 +22,9 @@ pub struct SkiaWindow {
     desired: [u32; 2],
     transparent: bool,
     recreate: bool,
+    damage_tracking: bool,
+    damage_validation: bool,
+    last_damage: DamageRegion,
 }
 impl SkiaWindow {
     /// Create a present-capable Vulkan device and swapchain for a Winit window.
@@ -65,6 +68,9 @@ impl SkiaWindow {
             desired: [size.width, size.height],
             transparent,
             recreate: true,
+            damage_tracking: true,
+            damage_validation: false,
+            last_damage: DamageRegion::Full,
         };
         renderer.rebuild()?;
         Ok(renderer)
@@ -72,6 +78,21 @@ impl SkiaWindow {
     /// Actual Vulkan device used for both drawing and presentation.
     pub fn device_name(&self) -> &str {
         &self.owner.name
+    }
+    /// Select command-stream damage or unconditional full drawing.
+    /// History is owned per swapchain image; newly created targets draw fully.
+    pub fn set_damage_tracking(&mut self, enabled: bool) {
+        self.damage_tracking = enabled;
+    }
+    /// Expensive diagnostic: compare each tracked draw against full drawing on
+    /// the same acquired GPU image before presentation. Disabled by default.
+    pub fn set_damage_validation(&mut self, enabled: bool) {
+        self.damage_validation = enabled;
+    }
+    /// Physical-pixel damage applied to the last acquired image. This can be
+    /// larger than display-to-display damage when that image is several frames old.
+    pub fn last_damage(&self) -> DamageRegion {
+        self.last_damage
     }
     /// Defer swapchain recreation until the next nonzero-sized frame.
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -134,7 +155,21 @@ impl SkiaWindow {
         if !target.surface.wait(&[acquired], false) {
             return Err(Error::Submit);
         }
-        let draw_result = target.draw_scene(scene, background);
+        let draw_result = if self.damage_tracking {
+            target.draw_scene_tracked(scene, background).map(|damage| {
+                self.last_damage = damage;
+            })
+        } else {
+            self.last_damage = DamageRegion::Full;
+            target.draw_scene(scene, background)
+        }
+        .and_then(|()| {
+            if self.damage_validation {
+                target.validate_scene(scene, background)
+            } else {
+                Ok(())
+            }
+        });
         if draw_result.is_err() {
             // Release acquired images with a clean background, never partial UI.
             // The original failure is returned after submission/presentation.

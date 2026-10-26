@@ -117,6 +117,20 @@ impl SkiaGpuSurface {
         }
         Ok(())
     }
+    /// Submit damage-tracked drawing on this preserved GPU target.
+    pub fn draw_scene_tracked(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+    ) -> Result<plico_renderer::DamageRegion, Error> {
+        let damage = self.surface.draw_scene_tracked(scene, background)?;
+        self.context.flush_surface(&mut self.surface.surface);
+        if !self.context.submit(None) {
+            self.surface.invalidate();
+            return Err(Error::Submit);
+        }
+        Ok(damage)
+    }
     /// Synchronous screenshot readback, separate from normal draw/submit.
     pub fn read_pixels(&mut self) -> Result<Vec<u8>, Error> {
         self.surface.read_pixels()
@@ -369,7 +383,6 @@ fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
 }
 
 #[cfg(feature = "window")]
-#[path = "window.rs"]
 mod window;
 #[cfg(feature = "window")]
 pub use window::SkiaWindow;

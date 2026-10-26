@@ -15,6 +15,8 @@ pub enum Error {
     Surface,
     #[snafu(display("no successfully rendered frame is available"))]
     NoFrame,
+    #[snafu(display("damage-tracked pixels differ from a full redraw"))]
+    DamageMismatch,
     #[snafu(display("Skia pixel readback failed"))]
     ReadPixels,
     #[snafu(display("Skia could not load the command's font"))]
