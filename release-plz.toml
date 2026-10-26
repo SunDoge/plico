@@ -33,6 +33,7 @@ Generated with [release-plz](https://github.com/release-plz/release-plz/).
 """
 # Released versions come from Git tags; never publish to a Cargo registry.
 git_only = true
+publish = false
 release_always = false
 semver_check = false
 dependencies_update = false
@@ -51,7 +52,6 @@ git_release_name = "Plico v{{ version }}"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
-    "examples",
     "plico-core",
     "plico-dev",
     "plico-editor",
