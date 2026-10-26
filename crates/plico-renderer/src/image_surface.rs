@@ -50,8 +50,18 @@ impl std::fmt::Debug for ImageSurfaceState {
     }
 }
 impl PartialEq for ImageSurfaceState {
+    /// Observable surface state, not allocation identity: two hosts holding
+    /// the same status compare equal, so a serialized app state restored
+    /// into a fresh surface still matches the live one. A poisoned lock
+    /// compares unequal rather than panicking.
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        let Ok(a) = self.0.lock() else { return false };
+        let Ok(b) = other.0.lock() else { return false };
+        a.status == b.status
+            && a.paused == b.paused
+            && a.revision == b.revision
+            && a.image.as_ref().map(|image| Arc::as_ptr(image) as usize)
+                == b.image.as_ref().map(|image| Arc::as_ptr(image) as usize)
     }
 }
 impl Default for ImageSurfaceState {

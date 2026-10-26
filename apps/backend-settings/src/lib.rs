@@ -2,7 +2,7 @@
 mod animation;
 mod color_icons;
 mod icons;
-use animation::Animations;
+use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
 use plico_core::{DeclareView, Router, TextBuffer, Theme, prelude::*};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico_core::Route)]
@@ -49,6 +49,32 @@ impl Default for Settings {
         }
     }
 }
+/// One sidebar navigation entry. The accessible name is always the route
+/// label; the visible label crossfades with `expand`, leaving an icon-only
+/// control that stays usable (and still announced) at compact width.
+#[component]
+#[rustfmt::skip]
+fn nav_entry(cx: &mut UiContext, router: &mut Router<Page>, page: Page, expand: f32) {
+    cx.keyed(page.id(), |cx| {
+        let selected = router.show(page);
+        let m = cx.theme().metrics;
+        let response = button_base(cx, page.label()).width_percent(100.).padding_x(m.space(2)).padding_y(m.space(1))
+            .height(m.control_height as f32 + 4.).radius(m.radius as f32)
+            .background(if selected { Color::Selection } else { Color::Panel }).hover_background(Color::ControlHover)
+            .pressed_background(Color::ControlPressed).color(if selected { Color::Accent } else { Color::Muted })
+            .selected(selected).transition(m.interaction_ms).gap(m.spacing).children(|cx| {
+            if let Some(icon) = page.icon() {
+                svg(cx, icon).size(16., 16.);
+            }
+            text(cx, page.label()).weight(if selected { 600 } else { 400 }).font_size(m.font_size).ellipsis(true)
+                .opacity(expand);
+        }).response;
+        if response.clicked() {
+            router.go(page);
+        }
+    });
+}
+
 impl Settings {
     pub fn progress(&self) -> f32 {
         self.animations.progress()
@@ -75,6 +101,7 @@ impl DeclareView for Settings {
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
         self.animations.advance(cx.now());
+        self.animations.set_reduced(self.reduced_motion);
         if self.router.current() != Page::Overview {
             self.animations.cancel();
         }
@@ -84,7 +111,6 @@ impl DeclareView for Settings {
             self.inspector
                 && self.router.current() == Page::Overview
                 && cx.viewport_width() >= 1000.,
-            self.reduced_motion,
         );
         row(cx).width_percent(100.).height_percent(100.).align(Align::Stretch).background(Color::Surface) + |cx| {
             self.sidebar(cx);
@@ -143,28 +169,35 @@ impl Settings {
     #[component]
     #[rustfmt::skip]
     fn sidebar(&mut self, cx: &mut UiContext) {
-        let expanded = self.animations.sidebar() > 160.;
-        column(cx).width(self.animations.sidebar()).shrink(0.).padding(12).gap(18).clip(true).background(Color::Panel)
-        + |cx|
-        {
+        // One tween drives everything: width, the crossfade of the expanded
+        // furniture (title, labels, footer) and nothing else. `expand` is a
+        // pure function of the width sample, so mid-flight frames fade the
+        // same values they are already clipping - no pops at a threshold, no
+        // restarted or duplicated animations.
+        let width = self.animations.sidebar();
+        let expand = ((f64::from(width) - SIDEBAR_COMPACT) / (SIDEBAR_EXPANDED - SIDEBAR_COMPACT)).clamp(0., 1.) as f32;
+        let collapsed = self.compact || cx.viewport_width() < 760.;
+        column(cx).width(width).shrink(0.).padding(12).gap(18).clip(true).background(Color::Panel) + |cx| {
             row(cx).gap(8).height(38.) + |cx| {
                 svg(cx, &color_icons::APPS).size(26., 26.);
-                if expanded {
-                    text(cx, "plico").font_size(23).weight(700);
-                }
+                text(cx, "plico").font_size(23).weight(700).opacity(expand).ellipsis(true);
             };
             column(cx).gap(8) + |cx| {
-                nav_menu(cx, &mut self.router);
+                for page in Page::ALL {
+                    nav_entry(cx, &mut self.router, *page, expand);
+                }
             };
             column(cx).height(0.).grow(1.) + |_cx| {};
-            if button(cx).icon(&icons::PANEL_LEFT_CLOSE).aria_label("Toggle sidebar").height(36.)
-                .width_percent(100.).text(if expanded { "Collapse" } else { "" }).clicked()
+            // While the narrow viewport forces the collapse, the toggle is
+            // disabled: activating it would flip the saved preference in the
+            // opposite direction and silently pin a later wide window.
+            let forced_narrow = cx.viewport_width() < 760.;
+            if button(cx).icon(if collapsed { &icons::PANEL_LEFT_OPEN } else { &icons::PANEL_LEFT_CLOSE })
+                .aria_label("Toggle sidebar").height(36.).width_percent(100.).disabled(forced_narrow).clicked()
             {
                 self.compact = !self.compact;
             }
-            if expanded {
-                text(cx, "Backend playground").font_size(12).color(Color::Muted);
-            }
+            text(cx, "Backend playground").font_size(12).color(Color::Muted).ellipsis(true).opacity(expand);
         };
     }
     #[component]
@@ -241,7 +274,7 @@ impl Settings {
                 row(cx).gap(10).wrap(true) + |cx| {
                     text(cx, "Sync preview").font_size(18).weight(650).grow(1.);
                     if button(cx).icon(&icons::PLAY).text("Run preview").primary().clicked() {
-                        self.animations.start(self.reduced_motion);
+                        self.animations.start();
                     }
                     if button(cx).icon(&icons::PAUSE).text("Stop")
                         .disabled(!self.animations.progress_running()).clicked()

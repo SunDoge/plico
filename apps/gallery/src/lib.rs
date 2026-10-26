@@ -57,9 +57,34 @@ pub enum Page {
     Images,
 }
 
+/// A spring-driven demo chip on the Motion page. The value samples purely
+/// from the injected frame instant; the bool is the serializable preference.
+#[derive(Clone, Debug)]
+pub struct SpringDemo {
+    width: plico_motion::Animated,
+    out: bool,
+}
+impl Default for SpringDemo {
+    fn default() -> Self {
+        Self {
+            width: plico_motion::Animated::new(200.),
+            out: false,
+        }
+    }
+}
+/// Equality is the serializable preference; the sampled width is a pure
+/// function of the injected instant, not part of the state.
+impl PartialEq for SpringDemo {
+    fn eq(&self, other: &Self) -> bool {
+        self.out == other.out
+    }
+}
+
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Gallery {
+    #[serde(skip)]
+    pub spring: SpringDemo,
     #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
     #[serde(skip)]
     pub images: images::Images,
@@ -326,24 +351,67 @@ impl Gallery {
     #[rustfmt::skip]
     fn motion_page(&mut self, ui: &mut UiContext) {
         heading(ui, "Motion studies", "One state change. Dimensions, spacing, color and opacity move together.");
-        column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
-            row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
-                text(ui, "Layout + style").font_size(17).weight(650).grow(1.);
-                if button(ui).text("Animate layout").primary().font_size(12).clicked() {
-                    self.expanded = !self.expanded;
-                }
+        // The two demo cards plus the shader do not fit the 640px minimum
+        // window; the page scrolls rather than overflowing the viewport.
+        column(ui).height(0.).grow(1.).scroll_y(true).gap(20) + |ui| {
+            column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
+                row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
+                    text(ui, "Layout + style").font_size(17).weight(650).grow(1.);
+                    if button(ui).text("Animate layout").primary().font_size(12).clicked() {
+                        self.expanded = !self.expanded;
+                    }
+                };
+                column(ui).height(150.).justify(Justify::Center) + |ui| {
+                    column(ui).width(if self.expanded { 320. } else { 200. })
+                        .height(if self.expanded { 110. } else { 62. })
+                        .padding(if self.expanded { 22 } else { 12 })
+                        .radius(if self.expanded { 24. } else { 8. })
+                        .opacity(if self.expanded { 1. } else { 0.7 }).background(if self.expanded {
+                        Color::Literal(0x2259c9)
+                    } else {
+                        Color::Literal(0x207e99)
+                    }).motion(Motion::Smooth).children(|ui| {
+                        text(ui, "A little more room.").font_size(17).weight(600)
+                            .color(Color::Literal(0xffffff));
+                    })
+                };
+                text(ui, if self.expanded { "Expanded / 240 ms" } else { "Compact / 240 ms" }).font_size(12).color(Color::Muted);
             };
-            column(ui).height(150.).justify(Justify::Center) + |ui| {
-                column(ui).width(if self.expanded { 320. } else { 200. })
-                    .height(if self.expanded { 110. } else { 62. }).padding(if self.expanded { 22 } else { 12 })
-                    .radius(if self.expanded { 24. } else { 8. }).opacity(if self.expanded { 1. } else { 0.7 })
-                    .background(if self.expanded { Color::Literal(0x2259c9) } else { Color::Literal(0x207e99) })
-                    .motion(Motion::Smooth).children(|ui| {
-                    text(ui, "A little more room.").font_size(17).weight(600)
-                        .color(Color::Literal(0xffffff));
-                })
+            column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
+                row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
+                    text(ui, "Spring physics").font_size(17).weight(650).grow(1.);
+                    if button(ui).text("Animate spring").primary().font_size(12).clicked() {
+                        self.spring.out = !self.spring.out;
+                    }
+                };
+                column(ui).height(150.).justify(Justify::Center) + |ui| {
+                    // The spring overshoots before settling: width goes past the
+                    // target and comes back, unlike the 240 ms tween above.
+                    let target = if self.spring.out { 320. } else { 200. };
+                    self.spring.width.retarget_spring(
+                        ui.now(),
+                        target,
+                        plico_motion::SpringOptions {
+                            mass: 1.,
+                            stiffness: 170.,
+                            damping: 14.,
+                            epsilon: 0.001,
+                        },
+                    );
+                    let width = self.spring.width.value(ui.now());
+                    column(ui).width(width as f32).height(78.).radius(12.).background(Color::Accent)
+                        .children(|ui| {
+                        text(ui, "Overshoot, then settle.").font_size(15).weight(600)
+                            .color(Color::OnAccent);
+                    });
+                };
+                text(ui, if self.spring.out { "Sprung / out" } else { "Sprung / in" }).font_size(12).color(Color::Muted);
             };
-            text(ui, if self.expanded { "Expanded / 240 ms" } else { "Compact / 240 ms" }).font_size(12).color(Color::Muted);
+            // Finite flights only: request frames while a spring is still
+            // settling, so the app idles at rest.
+            if self.spring.width.active(ui.now()) {
+                ui.request_animation_frame();
+            }
         };
         shader_demo(ui);
     }

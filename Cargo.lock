@@ -1620,6 +1620,7 @@ dependencies = [
  "plico-dev",
  "plico-editor",
  "plico-markdown",
+ "plico-motion",
  "plico-renderer",
  "plico-shell",
  "plico-vello",

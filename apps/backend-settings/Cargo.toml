@@ -8,7 +8,7 @@ publish = false
 [features]
 default = []
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
-vello = ["dep:plico-vello", "dep:plico-renderer", "dep:plico-runtime"]
+vello = ["dep:plico-vello", "dep:plico-renderer", "dep:plico-runtime", "dep:plico-shell"]
 skia = ["dep:plico-runtime", "dep:plico-renderer", "dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
 
 [dependencies]
@@ -24,6 +24,10 @@ plico-fltk = { path = "../../crates/plico-fltk", optional = true }
 plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
 plico-runtime = { path = "../../crates/plico-runtime", optional = true }
 plico-shell = { path = "../../crates/plico-shell", optional = true }
+
+[[example]]
+name = "sidebar_capture"
+required-features = ["vello"]
 
 [[example]]
 name = "fltk_probe"
