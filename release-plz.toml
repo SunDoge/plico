@@ -52,27 +52,63 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
     "examples",
-    "backend-settings",
     "plico-core",
     "plico-dev",
     "plico-editor",
     "plico-fltk",
-    "gallery",
-    "launcher",
     "plico-lvgl",
-    "lvgl-esp32p4",
     "plico-macros",
     "plico-markdown",
     "plico-motion",
     "plico-native",
     "plico-renderer",
     "plico-runtime",
-    "services-demo",
     "plico-shell",
     "plico-skia",
-    "terminal",
     "plico-terminal",
     "plico-vello",
-    "web-demo",
     "plico-web-host",
 ]
+
+# This unpublished helper is versioned through workspace.package.version only.
+# It did not exist at v0.1.1; git_only reconstruction otherwise fails on that tag.
+# Disable both release analysis and Git-baseline lookup for this package.
+[[package]]
+name = "examples"
+release = false
+git_only = false
+
+[[package]]
+name = "backend-settings"
+release = false
+git_only = false
+
+[[package]]
+name = "gallery"
+release = false
+git_only = false
+
+[[package]]
+name = "launcher"
+release = false
+git_only = false
+
+[[package]]
+name = "lvgl-esp32p4"
+release = false
+git_only = false
+
+[[package]]
+name = "services-demo"
+release = false
+git_only = false
+
+[[package]]
+name = "terminal"
+release = false
+git_only = false
+
+[[package]]
+name = "web-demo"
+release = false
+git_only = false

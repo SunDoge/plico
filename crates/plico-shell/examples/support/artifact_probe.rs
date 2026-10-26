@@ -26,16 +26,6 @@ fn render(scene: &Scene, width: u32, height: u32, background: Color) -> RgbaImag
     renderer::render_to_image(scene, width, height, background).expect("artifact render")
 }
 
-fn precise(scene: &mut Scene) {
-    for command in scene.commands.iter_mut() {
-        if let PaintCommand::Fill { shape, .. } = command {
-            let mut path = vello_common::kurbo::BezPath::new();
-            vello_common::kurbo::flatten(shape.iter(), 0.005, |element| path.push(element));
-            *shape = path;
-        }
-    }
-}
-
 fn equal(actual: &RgbaImage, expected: &RgbaImage, label: &str, output: &Path) {
     assert_eq!(actual.dimensions(), expected.dimensions());
     if actual.as_raw() != expected.as_raw() {
@@ -127,7 +117,6 @@ impl Probe {
         let baseline = render(scene, width, height, background);
         let mut outlines = scene.clone();
         crate::hint_probe::rewrite(&mut outlines, "lcd", None);
-        precise(&mut outlines);
         equal(
             &baseline,
             &render(&outlines, width, height, background),
@@ -160,7 +149,6 @@ impl Probe {
             let actual = render(&moved, width, height, background);
             let mut direct = moved.clone();
             crate::hint_probe::rewrite(&mut direct, "lcd", None);
-            precise(&mut direct);
             equal(
                 &actual,
                 &render(&direct, width, height, background),

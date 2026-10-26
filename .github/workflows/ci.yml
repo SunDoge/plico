@@ -3,7 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'release-plz.toml'
+      - '.github/dependabot.yml'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'NOTICE'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'release-plz.toml'
+      - '.github/dependabot.yml'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'NOTICE'
   workflow_dispatch:
 
 permissions:
@@ -23,11 +37,6 @@ env:
 jobs:
   quality:
     name: Lightweight Rust checks
-    outputs:
-      build: ${{ steps.changes.outputs.build }}
-    permissions:
-      contents: read
-      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -39,41 +48,26 @@ jobs:
           toolchain: stable
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
           components: rustfmt,clippy
-      - name: Detect build inputs
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-changes.py
-      - name: Check shared package version and CI test coverage
-        run: |
-          python3 scripts/test-ci-changes.py
-          python3 scripts/check-versions.py
-          python3 scripts/ci-tests.py --check
       - name: Check Rust and component formatting
         run: cargo run --locked -p plico-cli -- fmt --check
       - name: Guard application widget boundaries
         run: python3 scripts/check-widget-boundary.py
       - name: Test the renderer-independent packages
-        if: steps.changes.outputs.build == 'true'
         run: cargo test --locked -p plico-core -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown --all-targets --all-features
       - name: Install desktop compile dependencies
-        if: steps.changes.outputs.build == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libfontconfig1-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
       - name: Lint the mainline without optional backend SDKs
-        if: steps.changes.outputs.build == 'true'
         run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello,plico-shell/global-hotkeys --all-targets -- -D warnings
       - name: Verify the semantic test protocol without a window
-        if: steps.changes.outputs.build == 'true'
         run: cargo test --locked -p plico-runtime --test test_protocol
 
   windows:
     name: Windows compile
     needs: quality
-    if: needs.quality.outputs.build == 'true'
     runs-on: windows-2025
     timeout-minutes: 20
     steps:

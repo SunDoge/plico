@@ -37,10 +37,12 @@ cog check
 ## CI
 
 普通 pull request / main push 保留两个 CI job：Linux **Lightweight Rust checks** 与 **Windows compile**。
-Windows 等 Linux 检查成功后再执行，纯文档改动跳过编译。Linux 负责：
+Windows 等 Linux 检查成功后再执行。纯文档与发布配置改动通过 GitHub 原生
+`paths-ignore` 跳过整个 CI；手动运行仍执行全部检查。不维护自定义变更分类器，
+也不为筛选逻辑调用 GitHub API。Linux 负责：
 
-- 检查 Rust 与 component 格式、workspace 版本、测试分组配置和 Widget 边界。
-- 非纯文档变更测试 `plico-core`、`plico-macros`、`plico-motion`、`plico-dev`、
+- 检查 Rust 与 component 格式和 Widget 边界；所有 Cargo 命令使用 `--locked`。
+- 测试 `plico-core`、`plico-macros`、`plico-motion`、`plico-dev`、
   `plico-cli`、`plico-markdown`，以及无窗口的 runtime 语义协议测试。
 - 其余主线代码通过 workspace Clippy 检查（默认 feature）；不启用 Skia SDK、
   FLTK、LVGL、ESP-IDF 等可选后端。`backend-settings` 使用 Vello feature 参与编译；全局热键启用 `plico-shell/global-hotkeys` 做编译检查，不运行 OS 自动化。
@@ -60,7 +62,9 @@ Release workflow 管理。Actions 固定到 commit，不依赖本机 mbx 或原 
 
 workspace 成员（框架、后端、CLI 和示例应用）统一使用根 `Cargo.toml` 的
 `[workspace.package].version`，当前为 `0.1.0`。成员声明 `version.workspace = true`；
-升级时只改根版本并更新 Cargo.lock，`scripts/check-versions.py` 会拒绝单独写版本的成员。
+release-plz 负责根版本、changelog 和 Cargo.lock 更新，不另写版本同步脚本。
+成员使用 Cargo 原生的版本继承；CI 的 `--locked` 构建负责拒绝过期锁文件。
+旧 release PR 若早于 workspace 结构变更，应重新生成后再合并。
 
 排除在 workspace 之外的 `crates/plico-vello/reference` 保留历史版本；`plico new` 创建的
 独立用户应用有自己的版本，不随框架一起修改。包版本不代替热重载协议或 ABI 的兼容性检查。
@@ -82,7 +86,14 @@ Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不
 不使用默认的逐 package changelog 标题；`plico-cli` 只是内部发布锚点，不代表只发布 CLI。
 其他 package 的变更汇总进根 `CHANGELOG.md`。
 第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
-新增 workspace 成员时，将它加入 `changelog_include`。
+`changelog_include` 只列框架 crate。`apps/` 是测试/展示应用，根目录 `examples`
+也是非发布辅助包；它们配置 `release = false` 与 `git_only = false`，不独立计算
+下个版本，也不纳入框架 changelog。它们仍继承 workspace 版本；框架升级时一同更新。
+新增应用时同步补齐这两项配置，不把普通 demo 改动作为框架发版依据。
+
+release-plz 0.4.0 的 Git 基线重建要求旧 tag 中存在当前分析的包；`examples`
+不存在于 `v0.1.1` 中。跳过这些辅助包也避免了此问题，不需要改写已发布 tag。
+新增框架 crate 时仍需检查其发布基线。
 
 仓库 Settings → Actions → General 必须允许 Actions 创建 PR。
 workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触发后续 CI。
@@ -91,15 +102,16 @@ workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触�
 fine-grained PAT，workflow 会优先使用它。没有这个 secret 时，可由维护者手动
 关闭并重新打开 release PR 以触发 CI。这里不需要设置任何 Cargo registry secret。
 
-本地验证不会创建远端 PR、推送 tag 或发布 crate：
+需要预览版本更新时，在独立 checkout 中直接运行官方命令：
 
 ```sh
-mise install
-mise exec -- python3 scripts/check-release.py
+mise exec -- release-plz update
+cargo check --locked -p plico-cli
+git diff -- Cargo.toml Cargo.lock CHANGELOG.md
 ```
 
-该脚本在临时仓库中验证首次版本、仅改独立后端时的统一版本升级、changelog 汇总和
-无变更重跑稳定性。它不会更改当前工作区、版本或 tag。
+`release-plz update` 会修改该 checkout 的版本与 changelog，但不会创建远端 PR、
+推送 tag 或发布 crate。不另维护一套发布模拟器。
 
 ## 确定性的应用测试
 
