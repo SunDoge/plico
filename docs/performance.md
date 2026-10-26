@@ -251,3 +251,36 @@ layer，不能把该测试当作 Vulkan validation layer 检查。
 `PLICO_SKIA_INCREMENTAL_PRESENT=0` 可在同一探针中验证无提示回退路径。
 trace 的 `present_damage_coverage` 是相邻呈现 scene 的估计覆盖率，与目标
 buffer 的 `damage_coverage` 不同；Empty 在平台接口仍退回普通提交。
+
+### Vello 接入难度评估（不改窗口）
+
+本机 `vello_gpu 0.3.0` 已公开 `ClearSettings::Rects`，其 root clear pass 使用
+Load 保留其他像素。需要同时给 scene 加外层 clip；仅局部 clear 后重放完整
+scene 会在脏区外重复透明合成，不能直接替换现在的全量 clear。
+
+手动 GPU 探针：
+
+```sh
+cargo test -p plico-shell --lib vello_preserved_target_partial_redraw_probe -- --ignored --nocapture --test-threads=1
+```
+
+在稳定的离屏纹理上跑 60 帧，覆盖矩形移动、移除、透明 layer、背景变透明、
+以及目标尺寸重建；局部清除 + clip 的像素逐帧与全量重绘一致。
+此测试默认 ignored，不增加 CI GPU 运行；正常 ImageRenderer 和窗口代码未变。
+它验证 Vello API 的可行性，不证明字体、SVG、滤镜和自定义 shader 的完整性，
+也没有给出性能收益。
+
+窗口路线可复用 `wgpu_context 0.10` 的 intermediate texture：
+`target_texture_view()` 在配置中间纹理时返回稳定 view，
+`maybe_blit_and_present()` 会把它复制到本次获取的 surface texture；resize
+会重建该纹理。Plico 目前主要在 alpha 转换需要时才启用中间纹理，不能直接
+假定普通窗口的 surface texture 在下一帧仍保留内容。
+
+因此基础接口改动不大，完整窗口接入为中等工作量：始终使用保留目标、首帧/
+resize/错误回退、复用共享 damage 协议，补 Vello glyph ink 的保守范围，再
+验证 layer/filter、透明窗口、不同 DPI 和设备丢失。全屏 blit 仍有带宽成本；
+必须用真实负载测量，不能只看局部绘制面积。
+
+另一个独立观察：当前 Vello 窗口配置为 `PresentMode::AutoNoVsync`；后续比较
+动画 CPU 时应核实实际 FPS，并对照同步模式，避免将不同帧率误判为 renderer
+差距。本轮没有修改它，也没有启用 Vello 自动 damage。
