@@ -449,6 +449,10 @@ pub struct FrameStats {
     /// Renderer submission and presentation time in milliseconds, or zero when
     /// the active native toolkit does not expose a reliable completion time.
     pub present_ms: f64,
+    /// Actual fraction of the acquired target redrawn in the last successful
+    /// frame, including buffer history. `None` means the backend does not
+    /// report it. This is a raw sample, unlike the timing EMAs.
+    pub damage_coverage: Option<f64>,
     /// Number of retained nodes in the frame.
     pub node_count: usize,
     /// Logical viewport width.

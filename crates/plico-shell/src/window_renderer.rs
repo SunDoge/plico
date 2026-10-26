@@ -15,6 +15,18 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
+        match self {
+            Self::Vello(_) => None,
+            #[cfg(feature = "skia")]
+            Self::Skia {
+                active: Some(renderer),
+                ..
+            } => Some(renderer.last_damage().coverage(_width, _height)),
+            #[cfg(feature = "skia")]
+            Self::Skia { active: None, .. } => None,
+        }
+    }
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {
             RenderBackend::Vello => renderer_backend::WindowRenderer::new(transparent)

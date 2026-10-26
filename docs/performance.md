@@ -127,15 +127,15 @@ Lyrune 同时将歌词位移从逐行绝对位置改为共同容器的 translate
 
 ## Damage 覆盖率测量（Phase 0）
 
-`Adapter::damage()` 当前是诊断估计，不能作为正确的局部重绘输入。
-它还没有完整追踪移动前的 ink bounds、阴影范围、溢出子节点和 backdrop
-依赖；motion dirty 队列在更新时已消费。不要把估计值解释为保守上界。
-`damage_partial_coverage()` 仅对 partial 帧求平均，不代表全部帧的平均覆盖率。
+`FrameStats::damage_coverage` 记录上次成功绘制中实际重绘的目标 image 比例，
+不是均值，也不包含失败的提交。Skia 提供该指标；不支持的后端为 None，HUD
+显示 n/a。`PLICO_PERFORMANCE_HUD=1` 在既有帧耗时下方显示 Damage。
+trace 的 `plico::perf / damage_coverage` 使用同一已应用区域。
 
-快照路径和窗口 retained 路径均记录累计计数，并在 `plico::perf` trace 中
-输出 `damage_coverage_estimate`。现有虚拟时钟测试说明首帧、resize、文本
-重排会走 full，部分 hover/press 会被估计为 partial；这些不是实际应用的
-帧分布或收益结论。需要真实交互录制，再决定自动 damage 的投入顺序。
+旧的 `Adapter::damage()` 与累计 partial 估计已删除：它依赖节点 dirty 队列，
+不完整覆盖旧 ink、阴影和 overflow；保留两套同名统计容易造成误解。
+布局运行、flatten 次数继续保留为独立成本指标，不再冒充 redraw damage。
+HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外部采样。
 
 ## 可选的局部绘制能力
 
@@ -161,7 +161,7 @@ LVGL 可继续使用自身布局与失效系统；Bevy 后端可使用自身渲�
 命令，不宣称 O(Δ) 构建。未知 ink 使用 enclosing clip，
 无 clip 则回退 full。过滤器、自定义 shader、特殊混合模式回退 full。
 Skia 使用实际字体的 glyph bounds；阴影和 SVG 暂用上述保守回退。
-Adapter 的旧诊断估计不参与绘制。
+damage 计算不依赖 Adapter 的节点 dirty 队列。
 
 `draw_scene_tracked()` 已接入 Skia 窗口。每张 swapchain image 单独保存最后
 成功绘制的 scene 与 bounds，按本次 acquire 的 image 比较，而不是按上一
@@ -173,7 +173,7 @@ Adapter 的旧诊断估计不参与绘制。
 - `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
   比较局部绘制与全量绘制像素；不一致报错，默认关闭。
 - `plico::perf` trace 的 `damage_coverage` 是实际应用到目标 image 的区域比例，
-  可能比相邻显示帧的 damage 大；不要与旧的 `damage_coverage_estimate` 混用。
+  可能比相邻显示帧的 damage 大；这是已应用区域，不是节点 dirty 的推测。
 
 回归覆盖多目标乱序获取、移动、删除、透明层、文字小数位移/变色、stroke、
 背景切换、失败恢复，以及 dense→sparse 的恢复。

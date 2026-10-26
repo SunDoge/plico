@@ -225,6 +225,11 @@ impl Shell {
         }
     }
 
+    pub(crate) fn damage_coverage(&self) -> Option<f64> {
+        self.renderer
+            .damage_coverage(self.surface_size[0], self.surface_size[1])
+    }
+
     /// Borrow the platform window.
     pub fn window(&self) -> &Arc<dyn Window> {
         &self.window

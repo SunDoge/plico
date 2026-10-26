@@ -54,92 +54,9 @@ impl Tooltips {
 impl Adapter {
     pub(super) fn presented(&mut self) -> Vec<PlacedNode> {
         self.stats.placed_node_clones += self.placed.len() + self.tips.layer.len();
-        self.record_damage();
         let mut nodes = self.placed.clone();
         nodes.extend_from_slice(&self.tips.layer);
         nodes
-    }
-    /// Diagnostic estimate of changed regions, in logical window coordinates.
-    /// This is not safe input for partial drawing: old ink bounds, overflow
-    /// and effects are not fully tracked yet. `None` means the whole window: the first
-    /// frame, a resize, structural creation/removal, layout runs, flattening
-    /// or scrolling repaint everything. Rendering does not consume this estimate.
-    pub fn damage(&self) -> Option<[f32; 4]> {
-        let (width, height) = self.viewport?;
-        // Read per-frame work stats, not the geometry_dirty latch: the latch
-        // stays set between frames (tall controls realign every geometry
-        // branch pass), while the stats say what this frame actually did.
-        if self.stats.created > 0
-            || self.stats.removed > 0
-            || self.stats.flatten_visits > 0
-            || self.stats.layout_runs > 0
-            || self.scroll_dirty
-        {
-            return None;
-        }
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        let mut any = false;
-        let mut cover = |bounds: Option<[f32; 4]>| {
-            if let Some([a, b, c, d]) = bounds {
-                x0 = x0.min(a);
-                y0 = y0.min(b);
-                x1 = x1.max(c);
-                y1 = y1.max(d);
-                any = true;
-            }
-        };
-        // Nodes whose paint changed this frame.
-        for id in &self.paint_dirty {
-            cover(self.visible_bounds(*id));
-        }
-        // Motion dirtiness was merged into update_retained's dirty queue;
-        // querying the drained motion queue here would miss animated nodes.
-        // Previous ink bounds still need tracking before this can drive drawing.
-        // Focus/hover/press repaints come through interaction sync; the
-        // involved nodes are exactly the ones paint_dirty covers, plus the
-        // previously-highlighted entity, which sync also marks.
-        if !any {
-            return Some([0., 0., 0., 0.]);
-        }
-        let (width, height) = (width as f32, height as f32);
-        let x0 = x0.max(0.);
-        let y0 = y0.max(0.);
-        let x1 = x1.min(width);
-        let y1 = y1.min(height);
-        (x0 < x1 && y0 < y1).then_some([x0, y0, x1, y1])
-    }
-    /// Fold this frame's damage into the cumulative instrumentation.
-    /// Full frames count separately; partial frames accumulate their
-    /// coverage so the mean can be derived at any time.
-    pub(super) fn record_damage(&mut self) {
-        let coverage = match (self.damage(), self.viewport) {
-            (None, _) => 1.,
-            (Some([x0, y0, x1, y1]), Some((w, h))) if w > 0 && h > 0 => {
-                f64::from((x1 - x0).max(0.) * (y1 - y0).max(0.)) / (f64::from(w) * f64::from(h))
-            }
-            _ => 0.,
-        };
-        tracing::trace!(target: "plico::perf", damage_coverage_estimate = coverage,
-            "frame damage estimate");
-        match self.damage() {
-            None => self.damage_full_frames += 1,
-            Some(region) if region[0] < region[2] && region[1] < region[3] => {
-                self.damage_partial_frames += 1;
-                if let Some((width, height)) = self.viewport {
-                    let area = f64::from((region[2] - region[0]) * (region[3] - region[1]));
-                    self.damage_partial_area_sum += area / (f64::from(width) * f64::from(height));
-                }
-            }
-            Some(_) => {}
-        }
-    }
-    /// Mean damaged-area fraction over partial frames, or 0 when none yet.
-    pub fn damage_partial_coverage(&self) -> f64 {
-        if self.damage_partial_frames > 0 {
-            self.damage_partial_area_sum / self.damage_partial_frames as f64
-        } else {
-            0.
-        }
     }
     fn tooltip_owner(&self, engine: &Engine, entity: Entity) -> Option<Entity> {
         if engine.node(entity)?.style.disabled || !self.modal_allows(engine, entity) {

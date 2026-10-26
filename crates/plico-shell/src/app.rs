@@ -896,6 +896,11 @@ impl App {
         );
         self.frame_stats
             .update(build_frame_ms, scene_ms, present_ms, node_count);
+        self.frame_stats.damage_coverage = if presented {
+            shell.damage_coverage()
+        } else {
+            None
+        };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
         if update_present_retry(presented, &mut self.present_retry_pending) {
