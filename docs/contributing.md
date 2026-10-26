@@ -61,7 +61,7 @@ Release workflow 管理。Actions 固定到 commit，不依赖本机 mbx 或原 
 ## 统一版本
 
 workspace 成员（框架、后端、CLI 和示例应用）统一使用根 `Cargo.toml` 的
-`[workspace.package].version`，当前为 `0.1.0`。成员声明 `version.workspace = true`；
+`[workspace.package].version`。成员声明 `version.workspace = true`；
 release-plz 负责根版本、changelog 和 Cargo.lock 更新，不另写版本同步脚本。
 成员使用 Cargo 原生的版本继承；CI 的 `--locked` 构建负责拒绝过期锁文件。
 旧 release PR 若早于 workspace 结构变更，应重新生成后再合并。
@@ -79,7 +79,8 @@ Release 说明来自根 changelog。也可在 main 手动运行
 Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不等待 CI。
 
 `release-plz.toml` 使用 `git_only = true`，以 Git tag 为版本基线，不从 Cargo registry 查询已发布版本，
-也不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
+并显式设置 workspace `publish = false`，辅助应用也继承此值，避免与 Cargo 的
+`publish = false` 冲突。不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
 目前不上传安装包。所有成员继续继承 workspace 版本，
 只由 `plico-cli` 创建 tag 和 GitHub Release；标题显式使用 `Plico v{{ version }}`，
 避免默认显示 CLI 包名。release PR 的 `pr_name` / `pr_body` 也显式使用 Plico，
