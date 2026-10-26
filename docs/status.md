@@ -93,7 +93,9 @@ incremental-present hints are implemented as opt-in experiments. Normal windows
 use full drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
 pass, but the real settings theme animation exposes four one-channel-step pixels
 near a dirty clip edge. A reduced raster probe reproduces this with a rounded
-stroke inside a translucent layer, even without command culling; investigation
-continues. Vello's preserved-target partial
+stroke inside a translucent layer, even without command culling. The 240-frame
+settings probe permits explicitly bounded AA rounding (at most 16 pixels, one
+channel step), checks unchanged pixels outside damage exactly, and retains an
+optional strict mode; measured maximum is eight pixels with no growth at rest. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).

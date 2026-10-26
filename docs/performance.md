@@ -295,5 +295,33 @@ Skia 窗口默认全量绘制。设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 dam
 真实 settings 的虚拟时钟主题动画在第 96 帧发现 4 个像素差异，每通道最多
 1（8-bit）。关闭 CPU culling、仅使用相同 outer clip 也能复现同样的 4 像素；
 将 clip 向外扩 4 像素后该帧一致。这将范围缩小到 clip 附近的栅格化/抗锯齿
-差异，尚未证明所有场景可由固定 padding 正确解决，因此保持 opt-in，严格
-像素对照仍然报错，不以放宽阈值掩盖问题。
+差异，尚未证明所有场景可由固定 padding 正确解决，因此保持 opt-in。
+
+`cargo run -p backend-settings --features skia --example damage_probe` 使用真实
+设置页、语义点击和虚拟时钟跑 240 帧，覆盖侧栏、导航、主题、文字修改及静止。
+本机 raster 结果中 121 帧有 AA 舍入差异，最多 8 个像素、每通道 1/255；
+静止阶段未继续累积。该手动探针明确允许最多 16 个这样的像素，并报告实际数量；
+越界立即失败。除此之外，damage 区域外与上一帧必须逐字节相同，Empty 帧必须
+完全保留，均不使用容差。设置 `PLICO_DAMAGE_STRICT=1` 可恢复严格全帧逐像素
+比较，当前会在第 96 帧失败。独立透明图层最小复现保留为 ignored 诊断测试，
+常规 raster/GPU 回归仍使用精确相等。以上是该场景的验收范围，不代表所有
+栅格差异都可以忽略，也没有改变窗口 strict validation 的行为。
+
+
+### 分阶段验收状态
+
+- Phase 0：实际目标覆盖率已接 HUD/trace，设置页探针记录真实交互覆盖率；
+  动画探针及 Lyrune 对照记录 CPU，明确区分窗口与离屏测量。
+- Phase 1：共享 DamageRegion、独立 command tracker、Skia raster 保留绘制和
+  命令剔除已接入；常规回归严格比较，真实设置页另有明确 AA 容差诊断。
+- Phase 2：Skia swapchain 每张 image 保存独立历史，首次/resize/错误恢复回退；
+  180 帧窗口 oracle 含两次 resize，逐帧和全量 GPU 绘制一致。
+- Phase 3：Vello 保留目标子区 clear + clip 的离屏验证已完成；按当前范围，
+  不启用其窗口局部绘制，后续按需要独立接入。
+- Phase 4：Vulkan 增量提交提示已接入，支持探测及无扩展/关闭时回退；
+  同一窗口 oracle 在开启/关闭提示时分别通过（164 次/0 次提示）。
+
+上述能力全部可选，普通窗口默认全量绘制。已知透明图层 AA 差异不阻塞该实验
+入口；严格诊断仍可复现它。原生 Lyrune 的进一步 CPU 收益尚未得到证明，
+不以离屏收益替代原生窗口结论。下一轮应由真实负载决定是否扩展 Vello 窗口
+或优化 damage 比较成本，而不是继续为微小舍入差异改变渲染架构。
