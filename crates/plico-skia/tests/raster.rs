@@ -590,3 +590,45 @@ fn tracked_failure_forces_full_recovery_and_dense_cooldown_is_bounded() {
         "dense fallback must periodically probe and recover sparse drawing"
     );
 }
+
+#[test]
+fn culling_nested_scopes_and_clipped_shadows_preserves_other_islands() {
+    let mut partial = SkiaSurface::new(96, 64).unwrap();
+    let mut full = SkiaSurface::new(96, 64).unwrap();
+    for frame in 0..30 {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::translate(((frame % 12) as f64 * 0.25, 0.)),
+            Color::BLACK,
+            None,
+            &Rect::new(4., 4., 16., 16.),
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(50., 4., 90., 58.));
+        scene.push_layer(
+            vello_common::peniko::BlendMode::default(),
+            0.7,
+            Affine::IDENTITY,
+            &Rect::new(52., 6., 88., 56.),
+            None,
+            None,
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(54., 8., 86., 54.));
+        scene.draw_box_shadow(
+            Affine::IDENTITY,
+            Rect::new(60., 20., 76., 40.),
+            Color::BLACK,
+            4.,
+            3.,
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.render_scene(&scene, Color::WHITE).unwrap(),
+            "frame {frame}"
+        );
+    }
+}

@@ -182,6 +182,16 @@ impl SkiaSurface {
         background: Color,
         damage: DamageRegion,
     ) -> Result<(), Error> {
+        self.draw_scene_region(scene, background, damage, None)
+    }
+
+    fn draw_scene_region(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+        damage: DamageRegion,
+        culling: Option<&plico_renderer::damage::SceneDamageTracker>,
+    ) -> Result<(), Error> {
         self.damage_tracker.invalidate();
         let damage = if !self.frame_valid || self.background != Some(background) {
             DamageRegion::Full
@@ -211,7 +221,7 @@ impl SkiaSurface {
             );
         }
         self.surface.canvas().clear(color(background));
-        let result = self.replay(scene);
+        let result = self.replay(scene, culling.map(|tracker| (tracker, damage)));
         self.surface.canvas().restore_to_count(1);
         result?;
         self.frame_valid = true;
@@ -255,7 +265,7 @@ impl SkiaSurface {
         } else {
             actual
         };
-        let result = self.draw_scene_damaged(scene, background, actual);
+        let result = self.draw_scene_region(scene, background, actual, Some(&tracker));
         if result.is_ok() {
             self.damage_tracker = tracker;
         }
@@ -316,9 +326,37 @@ impl SkiaSurface {
         std::fs::write(path, data.as_bytes()).context(crate::WriteSnafu)
     }
 
-    fn replay(&mut self, scene: &Scene) -> Result<(), Error> {
+    fn replay(
+        &mut self,
+        scene: &Scene,
+        culling: Option<(&plico_renderer::damage::SceneDamageTracker, DamageRegion)>,
+    ) -> Result<(), Error> {
+        let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         let mut depth = 0usize;
-        for command in &scene.commands {
+        let mut skipped_scope = 0usize;
+        for (index, command) in scene.commands.iter().enumerate() {
+            if skipped_scope > 0 {
+                match command {
+                    PaintCommand::PushClip { .. } | PaintCommand::PushLayer { .. } => {
+                        skipped_scope += 1
+                    }
+                    PaintCommand::PopLayer => skipped_scope -= 1,
+                    _ => {}
+                }
+                continue;
+            }
+            if let Some((tracker, damage)) = culling
+                && !matches!(command, PaintCommand::PopLayer)
+                && !tracker.command_bounds(index).intersects(damage)
+            {
+                if matches!(
+                    command,
+                    PaintCommand::PushClip { .. } | PaintCommand::PushLayer { .. }
+                ) {
+                    skipped_scope = 1;
+                }
+                continue;
+            }
             let canvas = self.surface.canvas();
             match command {
                 PaintCommand::Fill {
@@ -518,7 +556,7 @@ impl SkiaSurface {
                     };
                     canvas.save();
                     canvas.concat(&matrix(*transform));
-                    let result = self.replay(&commands);
+                    let result = self.replay(&commands, None);
                     self.surface.canvas().restore();
                     result?;
                 }

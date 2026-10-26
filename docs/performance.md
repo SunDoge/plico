@@ -156,7 +156,9 @@ LVGL 可继续使用自身布局与失效系统；Bevy 后端可使用自身渲�
 
 `SceneDamageTracker` 直接比较完整绘制指令流，和 Taffy/节点身份无关。
 它同时合并新、旧和已删除指令的 ink bounds，处理 clip/layer 范围变化；
-静态指令及 clip 不变时复用 ink bounds。未知 ink 使用 enclosing clip，
+静态指令及 clip 不变时复用 ink bounds。tracked 绘制跳过脏区外的 leaf 命令，
+并可跳过完全不相交的 clip/layer scope；clip/pop 顺序保持完整。仍然线性比较
+命令，不宣称 O(Δ) 构建。未知 ink 使用 enclosing clip，
 无 clip 则回退 full。过滤器、自定义 shader、特殊混合模式回退 full。
 Skia 使用实际字体的 glyph bounds；阴影和 SVG 暂用上述保守回退。
 Adapter 的旧诊断估计不参与绘制。
@@ -197,3 +199,29 @@ scene 构建不计时，计时内不读像素；最终像素必须一致。
 建立历史，之后再判断覆盖率。测试保证切回稀疏后会重新进入局部绘制。
 这些数字只说明 CPU raster 的这一组负载，不代表 GPU/窗口或真实应用收益。
 Vello 的子区域能力与平台 incremental present 继续作为独立阶段验证。
+
+### 跳过脏区外 CPU 绘制命令
+
+加入 command/scope culling 后，同一 2000-fill 稀疏 raster 探针一次结果为
+696.8µs→84.5µs p50（此前只有 outer clip 时 tracked 约 309µs）。
+密集更新为 702.7µs→707.3µs；仍使用上述全量回退。
+新增嵌套 clip/layer、剪裁阴影的像素回归，与全量重绘一致。
+
+`cargo run --release -p plico-vello --no-default-features --features skia
+--example local-animation` 展示三条进度条和三个 spinner。
+正常 UI 使用注入时钟；探针的 FrameSource 通过 deadline 固定约 60Hz，
+防止 Xvfb 的 FIFO 不限速影响 A/B。18 秒后退出并打印实际声明帧数；
+先确认实际 FPS，再解释 CPU，不能把隐藏/未更新的窗口当成优化结果。
+
+本机 Xvfb + NVIDIA Vulkan 的一次 8 秒采样（预热 3 秒）：
+
+| 模式 | 单核归一化进程 CPU | 18 秒声明帧数 |
+| --- | ---: | ---: |
+| 全量 | 10.0% | 1059 |
+| 自动 damage + culling | 9.625% | 1060 |
+
+通过 `/proc/PID/stat` 的 utime+stime 差与 `getconf CLK_TCK` 计量，包含进程线程。
+这是小动画场景：没有证明单核低于 1%；也没有证明 Lyrune 达到该目标。
+本机 24 逻辑核，按所有逻辑核归一化约 0.4%，应与单核百分比明确区分。
+Xvfb 报告缺少 DRI3，呈现路径和真实桌面不同；真实窗口的收益仍需在持续
+显示、帧率稳定的条件下测量。测量脚本和日志是本地产物，不增加 CI 窗口测试。

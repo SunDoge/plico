@@ -16,6 +16,18 @@ pub enum DamageRegion {
 }
 
 impl DamageRegion {
+    /// Whether two conservative regions overlap. Unknown/full bounds cannot
+    /// be culled; an empty region never intersects anything.
+    pub fn intersects(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Empty, _) | (_, Self::Empty) => false,
+            (Self::Full, _) | (_, Self::Full) => true,
+            (Self::Rect(a), Self::Rect(b)) => {
+                let r = a.intersect(b);
+                r.width() > 0. && r.height() > 0.
+            }
+        }
+    }
     /// Fraction of a surface covered after clipping; zero for an empty surface.
     pub fn coverage(self, width: u32, height: u32) -> f64 {
         if width == 0 || height == 0 {
@@ -101,6 +113,15 @@ impl DamageRegion {
     }
 }
 impl SceneDamageTracker {
+    /// Conservative bounds of a command from the last [`Self::update`].
+    /// Consumers must use the exact command stream passed to that update.
+    /// Missing entries remain unknown and must not be culled.
+    pub fn command_bounds(&self, index: usize) -> DamageRegion {
+        self.bounds
+            .get(index)
+            .copied()
+            .unwrap_or(DamageRegion::Full)
+    }
     /// Forget target contents; the next update reports full damage.
     pub fn invalidate(&mut self) {
         self.previous = None;
