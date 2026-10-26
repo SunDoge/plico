@@ -8,6 +8,8 @@
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
 | [2048 对照](2048.md) | MyGo 游戏切片、棋子身份、时钟动画、键盘与模块恢复 |
 | [Viewport 与缩放](viewport.md) | 宿主尺寸输入、响应式布局、百分比宽度与新桌面 zoom 示例 |
+| [System-wide hotkeys](global-hotkeys.md) | 可选全局热键、平台注册、Wayland portal 与宿主生命周期 |
+| [Window-local shortcuts](shortcuts.md) | 完整组合键、作用域 action 表、输入法优先级与热重载事件传递 |
 | [Rust 测试协议](testing.md) | 共享语义命令、虚拟时钟、离屏应用测试与窗口验收边界 |
 | [Route enum 元信息](router.md) | Route derive、静态导航列表、标签、图标与稳定逻辑 ID |
 | [Gallery 与路由](gallery.md) | 页面状态、flex 展台、基础 motion 与 SVG 边界 |

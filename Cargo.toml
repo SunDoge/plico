@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
-exclude = ["crates/plico-vello/reference"]
+exclude = ["crates/plico-vello/reference", "vendor/global-hotkey"]
 # The immediate-mode mainline: core engine, CLI, and the gallery app.
 default-members = ["crates/plico-core", "crates/plico-cli", "apps/gallery"]
 

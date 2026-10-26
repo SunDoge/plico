@@ -1,5 +1,8 @@
 //! Versioned JSON/C boundary with MessagePack state; no Rust ABI crosses it.
 use plico_core::{Engine, PathKey, Theme, UiContext, ViewNode};
+pub use plico_core::{
+    KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, ShortcutMap, StandardShortcut,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 use zeroize::Zeroizing;
@@ -42,6 +45,9 @@ pub struct Request {
     pub services: serde_json::Value,
     #[serde(default)]
     pub keys: Vec<String>,
+    /// Full fallback keyboard events, including modifiers. Legacy keys remain accepted.
+    #[serde(default)]
+    pub key_events: Vec<KeyEvent>,
     #[serde(default)]
     pub viewport: Option<[f32; 2]>,
     #[serde(default)]
@@ -80,6 +86,7 @@ impl Default for Request {
             services: serde_json::Value::Null,
             clicks: Vec::new(),
             keys: Vec::new(),
+            key_events: Vec::new(),
             viewport: None,
             values: Vec::new(),
             time: Default::default(),
@@ -139,6 +146,14 @@ pub trait App: Default + Serialize + DeserializeOwned {
     /// Unmodified window-local fallback keys, after controls/IME decline them.
     fn on_key(&mut self, _key: &str) -> bool {
         false
+    }
+    /// Window-local fallback after focused controls/IME decline a key.
+    /// Override for combinations; the default preserves legacy unmodified keys.
+    fn on_key_event(&mut self, key: &KeyEvent) -> bool {
+        key.phase == KeyPhase::Down
+            && !key.synthetic
+            && key.modifiers.is_empty()
+            && self.on_key(&key.key)
     }
     fn show(&mut self, ui: &mut UiContext<'_>);
     fn theme(&self) -> Theme {
@@ -204,6 +219,11 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
         let Session { app, engine } = session.as_mut();
         app.set_services(request.services)?;
         app.set_frame_time(request.time);
+        for key in &request.key_events {
+            if key.phase == KeyPhase::Down && !key.synthetic {
+                key_handled |= app.on_key_event(key);
+            }
+        }
         for key in &request.keys {
             key_handled |= app.on_key(key);
         }

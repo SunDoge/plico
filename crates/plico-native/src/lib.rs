@@ -6,3 +6,9 @@
 
 #[cfg(all(target_os = "linux", feature = "linux-text"))]
 pub mod text;
+
+#[cfg(all(
+    feature = "global-hotkeys",
+    any(target_os = "linux", target_os = "windows", target_os = "macos")
+))]
+pub mod hotkeys;

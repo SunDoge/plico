@@ -1924,7 +1924,7 @@ macro_rules! __plico_app_view_methods {
             $crate::__app_protocol::App::set_frame_time($app, time);
         }
         fn on_unhandled_key(&mut $this, key: &$crate::KeyEvent) -> bool {
-            key.modifiers.is_empty() && $crate::__app_protocol::App::on_key($app, &key.key)
+            $crate::__app_protocol::App::on_key_event($app, key)
         }
         fn show(&mut $this, ui: &mut $crate::__ui_core::UiContext<'_>) {
             $crate::__app_protocol::App::show($app, ui);
@@ -2561,13 +2561,18 @@ impl<V: View> FrameSource for Source<V> {
         let fallback = match &event {
             UiEvent::Key(key)
                 if key.phase == KeyPhase::Down
+                    && !key.synthetic
                     && self.adapter.modal_stack.is_empty()
                     && !self
                         .adapter
                         .focused
                         .and_then(|e| self.engine.input(e))
                         .is_some_and(|(buffer, _)| {
-                            buffer.is_composing() || key.key.chars().count() == 1
+                            buffer.is_composing()
+                                || (key.key.chars().count() == 1
+                                    && !key.modifiers.control()
+                                    && !key.modifiers.meta()
+                                    && !key.modifiers.alt())
                         }) =>
             {
                 Some(key.clone())

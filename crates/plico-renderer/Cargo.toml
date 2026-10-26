@@ -9,6 +9,7 @@ publish = false
 profiling = []
 
 [dependencies]
+plico-core.workspace = true
 web-time = "1.1"
 directories.workspace = true
 bitflags = { workspace = true }

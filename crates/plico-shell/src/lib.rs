@@ -95,3 +95,9 @@ pub use plico_renderer::vector_path;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod window_frame;
+
+#[cfg(all(
+    feature = "global-hotkeys",
+    any(target_os = "linux", target_os = "windows", target_os = "macos")
+))]
+pub mod hotkeys;
