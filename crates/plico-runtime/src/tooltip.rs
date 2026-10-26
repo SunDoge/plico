@@ -66,12 +66,14 @@ impl Adapter {
     /// conservative (over-approximates) and not yet consumed by rendering.
     pub fn damage(&self) -> Option<[f32; 4]> {
         let (width, height) = self.viewport?;
+        // Read per-frame work stats, not the geometry_dirty latch: the latch
+        // stays set between frames (tall controls realign every geometry
+        // branch pass), while the stats say what this frame actually did.
         if self.stats.created > 0
             || self.stats.removed > 0
-            || self.geometry_dirty
-            || self.scroll_dirty
             || self.stats.flatten_visits > 0
             || self.stats.layout_runs > 0
+            || self.scroll_dirty
         {
             return None;
         }
