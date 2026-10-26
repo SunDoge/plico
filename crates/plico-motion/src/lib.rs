@@ -255,6 +255,17 @@ pub enum Easing {
 }
 
 impl Easing {
+    /// Exact derivative of [`sample`](Self::sample), used to hand a tween's
+    /// visible momentum to a spring retarget.
+    fn slope(self, progress: f64) -> f64 {
+        let progress = progress.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => 1.0,
+            Self::EaseOut => 3.0 * (1.0 - progress).powi(2),
+            Self::EaseInOut if progress < 0.5 => 12.0 * progress.powi(2),
+            Self::EaseInOut => 12.0 * (1.0 - progress).powi(2),
+        }
+    }
     fn sample(self, progress: f64) -> f64 {
         let progress = progress.clamp(0.0, 1.0);
         match self {
@@ -636,14 +647,17 @@ impl<const N: usize> MotionArena<N> {
 ///
 /// One `Animated` owns one value end to end: sampling is a pure function of
 /// the injected instant (repeated samples at the same instant are equal, the
-/// immediate-mode declaration pattern), retargets interpolate from the current
-/// visual position, and reduced motion snaps to the target. Use
-/// [`MotionArena`] when many channels share one clock and one dirty list; use
-/// `Animated` when a handful of named application values drive styles.
+/// immediate-mode declaration pattern), retargets interpolate from the
+/// current visual position, and reduced motion snaps to the target. Flights
+/// are either finite tweens ([`retarget`](Self::retarget)) or analytic
+/// damped springs ([`retarget_spring`](Self::retarget_spring)) that carry the
+/// visible velocity across retargets. Use [`MotionArena`] when many channels
+/// share one clock and one dirty list; use `Animated` when a handful of named
+/// application values drive styles.
 ///
 /// The caller injects time; `Animated` never reads a clock. The caller also
 /// owns frame scheduling: report `active()` to the host's `has_anim`/deadline
-/// so the window keeps presenting until the tween reaches its target.
+/// so the window keeps presenting until the flight reaches its target.
 ///
 /// ```
 /// use plico_motion::{Animated, Easing};
@@ -663,12 +677,33 @@ impl<const N: usize> MotionArena<N> {
 /// assert!(!sidebar.active(frame(260)));
 /// ```
 #[derive(Clone, Copy, Debug)]
+enum Flight {
+    /// At rest on the target; no further frames needed.
+    Rest,
+    /// A finite tween from `from` toward the target.
+    Tween {
+        from: f64,
+        start: Duration,
+        duration: Duration,
+        easing: Easing,
+    },
+    /// An analytic damped spring: displacement and initial velocity are
+    /// solved exactly for any instant, so sampling stays pure.
+    Spring {
+        from: f64,
+        velocity: f64,
+        start: Duration,
+        options: SpringOptions,
+        /// When the oscillator first satisfies the settle criterion; the
+        /// frame loop can go idle instead of sampling forever.
+        settle: Duration,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Animated {
     target: f64,
-    from: f64,
-    start: Duration,
-    duration: Duration,
-    easing: Easing,
+    flight: Flight,
     reduced: bool,
 }
 impl Animated {
@@ -676,36 +711,90 @@ impl Animated {
     pub const fn new(initial: f64) -> Self {
         Self {
             target: initial,
-            from: initial,
-            start: Duration::ZERO,
-            duration: Duration::ZERO,
-            easing: Easing::EaseOut,
+            flight: Flight::Rest,
             reduced: false,
         }
     }
     /// Current sample at the injected instant. Reaches the exact target once
-    /// the tween elapses; a zero-duration or reduced-motion tween sits on it.
+    /// the flight settles; reduced-motion retargets sit on it immediately.
     pub fn value(&self, now: Duration) -> f64 {
-        if self.reduced || self.duration.is_zero() || self.from == self.target {
-            return self.target;
-        }
-        let progress = now.saturating_sub(self.start).as_secs_f64() / self.duration.as_secs_f64();
-        if progress >= 1.0 {
-            self.target
-        } else {
-            self.from + (self.target - self.from) * self.easing.sample(progress)
+        match self.flight {
+            Flight::Rest => self.target,
+            Flight::Tween {
+                from,
+                start,
+                duration,
+                easing,
+            } => {
+                if from == self.target {
+                    return self.target;
+                }
+                let progress = now.saturating_sub(start).as_secs_f64() / duration.as_secs_f64();
+                if progress >= 1.0 {
+                    self.target
+                } else {
+                    from + (self.target - from) * easing.sample(progress)
+                }
+            }
+            Flight::Spring {
+                from,
+                velocity,
+                start,
+                options,
+                settle,
+            } => {
+                if now.saturating_sub(start) >= settle {
+                    return self.target;
+                }
+                let seconds = now.saturating_sub(start).as_secs_f64();
+                let (displacement, _) =
+                    solve_spring(from - self.target, velocity, seconds, options);
+                self.target + displacement
+            }
         }
     }
     /// The value this animation is heading toward.
     pub const fn target(&self) -> f64 {
         self.target
     }
+    /// Analytic velocity at the injected instant, in units per second. Tween
+    /// slopes use the exact easing derivative, so cross-mode retargets carry
+    /// the visible momentum instead of restarting from zero.
+    fn velocity_at(&self, now: Duration) -> f64 {
+        match self.flight {
+            Flight::Rest => 0.,
+            Flight::Tween {
+                from,
+                start,
+                duration,
+                easing,
+            } => {
+                let progress = now.saturating_sub(start).as_secs_f64() / duration.as_secs_f64();
+                if progress >= 1.0 || from == self.target {
+                    return 0.;
+                }
+                (self.target - from) * easing.slope(progress) / duration.as_secs_f64()
+            }
+            Flight::Spring {
+                from,
+                velocity,
+                start,
+                options,
+                settle,
+            } => {
+                if now.saturating_sub(start) >= settle {
+                    return 0.;
+                }
+                let seconds = now.saturating_sub(start).as_secs_f64();
+                solve_spring(from - self.target, velocity, seconds, options).1
+            }
+        }
+    }
     /// Jump to `value` and stop. Restarting sequences compose this with
     /// `retarget`: snap to the start point, then retarget to the goal.
     pub fn snap(&mut self, value: f64) {
-        self.from = value;
         self.target = value;
-        self.duration = Duration::ZERO;
+        self.flight = Flight::Rest;
     }
     /// Retarget toward `target` over `duration`, interpolating from the value
     /// visible at `now`. An unchanged target keeps the current flight —
@@ -715,29 +804,63 @@ impl Animated {
         if target == self.target {
             return;
         }
-        self.from = self.value(now);
+        let from = self.value(now);
         self.target = target;
-        self.start = now;
-        self.duration = if self.reduced {
-            Duration::ZERO
-        } else {
-            duration
+        if self.reduced || duration.is_zero() || from == target {
+            self.flight = Flight::Rest;
+            return;
+        }
+        self.flight = Flight::Tween {
+            from,
+            start: now,
+            duration,
+            easing,
         };
-        self.easing = easing;
     }
-    /// Whether the tween is still in flight at `now`. Finite: the frame after
-    /// the deadline reports false even if nobody sampled the final value.
+    /// Retarget toward `target` with an analytic damped spring, continuing
+    /// from the value and velocity visible at `now`. Springs asymptotically
+    /// settle; the finite settle deadline keeps frame scheduling bounded.
+    /// Reduced motion snaps instead.
+    pub fn retarget_spring(&mut self, now: Duration, target: f64, options: SpringOptions) {
+        if target == self.target {
+            return;
+        }
+        let from = self.value(now);
+        let velocity = self.velocity_at(now);
+        self.target = target;
+        if self.reduced || from == target {
+            self.flight = Flight::Rest;
+            return;
+        }
+        // Sanitize before solving the settle deadline: degenerate parameters
+        // must produce the same flight the stored options will integrate.
+        let options = options.sanitized();
+        let settle = spring_settle_deadline(from - target, velocity, options);
+        self.flight = Flight::Spring {
+            from,
+            velocity,
+            start: now,
+            options,
+            settle,
+        };
+    }
+    /// Whether the flight is still in flight at `now`. Finite: the frame
+    /// after the tween elapses (or the spring settles) reports false even if
+    /// nobody sampled the final value.
     ///
-    /// The comparison is elapsed-time based, exactly like [`value`](Self::value):
-    /// both agree even when `start + duration` would overflow near
-    /// `Duration::MAX`. The injected clock therefore only needs to represent
-    /// times it can still subtract from; no additional clock-domain state
-    /// exists here.
+    /// The comparison is elapsed-time based, exactly like
+    /// [`value`](Self::value): both agree even when `start + duration` would
+    /// overflow near `Duration::MAX`. The injected clock therefore only needs
+    /// to represent times it can still subtract from; no additional
+    /// clock-domain state exists here.
     pub fn active(&self, now: Duration) -> bool {
-        !self.reduced
-            && !self.duration.is_zero()
-            && self.from != self.target
-            && now.saturating_sub(self.start) < self.duration
+        match self.flight {
+            Flight::Rest => false,
+            Flight::Tween {
+                start, duration, ..
+            } => now.saturating_sub(start) < duration,
+            Flight::Spring { start, settle, .. } => now.saturating_sub(start) < settle,
+        }
     }
     /// Reduced-motion policy. Turning it on snaps any in-flight tween to its
     /// target; later retargets complete immediately until it is turned off.
@@ -747,6 +870,39 @@ impl Animated {
         }
         self.reduced = reduced;
     }
+}
+
+/// Deterministically solve for when the oscillator first satisfies the
+/// settle criterion: probe on an exponentially growing ladder, then binary
+/// refine. Bounded by the cap so a pathological epsilon cannot request
+/// frames forever.
+fn spring_settle_deadline(displacement: f64, velocity: f64, options: SpringOptions) -> Duration {
+    const CAP: f64 = 10.;
+    let frequency = (options.stiffness / options.mass).sqrt();
+    let velocity_epsilon = options.epsilon * frequency;
+    let settled = |seconds: f64| {
+        let (displacement, velocity) = solve_spring(displacement, velocity, seconds, options);
+        displacement.abs() <= options.epsilon && velocity.abs() <= velocity_epsilon
+    };
+    if settled(0.) {
+        return Duration::ZERO;
+    }
+    let mut low = 0.;
+    let mut high = 0.016;
+    while high < CAP && !settled(high) {
+        low = high;
+        high *= 2.;
+    }
+    high = high.min(CAP);
+    for _ in 0..20 {
+        let middle = (low + high) / 2.;
+        if settled(middle) {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    Duration::from_secs_f64(high)
 }
 
 const IDENTITY_TRANSFORM: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
@@ -1242,6 +1398,153 @@ mod tests {
             animated.active(now),
             "the tween is halfway, yet start.saturating_add(duration) saturated"
         );
+    }
+
+    #[test]
+    fn animated_spring_overshoots_settles_exactly_and_returns_to_idle() {
+        // Clearly underdamped (zeta = 0.4): the flight must overshoot the
+        // target before settling on it exactly.
+        let bouncy = SpringOptions {
+            mass: 1.,
+            stiffness: 100.,
+            damping: 8.,
+            epsilon: 0.001,
+        };
+        let mut animated = Animated::new(0.);
+        animated.retarget_spring(Duration::ZERO, 100., bouncy);
+        assert!(animated.active(Duration::ZERO));
+        // First overshoot: comfortably past the target.
+        assert!(
+            animated.value(Duration::from_millis(300)) > 110.,
+            "underdamped spring must overshoot: {}",
+            animated.value(Duration::from_millis(300))
+        );
+        // The settle deadline is finite; past it the value is exact.
+        let late = Duration::from_secs(6);
+        assert!(!animated.active(late));
+        assert_eq!(animated.value(late), 100.);
+        // Declaring the same target at rest stays a no-op.
+        animated.retarget_spring(late, 100., bouncy);
+        assert!(!animated.active(late));
+    }
+
+    #[test]
+    fn animated_spring_retarget_carries_the_visible_velocity() {
+        let bouncy = SpringOptions {
+            mass: 1.,
+            stiffness: 100.,
+            damping: 8.,
+            epsilon: 0.001,
+        };
+        let mut carried = Animated::new(0.);
+        carried.retarget_spring(Duration::ZERO, 100., bouncy);
+        let at_handoff = Duration::from_millis(200);
+        let visible = carried.value(at_handoff);
+        // Retarget mid-flight: the new flight continues from the visible
+        // value with the visible velocity.
+        carried.retarget_spring(at_handoff, 200., bouncy);
+        assert_eq!(carried.value(at_handoff), visible);
+        assert!(carried.active(at_handoff));
+        // A from-rest spring over the same distance moves slower: the
+        // carried momentum must show up 50ms later.
+        let mut from_rest = Animated::new(visible);
+        from_rest.retarget_spring(at_handoff, 200., bouncy);
+        let later = at_handoff + Duration::from_millis(50);
+        assert!(
+            carried.value(later) > from_rest.value(later),
+            "carried velocity must outpace a from-rest retarget: {} vs {}",
+            carried.value(later),
+            from_rest.value(later)
+        );
+        // Both settle on the exact target.
+        let late = Duration::from_secs(8);
+        assert_eq!(carried.value(late), 200.);
+        assert!(!carried.active(late));
+    }
+
+    #[test]
+    fn animated_tween_to_spring_handoff_carries_the_tween_momentum() {
+        let bouncy = SpringOptions {
+            mass: 1.,
+            stiffness: 100.,
+            damping: 8.,
+            epsilon: 0.001,
+        };
+        // A linear tween at 1000 units/s hands off to a spring mid-flight:
+        // the momentum must be visible as continued upward motion.
+        let mut animated = Animated::new(0.);
+        animated.retarget(
+            Duration::ZERO,
+            100.,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        let at_handoff = Duration::from_millis(50);
+        assert_eq!(animated.value(at_handoff), 50.);
+        animated.retarget_spring(at_handoff, 0., bouncy);
+        assert_eq!(
+            animated.value(at_handoff),
+            50.,
+            "handoff must not teleport the visible value"
+        );
+        assert!(
+            animated.value(at_handoff + Duration::from_millis(5)) > 50.,
+            "the tween's velocity must carry into the spring"
+        );
+        // And the spring still lands back on the new target exactly.
+        let late = Duration::from_secs(6);
+        assert_eq!(animated.value(late), 0.);
+        assert!(!animated.active(late));
+    }
+
+    #[test]
+    fn animated_spring_reduced_motion_and_degenerate_options_stay_bounded() {
+        let bouncy = SpringOptions {
+            mass: 1.,
+            stiffness: 100.,
+            damping: 8.,
+            epsilon: 0.001,
+        };
+        // Reduced motion completes springs immediately.
+        let mut animated = Animated::new(0.);
+        animated.set_reduced(true);
+        animated.retarget_spring(Duration::ZERO, 100., bouncy);
+        assert_eq!(animated.value(Duration::ZERO), 100.);
+        assert!(!animated.active(Duration::ZERO));
+
+        // Degenerate parameters fall back to the sanitized defaults instead
+        // of panicking or dividing by zero.
+        animated.set_reduced(false);
+        animated.snap(0.);
+        let degenerate = SpringOptions {
+            mass: 0.,
+            stiffness: f64::NAN,
+            damping: -1.,
+            epsilon: 0.001,
+        };
+        animated.retarget_spring(Duration::ZERO, 100., degenerate);
+        assert!(animated.active(Duration::ZERO));
+        let late = Duration::from_secs(4);
+        assert_eq!(
+            animated.value(late),
+            100.,
+            "sanitized defaults still settle"
+        );
+        assert!(!animated.active(late));
+
+        // An epsilon too small to ever satisfy settles at the deadline cap:
+        // the value is exact there and no frames are requested afterwards.
+        let never = SpringOptions {
+            mass: 1.,
+            stiffness: 100.,
+            damping: 8.,
+            epsilon: 1e-20,
+        };
+        animated.snap(0.);
+        animated.retarget_spring(Duration::ZERO, 100., never);
+        assert!(animated.active(Duration::from_secs(9)));
+        assert!(!animated.active(Duration::from_secs(11)));
+        assert_eq!(animated.value(Duration::from_secs(11)), 100.);
     }
 
     #[test]

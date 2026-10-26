@@ -12,6 +12,7 @@ crate-type = ["rlib", "cdylib"]
 snafu.workspace = true
 plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
 plico-core.workspace = true
+plico-motion.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
 plico-dev.workspace = true
 serde = { workspace = true, features = ["derive"] }

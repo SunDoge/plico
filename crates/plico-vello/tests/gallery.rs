@@ -556,3 +556,58 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     click(&mut s, &mut tcx, SemanticRole::Button, "Channel details");
     assert!(!s.view.release_details);
 }
+
+#[test]
+fn motion_page_spring_overshoots_settles_and_returns_to_idle() {
+    use plico_core::VirtualClock;
+    use std::time::Duration;
+    let clock = VirtualClock::default();
+    let mut s = plico_vello::Source::with_clock(
+        Gallery {
+            router: plico_core::Router::new(Page::Motion),
+            ..Default::default()
+        },
+        clock.clone(),
+    );
+    let mut tcx = TextContext::new();
+    // The Motion page keeps an animated shader running, so has_anim is always
+    // true here; the spring's own idle scheduling is covered by the
+    // plico-motion unit tests. This test asserts the rendered value path.
+    let chip_width = |s: &Source<Gallery>| {
+        s.adapter
+            .placed
+            .iter()
+            .find(|p| p.paint.text.as_deref() == Some("Overshoot, then settle."))
+            .map(|label| {
+                s.adapter
+                    .placed
+                    .iter()
+                    .find(|chip| chip.node_id == label.parent_node_id.expect("chip parent"))
+                    .expect("chip placed")
+                    .rect
+            })
+            .map(|rect| rect[2] - rect[0])
+            .unwrap()
+    };
+    frame(&mut s, &mut tcx, 920);
+    assert_eq!(chip_width(&s), 200.);
+
+    s.handle_semantic_action(SemanticAction::Click {
+        target: named(&s, SemanticRole::Button, "Animate spring").id,
+    });
+    frame(&mut s, &mut tcx, 920); // settle the click at t=0
+
+    // Past the first overshoot peak: wider than the target it is heading for.
+    clock.set(Duration::from_millis(250)).unwrap();
+    frame(&mut s, &mut tcx, 920);
+    assert!(
+        chip_width(&s) > 330.,
+        "underdamped spring must overshoot: {}",
+        chip_width(&s)
+    );
+
+    // Settled exactly on the target.
+    clock.set(Duration::from_secs(3)).unwrap();
+    frame(&mut s, &mut tcx, 920);
+    assert_eq!(chip_width(&s), 320.);
+}
