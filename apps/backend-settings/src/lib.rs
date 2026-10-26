@@ -240,8 +240,7 @@ impl Settings {
             column(cx).padding(18).gap(12).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
                 row(cx).gap(10).wrap(true) + |cx| {
                     text(cx, "Sync preview").font_size(18).weight(650).grow(1.);
-                    if button(cx).icon(&icons::PLAY).text("Run preview").primary().clicked()
-                    {
+                    if button(cx).icon(&icons::PLAY).text("Run preview").primary().clicked() {
                         self.animations.start(self.reduced_motion);
                     }
                     if button(cx).icon(&icons::PAUSE).text("Stop")
@@ -319,8 +318,7 @@ impl Settings {
             button(cx).text("Disabled action").disabled(true);
         };
         row(cx).gap(10).wrap(true) + |cx| {
-            if button(cx).icon(&icons::CHECK).text("Save changes").primary().clicked()
-            {
+            if button(cx).icon(&icons::CHECK).text("Save changes").primary().clicked() {
                 self.saves += 1;
                 self.saved = format!(
                     "Saved {}: {}",

@@ -329,8 +329,7 @@ impl Gallery {
         column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
             row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
                 text(ui, "Layout + style").font_size(17).weight(650).grow(1.);
-                if button(ui).text("Animate layout").primary().font_size(12).clicked()
-                {
+                if button(ui).text("Animate layout").primary().font_size(12).clicked() {
                     self.expanded = !self.expanded;
                 }
             };

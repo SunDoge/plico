@@ -41,8 +41,7 @@ impl DeclareView for Counter {
             text(cx, "Plico / LVGL").font_size(24);
             text!(cx, "Count: {}", self.count);
             row(cx).gap(12) + |cx| {
-                if button(cx).text("Increment").disabled(self.disabled).primary().clicked()
-                {
+                if button(cx).text("Increment").disabled(self.disabled).primary().clicked() {
                     self.count += 1;
                 }
                 if button(cx).text("Toggle extra").clicked() {

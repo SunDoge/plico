@@ -655,6 +655,39 @@ impl<'p> Formatter<'p> {
         Ok(source)
     }
 
+    fn align_if_braces(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
+        let tree = self.parse(&source)?;
+        let mut edits = Vec::new();
+        for node in nodes(tree.root_node())
+            .into_iter()
+            .filter(|n| n.kind() == "if_expression")
+        {
+            let (Some(condition), Some(body)) = (
+                node.child_by_field_name("condition"),
+                node.child_by_field_name("consequence"),
+            ) else {
+                continue;
+            };
+            let gap = &source[condition.end_byte()..body.start_byte()];
+            // Chain packing may have made a rustfmt-multiline condition fit on
+            // one line. Bring its brace back too; comments remain boundaries.
+            if source[node.start_byte()..condition.end_byte()].contains(&b'\n')
+                || !gap.iter().all(u8::is_ascii_whitespace)
+            {
+                continue;
+            }
+            let line = source[..condition.end_byte()]
+                .rsplit(|b| *b == b'\n')
+                .next()
+                .unwrap();
+            if String::from_utf8_lossy(line).chars().count() + 2 <= self.width && gap != b" " {
+                edits.push((condition.end_byte(), body.start_byte(), b" ".to_vec()));
+            }
+        }
+        edit(&mut source, edits);
+        Ok(source)
+    }
+
     fn pack_conditionals(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
         // Work from right to left and reparse after each replacement so nested
         // expressions never leave stale byte offsets behind.
@@ -822,6 +855,7 @@ impl<'p> Formatter<'p> {
         source = self.align_operator_children(source)?;
         source = self.align_arguments(source)?;
         source = self.align_operator_braces(source)?;
+        source = self.align_if_braces(source)?;
         let tree = self.parse(&source)?;
         if fingerprint(&tree, &source) != before {
             return Err(failure(self.path, "token preservation check failed"));
@@ -1158,6 +1192,43 @@ fn screen(cx: &mut UiContext) {
         let mut tiny = Formatter::new(&path, "2024", 60).unwrap();
         let kept = tiny.format(long).unwrap();
         assert_eq!(tiny.format(&kept).unwrap(), kept);
+    }
+
+    #[test]
+    fn packed_if_conditions_keep_their_brace_on_the_same_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("counter.rs");
+        let input = r#"#[component]
+#[rustfmt::skip]
+fn counter(cx: &mut UiContext, count: &mut i32) {
+    if button(cx).text("-").aria_label("Decrement").ghost().clicked()
+    {
+        *count -= 1;
+    }
+    if button(cx).text("+").aria_label("Increment").primary().clicked()
+    {
+        *count += 1;
+    }
+    if ready // keep this comment
+    {
+        work();
+    }
+}
+"#;
+        for width in [60, 120] {
+            let mut formatter = Formatter::new(&path, "2024", width).unwrap();
+            let once = formatter.format(input.as_bytes()).unwrap();
+            let output = String::from_utf8_lossy(&once);
+            if width == 120 {
+                assert!(output.contains(".ghost().clicked() {"), "{output}");
+                assert!(output.contains(".primary().clicked() {"), "{output}");
+            }
+            assert!(
+                output.contains("// keep this comment\n") && !output.contains("if ready {"),
+                "{output}"
+            );
+            assert_eq!(formatter.format(&once).unwrap(), once);
+        }
     }
 
     #[test]

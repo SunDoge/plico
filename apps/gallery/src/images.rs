@@ -137,8 +137,7 @@ impl Images {
                 }
             }
             column(cx).grow(1.).children(|_| {});
-            if button(cx).text(if self.surface.paused() { "Play" } else { "Pause" }).disabled(!ready).clicked()
-            {
+            if button(cx).text(if self.surface.paused() { "Play" } else { "Pause" }).disabled(!ready).clicked() {
                 self.surface.set_paused(!self.surface.paused());
             }
             if button(cx).text("Replay").disabled(!ready).clicked() {

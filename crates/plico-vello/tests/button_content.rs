@@ -14,8 +14,7 @@ impl View for Demo {
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).gap(8) + |cx| {
-            if button(cx).icon(&icons::SAVE).text("Save").primary().clicked()
-            {
+            if button(cx).icon(&icons::SAVE).text("Save").primary().clicked() {
                 self.clicks += 1;
             }
             button(cx).icon(&icons::SETTINGS).aria_label("Settings");

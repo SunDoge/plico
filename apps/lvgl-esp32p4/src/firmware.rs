@@ -70,12 +70,10 @@ impl DeclareView for Counter {
             }
             text!(cx, "Count: {}", self.count).font_size(24);
             row(cx).gap(12) + |cx| {
-                if button(cx).text("Increment").height(64).padding_x(16).primary().clicked()
-                {
+                if button(cx).text("Increment").height(64).padding_x(16).primary().clicked() {
                     self.count = self.count.saturating_add(1);
                 }
-                if button(cx).text("Toggle details").height(64).padding_x(16).clicked()
-                {
+                if button(cx).text("Toggle details").height(64).padding_x(16).clicked() {
                     self.extra = !self.extra;
                 }
             };
