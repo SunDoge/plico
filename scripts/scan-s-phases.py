@@ -113,9 +113,12 @@ def main():
                     boxes.append(b.value)
                 values=[bands(mask,b) for b in boxes]
                 entry=dict(regional_coverage=values, terminal_coverage=[terminals(mask,b) for b in boxes])
-                if name=='fine':
-                    assert native==mask, 'production glyph path differs from precise hinted outline'
+                # Fine outlines are an experimental reference, not production Glifo.
+                entry['different_pixels_vs_native'] = sum(
+                    a != b for row_a, row_b in zip(native, mask)
+                    for a, b in zip(row_a, row_b))
                 if name=='hinted':
+                    assert native == mask, 'production glyph path differs from upstream hinted outline'
                     reference=helper['coverage'](paths,len(mask[0]),len(mask),1)
                     helper['image'](reference).write_to_png(str(directory/'cairo.png'))
                     variants['cairo']=dict(regional_coverage=[bands(reference,b) for b in boxes], terminal_coverage=[terminals(reference,b) for b in boxes])
