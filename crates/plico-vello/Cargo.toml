@@ -15,6 +15,7 @@ serde = { workspace = true, features = ["derive"] }
 snafu.workspace = true
 
 [dev-dependencies]
+tracing.workspace = true
 vello-common.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
@@ -50,3 +51,7 @@ required-features = ["skia"]
 [[example]]
 name = "local-animation"
 required-features = ["skia"]
+
+[[example]]
+name = "flatten_profile"
+required-features = ["profiling"]

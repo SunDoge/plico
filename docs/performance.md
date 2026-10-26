@@ -378,3 +378,61 @@ Intel Vulkan、真实封面及歌词逐字高亮/滚动的一次离屏结果：
 这是主动加速缓存淘汰的压力实验，不是用户原生窗口内存的直接测量。
 未强制淘汰的 10,000 帧对照同样维持 2 个字体 ID，RSS 约 225 MiB。
 原生窗口仍须重启并在实际播放中观察，不能将旧进程的保留副本视为新版结果。
+
+## Flatten 阶段 profiling
+
+`profiling` feature 增加五个 `plico::layout` trace span：
+`layout.compute`（Taffy）、`layout.flatten`、`backend.index`、
+`backend.presentation`、`backend.selection`。不启用该 feature 时不创建这些 span。
+现有 `BackendStats::layout_micros` 是后端更新的宽泛计时，包含这些工作及其他
+步骤，不能直接当成 Taffy 或 flatten 时间，也不能与内部 span 相加。
+
+```sh
+cargo run --release -p plico-vello --features profiling --example flatten_profile
+```
+
+Rust 探针用虚拟时钟驱动静态、重新声明、单点颜色、透明度、位移、尺寸、
+非虚拟滚动、虚拟滚动和结构更新，并包含真实 gallery 页面。输出 CSV。
+合成场景预热 40 帧、采样 120 帧；gallery 预热 60 帧、采样 120 帧。
+只订阅上述阶段，不记录每个节点的 span；数据是带少量 tracing 开销的阶段
+wall-time，不是硬件采样。帧总时间不包括输入事件处理、GPU 或窗口呈现。
+静态结果表示尝试构建一帧的成本，不意味着窗口空闲时应持续请求帧。
+
+本机 release 的代表性结果（微秒，值随负载/缓存状态波动）：
+
+| 场景 | 实际 placed 节点 | 帧构建 p50 | flatten p50 | flatten 累计占比 |
+| --- | ---: | ---: | ---: | ---: |
+| gallery Workspace idle | 92 | 0.17 | 0 | 0% |
+| gallery Layout 连续 resize | 96 | 105.8 | 7.4 | 7.0% |
+| gallery Motion 周期展开 | 78 | 33.2 | 0（多数帧不执行） | 3.8% |
+| 200 行非虚拟滚动 | 402 | 172.4 | 30.1 | 17.5% |
+| 2,000 行非虚拟滚动 | 4,002 | 1968.4 | 423.2 | 21.9% |
+| 10,000 行非虚拟滚动 | 20,002 | 20299.2 | 5163.7 | 25.3% |
+| 10,000 行虚拟滚动 | 55 | 54.7 | 4.9 | 8.8% |
+
+无变化的重新声明、单点颜色、opacity 和 translate 场景的 flatten 调用均为 0。
+对照不是说所有动画都不需要布局：尺寸与结构变化仍调用 Taffy 和 flatten。
+虚拟列表窗口切换也会重建可见部分，但实际节点数保持在几十个。
+
+另在计时循环外，对同一 placed 快照测量 `clear + extend_from_slice`：
+402/4,002/20,002 个节点的热缓冲克隆 p50 约 20/222/1125µs。
+这是复制代价的独立下界对照，不可用两组中位数之差断言“纯遍历”时间。
+现有增量 flatten 草稿仍检查节点并克隆整个复用块，不能据此宣称 O(1) 跳过。
+
+Lyrune 的 `lyric_damage` 也增加 `lyric.build` 根 span，并复用 tracing 初始化。
+可在该仓库使用以下命令（封面自备，报告仍留在忽略目录）：
+
+```sh
+RUST_LOG=warn PLICO_TRACE_FILTER='plico::layout=trace,plico::perf=trace' PLICO_TRACE_FILE=reports/plico/flatten-trace.json cargo run --release -p lyrune-plico --features skia,profiling --example lyric_damage -- --cover cover.jpg --mode damage --frames 600 --scale 1.75 --device Intel
+```
+
+SkParagraph、真实封面、歌词滚动/逐字高亮，两次运行排除 60 帧预热后：
+600 帧仅 25 帧调用 flatten；执行帧 p50 13.2–16.9µs，累计占 CPU 帧构建
+0.45–0.49%，帧构建 p50 128–132µs。这里不包括 GPU 提交；没有证明原生窗口
+总 CPU 的同等占比。即使完全移除这部分，也只消除该构建负载不到 0.5%。
+
+更有价值的下一项是收窄选区刷新：合成 4,002 节点单点颜色更新，flatten 为零，
+`backend.selection` 平均仍约 449µs；20,002 节点时约 3970µs。
+这说明不能把宽泛后端更新时间归因于 flatten。当前建议先使用虚拟列表、
+按依赖限制选区/其他后端扫描，再按实测决定是否需要保留块式 flatten。
+本轮只增加测量与文档，不启用或提交既有未接入的增量 flatten 草稿。

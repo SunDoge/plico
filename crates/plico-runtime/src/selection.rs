@@ -43,6 +43,8 @@ impl Adapter {
         None
     }
     pub(super) fn refresh_selection(&mut self, engine: &Engine, tcx: &mut TextContext) {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::layout", "backend.selection").entered();
         let mut paragraphs = Vec::new();
         for p in &self.placed {
             let entity = self.reverse[&p.node_id];

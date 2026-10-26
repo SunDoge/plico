@@ -711,6 +711,8 @@ impl Adapter {
         self.stats.layout_micros = start.elapsed().as_micros();
     }
     fn reindex_placed(&mut self) {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
         self.placed_indices.clear();
         self.placed_indices.extend(
             self.placed

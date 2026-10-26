@@ -36,6 +36,8 @@ impl Adapter {
         self.placed_chain_from(start)
     }
     pub(super) fn update_presentation(&mut self) {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::layout", "backend.presentation").entered();
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation.is_empty() {
             self.presentation.clear();
             for index in 0..self.placed.len() {

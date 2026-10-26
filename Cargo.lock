@@ -3885,6 +3885,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snafu",
+ "tracing",
  "tracing-subscriber",
  "usage-rs",
  "vello_common",
