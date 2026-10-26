@@ -72,7 +72,7 @@ impl SkiaWindow {
             desired: [size.width, size.height],
             transparent,
             recreate: true,
-            damage_tracking: true,
+            damage_tracking: false,
             damage_validation: false,
             last_damage: DamageRegion::Full,
             incremental_present: false,
@@ -87,7 +87,7 @@ impl SkiaWindow {
     pub fn device_name(&self) -> &str {
         &self.owner.name
     }
-    /// Select command-stream damage or unconditional full drawing.
+    /// Select command-stream damage or unconditional full drawing (the default).
     /// History is owned per swapchain image; newly created targets draw fully.
     pub fn set_damage_tracking(&mut self, enabled: bool) {
         self.damage_tracking = enabled;

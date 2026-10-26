@@ -70,9 +70,9 @@ impl WindowRenderer {
                     "Skia Vulkan window renderer initialized"
                 );
                 renderer.resize(width, height);
-                renderer.set_damage_tracking(!matches!(
+                renderer.set_damage_tracking(matches!(
                     std::env::var("PLICO_SKIA_DAMAGE").as_deref(),
-                    Ok("0" | "false")
+                    Ok("1" | "true")
                 ));
                 renderer.set_damage_validation(matches!(
                     std::env::var("PLICO_SKIA_DAMAGE_VALIDATE").as_deref(),

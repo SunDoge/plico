@@ -85,3 +85,13 @@ Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and 
 ## Widget input capabilities
 
 Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.
+
+## Optional damage tracking
+
+Skia command-stream damage and per-image history, CPU culling and optional Vulkan
+incremental-present hints are implemented as opt-in experiments. Normal windows
+use full drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
+pass, but the real settings theme animation exposes four one-channel-step pixels
+near a dirty clip edge; investigation continues. Vello's preserved-target partial
+clear probe passes, while its normal window renderer remains unchanged. See
+[measurements and limits](performance.md).

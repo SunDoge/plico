@@ -169,7 +169,7 @@ damage 计算不依赖 Adapter 的节点 dirty 队列。
 背景变化全量绘制。Vulkan 队列同步仍走原来的路径。
 这解决的是保留 surface 的局部绘制；系统 incremental-present 提示另行按需开启。
 
-- `PLICO_SKIA_DAMAGE=0`：关闭自动 damage，供 A/B 对比。
+- `PLICO_SKIA_DAMAGE=1`：显式开启实验自动 damage；默认关闭。`0` 供全量对照。
 - `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
   比较局部绘制与全量绘制像素；不一致报错，默认关闭。
 - `plico::perf` trace 的 `damage_coverage` 是实际应用到目标 image 的区域比例，
@@ -284,3 +284,16 @@ resize/错误回退、复用共享 damage 协议，补 Vello glyph ink 的保守
 另一个独立观察：当前 Vello 窗口配置为 `PresentMode::AutoNoVsync`；后续比较
 动画 CPU 时应核实实际 FPS，并对照同步模式，避免将不同帧率误判为 renderer
 差距。本轮没有修改它，也没有启用 Vello 自动 damage。
+
+
+### 实验默认值与已知差异
+
+Skia 窗口默认全量绘制。设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 damage；
+`draw_scene_tracked()` 仍是显式实验 API。Vello 的 capability probe 继续保留，
+没有删除或接管其正常窗口路径。
+
+真实 settings 的虚拟时钟主题动画在第 96 帧发现 4 个像素差异，每通道最多
+1（8-bit）。关闭 CPU culling、仅使用相同 outer clip 也能复现同样的 4 像素；
+将 clip 向外扩 4 像素后该帧一致。这将范围缩小到 clip 附近的栅格化/抗锯齿
+差异，尚未证明所有场景可由固定 padding 正确解决，因此保持 opt-in，严格
+像素对照仍然报错，不以放宽阈值掩盖问题。

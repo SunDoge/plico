@@ -37,6 +37,7 @@ impl ApplicationHandler for Demo {
         );
         let device = std::env::var("PLICO_SKIA_DEVICE").ok();
         let mut renderer = SkiaWindow::new(window.clone(), false, device.as_deref()).unwrap();
+        renderer.set_damage_tracking(true);
         renderer.set_damage_validation(true);
         let enabled = !matches!(
             std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
