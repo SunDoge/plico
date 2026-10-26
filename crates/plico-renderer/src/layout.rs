@@ -558,7 +558,21 @@ fn walk(
 
     let established_clip = node_clip(tree, node, layout, x0, y0, w, h, inherited_clip, depth);
     let child_clip = established_clip.unwrap_or(inherited_clip);
-    if let Some(clip) = established_clip
+    // Keep the local clipping boundary intact: ancestors and this node can
+    // have different presentation transforms. Intersecting here would bake
+    // untransformed ancestor coordinates into a transformed child clip.
+    let own_clip = node_clip(
+        tree,
+        node,
+        layout,
+        x0,
+        y0,
+        w,
+        h,
+        ClipState::default(),
+        depth,
+    );
+    if let Some(clip) = own_clip
         && let Some(placed) = out.last_mut()
         && placed.node_id == node
     {
@@ -566,12 +580,13 @@ fn walk(
         placed.own_clip_radius = clip.radii.max();
         placed.own_clip_radii = clip.radii;
     }
-    // A clipped subtree with an empty effective clip is fully invisible. The
+    // Only an intrinsically empty clipping boundary can prune layout here.
+    // Effective intersections are resolved after presentation transforms. The
     // zero-sized clipping node itself may have been omitted from `out`; walking
     // its descendants would therefore lose the layer boundary and flash them
     // un-clipped for one frame during collapse animations.
-    if child_clip
-        .rect
+    if own_clip
+        .and_then(|clip| clip.rect)
         .is_some_and(|clip| clip[2] <= clip[0] || clip[3] <= clip[1])
     {
         return;
@@ -879,6 +894,70 @@ mod tests {
         assert_eq!(placed[2].clip_radius, 11.0);
         assert_eq!(placed[1].own_clip, Some([1.0, 1.0, 99.0, 99.0]));
         assert_eq!(placed[1].own_clip_radius, 11.0);
+    }
+
+    #[test]
+    fn nested_clip_keeps_local_bounds_until_presentation_transforms() {
+        let mut tree = TaffyTree::<Paint>::new();
+        let size = |width, height| Size {
+            width: taffy::Dimension::length(width),
+            height: taffy::Dimension::length(height),
+        };
+        let child = tree
+            .new_leaf(taffy::Style {
+                size: size(80., 20.),
+                ..Default::default()
+            })
+            .unwrap();
+        let row = tree
+            .new_with_children(
+                taffy::Style {
+                    size: size(100., 30.),
+                    position: taffy::Position::Absolute,
+                    inset: taffy::Rect {
+                        top: taffy::LengthPercentageAuto::length(200.),
+                        left: taffy::LengthPercentageAuto::auto(),
+                        right: taffy::LengthPercentageAuto::auto(),
+                        bottom: taffy::LengthPercentageAuto::auto(),
+                    },
+                    overflow: taffy::Point {
+                        x: taffy::Overflow::Hidden,
+                        y: taffy::Overflow::Hidden,
+                    },
+                    ..Default::default()
+                },
+                &[child],
+            )
+            .unwrap();
+        let root = tree
+            .new_with_children(
+                taffy::Style {
+                    size: size(100., 100.),
+                    overflow: taffy::Point {
+                        x: taffy::Overflow::Hidden,
+                        y: taffy::Overflow::Hidden,
+                    },
+                    ..Default::default()
+                },
+                &[row],
+            )
+            .unwrap();
+        for node in [root, row, child] {
+            tree.set_node_context(node, Some(Paint::default())).unwrap();
+        }
+        let placed = compute_and_walk_with_scroll(
+            &mut tree,
+            root,
+            100.,
+            100.,
+            &mut TextContext::new(),
+            &HashMap::new(),
+        );
+        // A presentation transform may move this row into the root viewport.
+        // Layout must retain both its local clip and its descendants.
+        assert!(placed.iter().any(|node| node.node_id == child));
+        let row = placed.iter().find(|node| node.node_id == row).unwrap();
+        assert_eq!(row.own_clip, Some([0., 200., 100., 230.]));
     }
 
     #[test]
