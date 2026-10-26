@@ -10,6 +10,24 @@ use snafu::ResultExt;
 use std::{ffi::CStr, marker::PhantomData, path::Path, rc::Rc};
 use vello_common::peniko::Color;
 
+/// Ganesh resource-cache accounting; excludes driver allocations and CPU assets.
+#[derive(Clone, Copy, Debug)]
+pub struct GpuCacheStats {
+    /// Budgeted resources currently retained, including resources still in use.
+    pub bytes: usize,
+    /// Unlocked resources Skia can evict without discarding live content.
+    pub purgeable_bytes: usize,
+    /// Configured cache budget; live resources can exceed it.
+    pub limit_bytes: usize,
+}
+pub(super) fn cache_stats(context: &gpu::DirectContext) -> GpuCacheStats {
+    GpuCacheStats {
+        bytes: context.resource_cache_usage().resource_bytes,
+        purgeable_bytes: context.resource_cache_purgeable_bytes(),
+        limit_bytes: context.resource_cache_limit(),
+    }
+}
+
 /// A Vulkan-backed Skia surface with its own device and graphics queue.
 ///
 /// Keep it on the creating thread. Fields are private so surfaces/contexts cannot
@@ -22,6 +40,10 @@ pub struct SkiaGpuSurface {
     _thread: PhantomData<Rc<()>>,
 }
 impl SkiaGpuSurface {
+    /// Current GPU cache accounting, without readback or synchronization.
+    pub fn gpu_cache_stats(&self) -> GpuCacheStats {
+        cache_stats(&self.context)
+    }
     /// Prefer a discrete GPU, then integrated/virtual GPUs, then software Vulkan.
     /// There is no CPU-raster fallback; inspect `is_software_device` when needed.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {

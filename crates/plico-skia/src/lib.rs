@@ -59,7 +59,7 @@ pub use raster::SkiaSurface;
 #[cfg(feature = "vulkan")]
 mod vulkan;
 #[cfg(feature = "vulkan")]
-pub use vulkan::SkiaGpuSurface;
+pub use vulkan::{GpuCacheStats, SkiaGpuSurface};
 
 #[cfg(feature = "window")]
 pub use vulkan::SkiaWindow;

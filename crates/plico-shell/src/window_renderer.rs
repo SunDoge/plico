@@ -125,6 +125,9 @@ impl WindowRenderer {
                 if presented {
                     tracing::trace!(target: "plico::perf", damage_coverage = renderer.last_damage().coverage(width, height),
                         present_damage_coverage = renderer.last_present_damage().coverage(width, height),
+                        gpu_cache_bytes = renderer.gpu_cache_stats().bytes,
+                        gpu_cache_purgeable_bytes = renderer.gpu_cache_stats().purgeable_bytes,
+                        gpu_cache_limit_bytes = renderer.gpu_cache_stats().limit_bytes,
                         "Skia target damage");
                 }
                 Ok(presented)

@@ -22,11 +22,16 @@ pub struct SkiaSurface {
 /// CPU assets are shared by the render targets of one GPU context. Per-image
 /// caches duplicate complete CJK font files and upload identical textures again.
 pub(crate) struct Resources {
-    fonts: std::collections::HashMap<(u64, u32), skia_safe::Typeface>,
+    fonts: std::collections::HashMap<u64, FontResource>,
     font_manager: FontMgr,
     svg_scenes:
         std::collections::HashMap<usize, (std::sync::Weak<plico_renderer::svg::usvg::Tree>, Scene)>,
     images: ImageCache,
+}
+struct FontResource {
+    source: vello_common::peniko::WeakBlob<u8>,
+    data: skia_safe::Data,
+    faces: std::collections::HashMap<u32, skia_safe::Typeface>,
 }
 impl Default for Resources {
     fn default() -> Self {
@@ -45,15 +50,24 @@ impl Resources {
         size: f32,
         hint: bool,
     ) -> Result<Font, Error> {
-        let key = (font.data.id(), font.index);
-        if let std::collections::hash_map::Entry::Vacant(entry) = self.fonts.entry(key) {
+        // A TTC contains multiple faces. new_from_bytes copies the complete
+        // collection for every face; share one owned SkData allocation instead.
+        let resource = self
+            .fonts
+            .entry(font.data.id())
+            .or_insert_with(|| FontResource {
+                source: font.data.downgrade(),
+                data: skia_safe::Data::new_copy(font.data.as_ref()),
+                faces: Default::default(),
+            });
+        if let std::collections::hash_map::Entry::Vacant(entry) = resource.faces.entry(font.index) {
             let face = self
                 .font_manager
-                .new_from_bytes(font.data.as_ref(), font.index)
+                .new_from_data(resource.data.clone(), font.index)
                 .ok_or(Error::Font)?;
             entry.insert(face);
         }
-        let mut skfont = Font::new(self.fonts[&key].clone(), size);
+        let mut skfont = Font::new(resource.faces[&font.index].clone(), size);
         skfont.set_edging(skia_safe::font::Edging::AntiAlias);
         skfont.set_subpixel(true);
         skfont.set_hinting(if hint {
@@ -201,12 +215,11 @@ impl SkiaSurface {
         } else {
             damage.for_surface(self.surface.width() as u32, self.surface.height() as u32)
         };
-        if damage == DamageRegion::Empty {
-            return Ok(());
-        }
-        self.frame_valid = false;
         {
             let mut resources = self.resources.borrow_mut();
+            resources
+                .fonts
+                .retain(|_, resource| resource.source.upgrade().is_some());
             resources
                 .images
                 .retain(|_, (source, _)| source.upgrade().is_some());
@@ -214,6 +227,10 @@ impl SkiaSurface {
                 .svg_scenes
                 .retain(|_, (tree, _)| tree.strong_count() > 0);
         }
+        if damage == DamageRegion::Empty {
+            return Ok(());
+        }
+        self.frame_valid = false;
         self.surface.canvas().restore_to_count(1);
         if let DamageRegion::Rect(r) = damage {
             self.surface.canvas().save();
@@ -761,6 +778,57 @@ mod resource_tests {
     use plico_renderer::PaintScene;
     use std::{cell::RefCell, rc::Rc, sync::Arc};
     use vello_common::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
+
+    #[test]
+    fn font_resources_release_dead_sources_and_share_sizes() {
+        let font = vello_common::peniko::FontData::new(
+            Blob::new(Arc::new(
+                include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf")
+                    .to_vec(),
+            )),
+            0,
+        );
+        let mut surface = SkiaSurface::new(4, 4).unwrap();
+        surface.draw_scene(&Scene::new(), Color::WHITE).unwrap();
+        for size in [12., 24., 36.] {
+            surface
+                .resources
+                .borrow_mut()
+                .font(&font, size, true)
+                .unwrap();
+        }
+        assert_eq!(surface.resources.borrow().fonts.len(), 1);
+        assert_eq!(
+            surface.resources.borrow().fonts[&font.data.id()]
+                .faces
+                .len(),
+            1
+        );
+        drop(font);
+        surface
+            .draw_scene_damaged(&Scene::new(), Color::WHITE, DamageRegion::Empty)
+            .unwrap();
+        assert!(surface.resources.borrow().fonts.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires PLICO_TEST_TTC pointing to a multi-face TTC collection"]
+    fn collection_faces_share_one_font_data_allocation() {
+        let bytes = std::fs::read(std::env::var_os("PLICO_TEST_TTC").unwrap()).unwrap();
+        assert_eq!(&bytes[..4], b"ttcf");
+        let count = u32::from_be_bytes(bytes[8..12].try_into().unwrap());
+        assert!((2..=64).contains(&count));
+        let blob = Blob::new(Arc::new(bytes));
+        let mut resources = Resources::default();
+        for index in 0..count {
+            let font = vello_common::peniko::FontData::new(blob.clone(), index);
+            resources.font(&font, 24., true).unwrap();
+        }
+        assert_eq!(resources.fonts.len(), 1);
+        let resource = &resources.fonts[&blob.id()];
+        assert_eq!(resource.data.size(), blob.as_ref().len());
+        assert_eq!(resource.faces.len(), count as usize);
+    }
 
     #[test]
     fn targets_share_one_image_resource_and_release_dead_sources() {

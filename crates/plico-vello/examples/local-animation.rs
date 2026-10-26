@@ -106,7 +106,11 @@ impl plico_renderer::FrameSource for Paced {
     }
 }
 fn main() -> Result<(), plico_vello::DesktopError> {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
     plico_vello::run_source_with_options(
         Paced {
             source: Source::new(Demo::default()),

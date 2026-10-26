@@ -325,3 +325,29 @@ Skia 窗口默认全量绘制。设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 dam
 入口；严格诊断仍可复现它。原生 Lyrune 的进一步 CPU 收益尚未得到证明，
 不以离屏收益替代原生窗口结论。下一轮应由真实负载决定是否扩展 Vello 窗口
 或优化 damage 比较成本，而不是继续为微小舍入差异改变渲染架构。
+
+
+### Skia 字体集合内存
+
+`new_from_bytes` 会复制输入的完整字体文件；对 TTC 的每个 face 分别调用会
+重复保留整个集合。damage 的 glyph ink 查询也会创建 Typeface，放大该成本。
+修复前真实 Lyrune 进程中可识别 TTC 头的匿名映射约 547 MiB，同一字体头
+出现多块副本；这不是 glyph atlas 大小的测量。
+
+Skia 资源池现在按 Blob ID 保存一份 owned `SkData`，不同 TTC index 使用
+`new_from_data` 共享它；源 Blob 已失效时清理条目，Empty 绘制也执行清理。
+不通过无生命周期保证的裸字节借用实现零拷贝。常规测试验证跨字号复用与
+失效清理，手动 TTC 测试验证集合内多个 face 只有一份资源池数据：
+
+```sh
+PLICO_TEST_TTC=/path/to/font.ttc cargo test -p plico-skia --features raster --lib collection_faces_share_one_font_data_allocation -- --ignored
+```
+
+`plico::perf` 的 Skia target trace 另外记录 `gpu_cache_bytes`、
+`gpu_cache_purgeable_bytes`、`gpu_cache_limit_bytes`。这些是 Ganesh 缓存记账，
+不包含字体文件副本、驱动分配或进程全部 RSS，不应混作进程内存。
+
+修复后本机 Xvfb/NVIDIA 上的两个独立 Lyrune 主界面进程，5/15/30/45 秒采样：
+全量 RSS 约 378 MiB、匿名约 163 MiB；damage RSS 约 336 MiB、匿名约 158 MiB，
+15–45 秒未继续增长。这是启动主界面测试，不是长时间歌词播放验收；
+实际播放中的旧进程需重启后再对照，不能拿不同页面/播放时长直接计算节省比例。

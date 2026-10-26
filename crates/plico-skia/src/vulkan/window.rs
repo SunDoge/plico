@@ -87,6 +87,10 @@ impl SkiaWindow {
     pub fn device_name(&self) -> &str {
         &self.owner.name
     }
+    /// Current GPU cache accounting, without readback or synchronization.
+    pub fn gpu_cache_stats(&self) -> super::GpuCacheStats {
+        super::cache_stats(&self.context)
+    }
     /// Select command-stream damage or unconditional full drawing (the default).
     /// History is owned per swapchain image; newly created targets draw fully.
     pub fn set_damage_tracking(&mut self, enabled: bool) {
