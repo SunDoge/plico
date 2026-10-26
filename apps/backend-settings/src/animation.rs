@@ -74,7 +74,7 @@ impl Animations {
     }
     /// Stop the sweep and keep the value visible right now.
     pub fn cancel(&mut self) {
-        self.progress.snap(f64::from(self.progress()));
+        self.progress.snap(self.progress.value(self.now));
     }
 }
 #[cfg(test)]
@@ -114,7 +114,15 @@ mod tests {
         assert!(!a.active());
         a.set_reduced(false);
         a.start();
+        a.advance(Duration::from_millis(700));
         a.cancel();
         assert!(!a.active());
+        // Cancellation freezes exactly the sampled value, without rounding
+        // through f32, and later frames keep reporting it.
+        let frozen = a.progress();
+        a.advance(Duration::from_millis(1000));
+        assert_eq!(a.progress(), frozen);
+        a.advance(Duration::from_millis(5000));
+        assert_eq!(a.progress(), frozen);
     }
 }

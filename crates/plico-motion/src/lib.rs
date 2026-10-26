@@ -641,14 +641,29 @@ impl<const N: usize> MotionArena<N> {
 /// [`MotionArena`] when many channels share one clock and one dirty list; use
 /// `Animated` when a handful of named application values drive styles.
 ///
-/// ```ignore
-/// let mut width = Animated::new(200.);
-/// width.retarget(now, 72., Duration::from_millis(260), Easing::EaseOut);
-/// row(cx).width(width.value(now) as f32);
+/// The caller injects time; `Animated` never reads a clock. The caller also
+/// owns frame scheduling: report `active()` to the host's `has_anim`/deadline
+/// so the window keeps presenting until the tween reaches its target.
+///
+/// ```
+/// use plico_motion::{Animated, Easing};
+/// use std::time::Duration;
+///
+/// // The host injects the current instant once per frame (e.g. FrameTime).
+/// let frame = |ms: u64| Duration::from_millis(ms);
+///
+/// let mut sidebar = Animated::new(200.);
+/// sidebar.retarget(frame(0), 72., frame(260), Easing::EaseOut);
+///
+/// // Declare the sampled value each frame...
+/// assert_eq!(sidebar.value(frame(130)) as f32, 88.);
+/// // ...and tell the host whether more frames are needed.
+/// assert!(sidebar.active(frame(130)));
+/// assert_eq!(sidebar.value(frame(260)), 72.);
+/// assert!(!sidebar.active(frame(260)));
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Animated {
-    value: f64,
     target: f64,
     from: f64,
     start: Duration,
@@ -660,7 +675,6 @@ impl Animated {
     /// Start at rest on `initial`.
     pub const fn new(initial: f64) -> Self {
         Self {
-            value: initial,
             target: initial,
             from: initial,
             start: Duration::ZERO,
@@ -689,7 +703,6 @@ impl Animated {
     /// Jump to `value` and stop. Restarting sequences compose this with
     /// `retarget`: snap to the start point, then retarget to the goal.
     pub fn snap(&mut self, value: f64) {
-        self.value = value;
         self.from = value;
         self.target = value;
         self.duration = Duration::ZERO;
@@ -714,11 +727,17 @@ impl Animated {
     }
     /// Whether the tween is still in flight at `now`. Finite: the frame after
     /// the deadline reports false even if nobody sampled the final value.
+    ///
+    /// The comparison is elapsed-time based, exactly like [`value`](Self::value):
+    /// both agree even when `start + duration` would overflow near
+    /// `Duration::MAX`. The injected clock therefore only needs to represent
+    /// times it can still subtract from; no additional clock-domain state
+    /// exists here.
     pub fn active(&self, now: Duration) -> bool {
         !self.reduced
             && !self.duration.is_zero()
             && self.from != self.target
-            && now < self.start.saturating_add(self.duration)
+            && now.saturating_sub(self.start) < self.duration
     }
     /// Reduced-motion policy. Turning it on snaps any in-flight tween to its
     /// target; later retargets complete immediately until it is turned off.
@@ -1173,7 +1192,9 @@ mod tests {
             Easing::Linear,
         );
         let mid = animated.value(Duration::from_millis(50));
-        // Re-declaring the same target every frame must not restart the flight.
+        approx(mid, 50.0, 1e-12);
+        // Re-declaring the same target every frame must not restart the
+        // flight: the value at the retarget instant is unchanged.
         animated.retarget(
             Duration::from_millis(50),
             100.,
@@ -1181,19 +1202,46 @@ mod tests {
             Easing::Linear,
         );
         assert_eq!(animated.value(Duration::from_millis(50)), mid);
-        // A mid-flight retarget continues from the visible value.
+        assert!(animated.active(Duration::from_millis(50)));
+        assert!(!animated.active(Duration::from_millis(100)));
+
+        // A mid-flight retarget to a different goal continues from the
+        // visible value, not from the original `from`.
+        let mut animated = Animated::new(0.);
         animated.retarget(
-            Duration::from_millis(50),
-            50.,
-            Duration::from_millis(50),
+            Duration::ZERO,
+            100.,
+            Duration::from_millis(100),
             Easing::Linear,
         );
-        approx(
-            animated.value(Duration::from_millis(75)),
-            mid / 2. + 25.,
-            1e-12,
+        animated.retarget(
+            Duration::from_millis(50),
+            150.,
+            Duration::from_millis(100),
+            Easing::Linear,
         );
-        assert_eq!(animated.value(Duration::from_millis(100)), 50.);
+        // Continuity: the first sample after the retarget is the value that
+        // was visible just before it.
+        approx(animated.value(Duration::from_millis(50)), 50.0, 1e-12);
+        // The new flight is 50 -> 150 over 100ms: halfway is exactly 100.
+        approx(animated.value(Duration::from_millis(100)), 100.0, 1e-12);
+        assert_eq!(animated.value(Duration::from_millis(150)), 150.);
+        assert!(!animated.active(Duration::from_millis(150)));
+    }
+
+    #[test]
+    fn animated_stays_active_near_the_duration_maximum() {
+        // start + duration would overflow Duration::MAX; the elapsed-time
+        // comparison in active() must agree with value() there.
+        let start = Duration::MAX - Duration::from_millis(10);
+        let mut animated = Animated::new(0.);
+        animated.retarget(start, 10., Duration::from_millis(20), Easing::Linear);
+        let now = Duration::MAX;
+        approx(animated.value(now), 5.0, 1e-9);
+        assert!(
+            animated.active(now),
+            "the tween is halfway, yet start.saturating_add(duration) saturated"
+        );
     }
 
     #[test]
