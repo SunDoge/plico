@@ -1,4 +1,36 @@
 [workspace]
+# The CLI owns the shared tag internally; public PR/release naming is Plico.
+pr_name = "chore: release Plico{% if version %} v{{ version }}{% endif %}"
+pr_body = """
+{% for release in releases %}
+{% if release.package == "plico-cli" %}
+## Plico v{{ release.next_version }}
+
+All workspace packages use the shared version **{{ release.next_version }}**.
+This release creates a Git tag and GitHub Release; it does not publish to crates.io.
+{% if release.changelog %}
+
+### Changelog
+{% if release.title %}
+{{ release.title }}
+{% endif %}
+
+{{ release.changelog }}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% for release in releases %}
+{% if release.breaking_changes %}
+
+### Breaking changes: `{{ release.package }}`
+
+{{ release.breaking_changes }}
+{% endif %}
+{% endfor %}
+
+---
+Generated with [release-plz](https://github.com/release-plz/release-plz/).
+"""
 # Released versions come from Git tags; never publish to a Cargo registry.
 git_only = true
 release_always = false
