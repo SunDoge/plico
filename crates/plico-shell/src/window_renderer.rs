@@ -65,15 +65,12 @@ impl WindowRenderer {
                 let mut renderer =
                     plico_skia::SkiaWindow::new(window, *transparent, device.as_deref())
                         .context(crate::error::SkiaSnafu)?;
-                tracing::info!(
-                    device = renderer.device_name(),
-                    "Skia Vulkan window renderer initialized"
-                );
                 renderer.resize(width, height);
-                renderer.set_damage_tracking(matches!(
+                let damage_tracking = matches!(
                     std::env::var("PLICO_SKIA_DAMAGE").as_deref(),
                     Ok("1" | "true")
-                ));
+                );
+                renderer.set_damage_tracking(damage_tracking);
                 renderer.set_damage_validation(matches!(
                     std::env::var("PLICO_SKIA_DAMAGE_VALIDATE").as_deref(),
                     Ok("1" | "true")
@@ -82,6 +79,12 @@ impl WindowRenderer {
                     std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
                     Ok("1" | "true")
                 ));
+                tracing::info!(
+                    device = renderer.device_name(),
+                    damage_tracking,
+                    incremental_present_supported = renderer.incremental_present_supported(),
+                    "Skia Vulkan window renderer initialized"
+                );
                 *active = Some(Box::new(renderer));
             }
         }
