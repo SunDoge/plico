@@ -2313,6 +2313,13 @@ impl<V: View> Source<V> {
             .map_err(|source| SourceError::Declaration { source })
             .and_then(|()| self.try_declare());
         if let Err(error) = result {
+            if self
+                .last_error
+                .as_ref()
+                .is_none_or(|previous| previous.to_string() != error.to_string())
+            {
+                tracing::error!(%error, "UI declaration failed");
+            }
             self.last_error = Some(error);
             return;
         }
