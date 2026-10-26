@@ -51,6 +51,7 @@ git_release_name = "Plico v{{ version }}"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
+    "examples",
     "backend-settings",
     "plico-core",
     "plico-dev",

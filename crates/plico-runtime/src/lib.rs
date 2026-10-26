@@ -1238,6 +1238,7 @@ impl Adapter {
         }
         let mut declare = true;
         let mut response = self.event_inner(engine, event, &mut declare);
+        engine.set_hovered(self.hovered);
         response.request_redraw |= self.tips.needs_frame();
         (response, declare)
     }
@@ -1347,6 +1348,7 @@ impl Adapter {
                 let hit = self.hit(engine, p.position.x, p.position.y);
                 match p.phase {
                     PointerPhase::Down if p.button == Some(PointerButton::Primary) => {
+                        self.hovered = hit;
                         self.pressed = hit;
                         self.focused = hit;
                         self.focus_visible = false;
@@ -1354,6 +1356,7 @@ impl Adapter {
                         handled = true;
                     }
                     PointerPhase::Up if p.button == Some(PointerButton::Primary) => {
+                        self.hovered = hit;
                         if let Some(e) = self.pressed.take().filter(|e| Some(*e) == hit)
                             && engine.node(e).is_some_and(|n| {
                                 n.kind.capabilities().contains(Capabilities::ACTIVATE)

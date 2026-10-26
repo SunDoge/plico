@@ -162,7 +162,6 @@ pub fn nav_menu<Route: crate::Route + Copy + Eq>(
         cx.keyed(route.id(), |cx| {
             if nav_item(cx, route.label(), router.show(route), route.icon()).clicked() {
                 router.go(route);
-                cx.request_rebuild();
             }
         });
     }

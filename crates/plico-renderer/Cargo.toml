@@ -9,13 +9,14 @@ publish = false
 profiling = []
 
 [dependencies]
+gif = "0.14"
 plico-core.workspace = true
 web-time = "1.1"
 directories.workspace = true
 bitflags = { workspace = true }
 bytemuck.workspace = true
 glifo = { workspace = true, features = ["png"] }
-image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
+image = { workspace = true, features = ["ico", "jpeg", "png", "webp", "gif"] }
 lru = "0.19.0"
 naga.workspace = true
 parley = { workspace = true }

@@ -45,6 +45,9 @@ pub struct Request {
     pub services: serde_json::Value,
     #[serde(default)]
     pub keys: Vec<String>,
+    /// Current hovered control by logical identity; persistent across settle passes.
+    #[serde(default)]
+    pub hovered: Option<Vec<PathKey>>,
     /// Full fallback keyboard events, including modifiers. Legacy keys remain accepted.
     #[serde(default)]
     pub key_events: Vec<KeyEvent>,
@@ -86,6 +89,7 @@ impl Default for Request {
             services: serde_json::Value::Null,
             clicks: Vec::new(),
             keys: Vec::new(),
+            hovered: None,
             key_events: Vec::new(),
             viewport: None,
             values: Vec::new(),
@@ -217,6 +221,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
     let mut key_handled = false;
     if !request.checkpoint {
         let Session { app, engine } = session.as_mut();
+        engine.set_hovered_path(request.hovered);
         app.set_services(request.services)?;
         app.set_frame_time(request.time);
         for key in &request.key_events {

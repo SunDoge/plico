@@ -1,4 +1,4 @@
-//! Bounded animated WebP decoding and a host-clock-driven player.
+//! Bounded animated WebP/GIF decoding and a host-clock-driven player.
 //!
 //! Decode on a worker, retain composited frames, and wake at `next_frame_after`.
 //! No wall clock, executor, thread, or rendering loop is created by this module.
@@ -59,11 +59,50 @@ impl AnimatedImage {
         // The file background color is a viewer hint, not opaque UI content.
         decoder.set_background_color(image::Rgba([0, 0, 0, 0]))?;
         let loops = decoder.loop_count();
+        Self::collect(decoder.into_frames(), width, height, loops, limits)
+    }
+    /// Decode composited GIF frames, preserving the file loop count and delays.
+    pub fn decode_gif(bytes: &[u8], limits: AnimationLimits) -> image::ImageResult<Self> {
+        limits.image.check_input(bytes)?;
+        let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))?;
+        let (width, height) = decoder.dimensions();
+        limits.image.check_dimensions(width, height)?;
+        let mut budget = image::Limits::default();
+        budget.max_image_width = Some(limits.image.max_dimension);
+        budget.max_image_height = Some(limits.image.max_dimension);
+        budget.max_alloc = Some(limits.image.max_rgba_bytes);
+        decoder.set_limits(budget)?;
+        // GIF repeat counts are additional plays; a missing loop extension is
+        // Finite(0), meaning one play. image's generic conversion loses this distinction.
+        let header = gif::DecodeOptions::new()
+            .read_info(Cursor::new(bytes))
+            .map_err(|error| {
+                image::ImageError::Decoding(image::error::DecodingError::new(
+                    image::error::ImageFormatHint::Exact(image::ImageFormat::Gif),
+                    error,
+                ))
+            })?;
+        let loops = match header.repeat() {
+            gif::Repeat::Infinite => LoopCount::Infinite,
+            gif::Repeat::Finite(n) => {
+                LoopCount::Finite(std::num::NonZeroU32::new(u32::from(n) + 1).unwrap())
+            }
+        };
+        Self::collect(decoder.into_frames(), width, height, loops, limits)
+    }
+    fn collect(
+        frames_in: image::Frames<'_>,
+        width: u32,
+        height: u32,
+        loops: LoopCount,
+        limits: AnimationLimits,
+    ) -> image::ImageResult<Self> {
+        let frame_bytes = limits.image.check_dimensions(width, height)?;
         let mut frames = Vec::new();
         let mut ends = Vec::new();
         let mut total = Duration::ZERO;
         let mut byte_len = 0u64;
-        for frame in decoder.into_frames() {
+        for frame in frames_in {
             let frame = frame?;
             byte_len = byte_len.checked_add(frame_bytes).ok_or_else(memory_limit)?;
             if frames.len() >= limits.max_frames || byte_len > limits.max_retained_bytes {
@@ -378,5 +417,78 @@ mod tests {
             .unwrap();
         let a = AnimatedImage::decode_webp(&bytes, AnimationLimits::default()).unwrap();
         assert_eq!(a.sample(Duration::ZERO).next_frame_after, None);
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod gif_tests {
+    use super::*;
+    pub(crate) fn fixture(repeat: Option<image::codecs::gif::Repeat>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+            if let Some(repeat) = repeat {
+                encoder.set_repeat(repeat).unwrap();
+            }
+            for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+                encoder
+                    .encode_frame(image::Frame::from_parts(
+                        image::RgbaImage::from_pixel(4, 4, image::Rgba(color)),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(100, 1),
+                    ))
+                    .unwrap();
+            }
+        }
+        bytes
+    }
+    #[test]
+    fn gif_frames_delays_and_loop_counts_are_preserved() {
+        use image::codecs::gif::Repeat;
+        for (repeat, loops) in [(None, 1), (Some(Repeat::Finite(1)), 2)] {
+            let animation =
+                AnimatedImage::decode_gif(&fixture(repeat), AnimationLimits::default()).unwrap();
+            assert_eq!(animation.frame_count(), 2);
+            assert_eq!(animation.cycle_duration(), Duration::from_millis(200));
+            assert!(matches!(animation.loop_count(),LoopCount::Finite(n) if n.get()==loops));
+            assert_eq!(
+                animation.sample(Duration::ZERO).image.rgba()[..4],
+                [255, 0, 0, 255]
+            );
+            assert_eq!(
+                animation.sample(Duration::from_millis(100)).image.rgba()[..4],
+                [0, 0, 255, 255]
+            );
+            assert!(
+                animation
+                    .sample(Duration::from_millis(200 * loops as u64))
+                    .finished
+            );
+        }
+        let bytes = fixture(Some(Repeat::Infinite));
+        let animation = AnimatedImage::decode_gif(&bytes, AnimationLimits::default()).unwrap();
+        assert!(matches!(animation.loop_count(), LoopCount::Infinite));
+        assert!(!animation.sample(Duration::from_secs(10)).finished);
+        assert!(
+            AnimatedImage::decode_gif(
+                &bytes,
+                AnimationLimits {
+                    max_frames: 1,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            AnimatedImage::decode_gif(
+                &bytes,
+                AnimationLimits {
+                    max_retained_bytes: 1,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
     }
 }

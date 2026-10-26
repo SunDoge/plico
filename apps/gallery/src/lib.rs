@@ -1,6 +1,8 @@
 mod calendar;
 mod color_icons;
 pub mod icons;
+#[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+pub mod images;
 use plico_core::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
 mod components;
@@ -51,11 +53,16 @@ pub enum Page {
     Glass,
     #[route(label = "Calendar", icon = color_icons::CALENDAR)]
     Calendar,
+    #[route(label = "Images", icon = color_icons::IMAGE)]
+    Images,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Gallery {
+    #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+    #[serde(skip)]
+    pub images: images::Images,
     pub game2048: game2048::Game,
     pub markdown_chat: markdown_chat::Chat,
     pub glass: glass::Glass,
@@ -145,6 +152,7 @@ impl App for Gallery {
                     Page::Markdown => self.markdown_chat.show(ui),
                     Page::Glass => self.glass.show(ui),
                     Page::Calendar => calendar::page(ui),
+                    Page::Images => self.images_page(ui),
                 }
             })
         };
@@ -152,6 +160,18 @@ impl App for Gallery {
 }
 
 impl Gallery {
+    #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+    fn images_page(&mut self, cx: &mut UiContext) {
+        self.images.show(cx);
+    }
+    #[cfg(not(all(feature = "desktop", not(target_arch = "wasm32"))))]
+    fn images_page(&mut self, cx: &mut UiContext) {
+        text(
+            cx,
+            "Network image playback is available in the desktop gallery.",
+        );
+    }
+
     #[component]
     #[rustfmt::skip]
     fn lists_page(&mut self, ui: &mut UiContext) {
@@ -177,6 +197,21 @@ impl Gallery {
     fn controls_page(&mut self, ui: &mut UiContext) {
         heading(ui, "Controls", "Small interactions, shared state. Leave the page and your values stay.");
         column(ui).height(0.).grow(1.).scroll_y(true).gap(16) + |ui| {
+            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                text(ui, "Hover and activation").font_size(17).weight(650);
+                let activations = ui.state(|| 0_u32);
+                let response = button(ui).text("Hover or activate").response();
+                let mut hint =
+                    "Move the pointer over the button, or activate it with the keyboard.";
+                if response.hovered() {
+                    hint = "Pointer over the button. Hover and click are independent.";
+                }
+                if response.clicked() {
+                    activations.update(|count| *count += 1);
+                }
+                text(ui, hint).font_size(12).color(Color::Muted);
+                plico_core::text!(ui, "Activated {} times", activations.get()).weight(600);
+            };
             column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
                 text(ui, "Buttons & feedback").font_size(17).weight(650);
                 row(ui).gap(8).wrap(true) + |ui| {
@@ -253,7 +288,6 @@ impl Gallery {
             };
             if applied {
                 self.dialog.close();
-                ui.request_rebuild();
             }
             column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
                 text(ui, "Preferences").font_size(17).weight(650);

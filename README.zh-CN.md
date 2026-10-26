@@ -51,6 +51,8 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 }
 ```
 
+完整的 [counter 示例](examples/counter.rs) 可用 `cargo run --example counter` 启动。
+
 在 `plico_dev::App::show` 中调用即可。应用状态仍是普通 Rust 数据，组件无需实现 trait。
 详见[编写方式](docs/authoring.md)和[局部状态与宿主任务](docs/local-state-and-tasks.md)。
 
@@ -59,6 +61,7 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 在本仓库目录运行：
 
 ```sh
+cargo run --example counter
 cargo run -p gallery
 cargo run -p launcher
 cargo run -p backend-settings

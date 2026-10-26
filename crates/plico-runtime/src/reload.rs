@@ -98,6 +98,8 @@ pub struct ReloadView<S: HostService = NoServices> {
     rendered_time: plico_core::FrameTime,
     viewport: [f32; 2],
     rendered_scrolls: Vec<(Vec<PathKey>, [f32; 2])>,
+    hovered: Option<Vec<PathKey>>,
+    rendered_hovered: Option<Vec<PathKey>>,
     changed: Arc<AtomicBool>,
     watcher: Option<notify::RecommendedWatcher>,
     pub reloads: u64,
@@ -145,6 +147,8 @@ impl<S: HostService> ReloadView<S> {
             rendered_time: Default::default(),
             viewport: [720., 820.],
             rendered_scrolls: Vec::new(),
+            hovered: None,
+            rendered_hovered: None,
             changed: Arc::new(AtomicBool::new(false)),
             watcher: None,
             reloads: 0,
@@ -202,6 +206,7 @@ impl<S: HostService> ReloadView<S> {
             services: serde_json::to_value(self.services.snapshot())
                 .map_err(|source| plico_dev::host::Error::Json { source })?,
             viewport: Some(self.viewport),
+            hovered: self.hovered.clone(),
             scroll_viewports: self.scroll_viewports.clone(),
             time: self.time,
             ..Default::default()
@@ -221,6 +226,7 @@ impl<S: HostService> ReloadView<S> {
         self.sync_inputs();
         self.rendered_time = self.time;
         self.rendered_scrolls = self.scroll_viewports.clone();
+        self.rendered_hovered = self.hovered.clone();
         self.active_path = d.library;
         self.reloads += 1;
         self.last_error = None;
@@ -270,6 +276,7 @@ impl<S: HostService> ReloadView<S> {
                 services: serde_json::to_value(self.services.snapshot())
                     .map_err(|source| plico_dev::host::Error::Json { source })?,
                 viewport: Some(self.viewport),
+                hovered: self.hovered.clone(),
                 scroll_viewports: self.scroll_viewports.clone(),
                 time: self.time,
                 clicks,
@@ -333,6 +340,7 @@ impl<S: HostService> ReloadView<S> {
         self.last_error = None;
         self.rendered_time = self.time;
         self.rendered_scrolls = self.scroll_viewports.clone();
+        self.rendered_hovered = self.hovered.clone();
         self.services_dirty = !commands.is_empty();
         for command in commands {
             self.services.send(command);
@@ -340,7 +348,9 @@ impl<S: HostService> ReloadView<S> {
         Ok(())
     }
     fn replay(&mut self, ui: &mut UiContext<'_>) {
+        let mut hovered = None;
         struct Replay<'a> {
+            hovered: &'a mut Option<Vec<PathKey>>,
             keys: &'a mut HashMap<Vec<PathKey>, u64>,
             next: &'a mut u64,
             clicks: &'a mut Vec<Vec<PathKey>>,
@@ -419,6 +429,9 @@ impl<S: HostService> ReloadView<S> {
                             &n.text,
                             n.grid.as_ref(),
                             |ui| {
+                                if ui.hovered() {
+                                    *self.hovered = Some(path.clone());
+                                }
                                 if n.style.scroll_y
                                     && let Some(viewport) = ui.scroll_viewport()
                                 {
@@ -446,6 +459,7 @@ impl<S: HostService> ReloadView<S> {
             }
         }
         Replay {
+            hovered: &mut hovered,
             keys: &mut self.keys,
             next: &mut self.next_key,
             clicks: &mut self.pending,
@@ -454,6 +468,7 @@ impl<S: HostService> ReloadView<S> {
             texts: &self.texts,
         }
         .nodes(ui, &self.frame.nodes, &mut Vec::new());
+        self.hovered = hovered;
         // Virtualized children are unmounted. Do not retain a path-to-ID entry
         // for every row ever visited during a long session.
         fn active_paths(
@@ -492,6 +507,7 @@ impl<S: HostService> View for ReloadView<S> {
             key_events: vec![key.clone()],
             time: self.time,
             viewport: Some(self.viewport),
+            hovered: self.hovered.clone(),
             scroll_viewports: self.scroll_viewports.clone(),
             ..Default::default()
         };
@@ -551,7 +567,8 @@ impl<S: HostService> View for ReloadView<S> {
             || had_clicks
             || text_edited
             || ticking
-            || self.rendered_scrolls != self.scroll_viewports)
+            || self.rendered_scrolls != self.scroll_viewports
+            || self.rendered_hovered != self.hovered)
             && let Err(error) = self.dispatch(pending, values)
         {
             let message = error.to_string();
@@ -564,7 +581,11 @@ impl<S: HostService> View for ReloadView<S> {
             // A new event or successful reload can request frames again.
             self.frame.requests.remove(plico_core::Changes::ANIMATE);
         }
+        let previous_hover = self.hovered.clone();
         self.replay(ui);
+        if self.hovered != previous_hover {
+            ui.request_rebuild();
+        }
         if self.frame.requests.contains(plico_core::Changes::ANIMATE) {
             ui.request_animation_frame();
         }

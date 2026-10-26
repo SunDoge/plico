@@ -20,6 +20,8 @@ struct RemoteView {
     rendered_time: FrameTime,
     viewport: [f32; 2],
     rendered_scrolls: Vec<(Vec<PathKey>, [f32; 2])>,
+    hovered: Option<Vec<PathKey>>,
+    rendered_hovered: Option<Vec<PathKey>>,
     services: Value,
     dirty: bool,
     reloads: u64,
@@ -51,6 +53,8 @@ impl RemoteView {
             rendered_time: FrameTime::default(),
             viewport: [720., 820.],
             rendered_scrolls: vec![],
+            hovered: None,
+            rendered_hovered: None,
             dirty: false,
             reloads: 0,
             calls: 1,
@@ -64,6 +68,7 @@ impl RemoteView {
             state: self.frame.state.clone(),
             services: self.services.clone(),
             viewport: Some(self.viewport),
+            hovered: self.hovered.clone(),
             scroll_viewports: self.scroll_viewports.clone(),
             time: self.time,
             clicks,
@@ -91,6 +96,7 @@ impl RemoteView {
         self.frame = frame;
         self.rendered_time = self.time;
         self.rendered_scrolls = self.scroll_viewports.clone();
+        self.rendered_hovered = self.hovered.clone();
         self.dirty = false;
         self.last_error = None;
     }
@@ -106,7 +112,9 @@ impl RemoteView {
         Ok(())
     }
     fn replay(&mut self, ui: &mut UiContext<'_>) {
+        let mut hovered = None;
         struct Replay<'a> {
+            hovered: &'a mut Option<Vec<PathKey>>,
             keys: &'a mut HashMap<Vec<PathKey>, u64>,
             next: &'a mut u64,
             clicks: &'a mut Vec<Vec<PathKey>>,
@@ -146,6 +154,9 @@ impl RemoteView {
                             &n.text,
                             n.grid.as_ref(),
                             |ui| {
+                                if ui.hovered() {
+                                    *self.hovered = Some(path.clone());
+                                }
                                 if n.style.scroll_y
                                     && let Some(viewport) = ui.scroll_viewport()
                                 {
@@ -173,6 +184,7 @@ impl RemoteView {
             }
         }
         Replay {
+            hovered: &mut hovered,
             keys: &mut self.keys,
             next: &mut self.next_key,
             clicks: &mut self.pending,
@@ -180,6 +192,7 @@ impl RemoteView {
             scrolls: &mut self.scroll_viewports,
         }
         .nodes(ui, &self.frame.nodes, &mut Vec::new());
+        self.hovered = hovered;
         // Virtualized children are unmounted. Do not retain a path-to-ID entry
         // for every row ever visited during a long session.
         fn active_paths(
@@ -239,14 +252,19 @@ impl View for RemoteView {
             || resized
             || input
             || ticking
-            || self.rendered_scrolls != self.scroll_viewports)
+            || self.rendered_scrolls != self.scroll_viewports
+            || self.rendered_hovered != self.hovered)
             && let Err(e) = self.dispatch(clicks, values)
         {
             self.last_error = Some(format!("{e:?}"));
             self.dirty = false;
             self.frame.requests.remove(plico_core::Changes::ANIMATE);
         }
+        let previous_hover = self.hovered.clone();
         self.replay(ui);
+        if previous_hover != self.hovered {
+            ui.request_rebuild();
+        }
         if self.frame.requests.contains(plico_core::Changes::ANIMATE) {
             ui.request_animation_frame();
         }

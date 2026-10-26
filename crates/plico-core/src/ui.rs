@@ -311,6 +311,11 @@ impl<'e> UiContext<'e> {
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
     }
+    /// Whether the host pointer targets the current parent control. Used by
+    /// composed framework controls and logical-path replay adapters.
+    pub fn hovered(&self) -> bool {
+        self.engine.hovered(self.parent)
+    }
     /// Request another declaration for a non-event update performed during show.
     pub fn request_rebuild(&mut self) {
         self.engine.changes.insert(Changes::VIEW);
@@ -397,6 +402,7 @@ impl<'e> UiContext<'e> {
             kind,
             style,
             text,
+            hovered: false,
             recycle_text: false,
             spans: Vec::new(),
         }
@@ -837,7 +843,7 @@ impl Layout<'_, '_> {
         let inner = self.ui.with_parent(entity, self.style, false, build);
         InnerResponse {
             inner,
-            response: Response::new(false, !self.style.disabled),
+            response: Response::new(false, !self.style.disabled, false),
         }
     }
 }
@@ -870,6 +876,7 @@ struct Leaf<'u, 'e, 't> {
     kind: Kind,
     style: Style,
     text: Cow<'t, str>,
+    hovered: bool,
     recycle_text: bool,
     spans: Vec<crate::TextSpan>,
 }
@@ -903,6 +910,7 @@ impl Leaf<'_, '_, '_> {
             Cow::Borrowed(name),
         );
         let response = Response {
+            hovered: !style.disabled && ui.engine.hovered(entity),
             clicked: !style.disabled && ui.engine.clicked(entity),
             enabled: !style.disabled,
         };
@@ -934,6 +942,7 @@ impl Leaf<'_, '_, '_> {
         if let Some(buffer) = recycled {
             ui.engine.format_buffer = buffer;
         }
+        self.hovered = !self.style.disabled && ui.engine.hovered(entity);
         let clicked = self.kind.interactive() && !self.style.disabled && ui.engine.clicked(entity);
         if clicked && let Some(value) = value {
             *value = !*value;
@@ -1352,9 +1361,11 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     fn finish(&mut self) -> Response {
         if !self.composable {
             let enabled = !self.inner.style.disabled;
+            let clicked = self.inner.finish().1;
             return Response {
-                clicked: self.inner.finish().1,
+                clicked,
                 enabled,
+                hovered: self.inner.hovered,
             };
         }
         let text = std::mem::take(&mut self.inner.text);
@@ -1600,15 +1611,25 @@ impl Svg<'_, '_> {
 /// Event result copied out of a declaration; it retains no Ui borrow or callback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Response {
+    hovered: bool,
     clicked: bool,
     enabled: bool,
 }
 impl Response {
-    pub(crate) const fn new(clicked: bool, enabled: bool) -> Self {
-        Self { clicked, enabled }
+    pub(crate) const fn new(clicked: bool, enabled: bool, hovered: bool) -> Self {
+        Self {
+            clicked,
+            enabled,
+            hovered,
+        }
     }
     pub const fn clicked(self) -> bool {
         self.clicked
+    }
+    /// Persistent pointer-over state. Independent of clicked, which can also
+    /// come from keyboard/accessibility activation. Repeated reads do not consume it.
+    pub const fn hovered(self) -> bool {
+        self.hovered
     }
     pub const fn enabled(self) -> bool {
         self.enabled

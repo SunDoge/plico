@@ -273,7 +273,6 @@ impl Game {
                     text(cx, "Join the numbers. Reach 2048!").font_size(13).color(INK).width(0.).grow(1.);
                     if game_button(cx, "New game") {
                         self.restart();
-                        cx.request_rebuild();
                     }
                 };
                 column(cx).width(size).height(size).shrink(0.).radius(6.).background(BOARD) + |cx| {
@@ -304,11 +303,9 @@ impl Game {
                             row(cx).gap(10).children(|cx| {
                                 if !self.over && game_button(cx, "Keep going") {
                                     self.keep_playing = true;
-                                    cx.request_rebuild();
                                 }
                                 if game_button(cx, "Try again") {
                                     self.restart();
-                                    cx.request_rebuild();
                                 }
                             })
                         };
@@ -324,7 +321,6 @@ impl Game {
                         cx.keyed(label, |cx| {
                             if game_button(cx, label) {
                                 self.move_dir(dir);
-                                cx.request_rebuild();
                             }
                         });
                     }

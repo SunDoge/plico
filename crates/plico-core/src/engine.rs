@@ -29,6 +29,8 @@ pub struct Engine {
     settle_changes: Changes,
     dirty_nodes: Vec<Entity>,
     node_changes: Vec<NodeChange>,
+    hovered: Option<Entity>,
+    hovered_path: Option<Vec<crate::PathKey>>,
     clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
@@ -78,6 +80,8 @@ impl Default for Engine {
             settle_changes: Changes::empty(),
             dirty_nodes: Vec::new(),
             node_changes: Vec::new(),
+            hovered: None,
+            hovered_path: None,
             clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
@@ -427,6 +431,26 @@ impl Engine {
             self.changes.insert(Changes::VIEW);
         }
         value
+    }
+    /// Host input snapshot. Hover is persistent state, not a consumed event.
+    pub fn set_hovered(&mut self, entity: Option<Entity>) {
+        self.hovered = entity;
+        self.hovered_path = None;
+    }
+    /// Logical hover identity across module/host arenas. None clears the snapshot.
+    pub fn set_hovered_path(&mut self, path: Option<Vec<crate::PathKey>>) {
+        self.hovered = None;
+        self.hovered_path = path;
+    }
+    pub(crate) fn hovered(&self, entity: Entity) -> bool {
+        self.nodes
+            .get(entity)
+            .is_some_and(|node| !node.style.disabled)
+            && (self.hovered == Some(entity)
+                || self
+                    .hovered_path
+                    .as_ref()
+                    .is_some_and(|path| self.matches_path(entity, path)))
     }
     pub fn queue_click(&mut self, entity: Entity) {
         self.clicks.push(entity);

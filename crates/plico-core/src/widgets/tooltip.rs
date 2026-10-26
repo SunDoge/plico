@@ -35,16 +35,20 @@ impl Tooltip<'_, '_, '_> {
             disabled: self.cx.inherited.disabled,
             ..Default::default()
         };
+        let mut hovered = false;
         let (inner, clicked) = self.cx.element(
             self.key,
             Kind::TooltipAnchor,
             style,
             self.description.as_ref(),
-            build,
+            |cx| {
+                hovered = cx.hovered();
+                build(cx)
+            },
         );
         InnerResponse {
             inner,
-            response: crate::Response::new(clicked, !style.disabled),
+            response: crate::Response::new(clicked, !style.disabled, hovered),
         }
     }
 }
