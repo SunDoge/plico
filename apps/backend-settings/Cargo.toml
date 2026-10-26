@@ -39,3 +39,7 @@ required-features = ["fltk"]
 
 [dev-dependencies]
 vello-common.workspace = true
+
+[[example]]
+name = "damage_probe"
+required-features = ["skia"]

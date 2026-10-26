@@ -67,11 +67,20 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         self.refresh_snapshot();
         self.app.show(ui, &mut self.context);
         let commands = self.context.take_commands();
-        if !commands.is_empty() {
-            ui.request_rebuild();
-        }
+        let sent = !commands.is_empty();
         for command in commands {
             self.services.send(command);
+        }
+        // Enqueuing asynchronous work does not change the current snapshot.
+        // A fresh projection will wake us through poll_reload/revision. Keep
+        // eager settling for legacy unversioned or synchronously updated hosts.
+        if sent
+            && self
+                .services
+                .snapshot_revision()
+                .is_none_or(|revision| Some(revision) != self.snapshot_revision)
+        {
+            ui.request_rebuild();
         }
     }
 }

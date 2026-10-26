@@ -127,7 +127,7 @@ fn burst_drains_operations_but_projects_only_final_state() {
     assert_eq!(source.view.app.observed, 101);
 }
 #[test]
-fn settling_preserves_every_command_and_commits_backend_once() {
+fn async_commands_preserve_order_without_resettling_unchanged_snapshot() {
     let mut source = Source::new(ServiceView::new(App::default(), Actor::default()));
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
@@ -138,7 +138,7 @@ fn settling_preserves_every_command_and_commits_backend_once() {
     assert_eq!(source.view.services.commands, [7, 8, 9]);
     let after = source.batch_stats();
     assert_eq!(after.declaration_batches - before.declaration_batches, 1);
-    assert_eq!(after.declaration_passes - before.declaration_passes, 2);
+    assert_eq!(after.declaration_passes - before.declaration_passes, 1);
     assert_eq!(after.backend_commits - before.backend_commits, 1);
     source.build_frame(&mut tcx, 400, 300);
     assert_eq!(source.view.services.commands, [7, 8, 9]);
@@ -202,4 +202,43 @@ fn concurrent_notifications_schedule_one_wake_until_poll() {
     source.poll_async();
     wake();
     assert_eq!(scheduled.load(Ordering::Relaxed), 3);
+}
+
+#[test]
+fn conditional_async_load_settles_and_native_frame_observes_completion() {
+    #[derive(Default, Serialize, Deserialize)]
+    struct Loader;
+    impl ServiceApp for Loader {
+        type Snapshot = u64;
+        type Command = u64;
+        fn show(&mut self, cx: &mut UiContext, services: &mut Services<u64, u64>) {
+            if *services.snapshot() == 0 {
+                services.send(42);
+            }
+            text!(cx, "Loaded {}", services.snapshot());
+        }
+    }
+    let mut source = Source::new(ServiceView::new(Loader, Actor::default()));
+    let mut text = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .unwrap();
+    assert!(source.last_error.is_none(), "{:?}", source.last_error);
+    assert_eq!(source.view.services.commands, [42]);
+    assert_eq!(source.batch_stats().declaration_passes, 1);
+    source.view.services.pending.push(42);
+    assert!(source.poll_async());
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .unwrap();
+    assert!(source.last_error.is_none());
+    assert_eq!(source.view.services.commands, [42]);
+    assert!(
+        source
+            .adapter
+            .placed
+            .iter()
+            .any(|n| n.paint.text.as_deref() == Some("Loaded 42"))
+    );
 }

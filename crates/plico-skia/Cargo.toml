@@ -9,25 +9,37 @@ description = "Skia CPU and Vulkan consumers for the Plico command stream"
 [features]
 default = []
 # Consumes the backend-neutral command stream with Skia raster surfaces.
-raster = ["dep:skia-safe", "dep:plico-renderer", "dep:vello-common"]
+raster = ["dep:skia-safe", "dep:plico-renderer", "dep:vello-common", "dep:lru"]
 # Ganesh Vulkan render targets; never falls back to CPU raster.
 vulkan = ["raster", "skia-safe/vulkan", "skia-safe/ganesh", "dep:ash"]
 window = ["vulkan", "dep:ash-window", "dep:raw-window-handle", "dep:winit"]
 
 [dependencies]
 plico-renderer = { path = "../plico-renderer", optional = true }
-skia-safe = { version = "0.153", optional = true }
+skia-safe = { version = "0.153", optional = true, features = ["textlayout"] }
 vello-common = { workspace = true, optional = true }
 snafu.workspace = true
+lru = { version = "0.19", optional = true }
 ash = { version = "0.38", optional = true }
 ash-window = { version = "0.13", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
+plico-core.workspace = true
+plico-runtime = { path = "../plico-runtime" }
+taffy.workspace = true
 plico-shell.workspace = true
 image = { workspace = true, features = ["png"] }
 
 [[example]]
 name = "compare"
+required-features = ["raster"]
+
+[[example]]
+name = "damage_window"
+required-features = ["window"]
+
+[[example]]
+name = "damage_compare"
 required-features = ["raster"]

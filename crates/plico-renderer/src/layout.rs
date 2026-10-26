@@ -205,7 +205,7 @@ fn compute_layout_with_widgets(
         width: AvailableSpace::Definite(viewport[0]),
         height: AvailableSpace::Definite(viewport[1]),
     };
-    // Measure text leaves through parley (system fonts + shaping). The closure
+    // Measure ordinary text with the selected paragraph engine. The closure
     // takes ownership of the `&mut TextContext` reborrow for the duration of
     // layout; the caller may reuse `tcx` afterwards.
     let _ = tree.compute_layout_with_measure(
@@ -253,6 +253,37 @@ fn compute_layout_with_widgets(
                                 height: content_known(known.height, avail.height),
                             };
                             let wraps = paint.wrap_text || paint.text_max_lines > 0;
+                            if measure.text().has_native_paragraphs() {
+                                let request =
+                                    measure.text().paragraph_request(paint, None).unwrap();
+                                let mut intrinsic_request = request.clone();
+                                intrinsic_request.max_lines = 0;
+                                intrinsic_request.ellipsis = false;
+                                let intrinsic = measure
+                                    .text()
+                                    .native_paragraph(std::sync::Arc::new(intrinsic_request))
+                                    .unwrap()
+                                    .metrics()
+                                    .intrinsic;
+                                let intrinsic = if wraps { intrinsic } else { [intrinsic[1]; 2] };
+                                let (width, layout_width) = text_measurement_width(
+                                    known.width,
+                                    avail.width,
+                                    wraps,
+                                    intrinsic,
+                                );
+                                let mut request = request;
+                                request.width = layout_width;
+                                let metrics = measure
+                                    .text()
+                                    .native_paragraph(std::sync::Arc::new(request))
+                                    .unwrap()
+                                    .metrics();
+                                return Size {
+                                    width,
+                                    height: known.height.unwrap_or(metrics.height),
+                                };
+                            }
                             let intrinsic = if known.width.is_none() {
                                 let [min_content, max_content] =
                                     crate::text::measure_text_intrinsic_widths(
@@ -306,8 +337,17 @@ fn compute_layout_with_widgets(
                     Size::ZERO
                 },
             );
+            // Taffy 0.15 otherwise keeps a former container's hoisted absolute
+            // children when it becomes a leaf. An empty positioning pass clears
+            // that history before rounding can visit a removed NodeId.
+            if result.oof_candidates.is_empty() {
+                result.oof_positioning_area = Some(taffy::OofPositioningArea {
+                    size: result.size,
+                    offset: taffy::Point::ZERO,
+                });
+            }
             // Taffy needs text baselines, including when fixed dimensions let it
-            // skip the intrinsic measurement callback. Use the painted Parley
+            // skip the intrinsic measurement callback. Use the painted
             // paragraph and resolve CSS percentage padding against parent width.
             if let Some(paint) = ctx.as_deref()
                 && let Some(text) = &paint.text
@@ -322,33 +362,52 @@ fn compute_layout_with_widgets(
                 let width =
                     (result.size.width - padding.left - padding.right - border.left - border.right)
                         .max(0.);
-                let layout = crate::text::layout_text_styled_clamped(
-                    tcx,
-                    text.clone(),
-                    paint.font_size,
-                    paint.font_weight,
-                    paint.font_italic,
-                    paint.letter_spacing,
-                    paint.line_height,
-                    paint.text_align,
-                    crate::text::brush_for_color(paint.text_color),
-                    paint.text_runs.clone(),
-                    paint.font_family.as_ref(),
-                    paint.wrap_text.then_some(width),
-                    paint.text_max_lines,
-                    !paint.text_clip_lines,
-                );
-                let top = padding.top + border.top;
-                result.baselines = taffy::tree::Baselines {
-                    first: layout
-                        .lines()
-                        .next()
-                        .map(|line| top + line.metrics().baseline),
-                    last: layout
-                        .lines()
-                        .last()
-                        .map(|line| top + line.metrics().baseline),
-                };
+                if tcx.has_native_paragraphs() {
+                    let request = tcx
+                        .paragraph_request(
+                            paint,
+                            (paint.wrap_text || paint.text_ellipsis || paint.text_max_lines > 0)
+                                .then_some(width),
+                        )
+                        .unwrap();
+                    let metrics = tcx
+                        .native_paragraph(std::sync::Arc::new(request))
+                        .unwrap()
+                        .metrics();
+                    let top = padding.top + border.top;
+                    result.baselines = taffy::tree::Baselines {
+                        first: metrics.baselines[0].map(|b| top + b),
+                        last: metrics.baselines[1].map(|b| top + b),
+                    };
+                } else {
+                    let layout = crate::text::layout_text_styled_clamped(
+                        tcx,
+                        text.clone(),
+                        paint.font_size,
+                        paint.font_weight,
+                        paint.font_italic,
+                        paint.letter_spacing,
+                        paint.line_height,
+                        paint.text_align,
+                        crate::text::brush_for_color(paint.text_color),
+                        paint.text_runs.clone(),
+                        paint.font_family.as_ref(),
+                        paint.wrap_text.then_some(width),
+                        paint.text_max_lines,
+                        !paint.text_clip_lines,
+                    );
+                    let top = padding.top + border.top;
+                    result.baselines = taffy::tree::Baselines {
+                        first: layout
+                            .lines()
+                            .next()
+                            .map(|line| top + line.metrics().baseline),
+                        last: layout
+                            .lines()
+                            .last()
+                            .map(|line| top + line.metrics().baseline),
+                    };
+                }
             }
             result
         },
@@ -558,7 +617,21 @@ fn walk(
 
     let established_clip = node_clip(tree, node, layout, x0, y0, w, h, inherited_clip, depth);
     let child_clip = established_clip.unwrap_or(inherited_clip);
-    if let Some(clip) = established_clip
+    // Keep the local clipping boundary intact: ancestors and this node can
+    // have different presentation transforms. Intersecting here would bake
+    // untransformed ancestor coordinates into a transformed child clip.
+    let own_clip = node_clip(
+        tree,
+        node,
+        layout,
+        x0,
+        y0,
+        w,
+        h,
+        ClipState::default(),
+        depth,
+    );
+    if let Some(clip) = own_clip
         && let Some(placed) = out.last_mut()
         && placed.node_id == node
     {
@@ -566,12 +639,13 @@ fn walk(
         placed.own_clip_radius = clip.radii.max();
         placed.own_clip_radii = clip.radii;
     }
-    // A clipped subtree with an empty effective clip is fully invisible. The
+    // Only an intrinsically empty clipping boundary can prune layout here.
+    // Effective intersections are resolved after presentation transforms. The
     // zero-sized clipping node itself may have been omitted from `out`; walking
     // its descendants would therefore lose the layer boundary and flash them
     // un-clipped for one frame during collapse animations.
-    if child_clip
-        .rect
+    if own_clip
+        .and_then(|clip| clip.rect)
         .is_some_and(|clip| clip[2] <= clip[0] || clip[3] <= clip[1])
     {
         return;
@@ -620,6 +694,44 @@ fn walk(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn removing_last_absolute_child_clears_hoisted_layout_state() {
+        let mut tree = TaffyTree::<Paint>::new();
+        let child = tree
+            .new_leaf(taffy::Style {
+                position: taffy::Position::Absolute,
+                size: Size {
+                    width: taffy::Dimension::length(20.),
+                    height: taffy::Dimension::length(20.),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        let root = tree
+            .new_with_children(
+                taffy::Style {
+                    size: Size {
+                        width: taffy::Dimension::length(100.),
+                        height: taffy::Dimension::length(100.),
+                    },
+                    ..Default::default()
+                },
+                &[child],
+            )
+            .unwrap();
+        for id in [root, child] {
+            tree.set_node_context(id, Some(Paint::default())).unwrap();
+        }
+        let mut text = TextContext::new();
+        compute_and_walk_with_scroll(&mut tree, root, 100., 100., &mut text, &HashMap::new());
+        tree.set_children(root, &[]).unwrap();
+        tree.remove(child).unwrap();
+        let nodes =
+            compute_and_walk_with_scroll(&mut tree, root, 100., 100., &mut text, &HashMap::new());
+        assert_eq!(nodes.len(), 1);
+        assert!(tree.hoisted_children(root).unwrap().is_empty());
+    }
 
     #[test]
     fn ample_intrinsic_space_reuses_the_unconstrained_layout() {
@@ -879,6 +991,70 @@ mod tests {
         assert_eq!(placed[2].clip_radius, 11.0);
         assert_eq!(placed[1].own_clip, Some([1.0, 1.0, 99.0, 99.0]));
         assert_eq!(placed[1].own_clip_radius, 11.0);
+    }
+
+    #[test]
+    fn nested_clip_keeps_local_bounds_until_presentation_transforms() {
+        let mut tree = TaffyTree::<Paint>::new();
+        let size = |width, height| Size {
+            width: taffy::Dimension::length(width),
+            height: taffy::Dimension::length(height),
+        };
+        let child = tree
+            .new_leaf(taffy::Style {
+                size: size(80., 20.),
+                ..Default::default()
+            })
+            .unwrap();
+        let row = tree
+            .new_with_children(
+                taffy::Style {
+                    size: size(100., 30.),
+                    position: taffy::Position::Absolute,
+                    inset: taffy::Rect {
+                        top: taffy::LengthPercentageAuto::length(200.),
+                        left: taffy::LengthPercentageAuto::auto(),
+                        right: taffy::LengthPercentageAuto::auto(),
+                        bottom: taffy::LengthPercentageAuto::auto(),
+                    },
+                    overflow: taffy::Point {
+                        x: taffy::Overflow::Hidden,
+                        y: taffy::Overflow::Hidden,
+                    },
+                    ..Default::default()
+                },
+                &[child],
+            )
+            .unwrap();
+        let root = tree
+            .new_with_children(
+                taffy::Style {
+                    size: size(100., 100.),
+                    overflow: taffy::Point {
+                        x: taffy::Overflow::Hidden,
+                        y: taffy::Overflow::Hidden,
+                    },
+                    ..Default::default()
+                },
+                &[row],
+            )
+            .unwrap();
+        for node in [root, row, child] {
+            tree.set_node_context(node, Some(Paint::default())).unwrap();
+        }
+        let placed = compute_and_walk_with_scroll(
+            &mut tree,
+            root,
+            100.,
+            100.,
+            &mut TextContext::new(),
+            &HashMap::new(),
+        );
+        // A presentation transform may move this row into the root viewport.
+        // Layout must retain both its local clip and its descendants.
+        assert!(placed.iter().any(|node| node.node_id == child));
+        let row = placed.iter().find(|node| node.node_id == row).unwrap();
+        assert_eq!(row.own_clip, Some([0., 200., 100., 230.]));
     }
 
     #[test]

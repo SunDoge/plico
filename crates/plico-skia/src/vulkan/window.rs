@@ -2,7 +2,7 @@
 use super::{VulkanDevice, new_context};
 use crate::{Error, SkiaSurface};
 use ash::vk::{self, Handle};
-use plico_renderer::Scene;
+use plico_renderer::{DamageRegion, Scene};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use skia_safe::gpu;
 use snafu::ResultExt;
@@ -14,6 +14,7 @@ use winit::window::Window;
 /// Vulkan surfaces are destroyed. No frame readback or texture upload occurs.
 pub struct SkiaWindow {
     targets: Vec<SkiaSurface>,
+    resources: std::rc::Rc<std::cell::RefCell<crate::raster::Resources>>,
     swapchain: Option<Swapchain>,
     context: gpu::DirectContext,
     owner: VulkanDevice,
@@ -21,8 +22,21 @@ pub struct SkiaWindow {
     desired: [u32; 2],
     transparent: bool,
     recreate: bool,
+    damage_tracking: bool,
+    damage_validation: bool,
+    last_damage: DamageRegion,
+    incremental_present: bool,
+    display_history: plico_renderer::damage::SceneDamageTracker,
+    display_background: Option<Color>,
+    last_present_damage: DamageRegion,
 }
 impl SkiaWindow {
+    /// Use the window's shared SkParagraph engine for ordinary text.
+    pub fn configure_text(&self, text: &mut plico_renderer::TextContext) {
+        text.set_paragraph_engine(Box::new(crate::paragraph::Engine(
+            self.resources.borrow().paragraphs.clone(),
+        )));
+    }
     /// Create a present-capable Vulkan device and swapchain for a Winit window.
     pub fn new(
         window: Arc<dyn Window>,
@@ -56,6 +70,7 @@ impl SkiaWindow {
         let size = window.surface_size();
         let mut renderer = Self {
             targets: Vec::new(),
+            resources: Default::default(),
             swapchain: None,
             context,
             owner,
@@ -63,6 +78,13 @@ impl SkiaWindow {
             desired: [size.width, size.height],
             transparent,
             recreate: true,
+            damage_tracking: false,
+            damage_validation: false,
+            last_damage: DamageRegion::Full,
+            incremental_present: false,
+            display_history: Default::default(),
+            display_background: None,
+            last_present_damage: DamageRegion::Full,
         };
         renderer.rebuild()?;
         Ok(renderer)
@@ -70,6 +92,49 @@ impl SkiaWindow {
     /// Actual Vulkan device used for both drawing and presentation.
     pub fn device_name(&self) -> &str {
         &self.owner.name
+    }
+    /// Current GPU cache accounting, without readback or synchronization.
+    pub fn gpu_cache_stats(&self) -> super::GpuCacheStats {
+        super::cache_stats(&self.context)
+    }
+    /// Select command-stream damage or unconditional full drawing (the default).
+    /// History is owned per swapchain image; newly created targets draw fully.
+    pub fn set_damage_tracking(&mut self, enabled: bool) {
+        self.damage_tracking = enabled;
+    }
+    /// Expensive diagnostic: compare each tracked draw against full drawing on
+    /// the same acquired GPU image before presentation. Disabled by default.
+    pub fn set_damage_validation(&mut self, enabled: bool) {
+        self.damage_validation = enabled;
+    }
+    /// Physical-pixel damage applied to the last acquired image. This can be
+    /// larger than display-to-display damage when that image is several frames old.
+    pub fn last_damage(&self) -> DamageRegion {
+        self.last_damage
+    }
+    /// Whether the device and current surface support our incremental-present
+    /// path. Rotated surfaces use ordinary full presentation until coordinate
+    /// conversion is implemented; partial drawing remains independent.
+    pub fn incremental_present_supported(&self) -> bool {
+        self.owner.incremental_present
+            && self
+                .swapchain
+                .as_ref()
+                .is_some_and(|s| s.identity_transform)
+    }
+    /// Enable optional system presentation hints. Disabled by default: callers
+    /// should A/B measure compositor benefits against the extra comparison.
+    pub fn set_incremental_present(&mut self, enabled: bool) {
+        if self.incremental_present != enabled {
+            self.display_history.invalidate();
+            self.display_background = None;
+        }
+        self.incremental_present = enabled;
+    }
+    /// Damage relative to the last presented frame, for the compositor hint.
+    /// This differs from [`Self::last_damage`], which repairs an acquired buffer.
+    pub fn last_present_damage(&self) -> DamageRegion {
+        self.last_present_damage
     }
     /// Defer swapchain recreation until the next nonzero-sized frame.
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -132,7 +197,21 @@ impl SkiaWindow {
         if !target.surface.wait(&[acquired], false) {
             return Err(Error::Submit);
         }
-        let draw_result = target.draw_scene(scene, background);
+        let draw_result = if self.damage_tracking {
+            target.draw_scene_tracked(scene, background).map(|damage| {
+                self.last_damage = damage;
+            })
+        } else {
+            self.last_damage = DamageRegion::Full;
+            target.draw_scene(scene, background)
+        }
+        .and_then(|()| {
+            if self.damage_validation {
+                target.validate_scene(scene, background)
+            } else {
+                Ok(())
+            }
+        });
         if draw_result.is_err() {
             // Release acquired images with a clean background, never partial UI.
             // The original failure is returned after submission/presentation.
@@ -177,27 +256,73 @@ impl SkiaWindow {
         let wait = [chain.finished[index as usize]];
         let chains = [chain.handle];
         let indices = [index];
-        let info = vk::PresentInfoKHR::default()
+        let mut info = vk::PresentInfoKHR::default()
             .wait_semaphores(&wait)
             .swapchains(&chains)
             .image_indices(&indices);
+        // Presentation damage is relative to the last image *displayed*, not
+        // the prior contents of this acquired image. Never reuse target damage
+        // here: A -> B -> A can repair zero pixels yet still change the display.
+        self.last_present_damage = if self.incremental_present
+            && self.owner.incremental_present
+            && chain.identity_transform
+            && draw_result.is_ok()
+            && self.last_damage != DamageRegion::Full
+        {
+            let resources = &self.resources;
+            let damage = self.display_history.update(
+                scene,
+                target.surface.width() as u32,
+                target.surface.height() as u32,
+                |command| resources.borrow_mut().ink_bounds(command),
+            );
+            if self.display_background == Some(background) {
+                damage
+            } else {
+                DamageRegion::Full
+            }
+        } else {
+            self.display_history.invalidate();
+            DamageRegion::Full
+        };
+        self.display_background = Some(background);
+        let rect = present_rectangle(
+            self.last_present_damage,
+            target.surface.width() as u32,
+            target.surface.height() as u32,
+        );
+        let rectangles = rect;
+        let regions = [vk::PresentRegionKHR::default().rectangles(rectangles.as_slice())];
+        let mut hints = vk::PresentRegionsKHR::default().regions(&regions);
+        if rectangles.is_some() {
+            info = info.push_next(&mut hints);
+        }
+        // Wayland uses this notification to schedule frame callbacks. It must
+        // precede the buffer commit; other Winit platforms make it a no-op.
+        self.window.pre_present_notify();
         // SAFETY: image is acquired, transitioned to PRESENT_SRC_KHR, and the
         // presentation queue waits for Skia's render-finished signal.
-        match unsafe { chain.loader.queue_present(self.owner.queue, &info) } {
-            Ok(outdated) => self.recreate |= outdated || suboptimal,
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => self.recreate = true,
+        let presented = match unsafe { chain.loader.queue_present(self.owner.queue, &info) } {
+            Ok(outdated) => {
+                self.recreate |= outdated || suboptimal;
+                true
+            }
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                self.recreate = true;
+                false
+            }
             Err(source) => {
                 return Err(Error::Vulkan {
                     operation: "present",
                     source,
                 });
             }
-        }
+        };
         if self.recreate {
             self.window.request_redraw();
         }
         draw_result?;
-        Ok(true)
+        Ok(presented)
     }
     fn rebuild(&mut self) -> Result<(), Error> {
         if self.desired.contains(&0) {
@@ -217,12 +342,15 @@ impl SkiaWindow {
             operation: "wait before swapchain recreation",
         })?;
         self.targets.clear();
+        self.display_history.invalidate();
+        self.display_background = None;
         self.swapchain.take();
         let (chain, targets) = Swapchain::create(
             &self.owner,
             &mut self.context,
             self.desired,
             self.transparent,
+            &self.resources,
         )?;
         self.targets = targets;
         self.swapchain = Some(chain);
@@ -245,6 +373,7 @@ impl Drop for SkiaWindow {
 }
 
 struct Swapchain {
+    identity_transform: bool,
     device: ash::Device,
     loader: ash::khr::swapchain::Device,
     handle: vk::SwapchainKHR,
@@ -258,6 +387,7 @@ impl Swapchain {
         context: &mut gpu::DirectContext,
         desired: [u32; 2],
         transparent: bool,
+        resources: &std::rc::Rc<std::cell::RefCell<crate::raster::Resources>>,
     ) -> Result<(Self, Vec<SkiaSurface>), Error> {
         let instance = owner.instance.as_ref().expect("live instance");
         let device = owner.device.as_ref().expect("live device");
@@ -357,6 +487,7 @@ impl Swapchain {
                 operation: "create swapchain",
             })?;
         let mut chain = Self {
+            identity_transform: caps.current_transform == vk::SurfaceTransformFlagsKHR::IDENTITY,
             device: device.clone(),
             loader,
             handle,
@@ -434,7 +565,7 @@ impl Swapchain {
             .ok_or(Error::Gpu {
                 message: "Skia could not wrap swapchain image",
             })?;
-            targets.push(SkiaSurface::from_surface(surface));
+            targets.push(SkiaSurface::with_resources(surface, resources.clone()));
         }
         Ok((chain, targets))
     }
@@ -456,5 +587,46 @@ impl Drop for Swapchain {
             }
             self.loader.destroy_swapchain(self.handle, None);
         }
+    }
+}
+
+// Zero rectangles means *full* presentation in Vulkan, not empty damage.
+// Full/empty/unknown regions omit the optional hint entirely.
+fn present_rectangle(damage: DamageRegion, width: u32, height: u32) -> Option<vk::RectLayerKHR> {
+    let DamageRegion::Rect(r) = damage.for_surface(width, height) else {
+        return None;
+    };
+    Some(vk::RectLayerKHR {
+        offset: vk::Offset2D {
+            x: r.x0 as i32,
+            y: r.y0 as i32,
+        },
+        extent: vk::Extent2D {
+            width: r.width() as u32,
+            height: r.height() as u32,
+        },
+        layer: 0,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_common::kurbo::Rect;
+    #[test]
+    fn present_regions_round_outwards_and_clamp_to_surface() {
+        let r =
+            present_rectangle(DamageRegion::Rect(Rect::new(-1.2, 2.2, 8.1, 90.)), 10, 20).unwrap();
+        assert_eq!((r.offset.x, r.offset.y), (0, 2));
+        assert_eq!((r.extent.width, r.extent.height, r.layer), (9, 18, 0));
+        assert!(present_rectangle(DamageRegion::Full, 10, 20).is_none());
+        assert!(present_rectangle(DamageRegion::Empty, 10, 20).is_none());
+        assert!(
+            present_rectangle(DamageRegion::Rect(Rect::new(f64::NAN, 0., 2., 2.)), 10, 20)
+                .is_none()
+        );
+        assert!(
+            present_rectangle(DamageRegion::Rect(Rect::new(20., 0., 30., 1.)), 10, 20).is_none()
+        );
     }
 }

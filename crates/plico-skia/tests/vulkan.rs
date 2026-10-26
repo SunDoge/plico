@@ -92,3 +92,76 @@ fn missing_device_is_an_error_instead_of_cpu_fallback() {
         Err(Error::Gpu { .. })
     ));
 }
+
+#[test]
+#[ignore = "requires a Vulkan device; validates the image path used by music covers"]
+fn repeated_image_frames_keep_texture_and_background() {
+    use plico_renderer::image::RasterImage;
+    let mut gpu = SkiaGpuSurface::new(64, 64).unwrap();
+    let image = RasterImage::from_rgba(image::RgbaImage::from_pixel(
+        8,
+        8,
+        image::Rgba([240, 80, 40, 255]),
+    ));
+    let mut scene = Scene::new();
+    scene.draw_image(
+        image.brush().into(),
+        Affine::translate((8., 8.)) * Affine::scale(4.),
+    );
+    for frame in 0..30 {
+        gpu.draw_scene(&scene, Color::from_rgb8(30, 32, 48))
+            .unwrap();
+        if frame % 5 == 0 {
+            let bytes = gpu.read_pixels().unwrap();
+            assert_eq!(
+                &bytes[..4],
+                &[30, 32, 48, 255],
+                "background at frame {frame}"
+            );
+            let offset = (16 * 64 + 16) * 4;
+            assert_eq!(
+                &bytes[offset..offset + 4],
+                &[240, 80, 40, 255],
+                "image at frame {frame}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires Vulkan; compares partial GPU drawing against full GPU drawing"]
+fn damage_tracked_gpu_matches_full_redraw_and_resize() {
+    let make = || {
+        match std::env::var("PLICO_SKIA_DEVICE") {
+            Ok(name) => SkiaGpuSurface::with_device(32, 32, &name),
+            Err(_) => SkiaGpuSurface::new(32, 32),
+        }
+        .unwrap()
+    };
+    let mut partial = make();
+    let mut full = make();
+    println!("damage comparison device={}", partial.device_name());
+    for frame in 0..60 {
+        if frame == 30 {
+            partial.resize(40, 36).unwrap();
+            full.resize(40, 36).unwrap();
+        }
+        let mut scene = Scene::new();
+        if frame % 11 != 0 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::translate(((frame % 20) as f64, 0.)),
+                Color::from_rgba8(240, 80, 40, 128),
+                None,
+                &Rect::new(0., 4., 7., 20.),
+            );
+        }
+        partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        full.draw_scene(&scene, Color::WHITE).unwrap();
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.read_pixels().unwrap(),
+            "frame {frame}"
+        );
+    }
+}

@@ -15,6 +15,8 @@ pub enum Error {
     Surface,
     #[snafu(display("no successfully rendered frame is available"))]
     NoFrame,
+    #[snafu(display("damage-tracked pixels differ from a full redraw"))]
+    DamageMismatch,
     #[snafu(display("Skia pixel readback failed"))]
     ReadPixels,
     #[snafu(display("Skia could not load the command's font"))]
@@ -48,6 +50,8 @@ pub enum Error {
 }
 
 #[cfg(feature = "raster")]
+mod paragraph;
+#[cfg(feature = "raster")]
 mod raster;
 #[cfg(feature = "raster")]
 mod svg;
@@ -57,7 +61,7 @@ pub use raster::SkiaSurface;
 #[cfg(feature = "vulkan")]
 mod vulkan;
 #[cfg(feature = "vulkan")]
-pub use vulkan::SkiaGpuSurface;
+pub use vulkan::{GpuCacheStats, SkiaGpuSurface};
 
 #[cfg(feature = "window")]
 pub use vulkan::SkiaWindow;

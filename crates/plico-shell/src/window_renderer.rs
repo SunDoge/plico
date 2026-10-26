@@ -15,6 +15,28 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn configure_text(&self, _text: &mut plico_renderer::TextContext) {
+        #[cfg(feature = "skia")]
+        if let Self::Skia {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.configure_text(_text);
+        }
+    }
+    pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
+        match self {
+            Self::Vello(_) => None,
+            #[cfg(feature = "skia")]
+            Self::Skia {
+                active: Some(renderer),
+                ..
+            } => Some(renderer.last_damage().coverage(_width, _height)),
+            #[cfg(feature = "skia")]
+            Self::Skia { active: None, .. } => None,
+        }
+    }
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {
             RenderBackend::Vello => renderer_backend::WindowRenderer::new(transparent)
@@ -53,11 +75,26 @@ impl WindowRenderer {
                 let mut renderer =
                     plico_skia::SkiaWindow::new(window, *transparent, device.as_deref())
                         .context(crate::error::SkiaSnafu)?;
+                renderer.resize(width, height);
+                let damage_tracking = matches!(
+                    std::env::var("PLICO_SKIA_DAMAGE").as_deref(),
+                    Ok("1" | "true")
+                );
+                renderer.set_damage_tracking(damage_tracking);
+                renderer.set_damage_validation(matches!(
+                    std::env::var("PLICO_SKIA_DAMAGE_VALIDATE").as_deref(),
+                    Ok("1" | "true")
+                ));
+                renderer.set_incremental_present(matches!(
+                    std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
+                    Ok("1" | "true")
+                ));
                 tracing::info!(
                     device = renderer.device_name(),
+                    damage_tracking,
+                    incremental_present_supported = renderer.incremental_present_supported(),
                     "Skia Vulkan window renderer initialized"
                 );
-                renderer.resize(width, height);
                 *active = Some(Box::new(renderer));
             }
         }
@@ -91,9 +128,20 @@ impl WindowRenderer {
             Self::Skia {
                 active: Some(renderer),
                 ..
-            } => renderer
-                .present(scene, color)
-                .context(crate::error::SkiaSnafu),
+            } => {
+                let presented = renderer
+                    .present(scene, color)
+                    .context(crate::error::SkiaSnafu)?;
+                if presented {
+                    tracing::trace!(target: "plico::perf", damage_coverage = renderer.last_damage().coverage(width, height),
+                        present_damage_coverage = renderer.last_present_damage().coverage(width, height),
+                        gpu_cache_bytes = renderer.gpu_cache_stats().bytes,
+                        gpu_cache_purgeable_bytes = renderer.gpu_cache_stats().purgeable_bytes,
+                        gpu_cache_limit_bytes = renderer.gpu_cache_stats().limit_bytes,
+                        "Skia target damage");
+                }
+                Ok(presented)
+            }
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => Ok(false),
         }

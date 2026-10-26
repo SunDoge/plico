@@ -255,3 +255,451 @@ fn svg_gradients_preserve_color_opacity_and_local_transforms() {
     assert!(focus[0] > focus[2] + 150, "{focus:?}");
     assert!(edge[2] > edge[0] + 150, "{edge:?}");
 }
+
+#[test]
+fn raster_images_preserve_transform_clip_alpha_and_format_changes() {
+    use std::sync::Arc;
+    use vello_common::peniko::{
+        Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
+    };
+    let data = ImageData {
+        data: Blob::new(Arc::new(vec![255u8, 0, 0, 128])),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: 1,
+        height: 1,
+    };
+    let mut brush = ImageBrush::new(data);
+    brush.sampler.quality = ImageQuality::Low;
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let make_scene = |brush: &ImageBrush| {
+        let mut scene = Scene::new();
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(6., 6., 10., 10.));
+        scene.draw_image(
+            brush.into(),
+            Affine::translate((4., 4.)) * Affine::scale(8.),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert_eq!(pixel(&bytes, 7, 7), [255, 127, 127, 255]);
+    assert_eq!(pixel(&bytes, 5, 5), [255; 4]);
+    // Same pixel Blob with another format must not reuse the RGBA interpretation.
+    brush.image.format = ImageFormat::Bgra8;
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert_eq!(pixel(&bytes, 7, 7), [127, 127, 255, 255]);
+    brush.sampler.alpha = 0.5;
+    let bytes = surface
+        .render_scene(&make_scene(&brush), Color::WHITE)
+        .unwrap();
+    assert!(pixel(&bytes, 7, 7)[0].abs_diff(191) <= 1);
+    assert_eq!(pixel(&bytes, 7, 7)[2], 255);
+}
+
+#[test]
+fn damaged_draw_matches_full_draw_for_moving_overlapping_content() {
+    use plico_renderer::DamageRegion;
+    let make_scene = |x: f64| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(0, 120, 255),
+            None,
+            &Rect::new(x, 2., x + 4., 10.),
+        );
+        scene.push_layer(
+            vello_common::peniko::BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 16., 16.),
+            None,
+            None,
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(255, 0, 0),
+            None,
+            &Rect::new(4., 4., 14., 12.),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let mut partial = SkiaSurface::new(16, 16).unwrap();
+    let mut oracle = SkiaSurface::new(16, 16).unwrap();
+    let before = partial.render_scene(&make_scene(2.), Color::WHITE).unwrap();
+    let scene = make_scene(6.);
+    // Includes the old location as well as the new location.
+    partial
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(2., 2., 10., 10.)),
+        )
+        .unwrap();
+    let after = partial.read_pixels().unwrap();
+    assert_eq!(after, oracle.render_scene(&scene, Color::WHITE).unwrap());
+    for y in 0..16 {
+        for x in 0..16 {
+            if !(2..10).contains(&x) || !(2..10).contains(&y) {
+                assert_eq!(pixel(&before, x, y), pixel(&after, x, y));
+            }
+        }
+    }
+}
+
+#[test]
+fn damage_falls_back_on_initial_frame_background_change_and_invalid_bounds() {
+    use plico_renderer::DamageRegion;
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let scene = Scene::new();
+    surface
+        .draw_scene_damaged(&scene, Color::WHITE, DamageRegion::Empty)
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 255));
+    surface
+        .draw_scene_damaged(&scene, Color::TRANSPARENT, DamageRegion::Empty)
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 0));
+    surface
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(f64::NAN, 0., 1., 1.)),
+        )
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 255));
+    let before = surface.read_pixels().unwrap();
+    surface
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(20., 20., 25., 25.)),
+        )
+        .unwrap();
+    assert_eq!(surface.read_pixels().unwrap(), before);
+}
+
+#[test]
+fn tracked_targets_match_full_redraw_across_reordered_acquisition_and_removal() {
+    use plico_renderer::DamageRegion;
+    let mut targets: Vec<_> = (0..3).map(|_| SkiaSurface::new(32, 32).unwrap()).collect();
+    let mut oracle = SkiaSurface::new(32, 32).unwrap();
+    let mut partial_frames = 0;
+    for frame in 0..120 {
+        let mut scene = Scene::new();
+        let x = (frame % 8) as f64;
+        if frame % 13 != 0 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::translate((x, 0.)),
+                Color::from_rgb8(0, 140, 255),
+                None,
+                &Rect::new(0., 2., 4., 8.),
+            );
+        }
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(2., 1., 15., 14.));
+        scene.push_layer(
+            vello_common::peniko::BlendMode::default(),
+            if frame % 9 == 0 { 0.2 } else { 0.6 },
+            Affine::IDENTITY,
+            &Rect::new(3., 3., 12., 12.),
+            None,
+            None,
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(240, 80, 40),
+            None,
+            &Rect::new(0., 0., 16., 16.),
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+        let background = if frame < 60 {
+            Color::WHITE
+        } else {
+            Color::TRANSPARENT
+        };
+        // Reacquisition is deliberately neither round-robin nor every frame.
+        let target = &mut targets[[0, 2, 2, 1, 0, 1, 2][frame % 7]];
+        let damage = target.draw_scene_tracked(&scene, background).unwrap();
+        partial_frames += usize::from(matches!(damage, DamageRegion::Rect(_)));
+        assert_eq!(
+            target.read_pixels().unwrap(),
+            oracle.render_scene(&scene, background).unwrap(),
+            "frame {frame}, damage {damage:?}"
+        );
+        assert_eq!(
+            target.draw_scene_tracked(&scene, background).unwrap(),
+            DamageRegion::Empty
+        );
+    }
+    assert!(
+        partial_frames > 50,
+        "must actually exercise partial drawing"
+    );
+}
+
+#[test]
+fn explicit_draw_invalidates_automatic_damage_history() {
+    use plico_renderer::DamageRegion;
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let scene = Scene::new();
+    assert_eq!(
+        surface.draw_scene_tracked(&scene, Color::WHITE).unwrap(),
+        DamageRegion::Full
+    );
+    assert_eq!(
+        surface.draw_scene_tracked(&scene, Color::WHITE).unwrap(),
+        DamageRegion::Empty
+    );
+    let mut overlay = Scene::new();
+    overlay.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::BLACK,
+        None,
+        &Rect::new(0., 0., 16., 16.),
+    );
+    surface.draw_scene(&overlay, Color::WHITE).unwrap();
+    assert_eq!(
+        surface.draw_scene_tracked(&scene, Color::WHITE).unwrap(),
+        DamageRegion::Full
+    );
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 255));
+}
+
+#[test]
+fn tracked_text_fractional_motion_color_and_strokes_match_full_pixels() {
+    use plico_renderer::{DamageRegion, Glyph};
+    use vello_common::peniko::{Blob, FontData, Style};
+    let font = FontData::new(
+        Blob::new(std::sync::Arc::new(
+            include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf").to_vec(),
+        )),
+        0,
+    );
+    let face = skia_safe::FontMgr::new()
+        .new_from_bytes(font.data.as_ref(), 0)
+        .unwrap();
+    let skfont = skia_safe::Font::new(face, 24.);
+    let ids = skfont.text_to_glyphs_vec("sWjg");
+    let mut partial = SkiaSurface::new(96, 80).unwrap();
+    let mut full = SkiaSurface::new(96, 80).unwrap();
+    let mut small_frames = 0;
+    for frame in 0..80 {
+        let mut scene = Scene::new();
+        if frame % 19 != 0 {
+            scene.draw_glyphs(
+                &font,
+                24.,
+                frame % 2 == 0,
+                &[],
+                Default::default(),
+                &Style::Fill(Fill::NonZero),
+                if frame % 3 == 0 {
+                    Color::BLACK
+                } else {
+                    Color::from_rgb8(80, 120, 240)
+                },
+                1.,
+                Affine::translate(((frame % 16) as f64 * 0.25, 0.)),
+                None,
+                ids.iter().enumerate().map(|(i, id)| Glyph {
+                    id: *id as u32,
+                    x: i as f32 * 16.,
+                    y: 40.,
+                }),
+            );
+        }
+        scene.stroke(
+            &vello_common::kurbo::Stroke::new(2.).with_join(vello_common::kurbo::Join::Miter),
+            Affine::translate(((frame % 9) as f64 * 0.5, 0.)),
+            Color::from_rgba8(240, 50, 70, 128),
+            None,
+            &Rect::new(50., 15., 70., 55.),
+        );
+        let damage = partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        small_frames += usize::from(matches!(damage, DamageRegion::Rect(_)));
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.render_scene(&scene, Color::WHITE).unwrap(),
+            "frame {frame}, damage={damage:?}"
+        );
+    }
+    assert!(small_frames > 60);
+}
+
+#[test]
+fn tracked_failure_forces_full_recovery_and_dense_cooldown_is_bounded() {
+    use plico_renderer::{DamageRegion, PaintCommand};
+    let mut partial = SkiaSurface::new(16, 16).unwrap();
+    let mut full = SkiaSurface::new(16, 16).unwrap();
+    partial
+        .draw_scene_tracked(&Scene::new(), Color::WHITE)
+        .unwrap();
+    let mut invalid = Scene::new();
+    invalid.commands.push(PaintCommand::PopLayer);
+    assert!(matches!(
+        partial.draw_scene_tracked(&invalid, Color::WHITE),
+        Err(Error::ClipStack)
+    ));
+    assert_eq!(
+        partial
+            .draw_scene_tracked(&Scene::new(), Color::WHITE)
+            .unwrap(),
+        DamageRegion::Full
+    );
+    let mut recovered_partial = false;
+    for frame in 0..30 {
+        let mut scene = Scene::new();
+        let r = if frame < 4 {
+            Rect::new(0., 0., 16., 16.)
+        } else {
+            Rect::new(4., 4., 8., 8.)
+        };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            if frame % 2 == 0 {
+                Color::BLACK
+            } else {
+                Color::from_rgb8(240, 80, 40)
+            },
+            None,
+            &r,
+        );
+        let damage = partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        if frame >= 15 {
+            recovered_partial |= matches!(damage, DamageRegion::Rect(_));
+        }
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.render_scene(&scene, Color::WHITE).unwrap()
+        );
+    }
+    assert!(
+        recovered_partial,
+        "dense fallback must periodically probe and recover sparse drawing"
+    );
+}
+
+#[test]
+fn culling_nested_scopes_and_clipped_shadows_preserves_other_islands() {
+    let mut partial = SkiaSurface::new(96, 64).unwrap();
+    let mut full = SkiaSurface::new(96, 64).unwrap();
+    for frame in 0..30 {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::translate(((frame % 12) as f64 * 0.25, 0.)),
+            Color::BLACK,
+            None,
+            &Rect::new(4., 4., 16., 16.),
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(50., 4., 90., 58.));
+        scene.push_layer(
+            vello_common::peniko::BlendMode::default(),
+            0.7,
+            Affine::IDENTITY,
+            &Rect::new(52., 6., 88., 56.),
+            None,
+            None,
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(54., 8., 86., 54.));
+        scene.draw_box_shadow(
+            Affine::IDENTITY,
+            Rect::new(60., 20., 76., 40.),
+            Color::BLACK,
+            4.,
+            3.,
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.render_scene(&scene, Color::WHITE).unwrap(),
+            "frame {frame}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "Skia AA investigation: dirty clip currently changes rounded stroke coverage by 1/255"]
+fn translucent_layer_dirty_clip_precision_probe() {
+    use vello_common::kurbo::{BezPath, Cap, Join, Stroke};
+    let mut path = BezPath::new();
+    path.move_to((224.5, 456.));
+    path.curve_to(
+        (224.5, 452.9624338759306),
+        (226.96243387593063, 450.5),
+        (230., 450.5),
+    );
+    path.line_to((350., 450.5));
+    path.curve_to(
+        (353.0375661240694, 450.5),
+        (355.5, 452.9624338759306),
+        (355.5, 456.),
+    );
+    path.line_to((355.5, 477.));
+    path.curve_to(
+        (355.5, 480.0375661240694),
+        (353.0375661240694, 482.5),
+        (350., 482.5),
+    );
+    path.line_to((230., 482.5));
+    path.curve_to(
+        (226.96243387593063, 482.5),
+        (224.5, 480.0375661240694),
+        (224.5, 477.),
+    );
+    path.close_path();
+    let mut scene = Scene::new();
+    scene.push_clip_layer(Affine::IDENTITY, &Rect::new(92., 153., 1080., 766.));
+    scene.push_layer(
+        vello_common::peniko::BlendMode::default(),
+        0.45,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 1100., 820.),
+        None,
+        None,
+    );
+    scene.stroke(
+        &Stroke::new(1.).with_join(Join::Round).with_caps(Cap::Round),
+        Affine::IDENTITY,
+        Color::from_rgb8(217, 217, 222),
+        None,
+        &path,
+    );
+    scene.pop_layer();
+    scene.pop_layer();
+    let mut partial = SkiaSurface::new(1100, 820).unwrap();
+    let mut full = SkiaSurface::new(1100, 820).unwrap();
+    partial.draw_scene(&scene, Color::WHITE).unwrap();
+    partial
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            plico_renderer::DamageRegion::Rect(Rect::new(226., 86., 874., 734.)),
+        )
+        .unwrap();
+    let a = partial.read_pixels().unwrap();
+    let b = full.render_scene(&scene, Color::WHITE).unwrap();
+    let n = a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(n == 0, "rounded stroke clip changed {n} pixels");
+}

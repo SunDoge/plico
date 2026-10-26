@@ -10,6 +10,24 @@ use snafu::ResultExt;
 use std::{ffi::CStr, marker::PhantomData, path::Path, rc::Rc};
 use vello_common::peniko::Color;
 
+/// Ganesh resource-cache accounting; excludes driver allocations and CPU assets.
+#[derive(Clone, Copy, Debug)]
+pub struct GpuCacheStats {
+    /// Budgeted resources currently retained, including resources still in use.
+    pub bytes: usize,
+    /// Unlocked resources Skia can evict without discarding live content.
+    pub purgeable_bytes: usize,
+    /// Configured cache budget; live resources can exceed it.
+    pub limit_bytes: usize,
+}
+pub(super) fn cache_stats(context: &gpu::DirectContext) -> GpuCacheStats {
+    GpuCacheStats {
+        bytes: context.resource_cache_usage().resource_bytes,
+        purgeable_bytes: context.resource_cache_purgeable_bytes(),
+        limit_bytes: context.resource_cache_limit(),
+    }
+}
+
 /// A Vulkan-backed Skia surface with its own device and graphics queue.
 ///
 /// Keep it on the creating thread. Fields are private so surfaces/contexts cannot
@@ -22,6 +40,14 @@ pub struct SkiaGpuSurface {
     _thread: PhantomData<Rc<()>>,
 }
 impl SkiaGpuSurface {
+    /// Use this renderer's SkParagraph cache for host text layout.
+    pub fn configure_text(&self, text: &mut plico_renderer::TextContext) {
+        self.surface.configure_text(text);
+    }
+    /// Current GPU cache accounting, without readback or synchronization.
+    pub fn gpu_cache_stats(&self) -> GpuCacheStats {
+        cache_stats(&self.context)
+    }
     /// Prefer a discrete GPU, then integrated/virtual GPUs, then software Vulkan.
     /// There is no CPU-raster fallback; inspect `is_software_device` when needed.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
@@ -117,6 +143,20 @@ impl SkiaGpuSurface {
         }
         Ok(())
     }
+    /// Submit damage-tracked drawing on this preserved GPU target.
+    pub fn draw_scene_tracked(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+    ) -> Result<plico_renderer::DamageRegion, Error> {
+        let damage = self.surface.draw_scene_tracked(scene, background)?;
+        self.context.flush_surface(&mut self.surface.surface);
+        if !self.context.submit(None) {
+            self.surface.invalidate();
+            return Err(Error::Submit);
+        }
+        Ok(damage)
+    }
     /// Synchronous screenshot readback, separate from normal draw/submit.
     pub fn read_pixels(&mut self) -> Result<Vec<u8>, Error> {
         self.surface.read_pixels()
@@ -165,6 +205,7 @@ struct VulkanDevice {
     queue_family: u32,
     name: String,
     software: bool,
+    incremental_present: bool,
     presentation: Option<(ash::khr::surface::Instance, vk::SurfaceKHR)>,
 }
 impl VulkanDevice {
@@ -194,6 +235,7 @@ impl VulkanDevice {
             queue_family: 0,
             name: String::new(),
             software: false,
+            incremental_present: false,
             presentation: None,
         };
         let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_1);
@@ -276,11 +318,26 @@ impl VulkanDevice {
         // SAFETY: features are queried from the same physical device. Enable
         // supported core features so Skia's physical-feature discovery agrees.
         let features = unsafe { instance.get_physical_device_features(physical) };
-        let device_extensions = if owner.presentation.is_some() {
+        let mut device_extensions = if owner.presentation.is_some() {
             vec![ash::khr::swapchain::NAME.as_ptr()]
         } else {
             Vec::new()
         };
+        if owner.presentation.is_some() {
+            // SAFETY: physical belongs to this live instance; Vulkan returns
+            // NUL-terminated extension names in these fixed-size arrays.
+            let available = unsafe { instance.enumerate_device_extension_properties(physical) }
+                .context(crate::VulkanSnafu {
+                    operation: "query device extensions",
+                })?;
+            owner.incremental_present = available.iter().any(|extension| unsafe {
+                CStr::from_ptr(extension.extension_name.as_ptr())
+                    == ash::khr::incremental_present::NAME
+            });
+            if owner.incremental_present {
+                device_extensions.push(ash::khr::incremental_present::NAME.as_ptr());
+            }
+        }
         let info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_features(&features)
@@ -369,7 +426,6 @@ fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
 }
 
 #[cfg(feature = "window")]
-#[path = "window.rs"]
 mod window;
 #[cfg(feature = "window")]
 pub use window::SkiaWindow;

@@ -124,3 +124,257 @@ Lyrune 同时将歌词位移从逐行绝对位置改为共同容器的 translate
 非歌词页的真实播放由宿主进度快照唤醒，不再额外请求显示器频率的应用帧。
 同一 CPU 探针在这组修改后，带图构建中位数为 74.0µs，p95 为 94.2µs；
 这些数字仍不包含窗口呈现、GPU 或音频线程。
+
+## Damage 覆盖率测量（Phase 0）
+
+`FrameStats::damage_coverage` 记录上次成功绘制中实际重绘的目标 image 比例，
+不是均值，也不包含失败的提交。Skia 提供该指标；不支持的后端为 None，HUD
+显示 n/a。`PLICO_PERFORMANCE_HUD=1` 在既有帧耗时下方显示 Damage。
+trace 的 `plico::perf / damage_coverage` 使用同一已应用区域。
+
+旧的 `Adapter::damage()` 与累计 partial 估计已删除：它依赖节点 dirty 队列，
+不完整覆盖旧 ink、阴影和 overflow；保留两套同名统计容易造成误解。
+布局运行、flatten 次数继续保留为独立成本指标，不再冒充 redraw damage。
+HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外部采样。
+
+## 可选的局部绘制能力
+
+`plico_renderer::DamageRegion` 使用物理像素描述 Full / Empty / Rect，
+不依赖 Taffy。后端可以随时提升为 Full，也可以忽略该提示。
+LVGL 可继续使用自身布局与失效系统；Bevy 后端可使用自身渲染调度。
+布局、damage 生产、保留表面绘制、swapchain 历史和平台增量提交分别接入，
+不要求每个后端实现整条管线。
+
+`SkiaSurface::draw_scene_damaged()` 是保留表面的显式实验入口：
+矩形向外对齐像素，在外层 clip 内清除并重放完整 scene，保留顺序、重叠和
+透明混合语义。目前仍遍历全部命令，不宣称减少 CPU scene 构建成本。
+首帧、此前失败、背景改变时回退全量；非有限矩形回退全量。
+调用者负责包含旧位置、新位置和全部效果的 ink bounds。
+像素测试比较移动、重叠透明层的局部绘制与全量绘制，并验证区域外像素不变。
+
+### 自动 damage 与 Skia 窗口
+
+`SceneDamageTracker` 直接比较完整绘制指令流，和 Taffy/节点身份无关。
+它同时合并新、旧和已删除指令的 ink bounds，处理 clip/layer 范围变化；
+静态指令及 clip 不变时复用 ink bounds。tracked 绘制跳过脏区外的 leaf 命令，
+并可跳过完全不相交的 clip/layer scope；clip/pop 顺序保持完整。仍然线性比较
+命令，不宣称 O(Δ) 构建。未知 ink 使用 enclosing clip，
+无 clip 则回退 full。过滤器、自定义 shader、特殊混合模式回退 full。
+Skia 使用实际字体的 glyph bounds；阴影和 SVG 暂用上述保守回退。
+damage 计算不依赖 Adapter 的节点 dirty 队列。
+
+`draw_scene_tracked()` 已接入 Skia 窗口。每张 swapchain image 单独保存最后
+成功绘制的 scene 与 bounds，按本次 acquire 的 image 比较，而不是按上一
+显示帧比较。resize/recreate 丢弃旧目标，绘制/提交失败后重建；首次绘制与
+背景变化全量绘制。Vulkan 队列同步仍走原来的路径。
+这解决的是保留 surface 的局部绘制；系统 incremental-present 提示另行按需开启。
+
+- `PLICO_SKIA_DAMAGE=1`：显式开启实验自动 damage；默认关闭。`0` 供全量对照。
+- `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
+  比较局部绘制与全量绘制像素；不一致报错，默认关闭。
+- `plico::perf` trace 的 `damage_coverage` 是实际应用到目标 image 的区域比例，
+  可能比相邻显示帧的 damage 大；这是已应用区域，不是节点 dirty 的推测。
+
+回归覆盖多目标乱序获取、移动、删除、透明层、文字小数位移/变色、stroke、
+背景切换、失败恢复，以及 dense→sparse 的恢复。
+本地运行 `cargo run -p plico-skia --features window --example damage_window`：
+180 帧，含两次 resize；每帧都与同一 acquired image 的全量 GPU 重绘比较。
+它是手动探针，不增加 CI 的窗口测试或 GPU 账单。
+
+### 稀疏与密集更新的对照
+
+`cargo run -p plico-skia --features raster --example damage_compare`：
+1280×720、2000 条 fill 指令、40 帧预热后采样 120 帧，交替测试顺序。
+scene 构建不计时，计时内不读像素；最终像素必须一致。
+本机 dev（优化级别按 workspace）一次结果：
+
+| 场景 | 全量 p50 | tracked p50 | 平均实际覆盖率 |
+| --- | ---: | ---: | ---: |
+| 每帧改变一个局部 | 696.8µs | 309.3µs | 0.19% |
+| 每帧改变全部图元 | 691.7µs | 696.0µs | 100% |
+
+密集更新比较本身有成本；未加回退时测得约 715µs→882µs。
+当前在矩形覆盖超过 80% 时提升 full，随后 8 次绘制跳过比较，再探测一次；
+这是可调整的启发式，不影响像素正确性。探测时若还没有有效历史，要先全量
+建立历史，之后再判断覆盖率。测试保证切回稀疏后会重新进入局部绘制。
+这些数字只说明 CPU raster 的这一组负载，不代表 GPU/窗口或真实应用收益。
+Vello 的子区域能力与平台 incremental present 继续作为独立阶段验证。
+
+### 跳过脏区外 CPU 绘制命令
+
+加入 command/scope culling 后，同一 2000-fill 稀疏 raster 探针一次结果为
+696.8µs→84.5µs p50（此前只有 outer clip 时 tracked 约 309µs）。
+密集更新为 702.7µs→707.3µs；仍使用上述全量回退。
+新增嵌套 clip/layer、剪裁阴影的像素回归，与全量重绘一致。
+
+`cargo run --release -p plico-vello --no-default-features --features skia
+--example local-animation` 展示三条进度条和三个 spinner。
+正常 UI 使用注入时钟；探针的 FrameSource 通过 deadline 固定约 60Hz，
+防止 Xvfb 的 FIFO 不限速影响 A/B。18 秒后退出并打印实际声明帧数；
+先确认实际 FPS，再解释 CPU，不能把隐藏/未更新的窗口当成优化结果。
+
+本机 Xvfb + NVIDIA Vulkan 的一次 8 秒采样（预热 3 秒）：
+
+| 模式 | 单核归一化进程 CPU | 18 秒声明帧数 |
+| --- | ---: | ---: |
+| 全量 | 10.0% | 1059 |
+| 自动 damage + culling | 9.625% | 1060 |
+
+通过 `/proc/PID/stat` 的 utime+stime 差与 `getconf CLK_TCK` 计量，包含进程线程。
+这是小动画场景：没有证明单核低于 1%；也没有证明 Lyrune 达到该目标。
+本机 24 逻辑核，按所有逻辑核归一化约 0.4%，应与单核百分比明确区分。
+Xvfb 报告缺少 DRI3，呈现路径和真实桌面不同；真实窗口的收益仍需在持续
+显示、帧率稳定的条件下测量。测量脚本和日志是本地产物，不增加 CI 窗口测试。
+
+### Vulkan incremental present（可选）
+
+`PLICO_SKIA_INCREMENTAL_PRESENT=1` 开启系统区域提示，默认关闭，避免未测量
+收益就增加逐帧比较。创建窗口设备时查询并启用 `VK_KHR_incremental_present`；
+不支持时仍按原路径提交。当前 surface transform 非 identity 时也不发送提示，
+避免把 image 坐标误当成旋转后的 surface 坐标。
+
+每张 image 的修复区域与系统提示使用两份历史。系统提示单独比较上次呈现的
+scene：A→B→A 时，buffer A 本身可能无需绘制，但屏幕仍有 B→A 的变化。
+背景变化、resize/recreate、绘制失败、无有效历史，以及目标需全量绘制时，
+提示回退 full。Full/Empty 都省略可选 pNext；Vulkan 的零个 rectangle 表示
+full 而非 empty。实际提交只附带非空、向外取整并裁到 surface 内的矩形。
+所有像素仍保持完整有效，系统忽略提示也能正确显示。
+
+约束参考 [VkPresentRegionKHR](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentRegionKHR.html)
+和 [VkPresentRegionsKHR](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentRegionsKHR.html)。
+窗口在 queue-present 前调用 Winit `pre_present_notify()`，供 Wayland 帧回调调度。
+
+本机 NVIDIA/Xvfb 探针：扩展可用，180 帧中 168 次局部绘制、164 次局部提交
+提示，所有 framebuffer 像素与全量重绘一致。这验证提交路径和区域计算，
+不证明 compositor 采用提示或节省了多少 CPU/GPU。没有安装 Khronos validation
+layer，不能把该测试当作 Vulkan validation layer 检查。
+`PLICO_SKIA_INCREMENTAL_PRESENT=0` 可在同一探针中验证无提示回退路径。
+trace 的 `present_damage_coverage` 是相邻呈现 scene 的估计覆盖率，与目标
+buffer 的 `damage_coverage` 不同；Empty 在平台接口仍退回普通提交。
+
+### Vello 接入难度评估（不改窗口）
+
+本机 `vello_gpu 0.3.0` 已公开 `ClearSettings::Rects`，其 root clear pass 使用
+Load 保留其他像素。需要同时给 scene 加外层 clip；仅局部 clear 后重放完整
+scene 会在脏区外重复透明合成，不能直接替换现在的全量 clear。
+
+手动 GPU 探针：
+
+```sh
+cargo test -p plico-shell --lib vello_preserved_target_partial_redraw_probe -- --ignored --nocapture --test-threads=1
+```
+
+在稳定的离屏纹理上跑 60 帧，覆盖矩形移动、移除、透明 layer、背景变透明、
+以及目标尺寸重建；局部清除 + clip 的像素逐帧与全量重绘一致。
+此测试默认 ignored，不增加 CI GPU 运行；正常 ImageRenderer 和窗口代码未变。
+它验证 Vello API 的可行性，不证明字体、SVG、滤镜和自定义 shader 的完整性，
+也没有给出性能收益。
+
+窗口路线可复用 `wgpu_context 0.10` 的 intermediate texture：
+`target_texture_view()` 在配置中间纹理时返回稳定 view，
+`maybe_blit_and_present()` 会把它复制到本次获取的 surface texture；resize
+会重建该纹理。Plico 目前主要在 alpha 转换需要时才启用中间纹理，不能直接
+假定普通窗口的 surface texture 在下一帧仍保留内容。
+
+因此基础接口改动不大，完整窗口接入为中等工作量：始终使用保留目标、首帧/
+resize/错误回退、复用共享 damage 协议，补 Vello glyph ink 的保守范围，再
+验证 layer/filter、透明窗口、不同 DPI 和设备丢失。全屏 blit 仍有带宽成本；
+必须用真实负载测量，不能只看局部绘制面积。
+
+另一个独立观察：当前 Vello 窗口配置为 `PresentMode::AutoNoVsync`；后续比较
+动画 CPU 时应核实实际 FPS，并对照同步模式，避免将不同帧率误判为 renderer
+差距。本轮没有修改它，也没有启用 Vello 自动 damage。
+
+
+### 实验默认值与已知差异
+
+Skia 窗口默认全量绘制。设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 damage；
+`draw_scene_tracked()` 仍是显式实验 API。Vello 的 capability probe 继续保留，
+没有删除或接管其正常窗口路径。
+
+真实 settings 的虚拟时钟主题动画在第 96 帧发现 4 个像素差异，每通道最多
+1（8-bit）。关闭 CPU culling、仅使用相同 outer clip 也能复现同样的 4 像素；
+将 clip 向外扩 4 像素后该帧一致。这将范围缩小到 clip 附近的栅格化/抗锯齿
+差异，尚未证明所有场景可由固定 padding 正确解决，因此保持 opt-in。
+
+`cargo run -p backend-settings --features skia --example damage_probe` 使用真实
+设置页、语义点击和虚拟时钟跑 240 帧，覆盖侧栏、导航、主题、文字修改及静止。
+本机 raster 结果中 121 帧有 AA 舍入差异，最多 8 个像素、每通道 1/255；
+静止阶段未继续累积。该手动探针明确允许最多 16 个这样的像素，并报告实际数量；
+越界立即失败。除此之外，damage 区域外与上一帧必须逐字节相同，Empty 帧必须
+完全保留，均不使用容差。设置 `PLICO_DAMAGE_STRICT=1` 可恢复严格全帧逐像素
+比较，当前会在第 96 帧失败。独立透明图层最小复现保留为 ignored 诊断测试，
+常规 raster/GPU 回归仍使用精确相等。以上是该场景的验收范围，不代表所有
+栅格差异都可以忽略，也没有改变窗口 strict validation 的行为。
+
+
+### 分阶段验收状态
+
+- Phase 0：实际目标覆盖率已接 HUD/trace，设置页探针记录真实交互覆盖率；
+  动画探针及 Lyrune 对照记录 CPU，明确区分窗口与离屏测量。
+- Phase 1：共享 DamageRegion、独立 command tracker、Skia raster 保留绘制和
+  命令剔除已接入；常规回归严格比较，真实设置页另有明确 AA 容差诊断。
+- Phase 2：Skia swapchain 每张 image 保存独立历史，首次/resize/错误恢复回退；
+  180 帧窗口 oracle 含两次 resize，逐帧和全量 GPU 绘制一致。
+- Phase 3：Vello 保留目标子区 clear + clip 的离屏验证已完成；按当前范围，
+  不启用其窗口局部绘制，后续按需要独立接入。
+- Phase 4：Vulkan 增量提交提示已接入，支持探测及无扩展/关闭时回退；
+  同一窗口 oracle 在开启/关闭提示时分别通过（164 次/0 次提示）。
+
+上述能力全部可选，普通窗口默认全量绘制。已知透明图层 AA 差异不阻塞该实验
+入口；严格诊断仍可复现它。原生 Lyrune 的进一步 CPU 收益尚未得到证明，
+不以离屏收益替代原生窗口结论。下一轮应由真实负载决定是否扩展 Vello 窗口
+或优化 damage 比较成本，而不是继续为微小舍入差异改变渲染架构。
+
+
+### Skia 字体集合内存
+
+`new_from_bytes` 会复制输入的完整字体文件；对 TTC 的每个 face 分别调用会
+重复保留整个集合。damage 的 glyph ink 查询也会创建 Typeface，放大该成本。
+修复前真实 Lyrune 进程中可识别 TTC 头的匿名映射约 547 MiB，同一字体头
+出现多块副本；这不是 glyph atlas 大小的测量。
+
+Skia 资源池现在按 Blob ID 保存一份 owned `SkData`，不同 TTC index 使用
+`new_from_data` 共享它；源 Blob 已失效时清理条目，Empty 绘制也执行清理。
+不通过无生命周期保证的裸字节借用实现零拷贝。常规测试验证跨字号复用与
+失效清理，手动 TTC 测试验证集合内多个 face 只有一份资源池数据：
+
+```sh
+PLICO_TEST_TTC=/path/to/font.ttc cargo test -p plico-skia --features raster --lib collection_faces_share_one_font_data_allocation -- --ignored
+```
+
+`plico::perf` 的 Skia target trace 另外记录 `gpu_cache_bytes`、
+`gpu_cache_purgeable_bytes`、`gpu_cache_limit_bytes`。这些是 Ganesh 缓存记账，
+不包含字体文件副本、驱动分配或进程全部 RSS，不应混作进程内存。
+
+修复后本机 Xvfb/NVIDIA 上的两个独立 Lyrune 主界面进程，5/15/30/45 秒采样：
+全量 RSS 约 378 MiB、匿名约 163 MiB；damage RSS 约 336 MiB、匿名约 158 MiB，
+15–45 秒未继续增长。这是启动主界面测试，不是长时间歌词播放验收；
+实际播放中的旧进程需重启后再对照，不能拿不同页面/播放时长直接计算节省比例。
+
+
+### Fontique 来源缓存淘汰后的重复加载
+
+仅共享 Skia TTC 数据还不够：Parley 每次创建 layout 会推进 SourceCache 的
+淘汰代数；默认非共享缓存丢弃条目后，再次访问同一字体会创建新的 Blob ID。
+旧布局/glyph scene 仍可能持有之前的 Blob，Skia 因而也无法按 ID 复用资源。
+`TextContext::new()` 现在调用 `font_cx.source_cache.make_shared()`；它的次级
+weak 缓存可找到仍被布局持有的 Blob，不要求让来源缓存永久强持有所有字体。
+这是 Plico 保留布局与来源缓存配置的配合问题，不意味着禁用 Parley 的淘汰。
+
+回归先在旧配置下复现字体 ID 改变，修复后通过；另连续排版 600 个不同文本，
+验证自然缓存老化后 ID 仍保持不变。114 项 renderer 单元测试通过。
+
+Lyrune 的 `lyric_damage` 手动探针增加 RSS、累计字体 Blob ID 与 Ganesh 缓存
+采样；`--font-cache-stress` 每 600 帧主动淘汰来源条目，
+`--unshared-font-cache` 只用于恢复旧配置做对照。相同 10,000 帧、1.75 倍缩放、
+Intel Vulkan、真实封面及歌词逐字高亮/滚动的一次离屏结果：
+
+| 配置 | 累计字体 Blob ID | RSS 峰值 | 最终 RSS |
+| --- | ---: | ---: | ---: |
+| 旧非共享来源缓存 | 34 | 1053 MiB | 1017 MiB |
+| 共享来源缓存 | 2 | 225 MiB | 225 MiB |
+
+这是主动加速缓存淘汰的压力实验，不是用户原生窗口内存的直接测量。
+未强制淘汰的 10,000 帧对照同样维持 2 个字体 ID，RSS 约 225 MiB。
+原生窗口仍须重启并在实际播放中观察，不能将旧进程的保留副本视为新版结果。

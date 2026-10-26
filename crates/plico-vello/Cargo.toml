@@ -46,3 +46,7 @@ required-features = ["hot-reload"]
 [[example]]
 name = "skia-window"
 required-features = ["skia"]
+
+[[example]]
+name = "local-animation"
+required-features = ["skia"]

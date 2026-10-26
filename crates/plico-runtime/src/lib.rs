@@ -527,6 +527,11 @@ impl Adapter {
             self.stats.layout_runs = 1;
             self.stats.flatten_visits = self.placed.len();
             self.reindex_placed();
+            // geometry_dirty deliberately stays set: tall centered controls
+            // realign their text every frame through the geometry branch
+            // (alignment.rs); treating the flag as a consumed latch breaks
+            // those frames once nothing new sets it. Observers must not read
+            // it as "this frame did layout work" - check stats instead.
         } else if self.scroll_dirty {
             flatten_with_scroll_into(
                 &self.tree,
@@ -732,7 +737,7 @@ impl Adapter {
         if !matches!(kind, Kind::Button | Kind::Switch | Kind::Checkbox) {
             return;
         }
-        let text_layout = plico_renderer::scene::layout_node_text(tcx, placed);
+        let text_layout = plico_renderer::scene::layout_node_paragraph(tcx, placed);
         if let Some(text) = &text_layout {
             let geometry = self.tree.layout(placed.node_id).unwrap();
             // Rebuild from the box every time: paint-only animation frames reuse
@@ -740,19 +745,19 @@ impl Adapter {
             placed.content_origin[1] = placed.rect[1]
                 + geometry.border.top
                 + geometry.padding.top
-                + (placed.content_size[1] - text.height()).max(0.) / 2.;
+                + (placed.content_size[1] - text.metrics().height).max(0.) / 2.;
             if kind == Kind::Button {
                 placed.content_origin[0] = placed.rect[0]
                     + geometry.border.left
                     + geometry.padding.left
-                    + (placed.content_size[0] - text.width()).max(0.) / 2.;
+                    + (placed.content_size[0] - text.metrics().width).max(0.) / 2.;
             }
         }
         if kind == Kind::Button {
             return;
         }
         let line_height = text_layout
-            .and_then(|layout| layout.lines().next().map(|line| line.metrics().line_height))
+            .map(|layout| layout.metrics().first_line_height)
             .unwrap_or(placed.content_size[1]);
         if placed.paint.widget.is_some() && retained.toggle_line_height == Some(line_height) {
             return;
@@ -2300,6 +2305,13 @@ impl<V: View> Source<V> {
             .map_err(|source| SourceError::Declaration { source })
             .and_then(|()| self.try_declare());
         if let Err(error) = result {
+            if self
+                .last_error
+                .as_ref()
+                .is_none_or(|previous| previous.to_string() != error.to_string())
+            {
+                tracing::error!(%error, "UI declaration failed");
+            }
             self.last_error = Some(error);
             return;
         }

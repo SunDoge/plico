@@ -10,7 +10,7 @@ use vello_common::{
 use crate::{FrameStats, PaintScene, Scene, TextContext};
 
 const PANEL_WIDTH: f64 = 320.0;
-const PANEL_HEIGHT: f64 = 116.0;
+const PANEL_HEIGHT: f64 = 140.0;
 const PANEL_MARGIN: f64 = 12.0;
 const PRIMARY_TEXT: [u8; 4] = [15, 23, 42, 255];
 const SECONDARY_TEXT: [u8; 4] = [71, 85, 105, 255];
@@ -103,7 +103,7 @@ impl PerformanceHud {
         self.text(
             scene,
             text,
-            "Wabou HUD",
+            "Plico HUD",
             [left + 26.0, top + 12.0],
             13.5,
             600.0,
@@ -234,6 +234,29 @@ impl PerformanceHud {
             text,
             &format!("{}×{}", stats.viewport_w, stats.viewport_h),
             [left + 244.0, top + 88.0],
+            12.5,
+            600.0,
+            PRIMARY_TEXT,
+            scale,
+        );
+        self.text(
+            scene,
+            text,
+            "Damage",
+            [left + 14.0, top + 112.0],
+            12.5,
+            400.0,
+            SECONDARY_TEXT,
+            scale,
+        );
+        let coverage = stats
+            .damage_coverage
+            .map_or_else(|| "n/a".to_owned(), |value| format!("{:.1}%", value * 100.));
+        self.text(
+            scene,
+            text,
+            &coverage,
+            [left + 66.0, top + 112.0],
             12.5,
             600.0,
             PRIMARY_TEXT,

@@ -777,6 +777,123 @@ impl ImageRenderer {
 mod tests {
     use super::*;
 
+    // Capability probe only: the window and normal ImageRenderer paths are
+    // unchanged. Run manually on a GPU; do not add this to ordinary CI.
+    #[test]
+    #[ignore = "requires a GPU; probes Vello's preserved-target partial clear API"]
+    fn vello_preserved_target_partial_redraw_probe() {
+        use plico_renderer::DamageRegion;
+        use vello_common::kurbo::Rect;
+        fn draw(
+            r: &mut ImageRenderer,
+            frame: usize,
+            width: u32,
+            height: u32,
+            damage: DamageRegion,
+            background: Color,
+        ) -> Vec<u8> {
+            let size = render_size(width, height).unwrap();
+            r.scene.reset_and_resize(size.width, size.height);
+            r.scene.set_transform(Affine::IDENTITY);
+            let damage = damage.for_surface(width, height);
+            let region = match damage {
+                DamageRegion::Rect(rect) => {
+                    r.scene.push_clip_path(&rect.to_path(0.1));
+                    Some(RectU16::new(
+                        rect.x0 as u16,
+                        rect.y0 as u16,
+                        rect.x1 as u16,
+                        rect.y1 as u16,
+                    ))
+                }
+                _ => None,
+            };
+            r.scene.set_paint(background);
+            r.scene
+                .fill_rect(&Rect::new(0., 0., width as f64, height as f64));
+            if !frame.is_multiple_of(13) {
+                let x = 4. + (frame % 14) as f64;
+                r.scene.set_paint(Color::from_rgba8(30, 140, 240, 170));
+                r.scene.fill_rect(&Rect::new(x, 4., x + 12., 24.));
+            }
+            r.scene.push_layer(
+                Some(&Rect::new(16., 16., 48., 48.).to_path(0.1)),
+                Some(Default::default()),
+                Some(0.5),
+                None,
+                None,
+            );
+            r.scene.set_paint(Color::from_rgb8(240, 80, 40));
+            r.scene.fill_rect(&Rect::new(10., 12., 52., 52.));
+            r.scene.pop_layer();
+            if region.is_some() {
+                r.scene.pop_clip();
+            }
+            let mut encoder = r
+                .buffer
+                .device()
+                .create_command_encoder(&Default::default());
+            let init = match region.as_ref() {
+                Some(_) => TargetInit::Clear(ClearSettings::Rects {
+                    color: Color::TRANSPARENT,
+                    rects: region.as_slice(),
+                }),
+                None => TargetInit::Clear(ClearSettings::default()),
+            };
+            r.renderer
+                .render(
+                    &r.scene,
+                    &mut r.resources,
+                    r.buffer.device(),
+                    r.buffer.queue(),
+                    &mut encoder,
+                    &size,
+                    &r.buffer.target_texture_view(),
+                    Some(&r.depth_view),
+                    &TextureBindings::new(),
+                    init,
+                )
+                .unwrap();
+            r.buffer.queue().submit([encoder.finish()]);
+            let mut pixels = vec![0; (width * height * 4) as usize];
+            r.buffer.copy_texture_to_buffer(&mut pixels);
+            pixels
+        }
+        let (mut partial, mut full) = (ImageRenderer::new(64, 64), ImageRenderer::new(64, 64));
+        for frame in 0..60usize {
+            let (width, height) = if frame < 45 { (64, 64) } else { (96, 80) };
+            if frame == 45 {
+                partial = ImageRenderer::new(width, height);
+                full = ImageRenderer::new(width, height);
+            }
+            let background = if frame < 30 {
+                Color::WHITE
+            } else {
+                Color::TRANSPARENT
+            };
+            let x = 4. + (frame % 14) as f64;
+            let old_x = 4. + (frame.saturating_sub(1) % 14) as f64;
+            let damage = if [0, 30, 45].contains(&frame) {
+                DamageRegion::Full
+            } else {
+                DamageRegion::Rect(Rect::new(x.min(old_x) - 1., 3., x.max(old_x) + 13., 25.))
+            };
+            assert_eq!(
+                draw(&mut partial, frame, width, height, damage, background),
+                draw(
+                    &mut full,
+                    frame,
+                    width,
+                    height,
+                    DamageRegion::Full,
+                    background
+                ),
+                "frame {frame}"
+            );
+        }
+        println!("Vello partial clear + outer clip: 60 frames matched full redraw");
+    }
+
     #[test]
     fn small_stem_expansion_preserves_axis_aligned_edges() {
         use vello_common::kurbo::{PathSeg, Vec2, expand_path};

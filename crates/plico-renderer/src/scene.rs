@@ -378,6 +378,26 @@ fn draw_text(
     transform: Affine,
     device_scale: f64,
 ) {
+    if tcx.has_native_paragraphs() {
+        let Some(request) = node_paragraph_request(tcx, node) else {
+            return;
+        };
+        let origin = transform
+            * Affine::translate((node.content_origin[0] as f64, node.content_origin[1] as f64));
+        for &[x0, y0, x1, y1] in node.paint.selection_rects.iter() {
+            scene.fill(
+                Fill::NonZero,
+                origin,
+                Color::from_rgba8(59, 130, 246, 105),
+                None,
+                &Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64),
+            );
+        }
+        // Measurements and hit-testing populate the host's shared paragraph cache.
+        tcx.native_paragraph(request.clone());
+        scene.draw_paragraph(request, origin);
+        return;
+    }
     let Some(layout) = layout_node_text(tcx, node) else {
         return;
     };
@@ -406,6 +426,33 @@ fn draw_text(
     );
 }
 
+/// Declaration shared by host-native measurement, painting and selection.
+pub fn node_paragraph_request(
+    tcx: &TextContext,
+    node: &PlacedNode,
+) -> Option<Arc<crate::paragraph::ParagraphRequest>> {
+    let width = (node.paint.wrap_text || node.paint.text_ellipsis || node.paint.text_max_lines > 0)
+        .then_some(node.content_size[0].max(0.));
+    Some(Arc::new(tcx.paragraph_request(&node.paint, width)?))
+}
+
+/// Ordinary text geometry from the selected backend.
+pub fn layout_node_paragraph(
+    tcx: &mut TextContext,
+    node: &PlacedNode,
+) -> Option<crate::paragraph::ParagraphLayout> {
+    if tcx.has_native_paragraphs() {
+        let request = node_paragraph_request(tcx, node)?;
+        Some(crate::paragraph::ParagraphLayout::Native(
+            tcx.native_paragraph(request)?,
+        ))
+    } else {
+        Some(crate::paragraph::ParagraphLayout::Parley(layout_node_text(
+            tcx, node,
+        )?))
+    }
+}
+
 /// Paint a shaped layout as hinted Vello glyph runs at the final device scale.
 pub fn draw_text_layout_into(
     scene: &mut Scene,
@@ -424,10 +471,8 @@ pub fn draw_text_layout_into(
     );
 }
 
-/// Build the exact text layout used to paint one placed node.
-///
-/// DevTools uses this same cached path so diagnostics describe the glyph runs
-/// that painting will consume rather than independently approximating them.
+/// Build a Parley layout for Vello or an explicit glyph-run consumer.
+/// Host-native ordinary text uses [`layout_node_paragraph`] instead.
 pub fn layout_node_text(
     tcx: &mut TextContext,
     node: &PlacedNode,
@@ -537,7 +582,7 @@ impl Layer {
 }
 
 /// Paint `nodes` into `scene` over a `base_color` background. Text nodes are
-/// laid out with parley and rendered as vello glyph runs.
+/// use the host-selected paragraph engine.
 pub fn build_scene(
     scene: &mut Scene,
     nodes: &[PlacedNode],
