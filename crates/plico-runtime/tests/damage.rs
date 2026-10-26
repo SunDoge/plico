@@ -144,3 +144,18 @@ fn semantic_click_paths_exercise_the_same_partial_damage() {
     // Semantic click commits the same text change: full-frame relayout.
     assert_eq!(source.adapter.damage_full_frames, 2);
 }
+
+#[test]
+fn retained_window_path_records_damage_without_snapshot_clones() {
+    let mut source = Source::new(Demo::default());
+    let mut tcx = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
+    source.render_retained_frame(&mut scene, &mut tcx, (400, 300), 1.);
+    assert!(source.last_error.is_none());
+    assert_eq!(source.adapter.damage_full_frames, 1);
+    assert_eq!(source.adapter.stats.placed_node_clones, 0);
+    source.handle_event(pointer(PointerPhase::Move, 80., 20.));
+    source.render_retained_frame(&mut scene, &mut tcx, (400, 300), 1.);
+    assert!(source.adapter.damage_partial_frames >= 1);
+    assert_eq!(source.adapter.stats.placed_node_clones, 0);
+}

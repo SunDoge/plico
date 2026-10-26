@@ -2512,6 +2512,7 @@ impl<V: View> FrameSource for Source<V> {
         let start = Instant::now();
         self.paint_frame_scene(scene, None, tcx, size, scale);
         self.paint_debug_overlay(scene, &[], tcx, scale);
+        self.adapter.record_damage();
         Some((
             self.adapter.placed.len() + self.adapter.tips.layer().len(),
             build_ms,
@@ -2539,6 +2540,7 @@ impl<V: View> FrameSource for Source<V> {
         let start = Instant::now();
         self.paint_frame_scene(scene, None, tcx, (width, height), scale);
         self.paint_debug_overlay(scene, &[], tcx, scale);
+        self.adapter.record_damage();
         (
             self.adapter.placed.len() + self.adapter.tips.layer().len(),
             build_ms,

@@ -1,5 +1,5 @@
 use crate::Error;
-use plico_renderer::{PaintCommand, Scene};
+use plico_renderer::{DamageRegion, PaintCommand, Scene};
 use skia_safe::{Color4f, Font, FontHinting, FontMgr, Matrix, Paint, Path, PathBuilder, Point};
 use snafu::ResultExt;
 use vello_common::{
@@ -15,6 +15,7 @@ pub struct SkiaSurface {
     pub(crate) surface: skia_safe::Surface,
     pub(crate) resources: std::rc::Rc<std::cell::RefCell<Resources>>,
     frame_valid: bool,
+    background: Option<Color>,
 }
 /// CPU assets are shared by the render targets of one GPU context. Per-image
 /// caches duplicate complete CJK font files and upload identical textures again.
@@ -62,6 +63,7 @@ impl SkiaSurface {
             surface,
             resources,
             frame_valid: false,
+            background: None,
         }
     }
 
@@ -74,6 +76,31 @@ impl SkiaSurface {
 
     /// Record drawing without allocating or reading back a pixel buffer.
     pub fn draw_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
+        self.draw_scene_damaged(scene, background, DamageRegion::Full)
+    }
+
+    /// Redraw a preserved surface through an outer pixel clip. The complete
+    /// scene is replayed so clipping, overlap and alpha composition retain
+    /// their normal ordering. This does not cull command traversal.
+    ///
+    /// First draw, failed draw and background changes force a full redraw.
+    /// The caller must supply conservative old + new ink bounds. Swapchain
+    /// callers additionally need buffer-age history; this API alone does not
+    /// make an acquired swapchain image safe for partial presentation.
+    pub fn draw_scene_damaged(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+        damage: DamageRegion,
+    ) -> Result<(), Error> {
+        let damage = if !self.frame_valid || self.background != Some(background) {
+            DamageRegion::Full
+        } else {
+            damage.for_surface(self.surface.width() as u32, self.surface.height() as u32)
+        };
+        if damage == DamageRegion::Empty {
+            return Ok(());
+        }
         self.frame_valid = false;
         {
             let mut resources = self.resources.borrow_mut();
@@ -85,11 +112,20 @@ impl SkiaSurface {
                 .retain(|_, (tree, _)| tree.strong_count() > 0);
         }
         self.surface.canvas().restore_to_count(1);
+        if let DamageRegion::Rect(r) = damage {
+            self.surface.canvas().save();
+            self.surface.canvas().clip_rect(
+                skia_safe::Rect::new(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32),
+                None,
+                false,
+            );
+        }
         self.surface.canvas().clear(color(background));
         let result = self.replay(scene);
         self.surface.canvas().restore_to_count(1);
         result?;
         self.frame_valid = true;
+        self.background = Some(background);
         Ok(())
     }
 

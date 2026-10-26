@@ -1,6 +1,8 @@
 //! Shared layout, text, paint and widget contracts for native and browser hosts.
 #![warn(missing_docs)]
 pub mod animated_image;
+pub mod damage;
+pub use damage::DamageRegion;
 pub mod image;
 pub mod layout;
 /// Renderer and value animation algorithms shared by native and web hosts.

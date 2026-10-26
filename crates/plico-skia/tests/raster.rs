@@ -300,3 +300,88 @@ fn raster_images_preserve_transform_clip_alpha_and_format_changes() {
     assert!(pixel(&bytes, 7, 7)[0].abs_diff(191) <= 1);
     assert_eq!(pixel(&bytes, 7, 7)[2], 255);
 }
+
+#[test]
+fn damaged_draw_matches_full_draw_for_moving_overlapping_content() {
+    use plico_renderer::DamageRegion;
+    let make_scene = |x: f64| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(0, 120, 255),
+            None,
+            &Rect::new(x, 2., x + 4., 10.),
+        );
+        scene.push_layer(
+            vello_common::peniko::BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 16., 16.),
+            None,
+            None,
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(255, 0, 0),
+            None,
+            &Rect::new(4., 4., 14., 12.),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let mut partial = SkiaSurface::new(16, 16).unwrap();
+    let mut oracle = SkiaSurface::new(16, 16).unwrap();
+    let before = partial.render_scene(&make_scene(2.), Color::WHITE).unwrap();
+    let scene = make_scene(6.);
+    // Includes the old location as well as the new location.
+    partial
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(2., 2., 10., 10.)),
+        )
+        .unwrap();
+    let after = partial.read_pixels().unwrap();
+    assert_eq!(after, oracle.render_scene(&scene, Color::WHITE).unwrap());
+    for y in 0..16 {
+        for x in 0..16 {
+            if !(2..10).contains(&x) || !(2..10).contains(&y) {
+                assert_eq!(pixel(&before, x, y), pixel(&after, x, y));
+            }
+        }
+    }
+}
+
+#[test]
+fn damage_falls_back_on_initial_frame_background_change_and_invalid_bounds() {
+    use plico_renderer::DamageRegion;
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let scene = Scene::new();
+    surface
+        .draw_scene_damaged(&scene, Color::WHITE, DamageRegion::Empty)
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 255));
+    surface
+        .draw_scene_damaged(&scene, Color::TRANSPARENT, DamageRegion::Empty)
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 0));
+    surface
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(f64::NAN, 0., 1., 1.)),
+        )
+        .unwrap();
+    assert!(surface.read_pixels().unwrap().iter().all(|v| *v == 255));
+    let before = surface.read_pixels().unwrap();
+    surface
+        .draw_scene_damaged(
+            &scene,
+            Color::WHITE,
+            DamageRegion::Rect(Rect::new(20., 20., 25., 25.)),
+        )
+        .unwrap();
+    assert_eq!(surface.read_pixels().unwrap(), before);
+}

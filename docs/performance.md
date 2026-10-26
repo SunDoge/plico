@@ -127,22 +127,32 @@ Lyrune 同时将歌词位移从逐行绝对位置改为共同容器的 translate
 
 ## Damage 覆盖率测量（Phase 0）
 
-`Adapter::damage()` 计算自上一呈现帧以来变化区域的并集（保守、只多不少），
-在 `presented()` 时把每帧归类为 full（整窗）或 partial（局部）并跨帧累计，
-`damage_partial_coverage()` 给出 partial 帧的平均面积占比。渲染路径未改动。
+`Adapter::damage()` 当前是诊断估计，不能作为正确的局部重绘输入。
+它还没有完整追踪移动前的 ink bounds、阴影范围、溢出子节点和 backdrop
+依赖；motion dirty 队列在更新时已消费。不要把估计值解释为保守上界。
+`damage_partial_coverage()` 仅对 partial 帧求平均，不代表全部帧的平均覆盖率。
 
-测量结论（settings 与 gallery 的典型交互序列，虚拟时钟确定性驱动）：
+快照路径和窗口 retained 路径均记录累计计数，并在 `plico::perf` trace 中
+输出 `damage_coverage_estimate`。现有虚拟时钟测试说明首帧、resize、文本
+重排会走 full，部分 hover/press 会被估计为 partial；这些不是实际应用的
+帧分布或收益结论。需要真实交互录制，再决定自动 damage 的投入顺序。
 
-- 首帧、resize、导航、任何改文本尺寸的点击都走完整 layout，是 full 帧。
-- sidebar 宽度动画本质是布局动画（宽度声明变化 → 每帧 flatten），动画期间
-  每帧都是 full。**当前应用形态下，"纯 paint 帧"只出现在 hover/press 中间
-  态**（实测单按钮覆盖约 5% 窗口面积）。
-- 因此，桌面 partial presentation 的收益集中在 hover/focus 反馈帧；
-  文本驱动的小交互（计数、表单）在文本重排缩到子树之前都退化为 full。
-  下一阶段若继续，优先项是 Taffy 子树重排（让 label 变化只重排受影响分支），
-  而不是先做脏矩形呈现。
+## 可选的局部绘制能力
 
-回归测试 `crates/plico-runtime/tests/damage.rs` 固化契约：首帧/resize full；
-空区指针移动不重排；hover/press 为 partial（约 5% 覆盖）；点击改文本今日
-即 full（已记录为已知成本）。附带修复：`geometry_dirty` 在被完整 flatten
-消费后复位，此前一旦置位永不清除。
+`plico_renderer::DamageRegion` 使用物理像素描述 Full / Empty / Rect，
+不依赖 Taffy。后端可以随时提升为 Full，也可以忽略该提示。
+LVGL 可继续使用自身布局与失效系统；Bevy 后端可使用自身渲染调度。
+布局、damage 生产、保留表面绘制、swapchain 历史和平台增量提交分别接入，
+不要求每个后端实现整条管线。
+
+`SkiaSurface::draw_scene_damaged()` 是保留表面的显式实验入口：
+矩形向外对齐像素，在外层 clip 内清除并重放完整 scene，保留顺序、重叠和
+透明混合语义。目前仍遍历全部命令，不宣称减少 CPU scene 构建成本。
+首帧、此前失败、背景改变时回退全量；非有限矩形回退全量。
+调用者负责包含旧位置、新位置和全部效果的 ink bounds。
+像素测试比较移动、重叠透明层的局部绘制与全量绘制，并验证区域外像素不变。
+
+此入口尚未连接 Adapter 的估计或窗口。窗口必须另外解决每个 buffer 的
+有效性/历史、resize、背景/主题变化和呈现失败；不能把上一显示帧的 damage
+直接套到任意 acquire 的 swapchain image。Vello 和平台 incremental present
+也独立推进，不阻塞当前全量绘制路径。

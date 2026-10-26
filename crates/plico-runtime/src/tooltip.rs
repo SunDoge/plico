@@ -59,11 +59,11 @@ impl Adapter {
         nodes.extend_from_slice(&self.tips.layer);
         nodes
     }
-    /// The union of regions changed since the previous presented frame, in
-    /// logical window coordinates. `None` means the whole window: the first
+    /// Diagnostic estimate of changed regions, in logical window coordinates.
+    /// This is not safe input for partial drawing: old ink bounds, overflow
+    /// and effects are not fully tracked yet. `None` means the whole window: the first
     /// frame, a resize, structural creation/removal, layout runs, flattening
-    /// or scrolling repaint everything. This Phase 0 instrumentation is
-    /// conservative (over-approximates) and not yet consumed by rendering.
+    /// or scrolling repaint everything. Rendering does not consume this estimate.
     pub fn damage(&self) -> Option<[f32; 4]> {
         let (width, height) = self.viewport?;
         // Read per-frame work stats, not the geometry_dirty latch: the latch
@@ -92,14 +92,9 @@ impl Adapter {
         for id in &self.paint_dirty {
             cover(self.visible_bounds(*id));
         }
-        // Sampled animation repaints: the current position of every entity
-        // whose motion advanced. The union also covers the origin of the
-        // motion because style flights start from the previous sample.
-        for entity in self.motions.dirty_entities() {
-            if let Some(node) = self.nodes.get(entity) {
-                cover(self.visible_bounds(node.id));
-            }
-        }
+        // Motion dirtiness was merged into update_retained's dirty queue;
+        // querying the drained motion queue here would miss animated nodes.
+        // Previous ink bounds still need tracking before this can drive drawing.
         // Focus/hover/press repaints come through interaction sync; the
         // involved nodes are exactly the ones paint_dirty covers, plus the
         // previously-highlighted entity, which sync also marks.
@@ -116,7 +111,16 @@ impl Adapter {
     /// Fold this frame's damage into the cumulative instrumentation.
     /// Full frames count separately; partial frames accumulate their
     /// coverage so the mean can be derived at any time.
-    fn record_damage(&mut self) {
+    pub(super) fn record_damage(&mut self) {
+        let coverage = match (self.damage(), self.viewport) {
+            (None, _) => 1.,
+            (Some([x0, y0, x1, y1]), Some((w, h))) if w > 0 && h > 0 => {
+                f64::from((x1 - x0).max(0.) * (y1 - y0).max(0.)) / (f64::from(w) * f64::from(h))
+            }
+            _ => 0.,
+        };
+        tracing::trace!(target: "plico::perf", damage_coverage_estimate = coverage,
+            "frame damage estimate");
         match self.damage() {
             None => self.damage_full_frames += 1,
             Some(region) if region[0] < region[2] && region[1] < region[3] => {
