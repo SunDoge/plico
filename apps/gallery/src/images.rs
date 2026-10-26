@@ -29,6 +29,7 @@ impl Format {
         }
     }
 }
+#[derive(PartialEq)]
 struct Job {
     format: Format,
     ticket: u64,
@@ -50,8 +51,21 @@ impl std::fmt::Debug for Images {
     }
 }
 impl PartialEq for Images {
+    /// Surface state and queue content, not allocation identity: a
+    /// serialized state restored into a fresh host must compare equal to
+    /// the live one (the hot-reload and roundtrip snapshot contract).
+    /// A poisoned queue compares unequal rather than panicking.
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inner, &other.inner)
+        let Ok(a) = self.inner.lock() else {
+            return false;
+        };
+        let Ok(b) = other.inner.lock() else {
+            return false;
+        };
+        self.surface == other.surface
+            && a.format == b.format
+            && a.jobs == b.jobs
+            && a.running == b.running
     }
 }
 impl Default for Images {
