@@ -75,6 +75,7 @@ impl DeclareView for Settings {
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
         self.animations.advance(cx.now());
+        self.animations.set_reduced(self.reduced_motion);
         if self.router.current() != Page::Overview {
             self.animations.cancel();
         }
@@ -84,7 +85,6 @@ impl DeclareView for Settings {
             self.inspector
                 && self.router.current() == Page::Overview
                 && cx.viewport_width() >= 1000.,
-            self.reduced_motion,
         );
         row(cx).width_percent(100.).height_percent(100.).align(Align::Stretch).background(Color::Surface) + |cx| {
             self.sidebar(cx);
@@ -241,7 +241,7 @@ impl Settings {
                 row(cx).gap(10).wrap(true) + |cx| {
                     text(cx, "Sync preview").font_size(18).weight(650).grow(1.);
                     if button(cx).icon(&icons::PLAY).text("Run preview").primary().clicked() {
-                        self.animations.start(self.reduced_motion);
+                        self.animations.start();
                     }
                     if button(cx).icon(&icons::PAUSE).text("Stop")
                         .disabled(!self.animations.progress_running()).clicked()

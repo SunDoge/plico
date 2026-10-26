@@ -632,6 +632,104 @@ impl<const N: usize> MotionArena<N> {
     }
 }
 
+/// A single self-contained animated scalar for hosts that inject time.
+///
+/// One `Animated` owns one value end to end: sampling is a pure function of
+/// the injected instant (repeated samples at the same instant are equal, the
+/// immediate-mode declaration pattern), retargets interpolate from the current
+/// visual position, and reduced motion snaps to the target. Use
+/// [`MotionArena`] when many channels share one clock and one dirty list; use
+/// `Animated` when a handful of named application values drive styles.
+///
+/// ```ignore
+/// let mut width = Animated::new(200.);
+/// width.retarget(now, 72., Duration::from_millis(260), Easing::EaseOut);
+/// row(cx).width(width.value(now) as f32);
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub struct Animated {
+    value: f64,
+    target: f64,
+    from: f64,
+    start: Duration,
+    duration: Duration,
+    easing: Easing,
+    reduced: bool,
+}
+impl Animated {
+    /// Start at rest on `initial`.
+    pub const fn new(initial: f64) -> Self {
+        Self {
+            value: initial,
+            target: initial,
+            from: initial,
+            start: Duration::ZERO,
+            duration: Duration::ZERO,
+            easing: Easing::EaseOut,
+            reduced: false,
+        }
+    }
+    /// Current sample at the injected instant. Reaches the exact target once
+    /// the tween elapses; a zero-duration or reduced-motion tween sits on it.
+    pub fn value(&self, now: Duration) -> f64 {
+        if self.reduced || self.duration.is_zero() || self.from == self.target {
+            return self.target;
+        }
+        let progress = now.saturating_sub(self.start).as_secs_f64() / self.duration.as_secs_f64();
+        if progress >= 1.0 {
+            self.target
+        } else {
+            self.from + (self.target - self.from) * self.easing.sample(progress)
+        }
+    }
+    /// The value this animation is heading toward.
+    pub const fn target(&self) -> f64 {
+        self.target
+    }
+    /// Jump to `value` and stop. Restarting sequences compose this with
+    /// `retarget`: snap to the start point, then retarget to the goal.
+    pub fn snap(&mut self, value: f64) {
+        self.value = value;
+        self.from = value;
+        self.target = value;
+        self.duration = Duration::ZERO;
+    }
+    /// Retarget toward `target` over `duration`, interpolating from the value
+    /// visible at `now`. An unchanged target keeps the current flight —
+    /// declaring every frame is a no-op, so callers need no dedup state.
+    /// Reduced motion (see [`set_reduced`](Self::set_reduced)) snaps instead.
+    pub fn retarget(&mut self, now: Duration, target: f64, duration: Duration, easing: Easing) {
+        if target == self.target {
+            return;
+        }
+        self.from = self.value(now);
+        self.target = target;
+        self.start = now;
+        self.duration = if self.reduced {
+            Duration::ZERO
+        } else {
+            duration
+        };
+        self.easing = easing;
+    }
+    /// Whether the tween is still in flight at `now`. Finite: the frame after
+    /// the deadline reports false even if nobody sampled the final value.
+    pub fn active(&self, now: Duration) -> bool {
+        !self.reduced
+            && !self.duration.is_zero()
+            && self.from != self.target
+            && now < self.start.saturating_add(self.duration)
+    }
+    /// Reduced-motion policy. Turning it on snaps any in-flight tween to its
+    /// target; later retargets complete immediately until it is turned off.
+    pub fn set_reduced(&mut self, reduced: bool) {
+        if reduced && !self.reduced {
+            self.snap(self.target);
+        }
+        self.reduced = reduced;
+    }
+}
+
 const IDENTITY_TRANSFORM: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -1043,6 +1141,93 @@ mod tests {
 
     fn approx(left: f64, right: f64, epsilon: f64) {
         assert!((left - right).abs() <= epsilon, "{left} != {right}");
+    }
+
+    #[test]
+    fn animated_samples_are_pure_and_reach_the_exact_target() {
+        let mut animated = Animated::new(0.);
+        animated.retarget(
+            Duration::ZERO,
+            10.,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        approx(animated.value(Duration::from_millis(40)), 4.0, 1e-12);
+        // Repeated samples at one instant do not advance the animation.
+        assert_eq!(
+            animated.value(Duration::from_millis(40)),
+            animated.value(Duration::from_millis(40))
+        );
+        assert!(animated.active(Duration::from_millis(40)));
+        assert_eq!(animated.value(Duration::from_millis(100)), 10.);
+        assert!(!animated.active(Duration::from_millis(100)));
+    }
+
+    #[test]
+    fn animated_retargets_from_the_visible_value_and_equal_targets_are_no_ops() {
+        let mut animated = Animated::new(0.);
+        animated.retarget(
+            Duration::ZERO,
+            100.,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        let mid = animated.value(Duration::from_millis(50));
+        // Re-declaring the same target every frame must not restart the flight.
+        animated.retarget(
+            Duration::from_millis(50),
+            100.,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        assert_eq!(animated.value(Duration::from_millis(50)), mid);
+        // A mid-flight retarget continues from the visible value.
+        animated.retarget(
+            Duration::from_millis(50),
+            50.,
+            Duration::from_millis(50),
+            Easing::Linear,
+        );
+        approx(
+            animated.value(Duration::from_millis(75)),
+            mid / 2. + 25.,
+            1e-12,
+        );
+        assert_eq!(animated.value(Duration::from_millis(100)), 50.);
+    }
+
+    #[test]
+    fn animated_reduced_motion_snaps_and_snap_stops_the_flight() {
+        let mut animated = Animated::new(0.);
+        animated.retarget(
+            Duration::ZERO,
+            100.,
+            Duration::from_millis(100),
+            Easing::EaseOut,
+        );
+        animated.set_reduced(true);
+        assert_eq!(animated.value(Duration::from_millis(10)), 100.);
+        assert!(!animated.active(Duration::from_millis(10)));
+        // Retargets under reduced motion complete immediately...
+        animated.retarget(
+            Duration::from_millis(20),
+            0.,
+            Duration::from_millis(100),
+            Easing::EaseOut,
+        );
+        assert_eq!(animated.value(Duration::from_millis(20)), 0.);
+        // ...and the policy is reversible.
+        animated.set_reduced(false);
+        animated.retarget(
+            Duration::from_millis(30),
+            100.,
+            Duration::from_millis(100),
+            Easing::EaseOut,
+        );
+        assert!(animated.active(Duration::from_millis(30)));
+        animated.snap(42.);
+        assert_eq!(animated.value(Duration::from_millis(31)), 42.);
+        assert!(!animated.active(Duration::from_millis(31)));
     }
 
     #[test]
