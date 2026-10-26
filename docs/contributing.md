@@ -78,7 +78,9 @@ Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不
 也不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
 目前不上传安装包。所有成员继续继承 workspace 版本，
 只由 `plico-cli` 创建 tag 和 GitHub Release；标题显式使用 `Plico v{{ version }}`，
-避免默认显示 CLI 包名。其他 package 的变更汇总进根 `CHANGELOG.md`。
+避免默认显示 CLI 包名。release PR 的 `pr_name` / `pr_body` 也显式使用 Plico，
+不使用默认的逐 package changelog 标题；`plico-cli` 只是内部发布锚点，不代表只发布 CLI。
+其他 package 的变更汇总进根 `CHANGELOG.md`。
 第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
 新增 workspace 成员时，将它加入 `changelog_include`。
 
