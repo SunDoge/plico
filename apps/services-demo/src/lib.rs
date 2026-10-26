@@ -65,8 +65,7 @@ impl ServiceApp for Application {
                 };
                 progress(cx, "Progress", f32::from(task.progress) / 100.);
                 row(cx).gap(10) + |cx| {
-                    if button(cx).text("Start task").primary().disabled(running).clicked()
-                    {
+                    if button(cx).text("Start task").primary().disabled(running).clicked() {
                         services.send(TaskCommand::Start);
                     }
                     if button(cx).text("Cancel task").disabled(!running).clicked() {

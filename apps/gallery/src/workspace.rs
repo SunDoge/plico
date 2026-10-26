@@ -64,8 +64,7 @@ impl Workspace {
                     text(ui, "No active projects").font_size(m.font_size).weight(600);
                     text(ui, "Your projects are archived. Restore them to continue.").font_size(m.label_size)
                         .color(Color::Muted);
-                    if icon_button(ui, "Restore projects", &crate::icons::ARCHIVE_RESTORE, true, false).clicked()
-                    {
+                    if icon_button(ui, "Restore projects", &crate::icons::ARCHIVE_RESTORE, true, false).clicked() {
                         for p in &mut self.projects {
                             p.archived = false;
                         }
@@ -85,8 +84,7 @@ impl Workspace {
                 })
             }
         };
-        if let Some(index) = self.projects.iter().position(|p| p.id == self.selected && !p.archived)
-        {
+        if let Some(index) = self.projects.iter().position(|p| p.id == self.selected && !p.archived) {
             let project = &mut self.projects[index];
             let archive = panel(ui, "Project preferences").children(|ui| {
                 row(ui).justify(Justify::SpaceBetween).gap(m.space(2)) + |ui| {
@@ -100,12 +98,10 @@ impl Workspace {
                 let dirty = project.draft != project.saved;
                 let mut archive = false;
                 row(ui).gap(m.space(2)).wrap(true) + |ui| {
-                    if icon_button(ui, "Save changes", &crate::icons::SAVE, dirty, true).clicked()
-                    {
+                    if icon_button(ui, "Save changes", &crate::icons::SAVE, dirty, true).clicked() {
                         project.saved = project.draft;
                     }
-                    if icon_button(ui, "Reset changes", &crate::icons::ROTATE_CCW, dirty, false).clicked()
-                    {
+                    if icon_button(ui, "Reset changes", &crate::icons::ROTATE_CCW, dirty, false).clicked() {
                         project.draft = project.saved;
                     }
                     archive = icon_button(ui, "Archive project", &crate::icons::ARCHIVE, true, false).clicked();

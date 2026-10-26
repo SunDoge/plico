@@ -76,8 +76,7 @@ fn date_picker(ui: &mut UiContext) {
     column(ui).width(284.).gap(8).padding_top(12) + |ui| {
         text(ui, "Date picker").font_size(15).weight(600);
         popover(ui, &mut open, label.as_str()).width(284.) + |ui| {
-            if calendar_content(ui, &mut state, WeekStart::Sunday, Some(date(25))).day_selected()
-            {
+            if calendar_content(ui, &mut state, WeekStart::Sunday, Some(date(25))).day_selected() {
                 ui.close_popover();
             }
         };

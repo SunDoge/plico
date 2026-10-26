@@ -66,12 +66,10 @@ impl Chat {
             if button(cx).text("Replay").primary().clicked() {
                 *self = Self::default();
             }
-            if button(cx).text(if self.paused { "Resume" } else { "Pause arrival" }).clicked()
-            {
+            if button(cx).text(if self.paused { "Resume" } else { "Pause arrival" }).clicked() {
                 self.paused = !self.paused;
             }
-            if button(cx).text("Send remaining").disabled(self.sent == REPLY.len()).clicked()
-            {
+            if button(cx).text("Send remaining").disabled(self.sent == REPLY.len()).clicked() {
                 self.burst();
             }
             checkbox(cx, "Reduce motion", &mut self.stream.reduced_motion);

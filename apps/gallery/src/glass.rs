@@ -81,8 +81,7 @@ impl Glass {
                 };
                 row(cx).justify(Justify::SpaceBetween).align(Align::Center) + |cx| {
                     text(cx, "02:18 / 05:30").font_size(11);
-                    if button(cx).text(if self.saved { "Unsave" } else { "Save mix" }).primary().clicked()
-                    {
+                    if button(cx).text(if self.saved { "Unsave" } else { "Save mix" }).primary().clicked() {
                         self.saved = !self.saved;
                     }
                 };

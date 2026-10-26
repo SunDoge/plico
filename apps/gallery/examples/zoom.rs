@@ -29,8 +29,7 @@ impl View for Demo {
             text(cx, "Ctrl + / Ctrl − / Ctrl 0 · macOS also supports Command").font_size(14).color(Color::Muted);
             column(cx).padding(22).gap(16).radius(12.).background(Color::Panel).border(1., Color::Border) + |cx| {
                 text(cx, "Try the controls at every scale").font_size(20).weight(600);
-                if button(cx).text(format!("Clicked {} times", self.count)).primary().clicked()
-                {
+                if button(cx).text(format!("Clicked {} times", self.count)).primary().clicked() {
                     self.count += 1;
                 }
                 text_input(cx, "Zoomed editor", &self.editor).placeholder("Type, select and try an IME here");
