@@ -2,6 +2,11 @@
 use plico_motion::{Animated, Easing};
 use std::time::Duration;
 
+/// Sidebar width at rest, expanded.
+pub const SIDEBAR_EXPANDED: f64 = 200.;
+/// Sidebar width at rest, collapsed to icon-only navigation.
+pub const SIDEBAR_COMPACT: f64 = 72.;
+
 /// Retargets are idempotent (an unchanged target keeps the current flight) and
 /// reduced motion snaps inside `Animated`, so this wrapper only owns the
 /// injected instant and one scalar per animated value.
@@ -55,7 +60,11 @@ impl Animations {
         let duration = Duration::from_millis(260);
         self.sidebar.retarget(
             self.now,
-            if compact { 72. } else { 200. },
+            if compact {
+                SIDEBAR_COMPACT
+            } else {
+                SIDEBAR_EXPANDED
+            },
             duration,
             Easing::EaseOut,
         );
