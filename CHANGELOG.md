@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/SunDoge/plico/compare/v0.1.2...v0.1.3) - 2026-10-26
+
+### Added
+
+- *(ui)* add hover responses and cached network animation gallery
+
+### Fixed
+
+- *(fmt)* join braces after packing if conditions
+
+### Other
+
+- *(deps)* bump cairo-rs from 0.18.5 to 0.22.9
+- *(deps)* use upstream glifo without local patches
+
 ## [0.1.2](https://github.com/SunDoge/plico/compare/v0.1.1...v0.1.2) - 2026-10-26
 
 ### Added
