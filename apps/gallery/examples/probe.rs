@@ -56,6 +56,7 @@ fn page_from(name: &str) -> Page {
         "2048" => Page::Game2048,
         "markdown" => Page::Markdown,
         "glass" => Page::Glass,
+        "images" => Page::Images,
         _ => panic!("unknown page {name}"),
     }
 }

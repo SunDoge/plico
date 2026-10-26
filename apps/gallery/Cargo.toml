@@ -9,6 +9,7 @@ default-run = "gallery"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+snafu.workspace = true
 plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
 plico-core.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
@@ -18,7 +19,7 @@ serde = { workspace = true, features = ["derive"] }
 [features]
 abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-vello"]
+desktop = ["dep:plico-vello", "dep:plico-renderer", "dep:ureq", "dep:directories"]
 profiling = ["plico-vello/profiling"]
 
 [[bin]]
@@ -36,6 +37,7 @@ name = "capture"
 required-features = ["desktop"]
 
 [dev-dependencies]
+image = { workspace = true, features = ["gif"] }
 plico-renderer = { workspace = true }
 plico-shell = { workspace = true }
 usage-rs = { workspace = true }
@@ -67,3 +69,17 @@ plico-editor = { path = "../../crates/plico-editor" }
 [[example]]
 name = "zoom"
 required-features = ["desktop"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ureq]
+version = "3.5"
+default-features = false
+features = ["rustls"]
+optional = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.directories]
+workspace = true
+optional = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.plico-renderer]
+workspace = true
+optional = true

@@ -49,6 +49,12 @@ struct Options {
     menu: bool,
     #[usage(long)]
     tooltip: bool,
+    /// Image format for the network image page: webp or gif.
+    #[usage(long, default = "webp")]
+    image_format: String,
+    /// Image playback position in milliseconds.
+    #[usage(long, default = "0")]
+    image_ms: u64,
     /// Render the Glass page with backdrop blur disabled, for diffing.
     #[usage(long)]
     glass_off: bool,
@@ -80,10 +86,11 @@ fn run() -> Result<(), Error> {
         "markdown" => Page::Markdown,
         "glass" => Page::Glass,
         "calendar" => Page::Calendar,
+        "images" => Page::Images,
         _ => {
             return Err(Error::Input {
                 message:
-                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass or calendar"
+                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass, calendar or images"
                         .into(),
             });
         }
@@ -100,6 +107,76 @@ fn run() -> Result<(), Error> {
         router: plico_core::Router::new(page),
         ..Default::default()
     };
+    if page == Page::Images {
+        use gallery::images::Format;
+        use plico_renderer::image_surface::ImageSurface;
+        let format = match options.image_format.as_str() {
+            "webp" => Format::WebP,
+            "gif" => Format::Gif,
+            _ => {
+                return Err(Error::Input {
+                    message: "image-format must be webp or gif".into(),
+                });
+            }
+        };
+        app.images
+            .load_for_capture(format)
+            .map_err(|message| Error::Input { message })?;
+        let clock = plico_core::VirtualClock::default();
+        let widget = ImageSurface::with_clock(
+            app.images.surface.clone(),
+            std::sync::Arc::new(clock.clone()),
+        );
+        let mut source = plico_vello::SurfaceSource::new(
+            gallery::images::GalleryHost { app },
+            widget,
+            "image-preview",
+        );
+        let mut text = TextContext::new();
+        let nodes = source.build_frame(&mut text, options.width, options.height);
+        if let Some(error) = &source.source.last_error {
+            return Err(Error::Input {
+                message: error.to_string(),
+            });
+        }
+        let mut scene = Scene::new();
+        source.paint_scene(
+            &mut scene,
+            &nodes,
+            &mut text,
+            (options.width, options.height),
+            1.,
+        );
+        clock
+            .advance(std::time::Duration::from_millis(options.image_ms))
+            .map_err(|e| Error::Input {
+                message: e.to_string(),
+            })?;
+        let nodes = source.build_frame(&mut text, options.width, options.height);
+        if let Some(error) = &source.source.last_error {
+            return Err(Error::Input {
+                message: error.to_string(),
+            });
+        }
+        let mut scene = Scene::new();
+        source.paint_scene(
+            &mut scene,
+            &nodes,
+            &mut text,
+            (options.width, options.height),
+            1.,
+        );
+        plico_shell::renderer::render_to_png(
+            &scene,
+            options.width,
+            options.height,
+            source.base_color(),
+            &options.out.to_string_lossy(),
+        )
+        .context(RenderSnafu)?;
+        println!("wrote {}", options.out.display());
+        return Ok(());
+    }
     if options.markdown_complete {
         app.markdown_chat.burst();
         app.markdown_chat.stream.reduced_motion = true;

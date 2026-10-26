@@ -95,13 +95,11 @@ impl DeclareView for Settings {
                         .disabled(!self.router.can_back()).clicked()
                     {
                         self.router.back();
-                        cx.request_rebuild();
                     }
                     if button(cx).icon(&icons::ARROW_RIGHT).aria_label("Forward")
                         .disabled(!self.router.can_forward()).clicked()
                     {
                         self.router.forward();
-                        cx.request_rebuild();
                     }
                     checkbox(cx, "Dark theme", &mut self.dark);
                 };
@@ -118,7 +116,6 @@ impl DeclareView for Settings {
                         && button(cx).icon(&icons::PANEL_RIGHT).text("Details").clicked()
                     {
                         self.inspector = !self.inspector;
-                        cx.request_rebuild();
                     }
                 };
                 match self.router.current() {
@@ -164,7 +161,6 @@ impl Settings {
                 .width_percent(100.).text(if expanded { "Collapse" } else { "" }).clicked()
             {
                 self.compact = !self.compact;
-                cx.request_rebuild();
             }
             if expanded {
                 text(cx, "Backend playground").font_size(12).color(Color::Muted);
@@ -216,7 +212,6 @@ impl Settings {
                                 {
                                     self.selected_project = id;
                                     self.inspector = true;
-                                    cx.request_rebuild();
                                 }
                             };
                         });
@@ -237,7 +232,6 @@ impl Settings {
                             text(cx, "Ready to sync").color(Color::Accent);
                             if button(cx).text("Close details").clicked() {
                                 self.inspector = false;
-                                cx.request_rebuild();
                             }
                         };
                     };

@@ -51,3 +51,10 @@ Lists 页提供 10,000 条固定行高数据，通过 virtual_list 仅声明可�
 ## 2048
 
 侧栏新增 2048，参考本地 MyGo 实现，包含规则、滑动/合并动画、按键与屏幕方向按钮。原生与可重载模块共享 App 按键处理，棋盘状态可随模块激活延续。实现边界、对比和截图命令见 [2048 文档](2048.md)。
+
+## Images
+
+桌面 gallery 的 Images 页展示网络加载的 WebP/GIF 动图、磁盘缓存、暂停与重播。
+宿主的 `GalleryHost` 管理下载，`SurfaceSource` 挂载框架的 `ImageSurface`；
+UI 只发送请求和读取加载状态。普通主窗口不解析参数，截图工具可用 `--page images`。
+详情见 [图片与动画](images.md)。

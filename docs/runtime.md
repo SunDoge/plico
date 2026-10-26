@@ -5,13 +5,13 @@
 
 当前 gallery 使用 Gallery struct 的普通字段。Ui 的引用和布局闭包只活在当前声明调用中。Button::clicked() 同步消费 Engine 中已排队的点击；switch / checkbox 接受短期 &mut bool，修改后返回是否发生变化，不保存借用。
 
-当前没有框架级 ui.state。原 view-repr 的状态句柄、revision 和快照机制尚未迁入。
+组件局部状态可用 `ui.state`；业务持久状态与宿主资源的边界见 [local state 与任务](local-state-and-tasks.md)。
 
 ## 帧与事件顺序
 
 核心 frame 执行一次 view，随后提交子节点顺序、清理未声明节点，并选择性执行模拟尺寸计算。frame_declarations 跳过模拟测量，由实际后端处理尺寸。
 
-View::show / App::show 现在返回 ()。消费点击/切换事件自动设置 Changes::VIEW，Source/应用协议最多重执行 8 次直到没有 VIEW 请求；稳定帧只声明一次。文字即使在事件处理前声明，也会在同帧更新。事件只消费一次，业务副作用应放在消费成功的分支。非事件变更需要 ui.request_rebuild 或宿主 request_rebuild；没有自动检测任意 Rust 字段写入。
+View::show / App::show 现在返回 ()。消费点击/切换事件自动设置 Changes::VIEW，Source/应用协议最多重执行 8 次直到没有 VIEW 请求；稳定帧只声明一次。文字即使在事件处理前声明，也会在同帧更新。事件只消费一次，业务副作用应放在消费成功的分支。按钮 clicked、受控控件 changed 等事件消费已经自动请求 settle，业务分支不必重复 request_rebuild。非事件变更需要 ui.request_rebuild 或宿主 request_rebuild；没有自动检测任意 Rust 字段写入。
 
 平台可能在一次呈现前交付多个事件。prepare_for_event 必须提交前一事件引起的状态和布局，再处理下一事件，防止继续用过时几何命中。当前 Wabou adapter 已有对应回归测试。
 
@@ -48,3 +48,25 @@ View::show / App::show 现在返回 ()。消费点击/切换事件自动设置 C
 核心 Changes 包含 VIEW / LAYOUT / PAINT / SEMANTICS / ANIMATE / STRUCTURE。VIEW 是收敛请求，ANIMATE 是下一帧请求；其余由声明差异与缓存统计产生。应用无需手工维护 changed。后端合并多次稳定化声明的 dirty journal，局部比较 retained 节点；结构变化或声明失败后的恢复采用完整同步。详见 [增量执行](incremental.md)。
 
 时间来自宿主注入的 Clock 和 FrameTime，同帧收敛不推进时间，参见 [clock.md](clock.md)。自动身份见 [identity.md](identity.md)。
+
+## Hover 与点击
+
+```rust,ignore
+let response = button(cx).text("Open").response();
+if response.hovered() {
+    // 声明预览或提示，不要在每次声明时重复发起任务。
+}
+if response.clicked() {
+    self.open();
+}
+```
+
+`Response` 是 Copy 值，不持有 Ui 借用或闭包；读取 hovered 不消费事件。
+悬停是当前宿主输入状态，点击也可以来自键盘或无障碍操作，因此不要嵌套判断。
+禁用按钮不报告 hovered；指针离开/取消后会清除。普通 `button` 与自定义
+`button_base(...).children(...)` 的 response 都支持 hovered。容器 response 不表示
+任意矩形命中。纯外观用 `.hover_background(...)`，不必在业务代码分支。
+
+静态宿主将 hover identity 同步到 Engine；模块协议按逻辑路径传递，native reload
+与 split wasm replay 在路径变化时自动稳定化，不依赖模块侧 arena handle。
+Gallery 的 Controls → Hover and activation 提供示例，不需要 request_rebuild。

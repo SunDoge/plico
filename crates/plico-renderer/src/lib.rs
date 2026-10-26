@@ -42,3 +42,5 @@ pub use widget::{
 };
 
 mod style_ir;
+
+pub mod image_surface;

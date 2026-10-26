@@ -254,7 +254,6 @@ impl<'s> Modal<'_, '_, 's> {
         dismissed |= portal.engine.clicked(entity);
         if dismissed && state.open {
             state.close();
-            portal.request_rebuild();
         }
         ModalResponse {
             inner: Some(inner),
@@ -380,7 +379,6 @@ impl<'s> Popover<'_, '_, 's> {
             } else {
                 self.modal.state.open();
             }
-            ui.request_rebuild();
         }
         self.modal.anchor = Some(anchor);
         self.modal.children(build)
