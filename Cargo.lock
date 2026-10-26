@@ -464,7 +464,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "backend-settings"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "fltk",
  "plico-core",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "gallery"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "directories",
  "image",
@@ -2456,7 +2456,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "plico-renderer",
@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "lvgl-esp32p4"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "plico-lvgl",
@@ -3607,7 +3607,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plico-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cargo_metadata",
  "notify",
@@ -3625,7 +3625,7 @@ dependencies = [
 
 [[package]]
 name = "plico-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bitflags 2.13.2",
  "plico-macros",
@@ -3642,7 +3642,7 @@ dependencies = [
 
 [[package]]
 name = "plico-dev"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libloading 0.9.0",
  "plico-core",
@@ -3658,7 +3658,7 @@ dependencies = [
 
 [[package]]
 name = "plico-editor"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "floem-editor-core",
  "parley",
@@ -3669,7 +3669,7 @@ dependencies = [
 
 [[package]]
 name = "plico-fltk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "fltk",
  "plico-core",
@@ -3679,7 +3679,7 @@ dependencies = [
 
 [[package]]
 name = "plico-lvgl"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cc",
  "lightvgl-sys",
@@ -3693,7 +3693,7 @@ dependencies = [
 
 [[package]]
 name = "plico-macros"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3703,7 +3703,7 @@ dependencies = [
 
 [[package]]
 name = "plico-markdown"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "pulldown-cmark",
@@ -3714,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "plico-motion"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3723,7 +3723,7 @@ dependencies = [
 
 [[package]]
 name = "plico-native"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ashpd",
  "cairo-rs 0.22.9",
@@ -3743,7 +3743,7 @@ dependencies = [
 
 [[package]]
 name = "plico-renderer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -3773,7 +3773,7 @@ dependencies = [
 
 [[package]]
 name = "plico-runtime"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gallery",
  "notify",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "plico-shell"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -3835,7 +3835,7 @@ dependencies = [
 
 [[package]]
 name = "plico-skia"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ash",
  "ash-window",
@@ -3851,7 +3851,7 @@ dependencies = [
 
 [[package]]
 name = "plico-terminal"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "percent-encoding",
@@ -3868,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "plico-vello"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gallery",
  "image",
@@ -3887,7 +3887,7 @@ dependencies = [
 
 [[package]]
 name = "plico-web-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gallery",
  "js-sys",
@@ -4592,7 +4592,7 @@ dependencies = [
 
 [[package]]
 name = "services-demo"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "plico-dev",
@@ -5157,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "plico-renderer",
@@ -6001,7 +6001,7 @@ dependencies = [
 
 [[package]]
 name = "web-demo"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "plico-core",
  "plico-dev",
