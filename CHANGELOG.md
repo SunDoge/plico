@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/SunDoge/plico/compare/v0.1.3...v0.1.4) - 2026-10-26
+
+### Added
+
+- *(motion)* add analytic spring flights to the Animated facade
+- *(motion)* add an Animated scalar facade for app-driven tweens
+
+### Fixed
+
+- *(motion)* align Animated.active with value's elapsed clock and drop dead state
+- *(renderer)* compare observable image-surface state instead of Arc identity
+
+### Other
+
+- *(image)* cache encoded assets and reuse borrowed cache keys
+- *(text)* avoid layout invalidation for color-only spans
+
 ## [0.1.3](https://github.com/SunDoge/plico/compare/v0.1.2...v0.1.3) - 2026-10-26
 
 ### Added
