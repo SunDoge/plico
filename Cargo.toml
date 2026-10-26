@@ -1,9 +1,22 @@
+[package]
+name = "examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+plico-core.workspace = true
+plico-dev.workspace = true
+plico-vello = { path = "crates/plico-vello", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
 exclude = ["crates/plico-vello/reference", "vendor/global-hotkey"]
 # The immediate-mode mainline: core engine, CLI, and the gallery app.
-default-members = ["crates/plico-core", "crates/plico-cli", "apps/gallery"]
+default-members = [".", "crates/plico-core", "crates/plico-cli", "apps/gallery"]
 
 [workspace.package]
 version = "0.1.0"

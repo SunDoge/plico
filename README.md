@@ -58,6 +58,8 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 }
 ```
 
+Run the complete [counter example](examples/counter.rs) with `cargo run --example counter`.
+
 Use it inside `plico_dev::App::show`. Application state remains normal Rust data;
 components do not need a trait implementation. See [authoring](docs/authoring.md)
 and [local state and tasks](docs/local-state-and-tasks.md).
@@ -67,6 +69,7 @@ and [local state and tasks](docs/local-state-and-tasks.md).
 From this checkout:
 
 ```sh
+cargo run --example counter
 cargo run -p gallery
 cargo run -p launcher
 cargo run -p backend-settings

@@ -10,7 +10,7 @@ GROUPS = {
     "core": ["plico-cli", "plico-dev", "plico-core", "plico-macros", "plico-editor",
              "plico-motion", "plico-markdown", "plico-native", "plico-terminal", "web-demo"],
     "rendering": ["plico-renderer", "plico-shell", "plico-runtime", "plico-vello"],
-    "apps": ["gallery", "plico-web-host", "launcher", "services-demo", "terminal"],
+    "apps": ["examples", "gallery", "plico-web-host", "launcher", "services-demo", "terminal"],
 }
 # These packages have dedicated backend jobs, or require physical ESP hardware.
 SEPARATE = {"plico-fltk", "plico-lvgl", "lvgl-esp32p4", "plico-skia", "backend-settings"}
