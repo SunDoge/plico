@@ -13,7 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 plico-renderer = { path = "../plico-renderer" }
 plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
-accesskit = "0.24.1"
+accesskit = "0.25.1"
 futures-util = "0.3"
 glifo = { workspace = true, features = ["png"] }
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
