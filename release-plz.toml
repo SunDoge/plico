@@ -76,3 +76,11 @@ changelog_include = [
     "web-demo",
     "plico-web-host",
 ]
+
+# This unpublished helper is versioned through workspace.package.version only.
+# It did not exist at v0.1.1; git_only reconstruction otherwise fails on that tag.
+# Disable both release analysis and Git-baseline lookup for this package.
+[[package]]
+name = "examples"
+release = false
+git_only = false

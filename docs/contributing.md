@@ -82,7 +82,10 @@ Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不
 不使用默认的逐 package changelog 标题；`plico-cli` 只是内部发布锚点，不代表只发布 CLI。
 其他 package 的变更汇总进根 `CHANGELOG.md`。
 第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
-新增 workspace 成员时，将它加入 `changelog_include`。
+新增 workspace 成员时，将它加入 `changelog_include`。根目录非发布 `examples`
+只通过继承 workspace 版本升级，配置 `release = false` 与 `git_only = false`：
+它不存在于 `v0.1.1` 的 workspace 中，release-plz 0.4.0 按共享旧 tag 重建它会失败。
+不要改写已发布 tag。新增其他成员时，也需检查发布基线是否包含该成员。
 
 仓库 Settings → Actions → General 必须允许 Actions 创建 PR。
 workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触发后续 CI。
