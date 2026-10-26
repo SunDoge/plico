@@ -53,11 +53,8 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         self.app.theme()
     }
     fn on_unhandled_key(&mut self, key: &crate::KeyEvent) -> bool {
-        if !key.modifiers.is_empty() {
-            return false;
-        }
         self.refresh_snapshot();
-        let handled = self.app.on_key(&key.key, &mut self.context);
+        let handled = self.app.on_key_event(key, &mut self.context);
         let commands = self.context.take_commands();
         if handled {
             for command in commands {

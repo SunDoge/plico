@@ -7,6 +7,11 @@ mod clock;
 mod engine;
 pub mod icons;
 mod input;
+mod keyboard;
+pub use keyboard::{
+    KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, ShortcutConflict, ShortcutMap,
+    StandardShortcut,
+};
 mod layout;
 mod local;
 mod storage;
@@ -145,8 +150,9 @@ pub mod prelude {
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
         FontFamily, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
-        InputResponse, Justify, Length, Metrics, ModalState, Motion, PopoverState, Position,
-        Response, Route, Router, SelectOption, SelectResponse, ShaderAsset, SliderResponse,
+        InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, Metrics, ModalState,
+        Modifiers, Motion, PopoverState, Position, Response, Route, Router, SelectOption,
+        SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut,
         SvgAsset, TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
         VirtualListResponse, Widget, component, fr, minmax, percent, px, text,
     };

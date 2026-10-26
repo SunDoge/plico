@@ -100,6 +100,17 @@ pub trait ServiceApp: Default + Serialize + DeserializeOwned {
     ) -> bool {
         false
     }
+    /// Full fallback event; standard controls and IME retain priority.
+    fn on_key_event(
+        &mut self,
+        key: &crate::KeyEvent,
+        services: &mut Services<Self::Snapshot, Self::Command>,
+    ) -> bool {
+        key.phase == crate::KeyPhase::Down
+            && !key.synthetic
+            && key.modifiers.is_empty()
+            && self.on_key(&key.key, services)
+    }
 }
 struct ServiceModule<A: ServiceApp> {
     app: A,
@@ -151,6 +162,9 @@ impl<A: ServiceApp> App for ServiceModule<A> {
     }
     fn set_frame_time(&mut self, time: FrameTime) {
         self.app.set_frame_time(time);
+    }
+    fn on_key_event(&mut self, key: &crate::KeyEvent) -> bool {
+        self.app.on_key_event(key, &mut self.services)
     }
     fn on_key(&mut self, key: &str) -> bool {
         self.app.on_key(key, &mut self.services)

@@ -7,12 +7,20 @@ publish = false
 
 [features]
 default = []
+global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
 linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru"]
 
 [dependencies]
 snafu.workspace = true
+serde_json = { workspace = true, optional = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+global-hotkey = { version = "0.9", path = "../../vendor/global-hotkey", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13.13", default-features = false, features = ["tokio", "global_shortcuts"], optional = true }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"], optional = true }
+futures-util = { version = "0.3", optional = true }
 cairo-rs = { version = "0.18", optional = true }
 pango = { version = "0.18", optional = true }
 pangocairo = { version = "0.18", optional = true }

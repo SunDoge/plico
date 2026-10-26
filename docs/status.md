@@ -21,6 +21,8 @@ Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 - 虚拟列表、smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
 - 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
+- [窗口内快捷键](shortcuts.md)：App/ServiceApp 完整组合键、显式作用域 action 表、冲突检查，以及静态/热重载一致的事件转发。
+- [可选系统全局热键](global-hotkeys.md)：plico-native 管理注册与状态，shell extension 负责唤醒和注销。X11 后台触发/冲突/释放已实测，Windows/macOS 通过交叉编译；Wayland portal 已接入并编译，但真实桌面授权与 activation token 聚焦尚未验收。
 - usage-rs CLI、plico fmt、应用目录选择与 dev/run 分离。
 - plico icons add/check：应用拥有选择集合、生成 Rust、清单和许可证，核心仅内置四个控件图标。
 - launcher、terminal、services-demo；编辑器和 WASM 入口保留。

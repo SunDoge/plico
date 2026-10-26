@@ -478,9 +478,6 @@ impl<S: HostService> ReloadView<S> {
 }
 impl<S: HostService> View for ReloadView<S> {
     fn on_unhandled_key(&mut self, key: &plico_renderer::KeyEvent) -> bool {
-        if !key.modifiers.is_empty() {
-            return false;
-        }
         let services = match serde_json::to_value(self.services.snapshot()) {
             Ok(value) => value,
             Err(error) => {
@@ -492,7 +489,7 @@ impl<S: HostService> View for ReloadView<S> {
             services,
             state: self.state.clone(),
             resume: self.session_valid,
-            keys: vec![key.key.clone()],
+            key_events: vec![key.clone()],
             time: self.time,
             viewport: Some(self.viewport),
             scroll_viewports: self.scroll_viewports.clone(),

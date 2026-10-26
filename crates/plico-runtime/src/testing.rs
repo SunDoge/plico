@@ -39,6 +39,10 @@ pub enum Command {
     Key {
         key: String,
     },
+    /// Full keyboard input for combinations, physical codes and repeat tests.
+    KeyEvent {
+        event: KeyEvent,
+    },
 }
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -134,6 +138,9 @@ pub fn dispatch<V: View>(
         }
         Command::Text { text } => {
             source.handle_event(UiEvent::TextInput(text.clone()));
+        }
+        Command::KeyEvent { event } => {
+            source.handle_event(UiEvent::Key(event.clone()));
         }
         Command::Key { key } => {
             source.handle_event(UiEvent::Key(KeyEvent {

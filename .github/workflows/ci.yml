@@ -65,7 +65,7 @@ jobs:
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
       - name: Lint the mainline without optional backend SDKs
         if: steps.changes.outputs.build == 'true'
-        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello,plico-shell/global-hotkeys --all-targets -- -D warnings
       - name: Verify the semantic test protocol without a window
         if: steps.changes.outputs.build == 'true'
         run: cargo test --locked -p plico-runtime --test test_protocol
@@ -85,4 +85,4 @@ jobs:
           toolchain: stable
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check mainline applications and libraries compile on Windows
-        run: cargo check --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello --all-targets
+        run: cargo check --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello,plico-shell/global-hotkeys --all-targets
