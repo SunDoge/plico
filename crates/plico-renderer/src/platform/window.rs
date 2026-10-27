@@ -52,8 +52,8 @@ pub enum RenderBackend {
     Vello,
     /// Experimental Skia Vulkan consumer; requires the shell's `skia` feature.
     Skia,
-    /// Experimental egui/epaint tessellation consumer; requires the shell's
-    /// `egui` feature.
+    /// Experimental native egui controls with Taffy geometry; requires the
+    /// shell's `egui` feature and a native-widget frame source.
     Egui,
 }
 

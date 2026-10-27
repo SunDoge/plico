@@ -62,6 +62,18 @@ pub use crate::platform::{
 /// [`WakeCallback`] plus the polling/drain methods; it must never call into
 /// layout, widgets, or the renderer directly.
 pub trait FrameSource {
+    /// Declare a frame for a native-widget backend, bypassing Scene encoding.
+    /// The backend owns text measurement, layout and control interaction.
+    fn native_widget_frame(&mut self, _size: [f32; 2]) -> Option<&mut plico_core::Engine> {
+        None
+    }
+
+    /// A native control queued input; schedule another declaration to consume it.
+    fn native_widget_input_changed(&mut self) {}
+
+    /// Schedule a backend-owned repaint without an unconditional frame loop.
+    fn native_widget_repaint_after(&mut self, _delay: std::time::Duration) {}
+
     /// Inform the source of the physical-pixels-per-logical-pixel ratio before
     /// it builds widget scene fragments for this frame.
     fn set_device_scale(&mut self, _scale: f64) {}

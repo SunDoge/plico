@@ -12,16 +12,14 @@ use fltk::{
     widget::Widget,
     window::Window,
 };
+use plico_core::taffy_layout::style as layout_style;
 use plico_core::{Clock, DeclareView, Engine, Entity, FrameTime, Kind, Style, Theme};
 use snafu::{ResultExt, Snafu};
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
 };
-use taffy::{
-    prelude::*,
-    style_helpers::{auto, length, percent},
-};
+use taffy::prelude::*;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -605,102 +603,6 @@ impl Adapter {
         }
         Ok(())
     }
-}
-fn layout_style(kind: Kind, s: Style, grid: Option<&plico_core::GridTemplate>) -> taffy::Style {
-    let mut style = taffy::Style {
-        flex_direction: if matches!(kind, Kind::Row | Kind::ButtonBase) {
-            FlexDirection::Row
-        } else {
-            FlexDirection::Column
-        },
-        align_items: if matches!(kind, Kind::Root | Kind::Column) {
-            AlignItems::STRETCH
-        } else {
-            AlignItems::CENTER
-        },
-        size: Size {
-            width: s
-                .width_percent
-                .map_or_else(|| s.width.map_or(auto(), length), |v| percent(v / 100.)),
-            height: s
-                .height_percent
-                .map_or_else(|| s.height.map_or(auto(), length), |v| percent(v / 100.)),
-        },
-        min_size: Size {
-            width: s.min_width.map_or(length(0.), length),
-            height: s.min_height.map_or(auto(), length),
-        },
-        max_size: Size {
-            width: s.max_width.map_or(auto(), length),
-            height: s.max_height.map_or(auto(), length),
-        },
-        padding: Rect {
-            left: length(s.horizontal_padding()),
-            right: length(s.horizontal_padding()),
-            top: length(s.vertical_padding()),
-            bottom: length(s.vertical_padding()),
-        },
-        gap: Size {
-            width: length(s.gap),
-            height: length(s.gap),
-        },
-        overflow: taffy::Point {
-            x: if s.clip {
-                taffy::Overflow::Hidden
-            } else {
-                taffy::Overflow::Visible
-            },
-            y: if s.scroll_y {
-                taffy::Overflow::Scroll
-            } else if s.clip {
-                taffy::Overflow::Hidden
-            } else {
-                taffy::Overflow::Visible
-            },
-        },
-        scrollbar_width: if s.scroll_y { 16. } else { 0. },
-        border: Rect {
-            left: length(s.border_width),
-            right: length(s.border_width),
-            top: length(s.border_width),
-            bottom: length(s.border_width),
-        },
-        flex_grow: s.grow,
-        flex_shrink: s.shrink,
-        flex_wrap: if s.wrap {
-            FlexWrap::Wrap
-        } else {
-            FlexWrap::NoWrap
-        },
-        ..Default::default()
-    };
-    if let Some(align) = s.align {
-        style.align_items = match align {
-            plico_core::Align::Start => AlignItems::START,
-            plico_core::Align::End => AlignItems::END,
-            plico_core::Align::Center => AlignItems::CENTER,
-            plico_core::Align::Stretch => AlignItems::STRETCH,
-            plico_core::Align::Baseline => AlignItems::BASELINE,
-        };
-    }
-    if let Some(justify) = s.justify {
-        style.justify_content = match justify {
-            plico_core::Justify::Start => JustifyContent::START,
-            plico_core::Justify::End => JustifyContent::END,
-            plico_core::Justify::Center => JustifyContent::CENTER,
-            plico_core::Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
-            plico_core::Justify::SpaceAround => JustifyContent::SPACE_AROUND,
-            plico_core::Justify::SpaceEvenly => JustifyContent::SPACE_EVENLY,
-            plico_core::Justify::Stretch => JustifyContent::STRETCH,
-        };
-    }
-    if let Some([left, top]) = s.absolute {
-        style.position = Position::Absolute;
-        style.inset.left = length(left);
-        style.inset.top = length(top);
-    }
-    super::layout_style::apply(&mut style, s, grid);
-    style
 }
 /// Event-driven host. Active application animations are sampled at most 60 Hz;
 /// once their ANIMATE request clears, the host returns to blocking native waits.

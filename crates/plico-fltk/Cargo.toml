@@ -8,7 +8,7 @@ description = "Experimental native FLTK controls with Plico declarations and Taf
 
 [features]
 default = []
-native = ["dep:fltk"]
+native = ["dep:fltk", "plico-core/taffy"]
 
 [dependencies]
 plico-core.workspace = true

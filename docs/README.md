@@ -18,6 +18,7 @@
 | [后端清理](backend-cleanup.md) | 当前 crate 划分、删除的旧协议与保留边界 |
 | [Crate 命名与迁移](crate-names.md) | Vello 后端、Web host 与 Web demo 的新名称及外部应用迁移 |
 | [架构与后端边界](architecture.md) | 节点身份、保留存储、声明协调、Wabou 与 Bevy |
+| [egui 原生控件后端](egui.md) | Plico 声明、Taffy 外部布局与 egui 文字/控件，替代 Scene 回放实验 |
 | [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
 | [同步 local state 与宿主任务](local-state-and-tasks.md) | 组件局部状态、按需重建、宿主任务取消与迟到结果隔离 |

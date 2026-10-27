@@ -30,6 +30,69 @@ impl WindowRenderer {
             renderer.configure_text(_text);
         }
     }
+    pub(crate) fn build_native(
+        &mut self,
+        _source: &mut dyn plico_renderer::FrameSource,
+        _size: [u32; 2],
+        _scale: f64,
+    ) -> Option<(usize, f64, f64)> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return Some(renderer.build(_source, _size, _scale).unwrap_or_default());
+        }
+        None
+    }
+    pub(crate) fn event(
+        &mut self,
+        _event: &plico_renderer::UiEvent,
+    ) -> Option<plico_renderer::EventResponse> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.event(_event);
+        }
+        None
+    }
+    pub(crate) fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.take_host_action();
+        }
+        None
+    }
+    pub(crate) fn ime_state(&self) -> Option<plico_renderer::ImeState> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.ime_state();
+        }
+        None
+    }
+    pub(crate) fn pointer_cursor(&self) -> Option<plico_renderer::style::CursorStyle> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return Some(renderer.pointer_cursor());
+        }
+        None
+    }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
             Self::Vello(_) => None,
@@ -93,9 +156,14 @@ impl WindowRenderer {
                 active,
                 transparent,
             } => {
-                let mut renderer = plico_egui::EguiWindow::new(window, *transparent);
+                let mut renderer =
+                    plico_egui::EguiWindow::new(window, *transparent).map_err(|error| {
+                        crate::Error::Renderer {
+                            message: error.to_string(),
+                        }
+                    })?;
                 renderer.resize(width, height);
-                tracing::info!("egui epaint window renderer initialized");
+                tracing::info!("egui native-widget window renderer initialized");
                 *active = Some(Box::new(renderer));
             }
             #[cfg(feature = "skia")]

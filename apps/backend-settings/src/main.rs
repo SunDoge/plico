@@ -104,7 +104,7 @@ fn run() -> Result<(), Error> {
                 )
                 .init();
             plico_shell::run_window_with_options(
-                Box::new(plico_runtime::Source::new(
+                Box::new(plico_egui::Source::new(
                     backend_settings::Settings::default(),
                 )),
                 plico_renderer::WindowOptions::new()
