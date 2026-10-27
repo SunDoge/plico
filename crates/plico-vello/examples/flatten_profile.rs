@@ -75,25 +75,34 @@ struct App {
 impl View for App {
     #[component]
     #[rustfmt::skip]
-    fn show(&mut self,cx:&mut UiContext) {
-        if matches!(self.case,Case::VirtualScroll) {
-            virtual_list(cx,self.rows,24.).width(780.).height(560.).smooth_scroll(false).rows(
-                |i|i, |cx,_| {text(cx,"Retained row");}
+    fn show(&mut self, cx: &mut UiContext) {
+        if matches!(self.case, Case::VirtualScroll) {
+            virtual_list(cx, self.rows, 24.).width(780.).height(560.).smooth_scroll(false).rows(
+                |i| i,
+                |cx, _| {
+                    text(cx, "Retained row");
+                },
             );
             return;
         }
-        let alpha=if self.flip&&matches!(self.case,Case::Opacity) {0.8} else {1.};
+        let alpha = if self.flip && matches!(self.case, Case::Opacity) { 0.8 } else { 1. };
         column(cx).width(780.).height(560.).scroll_y(true).smooth_scroll(false).opacity(alpha) + |cx| {
             for index in 0..self.rows {
-                let first=index==0;
-                let fill=if first&&self.flip&&matches!(self.case,Case::Color) {Color::Accent} else {Color::Panel};
-                let width=if first&&self.flip&&matches!(self.case,Case::Size) {779.} else {780.};
-                let x=if first&&self.flip&&matches!(self.case,Case::Translate) {3.} else {0.};
-                row(cx).key(index).width(width).height(24.).shrink(0.).background(fill).translate(x,0.) + |cx| {
-                    text(cx,"Retained row");
+                let first = index == 0;
+                let fill = if first && self.flip && matches!(self.case, Case::Color) {
+                    Color::Accent
+                } else {
+                    Color::Panel
+                };
+                let width = if first && self.flip && matches!(self.case, Case::Size) { 779. } else { 780. };
+                let x = if first && self.flip && matches!(self.case, Case::Translate) { 3. } else { 0. };
+                row(cx).key(index).width(width).height(24.).shrink(0.).background(fill).translate(x, 0.) + |cx| {
+                    text(cx, "Retained row");
                 };
             }
-            if self.flip&&matches!(self.case,Case::Structure) {text(cx,"Conditional row");}
+            if self.flip && matches!(self.case, Case::Structure) {
+                text(cx, "Conditional row");
+            }
         };
     }
 }

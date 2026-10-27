@@ -333,17 +333,17 @@ impl Gallery {
                 ).font_size(12).color(Color::Muted);
             };
             release_channel(ui, &mut self.channel_select, &mut self.release_details);
-            column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1.,Color::Border) + |ui| {
-                text(ui,"Avatars & ruby text").font_size(17).weight(650);
+            column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
+                text(ui, "Avatars & ruby text").font_size(17).weight(650);
                 row(ui).gap(12).align(Align::Center).wrap(true) + |ui| {
                     avatar(ui).fallback("JD").size(40.);
                     avatar(ui).fallback("花").size(40.).background(Color::Selection).color(Color::Accent);
-                    text(ui,"Images or explicit initials; loading stays in the app.").color(Color::Muted);
+                    text(ui, "Images or explicit initials; loading stays in the app.").color(Color::Muted);
                 };
                 row(ui).gap(0).align(Align::Start) + |ui| {
-                    ruby_text(ui,"夜").annotation("よる").font_size(28);
-                    ruby_text(ui,"空").annotation("そら").font_size(28);
-                    ruby_text(ui,"へ").font_size(28);
+                    ruby_text(ui, "夜").annotation("よる").font_size(28);
+                    ruby_text(ui, "空").annotation("そら").font_size(28);
+                    ruby_text(ui, "へ").font_size(28);
                 };
             };
             column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
