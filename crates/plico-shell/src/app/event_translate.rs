@@ -67,6 +67,7 @@ pub(super) fn resize_direction_at(
     width: f64,
     height: f64,
     border: f64,
+    edges: crate::WindowResizeEdges,
 ) -> Option<ResizeDirection> {
     if width <= 0.0
         || height <= 0.0
@@ -78,10 +79,10 @@ pub(super) fn resize_direction_at(
         return None;
     }
     let border = border.max(0.0).min(width * 0.5).min(height * 0.5);
-    let west = position.x <= border;
-    let east = position.x >= width - border;
-    let north = position.y <= border;
-    let south = position.y >= height - border;
+    let west = edges.contains(crate::WindowResizeEdges::LEFT) && position.x <= border;
+    let east = edges.contains(crate::WindowResizeEdges::RIGHT) && position.x >= width - border;
+    let north = edges.contains(crate::WindowResizeEdges::TOP) && position.y <= border;
+    let south = edges.contains(crate::WindowResizeEdges::BOTTOM) && position.y >= height - border;
     match (west, east, north, south) {
         (true, _, true, _) => Some(ResizeDirection::NorthWest),
         (_, true, true, _) => Some(ResizeDirection::NorthEast),

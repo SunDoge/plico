@@ -33,7 +33,7 @@ pub use source::{
     SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
     SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
     WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
-    WindowMetrics, WindowOptions,
+    WindowMetrics, WindowOptions, WindowResizeEdges,
 };
 pub use text::TextContext;
 pub use widget::{

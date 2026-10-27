@@ -63,6 +63,7 @@ fn custom_decoration_edges_map_to_native_resize_directions() {
             900.0,
             600.0,
             CUSTOM_DECORATION_RESIZE_BORDER,
+            crate::WindowResizeEdges::all(),
         )
     };
 
@@ -647,4 +648,19 @@ fn skipped_present_keeps_animation_paced_without_polling() {
         scheduled_frame_wake(false, Some(deadline), None, &mut scheduled, now),
         FrameWake::Idle
     );
+}
+
+#[test]
+fn restricted_edges_project_corners_onto_allowed_resize_axes() {
+    use crate::WindowResizeEdges as Edges;
+    let at = |x, y, edges| resize_direction_at(Point { x, y }, 900., 600., 12., edges);
+    let vertical = Edges::TOP | Edges::BOTTOM;
+    assert_eq!(at(0., 0., vertical), Some(ResizeDirection::North));
+    assert_eq!(at(899., 599., vertical), Some(ResizeDirection::South));
+    assert_eq!(at(0., 300., vertical), None);
+    assert_eq!(at(899., 300., vertical), None);
+    assert_eq!(at(899., 599., Edges::RIGHT), Some(ResizeDirection::East));
+    assert_eq!(at(0., 0., Edges::BOTTOM), None);
+    assert_eq!(at(0., 599., Edges::BOTTOM), Some(ResizeDirection::South));
+    assert_eq!(at(899., 599., Edges::empty()), None);
 }

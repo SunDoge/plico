@@ -53,7 +53,7 @@ pub struct ImeState {
 
 pub use crate::platform::event::*;
 pub use crate::platform::{
-    RenderBackend, WindowCommand, WindowInputMode, WindowLevel, WindowOptions,
+    RenderBackend, WindowCommand, WindowInputMode, WindowLevel, WindowOptions, WindowResizeEdges,
 };
 
 /// Retained UI producer consumed by the native shell.

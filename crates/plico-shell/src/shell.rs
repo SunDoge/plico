@@ -45,6 +45,7 @@ impl Shell {
         event_loop: &dyn ActiveEventLoop,
         options: &WindowOptions,
     ) -> crate::Result<Shell> {
+        let options = options.clone().normalized();
         let transparent =
             options.background != WindowBackground::Opaque || options.corner_radius > 0;
         if matches!(
@@ -73,6 +74,9 @@ impl Shell {
             ));
         if let Some((width, height)) = options.min_inner_size {
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
+        }
+        if let Some((width, height)) = options.max_inner_size {
+            attrs = attrs.with_max_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
         if options.centered
             && let Some(monitor) = event_loop

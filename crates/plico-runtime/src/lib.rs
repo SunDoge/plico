@@ -24,6 +24,7 @@ pub use plico_renderer::text::FontAsset;
 
 pub use plico_renderer::{
     HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
+    WindowResizeEdges,
 };
 
 mod input;
