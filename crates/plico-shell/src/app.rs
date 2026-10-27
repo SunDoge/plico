@@ -1596,12 +1596,18 @@ impl ExtensionContext<'_> {
         let Some(app) = find_window_by_key(self.windows.values_mut(), window_key) else {
             return false;
         };
-        let Some(shell) = app.state.as_ref() else {
+        let Some(shell) = app.state.as_mut() else {
             return false;
         };
-        let _ = shell
+        if let Some(size) = shell
             .window()
-            .request_surface_size(LogicalSize::new(f64::from(width), f64::from(height)).into());
+            .request_surface_size(LogicalSize::new(f64::from(width), f64::from(height)).into())
+        {
+            // Some platforms apply the size synchronously and need not emit a
+            // SurfaceResized event. Never keep rendering at the old extent.
+            shell.resize(size.width, size.height);
+            app.sync_window_metrics();
+        }
         true
     }
 
@@ -1609,7 +1615,13 @@ impl ExtensionContext<'_> {
     pub fn start_window_drag(&mut self, window_key: WindowResourceKey) -> bool {
         find_window_by_key(self.windows.values_mut(), window_key)
             .and_then(|app| app.state.as_ref())
-            .is_some_and(|shell| shell.window().drag_window().is_ok())
+            .is_some_and(|shell| match shell.window().drag_window() {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(?error, "native window manager rejected window drag");
+                    false
+                }
+            })
     }
 
     /// Request a physical desktop position, clamped to an available monitor.
@@ -2047,6 +2059,24 @@ pub trait ShellExtension {
 
     /// Observe an authoritative native size or scale transition.
     fn window_metrics_changed(
+        &mut self,
+        _window_key: WindowResourceKey,
+        _context: &mut ExtensionContext<'_>,
+    ) {
+    }
+
+    /// Observe primary-pointer movement in logical window coordinates before
+    /// UI dispatch, for native overlays and pointer-driven window behavior.
+    fn pointer_moved(
+        &mut self,
+        _window_key: WindowResourceKey,
+        _position: Point,
+        _context: &mut ExtensionContext<'_>,
+    ) {
+    }
+
+    /// Observe the primary pointer leaving the window, including native overlays.
+    fn pointer_left(
         &mut self,
         _window_key: WindowResourceKey,
         _context: &mut ExtensionContext<'_>,
@@ -2522,20 +2552,52 @@ impl ApplicationHandler for MultiWindowApp {
             }
             return;
         }
+        let surface_resized = matches!(&event, WindowEvent::SurfaceResized(size) if size.width > 0 && size.height > 0);
         let metrics_changed = matches!(
             &event,
             WindowEvent::SurfaceResized(_)
                 | WindowEvent::ScaleFactorChanged { .. }
                 | WindowEvent::ThemeChanged(_)
         );
-        if let WindowEvent::PointerButton { state, button, .. } = &event {
+        if let WindowEvent::PointerMoved {
+            position,
+            primary: true,
+            ..
+        } = &event
+            && let Some(app) = self.windows.get(&window_id)
+        {
+            let window_key = app.window_key;
+            let position = app.logical_pointer_position(*position);
+            let mut context =
+                Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop);
+            for extension in &mut self.extensions {
+                extension.pointer_moved(window_key, position, &mut context);
+            }
+        }
+        if matches!(&event, WindowEvent::PointerLeft { primary: true, .. })
+            && let Some(app) = self.windows.get(&window_id)
+        {
+            let window_key = app.window_key;
+            let mut context =
+                Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop);
+            for extension in &mut self.extensions {
+                extension.pointer_left(window_key, &mut context);
+            }
+        }
+        if let WindowEvent::PointerButton {
+            state,
+            button,
+            position,
+            ..
+        } = &event
+        {
             let Some(window_key) = self.windows.get(&window_id).map(|app| app.window_key) else {
                 return;
             };
             let position = self
                 .windows
                 .get(&window_id)
-                .map(|app| app.pointer_position)
+                .map(|app| app.logical_pointer_position(*position))
                 .unwrap_or_default();
             let button = pointer_button(button);
             let phase = match state {
@@ -2560,6 +2622,18 @@ impl ApplicationHandler for MultiWindowApp {
                 Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop);
             for extension in &mut self.extensions {
                 extension.window_metrics_changed(window_key, &mut context);
+            }
+            // Geometry observers may switch the view matching the new viewport.
+            // Consume that invalidation before a queued redraw, not on a later
+            // proxy wake (which may be coalesced while handling this event).
+            if let Some(app) = self.windows.get_mut(&window_id) {
+                app.drain_proxy_wake_up();
+                if surface_resized {
+                    // Submit the first frame at the new extent in this event,
+                    // rather than exposing the resized window with its old
+                    // buffer until a later RedrawRequested is dispatched.
+                    app.redraw();
+                }
             }
         }
         self.apply_extension_effects(event_loop);
