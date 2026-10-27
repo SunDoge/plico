@@ -4,9 +4,9 @@
 //! its terminal cell at every font size and device scale. Keep the geometry in
 //! logical cell coordinates and snap its stroke bounds to physical pixels.
 
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene};
-use vello_common::kurbo::{Affine, Rect};
-use vello_common::peniko::{Color, Fill};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Arms {

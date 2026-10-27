@@ -31,7 +31,8 @@ name = "system_text"
 required-features = ["linux-text"]
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+kurbo.workspace = true
+peniko.workspace = true
 plico-renderer.workspace = true
 plico-shell.workspace = true
 image = { workspace = true, features = ["png"] }
-vello-common.workspace = true

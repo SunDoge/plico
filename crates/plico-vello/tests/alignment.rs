@@ -1,8 +1,8 @@
+use kurbo::Shape;
 use plico_core::{Engine, prelude::*};
 use plico_renderer::{FrameSource, PaintCommand, TextContext, layout::PlacedNode};
 use plico_vello::{Source, View};
 use std::time::Duration;
-use vello_common::kurbo::Shape;
 static ICON: SvgAsset = SvgAsset::new(
     r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20H2Z" fill="#6597ff"/></svg>"##,
 );

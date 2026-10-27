@@ -2,13 +2,43 @@
 use super::{VulkanDevice, new_context};
 use crate::{Error, SkiaSurface};
 use ash::vk::{self, Handle};
+use peniko::Color;
 use plico_renderer::{DamageRegion, Scene};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use skia_safe::gpu;
 use snafu::ResultExt;
 use std::sync::Arc;
-use vello_common::peniko::Color;
 use winit::window::Window;
+
+#[derive(Default)]
+struct PresentationHistory {
+    previous: Option<(Scene, Color)>,
+}
+impl PresentationHistory {
+    fn unchanged(&self, scene: &Scene, background: Color) -> bool {
+        self.previous
+            .as_ref()
+            .is_some_and(|(old, color)| *color == background && old == scene)
+    }
+    fn clear(&mut self) {
+        self.previous = None;
+    }
+    fn record(&mut self, scene: &Scene, background: Color) {
+        // External/time-dependent effects are never proven unchanged solely
+        // by command equality, even if their retained handles are identical.
+        self.previous = (!scene.commands.iter().any(|c| {
+            matches!(
+                c,
+                plico_renderer::PaintCommand::Shader { .. }
+                    | plico_renderer::PaintCommand::PushLayer {
+                        filter: Some(_),
+                        ..
+                    }
+            )
+        }))
+        .then(|| (scene.clone(), background));
+    }
+}
 
 /// Direct Skia/Vulkan swapchain renderer. The window is retained until after
 /// Vulkan surfaces are destroyed. No frame readback or texture upload occurs.
@@ -29,6 +59,12 @@ pub struct SkiaWindow {
     display_history: plico_renderer::damage::SceneDamageTracker,
     display_background: Option<Color>,
     last_present_damage: DamageRegion,
+    multi_rect_damage: bool,
+    last_damage_coverage: f64,
+    last_damage_rect_count: usize,
+    present_skip: bool,
+    last_present_skipped: bool,
+    presentation: PresentationHistory,
 }
 impl SkiaWindow {
     /// Use the window's shared SkParagraph engine for ordinary text.
@@ -85,6 +121,12 @@ impl SkiaWindow {
             display_history: Default::default(),
             display_background: None,
             last_present_damage: DamageRegion::Full,
+            multi_rect_damage: false,
+            last_damage_coverage: 1.,
+            last_damage_rect_count: 1,
+            present_skip: false,
+            last_present_skipped: false,
+            presentation: Default::default(),
         };
         renderer.rebuild()?;
         Ok(renderer)
@@ -97,6 +139,47 @@ impl SkiaWindow {
     pub fn gpu_cache_stats(&self) -> super::GpuCacheStats {
         super::cache_stats(&self.context)
     }
+    /// Set the soft GPU cache budget in bytes; swapchain/live resources can exceed it.
+    pub fn set_gpu_cache_limit(&mut self, bytes: usize) {
+        self.context.set_resource_cache_limit(bytes);
+    }
+    /// Release unlocked GPU resources while preserving live swapchain contents.
+    pub fn trim_gpu_cache(&mut self) {
+        super::trim_gpu_cache(&mut self.context);
+    }
+    /// Opt into skipping acquisition/submission when the last successfully
+    /// displayed scene is identical. Resize/recreation and explicit invalidation
+    /// always require a real present. Disabled by default for A/B testing.
+    pub fn set_present_skip(&mut self, enabled: bool) {
+        if self.present_skip != enabled {
+            self.presentation.clear();
+        }
+        self.present_skip = enabled;
+    }
+    /// Whether the most recent accepted frame required no physical present.
+    pub fn last_present_skipped(&self) -> bool {
+        self.last_present_skipped
+    }
+    /// Force the next frame onto the display, e.g. after uncovering a window.
+    pub fn invalidate_presentation(&mut self) {
+        self.presentation.clear();
+    }
+    /// Opt into up to eight disjoint target damage rects; swapchain histories
+    /// remain independent and compositor hints remain conservative bounds.
+    pub fn set_multi_rect_damage(&mut self, enabled: bool) {
+        self.multi_rect_damage = enabled;
+        for target in &mut self.targets {
+            target.set_multi_rect_damage(enabled);
+        }
+    }
+    /// Coverage of the last applied clip, not just its bounding box.
+    pub fn last_damage_coverage(&self) -> f64 {
+        self.last_damage_coverage
+    }
+    /// Number of dirty rectangles applied to the last target.
+    pub fn last_damage_rect_count(&self) -> usize {
+        self.last_damage_rect_count
+    }
     /// Select command-stream damage or unconditional full drawing (the default).
     /// History is owned per swapchain image; newly created targets draw fully.
     pub fn set_damage_tracking(&mut self, enabled: bool) {
@@ -107,7 +190,9 @@ impl SkiaWindow {
     pub fn set_damage_validation(&mut self, enabled: bool) {
         self.damage_validation = enabled;
     }
-    /// Physical-pixel damage applied to the last acquired image. This can be
+    /// Conservative bounding damage of the last target update. For disjoint
+    /// clips use [`Self::last_damage_coverage`] and [`Self::last_damage_rect_count`].
+    /// This can be
     /// larger than display-to-display damage when that image is several frames old.
     pub fn last_damage(&self) -> DamageRegion {
         self.last_damage
@@ -141,22 +226,35 @@ impl SkiaWindow {
         self.desired = [width, height];
         self.recreate = true;
     }
-    /// Draw to an acquired swapchain image and present it. False means the
-    /// surface is minimized/outdated; the caller should await the next redraw.
+    /// Accept a frame, either presenting it or skipping an identical scene.
+    /// False means minimized/outdated and a redraw may be needed. Use
+    /// [`Self::last_present_skipped`] to distinguish physical presentation.
     pub fn present(&mut self, scene: &Scene, background: Color) -> Result<bool, Error> {
         let result = self.present_frame(scene, background);
         if result.is_err() {
             self.recreate = true;
+            self.presentation.clear();
         }
         result
     }
     fn present_frame(&mut self, scene: &Scene, background: Color) -> Result<bool, Error> {
+        self.last_present_skipped = false;
         let size = self.window.surface_size();
         if size.width == 0 || size.height == 0 {
             return Ok(false);
         }
         if self.recreate {
             self.rebuild()?;
+        }
+        if self.present_skip && !self.recreate && self.presentation.unchanged(scene, background) {
+            self.last_present_skipped = true;
+            self.last_damage = DamageRegion::Empty;
+            self.last_damage_coverage = 0.;
+            self.last_damage_rect_count = 0;
+            self.last_present_damage = DamageRegion::Empty;
+            #[cfg(feature = "profiling")]
+            tracing::trace!(target: "plico::skia", commands = scene.commands.len(), "present.skip");
+            return Ok(true);
         }
         let Some(chain) = self.swapchain.as_mut() else {
             return Ok(false);
@@ -165,11 +263,17 @@ impl SkiaWindow {
         // SAFETY: this single-frame fence protects reuse of the acquire semaphore.
         // The presentation-complete semaphores are per-image, not per-frame:
         // reacquiring that image guarantees its previous presentation wait ended.
+        #[cfg(feature = "profiling")]
+        let wait_span = tracing::trace_span!(target: "plico::skia", "skia.wait_fence").entered();
         unsafe { device.wait_for_fences(&[chain.fence], true, u64::MAX) }.context(
             crate::VulkanSnafu {
                 operation: "wait frame fence",
             },
         )?;
+        #[cfg(feature = "profiling")]
+        drop(wait_span);
+        #[cfg(feature = "profiling")]
+        let acquire_span = tracing::trace_span!(target: "plico::skia", "skia.acquire").entered();
         let (index, suboptimal) = match unsafe {
             chain.loader.acquire_next_image(
                 chain.handle,
@@ -191,6 +295,8 @@ impl SkiaWindow {
                 });
             }
         };
+        #[cfg(feature = "profiling")]
+        drop(acquire_span);
         let target = &mut self.targets[index as usize];
         // SAFETY: this semaphore remains owned by Swapchain until its queue is idle.
         let acquired = unsafe { gpu::backend_semaphores::make_vk(chain.acquire.as_raw() as _) };
@@ -200,9 +306,13 @@ impl SkiaWindow {
         let draw_result = if self.damage_tracking {
             target.draw_scene_tracked(scene, background).map(|damage| {
                 self.last_damage = damage;
+                self.last_damage_coverage = target.last_damage_coverage();
+                self.last_damage_rect_count = target.last_damage_rect_count();
             })
         } else {
             self.last_damage = DamageRegion::Full;
+            self.last_damage_coverage = 1.;
+            self.last_damage_rect_count = 1;
             target.draw_scene(scene, background)
         }
         .and_then(|()| {
@@ -230,6 +340,9 @@ impl SkiaWindow {
             gpu::vk::ImageLayout::PRESENT_SRC_KHR,
             self.owner.queue_family,
         );
+        #[cfg(feature = "profiling")]
+        let submit_span =
+            tracing::trace_span!(target: "plico::skia", "skia.flush_submit").entered();
         if self.context.flush_surface_with_texture_state(
             &mut target.surface,
             &flush,
@@ -239,6 +352,8 @@ impl SkiaWindow {
         {
             return Err(Error::Submit);
         }
+        #[cfg(feature = "profiling")]
+        drop(submit_span);
         // Associate a fence with the already-submitted Skia work. No CPU pixel
         // readback or device-wide wait is required for normal presentation.
         unsafe {
@@ -302,6 +417,9 @@ impl SkiaWindow {
         self.window.pre_present_notify();
         // SAFETY: image is acquired, transitioned to PRESENT_SRC_KHR, and the
         // presentation queue waits for Skia's render-finished signal.
+        #[cfg(feature = "profiling")]
+        let _present_span =
+            tracing::trace_span!(target: "plico::skia", "skia.queue_present").entered();
         let presented = match unsafe { chain.loader.queue_present(self.owner.queue, &info) } {
             Ok(outdated) => {
                 self.recreate |= outdated || suboptimal;
@@ -322,6 +440,9 @@ impl SkiaWindow {
             self.window.request_redraw();
         }
         draw_result?;
+        if self.present_skip && presented && !self.recreate {
+            self.presentation.record(scene, background);
+        }
         Ok(presented)
     }
     fn rebuild(&mut self) -> Result<(), Error> {
@@ -342,6 +463,7 @@ impl SkiaWindow {
             operation: "wait before swapchain recreation",
         })?;
         self.targets.clear();
+        self.presentation.clear();
         self.display_history.invalidate();
         self.display_background = None;
         self.swapchain.take();
@@ -353,6 +475,9 @@ impl SkiaWindow {
             &self.resources,
         )?;
         self.targets = targets;
+        for target in &mut self.targets {
+            target.set_multi_rect_damage(self.multi_rect_damage);
+        }
         self.swapchain = Some(chain);
         self.recreate = false;
         Ok(())
@@ -554,13 +679,14 @@ impl Swapchain {
                 (extent.width as i32, extent.height as i32),
                 &image_info,
             );
+            let props = super::text_surface_props();
             let surface = gpu::surfaces::wrap_backend_render_target(
                 context,
                 &target,
                 gpu::SurfaceOrigin::TopLeft,
                 color,
                 None,
-                None,
+                Some(&props),
             )
             .ok_or(Error::Gpu {
                 message: "Skia could not wrap swapchain image",
@@ -612,7 +738,36 @@ fn present_rectangle(damage: DamageRegion, width: u32, height: u32) -> Option<vk
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vello_common::kurbo::Rect;
+    use kurbo::Rect;
+    #[test]
+    fn unchanged_present_uses_successful_display_history_not_buffer_contents() {
+        use plico_renderer::PaintScene;
+        let mut history = PresentationHistory::default();
+        let a = Scene::new();
+        let mut b = Scene::new();
+        b.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(0., 0., 2., 2.),
+        );
+        assert!(!history.unchanged(&a, Color::WHITE));
+        history.record(&a, Color::WHITE);
+        assert!(history.unchanged(&a, Color::WHITE));
+        assert!(!history.unchanged(&a, Color::BLACK));
+        assert!(!history.unchanged(&b, Color::WHITE));
+        history.record(&b, Color::WHITE);
+        assert!(
+            !history.unchanged(&a, Color::WHITE),
+            "A/B/A still changes the display"
+        );
+        history.clear();
+        assert!(
+            !history.unchanged(&b, Color::WHITE),
+            "expose/recreation must present again"
+        );
+    }
     #[test]
     fn present_regions_round_outwards_and_clamp_to_surface() {
         let r =

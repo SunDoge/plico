@@ -11,14 +11,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fmt::Write as _, fs};
 
+use kurbo::Affine;
 use parley::PositionedLayoutItem;
+use peniko::Color;
 use plico_shell::style::TextAlign;
 use plico_shell::text::{TextRun, layout_text_styled};
 use plico_shell::{PaintCommand, PaintContext, PaintScene, Scene, TextContext, renderer};
 use serde::Deserialize;
 use skrifa::{FontRef, MetadataProvider, string::StringId};
-use vello_common::kurbo::Affine;
-use vello_common::peniko::Color;
 
 #[derive(usage_rs::Cli)]
 #[usage(about = "Render shared text fixtures through the production text pipeline")]
@@ -285,11 +285,8 @@ fn main() {
                 glyphs
                     .iter()
                     .map(|glyph| {
-                        let p = *transform
-                            * vello_common::kurbo::Point::new(
-                                f64::from(glyph.x),
-                                f64::from(glyph.y),
-                            );
+                        let p =
+                            *transform * kurbo::Point::new(f64::from(glyph.x), f64::from(glyph.y));
                         [f64::from(glyph.id), p.x, p.y]
                     })
                     .collect::<Vec<_>>()
@@ -350,12 +347,12 @@ fn main() {
                 } = command
                 {
                     let physical = *transform * shape.clone();
-                    let mut flattened = vello_common::kurbo::BezPath::new();
-                    vello_common::kurbo::flatten(physical.iter(), tolerance, |element| {
+                    let mut flattened = kurbo::BezPath::new();
+                    kurbo::flatten(physical.iter(), tolerance, |element| {
                         flattened.push(element)
                     });
                     *shape = flattened;
-                    *transform = vello_common::kurbo::Affine::IDENTITY;
+                    *transform = kurbo::Affine::IDENTITY;
                 }
             }
         }
@@ -379,7 +376,7 @@ fn main() {
                         path.elements()
                             .iter()
                             .map(|element| {
-                                use vello_common::kurbo::PathEl;
+                                use kurbo::PathEl;
                                 match element {
                                     PathEl::MoveTo(p) => vec![0., p.x, p.y],
                                     PathEl::LineTo(p) => vec![1., p.x, p.y],

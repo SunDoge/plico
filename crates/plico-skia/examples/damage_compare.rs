@@ -1,12 +1,10 @@
 //! CPU raster A/B probe: scene construction is outside both timed regions.
 //! No readback, network, window or frame pacing is included in timings.
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::{DamageRegion, PaintScene, Scene};
 use plico_skia::SkiaSurface;
 use std::time::Instant;
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 fn scene(frame: usize, all_change: bool) -> Scene {
     let mut scene = Scene::new();

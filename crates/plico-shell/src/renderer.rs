@@ -6,8 +6,8 @@ use std::{
 };
 
 use image::ImageEncoder as _;
+use peniko::Color;
 use snafu::{OptionExt, ResultExt};
-use vello_common::peniko::Color;
 
 use crate::{Scene, renderer_backend::ImageRenderer};
 
@@ -83,11 +83,9 @@ pub fn render_to_png_file(
 mod tests {
     use super::*;
     use crate::PaintScene;
+    use kurbo::{Affine, Rect};
+    use peniko::Fill;
     use std::sync::Arc;
-    use vello_common::{
-        kurbo::{Affine, Rect},
-        peniko::Fill,
-    };
 
     #[test]
     fn rejects_unrepresentable_render_sizes_before_gpu_initialization() {

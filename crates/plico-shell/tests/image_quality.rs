@@ -1,10 +1,8 @@
 //! Pixel comparisons for the production GPU path, not screenshots by eye.
 #![cfg(not(target_arch = "wasm32"))]
+use kurbo::Affine;
+use peniko::{Color, ImageQuality};
 use plico_renderer::{PaintScene, Scene, image::RasterImage};
-use vello_common::{
-    kurbo::Affine,
-    peniko::{Color, ImageQuality},
-};
 fn render(
     image: &RasterImage,
     transform: Affine,

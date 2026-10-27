@@ -2,13 +2,13 @@
 mod tests {
     use std::sync::Arc;
 
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
     use plico_renderer::layout::PlacedNode;
     use plico_renderer::scene::*;
     use plico_renderer::style::{CornerRadii, IrLength};
     use plico_renderer::style::{Paint, PaintTransform};
     use plico_renderer::{PaintScene, Scene, TextContext};
-    use vello_common::kurbo::{Affine, Rect};
-    use vello_common::peniko::{Color, Fill};
     fn placed_node(paint: Paint) -> PlacedNode {
         PlacedNode {
             node_id: taffy::tree::NodeId::from(0_u64),
@@ -74,7 +74,7 @@ mod tests {
             ..Paint::default()
         });
         let transform = resolve_node_transform(&node, Affine::IDENTITY);
-        let origin = vello_common::kurbo::Point::new(10.0, 20.0);
+        let origin = kurbo::Point::new(10.0, 20.0);
         let transformed = transform * origin;
         assert!((transformed.x - origin.x).abs() < 1e-9);
         assert!((transformed.y - origin.y).abs() < 1e-9);

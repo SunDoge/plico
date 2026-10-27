@@ -87,7 +87,7 @@ impl CornerRadii {
 /// Host-owned vector geometry and its renderer-independent paint contract.
 pub struct VectorPath {
     /// Decoded local-coordinate geometry.
-    pub path: Arc<vello_common::kurbo::BezPath>,
+    pub path: Arc<kurbo::BezPath>,
     /// Optional fill color.
     pub fill: Option<Color>,
     /// Optional stroke color.
@@ -95,7 +95,7 @@ pub struct VectorPath {
     /// Even-odd rather than non-zero filling.
     pub even_odd: bool,
     /// Vello stroke configuration, including width, caps and joins.
-    pub stroke_style: vello_common::kurbo::Stroke,
+    pub stroke_style: kurbo::Stroke,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

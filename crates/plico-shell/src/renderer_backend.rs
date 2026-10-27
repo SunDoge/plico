@@ -3,15 +3,15 @@
 use std::sync::Arc;
 
 use glifo::FontEmbolden;
+use kurbo::{Affine, Diagonal2, Shape};
+use peniko::{Brush, BrushRef, Color, Fill, ImageQuality, ImageSampler, StyleRef};
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
 use rustc_hash::FxHashMap;
 use skrifa::raw::TableProvider;
 use vello_common::geometry::RectU16;
-use vello_common::kurbo::{Affine, Diagonal2, Shape};
 use vello_common::paint::{ImageId, ImageSource, PaintType};
-use vello_common::peniko::{Brush, BrushRef, Color, Fill, ImageQuality, ImageSampler, StyleRef};
 use vello_gpu::{
     ClearSettings, RenderSettings, RenderSize, RenderTargetConfig, Renderer, Resources,
     Scene as GpuScene, TargetInit, TextureBindings,
@@ -30,7 +30,7 @@ const DEFAULT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 const DEFAULT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8Unorm;
 const DEFAULT_TOLERANCE: f64 = 0.1;
 
-fn glyph_embolden(amount: vello_common::kurbo::Vec2) -> FontEmbolden {
+fn glyph_embolden(amount: kurbo::Vec2) -> FontEmbolden {
     // A fixed 0.1px tolerance can exceed small stem boosts. Kurbo then
     // skips joins and turns aligned stem edges into slightly diagonal edges.
     let smallest = [amount.x.abs(), amount.y.abs()]
@@ -312,7 +312,7 @@ impl WindowRenderer {
         };
         if base_color != Color::TRANSPARENT {
             painter.scene.set_paint(base_color);
-            painter.scene.fill_rect(&vello_common::kurbo::Rect::new(
+            painter.scene.fill_rect(&kurbo::Rect::new(
                 0.0,
                 0.0,
                 f64::from(width),
@@ -427,7 +427,7 @@ impl GpuPainter<'_> {
                     );
                     id
                 };
-                PaintType::Image(vello_common::peniko::ImageBrush {
+                PaintType::Image(peniko::ImageBrush {
                     image: ImageSource::OpaqueId {
                         id,
                         may_have_transparency: true,
@@ -446,7 +446,7 @@ impl PaintScene for GpuPainter<'_> {
 
     fn push_layer(
         &mut self,
-        blend: impl Into<vello_common::peniko::BlendMode>,
+        blend: impl Into<peniko::BlendMode>,
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
@@ -483,7 +483,7 @@ impl PaintScene for GpuPainter<'_> {
 
     fn stroke<'a>(
         &mut self,
-        style: &vello_common::kurbo::Stroke,
+        style: &kurbo::Stroke,
         transform: Affine,
         brush: impl Into<BrushRef<'a>>,
         brush_transform: Option<Affine>,
@@ -517,11 +517,11 @@ impl PaintScene for GpuPainter<'_> {
 
     fn draw_glyphs<'a, 's: 'a>(
         &'s mut self,
-        font: &'a vello_common::peniko::FontData,
+        font: &'a peniko::FontData,
         font_size: f32,
         hint: bool,
         normalized_coords: &'a [NormalizedCoord],
-        embolden: vello_common::kurbo::Vec2,
+        embolden: kurbo::Vec2,
         style: impl Into<StyleRef<'a>>,
         brush: impl Into<BrushRef<'a>>,
         brush_alpha: f32,
@@ -583,7 +583,7 @@ impl PaintScene for GpuPainter<'_> {
     fn draw_box_shadow(
         &mut self,
         transform: Affine,
-        rect: vello_common::kurbo::Rect,
+        rect: kurbo::Rect,
         brush: Color,
         radius: f64,
         std_dev: f64,
@@ -630,7 +630,7 @@ impl PaintScene for GpuPainter<'_> {
             },
         });
         self.scene.set_paint_transform(Affine::IDENTITY);
-        self.scene.fill_rect(&vello_common::kurbo::Rect::new(
+        self.scene.fill_rect(&kurbo::Rect::new(
             0.0,
             0.0,
             f64::from(physical_width),
@@ -736,7 +736,7 @@ impl ImageRenderer {
         };
         if base_color != Color::TRANSPARENT {
             painter.scene.set_paint(base_color);
-            painter.scene.fill_rect(&vello_common::kurbo::Rect::new(
+            painter.scene.fill_rect(&kurbo::Rect::new(
                 0.0,
                 0.0,
                 f64::from(width),
@@ -782,8 +782,8 @@ mod tests {
     #[test]
     #[ignore = "requires a GPU; probes Vello's preserved-target partial clear API"]
     fn vello_preserved_target_partial_redraw_probe() {
+        use kurbo::Rect;
         use plico_renderer::DamageRegion;
-        use vello_common::kurbo::Rect;
         fn draw(
             r: &mut ImageRenderer,
             frame: usize,
@@ -896,12 +896,12 @@ mod tests {
 
     #[test]
     fn small_stem_expansion_preserves_axis_aligned_edges() {
-        use vello_common::kurbo::{PathSeg, Vec2, expand_path};
+        use kurbo::{PathSeg, Vec2, expand_path};
         for amount in [0.024, 0.049, 0.056] {
             let settings = glyph_embolden(Vec2::new(amount, amount));
             assert!(settings.tolerance < amount);
             let path = expand_path(
-                vello_common::kurbo::Rect::new(20., 20., 21., 44.).to_path(0.1),
+                kurbo::Rect::new(20., 20., 21., 44.).to_path(0.1),
                 settings.amount,
                 settings.join,
                 settings.miter_limit,

@@ -1,12 +1,10 @@
 //! Native single-line editing and masked-only password shaping.
 use super::*;
+use kurbo::{Affine, Rect};
 use parley::{Affinity, Cursor, Selection};
+use peniko::{BlendMode, Fill};
 use plico_core::InputEdit;
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{BlendMode, Fill},
-};
 use zeroize::Zeroizing;
 
 pub(super) struct Geometry {

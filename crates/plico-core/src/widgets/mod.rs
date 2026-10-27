@@ -186,7 +186,7 @@ pub fn svg_source<'u, 'e>(cx: &'u mut crate::UiContext<'e>, source: String) -> c
 /// Declare an embedded raster image; the backend decodes and caches it.
 pub fn image<'u, 'e>(
     cx: &'u mut crate::UiContext<'e>,
-    asset: &crate::ImageAsset,
+    asset: &'u crate::ImageAsset,
 ) -> crate::Image<'u, 'e> {
     cx.image(asset)
 }
@@ -223,11 +223,13 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 
 mod calendar;
 mod composite;
+mod media;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,
 };
+pub use media::{Avatar, RubyText, avatar, ruby_text};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

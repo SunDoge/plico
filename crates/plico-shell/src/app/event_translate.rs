@@ -116,11 +116,16 @@ pub(super) fn frame_wake(
 
 pub(super) fn scheduled_frame_wake(
     has_animation: bool,
+    animation_not_before: Option<Instant>,
     reported_deadline: Option<Instant>,
     scheduled_deadline: &mut Option<Instant>,
     now: Instant,
 ) -> FrameWake {
     if has_animation {
+        if let Some(deadline) = animation_not_before.filter(|deadline| *deadline > now) {
+            *scheduled_deadline = Some(deadline);
+            return FrameWake::Deadline(deadline);
+        }
         *scheduled_deadline = None;
         return FrameWake::Redraw;
     }

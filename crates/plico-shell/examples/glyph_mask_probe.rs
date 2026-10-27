@@ -1,10 +1,8 @@
 //! Composite a pre-rasterized physical-pixel coverage mask with production Vello.
+use kurbo::{Affine, Rect};
+use peniko::{Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
 use plico_shell::{PaintScene, Scene, renderer};
 use std::{path::PathBuf, sync::Arc};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality},
-};
 
 #[derive(usage_rs::Cli)]
 #[usage(about = "Composite a physical-pixel glyph alpha mask through Vello")]

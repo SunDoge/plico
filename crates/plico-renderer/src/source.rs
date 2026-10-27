@@ -7,7 +7,7 @@
 
 #![warn(missing_docs)]
 
-use vello_common::peniko::Color;
+use peniko::Color;
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -6,6 +6,8 @@ license.workspace = true
 description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
 
 [dependencies]
+peniko.workspace = true
+kurbo.workspace = true
 web-time = "1.1"
 plico-core.workspace = true
 parley.workspace = true
@@ -13,7 +15,6 @@ zeroize = "1.9"
 plico-renderer.workspace = true
 plico-motion.workspace = true
 taffy.workspace = true
-vello-common.workspace = true
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
 plico-dev.workspace = true

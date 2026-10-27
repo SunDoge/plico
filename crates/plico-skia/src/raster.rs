@@ -1,14 +1,12 @@
 use crate::Error;
+use kurbo::{Affine, PathEl, Shape};
+use peniko::{
+    Brush, Color, Extend, Fill, GradientKind, InterpolationAlphaSpace, Style,
+    color::{ColorSpaceTag, Srgb},
+};
 use plico_renderer::{DamageRegion, PaintCommand, Scene};
 use skia_safe::{Color4f, Font, FontHinting, FontMgr, Matrix, Paint, Path, PathBuilder, Point};
 use snafu::ResultExt;
-use vello_common::{
-    kurbo::{Affine, PathEl, Shape},
-    peniko::{
-        Brush, Color, Extend, Fill, GradientKind, InterpolationAlphaSpace, Style,
-        color::{ColorSpaceTag, Srgb},
-    },
-};
 
 /// Reusable CPU raster surface. This does not create a window or GPU context.
 pub struct SkiaSurface {
@@ -18,10 +16,17 @@ pub struct SkiaSurface {
     background: Option<Color>,
     damage_tracker: plico_renderer::damage::SceneDamageTracker,
     tracking_cooldown: u8,
+    multi_rect_damage: bool,
+    applied_coverage: f64,
+    applied_rect_count: usize,
 }
 /// CPU assets are shared by the render targets of one GPU context. Per-image
 /// caches duplicate complete CJK font files and upload identical textures again.
 pub(crate) struct Resources {
+    #[cfg(feature = "profiling")]
+    font_stats: crate::diagnostics::CacheCounters,
+    #[cfg(feature = "profiling")]
+    svg_stats: crate::diagnostics::CacheCounters,
     pub(crate) paragraphs: std::rc::Rc<std::cell::RefCell<crate::paragraph::ParagraphCache>>,
     fonts: std::collections::HashMap<u64, FontResource>,
     font_manager: FontMgr,
@@ -30,13 +35,17 @@ pub(crate) struct Resources {
     images: ImageCache,
 }
 struct FontResource {
-    source: vello_common::peniko::WeakBlob<u8>,
+    source: peniko::WeakBlob<u8>,
     data: skia_safe::Data,
     faces: std::collections::HashMap<u32, skia_safe::Typeface>,
 }
 impl Default for Resources {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "profiling")]
+            font_stats: Default::default(),
+            #[cfg(feature = "profiling")]
+            svg_stats: Default::default(),
             paragraphs: Default::default(),
             fonts: Default::default(),
             font_manager: FontMgr::new(),
@@ -46,12 +55,7 @@ impl Default for Resources {
     }
 }
 impl Resources {
-    fn font(
-        &mut self,
-        font: &vello_common::peniko::FontData,
-        size: f32,
-        hint: bool,
-    ) -> Result<Font, Error> {
+    fn font(&mut self, font: &peniko::FontData, size: f32, hint: bool) -> Result<Font, Error> {
         // A TTC contains multiple faces. new_from_bytes copies the complete
         // collection for every face; share one owned SkData allocation instead.
         let resource = self
@@ -62,6 +66,12 @@ impl Resources {
                 data: skia_safe::Data::new_copy(font.data.as_ref()),
                 faces: Default::default(),
             });
+        #[cfg(feature = "profiling")]
+        if resource.faces.contains_key(&font.index) {
+            self.font_stats.hits += 1;
+        } else {
+            self.font_stats.misses += 1;
+        }
         if let std::collections::hash_map::Entry::Vacant(entry) = resource.faces.entry(font.index) {
             let face = self
                 .font_manager
@@ -79,11 +89,8 @@ impl Resources {
         });
         Ok(skfont)
     }
-    pub(crate) fn ink_bounds(
-        &mut self,
-        command: &PaintCommand,
-    ) -> Option<vello_common::kurbo::Rect> {
-        use vello_common::kurbo::Rect;
+    pub(crate) fn ink_bounds(&mut self, command: &PaintCommand) -> Option<kurbo::Rect> {
+        use kurbo::Rect;
         match command {
             PaintCommand::Paragraph { request, transform } => Some(
                 transform.transform_rect_bbox(
@@ -150,10 +157,49 @@ impl Resources {
         }
     }
 }
-type ImageCache = std::collections::HashMap<
-    (u64, u32, u32, u8, u8),
-    (vello_common::peniko::WeakBlob<u8>, skia_safe::Image),
->;
+type ImageEntries =
+    std::collections::HashMap<(u64, u32, u32, u8, u8), (peniko::WeakBlob<u8>, skia_safe::Image)>;
+
+#[derive(Default)]
+struct ImageCache {
+    entries: ImageEntries,
+    #[cfg(feature = "profiling")]
+    stats: crate::diagnostics::CacheCounters,
+}
+#[cfg(feature = "profiling")]
+impl Resources {
+    fn trace_caches(&self) {
+        if !tracing::enabled!(target: "plico::cache", tracing::Level::TRACE) {
+            return;
+        }
+        self.paragraphs.borrow().trace_cache();
+        let pixel_bytes: u64 = self
+            .images
+            .entries
+            .keys()
+            .map(|(_, w, h, _, _)| u64::from(*w) * u64::from(*h) * 4)
+            .sum();
+        tracing::trace!(target: "plico::cache", cache = %"skia.image", cache_id = self.images.stats.id,
+            entries = self.images.entries.len(), hits_total = self.images.stats.hits,
+            misses_total = self.images.stats.misses, evictions_total = self.images.stats.evictions,
+            pixel_bytes_estimate = pixel_bytes, "cache.snapshot");
+        let font_bytes: usize = self.fonts.values().map(|font| font.data.size()).sum();
+        let faces: usize = self.fonts.values().map(|font| font.faces.len()).sum();
+        tracing::trace!(target: "plico::cache", cache = %"skia.glyph_font_face", cache_id = self.font_stats.id,
+            entries = faces, blobs = self.fonts.len(), blob_bytes = font_bytes,
+            hits_total = self.font_stats.hits, misses_total = self.font_stats.misses,
+            evictions_total = self.font_stats.evictions, "cache.snapshot");
+        let commands: usize = self
+            .svg_scenes
+            .values()
+            .map(|(_, scene)| scene.commands.len())
+            .sum();
+        tracing::trace!(target: "plico::cache", cache = %"skia.svg", cache_id = self.svg_stats.id,
+            entries = self.svg_scenes.len(), commands, hits_total = self.svg_stats.hits,
+            misses_total = self.svg_stats.misses, evictions_total = self.svg_stats.evictions,
+            "cache.snapshot");
+    }
+}
 
 impl SkiaSurface {
     /// Select SkParagraph for this host's ordinary text measurement and selection.
@@ -162,6 +208,18 @@ impl SkiaSurface {
         text.set_paragraph_engine(Box::new(crate::paragraph::Engine(
             self.resources.borrow().paragraphs.clone(),
         )));
+    }
+    /// Opt into a bounded set of disjoint dirty rectangles instead of their bounding box.
+    pub fn set_multi_rect_damage(&mut self, enabled: bool) {
+        self.multi_rect_damage = enabled;
+    }
+    /// Fraction of target pixels included by the last successfully applied dirty clip.
+    pub fn last_damage_coverage(&self) -> f64 {
+        self.applied_coverage
+    }
+    /// Number of rectangles in that clip: zero for empty, one for full.
+    pub fn last_damage_rect_count(&self) -> usize {
+        self.applied_rect_count
     }
     /// Allocate a surface; dimensions must be nonzero signed 32-bit values.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
@@ -187,6 +245,9 @@ impl SkiaSurface {
             background: None,
             damage_tracker: Default::default(),
             tracking_cooldown: 0,
+            multi_rect_damage: false,
+            applied_coverage: 1.,
+            applied_rect_count: 1,
         }
     }
 
@@ -226,28 +287,91 @@ impl SkiaSurface {
         damage: DamageRegion,
         culling: Option<&plico_renderer::damage::SceneDamageTracker>,
     ) -> Result<(), Error> {
+        #[cfg(feature = "profiling")]
+        let _draw_span = tracing::trace_span!(target: "plico::skia", "skia.draw",
+            requested_damage = ?damage, applied_damage = tracing::field::Empty, damage_coverage = tracing::field::Empty, damage_rect_count = tracing::field::Empty, width = self.surface.width(), height = self.surface.height(),
+            commands = scene.commands.len()).entered();
         self.damage_tracker.invalidate();
         let damage = if !self.frame_valid || self.background != Some(background) {
             DamageRegion::Full
         } else {
             damage.for_surface(self.surface.width() as u32, self.surface.height() as u32)
         };
+        let regions = culling
+            .filter(|_| self.multi_rect_damage && matches!(damage, DamageRegion::Rect(_)))
+            .map(plico_renderer::damage::SceneDamageTracker::damage_rects);
+        let (width, height) = (self.surface.width() as u32, self.surface.height() as u32);
+        self.applied_coverage = regions.map_or_else(
+            || damage.coverage(width, height),
+            |r| r.coverage(width, height),
+        );
+        self.applied_rect_count = regions.map_or_else(
+            || usize::from(damage != DamageRegion::Empty),
+            |r| r.rects().len(),
+        );
+        #[cfg(feature = "profiling")]
+        {
+            _draw_span.record("applied_damage", tracing::field::debug(damage));
+            _draw_span.record("damage_coverage", self.applied_coverage);
+            _draw_span.record("damage_rect_count", self.applied_rect_count);
+        }
         {
             let mut resources = self.resources.borrow_mut();
-            resources
-                .fonts
-                .retain(|_, resource| resource.source.upgrade().is_some());
+            #[cfg(feature = "profiling")]
+            let before = (resources.images.entries.len(), resources.svg_scenes.len());
+            #[cfg(feature = "profiling")]
+            let mut removed_faces = 0;
+            resources.fonts.retain(|_, resource| {
+                let live = resource.source.upgrade().is_some();
+                #[cfg(feature = "profiling")]
+                if !live {
+                    removed_faces += resource.faces.len();
+                }
+                live
+            });
             resources
                 .images
+                .entries
                 .retain(|_, (source, _)| source.upgrade().is_some());
             resources
                 .svg_scenes
                 .retain(|_, (tree, _)| tree.strong_count() > 0);
+            #[cfg(feature = "profiling")]
+            {
+                resources.font_stats.evictions += removed_faces as u64;
+                resources.images.stats.evictions +=
+                    (before.0 - resources.images.entries.len()) as u64;
+                resources.svg_stats.evictions += (before.1 - resources.svg_scenes.len()) as u64;
+            }
         }
         if damage == DamageRegion::Empty {
+            #[cfg(feature = "profiling")]
+            self.resources.borrow().trace_caches();
             return Ok(());
         }
         self.frame_valid = false;
+        let result = if let Some(regions) = regions {
+            regions.rects().iter().try_for_each(|rect| {
+                self.replay_region(scene, background, DamageRegion::Rect(*rect), culling)
+            })
+        } else {
+            self.replay_region(scene, background, damage, culling)
+        };
+        result?;
+        self.frame_valid = true;
+        self.background = Some(background);
+        #[cfg(feature = "profiling")]
+        self.resources.borrow().trace_caches();
+        Ok(())
+    }
+
+    fn replay_region(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+        damage: DamageRegion,
+        culling: Option<&plico_renderer::damage::SceneDamageTracker>,
+    ) -> Result<(), Error> {
         self.surface.canvas().restore_to_count(1);
         if let DamageRegion::Rect(r) = damage {
             self.surface.canvas().save();
@@ -260,10 +384,7 @@ impl SkiaSurface {
         self.surface.canvas().clear(color(background));
         let result = self.replay(scene, culling.map(|tracker| (tracker, damage)));
         self.surface.canvas().restore_to_count(1);
-        result?;
-        self.frame_valid = true;
-        self.background = Some(background);
-        Ok(())
+        result
     }
 
     /// Compute command-stream damage against this target's last successful
@@ -283,19 +404,30 @@ impl SkiaSurface {
         }
         let resources = &self.resources;
         let mut tracker = std::mem::take(&mut self.damage_tracker);
+        tracker.set_multi_rect_damage(self.multi_rect_damage);
+        #[cfg(feature = "profiling")]
+        let damage_span = tracing::trace_span!(target: "plico::skia", "skia.damage").entered();
         let damage = tracker.update(
             scene,
             self.surface.width() as u32,
             self.surface.height() as u32,
             |command| resources.borrow_mut().ink_bounds(command),
         );
+        #[cfg(feature = "profiling")]
+        drop(damage_span);
         let actual = if !self.frame_valid || self.background != Some(background) {
             DamageRegion::Full
         } else {
             damage
         };
         let actual = if matches!(actual, DamageRegion::Rect(_))
-            && actual.coverage(self.surface.width() as u32, self.surface.height() as u32) > 0.8
+            && (if self.multi_rect_damage {
+                tracker
+                    .damage_rects()
+                    .coverage(self.surface.width() as u32, self.surface.height() as u32)
+            } else {
+                actual.coverage(self.surface.width() as u32, self.surface.height() as u32)
+            }) > 0.8
         {
             self.tracking_cooldown = 8;
             DamageRegion::Full
@@ -368,11 +500,23 @@ impl SkiaSurface {
         scene: &Scene,
         culling: Option<(&plico_renderer::damage::SceneDamageTracker, DamageRegion)>,
     ) -> Result<(), Error> {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.replay", commands = scene.commands.len()).entered();
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
+        #[cfg(feature = "profiling")]
+        let mut work = crate::diagnostics::ReplayWork::default();
         let mut depth = 0usize;
         let mut skipped_scope = 0usize;
         for (index, command) in scene.commands.iter().enumerate() {
+            #[cfg(feature = "profiling")]
+            {
+                work.visited += 1;
+            }
             if skipped_scope > 0 {
+                #[cfg(feature = "profiling")]
+                {
+                    work.culled += 1;
+                }
                 match command {
                     PaintCommand::PushClip { .. } | PaintCommand::PushLayer { .. } => {
                         skipped_scope += 1
@@ -386,6 +530,10 @@ impl SkiaSurface {
                 && !matches!(command, PaintCommand::PopLayer)
                 && !tracker.command_bounds(index).intersects(damage)
             {
+                #[cfg(feature = "profiling")]
+                {
+                    work.culled += 1;
+                }
                 if matches!(
                     command,
                     PaintCommand::PushClip { .. } | PaintCommand::PushLayer { .. }
@@ -394,6 +542,8 @@ impl SkiaSurface {
                 }
                 continue;
             }
+            #[cfg(feature = "profiling")]
+            work.replayed(command);
             let canvas = self.surface.canvas();
             match command {
                 PaintCommand::Paragraph { request, transform } => {
@@ -484,15 +634,20 @@ impl SkiaSurface {
                     if filter.is_some() {
                         return unsupported("layer filter");
                     }
-                    if *blend != vello_common::peniko::BlendMode::default() {
+                    if *blend != peniko::BlendMode::default() {
                         return unsupported("layer blend mode");
                     }
                     let mut layer_paint = Paint::default();
                     layer_paint.set_alpha_f(*alpha);
+                    let clip = path(clip).make_transform(&matrix(*transform));
+                    // Bounds are an allocation hint; preserve the original AA
+                    // clip and group opacity instead of clipping twice.
                     canvas.save_layer(
-                        &skia_safe::canvas::SaveLayerRec::default().paint(&layer_paint),
+                        &skia_safe::canvas::SaveLayerRec::default()
+                            .bounds(clip.bounds())
+                            .paint(&layer_paint),
                     );
-                    canvas.clip_path(&path(clip).make_transform(&matrix(*transform)), None, true);
+                    canvas.clip_path(&clip, None, true);
                     depth += 1;
                 }
                 PaintCommand::Stroke {
@@ -514,14 +669,14 @@ impl SkiaSurface {
                     paint.set_stroke_width(style.width as f32);
                     paint.set_stroke_miter(style.miter_limit as f32);
                     paint.set_stroke_cap(match style.start_cap {
-                        vello_common::kurbo::Cap::Butt => skia_safe::paint::Cap::Butt,
-                        vello_common::kurbo::Cap::Round => skia_safe::paint::Cap::Round,
-                        vello_common::kurbo::Cap::Square => skia_safe::paint::Cap::Square,
+                        kurbo::Cap::Butt => skia_safe::paint::Cap::Butt,
+                        kurbo::Cap::Round => skia_safe::paint::Cap::Round,
+                        kurbo::Cap::Square => skia_safe::paint::Cap::Square,
                     });
                     paint.set_stroke_join(match style.join {
-                        vello_common::kurbo::Join::Miter => skia_safe::paint::Join::Miter,
-                        vello_common::kurbo::Join::Round => skia_safe::paint::Join::Round,
-                        vello_common::kurbo::Join::Bevel => skia_safe::paint::Join::Bevel,
+                        kurbo::Join::Miter => skia_safe::paint::Join::Miter,
+                        kurbo::Join::Round => skia_safe::paint::Join::Round,
+                        kurbo::Join::Bevel => skia_safe::paint::Join::Bevel,
                     });
                     if !style.dash_pattern.is_empty() {
                         let dashes: Vec<f32> =
@@ -585,6 +740,12 @@ impl SkiaSurface {
                     let key = std::sync::Arc::as_ptr(&document.0) as usize;
                     let commands = {
                         let mut resources = self.resources.borrow_mut();
+                        #[cfg(feature = "profiling")]
+                        if resources.svg_scenes.contains_key(&key) {
+                            resources.svg_stats.hits += 1;
+                        } else {
+                            resources.svg_stats.misses += 1;
+                        }
                         match resources.svg_scenes.entry(key) {
                             std::collections::hash_map::Entry::Occupied(entry) => {
                                 entry.get().1.clone()
@@ -611,6 +772,8 @@ impl SkiaSurface {
         if depth != 0 {
             return Err(Error::ClipStack);
         }
+        #[cfg(feature = "profiling")]
+        work.trace();
         Ok(())
     }
 }
@@ -661,7 +824,7 @@ fn paint(
                 },
             );
             let matrix = matrix(transform.unwrap_or(Affine::IDENTITY));
-            let point = |p: vello_common::kurbo::Point| Point::new(p.x as f32, p.y as f32);
+            let point = |p: kurbo::Point| Point::new(p.x as f32, p.y as f32);
             let shader = match value.kind {
                 GradientKind::Linear(g) => shaders::linear_gradient(
                     (point(g.start), point(g.end)),
@@ -682,10 +845,10 @@ fn paint(
             paint.set_shader(shader);
         }
         Brush::Image(brush) => {
+            use peniko::{ImageAlphaType, ImageFormat, ImageQuality};
             use skia_safe::{
                 AlphaType, ColorType, FilterMode, ImageInfo, MipmapMode, SamplingOptions,
             };
-            use vello_common::peniko::{ImageAlphaType, ImageFormat, ImageQuality};
             let data = &brush.image;
             let key = (
                 data.data.id(),
@@ -694,7 +857,13 @@ fn paint(
                 data.format as u8,
                 data.alpha_type as u8,
             );
-            if let std::collections::hash_map::Entry::Vacant(entry) = images.entry(key) {
+            #[cfg(feature = "profiling")]
+            if images.entries.contains_key(&key) {
+                images.stats.hits += 1;
+            } else {
+                images.stats.misses += 1;
+            }
+            if let std::collections::hash_map::Entry::Vacant(entry) = images.entries.entry(key) {
                 let required = data.format.size_in_bytes(data.width, data.height).ok_or(
                     Error::Unsupported {
                         command: "image dimensions",
@@ -746,7 +915,7 @@ fn paint(
                 ImageQuality::High => skia_safe::CubicResampler::mitchell().into(),
             };
             let local = matrix(transform.unwrap_or(Affine::IDENTITY));
-            let shader = images[&key]
+            let shader = images.entries[&key]
                 .1
                 .to_shader(
                     (tile(brush.sampler.x_extend), tile(brush.sampler.y_extend)),
@@ -800,13 +969,13 @@ fn path(shape: &impl Shape) -> Path {
 #[cfg(test)]
 mod resource_tests {
     use super::*;
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
     use plico_renderer::PaintScene;
     use std::{cell::RefCell, rc::Rc, sync::Arc};
-    use vello_common::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
 
     #[test]
     fn font_resources_release_dead_sources_and_share_sizes() {
-        let font = vello_common::peniko::FontData::new(
+        let font = peniko::FontData::new(
             Blob::new(Arc::new(
                 include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf")
                     .to_vec(),
@@ -829,11 +998,21 @@ mod resource_tests {
                 .len(),
             1
         );
+        #[cfg(feature = "profiling")]
+        {
+            let resources = surface.resources.borrow();
+            assert_eq!(
+                (resources.font_stats.hits, resources.font_stats.misses),
+                (2, 1)
+            );
+        }
         drop(font);
         surface
             .draw_scene_damaged(&Scene::new(), Color::WHITE, DamageRegion::Empty)
             .unwrap();
         assert!(surface.resources.borrow().fonts.is_empty());
+        #[cfg(feature = "profiling")]
+        assert_eq!(surface.resources.borrow().font_stats.evictions, 1);
     }
 
     #[test]
@@ -846,7 +1025,7 @@ mod resource_tests {
         let blob = Blob::new(Arc::new(bytes));
         let mut resources = Resources::default();
         for index in 0..count {
-            let font = vello_common::peniko::FontData::new(blob.clone(), index);
+            let font = peniko::FontData::new(blob.clone(), index);
             resources.font(&font, 24., true).unwrap();
         }
         assert_eq!(resources.fonts.len(), 1);
@@ -877,14 +1056,24 @@ mod resource_tests {
             let pixels = target.render_scene(&scene, Color::WHITE).unwrap();
             assert_eq!(&pixels[..4], &[255, 0, 0, 255]);
             assert_eq!(
-                resources.borrow().images.len(),
+                resources.borrow().images.entries.len(),
                 1,
                 "one conversion for all targets"
+            );
+        }
+        #[cfg(feature = "profiling")]
+        {
+            let resources = resources.borrow();
+            assert_eq!(
+                (resources.images.stats.hits, resources.images.stats.misses),
+                (2, 1)
             );
         }
         drop(scene);
         drop(brush);
         targets[0].draw_scene(&Scene::new(), Color::WHITE).unwrap();
-        assert!(resources.borrow().images.is_empty());
+        assert!(resources.borrow().images.entries.is_empty());
+        #[cfg(feature = "profiling")]
+        assert_eq!(resources.borrow().images.stats.evictions, 1);
     }
 }

@@ -1,8 +1,8 @@
 //! Presentation-only theme transition: no intermediate palettes or text shaping.
+use kurbo::{Affine, Circle};
 use plico_core::Theme;
 use plico_renderer::{PaintScene, Scene};
 use std::time::Duration;
-use vello_common::kurbo::{Affine, Circle};
 use web_time::Instant;
 
 pub(crate) struct ThemeTransition {
@@ -107,10 +107,8 @@ impl ThemeTransition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vello_common::{
-        kurbo::Rect,
-        peniko::{Color, Fill},
-    };
+    use kurbo::Rect;
+    use peniko::{Color, Fill};
     fn scene(color: Color) -> Scene {
         let mut s = Scene::new();
         s.fill(

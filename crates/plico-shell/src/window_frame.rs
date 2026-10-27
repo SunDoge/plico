@@ -1,9 +1,7 @@
 //! Native client-area clipping, independent of platform window decorations.
+use kurbo::{Affine, Rect, Shape};
+use peniko::Color;
 use plico_renderer::{PaintCommand, Scene};
-use vello_common::{
-    kurbo::{Affine, Rect, Shape},
-    peniko::Color,
-};
 
 /// Clip a completed physical-pixel scene and select a transparent renderer clear.
 ///
@@ -26,7 +24,7 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
         scene.commands.insert(
             1,
             PaintCommand::Fill {
-                fill: vello_common::peniko::Fill::NonZero,
+                fill: peniko::Fill::NonZero,
                 transform: Affine::IDENTITY,
                 brush: base.into(),
                 brush_transform: None,
@@ -48,7 +46,7 @@ mod tests {
             let mut scene = Scene::new();
             let size = [100 * scale, 80 * scale];
             scene.fill(
-                vello_common::peniko::Fill::NonZero,
+                peniko::Fill::NonZero,
                 Affine::IDENTITY,
                 Color::from_rgb8(30, 40, 50),
                 None,

@@ -55,11 +55,11 @@ impl Widget for Native {
     }
     fn paint(&mut self, cx: &mut PaintContext<'_>) {
         cx.scene_mut().fill(
-            vello_common::peniko::Fill::NonZero,
-            vello_common::kurbo::Affine::IDENTITY,
-            vello_common::peniko::Color::BLACK,
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::BLACK,
             None,
-            &vello_common::kurbo::Rect::new(0., 0., 10., 10.),
+            &kurbo::Rect::new(0., 0., 10., 10.),
         );
     }
     fn handle_event(&mut self, event: &UiEvent) -> WidgetEventResult {

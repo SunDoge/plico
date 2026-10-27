@@ -13,6 +13,8 @@ use skia_safe::{
 use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
 
 pub(crate) struct ParagraphCache {
+    #[cfg(feature = "profiling")]
+    stats: crate::diagnostics::CacheCounters,
     fonts: FontCollection,
     assets: TypefaceFontProvider,
     layouts: lru::LruCache<u64, Rc<SkParagraph>>,
@@ -24,6 +26,8 @@ impl Default for ParagraphCache {
         let assets = TypefaceFontProvider::new();
         fonts.set_asset_font_manager(skia_safe::FontMgr::from(assets.clone()));
         Self {
+            #[cfg(feature = "profiling")]
+            stats: Default::default(),
             fonts,
             assets,
             layouts: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
@@ -34,7 +38,7 @@ pub(crate) struct SkParagraph {
     request: Arc<ParagraphRequest>,
     paragraph: Paragraph,
     metrics: ParagraphMetrics,
-    ink: vello_common::kurbo::Rect,
+    ink: kurbo::Rect,
 }
 fn byte_to_utf16(text: &str, byte: usize) -> usize {
     text.char_indices()
@@ -81,7 +85,7 @@ impl SkParagraph {
     pub(crate) fn paint(&self, canvas: &skia_safe::Canvas) {
         self.paragraph.paint(canvas, (0., 0.));
     }
-    pub(crate) fn ink_bounds(&self) -> vello_common::kurbo::Rect {
+    pub(crate) fn ink_bounds(&self) -> kurbo::Rect {
         self.ink
     }
 }
@@ -113,6 +117,7 @@ fn style(request: &ParagraphRequest, run: Option<&plico_renderer::text::TextRun>
         ))
         .set_letter_spacing(request.letter_spacing)
         .set_font_edging(skia_safe::font::Edging::AntiAlias)
+        .set_subpixel(true)
         .set_font_hinting(skia_safe::FontHinting::Normal);
     if let Some((height, relative)) = run.and_then(|r| r.line_height).or(request.line_height) {
         s.set_height(if relative {
@@ -128,8 +133,20 @@ impl ParagraphCache {
     pub(crate) fn layout(&mut self, request: Arc<ParagraphRequest>) -> Rc<SkParagraph> {
         let key = request.fingerprint();
         if let Some(cached) = self.layouts.get(&key).filter(|p| p.request == request) {
+            #[cfg(feature = "profiling")]
+            {
+                self.stats.hits += 1;
+            }
             return cached.clone();
         }
+        #[cfg(feature = "profiling")]
+        {
+            self.stats.misses += 1;
+        }
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.paragraph_miss", bytes = request.text.len(), runs = request.runs.len(),
+            request_key = key, font_size = request.font_size, width = ?request.width,
+            font_revision = request.font_revision).entered();
         let mut ps = ParagraphStyle::new();
         ps.set_text_style(&style(&request, None));
         ps.set_text_align(match request.align {
@@ -188,7 +205,7 @@ impl ParagraphCache {
             ],
             first_line_height: lines.first().map_or(0., |l| l.height as f32),
         };
-        let mut ink: Option<vello_common::kurbo::Rect> = None;
+        let mut ink: Option<kurbo::Rect> = None;
         paragraph.visit(|_, info| {
             let Some(info) = info else {
                 return;
@@ -200,7 +217,7 @@ impl ParagraphCache {
                 if r.is_empty() {
                     continue;
                 }
-                let r = vello_common::kurbo::Rect::new(
+                let r = kurbo::Rect::new(
                     (origin.x + p.x + r.left) as f64,
                     (origin.y + p.y + r.top) as f64,
                     (origin.x + p.x + r.right) as f64,
@@ -213,10 +230,43 @@ impl ParagraphCache {
             request,
             paragraph,
             metrics,
-            ink: ink.unwrap_or(vello_common::kurbo::Rect::ZERO),
+            ink: ink.unwrap_or(kurbo::Rect::ZERO),
         });
+        #[cfg(feature = "profiling")]
+        if self.layouts.len() == self.layouts.cap().get() && !self.layouts.contains(&key) {
+            self.stats.evictions += 1;
+        }
         self.layouts.put(key, p.clone());
         p
+    }
+    fn clear(&mut self) {
+        #[cfg(feature = "profiling")]
+        {
+            self.stats.invalidations += 1;
+        }
+        self.layouts.clear();
+    }
+    #[cfg(feature = "profiling")]
+    pub(crate) fn trace_cache(&self) {
+        if !tracing::enabled!(target: "plico::cache", tracing::Level::TRACE) {
+            return;
+        }
+        // Logical request payload, not SkParagraph/font/GPU allocations. Shared
+        // Arc payloads can be counted more than once across cached requests.
+        let request_bytes: usize = self
+            .layouts
+            .iter()
+            .map(|(_, p)| {
+                p.request.text.len()
+                    + p.request.family.len()
+                    + std::mem::size_of_val(p.request.runs.as_ref())
+            })
+            .sum();
+        tracing::trace!(target: "plico::cache", cache = %"skia.paragraph", cache_id = self.stats.id,
+            entries = self.layouts.len(), capacity = self.layouts.cap().get(),
+            hits_total = self.stats.hits, misses_total = self.stats.misses,
+            evictions_total = self.stats.evictions, invalidations_total = self.stats.invalidations,
+            request_payload_bytes_estimate = request_bytes, "cache.snapshot");
     }
     fn register(&mut self, asset: &FontAsset) {
         let data = skia_safe::Data::new_copy(asset.bytes());
@@ -232,7 +282,7 @@ impl ParagraphCache {
             }
         }
         self.fonts.clear_caches();
-        self.layouts.clear();
+        self.clear();
     }
 }
 pub(crate) struct Engine(pub Rc<RefCell<ParagraphCache>>);
@@ -247,6 +297,47 @@ impl ParagraphEngine for Engine {
         self.0.borrow_mut().register(asset);
     }
     fn clear(&mut self) {
-        self.0.borrow_mut().layouts.clear();
+        self.0.borrow_mut().clear();
+    }
+}
+
+#[cfg(all(test, feature = "profiling"))]
+mod profile_tests {
+    use super::*;
+    #[test]
+    fn cache_counters_distinguish_hits_evictions_and_invalidations() {
+        let mut cache = ParagraphCache {
+            layouts: lru::LruCache::new(NonZeroUsize::new(2).unwrap()),
+            ..Default::default()
+        };
+        let request = |text: &str| {
+            Arc::new(
+                ParagraphRequest::from_paint(
+                    &plico_renderer::style::Paint {
+                        text: Some(text.into()),
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let first = cache.layout(request("one"));
+        assert!(Rc::ptr_eq(&first, &cache.layout(request("one"))));
+        cache.layout(request("two"));
+        cache.layout(request("three"));
+        assert_eq!(
+            (cache.stats.hits, cache.stats.misses, cache.stats.evictions),
+            (1, 3, 1)
+        );
+        assert_eq!(cache.layouts.len(), 2);
+        cache.clear();
+        assert_eq!(cache.stats.invalidations, 1);
+        assert_eq!(cache.stats.evictions, 1, "invalidation is not LRU eviction");
+        assert!(cache.layouts.is_empty());
+        assert!(
+            first.metrics().width > 0.,
+            "eviction does not count external owners as freed"
+        );
     }
 }

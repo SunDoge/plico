@@ -102,14 +102,14 @@ pub fn append(
 
 /// Append a normalized SVG tree to an existing Vello GPU scene.
 pub fn append_tree(scene: &mut Scene, tree: &usvg::Tree) -> Result<RenderReport, Error> {
-    append_tree_with_transform(scene, tree, vello_common::kurbo::Affine::IDENTITY)
+    append_tree_with_transform(scene, tree, kurbo::Affine::IDENTITY)
 }
 
 /// Append a normalized SVG tree under a caller-provided root transform.
 pub fn append_tree_with_transform(
     scene: &mut Scene,
     tree: &usvg::Tree,
-    transform: vello_common::kurbo::Affine,
+    transform: kurbo::Affine,
 ) -> Result<RenderReport, Error> {
     let mut report = RenderReport::default();
     render::render_group(scene, tree.root(), transform, &mut report)?;

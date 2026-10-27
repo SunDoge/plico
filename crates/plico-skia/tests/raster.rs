@@ -1,10 +1,8 @@
 #![cfg(feature = "raster")]
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene};
 use plico_skia::{Error, SkiaSurface};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 fn pixel(bytes: &[u8], x: usize, y: usize) -> &[u8] {
     &bytes[(y * 16 + x) * 4..(y * 16 + x + 1) * 4]
@@ -41,7 +39,7 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
     let mut scene = Scene::new();
     scene.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 1., 1.));
     scene.push_layer(
-        vello_common::peniko::BlendMode::default(),
+        peniko::BlendMode::default(),
         1.,
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
@@ -108,10 +106,8 @@ fn fill_transform_and_premultiplied_rgba_are_preserved() {
 
 #[test]
 fn stroke_and_isolated_alpha_layer_preserve_coverage() {
-    use vello_common::{
-        kurbo::{Line, Stroke},
-        peniko::BlendMode,
-    };
+    use kurbo::{Line, Stroke};
+    use peniko::BlendMode;
     let mut scene = Scene::new();
     scene.push_layer(
         BlendMode::default(),
@@ -258,10 +254,8 @@ fn svg_gradients_preserve_color_opacity_and_local_transforms() {
 
 #[test]
 fn raster_images_preserve_transform_clip_alpha_and_format_changes() {
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
     use std::sync::Arc;
-    use vello_common::peniko::{
-        Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
-    };
     let data = ImageData {
         data: Blob::new(Arc::new(vec![255u8, 0, 0, 128])),
         format: ImageFormat::Rgba8,
@@ -314,7 +308,7 @@ fn damaged_draw_matches_full_draw_for_moving_overlapping_content() {
             &Rect::new(x, 2., x + 4., 10.),
         );
         scene.push_layer(
-            vello_common::peniko::BlendMode::default(),
+            peniko::BlendMode::default(),
             0.5,
             Affine::IDENTITY,
             &Rect::new(0., 0., 16., 16.),
@@ -406,7 +400,7 @@ fn tracked_targets_match_full_redraw_across_reordered_acquisition_and_removal() 
         }
         scene.push_clip_layer(Affine::IDENTITY, &Rect::new(2., 1., 15., 14.));
         scene.push_layer(
-            vello_common::peniko::BlendMode::default(),
+            peniko::BlendMode::default(),
             if frame % 9 == 0 { 0.2 } else { 0.6 },
             Affine::IDENTITY,
             &Rect::new(3., 3., 12., 12.),
@@ -478,8 +472,8 @@ fn explicit_draw_invalidates_automatic_damage_history() {
 
 #[test]
 fn tracked_text_fractional_motion_color_and_strokes_match_full_pixels() {
+    use peniko::{Blob, FontData, Style};
     use plico_renderer::{DamageRegion, Glyph};
-    use vello_common::peniko::{Blob, FontData, Style};
     let font = FontData::new(
         Blob::new(std::sync::Arc::new(
             include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf").to_vec(),
@@ -520,7 +514,7 @@ fn tracked_text_fractional_motion_color_and_strokes_match_full_pixels() {
             );
         }
         scene.stroke(
-            &vello_common::kurbo::Stroke::new(2.).with_join(vello_common::kurbo::Join::Miter),
+            &kurbo::Stroke::new(2.).with_join(kurbo::Join::Miter),
             Affine::translate(((frame % 9) as f64 * 0.5, 0.)),
             Color::from_rgba8(240, 50, 70, 128),
             None,
@@ -606,7 +600,7 @@ fn culling_nested_scopes_and_clipped_shadows_preserves_other_islands() {
         );
         scene.push_clip_layer(Affine::IDENTITY, &Rect::new(50., 4., 90., 58.));
         scene.push_layer(
-            vello_common::peniko::BlendMode::default(),
+            peniko::BlendMode::default(),
             0.7,
             Affine::IDENTITY,
             &Rect::new(52., 6., 88., 56.),
@@ -636,7 +630,7 @@ fn culling_nested_scopes_and_clipped_shadows_preserves_other_islands() {
 #[test]
 #[ignore = "Skia AA investigation: dirty clip currently changes rounded stroke coverage by 1/255"]
 fn translucent_layer_dirty_clip_precision_probe() {
-    use vello_common::kurbo::{BezPath, Cap, Join, Stroke};
+    use kurbo::{BezPath, Cap, Join, Stroke};
     let mut path = BezPath::new();
     path.move_to((224.5, 456.));
     path.curve_to(
@@ -666,7 +660,7 @@ fn translucent_layer_dirty_clip_precision_probe() {
     let mut scene = Scene::new();
     scene.push_clip_layer(Affine::IDENTITY, &Rect::new(92., 153., 1080., 766.));
     scene.push_layer(
-        vello_common::peniko::BlendMode::default(),
+        peniko::BlendMode::default(),
         0.45,
         Affine::IDENTITY,
         &Rect::new(0., 0., 1100., 820.),
@@ -702,4 +696,63 @@ fn translucent_layer_dirty_clip_precision_probe() {
         .filter(|(a, b)| a != b)
         .count();
     assert!(n == 0, "rounded stroke clip changed {n} pixels");
+}
+
+#[test]
+fn sparse_damage_preserves_gaps_and_avoids_dense_bounding_box_fallback() {
+    let scene = |step: usize| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(40., 40., 60., 60.),
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            if step.is_multiple_of(2) {
+                Color::BLACK
+            } else {
+                Color::from_rgb8(255, 0, 0)
+            },
+            None,
+            &Rect::new(2. + step as f64, 2., 8. + step as f64, 8.),
+        );
+        if step < 3 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                if step.is_multiple_of(2) {
+                    Color::BLACK
+                } else {
+                    Color::from_rgb8(0, 0, 255)
+                },
+                None,
+                &Rect::new(92., 92., 98., 98.),
+            );
+        }
+        scene
+    };
+    let mut partial = SkiaSurface::new(100, 100).unwrap();
+    partial.set_multi_rect_damage(true);
+    let mut full = SkiaSurface::new(100, 100).unwrap();
+    partial.draw_scene_tracked(&scene(0), Color::WHITE).unwrap();
+    for step in 1..4 {
+        let current = scene(step);
+        let damage = partial.draw_scene_tracked(&current, Color::WHITE).unwrap();
+        assert!(matches!(damage, plico_renderer::DamageRegion::Rect(_)));
+        assert_eq!(partial.last_damage_rect_count(), 2);
+        assert!(partial.last_damage_coverage() < 0.03);
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            full.render_scene(&current, Color::WHITE).unwrap()
+        );
+    }
+    assert_eq!(
+        partial.draw_scene_tracked(&scene(3), Color::WHITE).unwrap(),
+        plico_renderer::DamageRegion::Empty
+    );
+    assert_eq!(partial.last_damage_coverage(), 0.);
 }

@@ -201,6 +201,8 @@ fn compute_layout_with_widgets(
     device_scale: f64,
     mut measure_widget: impl FnMut(NodeId, &mut crate::widget::MeasureContext<'_>) -> Option<[f32; 2]>,
 ) {
+    #[cfg(feature = "profiling")]
+    let _span = tracing::trace_span!(target: "plico::layout", "layout.compute").entered();
     let available = Size {
         width: AvailableSpace::Definite(viewport[0]),
         height: AvailableSpace::Definite(viewport[1]),
@@ -434,6 +436,8 @@ pub fn flatten_with_scroll_into(
     scroll_offsets: &HashMap<NodeId, [f32; 2]>,
     out: &mut Vec<PlacedNode>,
 ) {
+    #[cfg(feature = "profiling")]
+    let _span = tracing::trace_span!(target: "plico::layout", "layout.flatten").entered();
     out.clear();
     walk(
         tree,

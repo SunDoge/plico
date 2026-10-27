@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use kurbo::{Affine, Rect, Stroke};
+use peniko::{Color, Fill};
 use plico_renderer::{
     HostAction, ImeEvent, KeyPhase, Modifiers, PointerButton, PointerPhase, UiEvent,
     WHEEL_LINE_DELTA, WakeCallback,
@@ -41,8 +43,6 @@ use rio_vt::performer::Machine;
 use rio_vt::performer::handler::Processor;
 use rio_vt::selection::{Selection, SelectionRange, SelectionType};
 use rustc_hash::FxHashMap;
-use vello_common::kurbo::{Affine, Rect, Stroke};
-use vello_common::peniko::{Color, Fill};
 
 mod box_drawing;
 mod color;

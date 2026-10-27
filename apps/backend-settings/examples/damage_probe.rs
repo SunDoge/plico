@@ -90,8 +90,10 @@ fn main() {
         let expected = full.read_pixels().unwrap();
         if let Some(previous) = &previous_pixels {
             for (index, (before, after)) in previous
-                .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<4>().0.iter())
                 .enumerate()
             {
                 let (x, y) = ((index % 1100) as f64, (index / 1100) as f64);
@@ -111,8 +113,10 @@ fn main() {
             let mut bounds = [1100usize, 820usize, 0, 0];
             let mut max_delta = 0;
             for (i, (a, b)) in actual
-                .chunks_exact(4)
-                .zip(expected.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(expected.as_chunks::<4>().0.iter())
                 .enumerate()
             {
                 if a != b {

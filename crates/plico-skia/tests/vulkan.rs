@@ -1,10 +1,79 @@
 #![cfg(feature = "vulkan")]
+
+#[test]
+#[ignore = "requires Vulkan; run with the default distance-field text mode"]
+fn fractional_text_scroll_changes_every_frame_including_small_fonts_after_resize() {
+    use kurbo::Affine;
+    use peniko::Color;
+    use plico_renderer::{
+        PaintCommand, Scene, TextContext, paragraph::ParagraphRequest, style::Paint,
+        text::FontAsset,
+    };
+    use plico_skia::SkiaGpuSurface;
+    use std::sync::Arc;
+    let mut gpu = SkiaGpuSurface::new(256, 96).unwrap();
+    let mut text = TextContext::new();
+    text.register_font(
+        &FontAsset::from_static(include_bytes!(
+            "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+        ))
+        .with_family("MotionFixture"),
+    );
+    gpu.configure_text(&mut text);
+    for resize in [false, true] {
+        if resize {
+            gpu.resize(280, 100).unwrap();
+        }
+        let width = gpu.dimensions().0 as usize;
+        for size in [12., 16., 28.] {
+            let request = Arc::new(
+                ParagraphRequest::from_paint(
+                    &Paint {
+                        text: Some("Smooth S".into()),
+                        font_family: Some("MotionFixture".into()),
+                        font_size: size,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap(),
+            );
+            let mut previous: Option<(Vec<u8>, f64)> = None;
+            for step in 0..9 {
+                let mut scene = Scene::new();
+                scene.commands.push(PaintCommand::Paragraph {
+                    request: request.clone(),
+                    transform: Affine::translate((12., 12. + step as f64 / 8.)),
+                });
+                gpu.draw_scene(&scene, Color::WHITE).unwrap();
+                let pixels = gpu.read_pixels().unwrap();
+                let (mut mass, mut moment) = (0., 0.);
+                for (i, p) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                    let weight = (255 - p[0]) as f64;
+                    mass += weight;
+                    moment += (i / width) as f64 * weight;
+                }
+                let y = moment / mass;
+                if let Some((last, last_y)) = previous {
+                    assert!(
+                        last != pixels,
+                        "{size}px step {step} repeated its predecessor"
+                    );
+                    assert!(
+                        (0.04..0.25).contains(&(y - last_y)),
+                        "{size}px step {step} jumped {}px",
+                        y - last_y
+                    );
+                }
+                previous = Some((pixels, y));
+            }
+        }
+    }
+}
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene};
 use plico_skia::{Error, SkiaGpuSurface};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 #[test]
 fn invalid_sizes_do_not_initialize_vulkan() {
@@ -61,7 +130,7 @@ fn submission_readback_resize_and_destruction() {
         assert!(matches!(gpu.read_pixels(), Err(Error::NoFrame)));
         let mut unsupported = Scene::new();
         unsupported.push_layer(
-            vello_common::peniko::BlendMode::default(),
+            peniko::BlendMode::default(),
             1.,
             Affine::IDENTITY,
             &Rect::new(0., 0., 4., 4.),
@@ -164,4 +233,46 @@ fn damage_tracked_gpu_matches_full_redraw_and_resize() {
             "frame {frame}"
         );
     }
+}
+
+#[test]
+#[ignore = "requires Vulkan; verifies live pixels and resources survive cache trimming"]
+fn budget_and_trim_preserve_pixels_and_tracked_history() {
+    use plico_renderer::{
+        DamageRegion, PaintCommand, TextContext, paragraph::ParagraphRequest, style::Paint,
+    };
+    use std::sync::Arc;
+    let mut gpu = SkiaGpuSurface::new(160, 64).unwrap();
+    gpu.set_gpu_cache_limit(4 * 1024 * 1024);
+    assert_eq!(gpu.gpu_cache_stats().limit_bytes, 4 * 1024 * 1024);
+    let mut text = TextContext::new();
+    gpu.configure_text(&mut text);
+    let mut scene = Scene::new();
+    scene.commands.push(PaintCommand::Paragraph {
+        request: Arc::new(
+            ParagraphRequest::from_paint(
+                &Paint {
+                    text: Some("Cache S 世界".into()),
+                    font_size: 20.,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap(),
+        ),
+        transform: Affine::translate((4., 4.)),
+    });
+    assert_eq!(
+        gpu.draw_scene_tracked(&scene, Color::WHITE).unwrap(),
+        DamageRegion::Full
+    );
+    let expected = gpu.read_pixels().unwrap();
+    gpu.trim_gpu_cache();
+    assert_eq!(gpu.read_pixels().unwrap(), expected);
+    assert_eq!(
+        gpu.draw_scene_tracked(&scene, Color::WHITE).unwrap(),
+        DamageRegion::Empty
+    );
+    gpu.draw_scene(&scene, Color::WHITE).unwrap();
+    assert_eq!(gpu.read_pixels().unwrap(), expected);
 }

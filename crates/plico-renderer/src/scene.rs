@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::{PaintScene, Scene};
-use vello_common::kurbo::{Affine, Rect, Stroke};
-use vello_common::peniko::{BlendMode, Color, Fill};
+use kurbo::{Affine, Rect, Stroke};
+use peniko::{BlendMode, Color, Fill};
 
 use crate::layout::{PlacedNode, SubtreeEvent, subtree_events};
 use crate::scrollbar::{ScrollAxis, thumb as scrollbar_thumb, track as scrollbar_track};
@@ -51,7 +51,7 @@ pub fn resolve_node_transform(node: &PlacedNode, parent_transform: Affine) -> Af
         IrLength::Auto => 0.0,
     };
     let (static_transform, runtime_transform) = resolve_local_transforms(node);
-    let origin = vello_common::kurbo::Vec2::new(
+    let origin = kurbo::Vec2::new(
         rect.x0 + resolve(&node.paint.transform_origin[0], x1 - x0),
         rect.y0 + resolve(&node.paint.transform_origin[1], y1 - y0),
     );
@@ -280,7 +280,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     ];
     for (width, from, to) in sides {
         if width > 0.0 {
-            let line = vello_common::kurbo::Line::new(
+            let line = kurbo::Line::new(
                 (f64::from(from.0), f64::from(from.1)),
                 (f64::from(to.0), f64::from(to.1)),
             );

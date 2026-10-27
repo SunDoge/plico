@@ -467,6 +467,7 @@ name = "backend-settings"
 version = "0.1.5"
 dependencies = [
  "fltk",
+ "peniko",
  "plico-core",
  "plico-fltk",
  "plico-motion",
@@ -478,7 +479,6 @@ dependencies = [
  "snafu",
  "tracing-subscriber",
  "usage-rs",
- "vello_common",
 ]
 
 [[package]]
@@ -2572,6 +2572,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "libmpv2"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3d44c1c29b866d44453249d1d8b2822d891fdabd08359a5b85bb6944445e70"
+dependencies = [
+ "libmpv2-sys",
+]
+
+[[package]]
+name = "libmpv2-sys"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edb32cabe7176b7d270b0dca6ff418b75187ae8d3854423e3d06fbff376841e4"
+
+[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3662,10 +3677,11 @@ name = "plico-editor"
 version = "0.1.5"
 dependencies = [
  "floem-editor-core",
+ "kurbo",
  "parley",
+ "peniko",
  "plico-renderer",
  "syntect",
- "vello_common",
 ]
 
 [[package]]
@@ -3731,15 +3747,16 @@ dependencies = [
  "futures-util",
  "global-hotkey",
  "image",
+ "kurbo",
  "lru",
  "pango",
  "pangocairo",
+ "peniko",
  "plico-renderer",
  "plico-shell",
  "serde_json",
  "snafu",
  "tokio",
- "vello_common",
 ]
 
 [[package]]
@@ -3752,9 +3769,11 @@ dependencies = [
  "gif",
  "glifo",
  "image",
+ "kurbo",
  "lru",
  "naga",
  "parley",
+ "peniko",
  "plico-core",
  "plico-motion",
  "rustc-hash 2.1.3",
@@ -3777,8 +3796,10 @@ name = "plico-runtime"
 version = "0.1.5"
 dependencies = [
  "gallery",
+ "kurbo",
  "notify",
  "parley",
+ "peniko",
  "plico-core",
  "plico-dev",
  "plico-motion",
@@ -3789,7 +3810,6 @@ dependencies = [
  "snafu",
  "taffy",
  "tracing",
- "vello_common",
  "web-time",
  "zeroize",
 ]
@@ -3804,10 +3824,12 @@ dependencies = [
  "futures-util",
  "glifo",
  "image",
+ "kurbo",
  "notify-rust",
  "objc2-app-kit 0.3.2",
  "open",
  "parley",
+ "peniko",
  "plico-native",
  "plico-renderer",
  "plico-skia",
@@ -3841,7 +3863,9 @@ dependencies = [
  "ash",
  "ash-window",
  "image",
+ "kurbo",
  "lru",
+ "peniko",
  "plico-core",
  "plico-renderer",
  "plico-runtime",
@@ -3850,6 +3874,7 @@ dependencies = [
  "skia-safe",
  "snafu",
  "taffy",
+ "tracing",
  "vello_common",
  "winit",
 ]
@@ -3858,7 +3883,9 @@ dependencies = [
 name = "plico-terminal"
 version = "0.1.5"
 dependencies = [
+ "kurbo",
  "libc",
+ "peniko",
  "percent-encoding",
  "plico-core",
  "plico-renderer",
@@ -3868,7 +3895,6 @@ dependencies = [
  "serde_json",
  "teletypewriter",
  "tracing",
- "vello_common",
 ]
 
 [[package]]
@@ -3877,6 +3903,8 @@ version = "0.1.5"
 dependencies = [
  "gallery",
  "image",
+ "kurbo",
+ "peniko",
  "plico-core",
  "plico-dev",
  "plico-renderer",
@@ -3885,9 +3913,21 @@ dependencies = [
  "serde",
  "serde_json",
  "snafu",
+ "tracing",
  "tracing-subscriber",
  "usage-rs",
- "vello_common",
+]
+
+[[package]]
+name = "plico-video"
+version = "0.1.5"
+dependencies = [
+ "libmpv2",
+ "libmpv2-sys",
+ "plico-core",
+ "plico-renderer",
+ "plico-vello",
+ "snafu",
 ]
 
 [[package]]

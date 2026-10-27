@@ -2,11 +2,9 @@
 // Copyright 2024 the Vello Authors and 2026 the Wabou contributors
 // SPDX-License-Identifier: Apache-2.0
 use crate::Error;
+use kurbo::{Affine, BezPath, Cap, Join, Point, Stroke};
+use peniko::{BlendMode, Brush, Color, ColorStop, Extend, Fill, Gradient, color::DynamicColor};
 use plico_renderer::{PaintScene, Scene, svg::usvg};
-use vello_common::{
-    kurbo::{Affine, BezPath, Cap, Join, Point, Stroke},
-    peniko::{BlendMode, Brush, Color, ColorStop, Extend, Fill, Gradient, color::DynamicColor},
-};
 
 pub(crate) fn commands(tree: &usvg::Tree) -> Result<Scene, Error> {
     let mut scene = Scene::new();
@@ -82,7 +80,7 @@ fn group(scene: &mut Scene, node_group: &usvg::Group) -> Result<(), Error> {
             BlendMode::default(),
             node_group.opacity().get(),
             Affine::IDENTITY,
-            &vello_common::kurbo::Rect::new(
+            &kurbo::Rect::new(
                 rect.left() as f64,
                 rect.top() as f64,
                 rect.right() as f64,

@@ -1,6 +1,8 @@
 use crate::{CodeEditorState, document::Document};
 use floem_editor_core::{buffer::rope_text::RopeText, editor::EditType};
+use kurbo::{Affine, Rect};
 use parley::{Affinity, Cursor, Layout, Selection};
+use peniko::{Color, Fill};
 use plico_renderer::{
     ImeEvent, KeyPhase, PaintContext, PaintScene, Point, PointerButton, PointerPhase, TextContext,
     UiEvent, Widget, WidgetChanges, WidgetEventResult, WidgetGeometry,
@@ -9,10 +11,6 @@ use plico_renderer::{
 };
 use std::sync::{Arc, LazyLock};
 use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 const FONT: f32 = 14.;
 const LINE: f32 = 23.;

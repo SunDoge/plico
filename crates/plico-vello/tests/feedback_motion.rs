@@ -1,8 +1,8 @@
+use kurbo::Shape;
 use plico_core::{UiContext, VirtualClock};
 use plico_renderer::{FrameSource, PaintCommand, SemanticAction, SemanticRole, TextContext};
 use plico_vello::{Source, View};
 use std::time::Duration;
-use vello_common::kurbo::Shape;
 #[derive(Default)]
 struct Feedback {
     checked: bool,

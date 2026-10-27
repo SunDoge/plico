@@ -34,6 +34,17 @@ cog check
 
 按独立行为组织提交，描述改动结果。只运行与改动相关的检查；代码改动可根据范围运行 cargo test、cargo clippy 与格式检查。版本更新和 Git tag 由下述 release-plz 流程管理；暂不发布到 crates.io。
 
+## 分支与合并验证
+
+独立任务从最新 `origin/main` 创建分支；功能合并后不继续复用原分支承载新任务。
+已有长分支可以合并最新 main 后继续，不必为了修复 CI 重建全部提交。
+
+Git 能无冲突合并 `Cargo.toml` 和 `Cargo.lock`，不代表 Cargo 的依赖解析结果一致。
+尤其 main 更新 `workspace.package.version`、功能分支新增 workspace 成员时，锁文件中
+新包的版本可能仍是旧版本。合并 main 后先运行一次不带 `--locked` 的 Cargo 命令，
+检查并提交生成的锁文件差异，再执行 CI 相同的 `--locked` 检查。
+保留 CI 的 `--locked`，避免构建时隐式修改依赖。
+
 ## CI
 
 普通 pull request / main push 保留两个 CI job：Linux **Lightweight Rust checks** 与 **Windows compile**。

@@ -2,7 +2,7 @@
 
 #![warn(missing_docs)]
 
-use vello_common::kurbo::{Point, Rect};
+use kurbo::{Point, Rect};
 
 use crate::layout::PlacedNode;
 

@@ -38,7 +38,7 @@ name = "fltk_schedule_probe"
 required-features = ["fltk"]
 
 [dev-dependencies]
-vello-common.workspace = true
+peniko.workspace = true
 
 [[example]]
 name = "damage_probe"

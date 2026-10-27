@@ -1,9 +1,9 @@
 //! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
 use crate::{RenderBackend, Scene, renderer_backend};
+use peniko::Color;
 #[cfg(feature = "skia")]
 use snafu::ResultExt;
 use std::sync::Arc;
-use vello_common::peniko::Color;
 use winit::window::Window;
 
 pub(crate) enum WindowRenderer {
@@ -32,7 +32,7 @@ impl WindowRenderer {
             Self::Skia {
                 active: Some(renderer),
                 ..
-            } => Some(renderer.last_damage().coverage(_width, _height)),
+            } => Some(renderer.last_damage_coverage()),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => None,
         }
@@ -81,6 +81,16 @@ impl WindowRenderer {
                     Ok("1" | "true")
                 );
                 renderer.set_damage_tracking(damage_tracking);
+                let multi_rect_damage = matches!(
+                    std::env::var("PLICO_SKIA_MULTI_RECT").as_deref(),
+                    Ok("1" | "true")
+                );
+                let present_skip = matches!(
+                    std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
+                    Ok("1" | "true")
+                );
+                renderer.set_multi_rect_damage(multi_rect_damage);
+                renderer.set_present_skip(present_skip);
                 renderer.set_damage_validation(matches!(
                     std::env::var("PLICO_SKIA_DAMAGE_VALIDATE").as_deref(),
                     Ok("1" | "true")
@@ -91,7 +101,15 @@ impl WindowRenderer {
                 ));
                 tracing::info!(
                     device = renderer.device_name(),
+                    gpu_cache_limit_bytes = renderer.gpu_cache_stats().limit_bytes,
+                    text_mode = if std::env::var("PLICO_SKIA_TEXT_MODE").as_deref() == Ok("mask") {
+                        "mask"
+                    } else {
+                        "distance-field"
+                    },
                     damage_tracking,
+                    multi_rect_damage,
+                    present_skip,
                     incremental_present_supported = renderer.incremental_present_supported(),
                     "Skia Vulkan window renderer initialized"
                 );
@@ -110,6 +128,37 @@ impl WindowRenderer {
             } => renderer.resize(width, height),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => {}
+        }
+    }
+    pub(crate) fn present_skipped(&self) -> bool {
+        #[cfg(feature = "skia")]
+        if let Self::Skia {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.last_present_skipped();
+        }
+        false
+    }
+    pub(crate) fn invalidate_presentation(&mut self) {
+        #[cfg(feature = "skia")]
+        if let Self::Skia {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.invalidate_presentation();
+        }
+    }
+    pub(crate) fn trim_gpu_cache(&mut self) {
+        #[cfg(feature = "skia")]
+        if let Self::Skia {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.trim_gpu_cache();
         }
     }
     pub(crate) fn render(
@@ -133,8 +182,10 @@ impl WindowRenderer {
                     .present(scene, color)
                     .context(crate::error::SkiaSnafu)?;
                 if presented {
-                    tracing::trace!(target: "plico::perf", damage_coverage = renderer.last_damage().coverage(width, height),
+                    tracing::trace!(target: "plico::perf", damage_coverage = renderer.last_damage_coverage(),
+                        damage_rect_count = renderer.last_damage_rect_count(),
                         present_damage_coverage = renderer.last_present_damage().coverage(width, height),
+                        present_skipped = renderer.last_present_skipped(),
                         gpu_cache_bytes = renderer.gpu_cache_stats().bytes,
                         gpu_cache_purgeable_bytes = renderer.gpu_cache_stats().purgeable_bytes,
                         gpu_cache_limit_bytes = renderer.gpu_cache_stats().limit_bytes,

@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use crate::Scene;
-use vello_common::peniko::Color;
+use peniko::Color;
 
 use crate::layout::PlacedNode;
 use crate::scene;

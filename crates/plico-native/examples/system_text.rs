@@ -1,16 +1,14 @@
 //! Native and Parley text side by side, submitted through the same GPU renderer.
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use kurbo::Affine;
+    use peniko::{Color, ImageQuality};
     use plico_native::text::{SystemText, TextRequest};
     use plico_renderer::{
         PaintScene, Scene, TextContext, image::RasterImage, style::TextAlign,
         text::layout_text_styled,
     };
     use std::sync::Arc;
-    use vello_common::{
-        kurbo::Affine,
-        peniko::{Color, ImageQuality},
-    };
     let output = std::path::Path::new("reports/system-text");
     std::fs::create_dir_all(output)?;
     let mut native = SystemText::new(16 * 1024 * 1024)?;

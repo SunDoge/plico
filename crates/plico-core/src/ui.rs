@@ -256,8 +256,8 @@ impl<'e> UiContext<'e> {
         Svg { inner }
     }
     /// Declare an embedded raster image; see [`crate::ImageAsset`].
-    pub fn image(&mut self, asset: &crate::ImageAsset) -> Image<'_, 'e> {
-        let mut inner = self.leaf(Kind::Image, Cow::Owned(asset.encoded()));
+    pub fn image<'u>(&'u mut self, asset: &'u crate::ImageAsset) -> Image<'u, 'e> {
+        let mut inner = self.leaf(Kind::Image, Cow::Borrowed(asset.encoded_str()));
         inner.style.width = Some(96.);
         inner.style.height = Some(96.);
         inner.style.shrink = 0.;
@@ -1531,7 +1531,7 @@ pub struct Svg<'u, 'e> {
 /// A decoded raster image. The asset's encoded bytes are carried hex-encoded
 /// in the node's text; the backend decodes and caches by content.
 pub struct Image<'u, 'e> {
-    inner: Leaf<'u, 'e, 'static>,
+    inner: Leaf<'u, 'e, 'u>,
 }
 impl crate::ImplicitKey for Image<'_, '_> {
     fn key_of(&self) -> Key {

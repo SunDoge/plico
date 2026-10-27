@@ -2,10 +2,8 @@
 
 use std::{sync::Arc, time::Instant};
 
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 
 use crate::{FrameStats, PaintScene, Scene, TextContext};
 
@@ -83,7 +81,7 @@ impl PerformanceHud {
             &panel.to_rounded_rect(9.0),
         );
         scene.stroke(
-            &vello_common::kurbo::Stroke::new(1.0),
+            &kurbo::Stroke::new(1.0),
             device,
             Color::from_rgba8(203, 213, 225, 230),
             None,

@@ -2,10 +2,10 @@
 
 use crate::{PaintCommand, Scene};
 use glifo::FontEmbolden;
+use kurbo::{Affine, Diagonal2};
+use peniko::{Brush, Color, Style};
 use std::collections::{HashMap, HashSet};
-use vello_common::kurbo::{Affine, Diagonal2};
 use vello_common::paint::{ImageId, ImageSource, PaintType};
-use vello_common::peniko::{Brush, Color, Style};
 use vello_gpu::{RenderSize, Resources, WebGlRenderer, WebGlTextureBindings};
 use web_sys::HtmlCanvasElement;
 
@@ -53,7 +53,7 @@ impl WebRenderer {
                     self.images.insert(key, id);
                     id
                 };
-                PaintType::Image(vello_common::peniko::ImageBrush {
+                PaintType::Image(peniko::ImageBrush {
                     image: ImageSource::OpaqueId {
                         id,
                         may_have_transparency: true,

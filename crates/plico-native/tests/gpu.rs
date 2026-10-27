@@ -1,10 +1,8 @@
 #![cfg(all(target_os = "linux", feature = "linux-text"))]
+use kurbo::Affine;
+use peniko::{Color, ImageQuality};
 use plico_native::text::{SystemText, TextRequest};
 use plico_renderer::{PaintScene, Scene, image::RasterImage};
-use vello_common::{
-    kurbo::Affine,
-    peniko::{Color, ImageQuality},
-};
 
 #[test]
 fn native_bitmaps_survive_the_gpu_image_path_without_dark_alpha_fringes() {

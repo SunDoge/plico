@@ -12,17 +12,17 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use crate::{Glyph, PaintScene, Scene};
+use kurbo::{Affine, Vec2};
 use lru::LruCache;
 use parley::{
     Alignment, AlignmentOptions, FontContext, Layout, LayoutContext, PositionedLayoutItem,
     StyleProperty,
 };
+use peniko::Fill;
 use unicode_segmentation::UnicodeSegmentation;
-use vello_common::kurbo::{Affine, Vec2};
-use vello_common::peniko::Fill;
 
 use crate::style::TextAlign;
-use vello_common::peniko::Color;
+use peniko::Color;
 
 /// Geometry shared by ordinary text nodes and text-backed native widgets.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -167,6 +167,8 @@ impl FontAsset {
 
 /// The lifetime of a returned [`Layout`] is tied to a borrow of this context.
 pub struct TextContext {
+    #[cfg(feature = "profiling")]
+    profile: TextProfile,
     native: Option<Box<dyn crate::paragraph::ParagraphEngine>>,
     font_assets: Vec<FontAsset>,
     paragraph_revision: u64,
@@ -180,6 +182,19 @@ pub struct TextContext {
     ellipsis_cache: LruCache<TextLayoutKey, Arc<Layout<[u8; 4]>>>,
     clamp_cache: LruCache<TextClampCacheKey, SharedTextLayout>,
     glyph_cache: LruCache<(usize, u64), GlyphSceneEntry>,
+}
+
+#[cfg(feature = "profiling")]
+#[derive(Default)]
+struct TextProfile {
+    id: usize,
+    shape_hits: u64,
+    shape_misses: u64,
+    shape_evictions: u64,
+    glyph_hits: u64,
+    glyph_misses: u64,
+    glyph_evictions: u64,
+    invalidations: u64,
 }
 
 type SharedTextLayout = Arc<Layout<[u8; 4]>>;
@@ -255,6 +270,15 @@ impl TextContext {
         // reloading the same font file under a fresh identity after pruning.
         font_cx.source_cache.make_shared();
         Self {
+            #[cfg(feature = "profiling")]
+            profile: {
+                static NEXT_ID: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(1);
+                TextProfile {
+                    id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                    ..Default::default()
+                }
+            },
             native: None,
             font_assets: Vec::new(),
             paragraph_revision: 0,
@@ -371,9 +395,29 @@ impl TextContext {
         (self.cache.len(), self.glyph_cache.len())
     }
 
+    /// Emit profiling-only cache counters without text or font contents.
+    #[cfg(feature = "profiling")]
+    pub fn trace_cache_snapshot(&self) {
+        tracing::trace!(target: "plico::cache", cache = %"parley.shape", cache_id = self.profile.id, ordinary_text_backend = %self.raster_backend_name(),
+            entries = self.cache.len(), capacity = self.cache.cap().get(),
+            hits_total = self.profile.shape_hits, misses_total = self.profile.shape_misses,
+            evictions_total = self.profile.shape_evictions, invalidations_total = self.profile.invalidations,
+            intrinsic_entries = self.intrinsic_width_cache.len(), ellipsis_entries = self.ellipsis_cache.len(),
+            clamp_entries = self.clamp_cache.len(), "cache.snapshot");
+        tracing::trace!(target: "plico::cache", cache = %"parley.glyph_scene", cache_id = self.profile.id,
+            entries = self.glyph_cache.len(), capacity = self.glyph_cache.cap().get(),
+            hits_total = self.profile.glyph_hits, misses_total = self.profile.glyph_misses,
+            evictions_total = self.profile.glyph_evictions, invalidations_total = self.profile.invalidations,
+            "cache.snapshot");
+    }
+
     /// Release derived text layouts and encoded glyph scenes while retaining
     /// the discovered and application-provided font collection.
     pub fn clear_caches(&mut self) {
+        #[cfg(feature = "profiling")]
+        {
+            self.profile.invalidations += 1;
+        }
         if let Some(engine) = &mut self.native {
             engine.clear();
         }
@@ -412,9 +456,17 @@ impl TextContext {
                 .upgrade()
                 .is_some_and(|cached| Arc::ptr_eq(&cached, layout))
         {
+            #[cfg(feature = "profiling")]
+            {
+                self.profile.glyph_hits += 1;
+            }
             return scene.clone();
         }
 
+        #[cfg(feature = "profiling")]
+        {
+            self.profile.glyph_misses += 1;
+        }
         #[cfg(feature = "profiling")]
         let span = tracing::trace_span!(
             target: "wabou::perf",
@@ -435,6 +487,12 @@ impl TextContext {
             true,
         );
         let scene = Arc::new(scene);
+        #[cfg(feature = "profiling")]
+        if self.glyph_cache.len() == self.glyph_cache.cap().get()
+            && !self.glyph_cache.contains(&key)
+        {
+            self.profile.glyph_evictions += 1;
+        }
         self.glyph_cache
             .put(key, (Arc::downgrade(layout), scene.clone()));
         scene
@@ -621,7 +679,15 @@ pub fn layout_text_styled_with_spacing(
         max_width,
     );
     if let Some(layout) = tcx.cache.get(&key) {
+        #[cfg(feature = "profiling")]
+        {
+            tcx.profile.shape_hits += 1;
+        }
         return layout.clone();
+    }
+    #[cfg(feature = "profiling")]
+    {
+        tcx.profile.shape_misses += 1;
     }
     #[cfg(feature = "profiling")]
     let span = tracing::trace_span!(
@@ -695,6 +761,10 @@ pub fn layout_text_styled_with_spacing(
         AlignmentOptions::default(),
     );
     let layout = Arc::new(layout);
+    #[cfg(feature = "profiling")]
+    if tcx.cache.len() == tcx.cache.cap().get() && !tcx.cache.contains(&key) {
+        tcx.profile.shape_evictions += 1;
+    }
     tcx.cache.put(key, layout.clone());
     layout
 }
@@ -1161,6 +1231,25 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(context.cache.len(), 1);
+        #[cfg(feature = "profiling")]
+        {
+            assert_eq!(
+                (context.profile.shape_hits, context.profile.shape_misses),
+                (1, 1)
+            );
+            context.glyph_scene_scaled(&first, 1.);
+            context.glyph_scene_scaled(&first, 1.);
+            assert_eq!(
+                (context.profile.glyph_hits, context.profile.glyph_misses),
+                (1, 1)
+            );
+            context.clear_caches();
+            assert_eq!(context.profile.invalidations, 1);
+            assert_eq!(
+                context.profile.shape_hits, 1,
+                "counters survive invalidation"
+            );
+        }
     }
 
     #[test]
