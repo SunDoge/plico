@@ -287,3 +287,6 @@ pub fn virtual_list<'u, 'e>(
 ) -> crate::VirtualList<'u, 'e> {
     crate::VirtualList::new(cx, count, row_height)
 }
+
+mod inspection;
+pub use inspection::{TableColumn, property_field, table_header, table_row};
