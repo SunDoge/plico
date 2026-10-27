@@ -27,6 +27,7 @@
 | [声明成本与 memo 实验](memo-experiments.md) | 核心声明、Markdown 解析缓存、宿主动画与更新边界的实验和限制 |
 | [增量执行](incremental.md) | dirty journal、活跃动画、paint patch 与场景复用边界 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
+| [libmpv 视频实验](video.md) | 可选宿主播放器、软件帧 surface、暂停/跳转与 GPU 接入限制 |
 | [Skia / Vello 绘制对照](skia.md) | SkParagraph 普通文字、CPU / Vulkan Skia，以及相同 Parley glyph 的后端对照 |
 | [Pango/Cairo 文字对照](pango-text-comparison.md) | 排版指标、相同 Parley glyph 的绘制对照与文字清晰度排查 |
 | [文字渲染排查结论](text-rendering-investigation.md) | 精确基线、Chrome 对照、字体回退与覆盖率策略的证据及限制 |
