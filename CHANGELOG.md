@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/SunDoge/plico/compare/v0.1.4...v0.1.5) - 2026-10-26
+
+### Added
+
+- *(skia)* use SkParagraph for ordinary text layout and painting
+- *(skia)* support optional incremental presentation hints
+- *(skia)* track damage per preserved render target
+- *(skia)* add optional damage-clipped surface drawing
+- *(runtime)* measure per-frame damage coverage (damage tracking phase 0)
+
+### Fixed
+
+- *(layout)* clear hoisted children when containers become leaves
+- *(text)* reuse live font blobs after source cache pruning
+- *(renderer)* preserve local clips before presentation transforms
+- *(diagnostics)* report actual renderer damage coverage
+- *(runtime)* avoid resettling unchanged async service snapshots
+- *(runtime)* keep the geometry latch set and stop damage from reading it
+- *(runtime)* reset geometry_dirty once its full flatten consumed it
+- *(skia)* share collection font data and release stale typefaces
+- *(skia)* make automatic damage tracking explicitly opt-in
+- *(skia)* render image brushes and share target resources
+
+### Other
+
+- *(skia)* skip drawing commands outside damage
+- *(diagnostics)* log the active Skia damage mode
+- *(vello)* probe preserved-target partial redraw support
+- *(skia)* isolate translucent layer damage precision mismatch
+
 ## [0.1.4](https://github.com/SunDoge/plico/compare/v0.1.3...v0.1.4) - 2026-10-26
 
 ### Added
