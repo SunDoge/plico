@@ -29,6 +29,8 @@ struct Coverage {
 pub struct GlyphCache {
     coverage: HashMap<(u64, u32, u32, u32), Option<Coverage>>,
     textures: HashMap<(u64, u32, u32, u32), egui::TextureId>,
+    /// Shadow coverage textures keyed by their geometry tuple.
+    pub(crate) shadow_textures: HashMap<(u64, u32, u32, u32), egui::TextureId>,
 }
 
 impl GlyphCache {

@@ -751,7 +751,8 @@ impl SkiaSurface {
                                 entry.get().1.clone()
                             }
                             std::collections::hash_map::Entry::Vacant(entry) => {
-                                let commands = crate::svg::commands(&document.0)?;
+                                let commands =
+                                    plico_renderer::svg::convert_paint::commands(&document.0)?;
                                 entry.insert((
                                     std::sync::Arc::downgrade(&document.0),
                                     commands.clone(),

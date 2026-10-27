@@ -265,3 +265,91 @@ fn a_real_parley_glyph_run_replays_as_textured_quads() {
         }
     }
 }
+
+#[test]
+fn an_svg_icon_lowers_through_the_shared_projector() {
+    // The same Lucide-style markup settings and gallery declare; the replay
+    // must lower it through the shared usvg→command projector into fills and
+    // strokes, with the document's currentColor resolved by the caller.
+    let icon = plico_renderer::svg::SvgImage::parse_with_current_color(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+             <path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2" fill="none"/>
+           </svg>"#,
+        0x2255aa,
+    )
+    .unwrap();
+    let mut scene = Scene::new();
+    scene.draw_svg(icon.document().clone(), Affine::translate((5., 5.)));
+    let meshes = tessellate(&scene);
+    // The stroke becomes path geometry: some tessellated area must appear,
+    // translated into the icon's 5,5 origin.
+    let mut area = 0.;
+    for (_, mesh) in &meshes {
+        for triangle in mesh.indices.as_chunks::<3usize>().0 {
+            let [a, b, c] = [
+                mesh.vertices[triangle[0] as usize],
+                mesh.vertices[triangle[1] as usize],
+                mesh.vertices[triangle[2] as usize],
+            ];
+            area += triangle_area(a.pos, b.pos, c.pos);
+        }
+    }
+    assert!(
+        area > 40.,
+        "the checkmark stroke must tessellate, got {area}"
+    );
+    // All ink stays within the translated 24x24 icon box.
+    for (_, mesh) in &meshes {
+        for vertex in &mesh.vertices {
+            assert!(
+                vertex.pos.x >= 4. && vertex.pos.x <= 30.,
+                "x {}",
+                vertex.pos
+            );
+            assert!(
+                vertex.pos.y >= 4. && vertex.pos.y <= 30.,
+                "y {}",
+                vertex.pos
+            );
+        }
+    }
+}
+
+#[test]
+fn a_box_shadow_replays_as_a_blurred_textured_quad() {
+    // The HUD-style shadow: a blurred rounded rect must become a textured
+    // quad whose area exceeds the unblurred rect (the blur extent adds ink
+    // around it) with translucent edge coverage.
+    let mut scene = Scene::new();
+    scene.draw_box_shadow(
+        Affine::IDENTITY,
+        vello_common::kurbo::Rect::new(10., 10., 60., 40.),
+        vello_common::peniko::Color::from_rgba8(0, 0, 0, 64),
+        8.,
+        4.,
+    );
+    let meshes = tessellate(&scene);
+    let mut shadow_area = 0.;
+    let mut quads = 0;
+    for (clip, mesh) in &meshes {
+        if mesh.texture_id != egui::TextureId::Managed(0) {
+            quads += 1;
+            for triangle in mesh.indices.as_chunks::<3usize>().0 {
+                let [a, b, c] = [
+                    mesh.vertices[triangle[0] as usize],
+                    mesh.vertices[triangle[1] as usize],
+                    mesh.vertices[triangle[2] as usize],
+                ];
+                shadow_area += clipped_triangle_area(a.pos, b.pos, c.pos, *clip);
+            }
+        }
+    }
+    assert_eq!(quads, 1, "one shadow quad expected");
+    // The quad spans the rect plus the ~12px blur extent on every side:
+    // 74x54 against the unblurred 50x30. The clip here only cuts the part
+    // left of the screen origin, so compare against the visible half bound.
+    assert!(
+        shadow_area > 1990.,
+        "blur must extend well beyond the rect, got {shadow_area}"
+    );
+}

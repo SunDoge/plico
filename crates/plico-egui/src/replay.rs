@@ -144,15 +144,39 @@ pub fn replay_scene_at(
                     command: "host-native paragraphs",
                 });
             }
-            PaintCommand::BoxShadow { .. } => {
-                return Err(ReplayError::Unsupported {
-                    command: "box shadows (milestone 3)",
-                });
+            PaintCommand::BoxShadow {
+                transform: local,
+                rect,
+                brush,
+                radius,
+                std_dev,
+            } => {
+                let color = color32(*brush);
+                let color = fold_alpha(color, layer_alpha(&layers));
+                crate::shadow::draw_box_shadow(
+                    painter,
+                    cache,
+                    transform * *local,
+                    *rect,
+                    color,
+                    *radius,
+                    *std_dev,
+                );
             }
-            PaintCommand::Svg { .. } => {
-                return Err(ReplayError::Unsupported {
-                    command: "SVG documents (milestone 3)",
-                });
+            PaintCommand::Svg {
+                document,
+                transform: local,
+            } => {
+                // Lower through the shared usvg→PaintCommand projector (the
+                // same one the Skia consumer replays) and recurse; its
+                // rejections surface verbatim.
+                let converted =
+                    plico_renderer::svg::convert_paint::commands(&document.0).map_err(|_| {
+                        ReplayError::Unsupported {
+                            command: "SVG feature rejected by the shared converter",
+                        }
+                    })?;
+                replay_scene_at(painter, &converted, cache, transform * *local)?;
             }
             PaintCommand::Shader { .. } => {
                 return Err(ReplayError::Unsupported {
@@ -209,6 +233,16 @@ fn flatten_path(transform: Affine, shape: &impl KurboShape) -> Vec<Pos2> {
         }
     }
     points
+}
+
+/// Convert a plain peniko Color into an epaint vertex color.
+fn color32(color: vello_common::peniko::Color) -> Color32 {
+    Color32::from_rgba_unmultiplied(
+        (color.components[0] * 255.) as u8,
+        (color.components[1] * 255.) as u8,
+        (color.components[2] * 255.) as u8,
+        (color.components[3] * 255.) as u8,
+    )
 }
 
 fn solid(brush: &vello_common::peniko::Brush) -> Result<Color32, ReplayError> {

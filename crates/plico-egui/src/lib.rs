@@ -16,6 +16,8 @@ mod glyph;
 #[cfg(feature = "replay")]
 mod replay;
 #[cfg(feature = "replay")]
+mod shadow;
+#[cfg(feature = "replay")]
 pub use glyph::GlyphCache;
 #[cfg(feature = "replay")]
 pub use replay::{ReplayError, replay_scene, replay_scene_at};
