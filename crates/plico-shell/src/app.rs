@@ -138,6 +138,7 @@ pub struct App {
     lifecycle: WindowLifecycle,
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
+    skipped_present_deadline: Option<Instant>,
     performance_hud: crate::performance_hud::PerformanceHud,
 }
 
@@ -259,6 +260,7 @@ impl App {
             lifecycle: WindowLifecycle::visible(),
             force_semantics: false,
             scheduled_frame_deadline: None,
+            skipped_present_deadline: None,
             performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
         }
     }
@@ -875,6 +877,17 @@ impl App {
             shell.present(base_color)
         };
         let present_ms = ms(Instant::now() - t2);
+        let present_skipped = shell.present_skipped();
+        self.skipped_present_deadline = present_skipped.then(|| {
+            let hz = shell
+                .window()
+                .current_monitor()
+                .and_then(|m| m.current_video_mode())
+                .and_then(|mode| mode.refresh_rate_millihertz())
+                .map(|rate| rate.get() as f64 / 1000.)
+                .unwrap_or(60.);
+            Instant::now() + std::time::Duration::from_secs_f64(1. / hz)
+        });
         #[cfg(feature = "profiling")]
         frame_span.record("node_count", node_count as u64);
         #[cfg(feature = "profiling")]
@@ -891,7 +904,9 @@ impl App {
             build_ms = build_frame_ms,
             scene_ms,
             present_ms,
-            presented,
+            presented = presented && !present_skipped,
+            present_skipped,
+            frame_accepted = presented,
             "frame.complete"
         );
         self.frame_stats
@@ -1120,16 +1135,24 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.skipped_present_deadline = None;
+        if let Some(shell) = self.state.as_mut() {
+            shell.invalidate_presentation();
+        }
         self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Resumed));
     }
 
     fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        if let Some(shell) = self.state.as_mut() {
+            shell.trim_gpu_cache();
+        }
         self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Suspended));
     }
 
     fn memory_warning(&mut self, _event_loop: &dyn ActiveEventLoop) {
         if let Some(shell) = self.state.as_mut() {
             shell.tcx.clear_caches();
+            shell.trim_gpu_cache();
         }
         self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::MemoryWarning));
     }
@@ -1214,9 +1237,18 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Moved(_) => self.sync_window_metrics(),
             WindowEvent::Occluded(occluded) => {
+                if occluded
+                    && !self.window_metrics.occluded
+                    && let Some(shell) = self.state.as_mut()
+                {
+                    shell.trim_gpu_cache();
+                }
                 self.window_metrics.occluded = occluded;
                 self.sync_window_metrics();
                 if !occluded {
+                    if let Some(shell) = self.state.as_mut() {
+                        shell.invalidate_presentation();
+                    }
                     self.present_retry_pending = false;
                 }
                 if let Some(shell) = self.state.as_ref() {
@@ -1461,6 +1493,7 @@ impl ApplicationHandler for App {
             .flatten();
         match scheduled_frame_wake(
             has_animation,
+            self.skipped_present_deadline,
             deadline,
             &mut self.scheduled_frame_deadline,
             Instant::now(),
@@ -1871,7 +1904,7 @@ impl ExtensionContext<'_> {
     /// Show a hidden window or recreate a previously released surface.
     pub fn show_window(&mut self, window_key: WindowResourceKey) -> bool {
         if let Some(app) = find_window_by_key(self.windows.values_mut(), window_key) {
-            let Some(shell) = app.state.as_ref() else {
+            let Some(shell) = app.state.as_mut() else {
                 return false;
             };
             let capabilities = window_capabilities(
@@ -1883,8 +1916,11 @@ impl ExtensionContext<'_> {
             );
             return match app.lifecycle.transition(WindowIntent::Show, capabilities) {
                 Some(WindowEffect::SetVisible(true)) => {
+                    app.skipped_present_deadline = None;
+                    shell.invalidate_presentation();
                     shell.window().set_visible(true);
                     shell.window().focus_window();
+                    shell.window().request_redraw();
                     true
                 }
                 None => true,
@@ -2538,6 +2574,7 @@ impl ApplicationHandler for MultiWindowApp {
                 .flatten();
             match scheduled_frame_wake(
                 has_animation,
+                app.skipped_present_deadline,
                 deadline,
                 &mut app.scheduled_frame_deadline,
                 now,

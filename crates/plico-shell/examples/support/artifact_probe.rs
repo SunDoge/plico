@@ -1,12 +1,10 @@
 //! History and direct-outline controls on the persistent production GPU renderer.
 use image::RgbaImage;
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_shell::{PaintCommand, PaintScene, Scene, renderer};
 use serde_json::{Value, json};
 use std::path::Path;
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 struct Baseline {
     scene: Scene,

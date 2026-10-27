@@ -1,6 +1,6 @@
 //! Presentation geometry uses the same affine composition as scene painting.
 use super::*;
-use vello_common::kurbo::{Affine, Point as KurboPoint, Rect as KurboRect};
+use kurbo::{Affine, Point as KurboPoint, Rect as KurboRect};
 pub(super) struct Presentation {
     world: Affine,
     opacity: f32,

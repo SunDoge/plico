@@ -4,11 +4,11 @@ use ash::{
     Entry,
     vk::{self, Handle},
 };
+use peniko::Color;
 use plico_renderer::Scene;
 use skia_safe::gpu;
 use snafu::ResultExt;
 use std::{ffi::CStr, marker::PhantomData, path::Path, rc::Rc};
-use vello_common::peniko::Color;
 
 pub(crate) fn text_mode_name() -> &'static str {
     if std::env::var("PLICO_SKIA_TEXT_MODE").as_deref() == Ok("mask") {
@@ -24,6 +24,19 @@ pub(crate) fn text_surface_props() -> skia_safe::SurfaceProps {
         skia_safe::SurfacePropsFlags::USE_DEVICE_INDEPENDENT_FONTS
     };
     skia_safe::SurfaceProps::new(flags, skia_safe::PixelGeometry::Unknown)
+}
+
+const DEFAULT_GPU_CACHE_BYTES: usize = 128 * 1024 * 1024;
+fn parse_cache_budget(value: Option<&str>) -> Result<usize, Error> {
+    match value {
+        None => Ok(DEFAULT_GPU_CACHE_BYTES),
+        Some(value) => value
+            .parse::<usize>()
+            .ok()
+            .and_then(|mib| mib.checked_mul(1024 * 1024))
+            .filter(|bytes| *bytes > 0)
+            .ok_or(Error::InvalidCacheBudget),
+    }
 }
 
 /// Ganesh resource-cache accounting; excludes driver allocations and CPU assets.
@@ -63,6 +76,28 @@ impl SkiaGpuSurface {
     /// Current GPU cache accounting, without readback or synchronization.
     pub fn gpu_cache_stats(&self) -> GpuCacheStats {
         cache_stats(&self.context)
+    }
+    /// Opt into drawing disjoint dirty rectangles without repainting their gaps.
+    pub fn set_multi_rect_damage(&mut self, enabled: bool) {
+        self.surface.set_multi_rect_damage(enabled);
+    }
+    /// Coverage of the actual dirty clip, rather than its bounding box.
+    pub fn last_damage_coverage(&self) -> f64 {
+        self.surface.last_damage_coverage()
+    }
+    /// Number of applied dirty rectangles.
+    pub fn last_damage_rect_count(&self) -> usize {
+        self.surface.last_damage_rect_count()
+    }
+    /// Set the soft GPU resource-cache budget in bytes. Live resources can
+    /// exceed it. Zero requests minimum caching, not a zero-memory renderer.
+    pub fn set_gpu_cache_limit(&mut self, bytes: usize) {
+        self.context.set_resource_cache_limit(bytes);
+    }
+    /// Release unlocked GPU resources without waiting for the GPU or discarding
+    /// live surface pixels. Future drawing may rebuild evicted resources.
+    pub fn trim_gpu_cache(&mut self) {
+        trim_gpu_cache(&mut self.context);
     }
     /// Prefer a discrete GPU, then integrated/virtual GPUs, then software Vulkan.
     /// There is no CPU-raster fallback; inspect `is_software_device` when needed.
@@ -170,6 +205,11 @@ impl SkiaGpuSurface {
         background: Color,
     ) -> Result<plico_renderer::DamageRegion, Error> {
         let damage = self.surface.draw_scene_tracked(scene, background)?;
+        if damage == plico_renderer::DamageRegion::Empty {
+            #[cfg(feature = "profiling")]
+            tracing::trace!(target: "plico::skia", "submit.skip");
+            return Ok(damage);
+        }
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::skia", "skia.flush_submit").entered();
         self.context.flush_surface(&mut self.surface.surface);
@@ -407,10 +447,23 @@ impl Drop for VulkanDevice {
     }
 }
 
+pub(super) fn trim_gpu_cache(context: &mut gpu::DirectContext) {
+    #[cfg(feature = "profiling")]
+    let before = cache_stats(context);
+    context.purge_unlocked_resources(gpu::PurgeResourceOptions::AllResources);
+    #[cfg(feature = "profiling")]
+    {
+        let after = cache_stats(context);
+        tracing::trace!(target: "plico::cache", before_bytes = before.bytes, after_bytes = after.bytes,
+            before_purgeable_bytes = before.purgeable_bytes, after_purgeable_bytes = after.purgeable_bytes,
+            limit_bytes = after.limit_bytes, "gpu_cache.trim");
+    }
+}
+
 fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
     let instance = owner.instance.as_ref().expect("initialized instance");
     let device = owner.device.as_ref().expect("initialized device");
-    let context = {
+    let mut context = {
         let get_proc = |query| {
             // SAFETY: handles came from this live loader/instance/device;
             // Skia provides a valid NUL-terminated Vulkan function name.
@@ -450,6 +503,12 @@ fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
         })?
     };
 
+    let budget = match std::env::var("PLICO_SKIA_GPU_CACHE_MB") {
+        Ok(value) => parse_cache_budget(Some(&value))?,
+        Err(std::env::VarError::NotPresent) => parse_cache_budget(None)?,
+        Err(std::env::VarError::NotUnicode(_)) => return Err(Error::InvalidCacheBudget),
+    };
+    context.set_resource_cache_limit(budget);
     Ok(context)
 }
 
@@ -457,3 +516,19 @@ fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
 mod window;
 #[cfg(feature = "window")]
 pub use window::SkiaWindow;
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[test]
+    fn cache_budget_is_bounded_in_bytes_and_rejects_invalid_values() {
+        assert_eq!(parse_cache_budget(None).unwrap(), DEFAULT_GPU_CACHE_BYTES);
+        assert_eq!(parse_cache_budget(Some("64")).unwrap(), 64 * 1024 * 1024);
+        for value in ["0", "-1", "abc", "", "18446744073709551615"] {
+            assert!(matches!(
+                parse_cache_budget(Some(value)),
+                Err(Error::InvalidCacheBudget)
+            ));
+        }
+    }
+}

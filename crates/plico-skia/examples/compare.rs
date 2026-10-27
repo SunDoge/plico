@@ -1,4 +1,6 @@
 //! Same Parley-shaped glyphs and scene, replayed by Skia CPU and Vello GPU.
+use kurbo::{Affine, Rect, RoundedRect};
+use peniko::{Color, Fill};
 use plico_renderer::style::TextAlign;
 use plico_renderer::{
     PaintScene, Scene, TextContext,
@@ -7,10 +9,6 @@ use plico_renderer::{
 use plico_skia::SkiaSurface;
 use snafu::{ResultExt, Snafu};
 use std::{path::Path, sync::Arc};
-use vello_common::{
-    kurbo::{Affine, Rect, RoundedRect},
-    peniko::{Color, Fill},
-};
 
 #[derive(Debug, Snafu)]
 enum Error {

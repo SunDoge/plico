@@ -104,7 +104,7 @@ fn reduced_motion_theme_change_and_unmount_do_not_leave_animation_alive() {
         .background;
     assert_eq!(
         background,
-        Some(vello_common::peniko::Color::from_rgb8(
+        Some(peniko::Color::from_rgb8(
             (source.view.theme.control_hover >> 16) as u8,
             (source.view.theme.control_hover >> 8) as u8,
             source.view.theme.control_hover as u8

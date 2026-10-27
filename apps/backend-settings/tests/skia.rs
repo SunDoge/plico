@@ -31,7 +31,7 @@ fn complete_settings_scenes_replay_on_skia_in_both_themes() {
                     &mut text,
                     width,
                     height,
-                    vello_common::peniko::Color::TRANSPARENT,
+                    peniko::Color::TRANSPARENT,
                 );
                 assert!(
                     output
@@ -42,7 +42,7 @@ fn complete_settings_scenes_replay_on_skia_in_both_themes() {
                 );
                 let mut surface = SkiaSurface::new(width, height).unwrap();
                 let pixels = surface
-                    .render_scene(&output, vello_common::peniko::Color::TRANSPARENT)
+                    .render_scene(&output, peniko::Color::TRANSPARENT)
                     .unwrap_or_else(|e| panic!("{page:?}, dark={dark}, width={width}: {e}"));
                 assert!(pixels.as_chunks::<4>().0.iter().any(|p| p != &pixels[..4]));
             }
@@ -80,10 +80,10 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
             &mut text,
             1100,
             820,
-            vello_common::peniko::Color::TRANSPARENT,
+            peniko::Color::TRANSPARENT,
         );
         let pixels = surface
-            .render_scene(&output, vello_common::peniko::Color::TRANSPARENT)
+            .render_scene(&output, peniko::Color::TRANSPARENT)
             .unwrap();
         if time == 130 {
             assert!(source.view.inspector_width() > 0. && source.view.inspector_width() < 248.);
@@ -105,9 +105,9 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
         &mut text,
         1100,
         820,
-        vello_common::peniko::Color::TRANSPARENT,
+        peniko::Color::TRANSPARENT,
     );
     surface
-        .draw_scene(&output, vello_common::peniko::Color::TRANSPARENT)
+        .draw_scene(&output, peniko::Color::TRANSPARENT)
         .unwrap();
 }

@@ -7,6 +7,8 @@ publish = false
 description = "Native terminal widget for Plico's renderer."
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+kurbo.workspace = true
+peniko.workspace = true
 plico-core.workspace = true
 plico-renderer.workspace = true
 percent-encoding = "2"
@@ -16,7 +18,6 @@ rustc-hash = "2"
 serde_json = { workspace = true }
 teletypewriter = "0.5.28"
 tracing = { workspace = true }
-vello-common.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"

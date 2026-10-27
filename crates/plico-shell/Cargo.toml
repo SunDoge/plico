@@ -11,6 +11,8 @@ name = "plico_shell"
 path = "src/lib.rs"
 
 [dependencies]
+peniko.workspace = true
+kurbo.workspace = true
 plico-renderer = { path = "../plico-renderer" }
 plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
 accesskit = "0.24.1"

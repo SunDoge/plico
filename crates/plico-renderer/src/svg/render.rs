@@ -1,8 +1,8 @@
 // Copyright 2024 the Vello Authors and 2026 the Wabou contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use vello_common::kurbo::{Affine, BezPath, PathEl, Rect};
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use kurbo::{Affine, BezPath, PathEl, Rect};
+use peniko::{BlendMode, Compose, Fill, Mix};
 use vello_gpu::Scene;
 
 use super::{Error, RenderReport, UnsupportedFeature, convert};
@@ -214,7 +214,7 @@ fn blend_mode(mode: usvg::BlendMode) -> BlendMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vello_common::kurbo::Shape;
+    use kurbo::Shape;
 
     #[test]
     fn clip_geometry_includes_the_referencing_group_transform() {

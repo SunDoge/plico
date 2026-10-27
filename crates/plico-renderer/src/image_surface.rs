@@ -3,12 +3,10 @@ use crate::{
     PaintContext, PaintScene, WakeCallback, Widget, WidgetChanges,
     animated_image::{AnimatedImage, ImagePlayer},
 };
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_core::{Clock, SystemClock};
 use std::sync::{Arc, Mutex};
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 use web_time::Instant;
 /// Serializable UI state need not contain decoded pixels or player handles.
 #[derive(Debug, Clone, PartialEq)]

@@ -1,9 +1,7 @@
 //! Isolate post-hint geometric expansion on an integer-aligned one-pixel stem.
+use kurbo::{Affine, Diagonal2, Join, Rect, Shape, expand_path};
+use peniko::{Color, Fill};
 use plico_shell::{PaintScene, Scene};
-use vello_common::{
-    kurbo::{Affine, Diagonal2, Join, Rect, Shape, expand_path},
-    peniko::{Color, Fill},
-};
 
 fn main() {
     let output = std::path::Path::new("reports/hinted-embolden");
@@ -30,7 +28,7 @@ fn main() {
         let diagonal_edges = path
             .segments()
             .filter(|segment| {
-                let vello_common::kurbo::PathSeg::Line(line) = segment else {
+                let kurbo::PathSeg::Line(line) = segment else {
                     return false;
                 };
                 line.p0.x != line.p1.x && line.p0.y != line.p1.y

@@ -8,9 +8,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 pub use crate::style_ir::{IrColor, IrLength, IrValue};
+use peniko::Color;
 use taffy::prelude::*;
 use taffy::style::{GridTemplateArea, GridTemplateAreas, GridTemplateRepetition};
-use vello_common::peniko::Color;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 /// Resolved horizontal alignment for shaped text.

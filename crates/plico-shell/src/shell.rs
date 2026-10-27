@@ -11,7 +11,7 @@ use snafu::ResultExt;
 use std::sync::Arc;
 
 use crate::Scene;
-use vello_common::peniko::Color;
+use peniko::Color;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes};
 
@@ -214,7 +214,7 @@ impl Shell {
         )
     }
 
-    /// Render and present [`Self::scene`], returning whether presentation succeeded.
+    /// Accept [`Self::scene`], returning true for presentation or an unchanged-frame skip.
     pub fn present(&mut self, base_color: Color) -> bool {
         self.accessibility.publish_root(self.window.as_ref());
         match self.renderer.render(
@@ -234,6 +234,16 @@ impl Shell {
     pub(crate) fn damage_coverage(&self) -> Option<f64> {
         self.renderer
             .damage_coverage(self.surface_size[0], self.surface_size[1])
+    }
+
+    pub(crate) fn present_skipped(&self) -> bool {
+        self.renderer.present_skipped()
+    }
+    pub(crate) fn invalidate_presentation(&mut self) {
+        self.renderer.invalidate_presentation();
+    }
+    pub(crate) fn trim_gpu_cache(&mut self) {
+        self.renderer.trim_gpu_cache();
     }
 
     /// Borrow the platform window.

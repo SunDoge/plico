@@ -92,7 +92,7 @@ impl plico_renderer::FrameSource for Paced {
         self.next = std::time::Instant::now() + Duration::from_secs_f64(1. / 60.);
         result
     }
-    fn base_color(&self) -> vello_common::peniko::Color {
+    fn base_color(&self) -> peniko::Color {
         self.source.base_color()
     }
     fn handle_event(&mut self, event: plico_renderer::UiEvent) -> plico_renderer::EventResponse {

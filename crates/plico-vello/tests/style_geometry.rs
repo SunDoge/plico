@@ -1,3 +1,4 @@
+use peniko::Color as PaintColor;
 use plico_core::{VirtualClock, prelude::*};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, SemanticAction,
@@ -5,7 +6,6 @@ use plico_renderer::{
 };
 use plico_vello::{Source, View};
 use std::{sync::Arc, time::Duration};
-use vello_common::peniko::Color as PaintColor;
 
 #[derive(Default)]
 struct Demo {

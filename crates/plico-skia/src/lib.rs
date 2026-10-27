@@ -40,6 +40,10 @@ pub enum Error {
     },
     #[snafu(display("GPU initialization failed: {message}"))]
     Gpu { message: &'static str },
+    #[snafu(display(
+        "PLICO_SKIA_GPU_CACHE_MB must be a positive integer in MiB fitting this platform"
+    ))]
+    InvalidCacheBudget,
     #[snafu(display("Skia GPU submission failed"))]
     Submit,
     #[cfg(feature = "window")]
@@ -49,6 +53,8 @@ pub enum Error {
     },
 }
 
+#[cfg(all(feature = "raster", feature = "profiling"))]
+mod diagnostics;
 #[cfg(feature = "raster")]
 mod paragraph;
 #[cfg(feature = "raster")]

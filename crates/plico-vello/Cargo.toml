@@ -15,8 +15,9 @@ serde = { workspace = true, features = ["derive"] }
 snafu.workspace = true
 
 [dev-dependencies]
+kurbo.workspace = true
+peniko.workspace = true
 tracing.workspace = true
-vello-common.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
 gallery = { path = "../../apps/gallery" }

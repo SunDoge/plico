@@ -2,12 +2,12 @@
 //! On Wayland the desktop asks for approval and may assign a different chord.
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use peniko::Color;
     use plico_shell::{
         ExtensionContext, FrameSource, TextContext, WindowOptions,
         hotkeys::{GlobalHotkeyBinding, GlobalHotkeyExtension, HotkeyEvent},
         initial_window_resource_key, run_windows_with_factory_and_extensions,
     };
-    use vello_common::peniko::Color;
     struct Background;
     impl FrameSource for Background {
         fn build_frame(

@@ -417,7 +417,8 @@ wall-time，不是硬件采样。帧总时间不包括输入事件处理、GPU �
 另在计时循环外，对同一 placed 快照测量 `clear + extend_from_slice`：
 402/4,002/20,002 个节点的热缓冲克隆 p50 约 20/222/1125µs。
 这是复制代价的独立下界对照，不可用两组中位数之差断言“纯遍历”时间。
-现有增量 flatten 草稿仍检查节点并克隆整个复用块，不能据此宣称 O(1) 跳过。
+曾评估的增量 flatten 草稿仍检查节点并克隆整个复用块，不能据此宣称 O(1) 跳过；
+该草稿已删除，当前只保留全量 flatten 路径及调用方缓冲区复用。
 
 Lyrune 的 `lyric_damage` 也增加 `lyric.build` 根 span，并复用 tracing 初始化。
 可在该仓库使用以下命令（封面自备，报告仍留在忽略目录）：
@@ -435,7 +436,7 @@ SkParagraph、真实封面、歌词滚动/逐字高亮，两次运行排除 60 �
 `backend.selection` 平均仍约 449µs；20,002 节点时约 3970µs。
 这说明不能把宽泛后端更新时间归因于 flatten。当前建议先使用虚拟列表、
 按依赖限制选区/其他后端扫描，再按实测决定是否需要保留块式 flatten。
-本轮只增加测量与文档，不启用或提交既有未接入的增量 flatten 草稿。
+阶段 profiling 保留用于后续测量，不引入子树复用缓存。
 
 ## Lyrune 歌词页面：Skia 阶段测量
 
@@ -526,3 +527,146 @@ paused 仍强制调用帧入口，不能据此推断窗口空闲时的唤醒频�
 不能把所有差异都归因于该修改。两次无 trace 的整进程 CPU 为 0.450/0.537%，
 尚不能宣称 CPU 稳定降低；图片字符串的大块重复分配已经由独立回归消除。
 逐字高亮与 Skia 回放/提交的进一步优化尚未实现，不混入本轮收益。
+
+## 缓存与工作量 tracing
+
+启用应用的 `profiling` feature 并设置 `PLICO_TRACE_FILE` 后，默认 Chrome/
+Perfetto 过滤器现在包含 `wabou` 以及 `plico::perf`、`plico::layout`、
+`plico::skia`、`plico::cache`。仍不接收 winit、zbus 等依赖的 TRACE 噪声。
+`RUST_LOG` 单独控制终端输出，`PLICO_TRACE_FILTER` 可覆盖文件过滤器。
+例如在 Lyrune checkout 中记录真实窗口（正常关闭窗口以完整 flush 文件）：
+
+```sh
+mkdir -p reports/plico
+RUST_LOG=warn PLICO_TRACE_FILE=reports/plico/player-trace.json cargo run --release -p lyrune-plico --features skia,profiling -- --renderer skia
+```
+
+这些新增计数与事件只在 profiling 构建中存在；没有设置 trace 文件时不会自动
+写出报告。profile 构建仍有整数计数等成本，不能当作完全零开销的正式基线。
+不记录文字、图片内容或完整请求，不为每次缓存命中单独写事件。
+
+### 缓存快照
+
+`plico::cache / cache.snapshot` 的 `(cache, cache_id)` 标识一个缓存生命周期。
+Skia targets 共享同一套资源时使用相同 ID；多个窗口/上下文不要混算。
+计数是累计值，清理时不归零；区间命中率使用
+`Δhits_total / (Δhits_total + Δmisses_total)`，分母为零表示没有查询。
+miss 表示未命中的查询尝试，出错的资源创建不保证最终增加 entries。
+
+| cache | 记录的信息 |
+| --- | --- |
+| `skia.paragraph` | entries、capacity、命中/miss/LRU 淘汰/显式清理次数、请求载荷估算字节 |
+| `skia.image` | entries、命中/miss/源失效清理次数、RGBA/BGRA 像素字节估算 |
+| `skia.glyph_font_face` | GlyphRun 路径的字体 face/blob 数量、blob 字节、命中/miss/源失效清理 |
+| `skia.svg` | entries、缓存命令数量、命中/miss/源失效清理 |
+| `parley.shape` | entries、capacity、命中/miss/LRU 淘汰/清理次数，以及 intrinsic/ellipsis/clamp 缓存条目数 |
+| `parley.glyph_scene` | entries、capacity、命中/miss/LRU 淘汰/清理次数 |
+
+Parley 快照由 runtime 组装或复用 scene 后记录；Skia 快照由每个 target 成功
+绘制后记录，Empty damage 也记录源失效清理后的状态。查询包括测量、damage
+边界计算和绘制，不代表 widget 数或 GPU draw call 数。
+`invalidations_total` 是清理调用次数（包括清理空缓存），与容量淘汰分开。
+未显示 capacity 的 Skia 资源表沿用源生命周期清理，不表示已经有字节预算。
+
+内存字段不是总 RSS：段落估算只包含缓存请求的文字/family/runs 载荷，共享 Arc
+可能重复计入，不含 SkParagraph 内部布局、系统字体、字形图集和 GPU；图片
+估算不含驱动/GPU 副本；字体 blob 字节仅属于 GlyphRun 桥接，不包含
+SkParagraph FontCollection。条目被淘汰后，外部 owner 仍可能持有它。
+GPU 用已有的 `gpu_cache_bytes`、`gpu_cache_purgeable_bytes`、
+`gpu_cache_limit_bytes` 对照，仍不包含所有驱动分配。
+估算汇总会扫描缓存元数据，只在 `plico::cache=trace` 开启时执行；要做阶段
+耗时对照，可用 `PLICO_TRACE_FILTER` 排除该 target，减少观测成本。
+
+### 声明、后端与回放
+
+- `declaration.work`：settle passes、最后一遍声明的 visited/created/reused/
+  removed/text_writes/order_changes 和整体声明时间；`stats_scope=last_pass`
+  防止把这些数量误读为所有 settle pass 的和。
+- `backend.work`：sync_visits、布局/paint/children 写入、layout_runs、
+  flatten_visits、presentation_visits、文字测量失效、placed 数、changes bits。
+  `backend_update_us` 是包含内部阶段的总时长，不能与内部 span 相加。
+- `scene.work`：是否复用完整 scene、命令数量和 revision。
+- `skia.draw` span：请求/实际应用的 damage、surface 尺寸、顶层命令数量。
+- `replay.work`：本次流访问/裁剪掉的命令数，实际回放的 paragraph、glyph、
+  image brush、layer、SVG 数。嵌套 SVG 产生子 replay span，统计各自的流，
+  顶层命令数不包括展开的 SVG；这些数量均不是 GPU draw call 数。
+- `skia.paragraph_miss` span：字节/run 数、request key、字号、约束宽度与字体
+  revision，便于检查缓存抖动；不记录文本。key 不作为跨进程稳定身份。
+
+已有的 fence/acquire/present 等等待 span 继续保留。耗时、工作量、缓存命中率
+要结合看：缓存 miss 很少也可能是重绘范围/图层或驱动提交昂贵，不能仅凭
+命中率判断一帧是否便宜。trace 文件与本地分析结果仍不参与提交。
+
+本机用 Lyrune `lyric_damage` 运行 600 帧加 60 帧预热，验证 3,960 条缓存
+快照与 7,260 条 replay 记录：累计计数单调，条目不超容量，裁剪数不超访问数。
+段落容量 512、miss 791、淘汰 279；Skia 图片 miss 2、SVG miss 10。
+这是固定 fixture 的接线/计数验证，不是完整播放器的 CPU 或内存基准。
+
+## Lyrune GPU 缓存预算对照
+
+沿用 Intel ARL、1.75×、600 帧 + 60 帧预热、60Hz paced、无 trace/读回的歌词
+场景。旧二进制为 bounds/budget 改动前，后续使用新图层 bounds；每组一次，
+不能将小幅差异解释为统计显著的性能改变。
+
+| 方案 | 全机 CPU（24 逻辑核） | RSS | Skia cache | 可回收 cache |
+| --- | ---: | ---: | ---: | ---: |
+| 改动前 | 0.446% | 150.4MiB | 250.3MiB | 207.9MiB |
+| 新 bounds，256MiB 预算 | 0.446% | 150.9MiB | 247.7MiB | 205.3MiB |
+| 新 bounds，128MiB 预算 | 0.450% | 150.3MiB | 125.8MiB | 83.4MiB |
+| 新 bounds，64MiB 预算 | 0.483% | 150.1MiB | 61.8MiB | 19.4MiB |
+
+默认选择 128MiB；本轮缓存约减半，CPU 基本相同，RSS 没有明显下降。
+不能把 GPU cache 下降说成 RSS 等量下降。单独 bounds 的收益未证实。
+三个新预算组测量结束后调用 trim，缓存均降到约 42.4MiB、purgeable 为零，
+其余为仍被持有/使用的资源。trim 在计时采样之后执行，不计入表中的 CPU。
+
+128/256MiB 最终帧 PNG 与旧二进制字节一致；64MiB 有 127 像素发生至多
+1/255 的通道变化，所以不宣称该组与旧图字节一致。新默认 128MiB 的 600 帧
+逐帧 damage/full 像素 oracle 也通过（该验证不用于性能数据）。
+
+Lyrune `lyric_damage` 增加 `--trim-at-end`，并记录实际 GPU cache limit；
+可用 `PLICO_SKIA_GPU_CACHE_MB` 做预算对照。pause/occlusion 的业务时机与
+后台音频/账号资源仍需在完整应用里测量，本轮不宣称完整播放器的总内存减半。
+
+另顺序复测旧版、128、64MiB，外部低频读取进程 DRM fdinfo，按
+`(drm-pdev, drm-client-id)` 去重后汇总 `drm-total-*`：排除前 3 秒后，
+旧版驱动报告分配峰值/末值为 267.4/261.4MiB，128MiB 为 143.7/142.0MiB，
+64MiB 为 74.4/74.4MiB。对应全机 CPU 为 0.467/0.458/0.504%。
+因此预算下降也反映到驱动分配，不仅是 Skia 内部计数；这些仍不是唯一物理
+驻留内存，不能与 RSS 相加。这次复测也支持默认采用 128MiB。
+
+## 多脏矩形与 unchanged present 实验
+
+先验证了最多八矩形的合并/覆盖不变量，以及像素间隙、删除、旧/新位置、
+密集包围框但稀疏实际脏区的 CPU raster 回归。Lyrune 的平均覆盖从
+26.53% 包围框降到 3.74%，平均 2.28 个矩形；600 帧 GPU damage/full 逐像素
+对照通过。没有调整像素断言容差。
+
+同一 Intel ARL、1.75×、60Hz paced 歌词 fixture，各采样 600 帧；关闭 trace、
+验证读回和窗口。外部低频读取 DRM fdinfo，按设备/client ID 去重，对预热后
+窗口的 `drm-engine-render` 纳秒累计值求差并除以墙钟时间。这是该进程的
+GPU render-engine 活跃比例，不是整机 GPU、功耗、FPS 或硬件时间戳查询。
+
+| 实现 | 全机 CPU（24 逻辑核） | GPU render-engine 活跃比例 | 绘制/提交 p50 |
+| --- | ---: | ---: | ---: |
+| 单包围框，两次 | 0.421–0.533% | 8.96–10.72% | 1220–1641µs |
+| 一次回放 + 复杂区域 clip，两次 | 0.433–0.450% | 6.72–7.75% | 1262–1383µs |
+| 逐矩形 scissor 回放，两次 | 0.354–0.371% | 2.42–2.45% | 786–894µs |
+
+复杂 clip 虽然显示的覆盖面积很小，GPU 成本仍然高，因此该候选实现未保留。
+最终选择独立矩形 scissor，每次仅回放与当前矩形相交的命令。不能把两个
+独立运行的中位数之差当成准确阶段成本，也不把约四倍 GPU 活跃时间下降
+泛化为所有应用或相同幅度的耗电下降。
+
+`lyric_damage --multi-rect` 输出实际覆盖、包围框覆盖和平均矩形数；省略该
+参数做单矩形对照。`--verify` 仅用于像素正确性，不用于性能采样。
+
+独立窗口 oracle 使用每个视觉状态重复三次的序列，180 次接受帧中 119 次
+跳过实际提交，61 次真实绘制。覆盖 A/B/A 语义的单元测试、两次 resize、
+强制刷新与周期性 GPU cache trim，所有实际绘制匹配全量 GPU 像素。
+重复场景用于验证 skip，不代表播放中的 Lyrune 也能跳过同样比例。
+
+shell 增加 skip 后的自动动画限速回归，避免去掉 FIFO 等待后 CPU 忙循环。
+本机完整 shell 测试串行通过；并行运行包含 GPU 的现有测试时遇到一次原生
+SIGSEGV，未确认原因，不把该并行运行记为通过，也未修改 CI 或放宽断言。
+多矩形和 present skip 均保持显式 opt-in，详情见 skia.md。

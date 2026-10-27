@@ -1,4 +1,6 @@
 #![cfg(feature = "raster")]
+use kurbo::{Affine, Rect};
+use peniko::Color;
 use plico_renderer::{
     Scene, TextContext,
     paragraph::{ParagraphLayout, ParagraphRequest},
@@ -6,10 +8,6 @@ use plico_renderer::{
 };
 use plico_skia::SkiaSurface;
 use std::sync::Arc;
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::Color,
-};
 
 fn request(text: &str, width: Option<f32>) -> Arc<ParagraphRequest> {
     Arc::new(

@@ -1,3 +1,4 @@
+use kurbo::{Rect, Shape};
 use plico_core::prelude::*;
 use plico_core::{Entity, VirtualClock};
 use plico_renderer::layout::PlacedNode;
@@ -7,7 +8,6 @@ use plico_renderer::{
 };
 use plico_vello::{Source, View};
 use std::time::Duration;
-use vello_common::kurbo::{Rect, Shape};
 #[derive(Default)]
 struct Demo {
     checked: bool,

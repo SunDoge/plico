@@ -1,15 +1,13 @@
 //! Isolate fractional text translation from scrolling, scheduling and damage.
 //! cargo run -p plico-skia --features vulkan --example text_motion
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::PaintScene;
 use plico_renderer::{
     Scene, TextContext, paragraph::ParagraphRequest, style::Paint, text::FontAsset,
 };
 use plico_skia::{SkiaGpuSurface, SkiaSurface};
 use std::sync::Arc;
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 
 fn centroid(pixels: &[u8]) -> [f64; 2] {
     let (mut weight, mut x, mut y) = (0., 0., 0.);

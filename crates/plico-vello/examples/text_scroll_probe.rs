@@ -72,8 +72,7 @@ fn main() {
                     return None;
                 };
                 let glyph = glyphs.first()?;
-                let p =
-                    *transform * vello_common::kurbo::Point::new(glyph.x.into(), glyph.y.into());
+                let p = *transform * kurbo::Point::new(glyph.x.into(), glyph.y.into());
                 Some((p.x, p.y, *hint))
             })
             .collect();

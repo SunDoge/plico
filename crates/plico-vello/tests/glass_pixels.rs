@@ -277,8 +277,8 @@ fn backdrop_filter_layer_is_clipped_to_the_card() {
     let nodes = source.build_frame(&mut tcx, 1120, 820);
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, &mut tcx, (1120, 820), 1.);
+    use kurbo::Shape as _;
     use plico_renderer::PaintCommand;
-    use vello_common::kurbo::Shape as _;
     let filter_clips: Vec<_> = scene
         .commands
         .iter()

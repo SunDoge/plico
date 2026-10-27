@@ -1,5 +1,5 @@
 //! Optional redraw information, independent of layout and window APIs.
-use vello_common::kurbo::Rect;
+use kurbo::Rect;
 
 /// Damage in physical surface pixels, relative to the last successful draw.
 /// Consumers may always promote a region to `Full`. Producers must include
@@ -67,6 +67,39 @@ impl DamageRegion {
 mod tests {
     use super::*;
     #[test]
+    fn sparse_rects_are_bounded_disjoint_and_cover_all_original_damage() {
+        let mut regions = DamageRects {
+            limit: 8,
+            ..Default::default()
+        };
+        let originals: Vec<_> = (0..20)
+            .map(|i| {
+                Rect::new(
+                    (i % 5) as f64 * 20.,
+                    (i / 5) as f64 * 20.,
+                    (i % 5) as f64 * 20. + 3.,
+                    (i / 5) as f64 * 20. + 3.,
+                )
+            })
+            .collect();
+        for rect in &originals {
+            regions.add(DamageRegion::Rect(*rect));
+        }
+        assert!(regions.rects().len() <= 8);
+        for original in originals {
+            assert!(regions.rects().iter().any(|r| r.union(original) == *r));
+        }
+        for (i, a) in regions.rects().iter().enumerate() {
+            for b in &regions.rects()[i + 1..] {
+                assert!(a.intersect(*b).area() == 0.);
+            }
+        }
+        assert!(regions.coverage(100, 100) <= regions.bounding_region().coverage(100, 100));
+        regions.add(DamageRegion::Full);
+        assert!(regions.is_full());
+        assert_eq!(regions.coverage(100, 100), 1.);
+    }
+    #[test]
     fn normalization_rounds_outwards_clamps_and_rejects_nonfinite_geometry() {
         assert_eq!(
             DamageRegion::Rect(Rect::new(-2.2, 1.1, 8.1, 12.)).for_surface(10, 10),
@@ -87,6 +120,111 @@ mod tests {
     }
 }
 
+/// A bounded, non-overlapping set of conservative physical-pixel damage rects.
+/// Full damage has no finite rectangle list; use [`Self::is_full`] first.
+#[derive(Debug)]
+pub struct DamageRects {
+    full: bool,
+    rects: Vec<Rect>,
+    limit: usize,
+}
+impl Default for DamageRects {
+    fn default() -> Self {
+        Self {
+            full: false,
+            rects: Vec::new(),
+            limit: 1,
+        }
+    }
+}
+impl DamageRects {
+    fn clear(&mut self) {
+        self.full = false;
+        self.rects.clear();
+    }
+    fn add(&mut self, region: DamageRegion) {
+        if self.full {
+            return;
+        }
+        let mut rect = match region {
+            DamageRegion::Empty => return,
+            DamageRegion::Full => {
+                self.full = true;
+                self.rects.clear();
+                return;
+            }
+            DamageRegion::Rect(rect) => rect,
+        };
+        if self.limit == 1 && !self.rects.is_empty() {
+            self.rects[0] = self.rects[0].union(rect);
+            return;
+        }
+        let mut i = 0;
+        while i < self.rects.len() {
+            let old = self.rects[i];
+            if old.x0 <= rect.x1 && rect.x0 <= old.x1 && old.y0 <= rect.y1 && rect.y0 <= old.y1 {
+                rect = rect.union(self.rects.swap_remove(i));
+                i = 0;
+            } else {
+                i += 1;
+            }
+        }
+        self.rects.push(rect);
+        if self.rects.len() > self.limit {
+            let mut best = (0, 1, f64::INFINITY);
+            for i in 0..self.rects.len() {
+                for j in i + 1..self.rects.len() {
+                    let cost = self.rects[i].union(self.rects[j]).area()
+                        - self.rects[i].area()
+                        - self.rects[j].area();
+                    if cost < best.2 {
+                        best = (i, j, cost);
+                    }
+                }
+            }
+            let b = self.rects.swap_remove(best.1);
+            let a = self.rects.swap_remove(best.0);
+            self.add(DamageRegion::Rect(a.union(b)));
+        }
+    }
+    /// Whether the complete target must be redrawn.
+    pub fn is_full(&self) -> bool {
+        self.full
+    }
+    /// Disjoint rectangles, rounded/clamped by the tracker to its target.
+    pub fn rects(&self) -> &[Rect] {
+        &self.rects
+    }
+    /// Conservative bounding damage, retaining the original single-rect API.
+    pub fn bounding_region(&self) -> DamageRegion {
+        if self.full {
+            DamageRegion::Full
+        } else {
+            self.rects
+                .iter()
+                .copied()
+                .map(DamageRegion::Rect)
+                .fold(DamageRegion::Empty, DamageRegion::union)
+        }
+    }
+    /// Target coverage after clipping. Rectangles are disjoint, so no overlap
+    /// is double counted. This differs from the bounding rectangle's coverage.
+    pub fn coverage(&self, width: u32, height: u32) -> f64 {
+        if width == 0 || height == 0 {
+            return 0.;
+        }
+        if self.full {
+            return 1.;
+        }
+        let viewport = Rect::new(0., 0., width as f64, height as f64);
+        self.rects
+            .iter()
+            .map(|r| r.intersect(viewport).area())
+            .sum::<f64>()
+            / viewport.area()
+    }
+}
+
 /// Optional command-stream damage producer, independent of UI identity/layout.
 ///
 /// Keep one tracker per preserved render target. `update` compares against that
@@ -96,6 +234,7 @@ mod tests {
 /// Call [`Self::invalidate`] after any failed draw/submission or content loss.
 #[derive(Default)]
 pub struct SceneDamageTracker {
+    regions: DamageRects,
     previous: Option<crate::Scene>,
     bounds: Vec<DamageRegion>,
     contexts: Vec<Option<Rect>>,
@@ -113,6 +252,14 @@ impl DamageRegion {
     }
 }
 impl SceneDamageTracker {
+    /// Opt into up to eight disjoint rectangles; otherwise accumulate one bounding rect.
+    pub fn set_multi_rect_damage(&mut self, enabled: bool) {
+        self.regions.limit = if enabled { 8 } else { 1 };
+    }
+    /// Damage rectangles from the most recent update.
+    pub fn damage_rects(&self) -> &DamageRects {
+        &self.regions
+    }
     /// Conservative bounds of a command from the last [`Self::update`].
     /// Consumers must use the exact command stream passed to that update.
     /// Missing entries remain unknown and must not be culled.
@@ -125,6 +272,8 @@ impl SceneDamageTracker {
     /// Forget target contents; the next update reports full damage.
     pub fn invalidate(&mut self) {
         self.previous = None;
+        self.regions.clear();
+        self.regions.add(DamageRegion::Full);
         self.bounds.clear();
         self.contexts.clear();
         self.nonlocal = false;
@@ -145,13 +294,12 @@ impl SceneDamageTracker {
         mut ink: impl FnMut(&crate::PaintCommand) -> Option<Rect>,
     ) -> DamageRegion {
         use crate::PaintCommand;
-        use vello_common::{kurbo::Shape, peniko::BlendMode};
-        let mut damage =
-            if self.previous.is_none() || self.size != Some((width, height)) || self.nonlocal {
-                DamageRegion::Full
-            } else {
-                DamageRegion::Empty
-            };
+        use kurbo::Shape;
+        use peniko::BlendMode;
+        self.regions.clear();
+        if self.previous.is_none() || self.size != Some((width, height)) || self.nonlocal {
+            self.regions.add(DamageRegion::Full);
+        }
         self.nonlocal = false;
         let mut clips: Vec<Option<Rect>> = Vec::new();
         let mut clip: Option<Rect> = None;
@@ -168,7 +316,7 @@ impl SceneDamageTracker {
                     ..
                 } => {
                     if filter.is_some() || *blend != BlendMode::default() {
-                        damage = DamageRegion::Full;
+                        self.regions.add(DamageRegion::Full);
                         self.nonlocal = true;
                     }
                     clips.push(clip);
@@ -189,13 +337,13 @@ impl SceneDamageTracker {
                     let bounds = clip_region(clip);
                     match clips.pop() {
                         Some(parent) => clip = parent,
-                        None => damage = DamageRegion::Full,
+                        None => self.regions.add(DamageRegion::Full),
                     }
                     bounds
                 }
                 PaintCommand::Shader { .. } => {
                     self.nonlocal = true;
-                    damage = DamageRegion::Full;
+                    self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
                 }
                 _ if same_command
@@ -216,9 +364,9 @@ impl SceneDamageTracker {
             .for_surface(width, height);
             let changed = !same_command || self.bounds.get(index) != Some(&bounds);
             if changed {
-                damage = damage.union(bounds);
+                self.regions.add(bounds);
                 if let Some(old) = self.bounds.get(index) {
-                    damage = damage.union(*old);
+                    self.regions.add(*old);
                 }
             }
             if index < self.bounds.len() {
@@ -230,16 +378,16 @@ impl SceneDamageTracker {
             }
         }
         for removed in &self.bounds[scene.commands.len()..] {
-            damage = damage.union(*removed);
+            self.regions.add(*removed);
         }
         self.bounds.truncate(scene.commands.len());
         self.contexts.truncate(scene.commands.len());
         if !clips.is_empty() {
-            damage = DamageRegion::Full;
+            self.regions.add(DamageRegion::Full);
         }
         self.previous = Some(scene.clone());
         self.size = Some((width, height));
-        damage.for_surface(width, height)
+        self.regions.bounding_region().for_surface(width, height)
     }
 }
 fn finite(r: Rect) -> bool {
@@ -258,10 +406,8 @@ fn clip_region(clip: Option<Rect>) -> DamageRegion {
 mod tracker_tests {
     use super::*;
     use crate::{PaintCommand, PaintScene, Scene};
-    use vello_common::{
-        kurbo::{Affine, Shape},
-        peniko::{Color, Fill},
-    };
+    use kurbo::{Affine, Shape};
+    use peniko::{Color, Fill};
     fn bounds(command: &PaintCommand) -> Option<Rect> {
         match command {
             PaintCommand::Fill {
@@ -313,7 +459,7 @@ mod tracker_tests {
         let mut tracker = SceneDamageTracker::default();
         let mut s = scene(10.);
         s.push_layer(
-            vello_common::peniko::BlendMode::default(),
+            peniko::BlendMode::default(),
             1.,
             Affine::IDENTITY,
             &Rect::new(10., 10., 20., 20.),

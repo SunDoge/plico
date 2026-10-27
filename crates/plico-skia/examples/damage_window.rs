@@ -1,12 +1,10 @@
 //! Manual native swapchain pixel oracle. Runs 180 frames and exits by itself.
 //! `cargo run -p plico-skia --features window --example damage_window`
+use kurbo::{Affine, Rect};
+use peniko::{Color, Fill};
 use plico_renderer::{Glyph, PaintScene, Scene};
 use plico_skia::SkiaWindow;
 use std::sync::Arc;
-use vello_common::{
-    kurbo::{Affine, Rect},
-    peniko::{Color, Fill},
-};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -22,7 +20,8 @@ struct Demo {
     partial: usize,
     hints: usize,
     hint_supported: bool,
-    font: Option<(vello_common::peniko::FontData, Vec<u16>)>,
+    skips: usize,
+    font: Option<(peniko::FontData, Vec<u16>)>,
 }
 impl ApplicationHandler for Demo {
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -37,7 +36,16 @@ impl ApplicationHandler for Demo {
         );
         let device = std::env::var("PLICO_SKIA_DEVICE").ok();
         let mut renderer = SkiaWindow::new(window.clone(), false, device.as_deref()).unwrap();
+        renderer.set_gpu_cache_limit(4 * 1024 * 1024);
         renderer.set_damage_tracking(true);
+        renderer.set_multi_rect_damage(matches!(
+            std::env::var("PLICO_SKIA_MULTI_RECT").as_deref(),
+            Ok("1" | "true")
+        ));
+        renderer.set_present_skip(matches!(
+            std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
+            Ok("1" | "true")
+        ));
         renderer.set_damage_validation(true);
         let enabled = !matches!(
             std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
@@ -50,8 +58,8 @@ impl ApplicationHandler for Demo {
             renderer.incremental_present_supported()
         );
         println!("device={}", renderer.device_name());
-        let data = vello_common::peniko::FontData::new(
-            vello_common::peniko::Blob::new(Arc::new(
+        let data = peniko::FontData::new(
+            peniko::Blob::new(Arc::new(
                 include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf")
                     .to_vec(),
             )),
@@ -76,18 +84,19 @@ impl ApplicationHandler for Demo {
             }
             WindowEvent::RedrawRequested => {
                 let window = self.window.as_ref().unwrap();
+                let visual = self.frame / 3;
                 let mut scene = Scene::new();
-                if !self.frame.is_multiple_of(17) {
+                if !visual.is_multiple_of(17) {
                     scene.fill(
                         Fill::NonZero,
-                        Affine::translate(((self.frame % 120) as f64, 0.)),
+                        Affine::translate(((visual % 120) as f64, 0.)),
                         Color::from_rgba8(230, 70, 40, 170),
                         None,
                         &Rect::new(8., 12., 48., 64.),
                     );
                 }
                 scene.push_layer(
-                    vello_common::peniko::BlendMode::default(),
+                    peniko::BlendMode::default(),
                     0.5,
                     Affine::IDENTITY,
                     &Rect::new(20., 24., 120., 100.),
@@ -110,13 +119,13 @@ impl ApplicationHandler for Demo {
                     &[],
                     Default::default(),
                     Fill::NonZero,
-                    if self.frame.is_multiple_of(5) {
+                    if visual.is_multiple_of(5) {
                         Color::from_rgb8(180, 80, 40)
                     } else {
                         Color::from_rgb8(40, 80, 180)
                     },
                     1.,
-                    Affine::translate(((self.frame % 40) as f64 * 0.25, 0.)),
+                    Affine::translate(((visual % 40) as f64 * 0.25, 0.)),
                     None,
                     ids.iter().enumerate().map(|(i, id)| Glyph {
                         id: *id as u32,
@@ -125,6 +134,9 @@ impl ApplicationHandler for Demo {
                     }),
                 );
                 let renderer = self.renderer.as_mut().unwrap();
+                if self.frame > 0 && self.frame.is_multiple_of(37) {
+                    renderer.trim_gpu_cache();
+                }
                 if renderer
                     .present(
                         &scene,
@@ -144,7 +156,11 @@ impl ApplicationHandler for Demo {
                         renderer.last_present_damage(),
                         plico_renderer::DamageRegion::Rect(_)
                     ));
+                    self.skips += usize::from(renderer.last_present_skipped());
                     self.frame += 1;
+                }
+                if self.frame == 41 {
+                    renderer.invalidate_presentation();
                 }
                 if self.frame == 60 || self.frame == 120 {
                     let size = if self.frame == 60 {
@@ -156,16 +172,25 @@ impl ApplicationHandler for Demo {
                         .request_surface_size(winit::dpi::LogicalSize::new(size.0, size.1).into());
                 }
                 if self.frame >= 180 {
+                    if matches!(
+                        std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
+                        Ok("1" | "true")
+                    ) {
+                        assert!(self.skips > 80, "must exercise unchanged-frame skipping");
+                    }
                     assert!(
-                        self.partial > 100,
+                        self.partial > if self.skips > 0 { 20 } else { 100 },
                         "must exercise partial swapchain drawing"
                     );
                     if self.hint_supported {
-                        assert!(self.hints > 100, "must exercise incremental present hints");
+                        assert!(
+                            self.hints > if self.skips > 0 { 20 } else { 100 },
+                            "must exercise incremental present hints"
+                        );
                     }
                     println!(
-                        "PASS frames={} partial={} present_hints={} (all matched full GPU redraw)",
-                        self.frame, self.partial, self.hints
+                        "PASS frames={} partial={} present_hints={} skipped={} (all drawn frames matched full GPU redraw)",
+                        self.frame, self.partial, self.hints, self.skips
                     );
                     event_loop.exit();
                 } else {

@@ -1,9 +1,7 @@
 use super::*;
+use kurbo::{Affine, Circle, Rect};
+use peniko::Fill;
 use plico_renderer::PaintScene;
-use vello_common::{
-    kurbo::{Affine, Circle, Rect},
-    peniko::Fill,
-};
 impl Adapter {
     pub(super) fn align_sliders(&mut self, engine: &Engine) {
         for node in &mut self.placed {

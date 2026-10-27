@@ -5,10 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+peniko.workspace = true
+kurbo.workspace = true
 floem-editor-core = { git = "https://github.com/lapce/floem", rev = "1351ffb162faeb8be983f1301d718a0d5fb59c27" }
 parley.workspace = true
 plico-renderer.workspace = true
-vello-common.workspace = true
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 
 [dev-dependencies]

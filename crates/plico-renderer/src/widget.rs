@@ -24,8 +24,8 @@ use crate::text::SingleLineTextMetrics;
 use crate::text::TextContext;
 use crate::{ClipboardRequest, HostAction, UiEvent, WakeCallback};
 use crate::{PaintScene, Scene};
-use vello_common::kurbo::{Affine, Rect};
-use vello_common::peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
+use kurbo::{Affine, Rect};
+use peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
 
 /// Immutable RGBA8 pixels which an application-defined widget can paint.
 ///

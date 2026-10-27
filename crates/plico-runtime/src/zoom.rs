@@ -110,7 +110,7 @@ impl FrameSource for ZoomSource {
         self.inner
             .render_retained_frame(scene, text, self.viewport(size), scale * self.zoom)
     }
-    fn base_color(&self) -> vello_common::peniko::Color {
+    fn base_color(&self) -> peniko::Color {
         self.inner.base_color()
     }
     fn has_anim(&self) -> bool {

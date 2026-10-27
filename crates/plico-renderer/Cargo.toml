@@ -9,6 +9,8 @@ publish = false
 profiling = []
 
 [dependencies]
+peniko.workspace = true
+kurbo.workspace = true
 gif = "0.14"
 plico-core.workspace = true
 web-time = "1.1"

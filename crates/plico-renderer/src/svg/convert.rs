@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Stroke};
-use vello_common::paint::{Image, ImageSource, PaintType};
-use vello_common::peniko::color::DynamicColor;
-use vello_common::peniko::{
+use kurbo::{Affine, BezPath, Cap, Join, Point, Stroke};
+use peniko::color::DynamicColor;
+use peniko::{
     Blob, Color, ColorStop, Extend, Gradient, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
     ImageQuality, ImageSampler,
 };
+use vello_common::paint::{Image, ImageSource, PaintType};
 
 use super::{Error, RasterImageSnafu};
 use snafu::ResultExt;

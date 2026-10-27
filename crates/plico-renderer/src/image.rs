@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use vello_common::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
+use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
 
 /// Decode policy. Exceeding a limit returns an error; pixels are never reduced.
 #[derive(Clone, Copy, Debug)]
@@ -157,7 +157,7 @@ impl RasterImage {
     }
 
     /// Select a sampling hint without modifying decoded pixels or resource identity.
-    pub fn with_quality(mut self, quality: vello_common::peniko::ImageQuality) -> Self {
+    pub fn with_quality(mut self, quality: peniko::ImageQuality) -> Self {
         self.brush.sampler.quality = quality;
         self
     }

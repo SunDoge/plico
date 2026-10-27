@@ -7,10 +7,8 @@
 
 use std::sync::Arc;
 
-use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{
-    BlendMode, Brush, BrushRef, Color, Fill, FontData, ImageBrushRef, Style, StyleRef,
-};
+use kurbo::{Affine, BezPath, Rect, Shape, Stroke, Vec2};
+use peniko::{BlendMode, Brush, BrushRef, Color, Fill, FontData, ImageBrushRef, Style, StyleRef};
 
 use crate::ShaderEffect;
 

@@ -130,6 +130,6 @@ fn headless_button_has_no_implicit_background_or_control_padding() {
         .unwrap();
     assert_eq!(
         text.paint.text_color,
-        vello_common::peniko::Color::from_rgb8(255, 255, 255)
+        peniko::Color::from_rgb8(255, 255, 255)
     );
 }

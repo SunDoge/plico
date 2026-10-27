@@ -1,5 +1,6 @@
 //! Host-agnostic declaration runtime: Engine adapter, Source, View and motion.
 //! Window and GPU backends live in plico-vello / plico-shell; no window deps here.
+use peniko::Color;
 use plico_core::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
 use plico_renderer::{
     EventResponse, FrameSource, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
@@ -17,7 +18,6 @@ use std::{
     },
 };
 use taffy::{geometry::Rect, prelude::*};
-use vello_common::peniko::Color;
 use web_time::Instant;
 
 pub use plico_renderer::text::FontAsset;
@@ -709,6 +709,16 @@ impl Adapter {
         }
         self.update_tooltip(engine, tcx, width, height);
         self.stats.layout_micros = start.elapsed().as_micros();
+        #[cfg(feature = "profiling")]
+        tracing::trace!(target: "plico::perf", placed = self.placed.len(),
+            created = self.stats.created, removed = self.stats.removed, sync_visits = self.stats.sync_visits,
+            style_writes = self.stats.style_writes, paint_writes = self.stats.paint_writes,
+            child_writes = self.stats.child_writes, layout_runs = self.stats.layout_runs,
+            flatten_visits = self.stats.flatten_visits, paint_patches = self.stats.paint_patches,
+            presentation_visits = self.stats.presentation_visits,
+            text_measure_invalidations = self.stats.text_measure_invalidations,
+            sync_us = self.stats.sync_micros as u64, backend_update_us = self.stats.layout_micros as u64,
+            changes = self.stats.changes.bits(), "backend.work");
     }
     fn reindex_placed(&mut self) {
         #[cfg(feature = "profiling")]
@@ -2370,6 +2380,11 @@ impl<V: View> Source<V> {
         {
             *scene = cached.clone();
             self.adapter.stats.scene_reuses += 1;
+            #[cfg(feature = "profiling")]
+            {
+                tracing::trace!(target: "plico::perf", reused = true, commands = scene.commands.len(), revision = self.revision, "scene.work");
+                tcx.trace_cache_snapshot();
+            }
             return;
         }
         self.adapter.stats.scene_builds += 1;
@@ -2387,6 +2402,11 @@ impl<V: View> Source<V> {
             scale,
         );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
+        #[cfg(feature = "profiling")]
+        {
+            tracing::trace!(target: "plico::perf", reused = false, commands = scene.commands.len(), revision = self.revision, "scene.work");
+            tcx.trace_cache_snapshot();
+        }
     }
     pub fn try_declare(&mut self) -> Result<(), SourceError> {
         self.batch_stats.declaration_batches += 1;
@@ -2435,6 +2455,12 @@ impl<V: View> Source<V> {
         self.declared_changes |= self.engine.take_settle_changes();
         self.requests = self.engine.changes() & plico_core::Changes::ANIMATE;
         self.declaration_micros = start.elapsed().as_micros();
+        #[cfg(feature = "profiling")]
+        tracing::trace!(target: "plico::perf", passes, stats_scope = %"last_pass", visited = self.declaration_stats.visited,
+            created = self.declaration_stats.created, reused = self.declaration_stats.reused,
+            removed = self.declaration_stats.removed, text_writes = self.declaration_stats.text_writes,
+            order_changes = self.declaration_stats.order_changes,
+            declaration_us = self.declaration_micros as u64, "declaration.work");
         self.pending = false;
         self.declarations_pending = true;
         Ok(())

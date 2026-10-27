@@ -320,7 +320,8 @@ pub fn span(category: &str, name: &str) -> Span<'static> {
 /// Chrome layer exists at all (its default would create `trace-*.json` in the
 /// working directory). The fmt layer is filtered by `RUST_LOG` (default
 /// `info,wabou=trace`); the Chrome layer is filtered by `PLICO_TRACE_FILTER`
-/// (default `wabou=trace`) because a trace file is a perf artifact —
+/// (default Plico perf/layout/Skia/cache targets and `wabou=trace`) because
+/// a trace file is a perf artifact —
 /// dependency TRACE noise such as winit or zbus would otherwise dominate it.
 /// Returns a guard that must live for the whole process: Chrome writes the
 /// trace file when the guard is dropped. A no-op (empty guard) on
@@ -397,7 +398,8 @@ fn report_existing_subscriber() {
 pub const FMT_DEFAULT: &str = "info,wabou=trace";
 /// Default filter directives for the Chrome trace layer: perf spans only.
 #[cfg(feature = "profiling")]
-pub const TRACE_DEFAULT: &str = "wabou=trace";
+pub const TRACE_DEFAULT: &str =
+    "wabou=trace,plico::perf=trace,plico::layout=trace,plico::skia=trace,plico::cache=trace";
 /// Environment variable overriding the Chrome layer's filter directives.
 #[cfg(feature = "profiling")]
 const TRACE_FILTER_ENV: &str = "PLICO_TRACE_FILTER";
@@ -535,7 +537,7 @@ mod tracing_setup {
             .with(SeenLayer(seen.clone()).with_filter(EnvFilter::new(directive)));
         let dispatch = tracing::Dispatch::new(subscriber);
         // `level:`/`target:` macro fragments need literal values, so the
-        // four probes are spelled out.
+        // probes are spelled out.
         let probe_all = |dispatch: &tracing::Dispatch| {
             tracing::dispatcher::with_default(dispatch, || {
                 let span = tracing::span!(target: "wabou::perf", tracing::Level::TRACE, "probe");
@@ -555,6 +557,18 @@ mod tracing_setup {
             });
         };
         probe_all(&dispatch);
+        macro_rules! probe {
+            ($target:literal) => {
+                tracing::dispatcher::with_default(&dispatch, || {
+                    let span = tracing::span!(target: $target, tracing::Level::TRACE, "probe");
+                    std::mem::drop(span.enter());
+                });
+            };
+        }
+        probe!("plico::cache");
+        probe!("plico::layout");
+        probe!("plico::perf");
+        probe!("plico::skia");
         let mut targets = seen.span_targets.lock().unwrap().clone();
         targets.sort_unstable();
         targets
@@ -567,6 +581,15 @@ mod tracing_setup {
             targets_reaching_layer(FMT_DEFAULT),
             vec!["my_app", "wabou::perf"]
         );
-        assert_eq!(targets_reaching_layer(TRACE_DEFAULT), vec!["wabou::perf"]);
+        assert_eq!(
+            targets_reaching_layer(TRACE_DEFAULT),
+            vec![
+                "plico::cache",
+                "plico::layout",
+                "plico::perf",
+                "plico::skia",
+                "wabou::perf"
+            ]
+        );
     }
 }

@@ -1,10 +1,10 @@
 //! Shared decoder for the stable WBP1 vector path wire format.
+use peniko::Color;
 use std::sync::Arc;
-use vello_common::peniko::Color;
 
 /// Validate the complete payload and retain its geometry and paint.
 pub fn decode_vector_path(data: &[u8]) -> Option<Arc<crate::style::VectorPath>> {
-    use vello_common::kurbo::{BezPath, Cap, Join, Stroke};
+    use kurbo::{BezPath, Cap, Join, Stroke};
 
     const MAGIC: u32 = 0x3150_4257;
     if data.len() < 36

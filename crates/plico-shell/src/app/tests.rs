@@ -4,7 +4,7 @@ use super::event_translate::{
     update_present_retry, window_capabilities,
 };
 use super::*;
-use vello_common::peniko::Color;
+use peniko::Color;
 
 #[test]
 fn frame_wake_unifies_animation_and_deadline_scheduling() {
@@ -26,14 +26,20 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let first = now + std::time::Duration::from_millis(16);
     let mut scheduled = None;
     assert_eq!(
-        scheduled_frame_wake(false, Some(first), &mut scheduled, now),
+        scheduled_frame_wake(false, None, Some(first), &mut scheduled, now),
         FrameWake::Deadline(first)
     );
 
     let wake_time = first + std::time::Duration::from_millis(1);
     let moving_deadline = wake_time + std::time::Duration::from_millis(16);
     assert_eq!(
-        scheduled_frame_wake(false, Some(moving_deadline), &mut scheduled, wake_time),
+        scheduled_frame_wake(
+            false,
+            None,
+            Some(moving_deadline),
+            &mut scheduled,
+            wake_time
+        ),
         FrameWake::Redraw
     );
     assert_eq!(scheduled, None);
@@ -620,4 +626,25 @@ fn dropped_files_wait_for_data_in_either_arrival_order() {
         assert_eq!(event.position, Some(Point { x: 10., y: 20. }));
         assert!(drag.drop_event().is_none(), "deliver only once");
     }
+}
+
+#[test]
+fn skipped_present_keeps_animation_paced_without_polling() {
+    let now = Instant::now();
+    let deadline = now + std::time::Duration::from_millis(8);
+    let mut scheduled = None;
+    for _ in 0..3 {
+        assert_eq!(
+            scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, now),
+            FrameWake::Deadline(deadline)
+        );
+    }
+    assert_eq!(
+        scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, deadline),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        scheduled_frame_wake(false, Some(deadline), None, &mut scheduled, now),
+        FrameWake::Idle
+    );
 }

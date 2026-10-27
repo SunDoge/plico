@@ -393,7 +393,7 @@ impl<V: View, W: Widget> FrameSource for SurfaceSource<V, W> {
         }
         handled
     }
-    fn base_color(&self) -> vello_common::peniko::Color {
+    fn base_color(&self) -> peniko::Color {
         self.source.base_color()
     }
     fn has_anim(&self) -> bool {
