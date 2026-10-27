@@ -34,7 +34,7 @@ vello-common.workspace = true
 [features]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 skia = ["dep:plico-skia"]
-profiling = ["plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
+profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 vello-gpu = { workspace = true, features = ["wgpu", "wgpu_default", "text"] }

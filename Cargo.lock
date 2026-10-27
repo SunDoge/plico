@@ -3850,6 +3850,7 @@ dependencies = [
  "skia-safe",
  "snafu",
  "taffy",
+ "tracing",
  "vello_common",
  "winit",
 ]

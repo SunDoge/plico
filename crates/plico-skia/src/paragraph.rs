@@ -131,6 +131,8 @@ impl ParagraphCache {
         if let Some(cached) = self.layouts.get(&key).filter(|p| p.request == request) {
             return cached.clone();
         }
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.paragraph_miss", bytes = request.text.len()).entered();
         let mut ps = ParagraphStyle::new();
         ps.set_text_style(&style(&request, None));
         ps.set_text_align(match request.align {

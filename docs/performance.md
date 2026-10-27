@@ -436,3 +436,77 @@ SkParagraph、真实封面、歌词滚动/逐字高亮，两次运行排除 60 �
 这说明不能把宽泛后端更新时间归因于 flatten。当前建议先使用虚拟列表、
 按依赖限制选区/其他后端扫描，再按实测决定是否需要保留块式 flatten。
 本轮只增加测量与文档，不启用或提交既有未接入的增量 flatten 草稿。
+
+## Lyrune 歌词页面：Skia 阶段测量
+
+SkParagraph + GPU distance-field，实际歌词 UI、逐字高亮、平滑滚动和 JPEG 封面，
+1280×850 logical、1.75× device scale、Intel ARL GPU。虚拟播放时钟以 60Hz
+推进，预热 60 帧。歌词为 demo fixture；没有账号网络、音频、窗口合成器或
+swapchain，不能把结果当作完整播放器 CPU 或输入延迟。
+
+关闭 trace，600 帧按 full → damage → damage → full 顺序分别测量：
+
+| 模式 | CPU（全部 24 个逻辑核） | 构建 p50 | 绘制与提交 p50 |
+| --- | ---: | ---: | ---: |
+| 全量，两次 | 0.658–0.662% | 299–303µs | 2338–2350µs |
+| damage，两次 | 0.450–0.471% | 343–359µs | 1580–1611µs |
+
+CPU 是进程 user+system 时间 / 墙钟时间 / 24，相对降低约 29–32%。
+CPU 包含驱动线程，提交 wall-time 不能当成 GPU 执行时间。顺序运行仍会受
+频率与其他进程影响。damage 比较有成本，但构建中位数之差不能解释为 damage
+阶段耗时。各组结束 RSS 约 150–152MiB，不证明长时间播放不存在泄漏。
+
+另以 1200 帧记录 Chrome trace，damage 平均覆盖 28.2%，1179 帧局部更新。
+trace 有额外开销，以下仅用于阶段定位，不与无 trace 绝对数混用：
+
+| 阶段 | 每帧平均 wall-time | 说明 |
+| --- | ---: | --- |
+| Skia flush + submit | 988µs | 不含显式 GPU 同步读回 |
+| Skia replay（扣除递归 replay 与段落 miss） | 833µs | 指令回放及 Skia CPU 工作 |
+| 完整 UI/后端构建 | 506µs | 包含声明、布局、选区等 |
+| 两个封面控件声明 | 164µs | 在声明内部，不能再次累加 |
+| 段落缓存 miss | 56µs | 共 1362 次，发生在构建或回放内 |
+| 选区刷新 | 38µs | 每帧执行 |
+| damage 比较 | 33µs | 每帧执行 |
+| flatten | 2.1µs | 共 56 次，并非每帧运行 |
+
+嵌套 span 的 inclusive totals 不能直接求和。图片声明源码仍调用
+`Cow::Owned(asset.encoded())`：虽不再重复 hex 编码，却复制整个缓存字符串。
+这是优先验证的可消除成本。段落 request 包含颜色，逐字高亮可能产生新 request；
+不能由 miss 数断言每个字符都重新排版，或颜色是全部 miss 的来源。
+
+建议顺序：先去掉图片声明的重复复制并复测；再拆分 replay/flush 内部的
+图片、文字和图层成本；随后验证颜色变化能否复用整形、选区刷新能否跳过。
+当前数据不支持优先投入增量 flatten 或常驻响应式图。
+
+`plico-skia/profiling` 增加 `plico::skia` spans：`skia.damage`、`skia.replay`、
+`skia.paragraph_miss`、`skia.flush_submit`。shell profiling 仅在 Skia 已启用时
+传播该 feature。原生窗口另有 `skia.wait_fence`、`skia.acquire`、
+`skia.queue_present`；等待不等于 CPU 忙碌。不启用 profiling 时不编译这些 span。
+
+在 Lyrune checkout 中复现：
+
+```sh
+cargo build --release -p lyrune-plico --features skia,profiling --example lyric_damage
+RUST_LOG=warn PLICO_TRACE_FILTER='plico::layout=trace,plico::perf=trace,plico::skia=trace,wabou::perf=trace' PLICO_TRACE_FILE=reports/plico/lyrics-trace.json target/release/examples/lyric_damage --cover cover.jpg --mode damage --frames 1200 --scale 1.75 --device Intel --paced
+```
+
+省略 `PLICO_TRACE_FILE` 测无 trace 基线，`--mode full` 对照全量绘制。
+`--no-highlights`、`--no-scroll`、`--paused` 分别隔离逐字高亮、平滑滚动和播放。
+paused 仍强制调用帧入口，不能据此推断窗口空闲时的唤醒频率。
+`--verify` 用于正确性检查，性能采样不要开启。本机 Xvfb 缺 DRI3，窗口试跑
+不作为实际桌面 present 性能证据。报告保留在忽略目录，不参与提交。
+
+同设备、同 scale，关闭 trace 的 600 帧功能对照（各一次，非统计显著性结论）：
+
+| 场景，damage 模式 | 全机 CPU | 构建 p50 | 绘制提交 p50 | 平均 damage 覆盖 |
+| --- | ---: | ---: | ---: | ---: |
+| 关闭逐字高亮，保留平滑滚动 | 0.329% | 306µs | 983µs | 4.5% |
+| 关闭平滑滚动，保留逐字高亮 | 0.546% | 461µs | 1654µs | 24.1% |
+| 暂停，仍强制 60Hz 调用 | 0.0083% | 3.4µs | 27.5µs | 0%，600 帧 Empty |
+
+关闭高亮同时改变文本样式更新和重绘范围，不能把全部收益归因于整形。
+关闭平滑滚动改为跳转，不是从原场景简单减去一个动画；本轮反而更贵，
+需单独追踪布局/跳转后才能解释。暂停结果说明保留缓存有效，不说明真实窗口
+仍需要 60Hz 唤醒。后续优先拆分逐字高亮的段落缓存与 damage 范围成本。
+

@@ -283,12 +283,16 @@ impl SkiaSurface {
         }
         let resources = &self.resources;
         let mut tracker = std::mem::take(&mut self.damage_tracker);
+        #[cfg(feature = "profiling")]
+        let damage_span = tracing::trace_span!(target: "plico::skia", "skia.damage").entered();
         let damage = tracker.update(
             scene,
             self.surface.width() as u32,
             self.surface.height() as u32,
             |command| resources.borrow_mut().ink_bounds(command),
         );
+        #[cfg(feature = "profiling")]
+        drop(damage_span);
         let actual = if !self.frame_valid || self.background != Some(background) {
             DamageRegion::Full
         } else {
@@ -368,6 +372,8 @@ impl SkiaSurface {
         scene: &Scene,
         culling: Option<(&plico_renderer::damage::SceneDamageTracker, DamageRegion)>,
     ) -> Result<(), Error> {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.replay", commands = scene.commands.len()).entered();
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         let mut depth = 0usize;
         let mut skipped_scope = 0usize;

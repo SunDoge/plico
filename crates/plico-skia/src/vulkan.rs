@@ -154,6 +154,8 @@ impl SkiaGpuSurface {
     /// Record and submit to the GPU without reading pixels or waiting on the CPU.
     pub fn draw_scene(&mut self, scene: &Scene, background: Color) -> Result<(), Error> {
         self.surface.draw_scene(scene, background)?;
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.flush_submit").entered();
         self.context.flush_surface(&mut self.surface.surface);
         if !self.context.submit(None) {
             self.surface.invalidate();
@@ -168,6 +170,8 @@ impl SkiaGpuSurface {
         background: Color,
     ) -> Result<plico_renderer::DamageRegion, Error> {
         let damage = self.surface.draw_scene_tracked(scene, background)?;
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "plico::skia", "skia.flush_submit").entered();
         self.context.flush_surface(&mut self.surface.surface);
         if !self.context.submit(None) {
             self.surface.invalidate();

@@ -165,11 +165,17 @@ impl SkiaWindow {
         // SAFETY: this single-frame fence protects reuse of the acquire semaphore.
         // The presentation-complete semaphores are per-image, not per-frame:
         // reacquiring that image guarantees its previous presentation wait ended.
+        #[cfg(feature = "profiling")]
+        let wait_span = tracing::trace_span!(target: "plico::skia", "skia.wait_fence").entered();
         unsafe { device.wait_for_fences(&[chain.fence], true, u64::MAX) }.context(
             crate::VulkanSnafu {
                 operation: "wait frame fence",
             },
         )?;
+        #[cfg(feature = "profiling")]
+        drop(wait_span);
+        #[cfg(feature = "profiling")]
+        let acquire_span = tracing::trace_span!(target: "plico::skia", "skia.acquire").entered();
         let (index, suboptimal) = match unsafe {
             chain.loader.acquire_next_image(
                 chain.handle,
@@ -191,6 +197,8 @@ impl SkiaWindow {
                 });
             }
         };
+        #[cfg(feature = "profiling")]
+        drop(acquire_span);
         let target = &mut self.targets[index as usize];
         // SAFETY: this semaphore remains owned by Swapchain until its queue is idle.
         let acquired = unsafe { gpu::backend_semaphores::make_vk(chain.acquire.as_raw() as _) };
@@ -230,6 +238,9 @@ impl SkiaWindow {
             gpu::vk::ImageLayout::PRESENT_SRC_KHR,
             self.owner.queue_family,
         );
+        #[cfg(feature = "profiling")]
+        let submit_span =
+            tracing::trace_span!(target: "plico::skia", "skia.flush_submit").entered();
         if self.context.flush_surface_with_texture_state(
             &mut target.surface,
             &flush,
@@ -239,6 +250,8 @@ impl SkiaWindow {
         {
             return Err(Error::Submit);
         }
+        #[cfg(feature = "profiling")]
+        drop(submit_span);
         // Associate a fence with the already-submitted Skia work. No CPU pixel
         // readback or device-wide wait is required for normal presentation.
         unsafe {
@@ -302,6 +315,9 @@ impl SkiaWindow {
         self.window.pre_present_notify();
         // SAFETY: image is acquired, transitioned to PRESENT_SRC_KHR, and the
         // presentation queue waits for Skia's render-finished signal.
+        #[cfg(feature = "profiling")]
+        let _present_span =
+            tracing::trace_span!(target: "plico::skia", "skia.queue_present").entered();
         let presented = match unsafe { chain.loader.queue_present(self.owner.queue, &info) } {
             Ok(outdated) => {
                 self.recreate |= outdated || suboptimal;
