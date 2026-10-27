@@ -105,7 +105,15 @@ Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不
 
 release-plz 0.4.0 的 Git 基线重建要求旧 tag 中存在当前分析的包；`examples`
 不存在于 `v0.1.1` 中。跳过这些辅助包也避免了此问题，不需要改写已发布 tag。
-新增框架 crate 时仍需检查其发布基线。
+新增框架 crate 时仍需检查其发布基线。release-plz 0.4.x 的共享 tag 查找
+会把新增包也映射到旧 tag；若旧 tag 不含该包，版本分析会报 `cannot find package`。
+这是历史基线重建问题，不是 Cargo workspace 没发现新成员。对新增的实验包，首次
+统一发布前配置 `release = false` 与 `git_only = false`，暂不加入 `changelog_include`；
+它仍通过 `version.workspace = true` 跟随根版本。首个包含该包的统一 tag 创建后，
+移除临时覆盖并把框架包加入 `changelog_include`。不改写历史 tag，也不增加发现脚本。
+只设置 `release = false` 不够：0.4.x 在筛选发布包之前就会收集 git-only 基线。
+本地验证使用独立 checkout 运行 `release-plz update`；它会修改版本和 changelog，
+所以不要直接在正在开发的工作区里试跑。
 
 仓库 Settings → Actions → General 必须允许 Actions 创建 PR。
 workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触发后续 CI。

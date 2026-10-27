@@ -112,3 +112,12 @@ git_only = false
 name = "web-demo"
 release = false
 git_only = false
+
+# Bootstrap: v0.1.5 predates this experimental package. release-plz 0.4.x
+# otherwise looks it up in that shared tag and fails before version analysis.
+# It still inherits workspace.package.version. Once the next shared tag contains
+# crates/plico-video, remove this override and add it to changelog_include.
+[[package]]
+name = "plico-video"
+release = false
+git_only = false
