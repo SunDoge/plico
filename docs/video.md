@@ -73,3 +73,21 @@ hardware decoding and GPU texture interoperability. Software output does not
 prove that mpv's GPU output can be integrated with Plico's Vulkan renderer.
 Any distributed libmpv binary and its dependencies need their own license and
 source-distribution compliance; this experiment does not bundle native binaries.
+
+## Persistent host player and separate audio
+
+`Player::with_options(PlayerOptions { .. })` creates an idle host player. Keep
+its `VideoSurface` mounted and call `load(video_url, Some(audio_url))` to replace
+media without replacing the widget or its wake callback. `open` remains the
+single-file convenience entry point. `PlayerOptions` also supports a referrer
+and user agent, for services that require those request headers. Volume is a
+normalized 0..=1 value; snapshots expose loading, EOF, volume and decoded audio
+channel count. External audio is added after mpv reports the video file loaded.
+
+The bilimini Plico frontend exercised actual Bilibili DASH video plus separate
+audio with the Skia Vulkan renderer: recommendations and covers loaded, selecting
+a video switched to a compact window, and an inspected screenshot showed actual
+video and playback controls. A null audio device was used for the automated
+manual run; decoding reported two channels, but audible A/V synchronization was
+not certified. These results do not validate Vello playback, hardware decoding,
+HDR or zero-copy video integration.

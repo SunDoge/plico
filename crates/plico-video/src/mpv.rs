@@ -28,12 +28,38 @@ pub enum Error {
     #[snafu(display("video worker has stopped"))]
     Disconnected,
 }
+/// Host-owned software output and network playback settings.
+#[derive(Clone, Debug)]
+pub struct PlayerOptions {
+    pub width: u32,
+    pub height: u32,
+    /// Use a null audio device for probes.
+    pub muted: bool,
+    pub referrer: Option<String>,
+    pub user_agent: Option<String>,
+}
+impl Default for PlayerOptions {
+    fn default() -> Self {
+        Self {
+            width: 1280,
+            height: 720,
+            muted: false,
+            referrer: None,
+            user_agent: None,
+        }
+    }
+}
 /// Host service snapshot. Decoded pixels are never serialized with app state.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub position: f64,
     pub duration: f64,
     pub paused: bool,
+    pub volume: f64,
+    /// Decoded audio channels, zero until an audio stream is ready.
+    pub audio_channels: u32,
+    pub loading: bool,
+    pub ended: bool,
     pub frames: u64,
     /// Cumulative render-call wall time, including mpv frame pacing; excludes GPU upload.
     pub render_micros: u64,
@@ -46,6 +72,11 @@ struct Shared {
     wake: WakeCallback,
 }
 enum Command {
+    Load {
+        video: String,
+        audio: Option<String>,
+    },
+    Volume(f64),
     Pause(bool),
     Seek(f64),
     Stop,
@@ -65,6 +96,18 @@ impl Player {
         height: u32,
         muted: bool,
     ) -> Result<Self, Error> {
+        let player = Self::with_options(PlayerOptions {
+            width,
+            height,
+            muted,
+            ..Default::default()
+        })?;
+        player.load(path, None)?;
+        Ok(player)
+    }
+    /// Create an idle player. Subsequent loads retain the same video surface.
+    pub fn with_options(options: PlayerOptions) -> Result<Self, Error> {
+        let (width, height) = (options.width, options.height);
         if width == 0 || height == 0 || width > 4096 || height > 4096 {
             return Err(Error::Dimensions);
         }
@@ -76,11 +119,10 @@ impl Player {
         }));
         let (commands, receiver) = mpsc::sync_channel(8);
         let state = shared.clone();
-        let path = path.into();
         let worker = thread::Builder::new()
             .name("plico-video".into())
             .spawn(move || {
-                if let Err(error) = run(&path, width, height, muted, receiver, &state) {
+                if let Err(error) = run(options, receiver, &state) {
                     let wake = {
                         let mut state = state.lock().unwrap();
                         state.snapshot.error = Some(error.to_string());
@@ -96,6 +138,24 @@ impl Player {
             shared,
             worker: Some(worker),
         })
+    }
+    /// Replace playback; an optional external audio URL supports DASH streams.
+    pub fn load(&self, video: impl Into<String>, audio: Option<String>) -> Result<(), Error> {
+        self.commands
+            .send(Command::Load {
+                video: video.into(),
+                audio,
+            })
+            .map_err(|_| Error::Disconnected)
+    }
+    /// Set output volume in the normalized range 0..=1.
+    pub fn volume(&self, volume: f64) -> Result<(), Error> {
+        if !volume.is_finite() {
+            return Ok(());
+        }
+        self.commands
+            .send(Command::Volume(volume.clamp(0., 1.)))
+            .map_err(|_| Error::Disconnected)
     }
     pub fn snapshot(&self) -> Snapshot {
         self.shared.lock().unwrap().snapshot.clone()
@@ -135,6 +195,9 @@ pub struct VideoSurface {
     revision: u64,
 }
 impl Widget for VideoSurface {
+    fn accepts_input(&self) -> bool {
+        false
+    }
     fn set_wake_callback(&mut self, wake: WakeCallback) {
         self.shared.lock().unwrap().wake = wake;
     }
@@ -189,18 +252,24 @@ fn param(kind: u32, data: *mut c_void) -> ffi::mpv_render_param {
     ffi::mpv_render_param { type_: kind, data }
 }
 fn run(
-    path: &str,
-    width: u32,
-    height: u32,
-    muted: bool,
+    options: PlayerOptions,
     receiver: mpsc::Receiver<Command>,
     shared: &Mutex<Shared>,
 ) -> Result<(), Error> {
+    let (width, height) = (options.width, options.height);
     let mpv = Mpv::with_initializer(|init| {
         init.set_property("vo", "libmpv")?;
         init.set_property("hwdec", "no")?;
         init.set_property("terminal", false)?;
-        if muted {
+        init.set_property("idle", true)?;
+        init.set_property("keep-open", true)?;
+        if let Some(referrer) = &options.referrer {
+            init.set_property("referrer", referrer.as_str())?;
+        }
+        if let Some(agent) = &options.user_agent {
+            init.set_property("user-agent", agent.as_str())?;
+        }
+        if options.muted {
             init.set_property("ao", "null")?;
         }
         Ok(())
@@ -317,8 +386,7 @@ fn run(
             let events = mpv
                 .create_client(None)
                 .map_err(|source| Error::Mpv { source })?;
-            mpv.command("loadfile", &[path])
-                .map_err(|source| Error::Mpv { source })?;
+            let mut pending_audio = None;
             let mut last_status = Instant::now();
             loop {
                 if renderer.is_finished() {
@@ -328,27 +396,67 @@ fn run(
                     Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
                     Ok(command) => {
                         let result = match command {
+                            Command::Load { video, audio } => {
+                                pending_audio = audio.filter(|url| !url.is_empty());
+                                {
+                                    let mut state = shared.lock().unwrap();
+                                    state.snapshot.error = None;
+                                    state.snapshot.loading = true;
+                                    state.snapshot.ended = false;
+                                }
+                                mpv.set_property("pause", false)
+                                    .map_err(|source| Error::Mpv { source })?;
+                                mpv.command("loadfile", &[&video, "replace"])
+                            }
+                            Command::Volume(volume) => mpv.set_property("volume", volume * 100.),
                             Command::Pause(paused) => mpv.set_property("pause", paused),
                             Command::Seek(seconds) => {
                                 mpv.command("seek", &[&seconds.to_string(), "absolute+exact"])
                             }
                             Command::Stop => unreachable!(),
                         };
-                        result.map_err(|source| Error::Mpv { source })?;
+                        if let Err(error) = result {
+                            let mut state = shared.lock().unwrap();
+                            state.snapshot.error = Some(error.to_string());
+                            state.snapshot.loading = false;
+                        }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
                 while let Some(event) = events.wait_event(0.) {
-                    if matches!(event, Ok(libmpv2::events::Event::EndFile(reason)) if reason == libmpv2::mpv_end_file_reason::Error)
-                    {
-                        return Err(Error::Playback);
+                    match event {
+                        Ok(libmpv2::events::Event::FileLoaded) => {
+                            shared.lock().unwrap().snapshot.loading = false;
+                            if let Some(audio) = pending_audio.take()
+                                && let Err(error) = mpv.command("audio-add", &[&audio, "select"])
+                            {
+                                shared.lock().unwrap().snapshot.error = Some(error.to_string());
+                            }
+                        }
+                        Ok(libmpv2::events::Event::EndFile(reason))
+                            if reason == libmpv2::mpv_end_file_reason::Error =>
+                        {
+                            let mut state = shared.lock().unwrap();
+                            state.snapshot.error = Some("Could not load/decode media".into());
+                            state.snapshot.loading = false;
+                        }
+                        _ => {}
                     }
                 }
                 if last_status.elapsed() >= Duration::from_millis(100) {
                     let position = mpv.get_property::<f64>("time-pos").unwrap_or(0.);
                     let duration = mpv.get_property::<f64>("duration").unwrap_or(0.);
                     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
+                    let volume = mpv.get_property::<f64>("volume").unwrap_or(100.) / 100.;
+                    let ended = mpv.get_property::<bool>("eof-reached").unwrap_or(false);
+                    let audio_channels = mpv
+                        .get_property::<i64>("audio-params/channel-count")
+                        .unwrap_or(0)
+                        .max(0) as u32;
                     let mut state = shared.lock().unwrap();
+                    state.snapshot.volume = volume;
+                    state.snapshot.audio_channels = audio_channels;
+                    state.snapshot.ended = ended;
                     state.snapshot.position = position;
                     state.snapshot.duration = duration;
                     state.snapshot.paused = paused;

@@ -311,6 +311,11 @@ impl<V: View, W: Widget> FrameSource for SurfaceSource<V, W> {
             self.widget.focus_changed(focused && self.focused);
             return self.source.handle_event(event);
         }
+        if !self.widget.accepts_input() {
+            self.focus(false);
+            self.captured = false;
+            return self.source.handle_event(event);
+        }
         let route = match &mut event {
             UiEvent::Pointer(pointer) => {
                 let inside = self.visible && self.contains(pointer.position);

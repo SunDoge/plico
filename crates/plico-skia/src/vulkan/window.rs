@@ -243,8 +243,29 @@ impl SkiaWindow {
         if size.width == 0 || size.height == 0 {
             return Ok(false);
         }
+        // A native resize may overtake the SurfaceResized event / scene build.
+        // Do not submit an old-size frame to a newly sized native surface.
+        if !frame_extent_matches(self.desired, [size.width, size.height]) {
+            self.window.request_redraw();
+            return Ok(false);
+        }
         if self.recreate {
             self.rebuild()?;
+        }
+        if self.targets.first().is_some_and(|target| {
+            !frame_extent_matches(
+                self.desired,
+                [
+                    target.surface.width() as u32,
+                    target.surface.height() as u32,
+                ],
+            )
+        }) {
+            // Surface capabilities can race the requested extent too. Wait for
+            // matching layout and swapchain dimensions instead of stretching.
+            self.recreate = true;
+            self.window.request_redraw();
+            return Ok(false);
         }
         if self.present_skip && !self.recreate && self.presentation.unchanged(scene, background) {
             self.last_present_skipped = true;
@@ -716,6 +737,10 @@ impl Drop for Swapchain {
     }
 }
 
+fn frame_extent_matches(frame: [u32; 2], surface: [u32; 2]) -> bool {
+    !frame.contains(&0) && frame == surface
+}
+
 // Zero rectangles means *full* presentation in Vulkan, not empty damage.
 // Full/empty/unknown regions omit the optional hint entirely.
 fn present_rectangle(damage: DamageRegion, width: u32, height: u32) -> Option<vk::RectLayerKHR> {
@@ -739,6 +764,13 @@ fn present_rectangle(damage: DamageRegion, width: u32, height: u32) -> Option<vk
 mod tests {
     use super::*;
     use kurbo::Rect;
+    #[test]
+    fn resize_never_accepts_a_frame_from_the_other_window_mode() {
+        assert!(frame_extent_matches([840, 473], [840, 473]));
+        assert!(!frame_extent_matches([840, 473], [875, 1330]));
+        assert!(!frame_extent_matches([875, 1330], [840, 473]));
+        assert!(!frame_extent_matches([0, 0], [0, 0]));
+    }
     #[test]
     fn unchanged_present_uses_successful_display_history_not_buffer_contents() {
         use plico_renderer::PaintScene;
