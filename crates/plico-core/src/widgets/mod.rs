@@ -223,11 +223,13 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 
 mod calendar;
 mod composite;
+mod media;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,
 };
+pub use media::{Avatar, RubyText, avatar, ruby_text};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

@@ -222,6 +222,8 @@ impl VisitMut for Expand {
                             | "button_base"
                             | "svg"
                             | "image"
+                            | "avatar"
+                            | "ruby_text"
                             | "svg_source"
                             | "icon"
                             | "switch"

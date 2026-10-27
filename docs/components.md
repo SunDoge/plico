@@ -191,3 +191,28 @@ fn code(cx: &mut UiContext) {
     });
 }
 ```
+
+## Avatar 与 ruby 注音
+
+两个展示组件从 Lyrune 的实际用法中整理而来，位于
+`plico_core::widgets`，也由 prelude 导出。它们使用普通借用 builder，与基础
+控件相同，在语句结束时提交；保持两个生命周期参数，支持 component 宏自动 ID。
+Gallery 的 Controls 页有 “Avatars & ruby text” 示例。
+
+```rust
+use plico_core::prelude::*;
+
+avatar(cx).image(cached_image).fallback("JD").size(40.);
+ruby_text(cx, "夜空").annotation("よぞら").font_size(28);
+ruby_text(cx, "へ").font_size(28);
+```
+
+`cached_image` 是 `Option<&ImageAsset>`，也可直接传 `&ImageAsset`。没有图片时
+显示调用方提供的占位文字；图片加载、失败重试、账户/缓存生命周期仍由宿主管理。
+头像裁成圆形，提供字号、前景/背景色配置。
+
+`ruby_text` 默认继承正文的字号、字重和颜色，注音使用主题 label 字号与 Muted
+颜色。注音槽即使没有 reading 也保留，因此同一行混排时正文不会上下跳；默认
+高度随注音字号变化，也可用 `annotation_height` 固定。正文 `.spans()` 的范围
+是当前片段的本地 UTF-8 字节偏移；歌词解析、全行到片段的范围转换仍留在应用。
+支持单独配置注音字号、字重和颜色，不绑定歌曲时间轴或特定业务模型。
