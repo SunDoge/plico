@@ -35,8 +35,8 @@ impl WindowSizePersistence {
             .and_then(|bytes| serde_json::from_slice::<SavedWindowSize>(&bytes).ok())
             .filter(valid_size);
         if let Some(saved) = saved {
-            let min = options.min_inner_size.unwrap_or((1, 1));
-            options.initial_inner_size = (saved.width.max(min.0), saved.height.max(min.1));
+            options.initial_inner_size = (saved.width, saved.height);
+            *options = options.clone().normalized();
         }
         let restored = saved.map(|_| SavedWindowSize {
             width: options.initial_inner_size.0,
@@ -151,6 +151,22 @@ mod tests {
         );
 
         assert_eq!(options.initial_inner_size, (900, 600));
+    }
+
+    #[test]
+    fn restored_size_respects_maximum_and_locked_dimensions() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("window.json");
+        std::fs::write(&path, br#"{"width":1200,"height":1600}"#).unwrap();
+        let mut options = WindowOptions::new()
+            .min_inner_size(480, 240)
+            .max_inner_size(480, 900);
+        let _state = WindowSizePersistence::restore(
+            &path,
+            crate::initial_window_resource_key(0),
+            &mut options,
+        );
+        assert_eq!(options.initial_inner_size, (480, 900));
     }
 
     #[test]

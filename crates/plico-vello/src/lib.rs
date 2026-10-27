@@ -8,6 +8,7 @@ pub use plico_shell::Error as DesktopError;
 
 pub use plico_renderer::{
     HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
+    WindowResizeEdges,
 };
 
 /// Run an application directly, without dynamic loading or the development CLI.

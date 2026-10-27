@@ -35,6 +35,7 @@ pub use floating::{
 pub use service::{HostService, HostServiceContext};
 pub use window::{
     RenderBackend, WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions,
+    WindowResizeEdges,
 };
 pub use window_lifecycle::{
     WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,

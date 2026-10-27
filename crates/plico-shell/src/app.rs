@@ -153,6 +153,7 @@ impl App {
                     f64::from(self.window_metrics.logical_width),
                     f64::from(self.window_metrics.logical_height),
                     CUSTOM_DECORATION_RESIZE_BORDER,
+                    self.window_options.effective_resize_edges(),
                 )
             })
             .flatten()
@@ -227,6 +228,7 @@ impl App {
 
     /// Construct a single-window application with explicit native options.
     pub fn with_options(source: Box<dyn FrameSource>, window_options: WindowOptions) -> Self {
+        let window_options = window_options.normalized();
         let (effect_completion_tx, effect_completion_rx) = std::sync::mpsc::channel();
         Self {
             window_key: crate::initial_window_resource_key(0),

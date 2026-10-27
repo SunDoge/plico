@@ -54,6 +54,28 @@ pub enum RenderBackend {
     Skia,
 }
 
+bitflags::bitflags! {
+    /// Edges that may start a resize gesture on a custom, undecorated window.
+    /// Native decorations and compositor shortcuts are controlled by the OS;
+    /// use minimum/maximum sizes to constrain dimensions for those paths too.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct WindowResizeEdges: u8 {
+        /// Left border.
+        const LEFT = 1;
+        /// Right border.
+        const RIGHT = 2;
+        /// Top border.
+        const TOP = 4;
+        /// Bottom border.
+        const BOTTOM = 8;
+    }
+}
+impl Default for WindowResizeEdges {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 /// Requested properties used when creating a native window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +89,12 @@ pub struct WindowOptions {
     pub initial_inner_size: (u32, u32),
     /// Optional minimum logical client-area size.
     pub min_inner_size: Option<(u32, u32)>,
+    /// Optional maximum logical client-area size. A conflicting minimum wins.
+    #[serde(default)]
+    pub max_inner_size: Option<(u32, u32)>,
+    /// Allowed custom-decoration resize edges. Does not restrict native borders.
+    #[serde(default)]
+    pub resize_edges: WindowResizeEdges,
     /// Whether the user may resize the window.
     pub resizable: bool,
     /// Whether the OS draws its standard title bar and border.
@@ -92,6 +120,8 @@ impl Default for WindowOptions {
             title: "wabou".into(),
             initial_inner_size: (800, 600),
             min_inner_size: None,
+            max_inner_size: None,
+            resize_edges: WindowResizeEdges::all(),
             resizable: true,
             decorations: true,
             corner_radius: 0,
@@ -131,6 +161,55 @@ impl WindowOptions {
     pub fn min_inner_size(mut self, width: u32, height: u32) -> Self {
         self.min_inner_size = Some((width.max(1), height.max(1)));
         self
+    }
+
+    /// Set the maximum logical client-area size, clamped to at least 1×1.
+    /// Equal minimum and maximum widths/heights lock that dimension where
+    /// supported by the window manager. A conflicting minimum takes precedence.
+    pub fn max_inner_size(mut self, width: u32, height: u32) -> Self {
+        self.max_inner_size = Some((width.max(1), height.max(1)));
+        self
+    }
+
+    /// Select draggable edges for custom decorations. Native decorations and
+    /// OS shortcuts are unaffected; `resizable(false)` disables all edges.
+    pub fn resize_edges(mut self, edges: WindowResizeEdges) -> Self {
+        self.resize_edges = edges;
+        self
+    }
+
+    /// Normalize size constraints and clamp the initial size. Minimums take
+    /// precedence over conflicting maximums, independently of builder order.
+    pub fn normalized(mut self) -> Self {
+        let minimum = self.min_inner_size.map(|(w, h)| (w.max(1), h.max(1)));
+        self.min_inner_size = minimum;
+        let floor = minimum.unwrap_or((1, 1));
+        self.max_inner_size = self
+            .max_inner_size
+            .map(|(w, h)| (w.max(floor.0), h.max(floor.1)));
+        let ceiling = self.max_inner_size.unwrap_or((u32::MAX, u32::MAX));
+        self.initial_inner_size = (
+            self.initial_inner_size.0.clamp(floor.0, ceiling.0),
+            self.initial_inner_size.1.clamp(floor.1, ceiling.1),
+        );
+        self
+    }
+
+    /// Custom resize edges after applying `resizable` and locked dimensions.
+    pub fn effective_resize_edges(&self) -> WindowResizeEdges {
+        if !self.resizable {
+            return WindowResizeEdges::empty();
+        }
+        let mut edges = self.resize_edges;
+        if let (Some(min), Some(max)) = (self.min_inner_size, self.max_inner_size) {
+            if min.0 >= max.0 {
+                edges.remove(WindowResizeEdges::LEFT | WindowResizeEdges::RIGHT);
+            }
+            if min.1 >= max.1 {
+                edges.remove(WindowResizeEdges::TOP | WindowResizeEdges::BOTTOM);
+            }
+        }
+        edges
     }
 
     /// Control whether the user may resize the window.
@@ -237,5 +316,74 @@ mod backend_tests {
         let restored: WindowOptions =
             serde_json::from_str(&serde_json::to_string(&options).unwrap()).unwrap();
         assert_eq!(restored.renderer, RenderBackend::Skia);
+    }
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+
+    #[test]
+    fn old_options_default_to_unbounded_size_and_all_edges() {
+        let mut json = serde_json::to_value(WindowOptions::new()).unwrap();
+        let object = json.as_object_mut().unwrap();
+        object.remove("maxInnerSize");
+        object.remove("resizeEdges");
+        let options: WindowOptions = serde_json::from_value(json).unwrap();
+        assert_eq!(options.max_inner_size, None);
+        assert_eq!(options.resize_edges, WindowResizeEdges::all());
+        let options = options.resize_edges(WindowResizeEdges::BOTTOM | WindowResizeEdges::RIGHT);
+        let restored: WindowOptions =
+            serde_json::from_str(&serde_json::to_string(&options).unwrap()).unwrap();
+        assert_eq!(restored, options);
+    }
+
+    #[test]
+    fn size_bounds_lock_one_axis_and_clamp_the_initial_size() {
+        let options = WindowOptions::new()
+            .initial_inner_size(900, 100)
+            .min_inner_size(480, 240)
+            .max_inner_size(480, 900)
+            .normalized();
+        assert_eq!(options.initial_inner_size, (480, 240));
+        assert_eq!(
+            options.effective_resize_edges(),
+            WindowResizeEdges::TOP | WindowResizeEdges::BOTTOM
+        );
+        let horizontal = WindowOptions::new()
+            .min_inner_size(320, 400)
+            .max_inner_size(1200, 400)
+            .normalized();
+        assert_eq!(
+            horizontal.effective_resize_edges(),
+            WindowResizeEdges::LEFT | WindowResizeEdges::RIGHT
+        );
+        assert!(options.resizable(false).effective_resize_edges().is_empty());
+        let fixed = WindowOptions::new()
+            .min_inner_size(480, 400)
+            .max_inner_size(480, 400)
+            .normalized();
+        assert!(fixed.effective_resize_edges().is_empty());
+    }
+
+    #[test]
+    fn minimum_wins_over_conflicting_maximum_in_either_builder_order() {
+        let a = WindowOptions::new()
+            .max_inner_size(200, 100)
+            .min_inner_size(400, 300)
+            .normalized();
+        let b = WindowOptions::new()
+            .min_inner_size(400, 300)
+            .max_inner_size(200, 100)
+            .normalized();
+        assert_eq!(a, b);
+        assert_eq!(a.max_inner_size, Some((400, 300)));
+        assert_eq!(
+            WindowOptions::new()
+                .max_inner_size(0, 0)
+                .normalized()
+                .initial_inner_size,
+            (1, 1)
+        );
     }
 }

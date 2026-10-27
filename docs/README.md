@@ -7,6 +7,7 @@
 | [MyGo 对标方向](mygo-benchmark.md) | 完整界面的验收标准与下一条应用切片 |
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
 | [2048 对照](2048.md) | MyGo 游戏切片、棋子身份、时钟动画、键盘与模块恢复 |
+| [原生窗口尺寸与缩放边](window-controls.md) | 最小/最大尺寸、单轴约束、自定义边框命中与平台限制 |
 | [Viewport 与缩放](viewport.md) | 宿主尺寸输入、响应式布局、百分比宽度与新桌面 zoom 示例 |
 | [System-wide hotkeys](global-hotkeys.md) | 可选全局热键、平台注册、Wayland portal 与宿主生命周期 |
 | [Window-local shortcuts](shortcuts.md) | 完整组合键、作用域 action 表、输入法优先级与热重载事件传递 |
