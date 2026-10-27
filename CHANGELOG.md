@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/SunDoge/plico/compare/v0.1.6...v0.1.7) - 2026-10-27
+
+### Added
+
+- *(video)* support persistent streaming playback and media overlays
+
+### Fixed
+
+- *(shell)* synchronize window resizing and frame presentation
+
 ## [0.1.6](https://github.com/SunDoge/plico/compare/v0.1.5...v0.1.6) - 2026-10-27
 
 ### Added
