@@ -13,6 +13,11 @@ pub(crate) enum WindowRenderer {
         active: Option<Box<plico_skia::SkiaWindow>>,
         transparent: bool,
     },
+    #[cfg(feature = "egui")]
+    Egui {
+        active: Option<Box<plico_egui::EguiWindow>>,
+        transparent: bool,
+    },
 }
 impl WindowRenderer {
     pub(crate) fn configure_text(&self, _text: &mut plico_renderer::TextContext) {
@@ -25,6 +30,69 @@ impl WindowRenderer {
             renderer.configure_text(_text);
         }
     }
+    pub(crate) fn build_native(
+        &mut self,
+        _source: &mut dyn plico_renderer::FrameSource,
+        _size: [u32; 2],
+        _scale: f64,
+    ) -> Option<(usize, f64, f64)> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return Some(renderer.build(_source, _size, _scale).unwrap_or_default());
+        }
+        None
+    }
+    pub(crate) fn event(
+        &mut self,
+        _event: &plico_renderer::UiEvent,
+    ) -> Option<plico_renderer::EventResponse> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.event(_event);
+        }
+        None
+    }
+    pub(crate) fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.take_host_action();
+        }
+        None
+    }
+    pub(crate) fn ime_state(&self) -> Option<plico_renderer::ImeState> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.ime_state();
+        }
+        None
+    }
+    pub(crate) fn pointer_cursor(&self) -> Option<plico_renderer::style::CursorStyle> {
+        #[cfg(feature = "egui")]
+        if let Self::Egui {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return Some(renderer.pointer_cursor());
+        }
+        None
+    }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
             Self::Vello(_) => None,
@@ -35,6 +103,8 @@ impl WindowRenderer {
             } => Some(renderer.last_damage_coverage()),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => None,
+            #[cfg(feature = "egui")]
+            Self::Egui { .. } => None,
         }
     }
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
@@ -56,6 +126,21 @@ impl WindowRenderer {
                     })
                 }
             }
+            RenderBackend::Egui => {
+                #[cfg(feature = "egui")]
+                {
+                    Ok(Self::Egui {
+                        active: None,
+                        transparent,
+                    })
+                }
+                #[cfg(not(feature = "egui"))]
+                {
+                    Err(crate::Error::Renderer {
+                        message: "Egui requires plico-shell's egui feature".into(),
+                    })
+                }
+            }
         }
     }
     pub(crate) fn resume(
@@ -66,6 +151,21 @@ impl WindowRenderer {
     ) -> crate::Result<()> {
         match self {
             Self::Vello(renderer) => renderer.resume(window, width, height),
+            #[cfg(feature = "egui")]
+            Self::Egui {
+                active,
+                transparent,
+            } => {
+                let mut renderer =
+                    plico_egui::EguiWindow::new(window, *transparent).map_err(|error| {
+                        crate::Error::Renderer {
+                            message: error.to_string(),
+                        }
+                    })?;
+                renderer.resize(width, height);
+                tracing::info!("egui native-widget window renderer initialized");
+                *active = Some(Box::new(renderer));
+            }
             #[cfg(feature = "skia")]
             Self::Skia {
                 active,
@@ -128,6 +228,13 @@ impl WindowRenderer {
             } => renderer.resize(width, height),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => {}
+            #[cfg(feature = "egui")]
+            Self::Egui {
+                active: Some(renderer),
+                ..
+            } => renderer.resize(width, height),
+            #[cfg(feature = "egui")]
+            Self::Egui { active: None, .. } => {}
         }
     }
     pub(crate) fn present_skipped(&self) -> bool {
@@ -195,6 +302,13 @@ impl WindowRenderer {
             }
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => Ok(false),
+            #[cfg(feature = "egui")]
+            Self::Egui {
+                active: Some(renderer),
+                ..
+            } => Ok(renderer.present(scene, color)),
+            #[cfg(feature = "egui")]
+            Self::Egui { active: None, .. } => Ok(false),
         }
     }
 }

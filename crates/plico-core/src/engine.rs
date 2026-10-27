@@ -228,6 +228,7 @@ impl Engine {
             return Err(FrameError::InvalidViewport);
         }
         self.set_width(width)?;
+        self.viewport_dirty |= self.height != height;
         self.height = height;
         Ok(())
     }

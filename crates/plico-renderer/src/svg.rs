@@ -12,6 +12,7 @@ use crate::SvgDocument;
 pub use usvg;
 
 mod convert;
+pub mod convert_paint;
 mod render;
 
 /// A feature which could not be represented faithfully by Vello GPU.
@@ -72,6 +73,12 @@ pub enum Error {
         node_id: Option<String>,
         /// Decoder error.
         source: image::ImageError,
+    },
+    /// A feature the paint-command projector does not handle.
+    #[snafu(display("unsupported SVG command or property: {command}"))]
+    Unsupported {
+        /// The rejected SVG feature.
+        command: &'static str,
     },
     /// Vello GPU stores image dimensions as `u16`.
     #[snafu(display("embedded raster image in node {node_id:?} is too large: {width}x{height}"))]

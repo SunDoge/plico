@@ -161,3 +161,7 @@ pub mod prelude {
 
 mod capabilities;
 pub use capabilities::Capabilities;
+
+/// Portable style translation shared by native-widget backends.
+#[cfg(feature = "taffy")]
+pub mod taffy_layout;

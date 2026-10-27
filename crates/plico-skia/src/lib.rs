@@ -53,14 +53,26 @@ pub enum Error {
     },
 }
 
+/// The shared SVG projector reports its own rejections; raster replay
+/// surfaces them as the Skia consumer's Unsupported error verbatim.
+#[cfg(feature = "raster")]
+impl From<plico_renderer::svg::Error> for Error {
+    fn from(source: plico_renderer::svg::Error) -> Self {
+        match source {
+            plico_renderer::svg::Error::Unsupported { command } => Self::Unsupported { command },
+            _ => Self::Unsupported {
+                command: "SVG conversion",
+            },
+        }
+    }
+}
+
 #[cfg(all(feature = "raster", feature = "profiling"))]
 mod diagnostics;
 #[cfg(feature = "raster")]
 mod paragraph;
 #[cfg(feature = "raster")]
 mod raster;
-#[cfg(feature = "raster")]
-mod svg;
 #[cfg(feature = "raster")]
 pub use raster::SkiaSurface;
 

@@ -1,12 +1,17 @@
-// Geometry conversion adapted from plico-renderer/src/svg/convert.rs.
+//! PaintCommand conversion for SVG trees, shared by every command-stream
+//! backend. This is the usvg→`PaintCommand` projector adapted from
+//! plico-renderer/src/svg/convert.rs (the Vello GPU encoder); raster
+//! backends replay the result instead of owning a private converter.
 // Copyright 2024 the Vello Authors and 2026 the Wabou contributors
 // SPDX-License-Identifier: Apache-2.0
-use crate::Error;
+use super::Error;
+use crate::{PaintScene, Scene};
 use kurbo::{Affine, BezPath, Cap, Join, Point, Stroke};
 use peniko::{BlendMode, Brush, Color, ColorStop, Extend, Fill, Gradient, color::DynamicColor};
-use plico_renderer::{PaintScene, Scene, svg::usvg};
+use usvg;
 
-pub(crate) fn commands(tree: &usvg::Tree) -> Result<Scene, Error> {
+/// Convert a normalized SVG tree into backend-neutral paint commands.
+pub fn commands(tree: &usvg::Tree) -> Result<Scene, Error> {
     let mut scene = Scene::new();
     group(&mut scene, tree.root())?;
     Ok(scene)

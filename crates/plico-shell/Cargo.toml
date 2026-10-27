@@ -15,6 +15,7 @@ peniko.workspace = true
 kurbo.workspace = true
 plico-renderer = { path = "../plico-renderer" }
 plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
+plico-egui = { path = "../plico-egui", optional = true, features = ["window"] }
 accesskit = "0.24.1"
 futures-util = "0.3"
 glifo = { workspace = true, features = ["png"] }
@@ -36,6 +37,7 @@ vello-common.workspace = true
 [features]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 skia = ["dep:plico-skia"]
+egui = ["dep:plico-egui", "plico-egui/window"]
 profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -1,0 +1,33 @@
+[package]
+name = "plico-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Native egui controls with Plico declarations and Taffy layout"
+
+[features]
+default = []
+widgets = ["dep:egui", "dep:egui_extras", "dep:egui_system_font_provider", "dep:fontique", "dep:plico-core", "dep:plico-renderer", "dep:plico-runtime", "dep:taffy"]
+window = ["widgets", "dep:egui-wgpu", "dep:wgpu", "dep:wgpu-context", "dep:pollster", "dep:raw-window-handle", "dep:winit"]
+
+[dependencies]
+plico-core = { workspace = true, optional = true, features = ["taffy"] }
+plico-renderer = { workspace = true, optional = true }
+plico-runtime = { path = "../plico-runtime", optional = true }
+taffy = { workspace = true, optional = true }
+egui = { version = "0.37", optional = true, default-features = false, features = ["default_fonts"] }
+egui_extras = { version = "0.37", optional = true, default-features = false, features = ["svg", "image"] }
+# Keep Parley's fontconfig binding mode consistent with egui's system provider.
+fontique = { version = "0.12", optional = true, default-features = false, features = ["fontconfig-dlopen"] }
+egui_system_font_provider = { version = "0.37", optional = true }
+egui-wgpu = { version = "0.37", optional = true, default-features = false }
+wgpu = { workspace = true, optional = true }
+wgpu-context = { workspace = true, optional = true }
+pollster = { version = "0.4", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+winit = { workspace = true, optional = true }
+peniko.workspace = true
+web-time = "1.1"
+tracing.workspace = true
+snafu.workspace = true

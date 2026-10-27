@@ -164,7 +164,11 @@ impl App {
             return;
         };
         let cursor = self.custom_resize_direction().map_or_else(
-            || match self.source.pointer_cursor() {
+            || match shell
+                .renderer
+                .pointer_cursor()
+                .unwrap_or_else(|| self.source.pointer_cursor())
+            {
                 CursorStyle::Default => CursorIcon::Default,
                 CursorStyle::Pointer => CursorIcon::Pointer,
                 CursorStyle::Text => CursorIcon::Text,
@@ -312,6 +316,9 @@ impl App {
         let (w, h) = shell.logical_size();
         let scale = shell.scale_factor();
         source.set_device_scale(scale);
+        if let Some(timings) = shell.renderer.build_native(source, [w, h], scale) {
+            return timings;
+        }
         let retained = {
             #[cfg(feature = "profiling")]
             let span = tracing::trace_span!(target: "wabou::perf", "frame.retained");
@@ -336,12 +343,30 @@ impl App {
         (node_count, build_frame_ms, scene_ms)
     }
 
+    fn route_event(&mut self, event: UiEvent) -> EventResponse {
+        if let Some(mut response) = self
+            .state
+            .as_mut()
+            .and_then(|shell| shell.renderer.event(&event))
+        {
+            if !response.handled {
+                let fallback = self.source.handle_event(event);
+                response.handled |= fallback.handled;
+                response.request_redraw |= fallback.request_redraw;
+                response.consume_key_text |= fallback.consume_key_text;
+                response.clipboard = response.clipboard.or(fallback.clipboard);
+                response.text_input = response.text_input.or(fallback.text_input);
+            }
+            return response;
+        }
+        self.source.handle_event(event)
+    }
     fn dispatch_event(&mut self, event: UiEvent) -> EventResponse {
         self.observe_ime_event(&event);
         if let Some(shell) = self.state.as_mut() {
             self.source.prepare_for_event(&mut shell.tcx);
         }
-        let mut response = self.source.handle_event(event);
+        let mut response = self.route_event(event);
         if let Some(request) = response.clipboard.take() {
             match request {
                 ClipboardRequest::Write(text) => {
@@ -354,7 +379,7 @@ impl App {
                         .clipboard_mut()
                         .and_then(|clipboard| clipboard.get_text().ok());
                     if let Some(text) = text.filter(|text| !text.is_empty()) {
-                        let pasted = self.source.handle_event(UiEvent::Paste(text));
+                        let pasted = self.route_event(UiEvent::Paste(text));
                         response.handled |= pasted.handled;
                         response.request_redraw |= pasted.request_redraw;
                         response.consume_key_text |= pasted.consume_key_text;
@@ -482,7 +507,11 @@ impl App {
     }
 
     fn update_ime_state(&mut self) {
-        let state = self.source.ime_state();
+        let state = self
+            .state
+            .as_ref()
+            .and_then(|shell| shell.renderer.ime_state())
+            .or_else(|| self.source.ime_state());
         // A declarative autofocus can establish a text client before any key or
         // pointer event has supplied EventResponse::text_input.
         if state.is_some() {
@@ -590,14 +619,24 @@ impl App {
 
     fn drain_host_actions(&mut self) -> bool {
         let mut handled = false;
-        while let Some(action) = self.source.take_host_action() {
+        while let Some(action) = self
+            .state
+            .as_mut()
+            .and_then(|shell| shell.renderer.take_host_action())
+            .or_else(|| self.source.take_host_action())
+        {
             handled = true;
             match action {
                 HostAction::Window(command) => apply_window_command(self, command),
-                // Clipboard widget actions are translated into effects by
-                // the applier; reaching this queue means a path bypassed the
-                // translation and must be surfaced, not silently dropped.
-                HostAction::SetClipboard(_) | HostAction::ReadClipboard { .. } => {
+                // Native-widget backends emit completed clipboard writes.
+                // Read requests with widget request IDs still belong to the
+                // effect bridge and must not be silently dropped here.
+                HostAction::SetClipboard(text) => {
+                    if let Some(clipboard) = self.clipboard_mut() {
+                        let _ = clipboard.set_text(text);
+                    }
+                }
+                HostAction::ReadClipboard { .. } => {
                     tracing::error!(
                         action = ?action,
                         "clipboard widget action reached the shell untranslated"

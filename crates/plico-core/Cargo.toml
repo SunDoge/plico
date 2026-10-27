@@ -5,7 +5,12 @@ edition.workspace = true
 description = "Immediate-mode Plico UI engine and shared types"
 publish = false
 
+[features]
+# Optional portable layout adapter for native-widget backends.
+taffy = ["dep:taffy"]
+
 [dependencies]
+taffy = { workspace = true, optional = true }
 rmp-serde.workspace = true
 web-time = "1.1"
 snafu.workspace = true
