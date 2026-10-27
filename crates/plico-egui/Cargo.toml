@@ -1,0 +1,23 @@
+[package]
+name = "plico-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "egui/epaint consumer for the Plico command stream"
+
+[features]
+default = []
+# Offscreen command-stream replay into an epaint context (headless-testable).
+replay = ["dep:plico-renderer", "dep:egui", "dep:skrifa", "dep:vello-common"]
+# Native window hosting through the shell's winit loop (later milestone).
+window = ["replay"]
+
+[dependencies]
+plico-renderer = { path = "../plico-renderer", optional = true }
+egui = { version = "0.33", optional = true, default-features = false }
+skrifa = { version = "0.44", optional = true, default-features = false, features = ["std"] }
+vello-common = { workspace = true, optional = true }
+snafu.workspace = true
+
+[dev-dependencies]
