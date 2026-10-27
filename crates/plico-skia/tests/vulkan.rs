@@ -1,4 +1,74 @@
 #![cfg(feature = "vulkan")]
+
+#[test]
+#[ignore = "requires Vulkan; run with the default distance-field text mode"]
+fn fractional_text_scroll_changes_every_frame_including_small_fonts_after_resize() {
+    use plico_renderer::{
+        PaintCommand, Scene, TextContext, paragraph::ParagraphRequest, style::Paint,
+        text::FontAsset,
+    };
+    use plico_skia::SkiaGpuSurface;
+    use std::sync::Arc;
+    use vello_common::{kurbo::Affine, peniko::Color};
+    let mut gpu = SkiaGpuSurface::new(256, 96).unwrap();
+    let mut text = TextContext::new();
+    text.register_font(
+        &FontAsset::from_static(include_bytes!(
+            "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+        ))
+        .with_family("MotionFixture"),
+    );
+    gpu.configure_text(&mut text);
+    for resize in [false, true] {
+        if resize {
+            gpu.resize(280, 100).unwrap();
+        }
+        let width = gpu.dimensions().0 as usize;
+        for size in [12., 16., 28.] {
+            let request = Arc::new(
+                ParagraphRequest::from_paint(
+                    &Paint {
+                        text: Some("Smooth S".into()),
+                        font_family: Some("MotionFixture".into()),
+                        font_size: size,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap(),
+            );
+            let mut previous: Option<(Vec<u8>, f64)> = None;
+            for step in 0..9 {
+                let mut scene = Scene::new();
+                scene.commands.push(PaintCommand::Paragraph {
+                    request: request.clone(),
+                    transform: Affine::translate((12., 12. + step as f64 / 8.)),
+                });
+                gpu.draw_scene(&scene, Color::WHITE).unwrap();
+                let pixels = gpu.read_pixels().unwrap();
+                let (mut mass, mut moment) = (0., 0.);
+                for (i, p) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                    let weight = (255 - p[0]) as f64;
+                    mass += weight;
+                    moment += (i / width) as f64 * weight;
+                }
+                let y = moment / mass;
+                if let Some((last, last_y)) = previous {
+                    assert!(
+                        last != pixels,
+                        "{size}px step {step} repeated its predecessor"
+                    );
+                    assert!(
+                        (0.04..0.25).contains(&(y - last_y)),
+                        "{size}px step {step} jumped {}px",
+                        y - last_y
+                    );
+                }
+                previous = Some((pixels, y));
+            }
+        }
+    }
+}
 use plico_renderer::{PaintScene, Scene};
 use plico_skia::{Error, SkiaGpuSurface};
 use vello_common::{

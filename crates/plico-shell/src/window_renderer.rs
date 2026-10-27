@@ -91,6 +91,11 @@ impl WindowRenderer {
                 ));
                 tracing::info!(
                     device = renderer.device_name(),
+                    text_mode = if std::env::var("PLICO_SKIA_TEXT_MODE").as_deref() == Ok("mask") {
+                        "mask"
+                    } else {
+                        "distance-field"
+                    },
                     damage_tracking,
                     incremental_present_supported = renderer.incremental_present_supported(),
                     "Skia Vulkan window renderer initialized"

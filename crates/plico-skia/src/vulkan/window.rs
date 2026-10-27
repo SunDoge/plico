@@ -554,13 +554,14 @@ impl Swapchain {
                 (extent.width as i32, extent.height as i32),
                 &image_info,
             );
+            let props = super::text_surface_props();
             let surface = gpu::surfaces::wrap_backend_render_target(
                 context,
                 &target,
                 gpu::SurfaceOrigin::TopLeft,
                 color,
                 None,
-                None,
+                Some(&props),
             )
             .ok_or(Error::Gpu {
                 message: "Skia could not wrap swapchain image",

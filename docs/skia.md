@@ -173,3 +173,37 @@ Grid、滚动列表和文字输入。Lucide 和所选 Fluent Color SVG 使用原
 SVG 线性/径向渐变已支持（含 stop opacity、局部 gradientTransform 与 spread），
 供 Fluent Color 图标使用；当前只实现 sRGB 插值，sweep、pattern 和其他插值空间
 仍返回明确错误。渐变同时用于 Skia CPU 和 Vulkan 回放。
+
+
+## 文字滚动的亚像素适配
+
+GPU surface 默认使用 `USE_DEVICE_INDEPENDENT_FONTS`，Ganesh 的
+`min_distance_field_font_size` 设置为 1 个 device pixel；窗口、离屏目标和
+resize 后的新 surface 使用同一策略。段落明确请求 subpixel positioning。
+`PLICO_SKIA_TEXT_MODE=mask` 可在启动前恢复原有 mask 文字路径做 A/B，启动日志
+记录 `text_mode`。CPU raster consumer 不改变其原有栅格化策略。
+
+这不是帧调度优化。独立位移探针排除了输入事件、滚动插值、窗口与 damage：
+文字和矩形使用完全相同的 transform，每步移动 0.125px。
+原 mask 路径的文字在 0/0.125/0.25/0.375px 时像素完全相同，在 0.5px 时
+整体跳到下一行像素；Vulkan 矩形却能连续移动。单纯关闭 hinting 未解决。
+Skia 的 [baseline snap](https://api.skia.org/classSkFont.html) 定义了轴对齐时的
+基线像素吸附；其官方 viewer 也提供
+[device-independent / DFT 模式](https://github.com/google/skia/blob/main/tools/viewer/Viewer.cpp)。
+
+仅开启 surface flag 时 28px 字体恢复连续运动，12/16px 仍因默认小字号阈值
+回退到 mask。降低阈值后，12/16/28px 的九个垂直位置都产生不同像素；
+按黑色像素质量计算的质心单步变化约 0.09–0.16px，没有原先的整像素跳动。
+这保留 SkParagraph 的整形/断行/选区，但 distance-field 与 hinted mask 的
+小字抗锯齿外观不完全一样，因此保留 mask 对照入口。
+
+```sh
+cargo run -p plico-skia --features vulkan --example text_motion
+PLICO_SKIA_TEXT_MODE=mask cargo run -p plico-skia --features vulkan --example text_motion
+cargo test -p plico-skia --features vulkan --test vulkan fractional_text_scroll -- --ignored --test-threads=1
+```
+
+探针输出 CSV，并把静态字号对照 PNG 写入被忽略的 reports 目录。
+GPU 回归测试检查 12/16/28px 逐帧变化、质心单调小步移动以及 resize 后策略
+保持。该测试默认 ignored，不增加 CI GPU 执行。它验证了文字量化问题；
+没有据此证明原生窗口的帧间隔完全均匀，也没有修改 FIFO 或滚动曲线。

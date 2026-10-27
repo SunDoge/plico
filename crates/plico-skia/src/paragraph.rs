@@ -113,6 +113,7 @@ fn style(request: &ParagraphRequest, run: Option<&plico_renderer::text::TextRun>
         ))
         .set_letter_spacing(request.letter_spacing)
         .set_font_edging(skia_safe::font::Edging::AntiAlias)
+        .set_subpixel(true)
         .set_font_hinting(skia_safe::FontHinting::Normal);
     if let Some((height, relative)) = run.and_then(|r| r.line_height).or(request.line_height) {
         s.set_height(if relative {

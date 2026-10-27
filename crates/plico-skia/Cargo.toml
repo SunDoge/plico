@@ -43,3 +43,7 @@ required-features = ["window"]
 [[example]]
 name = "damage_compare"
 required-features = ["raster"]
+
+[[example]]
+name = "text_motion"
+required-features = ["vulkan"]

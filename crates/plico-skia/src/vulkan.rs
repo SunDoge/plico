@@ -10,6 +10,22 @@ use snafu::ResultExt;
 use std::{ffi::CStr, marker::PhantomData, path::Path, rc::Rc};
 use vello_common::peniko::Color;
 
+pub(crate) fn text_mode_name() -> &'static str {
+    if std::env::var("PLICO_SKIA_TEXT_MODE").as_deref() == Ok("mask") {
+        "mask"
+    } else {
+        "distance-field"
+    }
+}
+pub(crate) fn text_surface_props() -> skia_safe::SurfaceProps {
+    let flags = if text_mode_name() == "mask" {
+        skia_safe::SurfacePropsFlags::default()
+    } else {
+        skia_safe::SurfacePropsFlags::USE_DEVICE_INDEPENDENT_FONTS
+    };
+    skia_safe::SurfaceProps::new(flags, skia_safe::PixelGeometry::Unknown)
+}
+
 /// Ganesh resource-cache accounting; excludes driver allocations and CPU assets.
 #[derive(Clone, Copy, Debug)]
 pub struct GpuCacheStats {
@@ -69,13 +85,14 @@ impl SkiaGpuSurface {
             skia_safe::AlphaType::Premul,
             None,
         );
+        let props = text_surface_props();
         let surface = gpu::surfaces::render_target(
             &mut context,
             gpu::Budgeted::Yes,
             &info,
             None,
             gpu::SurfaceOrigin::TopLeft,
-            None,
+            Some(&props),
             false,
             false,
         )
@@ -109,13 +126,14 @@ impl SkiaGpuSurface {
             skia_safe::AlphaType::Premul,
             None,
         );
+        let props = text_surface_props();
         let surface = gpu::surfaces::render_target(
             &mut self.context,
             gpu::Budgeted::Yes,
             &info,
             None,
             gpu::SurfaceOrigin::TopLeft,
-            None,
+            Some(&props),
             false,
             false,
         )
@@ -417,7 +435,13 @@ fn new_context(owner: &VulkanDevice) -> Result<gpu::DirectContext, Error> {
             )
             .build()
         };
-        gpu::direct_contexts::make_vulkan(&backend, None).ok_or(Error::Gpu {
+        let mut options = gpu::ContextOptions::default();
+        if text_mode_name() != "mask" {
+            // The default threshold falls back to pixel-snapped masks for
+            // small text. That causes whole-pixel jumps during smooth scroll.
+            options.min_distance_field_font_size = 1.;
+        }
+        gpu::direct_contexts::make_vulkan(&backend, Some(&options)).ok_or(Error::Gpu {
             message: "Skia Ganesh context creation failed",
         })?
     };
