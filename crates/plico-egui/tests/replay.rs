@@ -4,7 +4,7 @@
 #![cfg(feature = "replay")]
 use egui::{Context, RawInput};
 use plico_egui::{GlyphCache, ReplayError, replay_scene};
-use plico_renderer::{PaintScene, Scene};
+use plico_renderer::{PaintCommand, PaintScene, Scene};
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::peniko::{Color, Fill};
 
@@ -203,4 +203,65 @@ fn transforms_position_the_replayed_shapes() {
     }
     let blue = colored_area(&meshes, |c| c.b() == 255);
     assert!((blue - 1600.).abs() / 1600. < 0.04, "blue area {blue}");
+}
+
+#[test]
+fn a_real_parley_glyph_run_replays_as_textured_quads() {
+    // Shape real text through the shared Parley path, encode it into the
+    // scene as a GlyphRun, and verify the replay produces textured quads
+    // positioned at the shaped glyph origins - the renderer-independence
+    // claim for text.
+    let mut tcx = plico_renderer::TextContext::new();
+    let asset = plico_renderer::text::FontAsset::from_static(include_bytes!(
+        "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+    ))
+    .with_family("egui replay test");
+    assert!(tcx.register_font(&asset));
+    let layout = plico_renderer::text::layout_text(&mut tcx, "Ag", 32.);
+    let mut scene = Scene::new();
+    plico_renderer::scene::draw_text_layout_into(
+        &mut scene,
+        &mut tcx,
+        &layout,
+        Affine::IDENTITY,
+        Affine::IDENTITY,
+        1.,
+    );
+    assert!(
+        scene
+            .commands
+            .iter()
+            .any(|c| matches!(c, PaintCommand::GlyphRun { glyphs, .. } if !glyphs.is_empty())),
+        "the shared path must encode shaped glyph runs"
+    );
+
+    let meshes = tessellate(&scene);
+    // Every glyph-run shape is a textured mesh (not a plain fill path).
+    let textured = meshes
+        .iter()
+        .filter(|(_, mesh)| mesh.texture_id != egui::TextureId::Managed(0))
+        .count();
+    assert!(
+        textured >= 1,
+        "expected textured glyph quads, got {textured}"
+    );
+    // The quads live below the baseline advance area of the shaped run and
+    // to the right of the origin; roughly: all vertices within 0..96x0..64.
+    for (clip, mesh) in &meshes {
+        if mesh.texture_id != egui::TextureId::Managed(0) {
+            for vertex in &mesh.vertices {
+                assert!(
+                    vertex.pos.x >= -1. && vertex.pos.x <= 96.,
+                    "x {}",
+                    vertex.pos
+                );
+                assert!(
+                    vertex.pos.y >= -8. && vertex.pos.y <= 64.,
+                    "y {}",
+                    vertex.pos
+                );
+            }
+            assert!(clip.width() > 0. && clip.height() > 0.);
+        }
+    }
 }

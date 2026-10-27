@@ -5,6 +5,7 @@
 //! subsequent milestone adds one command family (glyphs, SVG, shadows)
 //! behind the same testable entry points.
 
+use crate::glyph::GlyphCache;
 use egui::{Color32, Pos2, Rect as ERect};
 use plico_renderer::{PaintCommand, Scene};
 use snafu::Snafu;
@@ -16,27 +17,22 @@ pub enum ReplayError {
     Unsupported { command: &'static str },
 }
 
-/// Replay state that survives across frames. Glyph coverage and textures
-/// arrive with the glyph-run milestone; the type exists now so the public
-/// replay entry points keep one signature across milestones.
-#[derive(Default)]
-pub struct GlyphCache {}
-
 /// Append `scene`'s commands as epaint shapes at logical scale. Mirrors the
 /// role `SkiaSurface::draw_scene` plays for the Skia consumer; unsupported
 /// commands fail loudly instead of drawing nothing.
 pub fn replay_scene(
     painter: &egui::Painter,
     scene: &Scene,
-    _cache: &mut GlyphCache,
+    cache: &mut GlyphCache,
 ) -> Result<(), ReplayError> {
-    replay_scene_at(painter, scene, Affine::IDENTITY)
+    replay_scene_at(painter, scene, cache, Affine::IDENTITY)
 }
 
 /// [`replay_scene`] under a parent transform (DPI scale, window origin).
 pub fn replay_scene_at(
     painter: &egui::Painter,
     scene: &Scene,
+    cache: &mut GlyphCache,
     transform: Affine,
 ) -> Result<(), ReplayError> {
     let mut layers: Vec<(f32, ERect)> = Vec::new();
@@ -112,10 +108,34 @@ pub fn replay_scene_at(
                         stroke: egui::epaint::PathStroke::new(style.width as f32, color),
                     }));
             }
-            PaintCommand::GlyphRun { .. } => {
-                return Err(ReplayError::Unsupported {
-                    command: "glyph runs (milestone 2)",
-                });
+            PaintCommand::GlyphRun {
+                font,
+                font_size,
+                brush,
+                brush_alpha,
+                transform: local,
+                glyph_transform,
+                glyphs,
+                ..
+            } => {
+                let color = fold_alpha(solid(brush)?, layer_alpha(&layers) * brush_alpha);
+                let run = transform * *local * glyph_transform.unwrap_or(Affine::IDENTITY);
+                for glyph in glyphs {
+                    let origin =
+                        run * vello_common::kurbo::Point::new(glyph.x as f64, glyph.y as f64);
+                    cache.draw_glyph(
+                        painter.ctx(),
+                        painter,
+                        font,
+                        *font_size,
+                        &plico_renderer::Glyph {
+                            id: glyph.id,
+                            x: origin.x as f32,
+                            y: origin.y as f32,
+                        },
+                        color,
+                    );
+                }
             }
             PaintCommand::Paragraph { .. } => {
                 // Host-native paragraphs only exist for native-widget hosts;

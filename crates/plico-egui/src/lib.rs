@@ -12,6 +12,10 @@
 //! WGSL shader effects have no epaint equivalent.
 
 #[cfg(feature = "replay")]
+mod glyph;
+#[cfg(feature = "replay")]
 mod replay;
 #[cfg(feature = "replay")]
-pub use replay::{GlyphCache, ReplayError, replay_scene, replay_scene_at};
+pub use glyph::GlyphCache;
+#[cfg(feature = "replay")]
+pub use replay::{ReplayError, replay_scene, replay_scene_at};
