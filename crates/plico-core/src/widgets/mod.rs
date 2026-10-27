@@ -186,7 +186,7 @@ pub fn svg_source<'u, 'e>(cx: &'u mut crate::UiContext<'e>, source: String) -> c
 /// Declare an embedded raster image; the backend decodes and caches it.
 pub fn image<'u, 'e>(
     cx: &'u mut crate::UiContext<'e>,
-    asset: &crate::ImageAsset,
+    asset: &'u crate::ImageAsset,
 ) -> crate::Image<'u, 'e> {
     cx.image(asset)
 }
