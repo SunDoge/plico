@@ -10,6 +10,13 @@ default = []
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 vello = ["dep:plico-vello", "dep:plico-renderer", "dep:plico-runtime", "dep:plico-shell"]
 skia = ["dep:plico-runtime", "dep:plico-renderer", "dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
+egui = [
+    "dep:plico-runtime",
+    "dep:plico-renderer",
+    "dep:plico-shell",
+    "plico-shell/egui",
+    "dep:tracing-subscriber",
+]
 
 [dependencies]
 usage-rs.workspace = true

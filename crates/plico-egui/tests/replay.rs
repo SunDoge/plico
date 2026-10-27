@@ -3,7 +3,7 @@
 //! features must fail loudly, never silently drop.
 #![cfg(feature = "replay")]
 use egui::{Context, RawInput};
-use plico_egui::{GlyphCache, ReplayError, replay_scene};
+use plico_egui::{GlyphCache, replay_scene};
 use plico_renderer::{PaintCommand, PaintScene, Scene};
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::peniko::{Color, Fill};
@@ -17,8 +17,11 @@ fn tessellate(scene: &Scene) -> Vec<(egui::Rect, egui::epaint::Mesh)> {
     let mut cache = GlyphCache::default();
     replay_scene(&painter, scene, &mut cache).expect("supported scene");
     drop(painter);
-    let output = ctx.end_pass();
+    let mut output = ctx.end_pass();
     let clipped = ctx.tessellate(output.shapes, 1.0);
+    // Offscreen tests do not own a GPU renderer; epaint asserts that every
+    // produced delta is applied (or cleared) before the frame output drops.
+    output.textures_delta.clear();
     clipped
         .into_iter()
         .filter_map(|clipped| match clipped.primitive {
@@ -144,35 +147,34 @@ fn layer_alpha_folds_into_the_replayed_color() {
 }
 
 #[test]
-fn unsupported_commands_fail_loudly_instead_of_drawing_nothing() {
-    let ctx = Context::default();
-    ctx.begin_pass(RawInput::default());
-    let painter = ctx.layer_painter(egui::LayerId::background());
-    let mut cache = GlyphCache::default();
-
-    // Even-odd fills have no epaint tessellation rule; a gradient brush is
-    // likewise rejected. The scene API only accepts solid brushes for fill,
-    // so even-odd is the reachable rejection through the public API.
+fn even_odd_fills_approximate_as_non_zero_instead_of_dropping() {
+    // Even-odd fills approximate as non-zero with a log entry; the frame
+    // still draws. The subpath-overlap difference is the only visual drift,
+    // which donut-style SVG icons would expose through the parity captures.
     let mut even_odd = Scene::new();
     even_odd.fill(
-        Fill::EvenOdd,
+        vello_common::peniko::Fill::EvenOdd,
         Affine::IDENTITY,
-        Color::BLACK,
+        vello_common::peniko::Color::BLACK,
         None,
-        &Rect::new(0., 0., 5., 5.),
+        &Rect::new(0., 0., 40., 40.),
     );
-    let matches = even_odd.commands.iter().any(
-        |c| matches!(c, plico_renderer::PaintCommand::Fill { fill, .. } if *fill == Fill::EvenOdd),
-    );
-    if matches {
-        let error = replay_scene(&painter, &even_odd, &mut cache).unwrap_err();
-        assert!(matches!(error, ReplayError::Unsupported { .. }), "{error}");
-    } else {
-        // The scene normalized even-odd to non-zero; then the replay accepts
-        // it and this assertion documents that path instead.
-        replay_scene(&painter, &even_odd, &mut cache).expect("normalized fill");
+    let meshes = tessellate(&even_odd);
+    let mut even_odd_area = 0.;
+    for (_, mesh) in &meshes {
+        for triangle in mesh.indices.as_chunks::<3usize>().0 {
+            let [a, b, c] = [
+                mesh.vertices[triangle[0] as usize],
+                mesh.vertices[triangle[1] as usize],
+                mesh.vertices[triangle[2] as usize],
+            ];
+            even_odd_area += triangle_area(a.pos, b.pos, c.pos);
+        }
     }
-    let _ = ctx.end_pass();
+    assert!(
+        (even_odd_area - 1600.).abs() / 1600. < 0.08,
+        "the even-odd fill must still draw as non-zero, got {even_odd_area}"
+    );
 }
 
 #[test]

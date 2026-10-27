@@ -17,7 +17,11 @@ mod glyph;
 mod replay;
 #[cfg(feature = "replay")]
 mod shadow;
+#[cfg(feature = "window")]
+mod window;
 #[cfg(feature = "replay")]
 pub use glyph::GlyphCache;
 #[cfg(feature = "replay")]
 pub use replay::{ReplayError, replay_scene, replay_scene_at};
+#[cfg(feature = "window")]
+pub use window::EguiWindow;

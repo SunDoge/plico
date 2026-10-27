@@ -41,7 +41,7 @@ impl GlyphCache {
         &mut self,
         ctx: &egui::Context,
         painter: &egui::Painter,
-        font: &vello_common::peniko::FontData,
+        font: &peniko::FontData,
         font_size: f32,
         glyph: &plico_renderer::Glyph,
         color: Color32,
@@ -78,7 +78,7 @@ impl GlyphCache {
     fn ensure(
         &mut self,
         ctx: &egui::Context,
-        font: &vello_common::peniko::FontData,
+        font: &peniko::FontData,
         size: u32,
         glyph: u32,
         key: (u64, u32, u32, u32),
@@ -115,7 +115,7 @@ fn uv_vertex(pos: Pos2, uv: Pos2, color: Color32) -> egui::epaint::Vertex {
 
 /// Rasterize one glyph outline into alpha coverage, or None when the font
 /// has no outline for it.
-fn rasterize(font: &vello_common::peniko::FontData, size: u32, glyph: u32) -> Option<Coverage> {
+fn rasterize(font: &peniko::FontData, size: u32, glyph: u32) -> Option<Coverage> {
     let font = FontRef::new(font.data.as_ref()).ok()?;
     let outline_glyphs = font.outline_glyphs();
     let outline = outline_glyphs.get(skrifa::GlyphId::new(glyph))?;

@@ -1,12 +1,17 @@
 //! One settings application, with compile-time backend capabilities.
-#[cfg(any(feature = "fltk", feature = "vello", feature = "skia"))]
+#[cfg(any(
+    feature = "fltk",
+    feature = "vello",
+    feature = "skia",
+    feature = "egui"
+))]
 use snafu::ResultExt;
 use snafu::Snafu;
 
 #[derive(usage_rs::Cli)]
 #[usage(
     bin = "backend-settings",
-    about = "Shared settings UI for Vello, Skia and FLTK"
+    about = "Shared settings UI for Vello, Skia, egui and FLTK"
 )]
 struct Options {
     /// Renderer to use; defaults to the first enabled backend: vello, skia, fltk.
@@ -31,6 +36,9 @@ enum Error {
     #[cfg(feature = "fltk")]
     #[snafu(display("FLTK window failed: {source}"))]
     Fltk { source: plico_fltk::Error },
+    #[cfg(feature = "egui")]
+    #[snafu(display("egui window failed: {source}"))]
+    Egui { source: plico_shell::Error },
 }
 
 fn main() -> std::process::ExitCode {
@@ -52,6 +60,7 @@ fn run() -> Result<(), Error> {
             [
                 (cfg!(feature = "vello"), "vello"),
                 (cfg!(feature = "skia"), "skia"),
+                (cfg!(feature = "egui"), "egui"),
                 (cfg!(feature = "fltk"), "fltk"),
             ]
             .into_iter()
@@ -85,6 +94,25 @@ fn run() -> Result<(), Error> {
                     .renderer(plico_renderer::RenderBackend::Skia),
             )
             .context(SkiaSnafu)
+        }
+        #[cfg(feature = "egui")]
+        "egui" => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| "info".into()),
+                )
+                .init();
+            plico_shell::run_window_with_options(
+                Box::new(plico_runtime::Source::new(
+                    backend_settings::Settings::default(),
+                )),
+                plico_renderer::WindowOptions::new()
+                    .title("Plico settings — egui")
+                    .initial_inner_size(1100, 820)
+                    .renderer(plico_renderer::RenderBackend::Egui),
+            )
+            .context(EguiSnafu)
         }
         #[cfg(feature = "fltk")]
         "fltk" => plico_fltk::run(

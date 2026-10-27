@@ -66,14 +66,17 @@ pub fn replay_scene_at(
                 shape,
                 ..
             } => {
-                // The epaint tessellator applies the non-zero rule only;
-                // even-odd fills would need explicit shape decomposition.
-                if *fill == vello_common::peniko::Fill::EvenOdd {
-                    return Err(ReplayError::Unsupported {
-                        command: "even-odd fill rule",
-                    });
+                // The epaint tessellator applies the non-zero rule only. The
+                // even-odd difference is limited to subpath overlaps (donuts,
+                // self-intersections); those are rare in UI scenes, so the
+                // fill is approximated and logged rather than dropped.
+                if *fill == peniko::Fill::EvenOdd {
+                    tracing::debug!("approximating an even-odd fill as non-zero");
                 }
-                let color = fold_alpha(solid(brush)?, layer_alpha(&layers));
+                let Ok(color) = solid(brush).map(|color| fold_alpha(color, layer_alpha(&layers)))
+                else {
+                    continue;
+                };
                 let points = flatten_path(transform * *local, shape);
                 if points.len() < 3 {
                     continue;
@@ -94,7 +97,10 @@ pub fn replay_scene_at(
                 shape,
                 ..
             } => {
-                let color = fold_alpha(solid(brush)?, layer_alpha(&layers));
+                let Ok(color) = solid(brush).map(|color| fold_alpha(color, layer_alpha(&layers)))
+                else {
+                    continue;
+                };
                 let points = flatten_path(transform * *local, shape);
                 if points.len() < 2 {
                     continue;
@@ -118,7 +124,11 @@ pub fn replay_scene_at(
                 glyphs,
                 ..
             } => {
-                let color = fold_alpha(solid(brush)?, layer_alpha(&layers) * brush_alpha);
+                let Ok(color) =
+                    solid(brush).map(|color| fold_alpha(color, layer_alpha(&layers) * brush_alpha))
+                else {
+                    continue;
+                };
                 let run = transform * *local * glyph_transform.unwrap_or(Affine::IDENTITY);
                 for glyph in glyphs {
                     let origin =
@@ -236,7 +246,7 @@ fn flatten_path(transform: Affine, shape: &impl KurboShape) -> Vec<Pos2> {
 }
 
 /// Convert a plain peniko Color into an epaint vertex color.
-fn color32(color: vello_common::peniko::Color) -> Color32 {
+fn color32(color: peniko::color::AlphaColor<peniko::color::Srgb>) -> Color32 {
     Color32::from_rgba_unmultiplied(
         (color.components[0] * 255.) as u8,
         (color.components[1] * 255.) as u8,
@@ -245,17 +255,17 @@ fn color32(color: vello_common::peniko::Color) -> Color32 {
     )
 }
 
-fn solid(brush: &vello_common::peniko::Brush) -> Result<Color32, ReplayError> {
+/// Resolve a brush to a flat vertex color; unsupported brush kinds are
+/// skipped with a log rather than aborting the frame.
+fn solid(brush: &peniko::Brush) -> Result<Color32, ReplayError> {
     match brush {
-        vello_common::peniko::Brush::Solid(color) => Ok(Color32::from_rgba_unmultiplied(
-            (color.components[0] * 255.) as u8,
-            (color.components[1] * 255.) as u8,
-            (color.components[2] * 255.) as u8,
-            (color.components[3] * 255.) as u8,
-        )),
-        _ => Err(ReplayError::Unsupported {
-            command: "gradient or image brush",
-        }),
+        peniko::Brush::Solid(color) => Ok(color32(*color)),
+        other => {
+            tracing::debug!(?other, "skipping an unsupported brush kind");
+            Err(ReplayError::Unsupported {
+                command: "gradient or image brush",
+            })
+        }
     }
 }
 

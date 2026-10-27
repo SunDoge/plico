@@ -5,9 +5,9 @@
 // Copyright 2024 the Vello Authors and 2026 the Wabou contributors
 // SPDX-License-Identifier: Apache-2.0
 use super::Error;
+use crate::{PaintScene, Scene};
 use kurbo::{Affine, BezPath, Cap, Join, Point, Stroke};
 use peniko::{BlendMode, Brush, Color, ColorStop, Extend, Fill, Gradient, color::DynamicColor};
-use crate::{PaintScene, Scene};
 use usvg;
 
 /// Convert a normalized SVG tree into backend-neutral paint commands.

@@ -14,19 +14,36 @@ replay = [
     "dep:egui",
     "dep:skrifa",
     "dep:vello-common",
+    "dep:peniko",
     "dep:ab_glyph",
     "dep:ab_glyph_rasterizer",
 ]
-# Native window hosting through the shell's winit loop (later milestone).
-window = ["replay"]
+# Native window hosting through the shell's winit loop.
+window = [
+    "replay",
+    "dep:egui-wgpu",
+    "dep:wgpu",
+    "dep:wgpu-context",
+    "dep:pollster",
+    "dep:raw-window-handle",
+    "dep:winit",
+]
 
 [dependencies]
 plico-renderer = { path = "../plico-renderer", optional = true }
-egui = { version = "0.33", optional = true, default-features = false }
+egui = { version = "0.36", optional = true, default-features = false }
 skrifa = { version = "0.44", optional = true, default-features = false, features = ["std"] }
 vello-common = { workspace = true, optional = true }
+peniko = { workspace = true, optional = true }
 ab_glyph = { version = "0.2", optional = true, default-features = false, features = ["libm"] }
 ab_glyph_rasterizer = { version = "0.1", optional = true, default-features = false }
+egui-wgpu = { version = "0.36", optional = true, default-features = false }
+wgpu = { workspace = true, optional = true }
+wgpu-context = { workspace = true, optional = true }
+pollster = { version = "0.4", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+winit = { workspace = true, optional = true }
+tracing.workspace = true
 snafu.workspace = true
 
 [dev-dependencies]
