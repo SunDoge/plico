@@ -734,6 +734,13 @@ pub trait Widget {
     /// the context's scene fragment at the content-box origin.
     fn paint(&mut self, cx: &mut PaintContext<'_>);
 
+    /// Whether the native surface owns input in its content rectangle.
+    /// Passive media widgets return false so ordinary UI controls layered over
+    /// the picture and window-level keyboard fallbacks remain interactive.
+    fn accepts_input(&self) -> bool {
+        true
+    }
+
     /// Handle an event targeted at this widget's node.
     fn handle_event(&mut self, _event: &UiEvent) -> WidgetEventResult {
         WidgetEventResult::IGNORED
