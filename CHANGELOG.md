@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/SunDoge/plico/compare/v0.1.5...v0.1.6) - 2026-10-27
+
+### Added
+
+- *(ui)* add table rows and property inspection components
+- *(ui)* add reusable avatar and ruby text components
+- *(window)* expose maximum size and custom resize edges
+
+### Fixed
+
+- *(skia)* preserve fractional text motion on GPU surfaces
+- *(ci)* sync main release version and format merged sources
+
+### Other
+
+- *(core)* borrow cached image encoding during declarations
+- *(renderer)* bound caches and add optional sparse damage rendering
+- *(diagnostics)* profile flatten and retained backend phases
+- *(skia)* instrument lyric rendering phases and document measurements
+
 ## [0.1.5](https://github.com/SunDoge/plico/compare/v0.1.4...v0.1.5) - 2026-10-26
 
 ### Added
