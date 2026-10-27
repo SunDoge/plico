@@ -38,9 +38,12 @@ impl GlobalHotKeyManager {
                 tracing::error!("{}", _err);
             }
         });
-        startup_rx.recv().map_err(|err| Error::OsError(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe, err.to_string()
-        )))??;
+        startup_rx.recv().map_err(|err| {
+            Error::OsError(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                err.to_string(),
+            ))
+        })??;
         Ok(Self { thread_tx })
     }
 
@@ -50,9 +53,12 @@ impl GlobalHotKeyManager {
             .thread_tx
             .send(ThreadMessage::RegisterHotKey(hotkey, tx));
 
-        rx.recv().map_err(|err| Error::OsError(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe, err.to_string()
-        )))?
+        rx.recv().map_err(|err| {
+            Error::OsError(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                err.to_string(),
+            ))
+        })?
     }
 
     pub fn unregister(&self, hotkey: HotKey) -> crate::Result<()> {
@@ -61,9 +67,12 @@ impl GlobalHotKeyManager {
             .thread_tx
             .send(ThreadMessage::UnRegisterHotKey(hotkey, tx));
 
-        rx.recv().map_err(|err| Error::OsError(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe, err.to_string()
-        )))?
+        rx.recv().map_err(|err| {
+            Error::OsError(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                err.to_string(),
+            ))
+        })?
     }
 
     pub fn register_all(&self, hotkeys: &[HotKey]) -> crate::Result<()> {
@@ -72,9 +81,12 @@ impl GlobalHotKeyManager {
             .thread_tx
             .send(ThreadMessage::RegisterHotKeys(hotkeys.to_vec(), tx));
 
-        rx.recv().map_err(|err| Error::OsError(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe, err.to_string()
-        )))?
+        rx.recv().map_err(|err| {
+            Error::OsError(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                err.to_string(),
+            ))
+        })?
     }
 
     pub fn unregister_all(&self, hotkeys: &[HotKey]) -> crate::Result<()> {
@@ -83,9 +95,12 @@ impl GlobalHotKeyManager {
             .thread_tx
             .send(ThreadMessage::UnRegisterHotKeys(hotkeys.to_vec(), tx));
 
-        rx.recv().map_err(|err| Error::OsError(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe, err.to_string()
-        )))?
+        rx.recv().map_err(|err| {
+            Error::OsError(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                err.to_string(),
+            ))
+        })?
     }
 }
 
@@ -222,7 +237,10 @@ struct HotKeyState {
     mods: ModMask,
 }
 
-fn events_processor(thread_rx: Receiver<ThreadMessage>, startup: Sender<crate::Result<()>>) -> Result<(), String> {
+fn events_processor(
+    thread_rx: Receiver<ThreadMessage>,
+    startup: Sender<crate::Result<()>>,
+) -> Result<(), String> {
     let mut hotkeys = BTreeMap::<Keycode, Vec<HotKeyState>>::new();
 
     let (conn, screen) = RustConnection::connect(None)
