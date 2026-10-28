@@ -293,3 +293,106 @@ fn component_macro_scopes_survive_native_region_replay() {
     assert!(contains(&source, "Scoped 1"));
     assert_eq!(root_runs(&source), calls);
 }
+
+#[test]
+fn component_local_state_survives_reorder_and_dies_on_unmount() {
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
+    struct Local {
+        count: i32,
+        drops: Rc<Cell<usize>>,
+    }
+    impl Drop for Local {
+        fn drop(&mut self) {
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+    type Records = Rc<RefCell<Vec<State<Local>>>>;
+    let drops = Rc::new(Cell::new(0));
+    let records: Records = Rc::default();
+    let mut ids = None;
+    let app = Regions::new(|app| {
+        let rows = app.state(|| vec![1_u64, 2]);
+        ids = Some(rows);
+        let probe = app.state(|| (Rc::clone(&drops), Rc::clone(&records)));
+        app.root((rows, probe), |cx, (rows, probe)| {
+            cx.watch((rows.handle(), probe.handle()), |cx, (rows, probe)| {
+                for &key in rows.read().iter() {
+                    cx.component_keyed(key, (probe.handle(),), |cx, (probe,)| {
+                        let local = cx.local_state(|| Local {
+                            count: 0,
+                            drops: Rc::clone(&probe.read().0),
+                        });
+                        probe.read().1.borrow_mut().push(local);
+                        cx.watch((local,), |cx, (local,)| {
+                            text!(cx, "Local {}", local.read().count);
+                            button(cx).text("Local increment").on_click(
+                                (local.handle(),),
+                                |(local,)| {
+                                    local.update(|v| v.count += 1);
+                                },
+                            );
+                        });
+                    });
+                }
+            });
+        });
+    });
+    let rows = ids.unwrap();
+    let mut source = Source::new(app);
+    source.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    let first = records.borrow()[0];
+    let second = records.borrow()[1];
+    source.view.access(first).update(|v| v.count = 7);
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Local 7"));
+    source.view.access(rows).update(|v| v.reverse());
+    paint(&mut source, &mut text, (600, 400));
+    assert_eq!(source.view.access(first).read().count, 7);
+    assert_eq!(drops.get(), 0);
+    // A full declaration after resize must reuse the same local slots too.
+    paint(&mut source, &mut text, (800, 500));
+    assert_eq!(source.view.access(first).read().count, 7);
+    source.view.access(rows).set(vec![2]);
+    paint(&mut source, &mut text, (800, 500));
+    assert_eq!(drops.get(), 1);
+    assert!(source.view.try_access(first).is_none());
+    assert!(source.view.try_access(second).is_some());
+    source.view.access(rows).set(vec![2, 1]);
+    paint(&mut source, &mut text, (800, 500));
+    assert!(source.view.try_access(first).is_none());
+    assert_eq!(
+        source
+            .view
+            .access(*records.borrow().last().unwrap())
+            .read()
+            .count,
+        0
+    );
+    drop(source);
+    assert_eq!(drops.get(), 3);
+}
+
+#[test]
+fn allocating_local_slots_keeps_existing_short_borrows_valid() {
+    let app = Regions::new(|app| {
+        app.root((), |cx, ()| {
+            let a = cx.local_state(|| String::from("first"));
+            cx.watch((a,), |cx, (a,)| {
+                let value = a.read();
+                // Same owner; grow its arena while another state is borrowed.
+                for key in 0..100 {
+                    cx.local_state_keyed(key, || key);
+                }
+                text(cx, &*value);
+            });
+        })
+    });
+    let mut source = Source::new(app);
+    paint(&mut source, &mut TextContext::new(), (600, 400));
+    assert!(contains(&source, "first"));
+}

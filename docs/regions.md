@@ -91,11 +91,25 @@ payload 必须为 `'static` 的拥有值，不能持有本轮借用。callback �
 
 ## 身份、所有权与事件
 
-每个 Regions 实例是一个状态 owner。状态值只存一次，句柄不持有 Rc/Arc，不延长 owner 生命周期；owner 销毁即释放状态。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。尚未提供嵌套组件 owner 或列表行的独立状态生命周期。
+Regions 根和每个 `cx.component_keyed(id, deps, callback)` 实例分别拥有状态。组件内用 `cx.local_state(|| value)` 创建带调用点身份的槽，也可用 `local_state_keyed(key, init)` 明确指定槽身份。同一业务 key 重排、resize、完整声明都复用槽，初始化函数只执行一次；组件卸载时释放其状态和所有后代 owner。删除后重新加入同一业务 key 是新实例。
+
+```rust
+cx.component_keyed(user_id, (), |cx, ()| {
+    let count = cx.local_state(|| 0);
+    cx.watch((count,), |cx, (count,)| {
+        text!(cx, "Count: {}", *count.read());
+        button(cx).text("+").on_click((count.handle(),), |(count,)| {
+            count.update(|value| *value += 1);
+        });
+    });
+});
+```
+
+状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
 
 watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。
 
-普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存仅含构建命令的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。这个临时元数据 Rc 与状态所有权无关，回调返回或退栈后释放。
+普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存构建命令与当前组件存储的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。每个组件内部有一个 Rc 存储，用于在构建期间安全追加槽，句柄没有引用计数；构建临时引用在返回或退栈后释放。槽采用 elsa 的稳定地址追加容器，持有另一个槽的短期读借用时仍可创建新槽，无需框架自行编写 unsafe。
 
 按钮使用已有 Engine 的 Entity、命中测试、键盘/语义点击分发。点击首先使所属区域执行以消费事件；on_click 将函数指针和显式参数暂存为动作，待当前读取借用结束后执行。多次写入合并，后续区域在后端提交前更新到最终值。不维护另一套长期捕获闭包或按钮事件树。
 
@@ -107,4 +121,6 @@ Source 的可选 hook 在输入或状态失效时尝试局部声明；只修改�
 
 目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部状态修改仍需要宿主事件唤醒；此功能没有另起后台调度器。
 
-状态创建目前在组件构造阶段，不是在任意重放函数中调用 `cx.state`。现有 immediate local state 与此处的 State 是不同机制。动态依赖追踪、selector/memo、异步计算图、热重载状态迁移、错误事务回滚和 panic 后恢复尚未实现。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
+根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、热重载状态迁移、错误事务回滚和 panic 后恢复尚未实现。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
+
+组件 owner 回归测试覆盖列表重排、resize 复用、卸载释放、旧句柄失效、同 key 重挂载重置，以及持有短期读借用时追加 100 个局部槽。

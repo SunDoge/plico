@@ -56,6 +56,19 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 },
             );
         };
+        row(cx).gap(16) + |cx| {
+            for key in [1, 2] {
+                cx.component_keyed(key, (), |cx, ()| {
+                    let count = cx.local_state(|| 0_i32);
+                    cx.watch((count,), |cx, (count,)| {
+                        text!(cx, "Component-local: {}", *count.read());
+                        button(cx).text("Local +1").on_click((count.handle(),), |(count,)| {
+                            count.update(|value| *value += 1);
+                        });
+                    });
+                });
+            }
+        };
         cx.watch((count.handle(),), |cx, (count,)| {
             text!(cx, "Count: {}", *count.read()).font_size(32);
         });

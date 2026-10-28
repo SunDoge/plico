@@ -1,4 +1,4 @@
-//! Opt-in ID-driven native regions. Experimental; component root owns all state.
+//! Opt-in ID-driven native regions. Experimental; components own their local state.
 //! Root arguments are captures; only watch arguments subscribe to changes.
 use crate::View;
 use plico::{
@@ -16,9 +16,20 @@ use std::{
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
-new_key_type! { pub struct RegionId; }
+new_key_type! { pub struct RegionId; pub struct ComponentId; }
+type Binding = (usize, ComponentId, usize);
+#[derive(Default)]
+struct Storage {
+    slots: elsa::FrozenVec<Box<Slot>>,
+    locals: RefCell<HashMap<u64, usize>>,
+}
+struct Component {
+    parent: Option<ComponentId>,
+    storage: Rc<Storage>,
+}
 pub struct State<T> {
     owner: usize,
+    component: ComponentId,
     index: usize,
     marker: PhantomData<fn() -> T>,
 }
@@ -37,9 +48,13 @@ impl<T: 'static> Access<'_, T> {
         self.state
     }
     pub fn read(&self) -> Ref<'_, T> {
-        Ref::map(self.app.slots[self.state.index].value.borrow(), |v| {
-            v.downcast_ref().unwrap()
-        })
+        Ref::map(
+            self.app
+                .slot(self.state.component, self.state.index)
+                .value
+                .borrow(),
+            |v| v.downcast_ref().unwrap(),
+        )
     }
     /// Notify readers after an existing shared object (e.g. TextBuffer) changed.
     pub fn notify(&self) {
@@ -47,10 +62,14 @@ impl<T: 'static> Access<'_, T> {
             !self.app.building.get(),
             "notify state in an event callback, not watch"
         );
-        self.app
-            .dirty
-            .borrow_mut()
-            .extend(self.app.slots[self.state.index].readers.iter().copied());
+        self.app.dirty.borrow_mut().extend(
+            self.app
+                .slot(self.state.component, self.state.index)
+                .readers
+                .borrow()
+                .iter()
+                .copied(),
+        );
     }
     pub fn set(&self, value: T) {
         self.update(|current| *current = value);
@@ -60,18 +79,18 @@ impl<T: 'static> Access<'_, T> {
             !self.app.building.get(),
             "write state in an event callback, not watch"
         );
-        let slot = &self.app.slots[self.state.index];
+        let slot = &self.app.slot(self.state.component, self.state.index);
         let result = f(slot.value.borrow_mut().downcast_mut().unwrap());
         self.app
             .dirty
             .borrow_mut()
-            .extend(slot.readers.iter().copied());
+            .extend(slot.readers.borrow().iter().copied());
         result
     }
 }
 struct Slot {
     value: RefCell<Box<dyn Any>>,
-    readers: Vec<RegionId>,
+    readers: RefCell<Vec<RegionId>>,
 }
 /// A dependency tuple selects concrete function-pointer types. This also lets
 /// named functions coerce without casts on stable Rust's higher-ranked solver.
@@ -80,7 +99,7 @@ pub trait Dependencies: 'static {
     type EventCallback: Copy;
     type ChangeCallback<V: 'static>: Copy;
     #[doc(hidden)]
-    fn bindings(&self) -> Vec<(usize, usize)>;
+    fn bindings(&self) -> Vec<Binding>;
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
     #[doc(hidden)]
@@ -92,7 +111,7 @@ impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
     type ChangeCallback<V: 'static> = fn((), V);
-    fn bindings(&self) -> Vec<(usize, usize)> {
+    fn bindings(&self) -> Vec<Binding> {
         Vec::new()
     }
     fn render(&self, callback: Self::Callback, _: &Regions, cx: &mut UiContext<'_>) {
@@ -111,7 +130,7 @@ macro_rules! dependency_tuple {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
-            fn bindings(&self) -> Vec<(usize,usize)> { vec![$((self.$index.owner,self.$index.index),)+] }
+            fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
             fn event(&self, callback: Self::EventCallback, app: &Regions) { callback(($(app.access(self.$index),)+)); }
             fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V) { callback(($(app.access(self.$index),)+), value); }
@@ -139,7 +158,7 @@ impl<D: Dependencies> Render for RenderFn<D> {
     }
 }
 struct Spec {
-    deps: Vec<(usize, usize)>,
+    deps: Vec<Binding>,
     render: Box<dyn Render>,
 }
 fn render_spec<D: Dependencies>(deps: D, callback: RenderCallback<D>) -> Spec {
@@ -317,14 +336,17 @@ impl OnSubmit for plico::InputResponse {
 struct ChildKey {
     parent: Entity,
     key: u64,
+    component: bool,
 }
 struct Child {
     key: ChildKey,
     context: ExperimentContext,
     spec: Spec,
 }
-#[derive(Default)]
 struct Commands {
+    owner: usize,
+    component: ComponentId,
+    storage: Rc<Storage>,
     partial: bool,
     children: Vec<Child>,
     actions: Vec<EventSpec>,
@@ -353,6 +375,11 @@ pub trait WatchUi {
     #[track_caller]
     fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
+    /// A keyed component owns local state; removing it invalidates all its handles.
+    fn component_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
+    #[track_caller]
+    fn local_state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> State<T>;
+    fn local_state_keyed<T: 'static>(&mut self, key: u64, init: impl FnOnce() -> T) -> State<T>;
 }
 impl WatchUi for UiContext<'_> {
     #[track_caller]
@@ -363,23 +390,70 @@ impl WatchUi for UiContext<'_> {
         self.watch_keyed(hash.finish(), deps, callback);
     }
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
+        child(self, key, false, render_spec(deps, callback));
+    }
+    fn component_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
+        child(self, key, true, render_spec(deps, callback));
+    }
+    #[track_caller]
+    fn local_state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> State<T> {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        self.local_state_keyed(hash.finish(), init)
+    }
+    fn local_state_keyed<T: 'static>(&mut self, key: u64, init: impl FnOnce() -> T) -> State<T> {
         let output = commands();
-        let partial = output.borrow().partial;
-        let parent = self.experiment_context().parent;
-        let mut context = None;
-        self.column().key(Key::Generated(key)).children(|cx| {
-            context = Some(cx.experiment_context());
-            if partial {
-                cx.experiment_keep_children();
-            }
+        let output = output.borrow();
+        let mut locals = output.storage.locals.borrow_mut();
+        let index = *locals.entry(key).or_insert_with(|| {
+            let index = output.storage.slots.len();
+            output.storage.slots.push(Box::new(Slot {
+                value: RefCell::new(Box::new(init())),
+                readers: RefCell::new(vec![]),
+            }));
+            index
         });
-        output.borrow_mut().children.push(Child {
-            key: ChildKey { parent, key },
-            context: context.unwrap(),
-            spec: render_spec(deps, callback),
-        });
+        assert!(
+            output.storage.slots[index].value.borrow().is::<T>(),
+            "local state key reused with another type"
+        );
+        State {
+            owner: output.owner,
+            component: output.component,
+            index,
+            marker: PhantomData,
+        }
     }
 }
+fn child(cx: &mut UiContext<'_>, key: u64, component: bool, spec: Spec) {
+    let output = commands();
+    let partial = output.borrow().partial;
+    let parent = cx.experiment_context().parent;
+    let mut context = None;
+    // Distinct identity namespaces for components and watches.
+    let identity = if component {
+        Key::Number(key)
+    } else {
+        Key::Generated(key)
+    };
+    cx.column().key(identity).children(|cx| {
+        context = Some(cx.experiment_context());
+        if partial {
+            cx.experiment_keep_children();
+        }
+    });
+    output.borrow_mut().children.push(Child {
+        key: ChildKey {
+            parent,
+            key,
+            component,
+        },
+        context: context.unwrap(),
+        spec,
+    });
+}
+
 /// Stored event functions cannot capture values outside the dependency tuple.
 /// ```compile_fail
 /// use plico_runtime::regions::{Regions, OnClick};
@@ -410,7 +484,9 @@ impl OnClick for Button<'_, '_, '_> {
 }
 struct Region {
     render: Box<dyn Render>,
-    deps: Vec<usize>,
+    deps: Vec<Binding>,
+    component: ComponentId,
+    owns_component: bool,
     parent: Option<RegionId>,
     children: HashMap<ChildKey, RegionId>,
     context: Option<ExperimentContext>,
@@ -419,7 +495,8 @@ struct Region {
 /// A single component instance. State values die with this owner, not with watches.
 pub struct Regions {
     owner: usize,
-    slots: Vec<Slot>,
+    components: SlotMap<ComponentId, Component>,
+    root_component: ComponentId,
     regions: SlotMap<RegionId, Region>,
     root: Option<RegionId>,
     dirty: RefCell<VecDeque<RegionId>>,
@@ -440,9 +517,15 @@ impl Regions {
         let owner = NEXT
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
             .expect("region owner IDs exhausted");
+        let mut components = SlotMap::with_key();
+        let root_component = components.insert(Component {
+            parent: None,
+            storage: Rc::new(Storage::default()),
+        });
         let mut app = Self {
             owner,
-            slots: vec![],
+            components,
+            root_component,
             regions: SlotMap::with_key(),
             root: None,
             dirty: RefCell::new(VecDeque::new()),
@@ -459,13 +542,15 @@ impl Regions {
             !self.initialized,
             "create component state during construction"
         );
-        let index = self.slots.len();
-        self.slots.push(Slot {
+        let slots = &self.components[self.root_component].storage.slots;
+        let index = slots.len();
+        slots.push(Box::new(Slot {
             value: RefCell::new(Box::new(init())),
-            readers: vec![],
-        });
+            readers: RefCell::new(vec![]),
+        }));
         State {
             owner: self.owner,
+            component: self.root_component,
             index,
             marker: PhantomData,
         }
@@ -479,39 +564,70 @@ impl Regions {
     pub fn root<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
         assert!(self.root.is_none());
         let spec = render_spec(deps, callback);
-        self.check(&spec);
-        self.root = Some(self.insert(spec, None, false));
+        self.check(&spec, self.root_component);
+        self.root = Some(self.insert(spec, None, false, self.root_component, false));
     }
     pub fn access<T: 'static>(&self, state: State<T>) -> Access<'_, T> {
-        assert_eq!(self.owner, state.owner, "foreign state owner");
-        assert!(state.index < self.slots.len());
-        Access { app: self, state }
+        self.try_access(state)
+            .expect("foreign, expired or incompatible state")
     }
-    fn check(&self, spec: &Spec) {
-        for &(owner, index) in &spec.deps {
+    pub fn try_access<T: 'static>(&self, state: State<T>) -> Option<Access<'_, T>> {
+        if self.owner != state.owner {
+            return None;
+        }
+        let slot = self
+            .components
+            .get(state.component)?
+            .storage
+            .slots
+            .get(state.index)?;
+        slot.value
+            .borrow()
+            .is::<T>()
+            .then_some(Access { app: self, state })
+    }
+    fn slot(&self, component: ComponentId, index: usize) -> &Slot {
+        &self.components[component].storage.slots[index]
+    }
+    fn check(&self, spec: &Spec, component: ComponentId) {
+        for &(owner, origin, index) in &spec.deps {
             assert_eq!(owner, self.owner, "foreign state owner");
-            assert!(index < self.slots.len());
+            assert!(
+                self.components[origin].storage.slots.get(index).is_some(),
+                "expired state"
+            );
+            let mut cursor = Some(component);
+            while cursor != Some(origin) {
+                cursor = self.components
+                    [cursor.expect("state must belong to this component or an ancestor")]
+                .parent;
+            }
         }
     }
-    fn insert(&mut self, spec: Spec, parent: Option<RegionId>, subscribe: bool) -> RegionId {
-        self.check(&spec);
-        let mut deps: Vec<_> = if subscribe {
-            spec.deps.iter().map(|v| v.1).collect()
-        } else {
-            vec![]
-        };
-        deps.sort_unstable();
+    fn insert(
+        &mut self,
+        spec: Spec,
+        parent: Option<RegionId>,
+        subscribe: bool,
+        component: ComponentId,
+        owns_component: bool,
+    ) -> RegionId {
+        self.check(&spec, component);
+        let mut deps = if subscribe { spec.deps.clone() } else { vec![] };
+        deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
         deps.dedup();
         let id = self.regions.insert(Region {
             render: spec.render,
+            component,
+            owns_component,
             deps,
             parent,
             children: HashMap::new(),
             context: None,
             runs: 0,
         });
-        for &index in &self.regions[id].deps {
-            self.slots[index].readers.push(id);
+        for &(_, component, index) in &self.regions[id].deps {
+            self.slot(component, index).readers.borrow_mut().push(id);
         }
         id
     }
@@ -520,8 +636,14 @@ impl Regions {
             for child in region.children.into_values() {
                 self.remove(child);
             }
-            for index in region.deps {
-                self.slots[index].readers.retain(|r| *r != id);
+            for (_, component, index) in region.deps {
+                self.slot(component, index)
+                    .readers
+                    .borrow_mut()
+                    .retain(|r| *r != id);
+            }
+            if region.owns_component {
+                self.components.remove(region.component);
             }
             if let Some(cx) = region.context {
                 self.bindings.remove(&cx.parent);
@@ -531,7 +653,11 @@ impl Regions {
     fn build(&mut self, id: RegionId, cx: &mut UiContext<'_>, partial: bool) {
         let commands = Rc::new(RefCell::new(Commands {
             partial,
-            ..Commands::default()
+            owner: self.owner,
+            component: self.regions[id].component,
+            storage: Rc::clone(&self.components[self.regions[id].component].storage),
+            children: vec![],
+            actions: vec![],
         }));
         BUILD.with(|stack| stack.borrow_mut().push(Rc::clone(&commands)));
         let guard = BuildGuard;
@@ -555,23 +681,38 @@ impl Regions {
         let mut next = HashMap::new();
         let mut visit = Vec::new();
         for child in children {
-            self.check(&child.spec);
+            self.check(&child.spec, self.regions[id].component);
             assert!(!next.contains_key(&child.key), "duplicate watch key");
             let child_id = if let Some(child_id) = old.remove(&child.key) {
-                let mut deps: Vec<_> = child.spec.deps.iter().map(|d| d.1).collect();
-                deps.sort_unstable();
+                let mut deps = child.spec.deps.clone();
+                deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
                 deps.dedup();
                 let previous = std::mem::replace(&mut self.regions[child_id].deps, deps);
-                for index in previous {
-                    self.slots[index].readers.retain(|r| *r != child_id);
+                for (_, component, index) in previous {
+                    self.slot(component, index)
+                        .readers
+                        .borrow_mut()
+                        .retain(|r| *r != child_id);
                 }
-                for &index in &self.regions[child_id].deps {
-                    self.slots[index].readers.push(child_id);
+                for &(_, component, index) in &self.regions[child_id].deps {
+                    self.slot(component, index)
+                        .readers
+                        .borrow_mut()
+                        .push(child_id);
                 }
                 self.regions[child_id].render = child.spec.render;
                 child_id
             } else {
-                self.insert(child.spec, Some(id), true)
+                let parent_component = self.regions[id].component;
+                let component = if child.key.component {
+                    self.components.insert(Component {
+                        parent: Some(parent_component),
+                        storage: Rc::new(Storage::default()),
+                    })
+                } else {
+                    parent_component
+                };
+                self.insert(child.spec, Some(id), true, component, child.key.component)
             };
             if let Some(previous) = self.regions[child_id].context {
                 self.bindings.remove(&previous.parent);
