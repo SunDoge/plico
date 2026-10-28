@@ -396,3 +396,89 @@ fn allocating_local_slots_keeps_existing_short_borrows_valid() {
     paint(&mut source, &mut TextContext::new(), (600, 400));
     assert!(contains(&source, "first"));
 }
+
+#[test]
+fn host_completions_coalesce_wake_and_replay_only_subscribers() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let (app, count) = app();
+    let mut source = Source::new(app);
+    source.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    let before = root_runs(&source);
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&wakes);
+    source.set_wake_callback(Arc::new(move || {
+        observed.fetch_add(1, Ordering::Relaxed);
+    }));
+    let sender = source.view.sender(count);
+    let background = sender.clone();
+    std::thread::spawn(move || {
+        for value in 1..=100 {
+            background.send(value).unwrap();
+        }
+    })
+    .join()
+    .unwrap();
+    assert_eq!(
+        *source.view.access(count).read(),
+        0,
+        "UI state changes only when the host polls"
+    );
+    assert_eq!(wakes.load(Ordering::Relaxed), 1);
+    assert!(source.poll_async());
+    assert_eq!(*source.view.access(count).read(), 100);
+    assert!(!source.poll_async());
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Count 100"));
+    assert_eq!(root_runs(&source), before);
+    drop(source);
+    assert_eq!(sender.send(101), Err(101));
+}
+
+#[test]
+fn late_host_results_are_rejected_after_component_unmount() {
+    use std::{cell::RefCell, rc::Rc};
+    let endpoints = Rc::new(RefCell::new(Vec::new()));
+    let mut visible = None;
+    let app = Regions::new(|app| {
+        let expanded = app.state(|| true);
+        visible = Some(expanded);
+        let endpoints = app.state(|| Rc::clone(&endpoints));
+        app.root((expanded, endpoints), |cx, (expanded, endpoints)| {
+            cx.watch(
+                (expanded.handle(), endpoints.handle()),
+                |cx, (expanded, endpoints)| {
+                    if *expanded.read() {
+                        cx.component_keyed(1, (endpoints.handle(),), |cx, (endpoints,)| {
+                            let state = cx.local_state(|| 0_i32);
+                            cx.watch((state, endpoints.handle()), |cx, (state, endpoints)| {
+                                endpoints.read().borrow_mut().push(state.sender());
+                                text!(cx, "Result {}", *state.read());
+                            });
+                        });
+                    }
+                },
+            );
+        });
+    });
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    let old = endpoints.borrow()[0].clone();
+    old.send(9).unwrap();
+    // Unmount before queued completion can be displayed.
+    source.view.access(visible.unwrap()).set(false);
+    paint(&mut source, &mut text, (600, 400));
+    assert_eq!(old.send(10), Err(10));
+    source.view.access(visible.unwrap()).set(true);
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Result 0"));
+    assert_eq!(old.send(11), Err(11));
+    endpoints.borrow().last().unwrap().send(4).unwrap();
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Result 4"));
+}

@@ -119,8 +119,29 @@ Source 的可选 hook 在输入或状态失效时尝试局部声明；只修改�
 
 自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 watch/on_click 自动推导。编译失败测试覆盖隐式捕获。新增表单测试还覆盖 slider 数值归一化、TextBuffer 焦点/绑定保留、提交只触发一次、IME commit、secret buffer 不进入展示/IME 文本、聚焦输入卸载后的 IME 清理，以及列表 payload 删除和存活节点身份。
 
-目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部状态修改仍需要宿主事件唤醒；此功能没有另起后台调度器。
+目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
 
 根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、热重载状态迁移、错误事务回滚和 panic 后恢复尚未实现。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
 
 组件 owner 回归测试覆盖列表重排、resize 复用、卸载释放、旧句柄失效、同 key 重挂载重置，以及持有短期读借用时追加 100 个局部槽。
+
+## 宿主异步结果
+
+`Regions::sender(state)` 或事件参数的 `state.sender()` 得到不拥有组件的 `StateSender<T>`，T 必须 Send。宿主可把它移进已有 async executor 或线程：
+
+```rust
+button(cx).text("Load").on_click((status.handle(),), |(status,)| {
+    status.set(String::from("Loading"));
+    let result = status.sender();
+    std::thread::spawn(move || {
+        let value = String::from("Loaded"); // 宿主 I/O 的结果
+        let _ = result.send(value);
+    });
+});
+```
+
+send 不在后台访问状态；UI 在 poll_async/下一次声明时批量应用结果，只失效相应读取者。每个状态最多保留一份待提交值，重复发送合并，邮箱从空变为非空时 wake 一次。它是 latest-value 通道，不是无损事件队列，也不替代现有 Task 的 Pending/Ready/Cancelled 状态或 executor。
+
+组件卸载会清除待提交值；卸载后 send 返回 Err(value)。Regions 销毁后 sender 的 Weak 失效，不延长状态生命周期；同 key 新组件不接受旧 sender。成功 send 只代表入队，若随后卸载则仍会丢弃。宿主请求的取消、同一状态多个并发请求的版本先后仍由 Task/应用控制，不宣称网络副作用会自动撤销。
+
+自动测试使用真实后台线程，验证 100 次提交合并、一次唤醒、UI 轮询前值不变、只更新订阅区域、卸载后拒绝旧结果和重挂载隔离。

@@ -60,6 +60,19 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
             for key in [1, 2] {
                 cx.component_keyed(key, (), |cx, ()| {
                     let count = cx.local_state(|| 0_i32);
+                    let status = cx.local_state(|| String::from("Idle"));
+                    cx.watch((status,), |cx, (status,)| {
+                        text(cx, &*status.read());
+                        button(cx).text("Load on host").on_click((status.handle(),), |(status,)| {
+                            status.set(String::from("Loading…"));
+                            let result = status.sender();
+                            std::thread::spawn(move || {
+                                // Simulated host I/O. The UI thread never waits.
+                                std::thread::sleep(std::time::Duration::from_millis(600));
+                                let _ = result.send(String::from("Loaded"));
+                            });
+                        });
+                    });
                     cx.watch((count,), |cx, (count,)| {
                         text!(cx, "Component-local: {}", *count.read());
                         button(cx).text("Local +1").on_click((count.handle(),), |(count,)| {

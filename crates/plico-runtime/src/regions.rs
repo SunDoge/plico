@@ -1,5 +1,6 @@
 //! Opt-in ID-driven native regions. Experimental; components own their local state.
 //! Root arguments are captures; only watch arguments subscribe to changes.
+mod tasks;
 use crate::View;
 use plico::{
     Button, Changes, Engine, Entity, ExperimentContext, FrameError, FrameStats, Key, Response,
@@ -14,8 +15,12 @@ use std::{
     marker::PhantomData,
     panic::Location,
     rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
+pub use tasks::StateSender;
 new_key_type! { pub struct RegionId; pub struct ComponentId; }
 type Binding = (usize, ComponentId, usize);
 #[derive(Default)]
@@ -44,6 +49,12 @@ pub struct Access<'a, T> {
     state: State<T>,
 }
 impl<T: 'static> Access<'_, T> {
+    pub fn sender(&self) -> StateSender<T>
+    where
+        T: Send,
+    {
+        self.app.sender(self.state)
+    }
     pub fn handle(&self) -> State<T> {
         self.state
     }
@@ -495,6 +506,7 @@ struct Region {
 /// A single component instance. State values die with this owner, not with watches.
 pub struct Regions {
     owner: usize,
+    mailbox: Arc<tasks::Mailbox>,
     components: SlotMap<ComponentId, Component>,
     root_component: ComponentId,
     regions: SlotMap<RegionId, Region>,
@@ -522,8 +534,11 @@ impl Regions {
             parent: None,
             storage: Rc::new(Storage::default()),
         });
+        let mailbox = Arc::new(tasks::Mailbox::default());
+        mailbox.register(root_component);
         let mut app = Self {
             owner,
+            mailbox,
             components,
             root_component,
             regions: SlotMap::with_key(),
@@ -612,6 +627,7 @@ impl Regions {
         component: ComponentId,
         owns_component: bool,
     ) -> RegionId {
+        self.mailbox.register(component);
         self.check(&spec, component);
         let mut deps = if subscribe { spec.deps.clone() } else { vec![] };
         deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
@@ -643,6 +659,7 @@ impl Regions {
                     .retain(|r| *r != id);
             }
             if region.owns_component {
+                self.mailbox.remove(region.component);
                 self.components.remove(region.component);
             }
             if let Some(cx) = region.context {
@@ -746,6 +763,7 @@ impl Regions {
         depth
     }
     fn replay(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
+        self.mailbox.drain(self);
         if !self.initialized || !engine.experiment_replay_ready() {
             return None;
         }
@@ -838,10 +856,17 @@ impl Regions {
     }
 }
 impl View for Regions {
+    fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
+        self.mailbox.set_wake(wake);
+    }
+    fn poll_reload(&mut self) -> bool {
+        self.mailbox.drain(self)
+    }
     fn snapshot_changed(&self) -> bool {
-        !self.dirty.borrow().is_empty()
+        !self.dirty.borrow().is_empty() || self.mailbox.pending()
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
+        self.mailbox.drain(self);
         self.dirty.get_mut().clear();
         let root = self.root.unwrap();
         cx.column()
