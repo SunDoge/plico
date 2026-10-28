@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/SunDoge/plico/compare/v0.1.7...v0.1.8) - 2026-10-28
+
+### Added
+
+- *(egui)* host the egui backend in a window and run the settings app
+- *(egui)* replay SVG and box shadows; share the usvg projector
+
+### Fixed
+
+- *(core)* mark viewport dirty on height-only resize
+- *(skia)* gate SVG error conversion behind raster feature
+
+### Other
+
+- *(egui)* use native controls and text with Taffy layout
+
 ## [0.1.7](https://github.com/SunDoge/plico/compare/v0.1.6...v0.1.7) - 2026-10-27
 
 ### Added
