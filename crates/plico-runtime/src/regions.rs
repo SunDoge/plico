@@ -41,6 +41,20 @@ impl<T: 'static> Access<'_, T> {
             v.downcast_ref().unwrap()
         })
     }
+    /// Notify readers after an existing shared object (e.g. TextBuffer) changed.
+    pub fn notify(&self) {
+        assert!(
+            !self.app.building.get(),
+            "notify state in an event callback, not watch"
+        );
+        self.app
+            .dirty
+            .borrow_mut()
+            .extend(self.app.slots[self.state.index].readers.iter().copied());
+    }
+    pub fn set(&self, value: T) {
+        self.update(|current| *current = value);
+    }
     pub fn update<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         assert!(
             !self.app.building.get(),
@@ -64,16 +78,20 @@ struct Slot {
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
+    type ChangeCallback<V: 'static>: Copy;
     #[doc(hidden)]
     fn bindings(&self) -> Vec<(usize, usize)>;
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
     #[doc(hidden)]
     fn event(&self, callback: Self::EventCallback, app: &Regions);
+    #[doc(hidden)]
+    fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V);
 }
 impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
+    type ChangeCallback<V: 'static> = fn((), V);
     fn bindings(&self) -> Vec<(usize, usize)> {
         Vec::new()
     }
@@ -83,15 +101,20 @@ impl Dependencies for () {
     fn event(&self, callback: Self::EventCallback, _: &Regions) {
         callback(());
     }
+    fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, _: &Regions, value: V) {
+        callback((), value);
+    }
 }
 macro_rules! dependency_tuple {
     ($($name:ident : $index:tt),+) => {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
+            type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<(usize,usize)> { vec![$((self.$index.owner,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
             fn event(&self, callback: Self::EventCallback, app: &Regions) { callback(($(app.access(self.$index),)+)); }
+            fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V) { callback(($(app.access(self.$index),)+), value); }
         }
     };
 }
@@ -138,6 +161,158 @@ impl<D: Dependencies> Action for Event<D> {
         self.deps.event(self.callback, app);
     }
 }
+pub type ChangeCallback<D, V> = <D as Dependencies>::ChangeCallback<V>;
+struct Change<D: Dependencies, V: 'static> {
+    deps: D,
+    value: V,
+    callback: ChangeCallback<D, V>,
+}
+impl<D: Dependencies, V: 'static> Action for Change<D, V> {
+    fn run(self: Box<Self>, app: &Regions) {
+        self.deps.change(self.callback, app, self.value);
+    }
+}
+fn queue_change<D: Dependencies, V: 'static>(deps: D, value: V, callback: ChangeCallback<D, V>) {
+    commands()
+        .borrow_mut()
+        .actions
+        .push(EventSpec(Box::new(Change {
+            deps,
+            value,
+            callback,
+        })));
+}
+/// Owned event payloads, such as a row's business ID, are explicit too.
+/// ```compile_fail
+/// use plico_runtime::regions::{Regions, OnClickWith};
+/// let app = Regions::new(|app| {
+///     let count = app.state(|| 0);
+///     app.root((count,), |cx, (count,)| {
+///         let extra = 2;
+///         cx.button("+").on_click_with((count.handle(),), 1, |(count,), amount| {
+///             count.update(|value| *value += amount + extra);
+///         });
+///     });
+/// });
+/// ```
+pub trait OnClickWith {
+    fn on_click_with<D: Dependencies, V: 'static>(
+        self,
+        deps: D,
+        value: V,
+        callback: ChangeCallback<D, V>,
+    ) -> Response;
+}
+impl OnClickWith for Button<'_, '_, '_> {
+    fn on_click_with<D: Dependencies, V: 'static>(
+        self,
+        deps: D,
+        value: V,
+        callback: ChangeCallback<D, V>,
+    ) -> Response {
+        let response = self.response();
+        if response.clicked() {
+            queue_change(deps, value, callback);
+        }
+        response
+    }
+}
+pub trait OnChange {
+    type Value: 'static;
+    type Response;
+    fn on_change<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, Self::Value>,
+    ) -> Self::Response;
+}
+impl OnChange for plico::Toggle<'_, '_, '_> {
+    type Value = bool;
+    type Response = plico::ToggleResponse;
+    fn on_change<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, bool>,
+    ) -> Self::Response {
+        let response = self.response();
+        if response.changed() {
+            queue_change(deps, response.checked(), callback);
+        }
+        response
+    }
+}
+impl OnChange for plico::Slider<'_, '_, '_> {
+    type Value = f64;
+    type Response = plico::SliderResponse;
+    fn on_change<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, f64>,
+    ) -> Self::Response {
+        let response = self.response();
+        if response.changed {
+            queue_change(deps, response.value, callback);
+        }
+        response
+    }
+}
+impl OnChange for plico::Input<'_, '_, '_> {
+    type Value = plico::InputResponse;
+    type Response = plico::InputResponse;
+    fn on_change<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, plico::InputResponse>,
+    ) -> Self::Response {
+        let response = self.response();
+        if response.changed {
+            queue_change(deps, response, callback);
+        }
+        response
+    }
+}
+/// Bind a controlled response after all temporary declaration borrows end.
+pub trait BindState<T> {
+    type Response;
+    fn bind(self, state: State<T>) -> Self::Response;
+}
+impl BindState<bool> for plico::Toggle<'_, '_, '_> {
+    type Response = plico::ToggleResponse;
+    fn bind(self, state: State<bool>) -> Self::Response {
+        self.on_change((state,), |(state,), value| state.set(value))
+    }
+}
+impl BindState<f64> for plico::Slider<'_, '_, '_> {
+    type Response = plico::SliderResponse;
+    fn bind(self, state: State<f64>) -> Self::Response {
+        self.on_change((state,), |(state,), value| state.set(value))
+    }
+}
+impl BindState<plico::TextBuffer> for plico::Input<'_, '_, '_> {
+    type Response = plico::InputResponse;
+    fn bind(self, state: State<plico::TextBuffer>) -> Self::Response {
+        let response = self.response();
+        if response.changed || response.submitted || response.navigation.is_some() {
+            queue_change((state,), response, |(state,), _| state.notify());
+        }
+        response
+    }
+}
+pub trait OnSubmit {
+    fn on_submit<D: Dependencies>(self, deps: D, callback: EventCallback<D>) -> Self;
+}
+impl OnSubmit for plico::InputResponse {
+    fn on_submit<D: Dependencies>(self, deps: D, callback: EventCallback<D>) -> Self {
+        if self.submitted {
+            commands()
+                .borrow_mut()
+                .actions
+                .push(EventSpec(Box::new(Event { deps, callback })));
+        }
+        self
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct ChildKey {
     parent: Entity,
@@ -528,12 +703,16 @@ impl View for Regions {
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.dirty.get_mut().clear();
         let root = self.root.unwrap();
-        cx.column().key("regions-root").children(|cx| {
-            let context = cx.experiment_context();
-            self.regions[root].context = Some(context);
-            self.bindings.insert(context.parent, root);
-            self.build(root, cx, false);
-        });
+        cx.column()
+            .key("regions-root")
+            .width_percent(100.)
+            .height_percent(100.)
+            .children(|cx| {
+                let context = cx.experiment_context();
+                self.regions[root].context = Some(context);
+                self.bindings.insert(context.parent, root);
+                self.build(root, cx, false);
+            });
         self.initialized = true;
         if !self.dirty.get_mut().is_empty() {
             cx.request_rebuild();

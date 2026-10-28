@@ -36,12 +36,58 @@ Skia 窗口示例位于 `crates/plico-runtime/examples/regions.rs`：
 cargo run -p plico-runtime --example regions --features regions,plico-shell/skia
 ```
 
-它包含计数器、按钮、条件面板和嵌套 watch。后台仍使用正常 Source、窗口宿主和渲染器。示例经过编译验证，控件事件通过 headless 测试验证；不把编译成功当成跨平台窗口视觉验收。
+它包含计数器、条件面板、嵌套 watch、checkbox/switch、slider、TextInput 和可增删/重排的任务列表。后台仍使用正常 Source、窗口宿主和渲染器。本机 Wayland 已启动窗口；在独立 X11/Xvfb Skia 窗口中实测了计数、开关、滑块样式更新、输入/Enter 添加、反转和删除，不代表其他平台已完成视觉验收。
 
 ```sh
-cargo test -p plico-runtime --features regions --test regions
+cargo test -p plico-runtime --features regions --test regions --test regions_controls
 cargo test -p plico-runtime --features regions --doc
 ```
+
+## 表单与事件 payload
+
+受控 toggle/slider 继续使用已有 widget。短期的 Copy 值交给控件修改，`.bind` 在声明借用结束后写回 State：
+
+```rust
+use plico_runtime::regions::{BindState, OnChange};
+let mut checked = *enabled.read();
+checkbox(cx, "Enabled", &mut checked).bind(enabled.handle());
+let mut value = *volume.read();
+slider(cx, "Volume", &mut value, 0. ..=100.).bind(volume.handle());
+```
+
+字段更新或自定义行为使用显式依赖和响应值：
+
+```rust
+checkbox(cx, "Enabled", &mut checked)
+    .on_change((settings.handle(),), |(settings,), checked| {
+        settings.update(|settings| settings.enabled = checked);
+    });
+```
+
+TextInput 绑定现有 TextBuffer，不在每次更新时重新创建 buffer。`.bind(buffer.handle())` 在内容/提交/导航变化后通知读取者，返回原 InputResponse；后面可以接 `.on_submit`：
+
+```rust
+use plico_runtime::regions::{BindState, OnSubmit};
+text_input(cx, "Draft", &draft.read())
+    .bind(draft.handle())
+    .on_submit((draft.handle(), tasks.handle()), add_task);
+```
+
+`Access::notify()` 用于已经通过共享对象 API 修改内容后通知依赖，例如在事件中执行 `draft.read().take()` 清空输入，然后 `draft.notify()`。普通 State 替换则用 `set` 或 `update`，它们自动通知。notify/set/update 都不能直接在 watch 声明期间执行。
+
+任务行 ID 不靠隐式闭包捕获，使用 owned payload：
+
+```rust
+use plico_runtime::regions::OnClickWith;
+button(cx).text("Remove")
+    .on_click_with((tasks.handle(),), task.id, |(tasks,), id| {
+        tasks.update(|tasks| tasks.retain(|task| task.id != id));
+    });
+```
+
+payload 必须为 `'static` 的拥有值，不能持有本轮借用。callback 仍是函数指针，参数依次为解析后的依赖元组和事件值。on_change 的值分别为 bool、f64、InputResponse；on_click_with 可以传入业务 ID 或其他拥有的数据。
+
+任务列表目前在一个列表级 watch 内使用普通 for 和业务 key，重排复用存活行的 Engine Entity。不是逐行 signal/owner，不宣称列表变化只执行 K 行；这里验证的是事件、状态写回与结构协调是否正确。
 
 ## 身份、所有权与事件
 
@@ -57,8 +103,8 @@ Source 的可选 hook 在输入或状态失效时尝试局部声明；只修改�
 
 ## 验证与限制
 
-自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 watch/on_click 自动推导。编译失败测试覆盖隐式捕获。
+自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 watch/on_click 自动推导。编译失败测试覆盖隐式捕获。新增表单测试还覆盖 slider 数值归一化、TextBuffer 焦点/绑定保留、提交只触发一次、IME commit、secret buffer 不进入展示/IME 文本、聚焦输入卸载后的 IME 清理，以及列表 payload 删除和存活节点身份。
 
-当前首先验证文字、布局和按钮的完整通路。可在回调中调用原生 widget，但没有逐项验收 text input、IME、slider、editor、terminal、动画和平台能力。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部状态修改仍需要宿主事件唤醒；此功能没有另起后台调度器。
+目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部状态修改仍需要宿主事件唤醒；此功能没有另起后台调度器。
 
 状态创建目前在组件构造阶段，不是在任意重放函数中调用 `cx.state`。现有 immediate local state 与此处的 State 是不同机制。动态依赖追踪、selector/memo、异步计算图、热重载状态迁移、错误事务回滚和 panic 后恢复尚未实现。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。

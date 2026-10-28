@@ -55,6 +55,13 @@ impl Engine {
             .iter()
             .copied()
             .chain(self.values.iter().map(|v| v.0))
+            .chain(
+                self.inputs
+                    .iter()
+                    .filter_map(|(&id, (buffer, _, previous))| {
+                        (buffer.counters() != *previous).then_some(id)
+                    }),
+            )
             .collect()
     }
     pub fn experiment_parent(&self, entity: Entity) -> Option<Entity> {
