@@ -22,7 +22,20 @@ use wgpu_context::{AlphaConversion, TextureConfiguration};
 use wgpu_context::{DeviceHandle, SurfaceRenderer, SurfaceRendererConfiguration, WGPUContext};
 use winit::window::Window;
 
-use crate::{Glyph, NormalizedCoord, PaintScene, Scene, ShaderEffect, shader::ShaderRenderer};
+pub use plico_renderer::{
+    Glyph, NormalizedCoord, PaintContext, PaintScene, Scene, ShaderEffect, SvgDocument,
+    TextContext, WidgetRasterImage, shader, svg,
+};
+use shader::ShaderRenderer;
+
+#[derive(Debug, snafu::Snafu)]
+pub enum Error {
+    #[snafu(display(
+        "invalid Vello GPU render size {width}x{height}; dimensions must be 1..=65535"
+    ))]
+    InvalidRenderSize { width: u32, height: u32 },
+}
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(target_os = "android")]
 const DEFAULT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
@@ -48,7 +61,7 @@ fn font_uses_bitmap_strikes(data: &[u8], index: u32) -> bool {
         .is_ok_and(|font| font.cbdt().is_ok() || font.sbix().is_ok())
 }
 
-pub(crate) fn render_size(width: u32, height: u32) -> crate::Result<RenderSize> {
+pub fn render_size(width: u32, height: u32) -> crate::Result<RenderSize> {
     if width == 0 || height == 0 {
         return Err(crate::Error::InvalidRenderSize { width, height });
     }
@@ -107,7 +120,7 @@ fn finish_image_frame(
 
 /// Renderer owned by a Wabou window. There is deliberately no backend switch:
 /// Wabou's Vello shell talks to Vello GPU directly.
-pub(crate) struct WindowRenderer {
+pub struct WindowRenderer {
     context: WGPUContext,
     active: Option<ActiveRenderer>,
     scene: GpuScene,
@@ -117,7 +130,7 @@ pub(crate) struct WindowRenderer {
 }
 
 impl WindowRenderer {
-    pub(crate) fn new(transparent: bool) -> crate::Result<Self> {
+    pub fn new(transparent: bool) -> crate::Result<Self> {
         tracing::info!(target: "wabou::renderer", transparent, "initializing Vello GPU window renderer");
         Ok(Self {
             context: WGPUContext::with_features_and_limits(
@@ -132,7 +145,7 @@ impl WindowRenderer {
         })
     }
 
-    pub(crate) fn resume(&mut self, window: Arc<dyn Window>, width: u32, height: u32) {
+    pub fn resume(&mut self, window: Arc<dyn Window>, width: u32, height: u32) {
         let target_size = match render_size(width, height) {
             Ok(size) => size,
             Err(error) => {
@@ -251,7 +264,7 @@ impl WindowRenderer {
         });
     }
 
-    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+    pub fn resize(&mut self, width: u32, height: u32) {
         let target_size = match render_size(width, height) {
             Ok(size) => size,
             Err(error) => {
@@ -268,13 +281,7 @@ impl WindowRenderer {
         }
     }
 
-    pub(crate) fn render(
-        &mut self,
-        recorded: &mut Scene,
-        width: u32,
-        height: u32,
-        base_color: Color,
-    ) {
+    pub fn render(&mut self, recorded: &mut Scene, width: u32, height: u32, base_color: Color) {
         let target_size = match render_size(width, height) {
             Ok(size) => size,
             Err(error) => {
@@ -640,7 +647,7 @@ impl PaintScene for GpuPainter<'_> {
 }
 
 /// Reusable offscreen renderer backed by the same replay path as windows.
-pub(crate) struct ImageRenderer {
+pub struct ImageRenderer {
     buffer: wgpu_context::BufferRenderer,
     renderer: Renderer,
     resources: Resources,
@@ -652,7 +659,7 @@ pub(crate) struct ImageRenderer {
 }
 
 impl ImageRenderer {
-    pub(crate) fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         let target_size = render_size(width, height)
             .expect("offscreen dimensions must be validated before rendering");
         let mut context =
@@ -687,7 +694,7 @@ impl ImageRenderer {
         }
     }
 
-    pub(crate) fn render(
+    pub fn render(
         &mut self,
         recorded: &Scene,
         width: u32,

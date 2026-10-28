@@ -18,52 +18,45 @@ plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
 plico-egui = { path = "../plico-egui", optional = true, features = ["window"] }
 accesskit = "0.24.1"
 futures-util = "0.3"
-glifo = { workspace = true, features = ["png"] }
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
 parley = { workspace = true }
 raw-window-handle = "0.6"
-rustc-hash = "2"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-skrifa = { version = "0.44", default-features = false, features = ["std"] }
 slotmap = { workspace = true }
 snafu = { workspace = true }
 tracing = { workspace = true }
 tracing-chrome = { version = "0.7.2", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter", "registry"] }
 url = { workspace = true }
-vello-common.workspace = true
 
 [features]
+default = ["skia"]
+vello = ["dep:plico-vello"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 skia = ["dep:plico-skia"]
 egui = ["dep:plico-egui", "plico-egui/window"]
 profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-vello-gpu = { workspace = true, features = ["wgpu", "wgpu_default", "text"] }
-wgpu.workspace = true
+plico-vello = { path = "../plico-vello", optional = true }
 accesskit_xplat = "=0.1.1"
 arboard = { workspace = true }
 notify-rust = { workspace = true }
 open = { workspace = true }
 rfd = { workspace = true }
-wgpu-context.workspace = true
 winit = { workspace = true }
 
-pollster = "1.0"
 plico-native = { path = "../plico-native", optional = true }
 
 [dev-dependencies]
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 usage-rs.workspace = true
 taffy.workspace = true
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSView", "NSWindow", "NSScreen"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-vello-gpu = { workspace = true, features = ["webgl", "text"] }
 
 [[example]]
 name = "global_hotkeys"

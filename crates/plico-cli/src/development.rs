@@ -39,7 +39,7 @@ fn build_flags(module: bool, host_binary: Option<&str>, host_features: &[&str]) 
             flags.extend([
                 "--no-default-features".into(),
                 "--features".into(),
-                "hot-reload".into(),
+                "hot-reload,skia".into(),
             ]);
         } else if !host_features.is_empty() {
             flags.extend(["--features".into(), host_features.join(",").into()]);
@@ -560,7 +560,7 @@ crate-type = ["rlib", "cdylib"]
 [features]
 abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-desktop"]
+desktop = ["dep:plico-desktop", "plico-desktop/skia"]
 
 [[bin]]
 name = "{name}"
@@ -654,7 +654,7 @@ mod tests {
         );
         let generic = build_flags(false, None, &[]);
         assert!(generic.contains(&"--no-default-features".into()));
-        assert!(generic.contains(&"hot-reload".into()));
+        assert!(generic.contains(&"hot-reload,skia".into()));
     }
     #[test]
     fn custom_host_metadata_is_explicit_and_validated() {

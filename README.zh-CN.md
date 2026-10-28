@@ -96,6 +96,10 @@ Plico **不是细粒度响应式 runtime**。业务声明仍会执行视图代�
 热重载是 best effort，不保证任意 Rust 状态无损迁移。各后端尚未完全对齐，
 Bevy 和 `no_std` 尚未接入。
 
+桌面启用 Skia 时默认优先使用 Skia；可以启用 `plico-desktop/vello` 选择 Vello。
+关闭默认 feature 并单独启用 `skia` 或 `vello`，可以只编译一个 renderer。
+当前 Skia 窗口后端使用 Vulkan；设备初始化失败时不会自动切换 renderer。
+
 ## 项目结构
 
 框架库在 `crates/`，使用 `plico-` 前缀；完整应用在 `apps/`，不带前缀。
@@ -104,7 +108,7 @@ Bevy 和 `no_std` 尚未接入。
 | --- | --- |
 | 与渲染无关的声明核心 | `plico`：Engine、UiContext、控件、身份与局部状态，不依赖窗口、布局引擎或渲染器 |
 | 运行时与桌面宿主 | `plico-runtime`、`plico-desktop` |
-| 渲染与平台集成 | `plico-renderer`、`plico-shell`、`plico-motion`、`plico-native` |
+| 渲染与平台集成 | `plico-renderer`、`plico-shell`、`plico-vello`、`plico-motion`、`plico-native` |
 | 可选后端 | `plico-skia`、`plico-fltk`、`plico-lvgl`、`plico-web-host` |
 | 开发工具 | `plico-cli`、`plico-dev`、`plico-macros` |
 | 富内容 | `plico-markdown`、`plico-editor`、`plico-terminal` |

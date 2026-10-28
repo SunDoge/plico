@@ -1,7 +1,7 @@
 # Skia / Vello 绘制对照实验
 
 状态：`plico-skia` 已提供 CPU raster 和 Ganesh Vulkan 离屏 GPU consumer；
-另提供实验性 Vulkan 桌面窗口后端，默认仍使用 Vello renderer。
+另提供 Vulkan 桌面窗口后端，桌面默认优先使用 Skia；Vello 可单独启用。
 
 ## 已实现
 
@@ -18,9 +18,16 @@ BlurredRoundedRectangle 语义一致，sigma 即 std_dev，退化与反向矩形
 失败不返回部分像素，也不能把失败帧导出为 PNG；下一帧可以正常重试。
 像素 API 返回 tightly packed premultiplied RGBA，PNG 由 Skia 编码。
 
-默认 feature 不加载 Skia；启用 `raster` 或 `vulkan` 才使用 skia-safe。当前 Linux 验证实际下载
-并链接了 rust-skia 预编译库，不是源码构建；其他 target / feature 组合是否有预编译库
-取决于 rust-skia 的分发矩阵。当前 consumer 复用 renderer 的指令流，以及直接依赖的 kurbo / peniko 共享
+`plico-skia` 自身只在启用 `raster` 或 `vulkan` 时加载 skia-safe；桌面宿主默认启用 Skia。
+项目固定使用 rust-skia 0.153.3，并启用 `no-compile`：只允许使用匹配 target 和 feature 的
+预编译库，下载失败或缺包时立即报错，绝不自动从源码构建。首次构建需要能访问预编译包，
+之后可复用本机缓存；`SKIA_BINARIES_URL` 可配置可信镜像。
+
+Windows 开发和 CI 使用 `x86_64-pc-windows-msvc`；该版本提供匹配 Vulkan + textlayout 的预编译包。
+上游当前没有对应的 `x86_64-pc-windows-gnu` 预编译包，因此该组合会明确失败；使用 MSVC
+工具链，或者仅启用 Vello。Linux x86_64 和 Windows MSVC 的目标组合已验证预编译包可用。
+其他平台与 feature 组合必须确认上游提供匹配包，不能将这些验证扩展到所有平台。
+当前 consumer 复用 renderer 的指令流，以及直接依赖的 kurbo / peniko 共享
 类型与依赖，不宣称已完全解耦 Vello。
 
 ## SkParagraph 普通文字路径

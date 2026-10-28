@@ -1,0 +1,24 @@
+[package]
+name = "plico-vello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Vello GPU renderer for Plico scenes"
+
+[dependencies]
+plico-renderer.workspace = true
+glifo = { workspace = true, features = ["png"] }
+kurbo.workspace = true
+peniko.workspace = true
+pollster = "1.0"
+raw-window-handle = "0.6"
+rustc-hash = "2"
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+snafu.workspace = true
+tracing.workspace = true
+vello-common.workspace = true
+vello-gpu = { workspace = true, features = ["wgpu", "wgpu_default", "text"] }
+wgpu.workspace = true
+wgpu-context.workspace = true
+winit.workspace = true

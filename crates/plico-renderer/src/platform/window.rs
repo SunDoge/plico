@@ -47,10 +47,12 @@ pub enum WindowBackground {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RenderBackend {
-    /// Default Vello GPU consumer.
+    /// Prefer Skia, falling back to another compiled renderer.
     #[default]
+    Auto,
+    /// Vello GPU consumer.
     Vello,
-    /// Experimental Skia Vulkan consumer; requires the shell's `skia` feature.
+    /// Default Skia Vulkan consumer; requires the shell's `skia` feature.
     Skia,
     /// Experimental native egui controls with Taffy geometry; requires the
     /// shell's `egui` feature and a native-widget frame source.
@@ -126,7 +128,7 @@ fn default_activate_on_show() -> bool {
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
-            renderer: RenderBackend::Vello,
+            renderer: RenderBackend::Auto,
             title: "wabou".into(),
             initial_inner_size: (800, 600),
             min_inner_size: None,
@@ -339,12 +341,12 @@ mod tests {
 mod backend_tests {
     use super::*;
     #[test]
-    fn old_window_options_keep_vello_and_skia_roundtrips() {
+    fn old_window_options_default_to_auto_and_skia_roundtrips() {
         let mut value = serde_json::to_value(WindowOptions::new()).unwrap();
         value.as_object_mut().unwrap().remove("renderer");
         value.as_object_mut().unwrap().remove("activateOnShow");
         let old: WindowOptions = serde_json::from_value(value).unwrap();
-        assert_eq!(old.renderer, RenderBackend::Vello);
+        assert_eq!(old.renderer, RenderBackend::Auto);
         assert!(old.activate_on_show);
         let options = WindowOptions::new().renderer(RenderBackend::Skia);
         let restored: WindowOptions =

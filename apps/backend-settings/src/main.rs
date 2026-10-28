@@ -73,7 +73,8 @@ fn run() -> Result<(), Error> {
             plico_desktop::Source::new(backend_settings::Settings::default()),
             plico_desktop::WindowOptions::new()
                 .title("Plico settings — Vello")
-                .initial_inner_size(1100, 820),
+                .initial_inner_size(1100, 820)
+                .renderer(plico_renderer::RenderBackend::Vello),
         )
         .context(VelloSnafu),
         #[cfg(feature = "skia")]

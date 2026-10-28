@@ -4113,7 +4113,6 @@ dependencies = [
  "accesskit_xplat",
  "arboard",
  "futures-util",
- "glifo 0.4.0",
  "image",
  "kurbo 0.13.1",
  "notify-rust",
@@ -4125,10 +4124,9 @@ dependencies = [
  "plico-native",
  "plico-renderer",
  "plico-skia",
- "pollster 1.0.1",
+ "plico-vello",
  "raw-window-handle",
  "rfd",
- "rustc-hash 2.1.3",
  "serde",
  "serde_json",
  "skrifa",
@@ -4141,10 +4139,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usage-rs",
- "vello_common 0.3.0",
- "vello_gpu",
- "wgpu",
- "wgpu_context",
  "winit",
 ]
 
@@ -4187,6 +4181,27 @@ dependencies = [
  "serde_json",
  "teletypewriter",
  "tracing",
+]
+
+[[package]]
+name = "plico-vello"
+version = "0.1.9"
+dependencies = [
+ "glifo 0.4.0",
+ "kurbo 0.13.1",
+ "peniko",
+ "plico-renderer",
+ "pollster 1.0.1",
+ "raw-window-handle",
+ "rustc-hash 2.1.3",
+ "skrifa",
+ "snafu",
+ "tracing",
+ "vello_common 0.3.0",
+ "vello_gpu",
+ "wgpu",
+ "wgpu_context",
+ "winit",
 ]
 
 [[package]]

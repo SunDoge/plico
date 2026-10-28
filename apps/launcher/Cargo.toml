@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 plico.workspace = true
-plico-desktop = { path = "../../crates/plico-desktop", default-features = false }
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false, features = ["skia"] }
 
 [dev-dependencies]
 plico-renderer.workspace = true

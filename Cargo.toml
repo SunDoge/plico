@@ -8,7 +8,7 @@ publish = false
 [dev-dependencies]
 plico.workspace = true
 plico-dev.workspace = true
-plico-desktop = { path = "crates/plico-desktop", default-features = false }
+plico-desktop = { path = "crates/plico-desktop", default-features = false, features = ["skia"] }
 serde = { workspace = true, features = ["derive"] }
 
 [workspace]
@@ -56,7 +56,7 @@ winit = "=0.31.0-beta.3"
 
 plico = { path = "crates/plico" }
 plico-renderer = { path = "crates/plico-renderer" }
-plico-shell = { path = "crates/plico-shell" }
+plico-shell = { path = "crates/plico-shell", default-features = false }
 
 cargo_metadata = "0.23"
 libloading = "0.9"

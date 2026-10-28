@@ -2,7 +2,7 @@
 //!
 //! The shell is a reusable host: a [`source::FrameSource`] produces a flattened
 //! layout list each frame; [`shell::Shell`] owns the window and selected
-//! GPU backend (Vello by default). Plico supplies its immediate UI source through this boundary.
+//! GPU backend (Skia by default). Plico supplies its immediate UI source through this boundary.
 
 #![warn(missing_docs)]
 
@@ -26,8 +26,6 @@ pub use plico_renderer::{image, layout, motion, paint};
 mod performance_hud;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod renderer;
-#[cfg(not(target_arch = "wasm32"))]
-mod renderer_backend;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_renderer;
 pub use plico_renderer::{scene, scrollbar, shader};

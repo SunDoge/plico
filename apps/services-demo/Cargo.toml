@@ -21,7 +21,7 @@ schema-reset-fixture = []
 [dependencies]
 plico.workspace = true
 plico-dev.workspace = true
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
 serde = { workspace = true, features = ["derive"] }
 
 [[bin]]

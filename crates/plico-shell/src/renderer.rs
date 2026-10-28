@@ -1,36 +1,74 @@
-//! Headless Vello GPU rendering to PNG and RGBA pixels.
+//! Headless scene rendering to PNG and RGBA pixels.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
-};
+use std::path::{Path, PathBuf};
 
 use image::ImageEncoder as _;
 use peniko::Color;
-use snafu::{OptionExt, ResultExt};
+#[cfg(any(feature = "vello", feature = "skia"))]
+use snafu::OptionExt;
+use snafu::ResultExt;
+#[cfg(all(feature = "vello", not(feature = "skia")))]
+use std::sync::{Mutex, OnceLock};
 
-use crate::{Scene, renderer_backend::ImageRenderer};
+use crate::Scene;
+#[cfg(all(feature = "vello", not(feature = "skia")))]
+use plico_vello::ImageRenderer;
 
+#[cfg(all(feature = "vello", not(feature = "skia")))]
 static IMAGE_RENDERER: OnceLock<Mutex<ImageRenderer>> = OnceLock::new();
 
-/// Render a retained Wabou scene to an RGBA image using Vello GPU.
+/// Render a retained scene to an RGBA image using an enabled backend.
 pub fn render_to_image(
     scene: &Scene,
     width: u32,
     height: u32,
     base_color: Color,
 ) -> crate::Result<image::RgbaImage> {
-    crate::renderer_backend::render_size(width, height)?;
-    let mut renderer = IMAGE_RENDERER
-        .get_or_init(|| Mutex::new(ImageRenderer::new(width, height)))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    image::RgbaImage::from_raw(
-        width,
-        height,
-        renderer.render(scene, width, height, base_color),
-    )
-    .context(crate::error::InvalidImageBufferSnafu { width, height })
+    if width == 0 || height == 0 || width > u16::MAX as u32 || height > u16::MAX as u32 {
+        return Err(crate::Error::InvalidRenderSize { width, height });
+    }
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
+    {
+        plico_vello::render_size(width, height)
+            .map_err(|_| crate::Error::InvalidRenderSize { width, height })?;
+        let mut renderer = IMAGE_RENDERER
+            .get_or_init(|| Mutex::new(ImageRenderer::new(width, height)))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        image::RgbaImage::from_raw(
+            width,
+            height,
+            renderer.render(scene, width, height, base_color),
+        )
+        .context(crate::error::InvalidImageBufferSnafu { width, height })
+    }
+    #[cfg(feature = "skia")]
+    {
+        let mut surface =
+            plico_skia::SkiaSurface::new(width, height).context(crate::error::SkiaSnafu)?;
+        let mut pixels = surface
+            .render_scene(scene, base_color)
+            .context(crate::error::SkiaSnafu)?;
+        // Skia readback is premultiplied; image::RgbaImage expects straight alpha.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let alpha = u32::from(pixel[3]);
+            for channel in &mut pixel[..3] {
+                *channel = (u32::from(*channel) * 255 + alpha / 2)
+                    .checked_div(alpha)
+                    .unwrap_or(0)
+                    .min(255) as u8;
+            }
+        }
+        image::RgbaImage::from_raw(width, height, pixels)
+            .context(crate::error::InvalidImageBufferSnafu { width, height })
+    }
+    #[cfg(not(any(feature = "vello", feature = "skia")))]
+    {
+        let _ = (scene, width, height, base_color);
+        Err(crate::Error::Renderer {
+            message: "no offscreen renderer enabled".into(),
+        })
+    }
 }
 
 /// Render `scene` and encode it as a PNG at `out_path`.
@@ -85,6 +123,7 @@ mod tests {
     use crate::PaintScene;
     use kurbo::{Affine, Rect};
     use peniko::Fill;
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
     use std::sync::Arc;
 
     #[test]
@@ -119,6 +158,25 @@ mod tests {
         assert_eq!(image.get_pixel(4, 4).0, [0, 0, 0, 0]);
     }
 
+    #[cfg(feature = "skia")]
+    #[test]
+    fn skia_readback_returns_straight_alpha() {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgba8(200, 100, 50, 128),
+            None,
+            &Rect::new(0., 0., 4., 4.),
+        );
+        let image = render_to_image(&scene, 4, 4, Color::TRANSPARENT).unwrap();
+        let pixel = image.get_pixel(1, 1).0;
+        assert_eq!(pixel[3], 128);
+        for (actual, expected) in pixel[..3].iter().zip([200u8, 100, 50]) {
+            assert!(actual.abs_diff(expected) <= 1, "pixel: {pixel:?}");
+        }
+    }
+
     #[test]
     fn gpu_renderer_draws_public_raster_images() {
         let raster =
@@ -130,6 +188,7 @@ mod tests {
         assert_eq!(image.get_pixel(8, 8).0, [240, 20, 60, 255]);
     }
 
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
     #[test]
     fn gpu_renderer_composites_and_resizes_custom_wgsl() {
         let source = crate::ShaderEffectSource::new(
@@ -151,6 +210,7 @@ mod tests {
         assert_eq!(second.get_pixel(4, 8).0, [0, 255, 0, 255]);
     }
 
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
     #[test]
     fn shader_versions_in_one_scene_do_not_alias_textures_or_uniform_buffers() {
         let source = crate::ShaderEffectSource::new(
@@ -180,6 +240,7 @@ mod tests {
         assert_eq!(restored.get_pixel(24, 8).0, [0, 255, 0, 255]);
     }
 
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
     #[test]
     fn gpu_renderer_composites_complete_shader_modules() {
         let source = crate::ShaderEffectSource::new_module(
@@ -214,6 +275,7 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32, color: vec4<f32> };
         assert_eq!(image.get_pixel(2, 2).0, [0, 0, 0, 255]);
     }
 
+    #[cfg(all(feature = "vello", not(feature = "skia")))]
     #[test]
     fn gpu_renderer_composes_svg_groups_and_clip_paths() {
         let svg = crate::svg::SvgImage::parse(

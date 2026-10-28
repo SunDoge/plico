@@ -8,7 +8,7 @@ publish = false
 [features]
 default = []
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
-vello = ["dep:plico-desktop", "dep:plico-renderer", "dep:plico-runtime", "dep:plico-shell"]
+vello = ["plico-desktop/vello", "plico-shell/vello", "dep:plico-desktop", "dep:plico-renderer", "dep:plico-runtime", "dep:plico-shell"]
 skia = ["dep:plico-runtime", "dep:plico-renderer", "dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
 egui = [
     "dep:plico-egui",
@@ -30,7 +30,7 @@ plico-renderer = { workspace = true, optional = true }
 plico-motion.workspace = true
 fltk-native = { package = "fltk", version = "1.5", optional = true }
 plico-fltk = { path = "../../crates/plico-fltk", optional = true }
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
 plico-runtime = { path = "../../crates/plico-runtime", optional = true }
 plico-shell = { path = "../../crates/plico-shell", optional = true }
 

@@ -23,12 +23,13 @@ image = { workspace = true }
 gallery = { path = "../../apps/gallery" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-plico-shell.workspace = true
+plico-shell = { workspace = true, default-features = false }
 usage-rs = { workspace = true, optional = true }
 
 [features]
 skia = ["plico-shell/skia"]
-default = ["hot-reload"]
+vello = ["plico-shell/vello"]
+default = ["hot-reload", "skia"]
 hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:usage-rs"]
 profiling = [
     "plico-runtime/profiling",

@@ -19,7 +19,7 @@ snafu = { workspace = true, optional = true }
 
 [dev-dependencies]
 plico.workspace = true
-plico-desktop = { path = "../plico-desktop", default-features = false }
+plico-desktop = { path = "../plico-desktop", default-features = false, features = ["skia"] }
 
 [[example]]
 name = "player"

@@ -76,8 +76,9 @@ changelog_include = [
 # Explicit release participants must already exist in the shared baseline tag.
 # New workspace members inherit the version but are not analyzed automatically.
 # Enable them here after a shared tag contains them; apps remain excluded.
-# The renamed `plico` and `plico-desktop` packages first appear after v0.1.8;
-# add both after the next shared tag contains them.
+# The renamed `plico` and `plico-desktop` first appear after v0.1.8. The new
+# `plico-vello` replaces a different package at that tag. Add all three after
+# the next shared tag contains their current implementations.
 
 [[package]]
 name = "plico-dev"

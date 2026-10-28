@@ -10,7 +10,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 snafu.workspace = true
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
 plico.workspace = true
 plico-motion.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }

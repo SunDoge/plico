@@ -33,7 +33,7 @@ API with retained nodes, layout, text, and rendering caches underneath.
   CLI commands, and native module hot reload. The host keeps its window and services
   alive; compatible state is restored, incompatible state can reset. Async work
   stays in host tasks, outside the reloadable UI module.
-- **Room for different backends.** Vello is the main desktop path. Optional Skia,
+- **Room for different backends.** Skia is the default desktop renderer. Optional Vello,
   FLTK + Taffy, LVGL, and browser/WASM paths explore the same declaration model.
   LVGL has been tested on an ESP32-P4 with ESP-IDF.
 
@@ -107,6 +107,12 @@ Caching and host-side animation reduce repeated work without changing that model
 Hot reload is best effort, not arbitrary Rust state migration. Backends do not
 yet have feature parity; Bevy and `no_std` are not integrated.
 
+Desktop builds prefer Skia when it is enabled. Enable `plico-desktop/vello` to
+select Vello; use `default-features = false` with either `skia` or `vello` for a
+single-renderer build. An explicit unavailable renderer returns an error. The
+current Skia window backend uses Vulkan and requires a working Vulkan device;
+it does not automatically fall back after initialization fails.
+
 ## Project map
 
 Framework libraries live in `crates/` with the `plico-` prefix; applications live
@@ -116,7 +122,7 @@ in `apps/` without it.
 | --- | --- |
 | Renderer-independent declarations | `plico`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
 | Runtime and desktop host | `plico-runtime`, `plico-desktop` |
-| Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-motion`, `plico-native` |
+| Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-vello`, `plico-motion`, `plico-native` |
 | Alternative backends | `plico-skia`, `plico-fltk`, `plico-lvgl`, `plico-web-host` |
 | Development tools | `plico-cli`, `plico-dev`, `plico-macros` |
 | Rich content | `plico-markdown`, `plico-editor`, `plico-terminal` |

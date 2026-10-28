@@ -1,13 +1,18 @@
 //! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
-use crate::{RenderBackend, Scene, renderer_backend};
+use crate::{RenderBackend, Scene};
 use peniko::Color;
+#[cfg(feature = "vello")]
+use plico_vello as renderer_backend;
 #[cfg(feature = "skia")]
 use snafu::ResultExt;
 use std::sync::Arc;
 use winit::window::Window;
 
 pub(crate) enum WindowRenderer {
+    #[cfg(feature = "vello")]
     Vello(Box<renderer_backend::WindowRenderer>),
+    #[allow(dead_code)]
+    Unavailable,
     #[cfg(feature = "skia")]
     Skia {
         active: Option<Box<plico_skia::SkiaWindow>>,
@@ -95,7 +100,9 @@ impl WindowRenderer {
     }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
+            #[cfg(feature = "vello")]
             Self::Vello(_) => None,
+            Self::Unavailable => None,
             #[cfg(feature = "skia")]
             Self::Skia {
                 active: Some(renderer),
@@ -107,10 +114,48 @@ impl WindowRenderer {
             Self::Egui { .. } => None,
         }
     }
+    #[cfg_attr(
+        not(any(feature = "vello", feature = "skia", feature = "egui")),
+        allow(unused_variables)
+    )]
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {
-            RenderBackend::Vello => renderer_backend::WindowRenderer::new(transparent)
-                .map(|renderer| Self::Vello(Box::new(renderer))),
+            RenderBackend::Auto => {
+                #[cfg(feature = "skia")]
+                {
+                    Self::new(RenderBackend::Skia, transparent)
+                }
+                #[cfg(all(not(feature = "skia"), feature = "vello"))]
+                {
+                    Self::new(RenderBackend::Vello, transparent)
+                }
+                #[cfg(all(not(feature = "skia"), not(feature = "vello"), feature = "egui"))]
+                {
+                    Self::new(RenderBackend::Egui, transparent)
+                }
+                #[cfg(not(any(feature = "skia", feature = "vello", feature = "egui")))]
+                {
+                    Err(crate::Error::Renderer {
+                        message: "no renderer enabled".into(),
+                    })
+                }
+            }
+            RenderBackend::Vello => {
+                #[cfg(feature = "vello")]
+                {
+                    renderer_backend::WindowRenderer::new(transparent)
+                        .map(|renderer| Self::Vello(Box::new(renderer)))
+                        .map_err(|error| crate::Error::Renderer {
+                            message: error.to_string(),
+                        })
+                }
+                #[cfg(not(feature = "vello"))]
+                {
+                    Err(crate::Error::Renderer {
+                        message: "Vello requires plico-shell's vello feature".into(),
+                    })
+                }
+            }
             RenderBackend::Skia => {
                 #[cfg(feature = "skia")]
                 {
@@ -143,6 +188,10 @@ impl WindowRenderer {
             }
         }
     }
+    #[cfg_attr(
+        not(any(feature = "vello", feature = "skia", feature = "egui")),
+        allow(unused_variables)
+    )]
     pub(crate) fn resume(
         &mut self,
         window: Arc<dyn Window>,
@@ -150,7 +199,9 @@ impl WindowRenderer {
         height: u32,
     ) -> crate::Result<()> {
         match self {
+            #[cfg(feature = "vello")]
             Self::Vello(renderer) => renderer.resume(window, width, height),
+            Self::Unavailable => {}
             #[cfg(feature = "egui")]
             Self::Egui {
                 active,
@@ -218,9 +269,15 @@ impl WindowRenderer {
         }
         Ok(())
     }
+    #[cfg_attr(
+        not(any(feature = "vello", feature = "skia", feature = "egui")),
+        allow(unused_variables)
+    )]
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         match self {
+            #[cfg(feature = "vello")]
             Self::Vello(renderer) => renderer.resize(width, height),
+            Self::Unavailable => {}
             #[cfg(feature = "skia")]
             Self::Skia {
                 active: Some(renderer),
@@ -268,6 +325,10 @@ impl WindowRenderer {
             renderer.trim_gpu_cache();
         }
     }
+    #[cfg_attr(
+        not(any(feature = "vello", feature = "skia", feature = "egui")),
+        allow(unused_variables)
+    )]
     pub(crate) fn render(
         &mut self,
         scene: &mut Scene,
@@ -276,10 +337,14 @@ impl WindowRenderer {
         color: Color,
     ) -> crate::Result<bool> {
         match self {
+            #[cfg(feature = "vello")]
             Self::Vello(renderer) => {
                 renderer.render(scene, width, height, color);
                 Ok(true)
             }
+            Self::Unavailable => Err(crate::Error::Renderer {
+                message: "no renderer enabled".into(),
+            }),
             #[cfg(feature = "skia")]
             Self::Skia {
                 active: Some(renderer),
@@ -310,5 +375,35 @@ impl WindowRenderer {
             #[cfg(feature = "egui")]
             Self::Egui { active: None, .. } => Ok(false),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_backend_prefers_enabled_renderer() {
+        let result = WindowRenderer::new(RenderBackend::Auto, true);
+        #[cfg(feature = "skia")]
+        assert!(matches!(result, Ok(WindowRenderer::Skia { .. })));
+        #[cfg(all(not(feature = "skia"), feature = "vello"))]
+        assert!(matches!(result, Ok(WindowRenderer::Vello(_))));
+        #[cfg(all(not(feature = "skia"), not(feature = "vello"), feature = "egui"))]
+        assert!(matches!(result, Ok(WindowRenderer::Egui { .. })));
+        #[cfg(not(any(feature = "skia", feature = "vello", feature = "egui")))]
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(not(feature = "vello"))]
+    fn explicit_vello_reports_missing_feature() {
+        assert!(WindowRenderer::new(RenderBackend::Vello, false).is_err());
+    }
+
+    #[test]
+    #[cfg(not(feature = "skia"))]
+    fn explicit_skia_reports_missing_feature() {
+        assert!(WindowRenderer::new(RenderBackend::Skia, false).is_err());
     }
 }
