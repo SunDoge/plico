@@ -31,8 +31,10 @@ This release creates a Git tag and GitHub Release; it does not publish to crates
 ---
 Generated with [release-plz](https://github.com/release-plz/release-plz/).
 """
-# Released versions come from Git tags; never publish to a Cargo registry.
-git_only = true
+# Packages opt into baseline analysis; new members safely inherit the version.
+# Do not reconstruct new crates from a shared tag that may predate them.
+release = false
+git_only = false
 publish = false
 release_always = false
 semver_check = false
@@ -45,6 +47,8 @@ changelog_update = false
 
 [[package]]
 name = "plico-cli"
+release = true
+git_only = true
 # One repository tag and GitHub Release, rather than one for every crate and demo.
 git_tag_enable = true
 git_release_enable = true
@@ -67,57 +71,95 @@ changelog_include = [
     "plico-skia",
     "plico-terminal",
     "plico-vello",
+    "plico-video",
     "plico-web-host",
 ]
 
-# This unpublished helper is versioned through workspace.package.version only.
-# It did not exist at v0.1.1; git_only reconstruction otherwise fails on that tag.
-# Disable both release analysis and Git-baseline lookup for this package.
-[[package]]
-name = "examples"
-release = false
-git_only = false
+# Explicit release participants must already exist in the shared baseline tag.
+# New workspace members inherit the version but are not analyzed automatically.
+# Enable them here after a shared tag contains them; apps remain excluded.
 
 [[package]]
-name = "backend-settings"
-release = false
-git_only = false
+name = "plico-core"
+release = true
+git_only = true
 
 [[package]]
-name = "gallery"
-release = false
-git_only = false
+name = "plico-dev"
+release = true
+git_only = true
 
 [[package]]
-name = "launcher"
-release = false
-git_only = false
+name = "plico-editor"
+release = true
+git_only = true
 
 [[package]]
-name = "lvgl-esp32p4"
-release = false
-git_only = false
+name = "plico-fltk"
+release = true
+git_only = true
 
 [[package]]
-name = "services-demo"
-release = false
-git_only = false
+name = "plico-lvgl"
+release = true
+git_only = true
 
 [[package]]
-name = "terminal"
-release = false
-git_only = false
+name = "plico-macros"
+release = true
+git_only = true
 
 [[package]]
-name = "web-demo"
-release = false
-git_only = false
+name = "plico-markdown"
+release = true
+git_only = true
 
-# Bootstrap: v0.1.5 predates this experimental package. release-plz 0.4.x
-# otherwise looks it up in that shared tag and fails before version analysis.
-# It still inherits workspace.package.version. Once the next shared tag contains
-# crates/plico-video, remove this override and add it to changelog_include.
+[[package]]
+name = "plico-motion"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-native"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-renderer"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-runtime"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-shell"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-skia"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-terminal"
+release = true
+git_only = true
+
+[[package]]
+name = "plico-vello"
+release = true
+git_only = true
+
 [[package]]
 name = "plico-video"
-release = false
-git_only = false
+release = true
+git_only = true
+
+[[package]]
+name = "plico-web-host"
+release = true
+git_only = true

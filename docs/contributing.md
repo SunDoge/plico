@@ -83,37 +83,25 @@ release-plz 负责根版本、changelog 和 Cargo.lock 更新，不另写版本�
 
 ## Git-only release
 
-`.github/workflows/release.yml` 使用固定版本的 release-plz。main 更新时先执行
-`release`，再执行 `release-pr`：普通提交只创建或更新 release PR；合并
-`release-plz-*` 分支的 PR 后，才创建统一的 `vX.Y.Z` tag 和 GitHub Release，
-Release 说明来自根 changelog。也可在 main 手动运行
-Release workflow。合并 release PR 前应确认 CI 通过，workflow 本身不等待 CI。
+`.github/workflows/release.yml` 在当前 main 的 CI 成功后，先执行 `release`，
+再执行 `release-pr`；过期提交的 CI 结果不会用于发布更新的 main。
+普通提交只创建或更新 release PR；合并 `release-plz-*` 分支的 PR 后，才创建统一的
+`vX.Y.Z` tag 和 GitHub Release，说明来自根 changelog。也可在 main 手动运行
+Release workflow。合并 release PR 前必须确认它已与最新 main 同步且 CI 通过；
+建议 main 的分支保护要求 PR 在合并前保持最新，避免新增成员与版本更新合并后产生过期锁文件。
 
-`release-plz.toml` 使用 `git_only = true`，以 Git tag 为版本基线，不从 Cargo registry 查询已发布版本，
-并显式设置 workspace `publish = false`，辅助应用也继承此值，避免与 Cargo 的
-`publish = false` 冲突。不发布 crate；不需要 crates.io token，也没有 trusted publishing 权限。
-目前不上传安装包。所有成员继续继承 workspace 版本，
-只由 `plico-cli` 创建 tag 和 GitHub Release；标题显式使用 `Plico v{{ version }}`，
-避免默认显示 CLI 包名。release PR 的 `pr_name` / `pr_body` 也显式使用 Plico，
-不使用默认的逐 package changelog 标题；`plico-cli` 只是内部发布锚点，不代表只发布 CLI。
-其他 package 的变更汇总进根 `CHANGELOG.md`。
-第一次 release PR 保持当前声明的版本，之后按 Conventional Commits 更新版本。
-`changelog_include` 只列框架 crate。`apps/` 是测试/展示应用，根目录 `examples`
-也是非发布辅助包；它们配置 `release = false` 与 `git_only = false`，不独立计算
-下个版本，也不纳入框架 changelog。它们仍继承 workspace 版本；框架升级时一同更新。
-新增应用时同步补齐这两项配置，不把普通 demo 改动作为框架发版依据。
+所有成员继承 workspace 版本，不发布 crates.io，也不需要 registry token。
+只由 `plico-cli` 创建 tag 和 GitHub Release；公开标题使用 Plico，CLI 只是内部发布锚点。
+已有框架包显式启用 `release = true` 与 `git_only = true`，并通过 CLI 的
+`changelog_include` 汇总变更到根 `CHANGELOG.md`。即使只修改框架包，也会触发统一版本更新。
 
-release-plz 0.4.0 的 Git 基线重建要求旧 tag 中存在当前分析的包；`examples`
-不存在于 `v0.1.1` 中。跳过这些辅助包也避免了此问题，不需要改写已发布 tag。
-新增框架 crate 时仍需检查其发布基线。release-plz 0.4.x 的共享 tag 查找
-会把新增包也映射到旧 tag；若旧 tag 不含该包，版本分析会报 `cannot find package`。
-这是历史基线重建问题，不是 Cargo workspace 没发现新成员。对新增的实验包，首次
-统一发布前配置 `release = false` 与 `git_only = false`，暂不加入 `changelog_include`；
-它仍通过 `version.workspace = true` 跟随根版本。首个包含该包的统一 tag 创建后，
-移除临时覆盖并把框架包加入 `changelog_include`。不改写历史 tag，也不增加发现脚本。
-只设置 `release = false` 不够：0.4.x 在筛选发布包之前就会收集 git-only 基线。
-本地验证使用独立 checkout 运行 `release-plz update`；它会修改版本和 changelog，
-所以不要直接在正在开发的工作区里试跑。
+workspace 默认 `release = false`、`git_only = false`、`publish = false`。
+应用、examples 和新增包自动跟随根版本，但不独立分析发布历史，无需新增排除项。
+release-plz 0.4.x 会在筛选发布包前重建 git-only 基线；如果旧 tag 不含新增包，
+默认对所有包启用 git-only 会导致 `cannot find package`。
+因此新增框架包先保持默认配置，等首个包含它的统一 tag 创建后，再显式启用上述两项
+并加入 `changelog_include`。不改写历史 tag，也不维护额外的包发现脚本。
+本地验证在独立 checkout 运行 `release-plz update`，避免污染开发中的版本和 changelog。
 
 仓库 Settings → Actions → General 必须允许 Actions 创建 PR。
 workflow 默认使用 `GITHUB_TOKEN`；它创建的 release PR 不会自动触发后续 CI。
