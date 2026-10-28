@@ -1,13 +1,13 @@
 # Immediate API、宏与格式化
 
-当前主线使用 `plico-core`；普通项目入口见 [编写方式](authoring.md)。
+当前主线使用 `plico`；普通项目入口见 [编写方式](authoring.md)。
 
 ## 原生 operator children
 
 容器配置完成后，使用 `+ |cx| { ... }` 声明子内容。这是普通 Rust 的 Add 和 FnOnce，不需要宏把自定义语法转换为闭包。
 
 ```rust
-use plico_core::{icons, prelude::*};
+use plico::{icons, prelude::*};
 
 #[component]
 #[rustfmt::skip]

@@ -1,4 +1,4 @@
-use plico_core::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, prelude::*};
+use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, prelude::*};
 use plico_dev::App;
 use plico_renderer::{FrameSource, ImeEvent, UiEvent};
 use plico_runtime::{

@@ -20,7 +20,7 @@ cargo run -p launcher --example launcher-capture -- --out /tmp/launcher-empty.pn
 输入控件可以保持编辑焦点，同时同步返回结果列表的导航意图：
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 fn search(cx: &mut UiContext, query: &TextBuffer) {
     let response = text_input(cx, "Search", query)

@@ -1,9 +1,9 @@
 use crate::WebHost;
 use js_sys::Function;
-use plico_core::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
+use plico::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::{Frame, PROTOCOL_VERSION, Request};
 use plico_renderer::FrameSource;
-use plico_vello::View;
+use plico_runtime::View;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -134,13 +134,13 @@ impl RemoteView {
                         *self.next += 1;
                         *self.next
                     });
-                    if n.kind == plico_core::Kind::Shader {
+                    if n.kind == plico::Kind::Shader {
                         if let Some(params) = &n.shader {
                             ui.shader_element(Key::Number(key), n.style, &n.text, params);
                         }
-                    } else if n.kind == plico_core::Kind::Text {
+                    } else if n.kind == plico::Kind::Text {
                         ui.rich_text_element(Key::Number(key), n.style, &n.text, &n.spans);
-                    } else if n.kind == plico_core::Kind::Slider {
+                    } else if n.kind == plico::Kind::Slider {
                         if let Some(value) = n.numeric.and_then(|range| {
                             ui.slider_element(Key::Number(key), n.style, &n.text, range)
                         }) {
@@ -246,7 +246,7 @@ impl View for RemoteView {
         let clicks = std::mem::take(&mut self.pending);
         let values = std::mem::take(&mut self.pending_values);
         let input = !clicks.is_empty() || !values.is_empty();
-        let ticking = self.frame.requests.contains(plico_core::Changes::ANIMATE)
+        let ticking = self.frame.requests.contains(plico::Changes::ANIMATE)
             && self.time != self.rendered_time;
         if (self.dirty
             || resized
@@ -258,14 +258,14 @@ impl View for RemoteView {
         {
             self.last_error = Some(format!("{e:?}"));
             self.dirty = false;
-            self.frame.requests.remove(plico_core::Changes::ANIMATE);
+            self.frame.requests.remove(plico::Changes::ANIMATE);
         }
         let previous_hover = self.hovered.clone();
         self.replay(ui);
         if previous_hover != self.hovered {
             ui.request_rebuild();
         }
-        if self.frame.requests.contains(plico_core::Changes::ANIMATE) {
+        if self.frame.requests.contains(plico::Changes::ANIMATE) {
             ui.request_animation_frame();
         }
         if input || !self.pending.is_empty() || !self.pending_values.is_empty() {
@@ -289,10 +289,8 @@ fn call(module: &Function, request: &Request) -> Result<(Frame, usize, usize), J
     plico_dev::validate_nodes(&frame.nodes).map_err(err)?;
     fn web_nodes(nodes: &[ViewNode]) -> bool {
         nodes.iter().all(|n| {
-            !matches!(
-                n.kind,
-                plico_core::Kind::Shader | plico_core::Kind::TextInput
-            ) && web_nodes(&n.children)
+            !matches!(n.kind, plico::Kind::Shader | plico::Kind::TextInput)
+                && web_nodes(&n.children)
         })
     }
     if !web_nodes(&frame.nodes) {

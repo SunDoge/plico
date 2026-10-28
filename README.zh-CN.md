@@ -53,9 +53,8 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 
 完整的 [counter 示例](examples/counter.rs) 可用 `cargo run --example counter` 启动。
 
-`plico` 是应用的主要入口，提供 UI prelude 和 `App`，默认启用桌面宿主；关闭默认
-feature 可以只使用与后端无关的声明能力，按需启用 `skia`。
-在 `plico::App::show` 中调用即可。应用状态仍是普通 Rust 数据，组件无需实现 trait。
+`plico` 提供与后端无关的 UI API，桌面宿主由 `plico-desktop` 单独提供。
+在 `plico_dev::App::show` 中调用即可。应用状态仍是普通 Rust 数据，组件无需实现 trait。
 详见[编写方式](docs/authoring.md)和[局部状态与宿主任务](docs/local-state-and-tasks.md)。
 
 ## 运行与开发
@@ -103,8 +102,8 @@ Bevy 和 `no_std` 尚未接入。
 
 | 领域 | Package / 目录 |
 | --- | --- |
-| 与渲染无关的声明核心 | `plico-core`：Engine、UiContext、控件、身份与局部状态，不依赖窗口、布局引擎或渲染器 |
-| 运行时与桌面宿主 | `plico-runtime`、`plico-vello` |
+| 与渲染无关的声明核心 | `plico`：Engine、UiContext、控件、身份与局部状态，不依赖窗口、布局引擎或渲染器 |
+| 运行时与桌面宿主 | `plico-runtime`、`plico-desktop` |
 | 渲染与平台集成 | `plico-renderer`、`plico-shell`、`plico-motion`、`plico-native` |
 | 可选后端 | `plico-skia`、`plico-fltk`、`plico-lvgl`、`plico-web-host` |
 | 开发工具 | `plico-cli`、`plico-dev`、`plico-macros` |

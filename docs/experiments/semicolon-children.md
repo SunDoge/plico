@@ -101,11 +101,11 @@ in [the native-children experiment](component-format.md) still apply.
 ## Reproduce
 
 ```sh
-cargo run -p plico-core --example semi_children
-cargo test -p plico-core --test semi_children
+cargo run -p plico --example semi_children
+cargo test -p plico --test semi_children
 python3 scripts/experiments/check-semi-children-lsp.py
 uv run scripts/experiments/check-component-format.py
-uv run scripts/experiments/format-components.py crates/plico-core/examples/semi_children.rs
+uv run scripts/experiments/format-components.py crates/plico/examples/semi_children.rs
 ```
 
 The formatter's Python dependencies are pinned in script metadata and isolated by

@@ -1,7 +1,7 @@
 # 后端清理
 
 当前 crate 职责以根目录 README 的 workspace 清单为准。自绘后端名为
-`plico-vello`，浏览器宿主为 `plico-web-host`；split-loading 的 UI 示例位于
+`plico-desktop`，浏览器宿主为 `plico-web-host`；split-loading 的 UI 示例位于
 `apps/web-demo`（package `web-demo`），不属于通用框架 crate。
 
 下文记录早期 Wabou 迁移与后端合并，不代表当前 package 数量。

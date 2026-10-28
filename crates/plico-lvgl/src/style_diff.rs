@@ -3,7 +3,7 @@
 //! property. Unchanged pixel-quantized values produce no native calls.
 use crate::ffi::{self, Obj, color, pct};
 use lightvgl_sys as sys;
-use plico_core::{Align, Justify, Kind, Style, StyleProperties, Theme};
+use plico::{Align, Justify, Kind, Style, StyleProperties, Theme};
 
 #[derive(Clone, Copy)]
 struct Values {

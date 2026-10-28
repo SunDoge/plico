@@ -3,7 +3,7 @@
 运行 `cargo run -p gallery`，进入 **Glass**。可调 Blur、Tint，关闭 Blur background 对比原始边界，关闭 Move background 暂停背景。音乐卡片是演示内容；Save mix 仅改变本地界面状态。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 fn glass(cx: &mut UiContext) {
@@ -38,8 +38,8 @@ Scene 构建时截取面板之前的绘制前缀，补齐前缀中尚未关闭�
 ## 验证
 
 ```sh
-cargo test -p plico-vello --test backdrop
-cargo test -p plico-vello --test glass_pixels
+cargo test -p plico-desktop --test backdrop
+cargo test -p plico-desktop --test glass_pixels
 cargo test -p gallery --test glass
 cargo run -p gallery --example capture -- --page glass --out /tmp/glass.png
 cargo run -p gallery --example capture -- --page glass --dark --width 760 --height 740 --out /tmp/glass-dark.png

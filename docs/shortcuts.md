@@ -3,11 +3,11 @@
 `App::on_key_event(&KeyEvent)` and `ServiceApp::on_key_event(&KeyEvent, &mut
 Services<_, _>)` receive full fallback events, including modifiers, the logical
 key without modifiers, physical code, location and repeat/synthetic flags. The
-same event type is exported by `plico-core`, `plico-dev` and `plico-renderer`.
+same event type is exported by `plico`, `plico-dev` and `plico-renderer`.
 It has no renderer/window dependency in the application protocol.
 
 ```rust
-use plico_core::{KeyEvent, Shortcut};
+use plico::{KeyEvent, Shortcut};
 
 // Inside impl plico_dev::App:
 fn on_key_event(&mut self, event: &KeyEvent) -> bool {
@@ -39,7 +39,7 @@ For larger applications, create a `ShortcutMap<Action>` once (for example in a
 serde-skipped field with a default initializer):
 
 ```rust
-use plico_core::{Shortcut, ShortcutMap};
+use plico::{Shortcut, ShortcutMap};
 #[derive(Clone, Copy)]
 enum Action { OpenPalette, SearchEditor }
 let mut keys = ShortcutMap::default();

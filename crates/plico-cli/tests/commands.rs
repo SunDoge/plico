@@ -15,11 +15,11 @@ impl Fixture {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir_all(p.join("crates/plico-core")).unwrap();
+        fs::create_dir_all(p.join("crates/plico")).unwrap();
         fs::create_dir_all(p.join("crates/plico-cli")).unwrap();
         for path in [
             "Cargo.toml",
-            "crates/plico-core/Cargo.toml",
+            "crates/plico/Cargo.toml",
             "crates/plico-cli/Cargo.toml",
         ] {
             fs::write(p.join(path), "").unwrap();

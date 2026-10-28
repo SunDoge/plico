@@ -1,9 +1,9 @@
 //! Native editor gallery: cargo run -p gallery --example code_editor
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> Result<(), plico_vello::DesktopError> {
-    use plico_core::prelude::*;
+fn main() -> Result<(), plico_desktop::DesktopError> {
+    use plico::prelude::*;
+    use plico_desktop::{SurfaceSource, View, WindowOptions};
     use plico_editor::{CodeEditor, CodeEditorState};
-    use plico_vello::{SurfaceSource, View, WindowOptions};
 
     struct Demo {
         state: CodeEditorState,
@@ -43,7 +43,7 @@ fn main() -> Result<(), plico_vello::DesktopError> {
         CodeEditor::new(state),
         "code-editor",
     );
-    plico_vello::run_source_with_options(
+    plico_desktop::run_source_with_options(
         source,
         WindowOptions::new()
             .title("Plico · Code editor")

@@ -19,13 +19,13 @@ with tempfile.TemporaryDirectory(prefix="plico-add-check-") as temporary:
     (app / "src").mkdir()
     (app / "Cargo.toml").write_text(
         '[package]\nname="plico-operator-typing-probe"\nversion="0.0.0"\nedition="2024"\n'
-        '[workspace]\n[dependencies]\nplico-core={path=' + json.dumps(str(ROOT / "crates/plico-core")) + '}\n'
+        '[workspace]\n[dependencies]\nplico={path=' + json.dumps(str(ROOT / "crates/plico")) + '}\n'
     )
     env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target/operator-typing-probe"))
     results = []
     for name, body, errors in CASES:
         (app / "src/main.rs").write_text(
-            'use plico_core::prelude::*;\nfn screen(cx: &mut UiContext) {\n' + body + '\n}\nfn main() {}\n'
+            'use plico::prelude::*;\nfn screen(cx: &mut UiContext) {\n' + body + '\n}\nfn main() {}\n'
         )
         run = subprocess.run(["cargo", "check", "--offline", "--manifest-path", str(app / "Cargo.toml")],
                              cwd=ROOT, env=env, text=True, capture_output=True)

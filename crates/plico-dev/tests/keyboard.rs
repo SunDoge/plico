@@ -1,4 +1,4 @@
-use plico_core::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, UiContext};
+use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, UiContext};
 use plico_dev::{
     App, Request,
     services::{ServiceApp, Services},

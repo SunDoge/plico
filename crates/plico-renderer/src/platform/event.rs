@@ -82,7 +82,7 @@ pub struct Point {
     pub y: f64,
 }
 
-pub use plico_core::{KeyEvent, KeyLocation, KeyPhase, Modifiers, StandardShortcut};
+pub use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, StandardShortcut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Pointer button independent of winit and DOM numbering.

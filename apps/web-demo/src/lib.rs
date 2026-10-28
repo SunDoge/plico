@@ -1,6 +1,6 @@
 //! Small UI-only module: deliberately no renderer, platform shell or host resources.
 pub mod icons;
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_dev::{App, Request};
 use serde::{Deserialize, Serialize};
 

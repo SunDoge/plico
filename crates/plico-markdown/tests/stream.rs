@@ -1,4 +1,4 @@
-use plico_core::{Clock, Engine, VirtualClock};
+use plico::{Clock, Engine, VirtualClock};
 use plico_markdown::{Document, RevealUnit, Stream};
 use std::time::Duration;
 
@@ -84,12 +84,12 @@ fn stable_blocks_reuse_nodes_and_animations_eventually_sleep() {
     let mut e = Engine::default();
     e.frame_declarations(|cx| s.show(cx)).unwrap();
     let first = e.snapshot();
-    e.set_time(plico_core::FrameTime {
+    e.set_time(plico::FrameTime {
         now: Duration::from_secs(1),
         delta: Duration::from_secs(1),
     });
     let stats = e.frame_declarations(|cx| s.show(cx)).unwrap();
     assert_eq!(stats.created, 0);
-    assert!(!e.changes().contains(plico_core::Changes::ANIMATE));
+    assert!(!e.changes().contains(plico::Changes::ANIMATE));
     assert_eq!(first[0].children[0].key, e.snapshot()[0].children[0].key);
 }

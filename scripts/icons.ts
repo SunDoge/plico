@@ -15,7 +15,7 @@ import { mkdir, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const VENDOR = join(ROOT, "crates/plico-core/assets/lucide");
+const VENDOR = join(ROOT, "crates/plico/assets/lucide");
 const ASSETS = join(VENDOR, "icons");
 const SOURCE = join(VENDOR, "SOURCE.json");
 const REPO = "https://github.com/lucide-icons/lucide";
@@ -132,10 +132,10 @@ async function generate(check: boolean) {
   // upstream catalog and delegates the four framework control glyphs to it.
   const args = ["cargo", "run", "--quiet", "-p", "plico-cli", "--", "icons"];
   if (check) {
-    args.push("check", "--output", "crates/plico-core/src/icons.rs");
+    args.push("check", "--output", "crates/plico/src/icons.rs");
   } else {
     args.push("add", "lucide:check", "lucide:chevron-down", "lucide:chevron-left", "lucide:chevron-right", "lucide:x",
-      "--output", "crates/plico-core/src/icons.rs", "--rust-crate", "crate", "--source", VENDOR);
+      "--output", "crates/plico/src/icons.rs", "--rust-crate", "crate", "--source", VENDOR);
   }
   const child = Bun.spawn(args, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   if (await child.exited !== 0) throw new Error("plico icons failed");

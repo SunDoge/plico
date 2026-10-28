@@ -37,8 +37,8 @@ Gallery → Motion 的 Exposure 控制实时 WGSL 的 uniform。scripts/check-mo
 
 ```sh
 cargo run -p gallery
-cargo test -p plico-vello --test slider
-cargo test -p plico-core --test slider
+cargo test -p plico-desktop --test slider
+cargo test -p plico --test slider
 ```
 
 只读参考 MyGO ui/base.go / ui/widgets.go 的 SliderBase、连续/步进数值绑定，以及 Wabou slider.tsx 的键盘、orientation、reversed 和范围规范化。未修改原仓库，也未复制其实现。测试覆盖拖动捕获、键盘累积、AT 设值与增减、禁用继承、端点、极端步长、非法配置、同帧值和热重载协议。语义桥接测试不等同于实机屏幕阅读器验收。

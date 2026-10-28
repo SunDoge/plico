@@ -1,5 +1,5 @@
 //! Typed property transitions, owned by the host and keyed by retained Entity.
-use plico_core::{Color, Entity, Style, Theme};
+use plico::{Color, Entity, Style, Theme};
 use plico_motion::{Easing, MotionArena, MotionId};
 use std::{collections::HashMap, time::Duration};
 use web_time::Instant;
@@ -131,7 +131,7 @@ impl StyleMotions {
         target[..16].copy_from_slice(&base);
         for (index, value) in extra.iter().enumerate() {
             target[16 + index] = match value {
-                Some(plico_core::Length::Px(v) | plico_core::Length::Percent(v)) => *v as f64,
+                Some(plico::Length::Px(v) | plico::Length::Percent(v)) => *v as f64,
                 _ => 0.,
             };
         }
@@ -141,9 +141,9 @@ impl StyleMotions {
             style.background.is_some(),
             extra.map(|v| match v {
                 None => 0,
-                Some(plico_core::Length::Auto) => 1,
-                Some(plico_core::Length::Px(_)) => 2,
-                Some(plico_core::Length::Percent(_)) => 3,
+                Some(plico::Length::Auto) => 1,
+                Some(plico::Length::Px(_)) => 2,
+                Some(plico::Length::Percent(_)) => 3,
             }),
         );
         // Auto/explicit and absent/present paint changes snap. Do not invent a
@@ -214,12 +214,11 @@ impl StyleMotions {
     }
 }
 
-fn extra_lengths(s: Style) -> [Option<plico_core::Length>; 26] {
-    use plico_core::Length::Px;
+fn extra_lengths(s: Style) -> [Option<plico::Length>; 26] {
+    use plico::Length::Px;
     let l = s.layout;
-    let edge = |v: Option<plico_core::Edges<plico_core::Length>>| {
-        v.map_or([None; 4], |e| e.values().map(Some))
-    };
+    let edge =
+        |v: Option<plico::Edges<plico::Length>>| v.map_or([None; 4], |e| e.values().map(Some));
     let mut slots = [None; 26];
     slots[..2].copy_from_slice(&l.min_size);
     slots[2..4].copy_from_slice(&l.max_size);
@@ -235,12 +234,12 @@ fn extra_lengths(s: Style) -> [Option<plico_core::Length>; 26] {
         s.max_width.map(Px),
         s.max_height.map(Px),
     ]);
-    slots[24] = s.width_percent.map(plico_core::Length::Percent);
-    slots[25] = s.height_percent.map(plico_core::Length::Percent);
+    slots[24] = s.width_percent.map(plico::Length::Percent);
+    slots[25] = s.height_percent.map(plico::Length::Percent);
     slots
 }
 fn apply_extra(s: &mut Style, values: &[f64]) {
-    use plico_core::Length;
+    use plico::Length;
     let old = extra_lengths(*s);
     let slots: [Option<Length>; 26] = std::array::from_fn(|i| {
         old[i].map(|l| match l {
@@ -252,7 +251,7 @@ fn apply_extra(s: &mut Style, values: &[f64]) {
     s.layout.min_size.copy_from_slice(&slots[..2]);
     s.layout.max_size.copy_from_slice(&slots[2..4]);
     let edge = |start: usize| {
-        plico_core::Edges::new(
+        plico::Edges::new(
             slots[start].unwrap(),
             slots[start + 1].unwrap(),
             slots[start + 2].unwrap(),
@@ -285,7 +284,7 @@ mod tests {
     use super::*;
     #[test]
     fn retarget_is_continuous_and_unmount_releases_motion() {
-        let mut entities = plico_core::Arena::default();
+        let mut entities = plico::Arena::default();
         let e = entities.insert(());
         let mut motions = StyleMotions::default();
         let now = Instant::now();
@@ -329,7 +328,7 @@ mod tests {
     }
     #[test]
     fn auto_dimensions_and_disabled_motion_snap_without_invented_sizes() {
-        let mut entities = plico_core::Arena::default();
+        let mut entities = plico::Arena::default();
         let e = entities.insert(());
         let mut motions = StyleMotions::default();
         let a = Style {

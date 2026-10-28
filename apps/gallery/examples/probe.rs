@@ -4,8 +4,8 @@
 //!   probe            # all pages, cold/idle/scroll/idle phases
 //!   probe --legacy   # the original Controls-page interaction script
 use gallery::{Gallery, Page};
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_vello::Source;
 
 fn record(s: &Source<Gallery>, phase: &str, nodes: usize, scene_us: u128) -> serde_json::Value {
     let b = &s.adapter.stats;
@@ -62,7 +62,7 @@ fn page_from(name: &str) -> Page {
 }
 fn probe_page(page: Page) -> Vec<serde_json::Value> {
     let mut s = Source::new(Gallery {
-        router: plico_core::Router::new(page),
+        router: plico::Router::new(page),
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -93,7 +93,7 @@ fn probe_page(page: Page) -> Vec<serde_json::Value> {
 }
 fn legacy_frames() -> Vec<serde_json::Value> {
     let mut s = Source::new(Gallery {
-        router: plico_core::Router::new(gallery::Page::Controls),
+        router: plico::Router::new(gallery::Page::Controls),
         ..Default::default()
     });
     let mut tcx = TextContext::new();

@@ -14,7 +14,7 @@ Rust crate 统一位于根目录 `crates/plico-*`；本目录保留来源、许�
 | wabou-renderer | plico-renderer |
 | wabou-shell | plico-shell |
 | wabou-terminal-widget | plico-terminal |
-| plico-wabou（适配层） | plico-vello |
+| plico-wabou（适配层） | plico-desktop |
 
 ## 组成
 

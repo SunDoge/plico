@@ -1,4 +1,4 @@
-use plico_core::prelude::*;
+use plico::prelude::*;
 #[component]
 #[rustfmt::skip]
 pub fn show(cx: &mut UiContext, expanded: &mut bool) {

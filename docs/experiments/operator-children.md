@@ -25,12 +25,12 @@ fn settings(cx: &mut UiContext) {
 运行：
 
 ```sh
-cargo run -p plico-core --example operator_children
-cargo test -p plico-core --test operator_children
+cargo run -p plico --example operator_children
+cargo test -p plico --test operator_children
 python3 scripts/experiments/check-operator-children-lsp.py
 python3 scripts/experiments/check-operator-children-compilation.py
 cargo test -p plico-cli native_operator_children_are_flat_and_idempotent
-cargo run -p plico-cli -- fmt --check crates/plico-core/examples/operator_children.rs
+cargo run -p plico-cli -- fmt --check crates/plico/examples/operator_children.rs
 ```
 
 - rust-analyzer 1.99.0 (b940084 2026-09-28)，真实 stdio LSP，不用源码字符串搜索模拟补全。普通函数、component 函数分别测试，共 26 项全部通过。

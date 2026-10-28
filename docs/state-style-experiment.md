@@ -1,13 +1,13 @@
 # 状态样式与动画权重实验
 
-这是 `crates/plico-vello/examples/state_style.rs` 中的独立实验，未增加正式 API，
+这是 `crates/plico-desktop/examples/state_style.rs` 中的独立实验，未增加正式 API，
 未复制 Glacex 代码，也未引入依赖。参考的是交互目标值与连续状态权重分离的设计。
 
 运行：
 
 ```sh
-cargo test --locked -p plico-vello --example state_style
-cargo run --locked -p plico-vello --example state_style
+cargo test --locked -p plico-desktop --example state_style
+cargo run --locked -p plico-desktop --example state_style
 ```
 
 程序在 stdout 输出 181 个虚拟时钟采样点，在本地 reports 目录生成状态对照图。

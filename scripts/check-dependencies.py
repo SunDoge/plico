@@ -29,7 +29,7 @@ for package in ("gallery", "services-demo"):
         sys.exit(f"Static {package} unexpectedly depends on stabby")
 print("Static applications do not depend on stabby.")
 # Explicit manifest paths prevent machete's recursive directory walk from
-# entering nested, excluded packages such as plico-vello/reference.
+# entering nested, excluded packages such as plico-desktop/reference.
 sys.exit(subprocess.run(
     ["cargo-machete", "--with-metadata", *manifests], cwd=ROOT,
 ).returncode)

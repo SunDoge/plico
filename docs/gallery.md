@@ -22,7 +22,7 @@ Motion::Quick（140ms）、Smooth（240ms）、Emphasized（360ms）和 None 统
 ## SVG 资源
 
 ```rust
-static LOGO: plico_core::SvgAsset = plico_core::svg_asset!("../assets/plico.svg");
+static LOGO: plico::SvgAsset = plico::svg_asset!("../assets/plico.svg");
 // 在组件中：
 svg(cx, &LOGO).size(26., 26.);
 ```
@@ -44,7 +44,7 @@ host 按完整源文缓存 SvgImage，同内容节点共享 Arc；动画帧不�
 Controls 页的 Preferences 并排展示正常和禁用的 switch/checkbox，复用同一业务值展示 checked 状态，但禁用项不会修改它。开关和复选框现在可链式配置 disabled、gap、尺寸/字体和 motion；Compact 同时改变指示器与文字的预留空间。最小窗口和大字号继续纳入整页边界测试，不通过增加窗口高度掩盖溢出。
 
 
-图标来自完整固定版本的 Lucide SVG 集合；scripts/icons.ts（bun）获取上游资产并生成 plico_core::icons 常量，SVG 不提交进仓库。导航、项目卡片、保存/重置/归档/恢复与计数按钮使用真实 SVG；checkbox 使用 CHECK 标记，支持主题颜色与淡入/缩放。详见 [SVG 图标](icons.md)，真实截图在 reports/icons。
+图标来自完整固定版本的 Lucide SVG 集合；scripts/icons.ts（bun）获取上游资产并生成 plico::icons 常量，SVG 不提交进仓库。导航、项目卡片、保存/重置/归档/恢复与计数按钮使用真实 SVG；checkbox 使用 CHECK 标记，支持主题颜色与淡入/缩放。详见 [SVG 图标](icons.md)，真实截图在 reports/icons。
 
 Lists 页提供 10,000 条固定行高数据，通过 virtual_list 仅声明可见行和 overscan；见 [虚拟列表](virtual-list.md)。
 

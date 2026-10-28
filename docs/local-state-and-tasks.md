@@ -166,6 +166,6 @@ outstanding handles, but those handles no longer attach to future declarations.
 Calling remove/clear unconditionally inside show will naturally reset repeatedly;
 use an explicit user action or host cleanup boundary.
 
-Run `cargo run -p plico-core --example persisted_state` for unmount and Engine
+Run `cargo run -p plico --example persisted_state` for unmount and Engine
 recreation. Tests also cover key isolation, unopened entries, incompatible types,
 failed import atomicity and checkpoint recovery through the real dev protocol.

@@ -13,15 +13,15 @@ crate-type = ["rlib", "cdylib"]
 [features]
 abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-vello"]
-hot-reload = ["desktop", "plico-vello/hot-reload"]
+desktop = ["dep:plico-desktop"]
+hot-reload = ["desktop", "plico-desktop/hot-reload"]
 # Verification only: require a new UI field so the old UI checkpoint resets.
 schema-reset-fixture = []
 
 [dependencies]
-plico-core.workspace = true
+plico.workspace = true
 plico-dev.workspace = true
-plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 
 [[bin]]

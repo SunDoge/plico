@@ -1,7 +1,7 @@
 //! Compact month pickers: a selected date and a continuous date range.
 use crate::heading;
-use plico_core::prelude::*;
-use plico_core::{CalendarDate, CalendarState, WeekStart};
+use plico::prelude::*;
+use plico::{CalendarDate, CalendarState, WeekStart};
 
 fn date(day: u8) -> CalendarDate {
     CalendarDate::new(2026, 10, day).expect("valid demo date")

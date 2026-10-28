@@ -1,7 +1,7 @@
 //! Gallery verification tool; the application itself does not parse arguments.
 use gallery::{Gallery, Page};
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_vello::Source;
 use snafu::{ResultExt, Snafu};
 use std::path::PathBuf;
 
@@ -104,7 +104,7 @@ fn run() -> Result<(), Error> {
         expanded: options.expanded,
         release_details: options.expanded,
         compact: options.compact,
-        router: plico_core::Router::new(page),
+        router: plico::Router::new(page),
         ..Default::default()
     };
     if page == Page::Images {
@@ -122,12 +122,12 @@ fn run() -> Result<(), Error> {
         app.images
             .load_for_capture(format)
             .map_err(|message| Error::Input { message })?;
-        let clock = plico_core::VirtualClock::default();
+        let clock = plico::VirtualClock::default();
         let widget = ImageSurface::with_clock(
             app.images.surface.clone(),
             std::sync::Arc::new(clock.clone()),
         );
-        let mut source = plico_vello::SurfaceSource::new(
+        let mut source = plico_desktop::SurfaceSource::new(
             gallery::images::GalleryHost { app },
             widget,
             "image-preview",
@@ -220,7 +220,7 @@ fn run() -> Result<(), Error> {
     if options.glass_off {
         app.glass.enabled = false;
     }
-    let clock = plico_core::VirtualClock::default();
+    let clock = plico::VirtualClock::default();
     let mut source = Source::with_clock(app, clock.clone());
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, options.width, options.height);

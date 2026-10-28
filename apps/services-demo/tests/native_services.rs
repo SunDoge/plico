@@ -1,7 +1,7 @@
 #![cfg(feature = "desktop")]
+use plico_desktop::{ServiceView, Source};
 use plico_dev::services::HostService;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_vello::{ServiceView, Source};
 use services_demo::{Application, TaskCommand, TaskSnapshot, TaskStatus};
 #[derive(Default)]
 struct Resident {
@@ -116,7 +116,7 @@ impl plico_dev::services::ServiceApp for ProjectionApp {
     type Command = ();
     fn show(
         &mut self,
-        cx: &mut plico_core::UiContext<'_>,
+        cx: &mut plico::UiContext<'_>,
         services: &mut plico_dev::services::Services<u64, ()>,
     ) {
         self.observed = *services.snapshot();

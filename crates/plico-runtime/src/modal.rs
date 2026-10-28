@@ -141,7 +141,7 @@ impl Adapter {
                 }
                 fn selected(engine: &Engine, e: Entity) -> Option<Entity> {
                     let n = engine.node(e)?;
-                    if n.style.role == Some(plico_core::WidgetRole::Option)
+                    if n.style.role == Some(plico::WidgetRole::Option)
                         && n.style.selected == Some(true)
                         && !n.style.disabled
                     {
@@ -156,9 +156,8 @@ impl Adapter {
                         .rev()
                         .find_map(|child| last_item(engine, *child))
                         .or_else(|| {
-                            (!n.style.disabled
-                                && n.style.role == Some(plico_core::WidgetRole::MenuItem))
-                            .then_some(e)
+                            (!n.style.disabled && n.style.role == Some(plico::WidgetRole::MenuItem))
+                                .then_some(e)
                         })
                 }
                 let open_last = self
@@ -201,7 +200,7 @@ impl Adapter {
             let specialized = panel.and_then(|e| engine.node(e)).is_some_and(|n| {
                 matches!(
                     n.style.role,
-                    Some(plico_core::WidgetRole::ListBox | plico_core::WidgetRole::Menu)
+                    Some(plico::WidgetRole::ListBox | plico::WidgetRole::Menu)
                 )
             });
             if specialized
@@ -217,10 +216,7 @@ impl Adapter {
                             && engine.node(*e).is_some_and(|n| {
                                 matches!(
                                     n.style.role,
-                                    Some(
-                                        plico_core::WidgetRole::Option
-                                            | plico_core::WidgetRole::MenuItem
-                                    )
+                                    Some(plico::WidgetRole::Option | plico::WidgetRole::MenuItem)
                                 )
                             })
                     })

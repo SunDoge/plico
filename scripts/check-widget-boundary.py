@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Keep the two Widget traits on their intended sides of the boundary.
 
-`plico_core::Widget` (fn show) is the immediate helper trait apps compose with;
+`plico::Widget` (fn show) is the immediate helper trait apps compose with;
 app components are plain functions taking `&mut UiContext`. The retained
 `plico_renderer::Widget` contract (measure/paint/IME/accessibility) is the
 platform-widget surface implemented by framework crates such as plico-editor

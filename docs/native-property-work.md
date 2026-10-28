@@ -23,7 +23,7 @@ FrameDelta，桌面后端也已有脏节点同步、Taffy style 比较和绘制�
 ## 实验
 
 ```sh
-cargo run --locked -p plico-vello --example property_work
+cargo run --locked -p plico-desktop --example property_work
 # 也可自行使用 --release；下表不是 release 数据。
 ```
 

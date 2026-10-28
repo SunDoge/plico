@@ -29,7 +29,7 @@ enum Error {
     Backend { backend: String },
     #[cfg(feature = "vello")]
     #[snafu(display("Vello window failed: {source}"))]
-    Vello { source: plico_vello::DesktopError },
+    Vello { source: plico_desktop::DesktopError },
     #[cfg(feature = "skia")]
     #[snafu(display("Skia window failed: {source}"))]
     Skia { source: plico_shell::Error },
@@ -69,9 +69,9 @@ fn run() -> Result<(), Error> {
         .ok_or(Error::NoBackend)?;
     match backend {
         #[cfg(feature = "vello")]
-        "vello" => plico_vello::run_source_with_options(
-            plico_vello::Source::new(backend_settings::Settings::default()),
-            plico_vello::WindowOptions::new()
+        "vello" => plico_desktop::run_source_with_options(
+            plico_desktop::Source::new(backend_settings::Settings::default()),
+            plico_desktop::WindowOptions::new()
                 .title("Plico settings — Vello")
                 .initial_inner_size(1100, 820),
         )

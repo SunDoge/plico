@@ -2,9 +2,9 @@
 #[path = "../src/service.rs"]
 #[allow(dead_code)]
 mod service;
+use plico_desktop::{Source, reload::ReloadView};
 use plico_dev::{host::Descriptor, services::HostService};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_vello::{Source, reload::ReloadView};
 use services_demo::TaskStatus;
 use snafu::{ResultExt, Snafu};
 use std::{
@@ -109,7 +109,7 @@ fn run() -> Result<()> {
     let (worker, steps) = service::TaskService::controlled();
     let mut source = Source::with_clock(
         ReloadView::with_services(descriptor.clone(), worker).context(ModuleSnafu)?,
-        plico_core::VirtualClock::default(),
+        plico::VirtualClock::default(),
     );
     let (tx, wakes) = mpsc::channel();
     source.set_wake_callback(Arc::new(move || {

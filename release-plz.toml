@@ -56,7 +56,6 @@ git_release_name = "Plico v{{ version }}"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
-    "plico-core",
     "plico-dev",
     "plico-editor",
     "plico-fltk",
@@ -70,7 +69,6 @@ changelog_include = [
     "plico-shell",
     "plico-skia",
     "plico-terminal",
-    "plico-vello",
     "plico-video",
     "plico-web-host",
 ]
@@ -78,11 +76,8 @@ changelog_include = [
 # Explicit release participants must already exist in the shared baseline tag.
 # New workspace members inherit the version but are not analyzed automatically.
 # Enable them here after a shared tag contains them; apps remain excluded.
-
-[[package]]
-name = "plico-core"
-release = true
-git_only = true
+# The renamed `plico` and `plico-desktop` packages first appear after v0.1.8;
+# add both after the next shared tag contains them.
 
 [[package]]
 name = "plico-dev"
@@ -146,11 +141,6 @@ git_only = true
 
 [[package]]
 name = "plico-terminal"
-release = true
-git_only = true
-
-[[package]]
-name = "plico-vello"
 release = true
 git_only = true
 

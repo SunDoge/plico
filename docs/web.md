@@ -1,7 +1,7 @@
 # WASM / 浏览器宿主
 
 Plico 现在可以在 wasm32-unknown-unknown 上编译并运行 gallery。plico-web-host 使用现有
-plico-vello::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / Vello。
+plico-runtime::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / Vello。
 组件、身份、失效分类、Taffy、文字、SVG 与 motion 共用原生实现，没有另建 DOM widget API。
 
 ## 运行 gallery
@@ -22,14 +22,14 @@ python3 -m http.server 8080 --directory target/plico-web-host
 只检查核心和浏览器目标：
 
 ```sh
-cargo check -p plico-core --target wasm32-unknown-unknown
+cargo check -p plico --target wasm32-unknown-unknown
 cargo check -p plico-web-host --features gallery --target wasm32-unknown-unknown
 cargo clippy -p plico-web-host --features gallery --target wasm32-unknown-unknown -- -D warnings
 ```
 
 不要对原生桌面应用执行整个 workspace 的 wasm all-targets 构建。CLI、原生窗口、
-动态库 watcher 和后台 std::thread 示例仍是原生目标。单独引用 plico-vello 时应
-default-features=false；其默认 hot-reload feature 用于原生开发。
+动态库 watcher 和后台 std::thread 示例仍是原生目标。浏览器宿主直接使用
+`plico-runtime`，不依赖 `plico-desktop` 或其原生热重载功能。
 
 ## 应用接入
 

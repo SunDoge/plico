@@ -258,7 +258,7 @@ impl Adapter {
                             self.selection.head = Some(point);
                             self.selection.dragging = true;
                             if let Some((buffer, _)) = self.focused.and_then(|e| engine.input(e)) {
-                                buffer.edit(plico_core::InputEdit::ClearPreedit);
+                                buffer.edit(plico::InputEdit::ClearPreedit);
                             }
                             self.focused = None;
                             self.pressed = None;

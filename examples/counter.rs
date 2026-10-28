@@ -1,12 +1,11 @@
 use plico::prelude::*;
 
-#[derive(Default, plico::serde::Serialize, plico::serde::Deserialize)]
-#[serde(crate = "plico::serde")]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Counters {
     global: i32,
 }
 
-impl plico::App for Counters {
+impl plico_dev::App for Counters {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
@@ -49,10 +48,10 @@ fn counter(cx: &mut UiContext, title: &str, count: &mut i32) {
     };
 }
 
-fn main() -> Result<(), plico::DesktopError> {
-    plico::run_with_options(
+fn main() -> Result<(), plico_desktop::DesktopError> {
+    plico_desktop::run_with_options(
         Counters::default(),
-        plico::WindowOptions::new()
+        plico_desktop::WindowOptions::new()
             .title("Local and global counters")
             .initial_inner_size(640, 480)
             .min_inner_size(560, 440),

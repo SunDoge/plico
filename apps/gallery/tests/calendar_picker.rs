@@ -1,8 +1,8 @@
 #![cfg(feature = "desktop")]
 use gallery::{Gallery, Page};
-use plico_core::{Router, VirtualClock};
+use plico::{Router, VirtualClock};
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
-use plico_vello::Source;
 use std::time::Duration;
 
 #[test]

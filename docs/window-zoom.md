@@ -1,13 +1,13 @@
 # Native window zoom
 
-`plico_vello::ZoomSource` is a host-side wrapper around a `FrameSource`, independent
+`plico_desktop::ZoomSource` is a host-side wrapper around a `FrameSource`, independent
 from OS HiDPI. It accepts 50–300% application zoom and handles Ctrl +/−/0 (Command
 also works on macOS). A shared `ZoomController` exposes button/API control and
 wakes the host when changed. Invalid, infinite and NaN factors are rejected.
 
 ```rust
-let zoom = plico_vello::ZoomController::default();
-let frame = plico_vello::ZoomSource::with_controller(Box::new(source), zoom.clone());
+let zoom = plico_desktop::ZoomController::default();
+let frame = plico_desktop::ZoomSource::with_controller(Box::new(source), zoom.clone());
 zoom.set(1.25);
 ```
 

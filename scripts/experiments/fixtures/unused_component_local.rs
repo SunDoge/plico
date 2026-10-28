@@ -1,5 +1,5 @@
 #![deny(unused_variables)]
-use plico_core::prelude::*;
+use plico::prelude::*;
 #[component]
 pub fn unused_local(cx: &mut UiContext) {
     let unused_local = 42;

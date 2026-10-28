@@ -10,8 +10,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 snafu.workspace = true
-plico-vello = { path = "../../crates/plico-vello", optional = true, default-features = false }
-plico-core.workspace = true
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
+plico.workspace = true
 plico-motion.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
 plico-dev.workspace = true
@@ -20,8 +20,8 @@ serde = { workspace = true, features = ["derive"] }
 [features]
 abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-vello", "dep:plico-renderer", "dep:ureq", "dep:directories"]
-profiling = ["plico-vello/profiling"]
+desktop = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
+profiling = ["plico-desktop/profiling"]
 
 [[bin]]
 name = "gallery"

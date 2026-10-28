@@ -32,7 +32,7 @@ signatureHelp，在已有语句前插入八种编辑状态：`te`、`te;`、未�
 ```sh
 python3 scripts/experiments/check-fresh-call-lsp.py
 python3 scripts/experiments/check-component-compilation.py
-cargo test -p plico-core --test component_children --test semi_children --test native_children
+cargo test -p plico --test component_children --test semi_children --test native_children
 ```
 
 这些测试直接请求语言服务器，没有验证具体编辑器的自动弹窗策略。

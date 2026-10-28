@@ -1,6 +1,6 @@
 //! Headless end-to-end UI/task bridge. Replace the queue with your executor's
 //! spawn method and the mock operation with an actual async request.
-use plico_core::{PathKey, ViewNode, prelude::*};
+use plico::{PathKey, ViewNode, prelude::*};
 use plico_dev::{
     Request,
     services::{HostService, ServiceApp, Services, render},

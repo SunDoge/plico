@@ -1,7 +1,7 @@
 fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
     plico_dev::StateSnapshot::encode(value).unwrap()
 }
-use plico_core::{PathKey, UiContext};
+use plico::{PathKey, UiContext};
 use plico_dev::{App, Request, render};
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Counter {
@@ -109,7 +109,7 @@ fn logical_frame_time_and_animation_requests_cross_the_application_protocol() {
         }
     }
     let request = Request {
-        time: plico_core::FrameTime {
+        time: plico::FrameTime {
             now: std::time::Duration::from_millis(100),
             delta: std::time::Duration::from_millis(16),
         },
@@ -120,16 +120,16 @@ fn logical_frame_time_and_animation_requests_cross_the_application_protocol() {
     assert_eq!(reply.status, 0);
     let frame: plico_dev::Frame = serde_json::from_slice(&reply.bytes).unwrap();
     assert_eq!(frame.nodes[0].text, "100 / 16");
-    assert!(frame.requests.contains(plico_core::Changes::ANIMATE));
+    assert!(frame.requests.contains(plico::Changes::ANIMATE));
     let frame = render::<Timer>(Request {
-        time: plico_core::FrameTime {
+        time: plico::FrameTime {
             now: std::time::Duration::from_secs(1),
             delta: std::time::Duration::from_millis(16),
         },
         ..Default::default()
     })
     .unwrap();
-    assert!(!frame.requests.contains(plico_core::Changes::ANIMATE));
+    assert!(!frame.requests.contains(plico::Changes::ANIMATE));
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -137,14 +137,14 @@ struct Themed {
     compact: bool,
 }
 impl App for Themed {
-    fn theme(&self) -> plico_core::Theme {
-        let mut theme = plico_core::Theme::dark();
+    fn theme(&self) -> plico::Theme {
+        let mut theme = plico::Theme::dark();
         if self.compact {
-            theme.metrics = plico_core::Metrics::compact();
+            theme.metrics = plico::Metrics::compact();
         }
         theme
     }
-    #[plico_core::component]
+    #[plico::component]
     fn show(&mut self, ui: &mut UiContext) {
         ui.button("Composite").primary().children(|ui| {
             ui.text("Body");
@@ -158,18 +158,15 @@ fn module_declarations_receive_app_theme_and_composite_content_survives_wire_rou
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(frame.theme.metrics, plico_core::Metrics::compact());
+    assert_eq!(frame.theme.metrics, plico::Metrics::compact());
     let button = &frame.nodes[0];
-    assert_eq!(button.kind, plico_core::Kind::ButtonBase);
+    assert_eq!(button.kind, plico::Kind::ButtonBase);
     assert_eq!(button.style.font_size, frame.theme.metrics.font_size);
     assert_eq!(
         button.style.min_height,
         Some(frame.theme.metrics.control_height as f32)
     );
-    assert_eq!(
-        button.children[0].style.foreground,
-        plico_core::Color::OnAccent
-    );
+    assert_eq!(button.children[0].style.foreground, plico::Color::OnAccent);
     let round_trip: plico_dev::Frame =
         serde_json::from_slice(&serde_json::to_vec(&frame).unwrap()).unwrap();
     assert_eq!(round_trip.nodes[0].children[0].text, "Body");
@@ -183,9 +180,9 @@ struct ControlledToggle {
     actions: usize,
 }
 impl App for ControlledToggle {
-    #[plico_core::component]
-    fn show(&mut self, cx: &mut plico_core::UiContext) {
-        if plico_core::widgets::checkbox(cx, "Controlled", &mut self.checked)
+    #[plico::component]
+    fn show(&mut self, cx: &mut plico::UiContext) {
+        if plico::widgets::checkbox(cx, "Controlled", &mut self.checked)
             .disabled(self.locked)
             .gap(10)
             .changed()
@@ -237,16 +234,16 @@ fn configured_toggle_crosses_module_protocol_without_retaining_a_business_borrow
 fn modal_identity_dismissal_and_presence_survive_serialized_app_recreation() {
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Demo {
-        state: plico_core::ModalState,
+        state: plico::ModalState,
     }
     impl App for Demo {
-        #[plico_core::component]
+        #[plico::component]
         fn show(&mut self, cx: &mut UiContext<'_>) {
-            plico_core::widgets::column(cx).children(|cx| {
-                plico_core::widgets::modal(cx, &mut self.state)
+            plico::widgets::column(cx).children(|cx| {
+                plico::widgets::modal(cx, &mut self.state)
                     .title("Portable dialog")
                     .children(|cx| {
-                        plico_core::widgets::text(cx, "Content");
+                        plico::widgets::text(cx, "Content");
                     });
             })
         }
@@ -261,13 +258,13 @@ fn modal_identity_dismissal_and_presence_survive_serialized_app_recreation() {
     let overlay = opened
         .nodes
         .iter()
-        .find(|n| n.kind == plico_core::Kind::Overlay)
+        .find(|n| n.kind == plico::Kind::Overlay)
         .unwrap();
     let key = overlay.key.clone();
     let closing = render::<Demo>(Request {
         state: opened.state,
         clicks: vec![vec![key.clone()]],
-        time: plico_core::FrameTime {
+        time: plico::FrameTime {
             now: std::time::Duration::from_millis(100),
             ..Default::default()
         },
@@ -277,26 +274,21 @@ fn modal_identity_dismissal_and_presence_survive_serialized_app_recreation() {
     let overlay = closing
         .nodes
         .iter()
-        .find(|n| n.kind == plico_core::Kind::Overlay)
+        .find(|n| n.kind == plico::Kind::Overlay)
         .unwrap();
     assert_eq!(overlay.key, key);
     assert!(!overlay.style.modal_open);
     assert_eq!(overlay.style.presence_until_ms, Some(240));
     let closed = render::<Demo>(Request {
         state: closing.state,
-        time: plico_core::FrameTime {
+        time: plico::FrameTime {
             now: std::time::Duration::from_millis(250),
             ..Default::default()
         },
         ..Default::default()
     })
     .unwrap();
-    assert!(
-        closed
-            .nodes
-            .iter()
-            .all(|n| n.kind != plico_core::Kind::Overlay)
-    );
+    assert!(closed.nodes.iter().all(|n| n.kind != plico::Kind::Overlay));
 }
 
 #[test]
@@ -307,7 +299,7 @@ fn numeric_events_replay_across_recreated_app_and_latest_value_wins() {
     }
     impl App for Demo {
         fn show(&mut self, cx: &mut UiContext<'_>) {
-            plico_core::widgets::slider(cx, "Volume", &mut self.value, 0.0..=10.0)
+            plico::widgets::slider(cx, "Volume", &mut self.value, 0.0..=10.0)
                 .key("volume")
                 .step(0.5);
         }
@@ -336,7 +328,7 @@ fn numeric_events_replay_across_recreated_app_and_latest_value_wins() {
 
 #[test]
 fn virtual_list_uses_portable_scroll_feedback_after_module_reconstruction() {
-    use plico_core::prelude::*;
+    use plico::prelude::*;
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Demo;
     impl plico_dev::App for Demo {
@@ -527,7 +519,7 @@ fn error_frames_drop_retained_state_for_crash_safety() {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Editor {
     #[serde(skip)]
-    buffer: plico_core::TextBuffer,
+    buffer: plico::TextBuffer,
     echoed: String,
     submitted: bool,
 }
@@ -578,7 +570,7 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Counting {
         #[serde(skip)]
-        buffer: plico_core::TextBuffer,
+        buffer: plico::TextBuffer,
         submits: u64,
     }
     impl App for Counting {
@@ -658,7 +650,7 @@ fn resumed_event_keeps_mutations_from_lean_frames_and_checkpoint_is_read_only() 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Form {
     #[serde(skip)]
-    buffer: plico_core::TextBuffer,
+    buffer: plico::TextBuffer,
     submits: u64,
     saved: String,
 }

@@ -29,7 +29,7 @@ impl crate::Adapter {
     pub(super) fn advance_scroll(
         &mut self,
         now: Duration,
-        engine: &plico_core::Engine,
+        engine: &plico::Engine,
     ) -> ScrollAdvance {
         let mut result = ScrollAdvance::default();
         self.scroll_motions.retain(|id, motion| {

@@ -60,10 +60,8 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 
 Run the complete [counter example](examples/counter.rs) with `cargo run --example counter`.
 
-The `plico` crate is the application-facing entry point. It re-exports the UI
-prelude and `App`, and enables the desktop host by default. Disable default
-features for backend-independent declarations; enable `skia` when needed.
-Use the function inside `plico::App::show`. Application state remains normal Rust data;
+The `plico` crate contains the backend-independent UI API. The desktop host is
+provided separately by `plico-desktop`. Use the function inside `plico_dev::App::show`. Application state remains normal Rust data;
 components do not need a trait implementation. See [authoring](docs/authoring.md)
 and [local state and tasks](docs/local-state-and-tasks.md).
 
@@ -116,8 +114,8 @@ in `apps/` without it.
 
 | Area | Packages / directories |
 | --- | --- |
-| Renderer-independent declarations | `plico-core`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
-| Runtime and desktop host | `plico-runtime`, `plico-vello` |
+| Renderer-independent declarations | `plico`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
+| Runtime and desktop host | `plico-runtime`, `plico-desktop` |
 | Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-motion`, `plico-native` |
 | Alternative backends | `plico-skia`, `plico-fltk`, `plico-lvgl`, `plico-web-host` |
 | Development tools | `plico-cli`, `plico-dev`, `plico-macros` |

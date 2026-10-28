@@ -1,5 +1,5 @@
-use plico_core::prelude::*;
-use plico_vello::{SurfaceSource, View, WindowOptions};
+use plico::prelude::*;
+use plico_desktop::{SurfaceSource, View, WindowOptions};
 use plico_video::Player;
 struct Demo {
     player: Player,
@@ -17,9 +17,9 @@ impl View for Demo {
         self.status_key = key;
         changed
     }
-    fn take_host_action(&mut self) -> Option<plico_vello::HostAction> {
-        std::mem::take(&mut self.close).then_some(plico_vello::HostAction::Window(
-            plico_vello::WindowCommand::Close,
+    fn take_host_action(&mut self) -> Option<plico_desktop::HostAction> {
+        std::mem::take(&mut self.close).then_some(plico_desktop::HostAction::Window(
+            plico_desktop::WindowCommand::Close,
         ))
     }
     #[component]
@@ -73,11 +73,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let player = Player::open(path, 1280, 720, false)?;
     let surface = player.surface();
     let renderer = if cfg!(feature = "skia") {
-        plico_vello::RenderBackend::Skia
+        plico_desktop::RenderBackend::Skia
     } else {
-        plico_vello::RenderBackend::Vello
+        plico_desktop::RenderBackend::Vello
     };
-    plico_vello::run_source_with_options(
+    plico_desktop::run_source_with_options(
         SurfaceSource::new(
             Demo {
                 player,

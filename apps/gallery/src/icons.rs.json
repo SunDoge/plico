@@ -3,7 +3,7 @@
   "provider": "lucide",
   "repository": "https://github.com/lucide-icons/lucide",
   "commit": "02eb9161b57917ccaa262f1bf070507cddde3b08",
-  "rust_crate": "plico_core",
+  "rust_crate": "plico",
   "files": {
     "archive-restore.svg": "7b589719d9c539dcb77844ea02b7c548f354a74b2931734f57b041d4e9de8ff8",
     "archive.svg": "78c732e34e232db63af06a2330b4448045cfdf49b48b59f2d31922df54c7bb17",

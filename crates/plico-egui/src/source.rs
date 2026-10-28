@@ -1,5 +1,5 @@
 //! Host-side declarations. egui controls enqueue IDs/values, never capture app state.
-use plico_core::{Clock, DeclareView, Engine, FrameTime, UiContext};
+use plico::{Clock, DeclareView, Engine, FrameTime, UiContext};
 use plico_renderer::{
     EventResponse, FrameSource, HostAction, Scene, TextContext, UiEvent, WakeCallback,
     layout::PlacedNode,
@@ -17,7 +17,7 @@ pub struct Source<V> {
 }
 impl<V: View> Source<V> {
     pub fn new(view: V) -> Self {
-        Self::with_clock(view, plico_core::SystemClock::default())
+        Self::with_clock(view, plico::SystemClock::default())
     }
     pub fn with_clock(view: V, clock: impl Clock + 'static) -> Self {
         Self {
@@ -35,7 +35,7 @@ impl<V: View> DeclareView for Declaration<'_, V> {
     fn show(&mut self, cx: &mut UiContext) {
         self.0.show(cx);
     }
-    fn theme(&self) -> plico_core::Theme {
+    fn theme(&self) -> plico::Theme {
         self.0.theme()
     }
 }
@@ -88,7 +88,7 @@ impl<V: View> FrameSource for Source<V> {
     ) {
     }
     fn has_anim(&self) -> bool {
-        self.dirty || self.engine.changes().contains(plico_core::Changes::ANIMATE)
+        self.dirty || self.engine.changes().contains(plico::Changes::ANIMATE)
     }
     fn poll_async(&mut self) -> bool {
         let changed = self.view.poll_reload();

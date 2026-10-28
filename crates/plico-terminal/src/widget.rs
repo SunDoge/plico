@@ -804,7 +804,7 @@ impl TerminalWidget {
 }
 
 impl TerminalWidget {
-    pub fn set_clock(&mut self, clock: Arc<dyn plico_core::Clock>) {
+    pub fn set_clock(&mut self, clock: Arc<dyn plico::Clock>) {
         self.clock = TerminalClock::new(clock);
         // Drop timestamps read from the previous timeline so no blink or
         // selection deadline survives a clock swap.

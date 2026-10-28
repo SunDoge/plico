@@ -1,5 +1,5 @@
-use plico_core::prelude::*;
-use plico_core::component;
+use plico::prelude::*;
+use plico::component;
 #[component]
 fn invalid(cx: &mut UiContext) {
     column(cx);; {

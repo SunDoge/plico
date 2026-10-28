@@ -1,4 +1,4 @@
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_renderer::{FrameSource, TextContext};
 use plico_runtime::{Source, View};
 struct Demo {

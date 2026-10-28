@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-subprocess.run(["cargo", "build", "-p", "gallery", "-p", "plico-vello", "--features", "gallery/abi", "--lib", "--bin", "plico-vello", "--quiet"], cwd=ROOT, check=True)
+subprocess.run(["cargo", "build", "-p", "gallery", "-p", "plico-desktop", "--features", "gallery/abi", "--lib", "--bin", "plico-desktop", "--quiet"], cwd=ROOT, check=True)
 
 def texts(nodes):
     return [node["text"] for node in nodes] + [value for node in nodes for value in texts(node["children"])]
@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="plico-vlist-") as temp:
     shutil.copyfile(first, second)
     descriptor.write_text(json.dumps({"version": 3, "library": str(first)}))
     with open("/tmp/plico-vlist-reload.log", "w") as log:
-        child = subprocess.Popen([str(TARGET / "debug/plico-vello"), "dev", "--module", str(descriptor), "--headless"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True)
+        child = subprocess.Popen([str(TARGET / "debug/plico-desktop"), "dev", "--module", str(descriptor), "--headless"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True)
         messages = queue.Queue()
         def read():
             for line in child.stdout:

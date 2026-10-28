@@ -13,7 +13,7 @@ native = ["external"]
 external = ["dep:lightvgl-sys"]
 
 [dependencies]
-plico-core.workspace = true
+plico.workspace = true
 snafu.workspace = true
 lightvgl-sys = { version = "=9.5.5", optional = true }
 png = "0.17"

@@ -12,8 +12,8 @@ Plico 的核心只内置控件需要的 CHECK、CHEVRON_DOWN、CHEVRON_RIGHT、X
 ```sh
 plico icons add lucide:save lucide:search lucide:settings
 
-# 主线 immediate 应用直接依赖 plico-core 时：
-plico icons add lucide:save --rust-crate plico_core
+# 主线 immediate 应用直接依赖 plico 时：
+plico icons add lucide:save --rust-crate plico
 
 # 同一个输出再次 add 会合并已有集合，重复添加不会改变输出。
 plico icons add lucide:folder
@@ -45,7 +45,7 @@ button(cx).icon(&icons::SAVE).text("Save").primary();
 ```
 
 `--output path/to/icons.rs` 可以生成多个独立模块；`--rust-crate NAME` 指定提供
-SvgAsset 的 Rust 依赖名，默认 plico_core，支持依赖重命名。仅在生成核心内部模块时使用 crate。
+SvgAsset 的 Rust 依赖名，默认 plico，支持依赖重命名。仅在生成核心内部模块时使用 crate。
 输出名为 kebab-case 图标名的 SCREAMING_SNAKE_CASE；数字开头加 ICON_。
 不提供全量 registry、名称运行时查找或预加载，也不通过扫描 Rust 推测使用集合。
 
@@ -58,7 +58,7 @@ plico icons add lucide:save --source /path/to/lucide
 ```
 
 缓存根包含 `icons/save.svg` 和 `LICENSE`，字节必须匹配 CLI 内嵌的来源目录哈希。
-框架的目录元数据位于 crates/plico-core/assets/lucide/SOURCE.json；原始 SVG 只作本地
+框架的目录元数据位于 crates/plico/assets/lucide/SOURCE.json；原始 SVG 只作本地
 缓存，不提交。应用生成的 Rust、选择清单和许可证才是构建输入。
 
 `scripts/icons.ts --fetch SHA` 是框架维护者的上游获取工具，会更新目录元数据和缓存；

@@ -1,5 +1,5 @@
 //! Finished-message parsing cache versus repeated declaration. No renderer/memo.
-use plico_core::Engine;
+use plico::Engine;
 use plico_markdown::Stream;
 use std::time::Instant;
 fn message(source: &str) -> Stream {

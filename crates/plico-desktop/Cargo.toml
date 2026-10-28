@@ -1,0 +1,58 @@
+[package]
+name = "plico-desktop"
+version.workspace = true
+edition.workspace = true
+description = "Desktop window host and development CLI for the Plico runtime"
+default-run = "plico-desktop"
+
+[dependencies]
+plico-runtime = { path = "../plico-runtime" }
+plico.workspace = true
+plico-renderer.workspace = true
+plico-dev.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
+snafu.workspace = true
+
+[dev-dependencies]
+kurbo.workspace = true
+peniko.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { workspace = true }
+gallery = { path = "../../apps/gallery" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+plico-shell.workspace = true
+usage-rs = { workspace = true, optional = true }
+
+[features]
+skia = ["plico-shell/skia"]
+default = ["hot-reload"]
+hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:usage-rs"]
+profiling = [
+    "plico-runtime/profiling",
+    "plico-renderer/profiling",
+    "plico-shell/profiling",
+]
+
+[[bin]]
+name = "plico-desktop"
+path = "src/main.rs"
+required-features = ["hot-reload"]
+
+[[example]]
+name = "game2048-reload"
+required-features = ["hot-reload"]
+
+[[example]]
+name = "skia-window"
+required-features = ["skia"]
+
+[[example]]
+name = "local-animation"
+required-features = ["skia"]
+
+[[example]]
+name = "flatten_profile"
+required-features = ["profiling"]

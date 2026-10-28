@@ -7,7 +7,7 @@
 `plico-markdown` 不依赖窗口、renderer 或异步 runtime。`Stream` 保存追加的 `String`、已显示的 UTF-8 字节位置和逻辑时间；`Document` 保存解析结果。网络服务可以一次追加合并后的 chunk：
 
 ```rust
-use plico_core::{component, UiContext};
+use plico::{component, UiContext};
 use plico_markdown::Stream;
 
 #[component]
@@ -53,7 +53,7 @@ Markdown 正文默认是一个共享的选择作用域，支持跨段正反向�
 
 ```sh
 cargo test -p plico-markdown
-cargo test -p plico-vello --test rich_text --test text_selection
+cargo test -p plico-desktop --test rich_text --test text_selection
 cargo test -p gallery --test markdown
 cargo run -p gallery --example capture -- --page markdown --markdown-complete --out /tmp/markdown.png
 ```

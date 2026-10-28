@@ -1,5 +1,5 @@
 //! One moving application backdrop, one glass surface, and crisp foreground controls.
-use plico_core::prelude::*;
+use plico::prelude::*;
 use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]

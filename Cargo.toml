@@ -6,18 +6,17 @@ license.workspace = true
 publish = false
 
 [dev-dependencies]
-plico = { path = "crates/plico" }
-plico-core.workspace = true
+plico.workspace = true
 plico-dev.workspace = true
-plico-vello = { path = "crates/plico-vello", default-features = false }
+plico-desktop = { path = "crates/plico-desktop", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
-exclude = ["crates/plico-vello/reference", "vendor/global-hotkey"]
+exclude = ["crates/plico-desktop/reference", "vendor/global-hotkey"]
 # The immediate-mode mainline: core engine, CLI, and the gallery app.
-default-members = [".", "crates/plico-core", "crates/plico-cli", "apps/gallery"]
+default-members = [".", "crates/plico", "crates/plico-cli", "apps/gallery"]
 
 [workspace.package]
 version = "0.1.9"
@@ -55,7 +54,7 @@ wgpu = "30"
 wgpu-context = { package = "wgpu_context", version = "0.10.0" }
 winit = "=0.31.0-beta.3"
 
-plico-core = { path = "crates/plico-core" }
+plico = { path = "crates/plico" }
 plico-renderer = { path = "crates/plico-renderer" }
 plico-shell = { path = "crates/plico-shell" }
 

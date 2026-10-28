@@ -2,7 +2,7 @@
 //! match full raster redraws, apart from bounded one-step AA rounding.
 //! Set PLICO_DAMAGE_STRICT=1 for exact equality. Readback is outside timings.
 use backend_settings::Settings;
-use plico_core::VirtualClock;
+use plico::VirtualClock;
 use plico_renderer::{DamageRegion, FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::Source;
 use plico_skia::SkiaSurface;

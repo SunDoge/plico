@@ -14,7 +14,7 @@ const SESSION_PREFIX: &[u8] = b"PLICO-STATE\0\x01";
 #[derive(Serialize, Deserialize)]
 struct SessionSnapshot {
     app: Vec<u8>,
-    storage: plico_core::StateStorageSnapshot,
+    storage: plico::StateStorageSnapshot,
 }
 impl StateSnapshot {
     pub fn encode<T: Serialize + ?Sized>(state: &T) -> Result<Self, rmp_serde::encode::Error> {
@@ -32,7 +32,7 @@ impl StateSnapshot {
 
     pub(crate) fn encode_session<T: Serialize + ?Sized>(
         state: &T,
-        storage: plico_core::StateStorageSnapshot,
+        storage: plico::StateStorageSnapshot,
     ) -> Result<Self, rmp_serde::encode::Error> {
         if storage.is_empty() {
             return Self::encode(state);
@@ -47,7 +47,7 @@ impl StateSnapshot {
     }
     pub(crate) fn persisted(
         &self,
-    ) -> Result<Option<plico_core::StateStorageSnapshot>, rmp_serde::decode::Error> {
+    ) -> Result<Option<plico::StateStorageSnapshot>, rmp_serde::decode::Error> {
         self.0
             .strip_prefix(SESSION_PREFIX)
             .map(|bytes| {

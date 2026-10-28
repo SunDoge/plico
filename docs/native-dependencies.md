@@ -3,7 +3,7 @@
 本轮确认并删除两条未使用的直接依赖：
 
 - plico-shell -> bytemuck：shell 没有直接调用；renderer 的 glyph/uniform 仍使用它。
-- plico-dev -> notify：文件 watcher 实际在 plico-vello / CLI，dev protocol crate 不使用它。
+- plico-dev -> notify：文件 watcher 实际在 plico-desktop / CLI，dev protocol crate 不使用它。
 
 两者仍可能从其他有效路径进入原生依赖图，不能把这次清理描述为原生二进制已经明显变小。
 gallery/services-demo 的直接 stabby 依赖由 export 宏生成的 ABI 代码使用，

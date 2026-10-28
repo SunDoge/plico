@@ -1,7 +1,7 @@
 //! Offline captures of the animated sidebar: expanded, mid-flight and compact.
 //! Virtual time drives the tween deterministically - no window is required.
 use backend_settings::Settings;
-use plico_core::VirtualClock;
+use plico::VirtualClock;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::Source;
 use std::time::Duration;

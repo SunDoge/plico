@@ -5,7 +5,7 @@ metadata for a finite, fieldless enum. It does not generate page rendering,
 callbacks, URL handling or a subscription graph.
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Route)]
 enum Page {
@@ -32,7 +32,7 @@ Generated inherent API:
   path. The application owns the SVG; no registry is loaded by the macro.
 - `from_id(&str) -> Option<Self>`: exact ID lookup, unknown IDs return `None`.
 
-The derive is re-exported from `plico_core` and its prelude. No additional trait
+The derive is re-exported from `plico` and its prelude. No additional trait
 import is necessary. It does not add Copy, Eq or serde implementations; derive
 those separately as needed. These generated names are reserved on the enum.
 

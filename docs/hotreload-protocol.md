@@ -74,7 +74,7 @@ panic 回复保留 payload 消息，不安装临时全局 panic hook。命令解
 ```sh
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo build -p plico-cli -p plico-vello
+cargo build -p plico-cli -p plico-desktop
 python3 scripts/check-hotreload.py
 python3 scripts/check-text-input-reload.py
 python3 scripts/check-modal-reload.py

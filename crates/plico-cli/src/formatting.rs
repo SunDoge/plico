@@ -64,7 +64,7 @@ fn is_component(node: Node<'_>, source: &[u8]) -> bool {
                 let text = compact(&source[attr.byte_range()]);
                 if text == b"#[component]"
                     || text == b"#[plico::component]"
-                    || text == b"#[plico_core::component]"
+                    || text == b"#[plico::component]"
                 {
                     return true;
                 }
@@ -90,7 +90,7 @@ fn components<'t>(tree: &'t Tree, source: &[u8], masked: bool) -> Vec<Component<
                     let text = compact(&source[attr.byte_range()]);
                     component |= text == b"#[component]"
                         || text == b"#[plico::component]"
-                        || text == b"#[plico_core::component]";
+                        || text == b"#[plico::component]";
                     if text == compact(if masked { MARKER } else { SKIP }) {
                         skip = Some(attr);
                     }
@@ -1073,7 +1073,7 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<u8> {
 mod tests {
     use super::*;
 
-    const SOURCE: &str = r###"use plico_core::prelude::*;
+    const SOURCE: &str = r###"use plico::prelude::*;
 fn ordinary( ){let n=1;}
 #[component]
 #[rustfmt::skip]
@@ -1324,7 +1324,7 @@ string"#);
         let path = directory.path().join("sample.rs");
         let source = br#"struct Demo;
 impl Demo {
-#[plico_core::component]
+#[plico::component]
 #[rustfmt::skip]
 fn screen(cx: &mut UiContext) {
     column(cx).padding(20).gap(8).children(|inner| {
@@ -1339,8 +1339,7 @@ fn screen(cx: &mut UiContext) {
             String::from_utf8_lossy(&formatted)
                 .contains("column(cx).padding(20).gap(8).children(|inner| {")
         );
-        let canonical =
-            String::from_utf8_lossy(source).replace("plico_core::component", "plico::component");
+        let canonical = String::from_utf8_lossy(source).replace("plico::component", "component");
         let formatted = formatter.format(canonical.as_bytes()).unwrap();
         assert_eq!(formatter.format(&formatted).unwrap(), formatted);
         assert!(

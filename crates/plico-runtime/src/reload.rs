@@ -1,7 +1,7 @@
 //! UI-thread replay of an application module; the rendering host never restarts.
 use crate::View;
 use notify::Watcher;
-use plico_core::{Key, PathKey, Theme, UiContext, ViewNode};
+use plico::{Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::host::{Descriptor, Module};
 use plico_dev::{
     Frame, Request, StateSnapshot,
@@ -19,14 +19,14 @@ use std::{
 /// Host-side native input state for one logical path.
 #[derive(Default)]
 struct HostInput {
-    buffer: plico_core::TextBuffer,
+    buffer: plico::TextBuffer,
     module_rev: u64,
     sent_rev: u64,
     sent_submitted: u64,
     placeholder: String,
 }
 impl HostInput {
-    fn new(buffer: plico_core::TextBuffer, module_rev: u64) -> Self {
+    fn new(buffer: plico::TextBuffer, module_rev: u64) -> Self {
         Self {
             sent_rev: buffer.value_revision(),
             sent_submitted: buffer.submitted_count(),
@@ -42,15 +42,15 @@ fn sync_inputs(texts: &mut HashMap<Vec<PathKey>, HostInput>, frame: &Frame) {
                 if content.is_none() {
                     eprintln!("[plico] password input is disabled in hot-reload preview; use the native application for secret entry");
                 }
-                HostInput::new(if content.is_some() {plico_core::TextBuffer::new()} else {plico_core::TextBuffer::secret()},0)
+                HostInput::new(if content.is_some() {plico::TextBuffer::new()} else {plico::TextBuffer::secret()},0)
             });
         if entry.buffer.is_secret() != content.is_none() {
             entry.buffer.clear();
             *entry = HostInput::new(
                 if content.is_some() {
-                    plico_core::TextBuffer::new()
+                    plico::TextBuffer::new()
                 } else {
-                    plico_core::TextBuffer::secret()
+                    plico::TextBuffer::secret()
                 },
                 0,
             );
@@ -94,8 +94,8 @@ pub struct ReloadView<S: HostService = NoServices> {
     keys: HashMap<Vec<PathKey>, u64>,
     next_key: u64,
     scroll_viewports: Vec<(Vec<PathKey>, [f32; 2])>,
-    time: plico_core::FrameTime,
-    rendered_time: plico_core::FrameTime,
+    time: plico::FrameTime,
+    rendered_time: plico::FrameTime,
     viewport: [f32; 2],
     rendered_scrolls: Vec<(Vec<PathKey>, [f32; 2])>,
     hovered: Option<Vec<PathKey>>,
@@ -371,7 +371,7 @@ impl<S: HostService> ReloadView<S> {
                         *self.next += 1;
                         *self.next
                     });
-                    if n.kind == plico_core::Kind::TextInput {
+                    if n.kind == plico::Kind::TextInput {
                         // Bind the host-side native editor so the adapter's
                         // input handling (focus, edits, IME) reaches it; the
                         // transport syncs content with the module's buffer.
@@ -409,13 +409,13 @@ impl<S: HostService> ReloadView<S> {
                         path.pop();
                         continue;
                     }
-                    if n.kind == plico_core::Kind::Shader {
+                    if n.kind == plico::Kind::Shader {
                         if let Some(params) = &n.shader {
                             ui.shader_element(Key::Number(key), n.style, &n.text, params);
                         }
-                    } else if n.kind == plico_core::Kind::Text {
+                    } else if n.kind == plico::Kind::Text {
                         ui.rich_text_element(Key::Number(key), n.style, &n.text, &n.spans);
-                    } else if n.kind == plico_core::Kind::Slider {
+                    } else if n.kind == plico::Kind::Slider {
                         if let Some(value) = n.numeric.and_then(|range| {
                             ui.slider_element(Key::Number(key), n.style, &n.text, range)
                         }) {
@@ -533,7 +533,7 @@ impl<S: HostService> View for ReloadView<S> {
             }
         }
     }
-    fn set_frame_time(&mut self, time: plico_core::FrameTime) {
+    fn set_frame_time(&mut self, time: plico::FrameTime) {
         self.time = time;
     }
     fn show(&mut self, ui: &mut UiContext<'_>) {
@@ -552,7 +552,7 @@ impl<S: HostService> View for ReloadView<S> {
                     || presence_due(&node.children, now)
             })
         }
-        let ticking = (self.frame.requests.contains(plico_core::Changes::ANIMATE)
+        let ticking = (self.frame.requests.contains(plico::Changes::ANIMATE)
             || presence_due(&self.frame.nodes, self.time.now.as_millis()))
             && self.rendered_time != self.time;
         // Typing edits the host-side binding outside the click/value channels;
@@ -579,14 +579,14 @@ impl<S: HostService> View for ReloadView<S> {
             self.services_dirty = false;
             // A failed ticking application must not spin at vsync forever.
             // A new event or successful reload can request frames again.
-            self.frame.requests.remove(plico_core::Changes::ANIMATE);
+            self.frame.requests.remove(plico::Changes::ANIMATE);
         }
         let previous_hover = self.hovered.clone();
         self.replay(ui);
         if self.hovered != previous_hover {
             ui.request_rebuild();
         }
-        if self.frame.requests.contains(plico_core::Changes::ANIMATE) {
+        if self.frame.requests.contains(plico::Changes::ANIMATE) {
             ui.request_animation_frame();
         }
         if had_clicks || self.services_dirty {

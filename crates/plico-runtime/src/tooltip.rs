@@ -210,7 +210,7 @@ impl Adapter {
         if self.tips.ids.is_empty() {
             if self.tips.shown.take().is_some() {
                 self.stats.paint_writes += 1;
-                self.stats.changes |= plico_core::Changes::PAINT | plico_core::Changes::SEMANTICS;
+                self.stats.changes |= plico::Changes::PAINT | plico::Changes::SEMANTICS;
             }
             self.tips.layer.clear();
             self.tips.visual = None;
@@ -266,7 +266,7 @@ impl Adapter {
         }
         if shown != self.tips.shown {
             self.stats.paint_writes += 1;
-            self.stats.changes |= plico_core::Changes::PAINT | plico_core::Changes::SEMANTICS;
+            self.stats.changes |= plico::Changes::PAINT | plico::Changes::SEMANTICS;
         }
         self.tips.shown = shown;
         self.tips.dirty = false;
@@ -283,7 +283,7 @@ impl Adapter {
             return;
         }
         let metrics = engine.theme().metrics;
-        let style = plico_core::Style {
+        let style = plico::Style {
             font_size: metrics.font_size.saturating_sub(1).max(1),
             foreground: Token::Literal(engine.theme().surface),
             background: Some(Token::Literal(engine.theme().foreground)),
@@ -351,7 +351,7 @@ impl Adapter {
         self.tips.layer = layer;
         self.tips.visual = Some(key);
         self.stats.paint_writes += 1;
-        self.stats.changes |= plico_core::Changes::PAINT | plico_core::Changes::SEMANTICS;
+        self.stats.changes |= plico::Changes::PAINT | plico::Changes::SEMANTICS;
     }
     pub(super) fn tooltip_description(&self, engine: &Engine, e: Entity) -> Option<u64> {
         let n = engine.node(e)?;

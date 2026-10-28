@@ -1,6 +1,6 @@
 //! Application components use public context-first constructors, like any widget library.
-use plico_core::widgets::{button, button_base, column, icon, row, text};
-use plico_core::{Align, Color, Response, SvgAsset, UiContext, component};
+use plico::widgets::{button, button_base, column, icon, row, text};
+use plico::{Align, Color, Response, SvgAsset, UiContext, component};
 
 #[component]
 #[rustfmt::skip]

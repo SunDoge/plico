@@ -16,8 +16,8 @@
 ## 验证与实验
 
 ```sh
-cargo test -p plico-vello --test scroll_presentation
-cargo run --release -p plico-vello --example scroll_work
+cargo test -p plico-desktop --test scroll_presentation
+cargo run --release -p plico-desktop --example scroll_work
 ```
 
 六个回归覆盖：普通滚动中间帧跳过声明/布局且几何更新；读取偏移时失效并可停止观察；10000 行虚拟列表在呈现位置声明、节点数量有界；事件准备使用当前几何；首次 None 反馈和按容器观察；最终滚动帧在未命中事件下仍请求绘制。既有平滑滚动、窗口变化、输入和虚拟列表测试也通过。
@@ -50,8 +50,8 @@ cargo run --release -p plico-vello --example scroll_work
 可重建探针：
 
 ```sh
-cargo run --release -p plico-vello --example wheel_work
-cargo test -p plico-vello --test scroll_presentation
+cargo run --release -p plico-desktop --example wheel_work
+cargo test -p plico-desktop --test scroll_presentation
 ```
 
 探针包含真实 wheel 分发、shell 相同的 prepare_for_event、后端提交和 CPU scene 编码，

@@ -87,6 +87,9 @@ impl WebRenderer {
         let mut layers = Vec::new();
         for command in &scene.commands {
             match command {
+                PaintCommand::Paragraph { .. } => {
+                    return Err("native paragraphs are unavailable in the WebGL renderer".into());
+                }
                 PaintCommand::PushLayer {
                     blend,
                     alpha,

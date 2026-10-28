@@ -1,6 +1,6 @@
 //! UI + value protocol only. The worker is compiled into main.rs, never this module.
 pub mod icons;
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_dev::services::{ServiceApp, Services};
 use serde::{Deserialize, Serialize};
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ impl ServiceApp for Application {
                         services.send(TaskCommand::Cancel);
                     }
                 };
-                plico_core::text!(cx, "Completed tasks: {}", task.completed).font_size(12).color(Color::Muted);
+                plico::text!(cx, "Completed tasks: {}", task.completed).font_size(12).color(Color::Muted);
             };
             column(cx).padding(20).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
                 text(cx, "View state").font_size(16).weight(650);
@@ -80,7 +80,7 @@ impl ServiceApp for Application {
                     if button(cx).text("Increment view counter").clicked() {
                         self.counter += 1;
                     }
-                    plico_core::text!(cx, "{}", self.counter).font_size(18).weight(650);
+                    plico::text!(cx, "{}", self.counter).font_size(18).weight(650);
                 };
                 reload_notes(cx);
             };

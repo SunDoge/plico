@@ -1,6 +1,6 @@
 #![cfg(feature = "widgets")]
 use egui::{Context, Pos2, RawInput, Rect, Vec2};
-use plico_core::{Engine, Entity, prelude::*};
+use plico::{Engine, Entity, prelude::*};
 use plico_egui::{Adapter, Source};
 use plico_renderer::FrameSource;
 use plico_runtime::View;

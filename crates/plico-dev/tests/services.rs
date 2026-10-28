@@ -1,7 +1,7 @@
 fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
     plico_dev::StateSnapshot::encode(value).unwrap()
 }
-use plico_core::{PathKey, ViewNode, prelude::*};
+use plico::{PathKey, ViewNode, prelude::*};
 use plico_dev::{
     Request,
     services::{ServiceApp, Services, render},
@@ -24,8 +24,8 @@ impl ServiceApp for App {
     type Command = Command;
     #[component]
     fn show(&mut self, cx: &mut UiContext, services: &mut Services<Projection, Command>) {
-        plico_core::text!(cx, "Progress: {}", services.snapshot().progress);
-        plico_core::text!(cx, "Count: {}", self.count);
+        plico::text!(cx, "Progress: {}", services.snapshot().progress);
+        plico::text!(cx, "Count: {}", self.count);
         if button(cx).text("Start").clicked() {
             self.count += 1;
             services.send(Command::Start);

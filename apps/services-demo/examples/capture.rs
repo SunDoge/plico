@@ -1,7 +1,7 @@
 //! Synthetic projection capture; no background task or live data.
+use plico_desktop::{ServiceView, Source};
 use plico_dev::services::HostService;
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_vello::{ServiceView, Source};
 use services_demo::{Application, TaskCommand, TaskSnapshot, TaskStatus};
 use snafu::{ResultExt, Snafu};
 use std::path::PathBuf;
@@ -50,7 +50,7 @@ fn run() -> Result<(), Error> {
     };
     let mut source = Source::with_clock(
         ServiceView::new(Application::default(), Projection(snapshot)),
-        plico_core::VirtualClock::default(),
+        plico::VirtualClock::default(),
     );
     let mut tcx = TextContext::new();
     let nodes = source.build_frame(&mut tcx, 620, 520);

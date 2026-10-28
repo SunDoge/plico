@@ -10,9 +10,9 @@ Taffy 缓存、场景无变化时的整帧复用。
 不是当前仍支持的运行模式。当前保留完整编码与缓存复用的持续基准：
 
 ```sh
-cargo run --locked --release -p plico-vello --example scene_work
+cargo run --locked --release -p plico-desktop --example scene_work
 # 只测一档，或增加人为的全部可见压力场景
-cargo run --locked --release -p plico-vello --example scene_work -- --rows 1000 --unculled
+cargo run --locked --release -p plico-desktop --example scene_work -- --rows 1000 --unculled
 ```
 
 当前基准同样输出声明、同步、几何与 scene 分阶段 CSV，以及场景构建/复用次数。

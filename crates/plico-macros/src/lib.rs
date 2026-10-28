@@ -10,21 +10,14 @@ use syn::{
 };
 
 fn runtime() -> Tokens {
-    use proc_macro_crate::{FoundCrate, crate_name};
-    match crate_name("plico-core") {
-        Ok(FoundCrate::Name(name)) => {
+    match proc_macro_crate::crate_name("plico") {
+        Ok(proc_macro_crate::FoundCrate::Name(name)) => {
             let name = Ident::new(&name, proc_macro2::Span::call_site());
             quote!(::#name)
         }
-        Ok(FoundCrate::Itself) => quote!(::plico_core),
-        Err(_) => match crate_name("plico") {
-            Ok(FoundCrate::Name(name)) => {
-                let name = Ident::new(&name, proc_macro2::Span::call_site());
-                quote!(::#name::__core)
-            }
-            Ok(FoundCrate::Itself) => quote!(::plico::__core),
-            Err(_) => quote!(::plico_core),
-        },
+        // The core also has examples and integration tests, where `crate`
+        // refers to the test binary rather than the library itself.
+        _ => quote!(::plico),
     }
 }
 

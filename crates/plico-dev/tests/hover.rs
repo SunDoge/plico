@@ -1,4 +1,4 @@
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_dev::{App, Request, render};
 use serde::{Deserialize, Serialize};
 #[derive(Default, Serialize, Deserialize)]

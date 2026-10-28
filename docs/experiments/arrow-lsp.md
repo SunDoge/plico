@@ -27,7 +27,7 @@ production `view!` parsing. There is no application migration in this experiment
 ## Reproduce
 
 ```sh
-cargo run -p plico-core --example arrow_lsp
+cargo run -p plico --example arrow_lsp
 python3 scripts/experiments/check-arrow-matrix-lsp.py
 ```
 

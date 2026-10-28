@@ -1,5 +1,5 @@
 //! 2048 rules and clock-driven tile presentation, inspired by the local MyGo demo.
-use plico_core::prelude::*;
+use plico::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 const INK: Color = Color::Literal(0x776e65);
@@ -369,7 +369,7 @@ fn tile_view(cx: &mut UiContext, tile: &Tile, cell: f32, gap: f32, elapsed: f32,
         .width(cell).height(cell).radius(3.).clip(true).justify(Justify::Center).align(Align::Center)
         .background(Color::Literal(bg)).opacity(if k == 0. { 0. } else { 1. }) + |cx|
     {
-        plico_core::text!(cx, "{}", tile.value).font_size((font as u16).max(1)).weight(750)
+        plico::text!(cx, "{}", tile.value).font_size((font as u16).max(1)).weight(750)
             .color(if tile.value <= 4 { INK } else { LIGHT });
     };
 }
@@ -378,12 +378,12 @@ fn tile_view(cx: &mut UiContext, tile: &Tile, cell: f32, gap: f32, elapsed: f32,
 fn score(cx: &mut UiContext, label: &str, value: u64, scale: f32, gained: u64, elapsed: f32) {
     column(cx).width(82. * scale).padding(8).radius(3.).background(BOARD).align(Align::Center).gap(2) + |cx| {
         text(cx, label).font_size(10).weight(700).color(LIGHT);
-        plico_core::text!(cx, "{value}").font_size(22).weight(750).color(LIGHT);
+        plico::text!(cx, "{value}").font_size(22).weight(750).color(LIGHT);
         if gained > 0 && elapsed < 0.6 {
             column(cx).absolute(0., 18.).translate(0., -elapsed / 0.6 * 50.).width(82. * scale).align(Align::Center)
                 .opacity((1. - elapsed / 0.6).max(0.)) + |cx|
             {
-                plico_core::text!(cx, "+{gained}").font_size(22).weight(750).color(INK);
+                plico::text!(cx, "+{gained}").font_size(22).weight(750).color(INK);
             };
         }
     };

@@ -53,7 +53,7 @@ jobs:
       - name: Guard application widget boundaries
         run: python3 scripts/check-widget-boundary.py
       - name: Test the renderer-independent packages
-        run: cargo test --locked -p plico-core -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown --all-targets --all-features
+        run: cargo test --locked -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown --all-targets --all-features
       - name: Install desktop compile dependencies
         run: |
           sudo apt-get update

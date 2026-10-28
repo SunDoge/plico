@@ -3,7 +3,7 @@
 Plico 的主要入口是 Context 首参的普通函数，不要求组件实现统一 Widget trait。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 fn settings(cx: &mut UiContext, dirty: bool) {
@@ -16,7 +16,7 @@ fn settings(cx: &mut UiContext, dirty: bool) {
 }
 ```
 
-UiContext 是当前声明过程的上下文，借用 Engine，管理当前父节点、作用域、主题、时间和输入。Ui 是它的兼容别名。控件函数位于 plico_core::widgets，prelude 同时导出它们。普通应用组件可以返回 ()、Response 或自己的具体结果；调用方直接调用函数。
+UiContext 是当前声明过程的上下文，借用 Engine，管理当前父节点、作用域、主题、时间和输入。Ui 是它的兼容别名。控件函数位于 plico::widgets，prelude 同时导出它们。普通应用组件可以返回 ()、Response 或自己的具体结果；调用方直接调用函数。
 
 当前 Rust builder 在配置完成后提交：叶子在读取 response/clicked 或 Drop 时提交，容器在 children 时提交。它没有 `.show(cx)` / `add` 收尾，但还不是 MyGO 那种构造时就注册、随后任意修改的通用 Element。借用期间不能再独立使用 Context；`+ |cx| { ... }` 显式重新借用 child context，原生 children 仍可用。独立值 builder、Widget trait、Ui.add 与 Ui 原有控件方法作为可选兼容路径保留，gallery 和生成模板优先采用函数路径。
 
@@ -90,17 +90,17 @@ switch/checkbox 的指示器按 Parley 实际排版的首行行高居中，多�
 文字测量将 Taffy 的 border-box known dimensions 转为内容尺寸，绘制约束也使用扣除 padding/border 后的 content width，因此窄控件和长标签不会使用两套换行宽度。对齐在布局完成或相关 paint patch 后更新；未变的行高复用指示器 scene，纯 checked 动画不强制重排。真实截图和回归范围见 reports/alignment。
 
 
-Lucide 图标可用 icon(cx, &plico_core::icons::SAVE) 添加；默认大小跟随继承字号，颜色继承当前前景色，也可 .color 显式覆盖。SVG 仍为装饰子内容，不制造独立交互节点。checkbox 选中态现在绘制 Lucide CHECK SVG，不再以小方块代替勾选，过渡不改变布局。
+Lucide 图标可用 icon(cx, &plico::icons::SAVE) 添加；默认大小跟随继承字号，颜色继承当前前景色，也可 .color 显式覆盖。SVG 仍为装饰子内容，不制造独立交互节点。checkbox 选中态现在绘制 Lucide CHECK SVG，不再以小方块代替勾选，过渡不改变布局。
 
 ### Composed controls
 
-`plico_core::widgets` and the prelude now export `badge`, `separator`, `choice`,
+`plico::widgets` and the prelude now export `badge`, `separator`, `choice`,
 `segmented`, `collapsible` and `progress`. These are ordinary `#[component]`
 functions implemented using public Context-first constructors and children closures;
 there is no new renderer widget kind or persistent callback.
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 #[component]
 fn release(cx: &mut UiContext, channel: &mut usize, details: &mut bool) {
     segmented(cx, channel, &["Stable", "Beta", "Nightly"]);
@@ -169,7 +169,7 @@ retained geometry and invalidates the scene without running Taffy. Current wheel
 handling still goes through the normal immediate declaration path. This is not
 virtualization; horizontal scroll, inertia and auto-hide are not implemented.
 
-`plico_vello::run_view_with_options` accepts a `View` without serialization.
+`plico_desktop::run_view_with_options` accepts a `View` without serialization.
 Service handles and sensitive application data do not need to enter the App
 reload protocol. Disable the backend's default `hot-reload` feature for a static
 client to avoid compiling the dynamic loader and file watcher. Existing App
@@ -184,7 +184,7 @@ uses the selected family for both text measurement and painting, and keeps
 unchanged per-node font choices in its retained paint cache.
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 fn code(cx: &mut UiContext) {
     column(cx).font_family(FontFamily::Monospace).children(|cx| {
         text(cx, "let value = 42;");
@@ -195,12 +195,12 @@ fn code(cx: &mut UiContext) {
 ## Avatar 与 ruby 注音
 
 两个展示组件从 Lyrune 的实际用法中整理而来，位于
-`plico_core::widgets`，也由 prelude 导出。它们使用普通借用 builder，与基础
+`plico::widgets`，也由 prelude 导出。它们使用普通借用 builder，与基础
 控件相同，在语句结束时提交；保持两个生命周期参数，支持 component 宏自动 ID。
 Gallery 的 Controls 页有 “Avatars & ruby text” 示例。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 avatar(cx).image(cached_image).fallback("JD").size(40.);
 ruby_text(cx, "夜空").annotation("よぞら").font_size(28);

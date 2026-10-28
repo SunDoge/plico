@@ -75,8 +75,8 @@ selection, tooltip and modal regressions. LVGL tests exercise rejection before
 mounting and incremental preflight without partial text updates.
 
 ```sh
-cargo test -p plico-core -p plico-dev
-cargo test -p plico-vello --test capabilities --test modal --test popover \
+cargo test -p plico -p plico-dev
+cargo test -p plico-desktop --test capabilities --test modal --test popover \
   --test slider --test text_selection --test text_input --test select_menu \
   --test button_content --test tooltip
 DEP_LV_CONFIG_PATH="$PWD/crates/plico-lvgl/config" \

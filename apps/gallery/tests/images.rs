@@ -1,13 +1,13 @@
 #![cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
 use gallery::{Gallery, Page};
-use plico_core::Router;
+use plico::Router;
+use plico_desktop::{
+    NativeApp,
+    testing::{Command, Driver},
+};
 use plico_renderer::{
     animated_image::{AnimatedImage, AnimationLimits},
     image_surface::ImageLoadStatus,
-};
-use plico_vello::{
-    NativeApp,
-    testing::{Command, Driver},
 };
 use std::sync::Arc;
 fn click(label: &str) -> Command {
@@ -85,10 +85,10 @@ fn desktop_host_downloads_decodes_and_schedules_both_formats() {
         };
         let state = app.images.surface.clone();
         app.images.request(format, true);
-        let clock = plico_core::VirtualClock::default();
+        let clock = plico::VirtualClock::default();
         let widget = ImageSurface::with_clock(state.clone(), Arc::new(clock.clone()));
         let mut source =
-            plico_vello::SurfaceSource::new(GalleryHost { app }, widget, "image-preview");
+            plico_desktop::SurfaceSource::new(GalleryHost { app }, widget, "image-preview");
         let (tx, rx) = mpsc::channel();
         source.set_wake_callback(Arc::new(move || {
             let _ = tx.send(());

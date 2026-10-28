@@ -1,6 +1,6 @@
 //! Versioned JSON/C boundary with MessagePack state; no Rust ABI crosses it.
-use plico_core::{Engine, PathKey, Theme, UiContext, ViewNode};
-pub use plico_core::{
+use plico::{Engine, PathKey, Theme, UiContext, ViewNode};
+pub use plico::{
     KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, ShortcutMap, StandardShortcut,
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -24,11 +24,11 @@ pub enum Error {
     #[snafu(display("application checkpoint encoding failed: {source}"))]
     Checkpoint { source: rmp_serde::encode::Error },
     #[snafu(display("persistent UI state failed: {source}"))]
-    Storage { source: plico_core::StorageError },
+    Storage { source: plico::StorageError },
     #[snafu(display("unsupported application protocol {actual}"))]
     Protocol { actual: u32 },
     #[snafu(display("view declaration failed: {source}"))]
-    Frame { source: plico_core::FrameError },
+    Frame { source: plico::FrameError },
     #[snafu(display("application did not settle after eight passes"))]
     DidNotSettle,
     #[snafu(display("application panicked during declaration: {message}"))]
@@ -58,7 +58,7 @@ pub struct Request {
     #[serde(default)]
     pub values: Vec<(Vec<PathKey>, f64)>,
     #[serde(default)]
-    pub time: plico_core::FrameTime,
+    pub time: plico::FrameTime,
     #[serde(default)]
     pub scroll_viewports: Vec<(Vec<PathKey>, [f32; 2])>,
     /// The module retains its application instance: skip the per-frame state
@@ -115,7 +115,7 @@ pub struct Frame {
     #[serde(default)]
     pub key_handled: bool,
     #[serde(default)]
-    pub requests: plico_core::Changes,
+    pub requests: plico::Changes,
     /// Path-addressed input events no declaration consumed, so drift after an
     /// edit is visible to the host instead of silently dropping input.
     #[serde(default)]
@@ -129,11 +129,11 @@ pub struct Frame {
 }
 /// Local adapter: an `App` driven by the engine's settle loop.
 struct AppView<'a, A: App>(&'a mut A);
-impl<A: App> plico_core::DeclareView for AppView<'_, A> {
-    fn theme(&self) -> plico_core::Theme {
+impl<A: App> plico::DeclareView for AppView<'_, A> {
+    fn theme(&self) -> plico::Theme {
         App::theme(self.0)
     }
-    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
+    fn show(&mut self, ui: &mut plico::UiContext<'_>) {
         App::show(self.0, ui)
     }
 }
@@ -146,7 +146,7 @@ pub trait App: Default + Serialize + DeserializeOwned {
     fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
         Ok(Vec::new())
     }
-    fn set_frame_time(&mut self, _time: plico_core::FrameTime) {}
+    fn set_frame_time(&mut self, _time: plico::FrameTime) {}
     /// Unmodified window-local fallback keys, after controls/IME decline them.
     fn on_key(&mut self, _key: &str) -> bool {
         false
@@ -273,7 +273,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
         engine
             .declare_until_settled(&mut AppView(app))
             .map_err(|source| match source {
-                plico_core::FrameError::DidNotSettle => Error::DidNotSettle,
+                plico::FrameError::DidNotSettle => Error::DidNotSettle,
                 source => Error::Frame { source },
             })?;
     }
@@ -318,7 +318,7 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
         reset,
         commands,
         key_handled,
-        requests: engine.changes() & plico_core::Changes::ANIMATE,
+        requests: engine.changes() & plico::Changes::ANIMATE,
         unmatched_events: unmatched.clicks.len() + unmatched.values.len(),
         texts,
         text_hints,

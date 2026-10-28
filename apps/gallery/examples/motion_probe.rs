@@ -3,11 +3,11 @@ use gallery::{
     Gallery, Page,
     game2048::{Direction, Game},
 };
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, TextContext};
-use plico_vello::Source;
 use std::time::Duration;
 fn main() {
-    let clock = plico_core::VirtualClock::default();
+    let clock = plico::VirtualClock::default();
     let game = Game::from_cells([
         [2, 2, 4, 8],
         [4, 8, 16, 32],
@@ -16,7 +16,7 @@ fn main() {
     ]);
     let mut source = Source::with_clock(
         Gallery {
-            router: plico_core::Router::new(Page::Game2048),
+            router: plico::Router::new(Page::Game2048),
             game2048: game,
             ..Default::default()
         },

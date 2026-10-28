@@ -5,8 +5,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-plico-core.workspace = true
-plico-vello = { path = "../../crates/plico-vello", default-features = false }
+plico.workspace = true
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false }
 
 [dev-dependencies]
 plico-renderer.workspace = true

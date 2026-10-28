@@ -11,7 +11,7 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 TARGET=Path(os.environ.get('CARGO_TARGET_DIR',ROOT/'target')).resolve()
 CLI=TARGET/'debug/plico'
-SOURCE='''use plico_core::prelude::*;
+SOURCE='''use plico::prelude::*;
 #[derive(Default,serde::Serialize,serde::Deserialize)]
 #[serde(default)]
 pub struct Application { #[serde(skip)] input:TextBuffer, saved:String, submits:u64 }

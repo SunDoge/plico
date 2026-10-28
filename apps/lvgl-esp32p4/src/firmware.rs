@@ -1,4 +1,4 @@
-use plico_core::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
+use plico::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
 use plico_lvgl::{Adapter, Driver};
 use std::cell::RefCell;
 

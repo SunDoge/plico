@@ -2,7 +2,7 @@
 //! LVGL owns the pixels; the descriptor stays pinned while the native image uses it.
 use super::{Error, SvgRasterSnafu};
 use lightvgl_sys as sys;
-use plico_core::{NodeRef, Theme};
+use plico::{NodeRef, Theme};
 use snafu::ensure;
 
 pub(super) struct Raster {

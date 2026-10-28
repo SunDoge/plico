@@ -60,11 +60,11 @@ try:
     while time.monotonic()<until:
         if response(send('workspace/symbol',{'query':'Ui'},True)):break
         time.sleep(.5)
-    source=(ROOT/'crates/plico-core/examples/settings.rs').read_text()
+    source=(ROOT/'crates/plico/examples/settings.rs').read_text()
     cases=[('component Ui','ui.text("Settings")','ui.tex','text'),('component builder','.font_size(if large { 28 } else { 20 })','.font_s','font_size'),('layout header','.padding(16)','.padd','padding'),('clock API','ui.text("Settings")','ui.no','now'),('frame request','ui.text("Settings")','ui.request_anim','request_animation_frame')]
-    settings_path=ROOT/'crates/plico-core/examples/settings.rs'
+    settings_path=ROOT/'crates/plico/examples/settings.rs'
     cases=[(label,settings_path,source,old,prefix,expected) for label,old,prefix,expected in cases]
-    custom_path=ROOT/'crates/plico-core/examples/custom_widget.rs'
+    custom_path=ROOT/'crates/plico/examples/custom_widget.rs'
     custom=custom_path.read_text()
     cases += [('context-first button builder',custom_path,custom,'.primary()','.pri','primary'),
               ('context-first function from prelude',custom_path,custom,'button(cx).text("Save")','butt','button'),
@@ -76,14 +76,14 @@ try:
               ('switch disabled configuration',custom_path,custom,'.disabled(false)','.disa','disabled'),
               ('switch motion configuration',custom_path,custom,'.motion(Motion::Smooth)','.mot','motion'),
               ('checkbox response',custom_path,custom,'.response()','.res','response'),
-              ('generated icon constructor',custom_path,custom,'icon(cx, &plico_core::icons::FOLDER)','ico','icon'),
+              ('generated icon constructor',custom_path,custom,'icon(cx, &plico::icons::FOLDER)','ico','icon'),
               ('SVG icon color',custom_path,custom,'.color(Color::Muted)','.col','color'),
-              ('full Lucide asset constant',custom_path,custom,'plico_core::icons::SEARCH','plico_core::icons::SEAR','SEARCH')]
-    composed_path=ROOT/'crates/plico-core/tests/composite_widgets.rs'
+              ('full Lucide asset constant',custom_path,custom,'plico::icons::SEARCH','plico::icons::SEAR','SEARCH')]
+    composed_path=ROOT/'crates/plico/tests/composite_widgets.rs'
     composed=composed_path.read_text()
     cases += [('composed disclosure function',composed_path,composed,'collapsible','collap','collapsible'),
               ('composed progress inside keyed closure',composed_path,composed,'progress(cx, "Download", value)','progr','progress')]
-    input_path=ROOT/'crates/plico-core/tests/text_input.rs'
+    input_path=ROOT/'crates/plico/tests/text_input.rs'
     input_source=input_path.read_text()
     cases += [('native text input placeholder',input_path,input_source,'.placeholder("Enter password")','.place','placeholder'),
               ('native text input response',input_path,input_source,'.response()','.res','response')]
@@ -97,13 +97,13 @@ try:
               ('shader uniforms builder',gallery_path,gallery_source,'.values(&[(0.8 + self.exposure * 0.7) as f32])','.val','values')]
     cases += [('slider step builder',gallery_path,gallery_source,'.step(0.05)','.ste','step')]
     cases += [('popover builder',gallery_path,gallery_source,'.close_popover()', '.close_pop', 'close_popover'),
-              ('popover constructor',gallery_path,gallery_source,'plico_core::widgets::popover(ui, &mut self.quick_settings, "Quick settings")','plico_core::widgets::popo','popover')]
+              ('popover constructor',gallery_path,gallery_source,'plico::widgets::popover(ui, &mut self.quick_settings, "Quick settings")','plico::widgets::popo','popover')]
     cases += [('select width builder',gallery_path,gallery_source,'.width(132.)','.wid','width'),
-              ('menu item icon builder',gallery_path,gallery_source,'.icon(&plico_core::icons::PLUS)','.ico','icon'),
-              ('select constructor',gallery_path,gallery_source,'plico_core::widgets::select','plico_core::widgets::sel','select')]
-    cases += [('tooltip constructor',gallery_path,gallery_source,'plico_core::widgets::tooltip','plico_core::widgets::tool','tooltip'),
-              ('tooltip identity builder',gallery_path,gallery_source,'plico_core::widgets::tooltip(ui, "Add one to the counter")','plico_core::widgets::tooltip(ui, "Add one to the counter").ke','key')]
-    button_path=ROOT/'crates/plico-core/tests/button_content.rs'
+              ('menu item icon builder',gallery_path,gallery_source,'.icon(&plico::icons::PLUS)','.ico','icon'),
+              ('select constructor',gallery_path,gallery_source,'plico::widgets::select','plico::widgets::sel','select')]
+    cases += [('tooltip constructor',gallery_path,gallery_source,'plico::widgets::tooltip','plico::widgets::tool','tooltip'),
+              ('tooltip identity builder',gallery_path,gallery_source,'plico::widgets::tooltip(ui, "Add one to the counter")','plico::widgets::tooltip(ui, "Add one to the counter").ke','key')]
+    button_path=ROOT/'crates/plico/tests/button_content.rs'
     button_source=button_path.read_text()
     cases += [('button text content',button_path,button_source,'.text("Save")','.te','text'),
               ('button icon content',button_path,button_source,'.icon(&icons::SAVE)','.ico','icon'),

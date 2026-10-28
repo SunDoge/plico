@@ -1,6 +1,6 @@
 //! Fixed width through OS size constraints; optional custom-border edge selection.
-use plico_core::prelude::*;
-use plico_vello::{HostAction, View, WindowCommand, WindowOptions, WindowResizeEdges};
+use plico::prelude::*;
+use plico_desktop::{HostAction, View, WindowCommand, WindowOptions, WindowResizeEdges};
 
 #[derive(Default)]
 struct Demo {
@@ -23,9 +23,9 @@ impl View for Demo {
         };
     }
 }
-fn main() -> Result<(), plico_vello::DesktopError> {
+fn main() -> Result<(), plico_desktop::DesktopError> {
     let custom = std::env::var_os("PLICO_CUSTOM_DECORATIONS").is_some();
-    plico_vello::run_view_with_options(
+    plico_desktop::run_view_with_options(
         Demo::default(),
         WindowOptions::new()
             .title("Plico window resize constraints")

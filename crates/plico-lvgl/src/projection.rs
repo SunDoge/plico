@@ -1,5 +1,5 @@
 //! Backend-local object classes, independent of core interaction capabilities.
-use plico_core::Kind;
+use plico::Kind;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NativeClass {
     Container,

@@ -68,7 +68,7 @@ behavior have not been verified by this experiment.
 Taffy nodes are also retained, and equality checks avoid rewriting unchanged
 styles/children/measurement contexts. A forced sync still traverses the declared
 tree and calls Taffy's cached layout entry point; this is not an O(delta) claim.
-The layout-vocabulary mapper is currently copied from plico-vello, rather than
+The layout-vocabulary mapper is currently copied from plico-desktop, rather than
 introducing a dependency on that renderer. It should be shared if this backend
 moves beyond an experiment.
 

@@ -12,8 +12,8 @@ use fltk::{
     widget::Widget,
     window::Window,
 };
-use plico_core::taffy_layout::style as layout_style;
-use plico_core::{Clock, DeclareView, Engine, Entity, FrameTime, Kind, Style, Theme};
+use plico::taffy_layout::style as layout_style;
+use plico::{Clock, DeclareView, Engine, Entity, FrameTime, Kind, Style, Theme};
 use snafu::{ResultExt, Snafu};
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +24,7 @@ use taffy::prelude::*;
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Plico declarations failed: {source}"))]
-    Frame { source: plico_core::FrameError },
+    Frame { source: plico::FrameError },
     #[snafu(display("Taffy layout failed: {source}"))]
     Layout { source: taffy::TaffyError },
     #[snafu(display("FLTK failed: {source}"))]
@@ -84,7 +84,7 @@ pub struct Adapter {
     sender: app::Sender<Event>,
     pub stats: Stats,
 }
-fn color(token: plico_core::Color, theme: Theme) -> FColor {
+fn color(token: plico::Color, theme: Theme) -> FColor {
     let rgb = theme.resolve(token);
     FColor::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
@@ -449,10 +449,10 @@ impl Adapter {
                 w.set_label_font(font(n.style));
                 w.set_label_color(color(n.style.foreground, theme));
                 w.set_color(color(
-                    n.style.background.unwrap_or(plico_core::Color::Surface),
+                    n.style.background.unwrap_or(plico::Color::Surface),
                     theme,
                 ));
-                w.set_selection_color(color(plico_core::Color::Accent, theme));
+                w.set_selection_color(color(plico::Color::Accent, theme));
                 w.set_frame(
                     if matches!(n.kind, Kind::Button | Kind::ButtonBase | Kind::TextInput) {
                         FrameType::BorderBox
@@ -480,7 +480,7 @@ impl Adapter {
                 } else {
                     w.activate();
                 }
-                if n.style.layout.display == plico_core::Display::None {
+                if n.style.layout.display == plico::Display::None {
                     w.hide();
                 } else {
                     w.show();
@@ -616,7 +616,7 @@ pub fn run<V: DeclareView>(mut view: V, title: &str, width: i32, height: i32) ->
     let (tx, rx) = app::channel::<Event>();
     let mut adapter = Adapter::new(root, tx);
     let mut engine = Engine::default();
-    let clock = plico_core::SystemClock::default();
+    let clock = plico::SystemClock::default();
     let mut previous = Duration::ZERO;
     let mut dirty = true;
     let mut pacer = super::pacing::FramePacer::default();
@@ -643,7 +643,7 @@ pub fn run<V: DeclareView>(mut view: V, title: &str, width: i32, height: i32) ->
                 widget.take_focus().context(FltkSnafu)?;
             }
             window.redraw();
-            pacer.after_frame(now, engine.changes().contains(plico_core::Changes::ANIMATE));
+            pacer.after_frame(now, engine.changes().contains(plico::Changes::ANIMATE));
             dirty = false;
         }
         let size = (window.w(), window.h());

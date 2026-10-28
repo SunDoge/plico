@@ -1,4 +1,4 @@
-use plico_core::UiContext;
+use plico::UiContext;
 use plico_dev::{App, Request, StateSnapshot, render};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

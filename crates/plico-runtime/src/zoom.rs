@@ -255,7 +255,7 @@ impl FrameSource for ZoomSource {
 mod tests {
     use super::*;
     use crate::{Source, View};
-    use plico_core::prelude::*;
+    use plico::prelude::*;
     use plico_renderer::{
         KeyEvent, KeyLocation, Modifiers, Point, PointerButton, PointerEvent, PointerPhase,
         SemanticAction, SemanticRole,
@@ -263,10 +263,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     struct Demo {
         clicks: Arc<AtomicUsize>,
-        buffer: plico_core::TextBuffer,
+        buffer: plico::TextBuffer,
     }
     impl View for Demo {
-        #[plico_core::component]
+        #[plico::component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).padding(20).gap(16).children(|cx| {
                 if button(cx).text("Counter").width(140.).clicked() {
@@ -281,7 +281,7 @@ mod tests {
         let source = Source::new(Demo {
             clicks: clicks.clone(),
             buffer: {
-                let buffer = plico_core::TextBuffer::new();
+                let buffer = plico::TextBuffer::new();
                 buffer.set("abc".to_owned().into());
                 buffer
             },

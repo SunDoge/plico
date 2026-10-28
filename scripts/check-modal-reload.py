@@ -12,7 +12,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')).resolve()
 CLI = TARGET / 'debug' / ('plico.exe' if os.name == 'nt' else 'plico')
-SOURCE = '''use plico_core::prelude::*;
+SOURCE = '''use plico::prelude::*;
 static EFFECT: ShaderAsset = ShaderAsset::new("fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(wabou.values[0].x,0.25,uv.y,1.0); }");
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Application { dialog: ModalState, popup: PopoverState, selection: PopoverState, menu_state: PopoverState, channel: u8, actions: u64, count: u64, level: f64 }

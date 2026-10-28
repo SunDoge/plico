@@ -1,7 +1,7 @@
 //! Shared geometry for toggle layout and paint; every size follows theme density.
 use kurbo::{Affine, Circle, Rect, RoundedRect, Stroke};
 use peniko::{BlendMode, Fill};
-use plico_core::{Kind, Style, Theme};
+use plico::{Kind, Style, Theme};
 use plico_renderer::{PaintScene, Scene};
 
 struct Geometry {

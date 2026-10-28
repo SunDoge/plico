@@ -3,7 +3,7 @@ use super::*;
 use kurbo::{Affine, Rect};
 use parley::{Affinity, Cursor, Selection};
 use peniko::{BlendMode, Fill};
-use plico_core::InputEdit;
+use plico::InputEdit;
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
 use zeroize::Zeroizing;
 
@@ -194,12 +194,12 @@ impl Adapter {
                 }
                 if engine.node(entity)?.style.input_navigation && key.modifiers.is_empty() {
                     let navigation = match key.key.as_str() {
-                        "ArrowUp" => Some(plico_core::InputNavigation::Previous),
-                        "ArrowDown" => Some(plico_core::InputNavigation::Next),
-                        "PageUp" => Some(plico_core::InputNavigation::PageUp),
-                        "PageDown" => Some(plico_core::InputNavigation::PageDown),
+                        "ArrowUp" => Some(plico::InputNavigation::Previous),
+                        "ArrowDown" => Some(plico::InputNavigation::Next),
+                        "PageUp" => Some(plico::InputNavigation::PageUp),
+                        "PageDown" => Some(plico::InputNavigation::PageDown),
                         "Escape" if !buffer.is_composing() && !key.repeat => {
-                            Some(plico_core::InputNavigation::Cancel)
+                            Some(plico::InputNavigation::Cancel)
                         }
                         _ => None,
                     };

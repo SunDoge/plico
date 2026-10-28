@@ -1,6 +1,6 @@
 //! Native controls: Taffy supplies rectangles; egui owns measurement and interaction.
 use egui::{Color32, Context, FontId, Pos2, Rect, RichText, Ui, Vec2};
-use plico_core::{Engine, Entity, Kind, Style, Theme};
+use plico::{Engine, Entity, Kind, Style, Theme};
 use snafu::Snafu;
 use std::collections::HashMap;
 use taffy::{NodeId, TaffyTree, prelude::*};
@@ -46,14 +46,14 @@ impl Default for Adapter {
         }
     }
 }
-fn color(token: plico_core::Color, theme: Theme) -> Color32 {
+fn color(token: plico::Color, theme: Theme) -> Color32 {
     let c = theme.resolve(token);
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 fn font(style: Style) -> FontId {
     FontId::new(
         style.font_size as f32,
-        if style.font_family == plico_core::FontFamily::Monospace {
+        if style.font_family == plico::FontFamily::Monospace {
             egui::FontFamily::Monospace
         } else {
             egui::FontFamily::Proportional
@@ -123,7 +123,7 @@ impl Adapter {
             .iter()
             .map(|child| self.sync(engine, *child, live))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut style = plico_core::taffy_layout::style(node.kind, node.style, node.grid);
+        let mut style = plico::taffy_layout::style(node.kind, node.style, node.grid);
         // Native scrollbars live in egui's viewport, not Taffy's allocation.
         style.scrollbar_width = 0.;
         let measure = Measure {
@@ -239,7 +239,7 @@ impl Adapter {
                             let Some(m) = measure else {
                                 return Size::ZERO;
                             };
-                            if m.kind.family() == plico_core::KindFamily::Container {
+                            if m.kind.family() == plico::KindFamily::Container {
                                 return Size {
                                     width: known.width.unwrap_or(0.),
                                     height: known.height.unwrap_or(0.),
@@ -375,7 +375,7 @@ impl Adapter {
                             buffer.set(text.into());
                         }
                         if submit {
-                            buffer.edit(plico_core::InputEdit::Submit);
+                            buffer.edit(plico::InputEdit::Submit);
                         }
                     }
                 }
@@ -396,7 +396,7 @@ impl Adapter {
         let Some([x, y, w, h]) = self.bounds(entity) else {
             return;
         };
-        if w <= 0. || h <= 0. || node.style.layout.display == plico_core::Display::None {
+        if w <= 0. || h <= 0. || node.style.layout.display == plico::Display::None {
             return;
         }
         let rect = Rect::from_min_size(

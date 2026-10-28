@@ -31,7 +31,10 @@ fn build_flags(module: bool, host_binary: Option<&str>, host_features: &[&str]) 
         }
         flags
     } else {
-        let mut flags = vec!["--bin".into(), host_binary.unwrap_or("plico-vello").into()];
+        let mut flags = vec![
+            "--bin".into(),
+            host_binary.unwrap_or("plico-desktop").into(),
+        ];
         if host_binary.is_none() {
             flags.extend([
                 "--no-default-features".into(),
@@ -83,7 +86,7 @@ fn build(
                     path = Some(p.clone().into_std_path_buf());
                 }
                 if !module
-                    && a.target.name == host_binary.unwrap_or("plico-vello")
+                    && a.target.name == host_binary.unwrap_or("plico-desktop")
                     && let Some(p) = a.executable
                 {
                     path = Some(p.into_std_path_buf());
@@ -431,7 +434,7 @@ pub fn run(
         if custom_host.is_some() {
             package
         } else {
-            "plico-vello"
+            "plico-desktop"
         },
         false,
         target,
@@ -537,7 +540,10 @@ pub fn create(path: &Path, name: Option<&str>, framework: &Path) -> Result<()> {
     );
     std::fs::create_dir(path).context(IoSnafu)?;
     std::fs::create_dir(path.join("src")).context(IoSnafu)?;
-    let facade = serde_json::to_string(&framework.join("crates/plico")).context(JsonSnafu)?;
+    let core = serde_json::to_string(&framework.join("crates/plico")).context(JsonSnafu)?;
+    let dev = serde_json::to_string(&framework.join("crates/plico-dev")).context(JsonSnafu)?;
+    let backend =
+        serde_json::to_string(&framework.join("crates/plico-desktop")).context(JsonSnafu)?;
     let crate_name = name.replace('-', "_");
     let manifest = format!(
         r#"[package]
@@ -552,9 +558,9 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
-abi = ["plico/abi", "dep:stabby"]
+abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["plico/desktop"]
+desktop = ["dep:plico-desktop"]
 
 [[bin]]
 name = "{name}"
@@ -562,7 +568,10 @@ path = "src/main.rs"
 required-features = ["desktop"]
 
 [dependencies]
-plico = {{ path = {facade}, default-features = false }}
+plico = {{ path = {core} }}
+plico-dev = {{ path = {dev} }}
+plico-desktop = {{ path = {backend}, default-features = false, optional = true }}
+serde = {{ version = "1", features = ["derive"] }}
 
 # Required by the native ABI export macro; UI modules build without desktop.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -582,13 +591,13 @@ opt-level = 2
         path.join("src/lib.rs"),
         r#"use plico::prelude::*;
 
-#[derive(Default, plico::serde::Serialize, plico::serde::Deserialize)]
-#[serde(default, crate = "plico::serde")]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Application {
     count: u32,
 }
 
-impl plico::App for Application {
+impl plico_dev::App for Application {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
@@ -603,15 +612,15 @@ impl plico::App for Application {
 }
 
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-plico::export_app!(Application);
+plico_dev::export_app!(Application);
 "#,
     )
     .context(IoSnafu)?;
     std::fs::write(
         path.join("src/main.rs"),
         format!(
-            r#"fn main() -> Result<(), plico::DesktopError> {{
-    plico::run({crate_name}::Application::default(), "{name}")
+            r#"fn main() -> Result<(), plico_desktop::DesktopError> {{
+    plico_desktop::run({crate_name}::Application::default(), "{name}")
 }}
 "#
         ),

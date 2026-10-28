@@ -1,5 +1,5 @@
 //! Minimal native-widget proof, not a second gallery.
-use plico_core::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
+use plico::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
 use plico_lvgl::{Adapter, Driver, Snapshot};
 use snafu::{OptionExt, ResultExt, Snafu};
 use std::path::PathBuf;
@@ -119,7 +119,7 @@ fn main() -> Result<(), Error> {
         assert_eq!(app.count, 3);
         // A no-op delta skips the structural walk entirely: nothing is
         // created, removed, or updated, and stats stay at zero.
-        let noop = plico_core::FrameDelta::default();
+        let noop = plico::FrameDelta::default();
         adapter
             .sync_delta(&engine, Some(noop))
             .context(BackendSnafu)?;

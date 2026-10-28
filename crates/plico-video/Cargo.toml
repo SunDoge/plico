@@ -9,7 +9,7 @@ description = "Experimental host-owned libmpv video surface for Plico"
 [features]
 default = []
 mpv = ["dep:libmpv2", "dep:libmpv2-sys", "dep:plico-renderer", "dep:snafu"]
-skia = ["plico-vello/skia"]
+skia = ["plico-desktop/skia"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libmpv2 = { version = "6", optional = true }
@@ -18,8 +18,8 @@ plico-renderer = { workspace = true, optional = true }
 snafu = { workspace = true, optional = true }
 
 [dev-dependencies]
-plico-core.workspace = true
-plico-vello = { path = "../plico-vello", default-features = false }
+plico.workspace = true
+plico-desktop = { path = "../plico-desktop", default-features = false }
 
 [[example]]
 name = "player"

@@ -4,7 +4,7 @@
 Tooltip 是非交互提示，不需要应用保存 open 状态。内容闭包立即执行，返回其中控件的响应；宿主决定何时显示提示。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 fn toolbar(cx: &mut UiContext) {
@@ -49,7 +49,7 @@ fn toolbar(cx: &mut UiContext) {
 cargo run -p gallery
 # Controls：悬停或 Tab 聚焦 Increment / Reset
 cargo run -p gallery --example capture -- --page controls --tooltip --out /tmp/tooltip.png
-cargo test -p plico-vello --test tooltip
+cargo test -p plico-desktop --test tooltip
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 ```

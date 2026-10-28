@@ -21,7 +21,7 @@ fn ok(output: Output) {
 }
 fn source(dir: &Path) {
     fs::create_dir_all(dir.join("source/icons")).unwrap();
-    let rust = include_str!("../../plico-core/src/icons.rs");
+    let rust = include_str!("../../plico/src/icons.rs");
     for (name, constant) in [("check", "CHECK"), ("x", "X")] {
         let prefix = format!("pub const {constant}: SvgAsset = SvgAsset::new(\n    r#\"");
         let xml = rust
@@ -35,7 +35,7 @@ fn source(dir: &Path) {
     }
     fs::write(
         dir.join("source/LICENSE"),
-        include_bytes!("../../plico-core/assets/lucide/LICENSE"),
+        include_bytes!("../../plico/assets/lucide/LICENSE"),
     )
     .unwrap();
 }
@@ -53,7 +53,7 @@ fn add_merges_deterministically_and_check_works_without_cargo_or_source_cache() 
         "--output",
         "my app/icons.rs",
         "--rust-crate",
-        "plico_core",
+        "plico",
     ];
     ok(cli(dir.path(), &base));
     let mut add = base;
@@ -77,7 +77,7 @@ fn add_merges_deterministically_and_check_works_without_cargo_or_source_cache() 
             "--output",
             "my app/icons.rs",
             "--rust-crate",
-            "plico_core",
+            "plico",
         ],
     ));
     assert_eq!(fs::read(&output).unwrap(), before);

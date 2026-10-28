@@ -9,7 +9,7 @@ Adapter 在结构稳定时只同步 journal、活跃动画 owner、hover/pressed
 paint-only 更新直接 patch 已有 placed nodes，不运行 Taffy layout 或 flatten。宽高、padding、gap、文字测量、viewport 或结构变化仍触发布局并重新 flatten。未改变可视 revision 和缩放的场景复用缓存；发生 paint 变化仍重新编码整份场景。
 
 ```sh
-cargo run -p plico-vello --example incremental
+cargo run -p plico-desktop --example incremental
 ```
 
 reports/incremental/report.json 使用模拟时钟比较 1000 个文本节点中的单个 opacity 动画和 width 动画。纯 paint 动画中间帧只同步 1 个节点，layout_runs=0、flatten_visits=0；width 动画只同步 1 个节点，但 layout_runs=1、flatten_visits=1002。稳定帧 sync_visits=0 并复用场景。测试另覆盖稳定化 journal、失败恢复、手工声明、禁用焦点与 reduced motion。

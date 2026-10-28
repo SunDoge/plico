@@ -5,7 +5,7 @@ use crate::{
 };
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
-use plico_core::{Clock, SystemClock};
+use plico::{Clock, SystemClock};
 use std::sync::{Arc, Mutex};
 use web_time::Instant;
 /// Serializable UI state need not contain decoded pixels or player handles.
@@ -293,7 +293,7 @@ mod tests {
         assert!(!state.complete(stale, Err("old failure".into())));
         assert_eq!(state.status(), ImageLoadStatus::Loading);
         assert!(state.complete(current, Ok(resource())));
-        let clock = plico_core::VirtualClock::default();
+        let clock = plico::VirtualClock::default();
         let mut widget = ImageSurface::with_clock(state.clone(), Arc::new(clock.clone()));
         widget.visibility_changed(true);
         let mut text = crate::TextContext::new();

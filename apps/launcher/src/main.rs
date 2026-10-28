@@ -1,7 +1,7 @@
-fn main() -> Result<(), plico_vello::DesktopError> {
-    plico_vello::run_view_with_options(
+fn main() -> Result<(), plico_desktop::DesktopError> {
+    plico_desktop::run_view_with_options(
         launcher::Launcher::default(),
-        plico_vello::WindowOptions::new()
+        plico_desktop::WindowOptions::new()
             .title("Plico launcher")
             .initial_inner_size(680, 526)
             .min_inner_size(520, 526)
@@ -9,6 +9,6 @@ fn main() -> Result<(), plico_vello::DesktopError> {
             .corner_radius(14)
             .resizable(false)
             .centered(true)
-            .window_level(plico_vello::WindowLevel::AlwaysOnTop),
+            .window_level(plico_desktop::WindowLevel::AlwaysOnTop),
     )
 }

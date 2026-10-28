@@ -12,7 +12,7 @@ profiling = []
 peniko.workspace = true
 kurbo.workspace = true
 gif = "0.14"
-plico-core.workspace = true
+plico.workspace = true
 web-time = "1.1"
 directories.workspace = true
 bitflags = { workspace = true, features = ["serde"] }

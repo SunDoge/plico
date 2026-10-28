@@ -490,7 +490,8 @@ version = "0.1.9"
 dependencies = [
  "fltk",
  "peniko",
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-egui",
  "plico-fltk",
  "plico-motion",
@@ -498,7 +499,6 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
- "plico-vello",
  "snafu",
  "tracing-subscriber",
  "usage-rs",
@@ -1482,9 +1482,8 @@ name = "examples"
 version = "0.1.9"
 dependencies = [
  "plico",
- "plico-core",
+ "plico-desktop",
  "plico-dev",
- "plico-vello",
  "serde",
 ]
 
@@ -1813,14 +1812,14 @@ version = "0.1.9"
 dependencies = [
  "directories",
  "image",
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-dev",
  "plico-editor",
  "plico-markdown",
  "plico-motion",
  "plico-renderer",
  "plico-shell",
- "plico-vello",
  "serde",
  "serde_json",
  "snafu",
@@ -2699,10 +2698,10 @@ dependencies = [
 name = "launcher"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-renderer",
  "plico-shell",
- "plico-vello",
  "snafu",
  "usage-rs",
 ]
@@ -2939,7 +2938,7 @@ dependencies = [
 name = "lvgl-esp32p4"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
  "plico-lvgl",
 ]
 
@@ -3871,10 +3870,18 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "plico"
 version = "0.1.9"
 dependencies = [
- "plico-core",
- "plico-dev",
- "plico-vello",
+ "bitflags 2.13.2",
+ "plico-macros",
+ "portable-atomic",
+ "rmp-serde",
  "serde",
+ "serde_json",
+ "slotmap",
+ "snafu",
+ "taffy",
+ "unicode-segmentation",
+ "web-time",
+ "zeroize",
 ]
 
 [[package]]
@@ -3896,21 +3903,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-core"
+name = "plico-desktop"
 version = "0.1.9"
 dependencies = [
- "bitflags 2.13.2",
- "plico-macros",
- "portable-atomic",
- "rmp-serde",
+ "gallery",
+ "image",
+ "kurbo 0.13.1",
+ "peniko",
+ "plico",
+ "plico-dev",
+ "plico-renderer",
+ "plico-runtime",
+ "plico-shell",
  "serde",
  "serde_json",
- "slotmap",
  "snafu",
- "taffy",
- "unicode-segmentation",
- "web-time",
- "zeroize",
+ "tracing",
+ "tracing-subscriber",
+ "usage-rs",
 ]
 
 [[package]]
@@ -3918,7 +3928,7 @@ name = "plico-dev"
 version = "0.1.9"
 dependencies = [
  "libloading 0.9.0",
- "plico-core",
+ "plico",
  "rmp-serde",
  "serde",
  "serde_bytes",
@@ -3951,7 +3961,7 @@ dependencies = [
  "egui_system_font_provider",
  "fontique 0.12.0",
  "peniko",
- "plico-core",
+ "plico",
  "plico-renderer",
  "plico-runtime",
  "pollster 0.4.0",
@@ -3970,7 +3980,7 @@ name = "plico-fltk"
 version = "0.1.9"
 dependencies = [
  "fltk",
- "plico-core",
+ "plico",
  "snafu",
  "taffy",
 ]
@@ -3982,7 +3992,7 @@ dependencies = [
  "cc",
  "lightvgl-sys",
  "pkg-config",
- "plico-core",
+ "plico",
  "png 0.17.16",
  "snafu",
  "toml 1.1.8+spec-1.1.0",
@@ -4003,7 +4013,7 @@ dependencies = [
 name = "plico-markdown"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -4055,7 +4065,7 @@ dependencies = [
  "naga",
  "parley",
  "peniko",
- "plico-core",
+ "plico",
  "plico-motion",
  "rustc-hash 2.1.3",
  "serde",
@@ -4081,7 +4091,7 @@ dependencies = [
  "notify",
  "parley",
  "peniko",
- "plico-core",
+ "plico",
  "plico-dev",
  "plico-motion",
  "plico-renderer",
@@ -4148,7 +4158,7 @@ dependencies = [
  "kurbo 0.13.1",
  "lru",
  "peniko",
- "plico-core",
+ "plico",
  "plico-renderer",
  "plico-runtime",
  "plico-shell",
@@ -4169,7 +4179,7 @@ dependencies = [
  "libc",
  "peniko",
  "percent-encoding",
- "plico-core",
+ "plico",
  "plico-renderer",
  "rio-graphics",
  "rio-vt",
@@ -4180,35 +4190,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-vello"
-version = "0.1.9"
-dependencies = [
- "gallery",
- "image",
- "kurbo 0.13.1",
- "peniko",
- "plico-core",
- "plico-dev",
- "plico-renderer",
- "plico-runtime",
- "plico-shell",
- "serde",
- "serde_json",
- "snafu",
- "tracing",
- "tracing-subscriber",
- "usage-rs",
-]
-
-[[package]]
 name = "plico-video"
 version = "0.1.9"
 dependencies = [
  "libmpv2",
  "libmpv2-sys",
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-renderer",
- "plico-vello",
  "snafu",
 ]
 
@@ -4218,10 +4207,10 @@ version = "0.1.9"
 dependencies = [
  "gallery",
  "js-sys",
- "plico-core",
+ "plico",
  "plico-dev",
  "plico-renderer",
- "plico-vello",
+ "plico-runtime",
  "serde_json",
  "wasm-bindgen",
  "web-sys",
@@ -4966,11 +4955,11 @@ dependencies = [
 name = "services-demo"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-dev",
  "plico-renderer",
  "plico-shell",
- "plico-vello",
  "serde",
  "serde_json",
  "snafu",
@@ -5550,10 +5539,10 @@ dependencies = [
 name = "terminal"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
+ "plico-desktop",
  "plico-renderer",
  "plico-terminal",
- "plico-vello",
  "serde_json",
  "snafu",
  "usage-rs",
@@ -6492,7 +6481,7 @@ dependencies = [
 name = "web-demo"
 version = "0.1.9"
 dependencies = [
- "plico-core",
+ "plico",
  "plico-dev",
  "serde",
  "serde_json",

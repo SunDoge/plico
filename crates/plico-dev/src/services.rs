@@ -1,6 +1,6 @@
 //! Typed, value-only bridge. Host resources and callbacks never cross the module ABI.
 use crate::{App, Frame, Request, Result};
-use plico_core::{FrameTime, Theme, UiContext};
+use plico::{FrameTime, Theme, UiContext};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use std::sync::Arc;
 pub type Wake = Arc<dyn Fn() + Send + Sync>;

@@ -1,9 +1,9 @@
 use crate::{Result, TreeSnafu};
 
 /// Validate portable view data before activating an application module.
-pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
+pub fn validate_nodes(nodes: &[plico::ViewNode]) -> Result<()> {
     fn walk(
-        nodes: &[plico_core::ViewNode],
+        nodes: &[plico::ViewNode],
         depth: usize,
         count: &mut usize,
         in_button: bool,
@@ -30,7 +30,7 @@ pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
                 }
             );
             snafu::ensure!(
-                n.kind != plico_core::Kind::Root,
+                n.kind != plico::Kind::Root,
                 TreeSnafu {
                     message: "nested synthetic root"
                 }
@@ -43,13 +43,13 @@ pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
             );
             snafu::ensure!(
                 n.shader.as_ref().is_none_or(|p| p.valid())
-                    && (n.kind == plico_core::Kind::Shader) == n.shader.is_some(),
+                    && (n.kind == plico::Kind::Shader) == n.shader.is_some(),
                 TreeSnafu {
                     message: "invalid shader parameters"
                 }
             );
             snafu::ensure!(
-                (n.kind == plico_core::Kind::Slider) == n.numeric.is_some()
+                (n.kind == plico::Kind::Slider) == n.numeric.is_some()
                     && n.numeric.is_none_or(|range| range.valid()
                         && range.value >= range.min
                         && range.value <= range.max),
@@ -58,7 +58,7 @@ pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
                 }
             );
             snafu::ensure!(
-                (n.spans.is_empty() || n.kind == plico_core::Kind::Text)
+                (n.spans.is_empty() || n.kind == plico::Kind::Text)
                     && n.spans.iter().all(|span| span.valid_for(&n.text)),
                 TreeSnafu {
                     message: "invalid rich text ranges"
@@ -79,13 +79,13 @@ pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
             );
             if matches!(
                 n.kind,
-                plico_core::Kind::Shader
-                    | plico_core::Kind::Text
-                    | plico_core::Kind::TextInput
-                    | plico_core::Kind::Svg
-                    | plico_core::Kind::Button
-                    | plico_core::Kind::Switch
-                    | plico_core::Kind::Checkbox
+                plico::Kind::Shader
+                    | plico::Kind::Text
+                    | plico::Kind::TextInput
+                    | plico::Kind::Svg
+                    | plico::Kind::Button
+                    | plico::Kind::Switch
+                    | plico::Kind::Checkbox
             ) {
                 snafu::ensure!(
                     n.children.is_empty(),
@@ -98,7 +98,7 @@ pub fn validate_nodes(nodes: &[plico_core::ViewNode]) -> Result<()> {
                 &n.children,
                 depth + 1,
                 count,
-                in_button || n.kind == plico_core::Kind::ButtonBase,
+                in_button || n.kind == plico::Kind::ButtonBase,
             )?;
         }
         Ok(())

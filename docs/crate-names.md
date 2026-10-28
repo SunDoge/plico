@@ -13,24 +13,24 @@
 
 | 旧 package / Rust 名称 | 新 package / Rust 名称 | 目录 |
 | --- | --- | --- |
-| plico-backend / plico_backend | plico-vello / plico_vello | crates/plico-vello |
+| plico-backend / plico_backend | plico-desktop / plico_desktop | crates/plico-desktop |
 | plico-web / plico_web | plico-web-host / plico_web_host | crates/plico-web-host |
 | plico-web-ui / plico_web_ui | web-demo / web_demo | apps/web-demo |
 
-`plico-vello` 将 Plico Engine 接到 Taffy、Parley、Vello，可由桌面或浏览器宿主使用，
+`plico-desktop` 将 Plico Engine 接到 Taffy、Parley、Vello，可由桌面或浏览器宿主使用，
 因此不命名为 native。`plico-lvgl` 与它是并列后端；`plico-shell` 负责原生窗口与系统
 集成，`plico-renderer` 保留共享的布局、文字和场景能力。`plico-dev` 名称暂时不变。
 
 仓库外应用需要更新 Cargo.toml 的 dependency 名称和本地 path，并将
-`plico_backend::` 改为 `plico_vello::`。例如：
+`plico_backend::` 改为 `plico_desktop::`。例如：
 
 ```toml
 [dependencies]
-plico-vello = { path = "../plico/crates/plico-vello", default-features = false }
+plico-desktop = { path = "../plico/crates/plico-desktop", default-features = false }
 ```
 
-静态入口仍使用 `plico_vello::run`。CLI 二进制仍名为 `plico`；其生成模板、默认
-热重载宿主 package/binary 已同步为 `plico-vello`。自行配置的 host package、binary
+静态入口仍使用 `plico_desktop::run`。CLI 二进制仍名为 `plico`；其生成模板、默认
+热重载宿主 package/binary 已同步为 `plico-desktop`。自行配置的 host package、binary
 及构建脚本也需更新，没有新增旧名兼容 crate。
 
 浏览器构建脚本位于 `crates/plico-web-host/web/`，输出目录为

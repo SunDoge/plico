@@ -4,7 +4,7 @@
 这两个组件使用 Popover 的 portal、定位、事件隔离和退出动画。应用仍在当前调用中同步读取输入并更新普通 Rust 状态，不注册常驻回调。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[derive(Default)]
 struct Settings {
@@ -24,7 +24,7 @@ impl Settings {
         select(cx, &mut self.selection, "Release channel", &mut self.channel, &options)
             .width(200.);
         (menu(cx, &mut self.commands, "Actions")).children(|cx| {
-            if menu_item(cx, "Duplicate").icon(&plico_core::icons::COPY).clicked() {
+            if menu_item(cx, "Duplicate").icon(&plico::icons::COPY).clicked() {
                 self.copies += 1;
             }
             menu_item(cx, "Unavailable").disabled(true);
@@ -67,7 +67,7 @@ Style.role 是后端无关的可选 WidgetRole，随 ViewNode 序列化；旧快
 ```sh
 cargo run -p gallery
 # Controls → Release channel；Quick settings → Actions
-cargo test -p plico-vello --test select_menu
+cargo test -p plico-desktop --test select_menu
 cargo run -p gallery --example capture -- --page controls --select --out /tmp/select.png
 cargo run -p gallery --example capture -- --page controls --menu --dark --width 640 --height 740 --out /tmp/menu.png
 cargo build -p plico-cli

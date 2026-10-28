@@ -6,7 +6,7 @@
 `Adapter::visual_bounds` 与语义树提供变换后的窗口坐标。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 fn tile(cx: &mut UiContext, x: f32, y: f32, scale: f32) {
@@ -69,8 +69,8 @@ slider 拖动、输入选择与 IME caret、tooltip 以及语义边界使用相�
 ## 验证与工作量
 
 ```sh
-cargo test -p plico-core --test changes
-cargo test -p plico-vello --test presentation_motion
+cargo test -p plico --test changes
+cargo test -p plico-desktop --test presentation_motion
 cargo run -p gallery --example motion_probe
 ```
 

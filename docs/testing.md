@@ -1,6 +1,6 @@
 # Deterministic application testing
 
-`plico_runtime::testing` (also re-exported by `plico_vello`) provides a shared
+`plico_runtime::testing` (also re-exported by `plico_desktop`) provides a shared
 command protocol and a renderer-independent `Driver<V: View>`.
 
 ```rust,ignore

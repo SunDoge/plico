@@ -137,7 +137,7 @@ impl Adapter {
                         .and_then(|old| engine.input(old))
                         && buffer.is_composing()
                     {
-                        buffer.edit(plico_core::InputEdit::ClearPreedit);
+                        buffer.edit(plico::InputEdit::ClearPreedit);
                     }
                     self.slider_drag = Some(entity);
                     self.pressed = Some(entity);

@@ -2,23 +2,28 @@
 name = "plico"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+description = "Immediate-mode Plico UI engine and shared types"
 publish = false
 
 [features]
-default = ["desktop"]
-desktop = ["dep:plico-vello"]
-abi = ["plico-dev/abi"]
-skia = ["desktop", "plico-vello/skia"]
-hot-reload = ["desktop", "plico-vello/hot-reload", "abi"]
-profiling = ["desktop", "plico-vello/profiling"]
+# Optional portable layout adapter for native-widget backends.
+taffy = ["dep:taffy"]
 
 [dependencies]
-plico-core.workspace = true
-plico-dev.workspace = true
-plico-vello = { path = "../plico-vello", default-features = false, optional = true }
+taffy = { workspace = true, optional = true }
+rmp-serde.workspace = true
+web-time = "1.1"
+snafu.workspace = true
 serde = { workspace = true, features = ["derive"] }
+slotmap.workspace = true
+plico-macros = { path = "../plico-macros" }
+bitflags = { workspace = true, features = ["serde"] }
 
-[[example]]
-name = "counter"
-required-features = ["desktop"]
+zeroize = "1.9"
+unicode-segmentation = "1.12"
+
+[target.'cfg(not(target_has_atomic = "64"))'.dependencies]
+portable-atomic = { version = "1", features = ["std"] }
+
+[dev-dependencies]
+serde_json.workspace = true

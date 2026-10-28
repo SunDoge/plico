@@ -1,5 +1,5 @@
 //! A deterministic incoming reply: no network connection or async runtime required.
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_markdown::{RevealUnit, Stream};
 use std::time::Duration;
 

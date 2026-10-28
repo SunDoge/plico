@@ -1,6 +1,6 @@
 //! Retained validated GPU surfaces, driven by the injected UI clock.
 use super::*;
-use plico_core::ShaderParams;
+use plico::ShaderParams;
 use plico_renderer::{ShaderEffectId, ShaderEffectSource, widget::PaintContext};
 use std::time::Duration;
 

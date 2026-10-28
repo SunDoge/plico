@@ -2,11 +2,11 @@
 
 Plico's desktop window host exposes initial size, minimum/maximum logical
 client-area sizes, and the edges that can begin a custom-border resize gesture.
-These options are available through `plico_vello::WindowOptions` and the
+These options are available through `plico_desktop::WindowOptions` and the
 renderer/runtime/shell re-exports. They are renderer-independent.
 
 ```rust
-use plico_vello::{WindowOptions, WindowResizeEdges};
+use plico_desktop::{WindowOptions, WindowResizeEdges};
 
 let options = WindowOptions::new()
     .initial_inner_size(480, 420)

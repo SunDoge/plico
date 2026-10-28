@@ -281,7 +281,7 @@ impl EguiWindow {
             UiEvent::Key(key) => {
                 let mods = modifiers(key.modifiers);
                 self.input.events.push(egui::Event::ModifiersChanged(mods));
-                let down = key.phase == plico_core::KeyPhase::Down;
+                let down = key.phase == plico::KeyPhase::Down;
                 if down && key.modifiers.primary_shortcut() {
                     match key.key.to_lowercase().as_str() {
                         "v" => {
@@ -443,7 +443,7 @@ impl EguiWindow {
     }
 }
 
-fn modifiers(m: plico_core::Modifiers) -> egui::Modifiers {
+fn modifiers(m: plico::Modifiers) -> egui::Modifiers {
     egui::Modifiers {
         alt: m.alt(),
         ctrl: m.control(),

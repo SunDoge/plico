@@ -13,7 +13,7 @@ Plico View::show → Engine → Taffy 分配矩形 → egui 控件 → egui-wgpu
 
 egui 的同一个 Context 测量和绘制文字，使用内置字体、系统字体 provider、原生字体图集
 和缓存；SVG 使用 egui_extras 的图片加载器。Plico 不维护另一套字形缓存。
-Taffy 样式转换由可选的 `plico-core/taffy` 模块提供，FLTK 也复用该模块。
+Taffy 样式转换由可选的 `plico/taffy` 模块提供，FLTK 也复用该模块。
 默认 core 构建不引入 Taffy。共享 shell/renderer 仍依赖原有的绘制类型和文字库，
 本实验没有声称消除了它们的编译依赖。
 

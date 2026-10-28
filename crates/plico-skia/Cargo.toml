@@ -30,7 +30,7 @@ winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 vello-common.workspace = true
-plico-core.workspace = true
+plico.workspace = true
 plico-runtime = { path = "../plico-runtime" }
 taffy.workspace = true
 plico-shell.workspace = true

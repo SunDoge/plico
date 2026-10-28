@@ -6,8 +6,8 @@ publish = false
 description = "Plico native terminal application"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-plico-core.workspace = true
-plico-vello = { path = "../../crates/plico-vello", default-features = false }
+plico.workspace = true
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false }
 plico-terminal = { path = "../../crates/plico-terminal" }
 plico-renderer.workspace = true
 serde_json.workspace = true

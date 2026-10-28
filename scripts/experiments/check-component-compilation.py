@@ -17,8 +17,8 @@ results=[]
 with tempfile.TemporaryDirectory(prefix='plico-component-compile-') as directory:
     for name,path,expected in [
         ('retired syntax rejected',ROOT/'scripts/experiments/fixtures/retired_children.rs',False),
-        ('native children',ROOT/'crates/plico-core/examples/native_children.rs',True),
-        ('operator children',ROOT/'crates/plico-core/examples/operator_layout.rs',True),
+        ('native children',ROOT/'crates/plico/examples/native_children.rs',True),
+        ('operator children',ROOT/'crates/plico/examples/operator_layout.rs',True),
         ('user unused locals remain diagnostics',ROOT/'scripts/experiments/fixtures/unused_component_local.rs',False),
         ('attribute recovery keeps error',ROOT/'scripts/experiments/fixtures/missing_semicolon_component.rs',False),
     ]:

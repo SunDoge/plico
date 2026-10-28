@@ -790,7 +790,7 @@ fn cursor_visual_stays_hollow_when_terminal_is_unfocused() {
 
 #[test]
 fn cursor_blink_ticks_on_the_injected_clock() {
-    let clock = plico_core::VirtualClock::default();
+    let clock = plico::VirtualClock::default();
     let mut widget = TerminalWidget::headless(20, 4);
     widget.set_clock(std::sync::Arc::new(clock.clone()));
     widget.focus_changed(true);

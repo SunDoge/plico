@@ -53,7 +53,7 @@ Windows 等 Linux 检查成功后再执行。纯文档与发布配置改动通�
 也不为筛选逻辑调用 GitHub API。Linux 负责：
 
 - 检查 Rust 与 component 格式和 Widget 边界；所有 Cargo 命令使用 `--locked`。
-- 测试 `plico-core`、`plico-macros`、`plico-motion`、`plico-dev`、
+- 测试 `plico`、`plico-macros`、`plico-motion`、`plico-dev`、
   `plico-cli`、`plico-markdown`，以及无窗口的 runtime 语义协议测试。
 - 其余主线代码通过 workspace Clippy 检查（默认 feature）；不启用 Skia SDK、
   FLTK、LVGL、ESP-IDF 等可选后端。`backend-settings` 使用 Vello feature 参与编译；全局热键启用 `plico-shell/global-hotkeys` 做编译检查，不运行 OS 自动化。
@@ -77,7 +77,7 @@ release-plz 负责根版本、changelog 和 Cargo.lock 更新，不另写版本�
 成员使用 Cargo 原生的版本继承；CI 的 `--locked` 构建负责拒绝过期锁文件。
 旧 release PR 若早于 workspace 结构变更，应重新生成后再合并。
 
-排除在 workspace 之外的 `crates/plico-vello/reference` 保留历史版本；`plico new` 创建的
+排除在 workspace 之外的 `crates/plico-desktop/reference` 保留历史版本；`plico new` 创建的
 独立用户应用有自己的版本，不随框架一起修改。包版本不代替热重载协议或 ABI 的兼容性检查。
 统一包版本不改变协议版本；目前通过 release-plz 管理 Git-only 发布。
 

@@ -1,5 +1,5 @@
 //! Network/decode jobs stay in GalleryHost. UI sends commands; the framework owns painting.
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_renderer::{
     animated_image::{AnimatedImage, AnimationLimits},
     image_surface::{ImageLoadStatus, ImageSurfaceState},
@@ -269,17 +269,17 @@ fn load(format: Format, refresh: bool) -> Result<Arc<AnimatedImage>, String> {
 pub struct GalleryHost {
     pub app: super::Gallery,
 }
-impl plico_vello::View for GalleryHost {
+impl plico_desktop::View for GalleryHost {
     fn show(&mut self, cx: &mut UiContext) {
         plico_dev::App::show(&mut self.app, cx);
     }
     fn theme(&self) -> Theme {
         plico_dev::App::theme(&self.app)
     }
-    fn set_frame_time(&mut self, time: plico_core::FrameTime) {
+    fn set_frame_time(&mut self, time: plico::FrameTime) {
         plico_dev::App::set_frame_time(&mut self.app, time);
     }
-    fn on_unhandled_key(&mut self, key: &plico_core::KeyEvent) -> bool {
+    fn on_unhandled_key(&mut self, key: &plico::KeyEvent) -> bool {
         plico_dev::App::on_key_event(&mut self.app, key)
     }
     fn poll_reload(&mut self) -> bool {

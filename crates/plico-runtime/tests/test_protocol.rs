@@ -1,4 +1,4 @@
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_runtime::{
     View,
     testing::{Command, Driver, Error},

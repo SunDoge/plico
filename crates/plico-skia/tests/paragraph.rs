@@ -239,7 +239,7 @@ fn font_registered_before_native_engine_install_is_available_and_cached() {
 
 #[test]
 fn native_runtime_selection_drag_and_copy_use_painted_geometry() {
-    use plico_core::prelude::*;
+    use plico::prelude::*;
     use plico_renderer::{
         ClipboardRequest, FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point,
         PointerButton, PointerEvent, PointerPhase, PointerProperties, UiEvent,

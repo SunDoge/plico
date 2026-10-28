@@ -1,7 +1,7 @@
 # LVGL 最小后端实验
 
 `crates/plico-lvgl` 是验证 API 可替换后端的小实验，不是完整 LVGL 产品后端。
-同一个 `plico-core::Engine` 执行普通 `#[component]` / `+ |cx|` 函数；adapter
+同一个 `plico::Engine` 执行普通 `#[component]` / `+ |cx|` 函数；adapter
 把其保留节点映射到 LVGL 原生对象，由 LVGL 负责布局、文字和绘制。
 没有使用 Plico 的 Taffy、Parley、Vello、窗口层或 JSON 热重载通路。
 

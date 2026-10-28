@@ -39,7 +39,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
             .snapshot_revision()
             .is_some_and(|revision| Some(revision) != self.snapshot_revision)
     }
-    fn set_frame_time(&mut self, time: plico_core::FrameTime) {
+    fn set_frame_time(&mut self, time: plico::FrameTime) {
         self.app.set_frame_time(time);
     }
     fn set_wake_callback(&mut self, wake: crate::WakeCallback) {
@@ -49,7 +49,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
     fn poll_reload(&mut self) -> bool {
         self.services.poll()
     }
-    fn theme(&self) -> plico_core::Theme {
+    fn theme(&self) -> plico::Theme {
         self.app.theme()
     }
     fn on_unhandled_key(&mut self, key: &crate::KeyEvent) -> bool {
@@ -63,7 +63,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         }
         handled
     }
-    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
+    fn show(&mut self, ui: &mut plico::UiContext<'_>) {
         self.refresh_snapshot();
         self.app.show(ui, &mut self.context);
         let commands = self.context.take_commands();

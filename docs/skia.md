@@ -135,9 +135,9 @@ PLICO_SKIA_DEVICE='RTX 5080' WGPU_ADAPTER_NAME='RTX 5080' WGPU_BACKEND=vulkan \
 ## 实验性桌面窗口
 
 ```sh
-cargo run -p plico-vello --features skia --example skia-window
+cargo run -p plico-desktop --features skia --example skia-window
 # 同一界面切回 Vello
-PLICO_COMPARE_VELLO=1 cargo run -p plico-vello --features skia --example skia-window
+PLICO_COMPARE_VELLO=1 cargo run -p plico-desktop --features skia --example skia-window
 # 独立 X11 测试环境：鼠标、键盘、resize、隐藏恢复和关闭
 python3 scripts/check-skia-window.py
 ```

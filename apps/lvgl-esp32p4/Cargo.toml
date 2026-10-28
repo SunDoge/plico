@@ -13,5 +13,5 @@ default = []
 firmware = ["plico-lvgl/external"]
 
 [dependencies]
-plico-core.workspace = true
+plico.workspace = true
 plico-lvgl = { path = "../../crates/plico-lvgl" }

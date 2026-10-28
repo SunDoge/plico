@@ -1,7 +1,7 @@
 //! Host-owned native content in one explicitly sized Plico layout slot.
 //! The widget is never serialized into a UI checkpoint.
 use super::{Source, View};
-use plico_core::Engine;
+use plico::Engine;
 use plico_renderer::platform::effect::{EffectId, EffectPayload, EffectResult, EffectScope};
 use plico_renderer::{
     EffectCompletion, EffectRequest, EventResponse, FrameSource, HostAction, ImeState,
@@ -32,7 +32,7 @@ pub struct SurfaceSource<V: View, W: Widget> {
     visible: bool,
     mounted: bool,
     event_dirty: bool,
-    entity: Option<plico_core::Entity>,
+    entity: Option<plico::Entity>,
     scale: f64,
     actions: VecDeque<HostAction>,
     effects: VecDeque<EffectRequest>,
@@ -71,11 +71,7 @@ impl<V: View, W: Widget> SurfaceSource<V, W> {
         self.on_event = Some(handler);
         self
     }
-    fn locate(
-        engine: &Engine,
-        parent: plico_core::Entity,
-        key: &'static str,
-    ) -> Option<plico_core::Entity> {
+    fn locate(engine: &Engine, parent: plico::Entity, key: &'static str) -> Option<plico::Entity> {
         engine.find(parent, key).or_else(|| {
             engine
                 .node(parent)?

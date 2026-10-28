@@ -62,7 +62,7 @@ try:
     while time.monotonic()<until:
         if response(send('workspace/symbol',{'query':'UiContext'},True)): break
         time.sleep(.5)
-    path=ROOT/'crates/plico-core/examples/operator_children.rs'
+    path=ROOT/'crates/plico/examples/operator_children.rs'
     source=path.read_text() + '\n#[component]\nfn renamed_probe(cx: &mut UiContext) { column(cx) + |inner| { text(inner, "Renamed").font_size(17); }; }\n'
     uri=path.as_uri(); version=0
     def open_text(content):

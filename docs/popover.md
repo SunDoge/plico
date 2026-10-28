@@ -4,7 +4,7 @@
 `popover` 同时声明按钮和浮层，内容闭包在当前帧立即执行。状态放在应用结构中，可随 best effort 热重载恢复；不保存应用闭包或 arena 节点 ID。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[derive(Default)]
 struct Settings {
@@ -51,7 +51,7 @@ PopoverState 复用 ModalState 的 open/close/is_open 和退出期限。构建�
 cargo run -p gallery
 # Controls → Quick settings
 cargo run -p gallery --example capture -- --page controls --popover --out /tmp/popover.png
-cargo test -p plico-vello --test popover
+cargo test -p plico-desktop --test popover
 cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 ```

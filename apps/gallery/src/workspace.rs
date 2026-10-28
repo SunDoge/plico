@@ -1,6 +1,6 @@
 use crate::components::{icon_button, project_tile};
-use plico_core::widgets::{checkbox, column, panel, row, switch, text};
-use plico_core::{Color, Justify, UiContext, component};
+use plico::widgets::{checkbox, column, panel, row, switch, text};
+use plico::{Color, Justify, UiContext, component};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Preferences {

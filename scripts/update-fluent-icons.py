@@ -45,9 +45,9 @@ def main():
             "Original paths: `assets/<group>/SVG/ic_fluent_<name>_24_color.svg`.\n"
             "Regenerate with `python3 scripts/update-fluent-icons.py`; normal builds are offline.\n"
         )
-        module = "//! Selected, unmodified Fluent Color assets; see ../assets/fluent/README.md.\nuse plico_core::SvgAsset;\n"
+        module = "//! Selected, unmodified Fluent Color assets; see ../assets/fluent/README.md.\nuse plico::SvgAsset;\n"
         for name in names:
-            module += f'pub const {name.upper()}: SvgAsset = plico_core::svg_asset!("../assets/fluent/{name}.svg");\n'
+            module += f'pub const {name.upper()}: SvgAsset = plico::svg_asset!("../assets/fluent/{name}.svg");\n'
         module_path = ROOT / "apps" / app / "src/color_icons.rs"
         module_path.write_text(module)
         subprocess.run(["rustfmt", "--edition", "2024", str(module_path)], check=True)

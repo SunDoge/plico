@@ -1,5 +1,5 @@
 //! The portable layout vocabulary maps here; Taffy stays out of application crates.
-use plico_core::{Length, Track, TrackSize};
+use plico::{Length, Track, TrackSize};
 use taffy::{
     geometry::{Line, Rect},
     style::*,
@@ -26,7 +26,7 @@ fn dim(v: Length) -> Dimension {
         Length::Auto => auto(),
     }
 }
-fn edges<T>(e: plico_core::Edges<Length>, f: fn(Length) -> T) -> Rect<T> {
+fn edges<T>(e: plico::Edges<Length>, f: fn(Length) -> T) -> Rect<T> {
     Rect {
         top: f(e.top),
         right: f(e.right),
@@ -34,24 +34,24 @@ fn edges<T>(e: plico_core::Edges<Length>, f: fn(Length) -> T) -> Rect<T> {
         left: f(e.left),
     }
 }
-fn align(a: plico_core::Align) -> AlignItems {
+fn align(a: plico::Align) -> AlignItems {
     match a {
-        plico_core::Align::Start => AlignItems::START,
-        plico_core::Align::Center => AlignItems::CENTER,
-        plico_core::Align::End => AlignItems::END,
-        plico_core::Align::Stretch => AlignItems::STRETCH,
-        plico_core::Align::Baseline => AlignItems::BASELINE,
+        plico::Align::Start => AlignItems::START,
+        plico::Align::Center => AlignItems::CENTER,
+        plico::Align::End => AlignItems::END,
+        plico::Align::Stretch => AlignItems::STRETCH,
+        plico::Align::Baseline => AlignItems::BASELINE,
     }
 }
-fn justify(a: plico_core::Justify) -> AlignContent {
+fn justify(a: plico::Justify) -> AlignContent {
     match a {
-        plico_core::Justify::Start => AlignContent::START,
-        plico_core::Justify::Center => AlignContent::CENTER,
-        plico_core::Justify::End => AlignContent::END,
-        plico_core::Justify::SpaceBetween => AlignContent::SPACE_BETWEEN,
-        plico_core::Justify::SpaceAround => AlignContent::SPACE_AROUND,
-        plico_core::Justify::SpaceEvenly => AlignContent::SPACE_EVENLY,
-        plico_core::Justify::Stretch => AlignContent::STRETCH,
+        plico::Justify::Start => AlignContent::START,
+        plico::Justify::Center => AlignContent::CENTER,
+        plico::Justify::End => AlignContent::END,
+        plico::Justify::SpaceBetween => AlignContent::SPACE_BETWEEN,
+        plico::Justify::SpaceAround => AlignContent::SPACE_AROUND,
+        plico::Justify::SpaceEvenly => AlignContent::SPACE_EVENLY,
+        plico::Justify::Stretch => AlignContent::STRETCH,
     }
 }
 fn track_min(t: TrackSize) -> MinTrackSizingFunction {
@@ -86,24 +86,20 @@ fn track(t: Track) -> TrackSizingFunction {
         Track::FitContent(v) => fit_content(lp(v)),
     }
 }
-fn placement(v: plico_core::GridLine) -> GridPlacement {
+fn placement(v: plico::GridLine) -> GridPlacement {
     match v {
-        plico_core::GridLine::Auto => auto(),
-        plico_core::GridLine::Line(v) => line(v),
-        plico_core::GridLine::Span(v) => span(v),
+        plico::GridLine::Auto => auto(),
+        plico::GridLine::Line(v) => line(v),
+        plico::GridLine::Span(v) => span(v),
     }
 }
-pub(super) fn apply(
-    style: &mut Style,
-    authored: plico_core::Style,
-    grid: Option<&plico_core::GridTemplate>,
-) {
+pub(super) fn apply(style: &mut Style, authored: plico::Style, grid: Option<&plico::GridTemplate>) {
     let l = authored.layout;
     style.display = match l.display {
-        plico_core::Display::Flex => Display::Flex,
-        plico_core::Display::Grid => Display::Grid,
-        plico_core::Display::Block => Display::Block,
-        plico_core::Display::None => Display::None,
+        plico::Display::Flex => Display::Flex,
+        plico::Display::Grid => Display::Grid,
+        plico::Display::Block => Display::Block,
+        plico::Display::None => Display::None,
     };
     if let Some(v) = l.min_size[0] {
         style.min_size.width = lpa(v);
@@ -134,19 +130,19 @@ pub(super) fn apply(
     }
     if let Some(v) = l.flex_direction {
         style.flex_direction = match v {
-            plico_core::FlexDirection::Row => FlexDirection::Row,
-            plico_core::FlexDirection::Column => FlexDirection::Column,
-            plico_core::FlexDirection::RowReverse => FlexDirection::RowReverse,
-            plico_core::FlexDirection::ColumnReverse => FlexDirection::ColumnReverse,
+            plico::FlexDirection::Row => FlexDirection::Row,
+            plico::FlexDirection::Column => FlexDirection::Column,
+            plico::FlexDirection::RowReverse => FlexDirection::RowReverse,
+            plico::FlexDirection::ColumnReverse => FlexDirection::ColumnReverse,
         };
     }
     if let Some(v) = l.flex_wrap {
         style.flex_wrap = match v {
-            plico_core::FlexWrap::NoWrap => FlexWrap::NoWrap,
-            plico_core::FlexWrap::Wrap => FlexWrap::Wrap,
-            plico_core::FlexWrap::WrapReverse => FlexWrap::WrapReverse,
-            plico_core::FlexWrap::Balance => FlexWrap::Balance,
-            plico_core::FlexWrap::BalanceReverse => FlexWrap::BalanceReverse,
+            plico::FlexWrap::NoWrap => FlexWrap::NoWrap,
+            plico::FlexWrap::Wrap => FlexWrap::Wrap,
+            plico::FlexWrap::WrapReverse => FlexWrap::WrapReverse,
+            plico::FlexWrap::Balance => FlexWrap::Balance,
+            plico::FlexWrap::BalanceReverse => FlexWrap::BalanceReverse,
         };
     }
     style.flex_line_count = l.flex_line_count.max(1);
@@ -161,25 +157,25 @@ pub(super) fn apply(
     }
     style.aspect_ratio = l.aspect_ratio;
     style.box_sizing = match l.box_sizing {
-        plico_core::BoxSizing::BorderBox => BoxSizing::BorderBox,
-        plico_core::BoxSizing::ContentBox => BoxSizing::ContentBox,
+        plico::BoxSizing::BorderBox => BoxSizing::BorderBox,
+        plico::BoxSizing::ContentBox => BoxSizing::ContentBox,
     };
     style.direction = match l.direction {
-        plico_core::Direction::Ltr => Direction::Ltr,
-        plico_core::Direction::Rtl => Direction::Rtl,
+        plico::Direction::Ltr => Direction::Ltr,
+        plico::Direction::Rtl => Direction::Rtl,
     };
-    if l.position != plico_core::Position::Static {
+    if l.position != plico::Position::Static {
         style.position = match l.position {
-            plico_core::Position::Static => Position::Static,
-            plico_core::Position::Relative => Position::Relative,
-            plico_core::Position::Absolute => Position::Absolute,
+            plico::Position::Static => Position::Static,
+            plico::Position::Relative => Position::Relative,
+            plico::Position::Absolute => Position::Absolute,
         };
     }
     style.grid_auto_flow = match l.grid_flow {
-        plico_core::GridFlow::Row => GridAutoFlow::Row,
-        plico_core::GridFlow::Column => GridAutoFlow::Column,
-        plico_core::GridFlow::RowDense => GridAutoFlow::RowDense,
-        plico_core::GridFlow::ColumnDense => GridAutoFlow::ColumnDense,
+        plico::GridFlow::Row => GridAutoFlow::Row,
+        plico::GridFlow::Column => GridAutoFlow::Column,
+        plico::GridFlow::RowDense => GridAutoFlow::RowDense,
+        plico::GridFlow::ColumnDense => GridAutoFlow::ColumnDense,
     };
     style.grid_row = Line {
         start: placement(l.grid_row[0]),

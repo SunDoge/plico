@@ -1,4 +1,4 @@
-use plico_core::{component, prelude::*};
+use plico::{component, prelude::*};
 #[component]
 fn retired(cx: &mut UiContext) {
     column(cx);; {

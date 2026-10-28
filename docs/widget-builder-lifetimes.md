@@ -62,9 +62,9 @@ missed this regression.
 The reusable probes remain in the repository:
 
 ```sh
-cargo run --release -p plico-core --example memo_probe
-cargo run --release -p plico-core --example declaration_churn
-cargo run --release -p plico-core --example allocations
+cargo run --release -p plico --example memo_probe
+cargo run --release -p plico --example declaration_churn
+cargo run --release -p plico --example allocations
 ```
 
 Future simplifications should preserve the direct-borrow representation, or show

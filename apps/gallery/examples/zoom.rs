@@ -1,10 +1,10 @@
 //! Native host zoom is separate from the renderer-free application state.
-use plico_core::prelude::*;
-use plico_vello::{Source, View, WindowOptions, ZoomController, ZoomSource};
+use plico::prelude::*;
+use plico_desktop::{Source, View, WindowOptions, ZoomController, ZoomSource};
 struct Demo {
     zoom: ZoomController,
     count: u32,
-    editor: plico_core::TextBuffer,
+    editor: plico::TextBuffer,
 }
 impl View for Demo {
     #[component]
@@ -42,14 +42,14 @@ impl View for Demo {
         };
     }
 }
-fn main() -> Result<(), plico_vello::DesktopError> {
+fn main() -> Result<(), plico_desktop::DesktopError> {
     let zoom = ZoomController::default();
     let source = Source::new(Demo {
         zoom: zoom.clone(),
         count: 0,
         editor: Default::default(),
     });
-    plico_vello::run_source_with_options(
+    plico_desktop::run_source_with_options(
         ZoomSource::with_controller(Box::new(source), zoom),
         WindowOptions::new()
             .title("Plico gallery · Window zoom")

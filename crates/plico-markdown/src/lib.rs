@@ -1,6 +1,6 @@
 //! Cached Markdown paragraphs and a clock-driven append stream. No runtime or renderer.
 //! The open top-level block is reparsed; reference syntax conservatively reparses all.
-use plico_core::{Color, TextSpan, prelude::*};
+use plico::{Color, TextSpan, prelude::*};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::{ops::Range, time::Duration};
 use unicode_segmentation::UnicodeSegmentation;

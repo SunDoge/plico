@@ -3,7 +3,7 @@
 普通组件不写 key：
 
 ```rust
-use plico_core::{component, view, Ui};
+use plico::{component, view, Ui};
 
 #[component]
 fn settings(ui: &mut Ui<'_>, expanded: bool, enabled: &mut bool) {

@@ -83,7 +83,7 @@ completion/navigation can coexist with a hard compiler syntax error.
 ## Reproduce
 
 ```sh
-cargo run -p plico-core --example brace_children
+cargo run -p plico --example brace_children
 python3 scripts/experiments/check-brace-compilation.py
 python3 scripts/experiments/check-brace-children-lsp.py
 ```

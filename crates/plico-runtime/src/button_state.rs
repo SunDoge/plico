@@ -1,5 +1,5 @@
 //! Host-owned interaction weights; no business subscriptions or per-property tweens.
-use plico_core::{Color, Entity, Style, Theme};
+use plico::{Color, Entity, Style, Theme};
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
@@ -142,7 +142,7 @@ impl ButtonStates {
 mod tests {
     use super::*;
     fn setup() -> (ButtonStates, Entity, Style) {
-        let mut arena = plico_core::Arena::default();
+        let mut arena = plico::Arena::default();
         let entity = arena.insert(());
         (
             ButtonStates::default(),

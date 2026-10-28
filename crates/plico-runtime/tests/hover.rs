@@ -1,4 +1,4 @@
-use plico_core::prelude::*;
+use plico::prelude::*;
 use plico_renderer::{
     FrameSource, Point, PointerButton, PointerEvent, PointerPhase, PointerProperties,
     SemanticAction, SemanticRole, TextContext, UiEvent,

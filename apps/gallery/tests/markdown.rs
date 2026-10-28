@@ -1,14 +1,14 @@
 use gallery::{Gallery, Page};
-use plico_core::{Clock, VirtualClock};
+use plico::{Clock, VirtualClock};
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, TextContext};
-use plico_vello::Source;
 use std::time::Duration;
 #[test]
 fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            router: plico_core::Router::new(Page::Markdown),
+            router: plico::Router::new(Page::Markdown),
             ..Default::default()
         },
         clock.clone(),
@@ -49,12 +49,7 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
             .iter()
             .any(|p| !p.paint.text_runs.is_empty())
     );
-    assert!(
-        !source
-            .engine
-            .changes()
-            .contains(plico_core::Changes::ANIMATE)
-    );
+    assert!(!source.engine.changes().contains(plico::Changes::ANIMATE));
     let before = source.view.markdown_chat.stream.document().parsed_bytes;
     clock.advance(Duration::from_secs(1)).unwrap();
     source.build_frame(&mut tcx, 1120, 820);
@@ -72,7 +67,7 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
     use plico_renderer::{GesturePhase, Modifiers, Point, UiEvent, WheelDeltaMode, WheelEvent};
     let clock = VirtualClock::default();
     let mut gallery = Gallery {
-        router: plico_core::Router::new(Page::Markdown),
+        router: plico::Router::new(Page::Markdown),
         ..Default::default()
     };
     gallery.markdown_chat.burst();

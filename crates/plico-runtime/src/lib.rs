@@ -1,7 +1,7 @@
 //! Host-agnostic declaration runtime: Engine adapter, Source, View and motion.
-//! Window and GPU backends live in plico-vello / plico-shell; no window deps here.
+//! Window and GPU backends live in plico-desktop / plico-shell; no window deps here.
 use peniko::Color;
-use plico_core::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
+use plico::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
 use plico_renderer::{
     EventResponse, FrameSource, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
     layout::{
@@ -77,7 +77,7 @@ pub struct BackendStats {
     pub scene_builds: usize,
     pub scene_reuses: usize,
     pub svg_parses: usize,
-    pub changes: plico_core::Changes,
+    pub changes: plico::Changes,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SyncMode {
@@ -89,7 +89,7 @@ struct Retained {
     id: NodeId,
     style: taffy::Style,
     paint_key: PaintKey,
-    spans: Vec<plico_core::TextSpan>,
+    spans: Vec<plico::TextSpan>,
     text: Arc<str>,
     children: Vec<NodeId>,
     toggle_line_height: Option<f32>,
@@ -102,7 +102,7 @@ struct Retained {
 /// the "same interpolated value" check, not an epsilon test.
 #[derive(Clone, PartialEq)]
 struct PaintKey {
-    style: plico_core::Style,
+    style: plico::Style,
     kind: Kind,
     theme: Theme,
     hovered: bool,
@@ -114,7 +114,7 @@ struct PaintKey {
 
 type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
 type SvgCache = HashMap<Arc<str>, HashMap<Option<u32>, SvgResult>>;
-fn svg_color(source: &str, style: plico_core::Style, theme: Theme) -> Option<u32> {
+fn svg_color(source: &str, style: plico::Style, theme: Theme) -> Option<u32> {
     source
         .contains("currentColor")
         .then(|| theme.resolve(style.foreground))
@@ -129,7 +129,7 @@ fn cached_image(
         return image.clone();
     }
     stats.svg_parses += 1;
-    let image = plico_core::ImageAsset::decode(encoded)
+    let image = plico::ImageAsset::decode(encoded)
         .and_then(|bytes| plico_renderer::image::RasterImage::decode(&bytes).ok())
         .map(Arc::new);
     cache.insert(Arc::from(encoded), image.clone());
@@ -286,14 +286,7 @@ impl Adapter {
         width: u32,
         height: u32,
     ) -> Vec<PlacedNode> {
-        self.update(
-            engine,
-            tcx,
-            width,
-            height,
-            &[],
-            plico_core::Changes::STRUCTURE,
-        )
+        self.update(engine, tcx, width, height, &[], plico::Changes::STRUCTURE)
     }
     fn update(
         &mut self,
@@ -302,7 +295,7 @@ impl Adapter {
         width: u32,
         height: u32,
         declared: &[Entity],
-        changes: plico_core::Changes,
+        changes: plico::Changes,
     ) -> Vec<PlacedNode> {
         self.update_retained(engine, tcx, width, height, declared, changes);
         self.presented()
@@ -314,7 +307,7 @@ impl Adapter {
         width: u32,
         height: u32,
         declared: &[Entity],
-        changes: plico_core::Changes,
+        changes: plico::Changes,
     ) {
         self.stats = BackendStats::default();
         self.anchor_motion_dirty = false;
@@ -322,20 +315,20 @@ impl Adapter {
         self.paint_dirty.clear();
         let start = Instant::now();
         let full = self.nodes.is_empty()
-            || (changes.contains(plico_core::Changes::STRUCTURE) && declared.is_empty());
-        let structural = full || changes.contains(plico_core::Changes::STRUCTURE);
+            || (changes.contains(plico::Changes::STRUCTURE) && declared.is_empty());
+        let structural = full || changes.contains(plico::Changes::STRUCTURE);
         let mut dirty = std::mem::take(&mut self.dirty_scratch);
         dirty.clear();
         if self.geometry_dirty {
             dirty.extend(self.nodes.keys().copied());
         }
         if changes.intersects(
-            plico_core::Changes::STRUCTURE
-                | plico_core::Changes::LAYOUT
-                | plico_core::Changes::PAINT
-                | plico_core::Changes::SEMANTICS
-                | plico_core::Changes::HIT_TEST
-                | plico_core::Changes::TRANSFORM,
+            plico::Changes::STRUCTURE
+                | plico::Changes::LAYOUT
+                | plico::Changes::PAINT
+                | plico::Changes::SEMANTICS
+                | plico::Changes::HIT_TEST
+                | plico::Changes::TRANSFORM,
         ) {
             dirty.extend(declared.iter().copied());
         }
@@ -379,7 +372,7 @@ impl Adapter {
             && let Some((buffer, _)) = previous_focus.and_then(|e| engine.input(e))
             && buffer.is_composing()
         {
-            buffer.edit(plico_core::InputEdit::ClearPreedit);
+            buffer.edit(plico::InputEdit::ClearPreedit);
         }
         let interaction = [
             self.hovered,
@@ -486,7 +479,7 @@ impl Adapter {
                             && n.text == *source
                             && svg_color(source, *style, *theme) == *color)
                             || (*kind == Kind::Checkbox
-                                && source.as_ref() == plico_core::icons::CHECK.source()
+                                && source.as_ref() == plico::icons::CHECK.source()
                                 && *color == Some(theme.on_accent))
                     })
                 });
@@ -695,18 +688,18 @@ impl Adapter {
         self.align_sliders(engine);
         self.update_shaders(engine, tcx);
         self.stats.changes |= changes
-            & (plico_core::Changes::SEMANTICS
-                | plico_core::Changes::MEASURE
-                | plico_core::Changes::TRANSFORM
-                | plico_core::Changes::HIT_TEST);
+            & (plico::Changes::SEMANTICS
+                | plico::Changes::MEASURE
+                | plico::Changes::TRANSFORM
+                | plico::Changes::HIT_TEST);
         if structural {
-            self.stats.changes.insert(plico_core::Changes::STRUCTURE);
+            self.stats.changes.insert(plico::Changes::STRUCTURE);
         }
         if self.geometry_dirty {
-            self.stats.changes |= plico_core::Changes::LAYOUT | plico_core::Changes::PAINT;
+            self.stats.changes |= plico::Changes::LAYOUT | plico::Changes::PAINT;
         }
         if self.stats.paint_writes > 0 || self.stats.flatten_visits > 0 {
-            self.stats.changes.insert(plico_core::Changes::PAINT);
+            self.stats.changes.insert(plico::Changes::PAINT);
         }
         self.update_tooltip(engine, tcx, width, height);
         self.stats.layout_micros = start.elapsed().as_micros();
@@ -779,7 +772,7 @@ impl Adapter {
             cached_svg(
                 &mut self.svg_cache,
                 &mut self.stats,
-                plico_core::icons::CHECK.source(),
+                plico::icons::CHECK.source(),
                 Some(theme.on_accent),
             )
         } else {
@@ -960,23 +953,23 @@ impl Adapter {
                         }
                     },
                     |align| match align {
-                        plico_core::Align::Start => AlignItems::START,
-                        plico_core::Align::Center => AlignItems::CENTER,
-                        plico_core::Align::End => AlignItems::END,
-                        plico_core::Align::Stretch => AlignItems::STRETCH,
-                        plico_core::Align::Baseline => AlignItems::BASELINE,
+                        plico::Align::Start => AlignItems::START,
+                        plico::Align::Center => AlignItems::CENTER,
+                        plico::Align::End => AlignItems::END,
+                        plico::Align::Stretch => AlignItems::STRETCH,
+                        plico::Align::Baseline => AlignItems::BASELINE,
                     },
                 ),
                 justify_content: visual_style
                     .justify
                     .map_or(JustifyContent::NORMAL, |justify| match justify {
-                        plico_core::Justify::Start => JustifyContent::START,
-                        plico_core::Justify::Center => JustifyContent::CENTER,
-                        plico_core::Justify::End => JustifyContent::END,
-                        plico_core::Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
-                        plico_core::Justify::SpaceAround => JustifyContent::SPACE_AROUND,
-                        plico_core::Justify::SpaceEvenly => JustifyContent::SPACE_EVENLY,
-                        plico_core::Justify::Stretch => JustifyContent::STRETCH,
+                        plico::Justify::Start => JustifyContent::START,
+                        plico::Justify::Center => JustifyContent::CENTER,
+                        plico::Justify::End => JustifyContent::END,
+                        plico::Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
+                        plico::Justify::SpaceAround => JustifyContent::SPACE_AROUND,
+                        plico::Justify::SpaceEvenly => JustifyContent::SPACE_EVENLY,
+                        plico::Justify::Stretch => JustifyContent::STRETCH,
                     }),
                 flex_wrap: if visual_style.wrap {
                     FlexWrap::Wrap
@@ -1130,7 +1123,7 @@ impl Adapter {
         }
         let visual_changes = visual_style.changes_from(retained.paint_key.style);
         self.stats.changes |= visual_changes;
-        if visual_changes.contains(plico_core::Changes::TRANSFORM) {
+        if visual_changes.contains(plico::Changes::TRANSFORM) {
             fn has_anchor(engine: &Engine, entity: Entity) -> bool {
                 engine.node(entity).is_some_and(|n| {
                     n.style.anchor_id.is_some() || n.children.iter().any(|e| has_anchor(engine, *e))
@@ -1138,7 +1131,7 @@ impl Adapter {
             }
             self.anchor_motion_dirty |= has_anchor(engine, e);
         }
-        if visual_changes.contains(plico_core::Changes::TRANSFORM)
+        if visual_changes.contains(plico::Changes::TRANSFORM)
             || visual_style.opacity != retained.paint_key.style.opacity
         {
             self.presentation_dirty = true;
@@ -1147,8 +1140,8 @@ impl Adapter {
         let paint_needed = (matches!(
             n.kind,
             Kind::Switch | Kind::Checkbox | Kind::Slider | Kind::TextInput
-        ) && visual_changes.contains(plico_core::Changes::LAYOUT))
-            || visual_changes.intersects(plico_core::Changes::PAINT | plico_core::Changes::MEASURE)
+        ) && visual_changes.contains(plico::Changes::LAYOUT))
+            || visual_changes.intersects(plico::Changes::PAINT | plico::Changes::MEASURE)
             || retained.paint_key.kind != key.kind
             || retained.paint_key.theme != key.theme
             || retained.paint_key.focus_progress != key.focus_progress
@@ -1402,10 +1395,7 @@ impl Adapter {
                         if hit.and_then(|e| engine.node(e)).is_some_and(|n| {
                             matches!(
                                 n.style.role,
-                                Some(
-                                    plico_core::WidgetRole::Option
-                                        | plico_core::WidgetRole::MenuItem
-                                )
+                                Some(plico::WidgetRole::Option | plico::WidgetRole::MenuItem)
                             )
                         }) {
                             self.focused = hit;
@@ -1542,7 +1532,7 @@ impl Adapter {
         if old_focus != self.focused
             && let Some((buffer, _)) = old_focus.and_then(|e| engine.input(e))
         {
-            buffer.edit(plico_core::InputEdit::ClearPreedit);
+            buffer.edit(plico::InputEdit::ClearPreedit);
         }
         EventResponse {
             handled,
@@ -1571,12 +1561,12 @@ impl Adapter {
                 Some(SemanticNode {
                     id: semantic_id(e),
                     role: match n.style.role {
-                        Some(plico_core::WidgetRole::ComboBox) => Role::ComboBox,
-                        Some(plico_core::WidgetRole::ListBox) => Role::ListBox,
-                        Some(plico_core::WidgetRole::Option) => Role::Option,
-                        Some(plico_core::WidgetRole::Menu) => Role::Menu,
-                        Some(plico_core::WidgetRole::MenuButton) => Role::Button,
-                        Some(plico_core::WidgetRole::MenuItem) => Role::MenuItem,
+                        Some(plico::WidgetRole::ComboBox) => Role::ComboBox,
+                        Some(plico::WidgetRole::ListBox) => Role::ListBox,
+                        Some(plico::WidgetRole::Option) => Role::Option,
+                        Some(plico::WidgetRole::Menu) => Role::Menu,
+                        Some(plico::WidgetRole::MenuButton) => Role::Button,
+                        Some(plico::WidgetRole::MenuItem) => Role::MenuItem,
                         None => match n.kind {
                             Kind::Button | Kind::ButtonBase => Role::Button,
                             Kind::Slider => Role::Slider,
@@ -1589,7 +1579,7 @@ impl Adapter {
                         },
                     },
                     label: engine.accessible_name(e).map(|name| name.into_owned()),
-                    value: if n.style.role == Some(plico_core::WidgetRole::ComboBox) {
+                    value: if n.style.role == Some(plico::WidgetRole::ComboBox) {
                         n.children
                             .iter()
                             .filter_map(|e| engine.node(*e))
@@ -1789,7 +1779,7 @@ impl Adapter {
         if old_focus != self.focused
             && let Some((buffer, _)) = old_focus.and_then(|e| engine.input(e))
         {
-            buffer.edit(plico_core::InputEdit::ClearPreedit);
+            buffer.edit(plico::InputEdit::ClearPreedit);
         }
         true
     }
@@ -1812,8 +1802,8 @@ impl Adapter {
 fn semantic_id(e: Entity) -> u64 {
     e.raw()
 }
-fn resolve_font_family(family: plico_core::FontFamily, default: &Arc<str>) -> Arc<str> {
-    use plico_core::FontFamily;
+fn resolve_font_family(family: plico::FontFamily, default: &Arc<str>) -> Arc<str> {
+    use plico::FontFamily;
     use std::sync::LazyLock;
     static MONO: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("monospace"));
     static SANS: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("sans-serif"));
@@ -1827,8 +1817,8 @@ fn resolve_font_family(family: plico_core::FontFamily, default: &Arc<str>) -> Ar
 }
 
 fn rich_runs(
-    spans: &[plico_core::TextSpan],
-    style: plico_core::Style,
+    spans: &[plico::TextSpan],
+    style: plico::Style,
     theme: Theme,
 ) -> Arc<[plico_renderer::text::TextRun]> {
     spans
@@ -1857,7 +1847,7 @@ fn apply_button_focus(paint: &mut Paint, styled: bool, progress: f32, theme: The
 
 fn make_paint(
     kind: Kind,
-    style: plico_core::Style,
+    style: plico::Style,
     text: Arc<str>,
     theme: Theme,
     interaction: (bool, bool, bool, f32),
@@ -1940,7 +1930,7 @@ fn make_paint(
 pub struct NativeApp<A>(pub A);
 
 #[doc(hidden)]
-pub use plico_core as __ui_core;
+pub use plico as __ui_core;
 #[doc(hidden)]
 pub use plico_dev as __app_protocol;
 
@@ -1988,7 +1978,7 @@ pub trait View {
     fn take_host_action(&mut self) -> Option<HostAction> {
         None
     }
-    fn set_frame_time(&mut self, _time: plico_core::FrameTime) {}
+    fn set_frame_time(&mut self, _time: plico::FrameTime) {}
     fn set_wake_callback(&mut self, _wake: plico_renderer::WakeCallback) {}
     fn poll_reload(&mut self) -> bool {
         false
@@ -1999,25 +1989,25 @@ pub trait View {
     fn snapshot_changed(&self) -> bool {
         false
     }
-    fn show(&mut self, ui: &mut plico_core::UiContext<'_>);
+    fn show(&mut self, ui: &mut plico::UiContext<'_>);
     fn theme(&self) -> Theme {
         Theme::default()
     }
 }
 /// Local adapter: a `View` driven by the engine's settle loop.
 struct ViewChild<'a, V: View>(&'a mut V);
-impl<V: View> plico_core::DeclareView for ViewChild<'_, V> {
-    fn theme(&self) -> plico_core::Theme {
+impl<V: View> plico::DeclareView for ViewChild<'_, V> {
+    fn theme(&self) -> plico::Theme {
         View::theme(self.0)
     }
-    fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
+    fn show(&mut self, ui: &mut plico::UiContext<'_>) {
         View::show(self.0, ui)
     }
 }
 #[derive(Debug, snafu::Snafu)]
 pub enum SourceError {
     #[snafu(display("view declaration failed: {source}"))]
-    Declaration { source: plico_core::FrameError },
+    Declaration { source: plico::FrameError },
     #[snafu(display("view did not settle after eight passes"))]
     DidNotSettle,
     #[snafu(display("host clock exceeds native Instant range"))]
@@ -2052,7 +2042,7 @@ pub struct Source<V: View> {
     pub adapter: Adapter,
     /// Direct external mutations require request_rebuild; prefer update().
     pub view: V,
-    pub declaration_stats: plico_core::FrameStats,
+    pub declaration_stats: plico::FrameStats,
     pub declaration_micros: u128,
     revision: u64,
     semantics_enabled: bool,
@@ -2061,25 +2051,25 @@ pub struct Source<V: View> {
     transition: transition::ThemeTransition,
     declarations_reused: bool,
     frame_time: Instant,
-    clock: Box<dyn plico_core::Clock>,
+    clock: Box<dyn plico::Clock>,
     clock_epoch: Instant,
     last_tick: Option<Instant>,
-    requests: plico_core::Changes,
+    requests: plico::Changes,
     target_scene: Option<(Scene, u64, u64)>,
     /// Ranges of the last fully encoded scene, for paint-only re-encoding.
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
     declared_seen: HashSet<Entity>,
     declared_dirty: Vec<Entity>,
-    declared_changes: plico_core::Changes,
+    declared_changes: plico::Changes,
     /// try_declare may be called explicitly before a native frame commits it.
     declarations_pending: bool,
 }
 impl<V: View> Source<V> {
     pub fn new(view: V) -> Self {
-        Self::with_clock(view, plico_core::SystemClock::default())
+        Self::with_clock(view, plico::SystemClock::default())
     }
-    pub fn with_clock(view: V, clock: impl plico_core::Clock + 'static) -> Self {
+    pub fn with_clock(view: V, clock: impl plico::Clock + 'static) -> Self {
         let epoch = Instant::now();
         Self {
             fonts: Vec::new(),
@@ -2099,13 +2089,13 @@ impl<V: View> Source<V> {
             clock: Box::new(clock),
             clock_epoch: epoch,
             last_tick: None,
-            requests: plico_core::Changes::empty(),
+            requests: plico::Changes::empty(),
             target_scene: None,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
             declared_dirty: Vec::new(),
-            declared_changes: plico_core::Changes::empty(),
+            declared_changes: plico::Changes::empty(),
             declarations_pending: false,
         }
     }
@@ -2137,7 +2127,7 @@ impl<V: View> Source<V> {
     }
     fn set_tick(&mut self, now: Instant, commit: bool) {
         let now = self.last_tick.map_or(now, |previous| previous.max(now));
-        let time = plico_core::FrameTime {
+        let time = plico::FrameTime {
             now: now.saturating_duration_since(self.clock_epoch),
             delta: self
                 .last_tick
@@ -2243,7 +2233,7 @@ impl<V: View> Source<V> {
         let now = self.last_tick.map_or(now, |previous| previous.max(now));
         self.adapter.stats = BackendStats::default();
         self.declaration_micros = 0;
-        self.declaration_stats = plico_core::FrameStats::default();
+        self.declaration_stats = plico::FrameStats::default();
         self.frame_time = now;
         self.set_tick(now, true);
         if self.view.snapshot_changed() {
@@ -2273,7 +2263,7 @@ impl<V: View> Source<V> {
         // are clean. The snapshot API deliberately still evaluates the view.
         if !force_declaration
             && !self.pending
-            && !self.requests.contains(plico_core::Changes::ANIMATE)
+            && !self.requests.contains(plico::Changes::ANIMATE)
             && self.viewport == Some((width, height))
             && self.engine.theme() == self.view.theme()
             && self.last_error.is_none()
@@ -2293,7 +2283,7 @@ impl<V: View> Source<V> {
         }
         self.declarations_reused =
             (self.transition.active() || motion_dirty || shader_active || tooltip_active)
-                && !self.requests.contains(plico_core::Changes::ANIMATE)
+                && !self.requests.contains(plico::Changes::ANIMATE)
                 && !self.pending
                 && self.viewport == Some((width, height))
                 && self.engine.theme() == self.view.theme()
@@ -2344,7 +2334,7 @@ impl<V: View> Source<V> {
         );
         self.declared_dirty.clear();
         self.declared_seen.clear();
-        self.declared_changes = plico_core::Changes::empty();
+        self.declared_changes = plico::Changes::empty();
         self.declarations_pending = false;
         let stats = self.adapter.stats;
         self.batch_stats.backend_commits += 1;
@@ -2442,11 +2432,11 @@ impl<V: View> Source<V> {
             .declare_until_settled(&mut ViewChild(&mut self.view))
             .map_err(|source| {
                 self.pending = true;
-                self.declared_changes.insert(plico_core::Changes::STRUCTURE);
+                self.declared_changes.insert(plico::Changes::STRUCTURE);
                 self.declared_dirty.clear();
                 self.declared_seen.clear();
                 match source {
-                    plico_core::FrameError::DidNotSettle => SourceError::DidNotSettle,
+                    plico::FrameError::DidNotSettle => SourceError::DidNotSettle,
                     other => SourceError::Declaration { source: other },
                 }
             })?;
@@ -2454,7 +2444,7 @@ impl<V: View> Source<V> {
         self.declaration_stats = self.engine.last_stats();
         self.declared_dirty.extend(self.engine.drain_settle_dirty());
         self.declared_changes |= self.engine.take_settle_changes();
-        self.requests = self.engine.changes() & plico_core::Changes::ANIMATE;
+        self.requests = self.engine.changes() & plico::Changes::ANIMATE;
         self.declaration_micros = start.elapsed().as_micros();
         #[cfg(feature = "profiling")]
         tracing::trace!(target: "plico::perf", passes, stats_scope = %"last_pass", visited = self.declaration_stats.visited,
@@ -2574,7 +2564,7 @@ impl<V: View> FrameSource for Source<V> {
             || self.adapter.motions.active()
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
-            || self.requests.contains(plico_core::Changes::ANIMATE)
+            || self.requests.contains(plico::Changes::ANIMATE)
             || self.engine.presence_deadline().is_some()
             || self.adapter.tips.needs_frame()
     }
@@ -2684,7 +2674,7 @@ mod theme_tests {
         calls: usize,
     }
     impl View for Counting {
-        fn show(&mut self, ui: &mut plico_core::UiContext<'_>) {
+        fn show(&mut self, ui: &mut plico::UiContext<'_>) {
             self.calls += 1;
             plico_dev::App::show(&mut self.gallery, ui)
         }
@@ -2696,7 +2686,7 @@ mod theme_tests {
     fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
         let mut s = Source::new(Counting {
             gallery: gallery::Gallery {
-                router: plico_core::Router::new(gallery::Page::Controls),
+                router: plico::Router::new(gallery::Page::Controls),
                 ..Default::default()
             },
             calls: 0,

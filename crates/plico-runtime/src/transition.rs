@@ -1,6 +1,6 @@
 //! Presentation-only theme transition: no intermediate palettes or text shaping.
 use kurbo::{Affine, Circle};
-use plico_core::Theme;
+use plico::Theme;
 use plico_renderer::{PaintScene, Scene};
 use std::time::Duration;
 use web_time::Instant;

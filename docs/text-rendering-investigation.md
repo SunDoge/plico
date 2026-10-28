@@ -321,7 +321,7 @@ hinting。此 headless 会话没有收到 LayerTree 内容，无法以 layer ID/
 
 ### 正式 retained smooth-scroll 路径复核
 
-`plico-vello` 的 `text_scroll_probe` example 使用普通 View、Source、VirtualClock、
+`plico-desktop` 的 `text_scroll_probe` example 使用普通 View、Source、VirtualClock、
 真实 WheelEvent 与 `render_retained_frame`，而非手工构造 glyph 位置。
 对 14px Noto Sans 的 H 触发 1 logical px 平滑滚动，1x、每 4ms 采样一次，共 33 帧。
 每帧通过正式 shell 离屏 renderer 绘制，保存 glyph 物理位置、局部文字像素和布局计数。
@@ -341,7 +341,7 @@ glyph 物理坐标绘制对照。hint 开启时 31 次相邻采样像素不变�
 变化，且前面的静态对照不支持无 hint 全面更优，因此不直接全局关闭 hint。
 
 ```sh
-cargo run -p plico-vello --example text_scroll_probe
+cargo run -p plico-desktop --example text_scroll_probe
 ```
 
 输出仍为忽略的本地产物；该 example 依赖系统 Noto Sans Regular 字体。

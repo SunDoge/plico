@@ -1,7 +1,7 @@
 //! Run under Xvfb; exercises the real native widgets, not a mock projection.
 use backend_settings::Settings;
 use fltk_native::{app, draw, group::Group, prelude::*, window::Window};
-use plico_core::{Engine, Entity, Kind};
+use plico::{Engine, Entity, Kind};
 use plico_fltk::{Adapter, Event};
 use std::{io::Write, time::Instant};
 fn named(engine: &Engine, kind: Kind, name: &str) -> Entity {
@@ -34,9 +34,9 @@ fn capture(window: &mut Window, suffix: &str) {
         file.write_all(&image.to_rgb_data()).unwrap();
     }
 }
-#[plico_core::component]
-fn scroll_scene(cx: &mut plico_core::UiContext, reversed: bool) {
-    use plico_core::prelude::*;
+#[plico::component]
+fn scroll_scene(cx: &mut plico::UiContext, reversed: bool) {
+    use plico::prelude::*;
     column(cx)
         .key("scroll")
         .width(300.)
@@ -54,7 +54,7 @@ fn scroll_scene(cx: &mut plico_core::UiContext, reversed: bool) {
 }
 fn frame_at(engine: &mut Engine, view: &mut Settings, adapter: &mut Adapter, millis: u64) {
     let now = std::time::Duration::from_millis(millis);
-    engine.set_time(plico_core::FrameTime {
+    engine.set_time(plico::FrameTime {
         now,
         delta: now.saturating_sub(engine.time().now),
     });
@@ -202,13 +202,13 @@ fn main() {
     adapter.native_widget(details).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 810);
-    assert!(engine.changes().contains(plico_core::Changes::ANIMATE));
+    assert!(engine.changes().contains(plico::Changes::ANIMATE));
     frame_at(&mut engine, &mut view, &mut adapter, 940);
     assert!(view.inspector_width() > 0. && view.inspector_width() < 248.);
     capture(&mut window, "details-mid");
     frame_at(&mut engine, &mut view, &mut adapter, 1100);
     assert_eq!(view.inspector_width(), 248.);
-    assert!(!engine.changes().contains(plico_core::Changes::ANIMATE));
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
     capture(&mut window, "details");
     let collapse = named(&engine, Kind::ButtonBase, "Toggle sidebar");
     adapter.native_widget(collapse).unwrap().do_callback();
@@ -232,7 +232,7 @@ fn main() {
     frame_at(&mut engine, &mut view, &mut adapter, 3900);
     assert_eq!(view.progress(), 1.);
     assert!(!view.animation_active());
-    assert!(!engine.changes().contains(plico_core::Changes::ANIMATE));
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
     let activity = named(&engine, Kind::ButtonBase, "Activity");
     adapter.native_widget(activity).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
@@ -303,7 +303,7 @@ fn main() {
     frame_at(&mut engine, &mut view, &mut adapter, 5000);
     assert_eq!(view.sidebar_width(), 200.);
     assert!(!view.animation_active());
-    assert!(!engine.changes().contains(plico_core::Changes::ANIMATE));
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
     println!(
         "router_back_forward=true grid_aligned=true finite_motion=true reduced_motion=true route_state_preserved=true"
     );
@@ -342,9 +342,9 @@ fn main() {
         engine
             .frame_declarations(|cx| {
                 cx.element(
-                    plico_core::Key::Static("kind-change"),
+                    plico::Key::Static("kind-change"),
                     kind,
-                    plico_core::Style::default(),
+                    plico::Style::default(),
                     "Changing kind",
                     |_| {},
                 );
@@ -355,9 +355,9 @@ fn main() {
     engine
         .frame_declarations(|cx| {
             cx.element(
-                plico_core::Key::Static("unsupported"),
+                plico::Key::Static("unsupported"),
                 Kind::Shader,
-                plico_core::Style::default(),
+                plico::Style::default(),
                 "",
                 |_| {},
             );

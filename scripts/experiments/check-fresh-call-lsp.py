@@ -59,8 +59,8 @@ try:
     while time.monotonic()<until:
         if response(send('workspace/symbol',{'query':'Ui'},True)):break
         time.sleep(.5)
-    path=ROOT/'crates/plico-core/examples/operator_layout.rs'
-    native=(ROOT/'crates/plico-core/examples/native_children.rs').read_text()
+    path=ROOT/'crates/plico/examples/operator_layout.rs'
+    native=(ROOT/'crates/plico/examples/native_children.rs').read_text()
     shapes=[('native + component',native),
         ('native standalone',native.replace('#[component]\n','')),
         ('operator children',path.read_text())]

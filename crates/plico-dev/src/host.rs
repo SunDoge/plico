@@ -119,7 +119,7 @@ impl Module {
         Ok(frame)
     }
 }
-fn validate(nodes: &[plico_core::ViewNode]) -> Result<()> {
+fn validate(nodes: &[plico::ViewNode]) -> Result<()> {
     crate::validate_nodes(nodes).map_err(|error| Error::Tree {
         message: error.to_string(),
     })

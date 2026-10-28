@@ -88,7 +88,7 @@ crate-type = ["staticlib"]
 default = ["firmware"]
 firmware = ["plico-lvgl/external"]
 [dependencies]
-plico-core = {{ path = {json.dumps(str(ROOT / "crates/plico-core"))} }}
+plico = {{ path = {json.dumps(str(ROOT / "crates/plico"))} }}
 plico-lvgl = {{ path = {json.dumps(str(ROOT / "crates/plico-lvgl"))} }}
 [patch.crates-io]
 lightvgl-sys = {{ path = {json.dumps(str(syscrate))} }}

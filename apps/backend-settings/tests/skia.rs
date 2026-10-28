@@ -1,6 +1,6 @@
 #![cfg(feature = "skia")]
 use backend_settings::{Page, Settings};
-use plico_core::VirtualClock;
+use plico::VirtualClock;
 use plico_renderer::{FrameSource, Scene, TextContext, scene};
 use plico_runtime::Source;
 use plico_skia::SkiaSurface;

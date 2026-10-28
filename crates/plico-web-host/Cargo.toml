@@ -13,10 +13,10 @@ gallery = ["dep:gallery"]
 split = ["dep:js-sys"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-plico-core.workspace = true
+plico.workspace = true
 plico-dev.workspace = true
 js-sys = { version = "0.3", optional = true }
-plico-vello = { path = "../plico-vello", default-features = false }
+plico-runtime = { path = "../plico-runtime" }
 gallery = { path = "../../apps/gallery", default-features = false, optional = true }
 plico-renderer.workspace = true
 wasm-bindgen = "0.2"

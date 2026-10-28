@@ -59,7 +59,7 @@ try:
     while time.monotonic()<until:
         if response(send('workspace/symbol',{'query':'Ui'},True)):break
         time.sleep(.5)
-    path=ROOT/'crates/plico-core/examples/native_children.rs'
+    path=ROOT/'crates/plico/examples/native_children.rs'
     source=path.read_text()
     cases=[(label,path,source,old,prefix,expected) for label,old,prefix,expected in [
         ('native layout header','.padding(20)','.padd','padding'),

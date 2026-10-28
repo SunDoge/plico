@@ -64,7 +64,7 @@ pub use crate::platform::{
 pub trait FrameSource {
     /// Declare a frame for a native-widget backend, bypassing Scene encoding.
     /// The backend owns text measurement, layout and control interaction.
-    fn native_widget_frame(&mut self, _size: [f32; 2]) -> Option<&mut plico_core::Engine> {
+    fn native_widget_frame(&mut self, _size: [f32; 2]) -> Option<&mut plico::Engine> {
         None
     }
 

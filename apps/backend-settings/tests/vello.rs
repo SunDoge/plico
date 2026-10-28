@@ -1,6 +1,6 @@
 #![cfg(feature = "vello")]
 use backend_settings::{Page, Settings};
-use plico_core::VirtualClock;
+use plico::VirtualClock;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::Source;
 use std::time::Duration;

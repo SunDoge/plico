@@ -3,9 +3,9 @@ mod animation;
 mod color_icons;
 mod icons;
 use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
-use plico_core::{DeclareView, Router, TextBuffer, Theme, prelude::*};
+use plico::{DeclareView, Router, TextBuffer, Theme, prelude::*};
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico_core::Route)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico::Route)]
 pub enum Page {
     #[default]
     #[route(icon = color_icons::HOME)]

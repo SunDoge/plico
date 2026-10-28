@@ -8,10 +8,10 @@ description = "Experimental native FLTK controls with Plico declarations and Taf
 
 [features]
 default = []
-native = ["dep:fltk", "plico-core/taffy"]
+native = ["dep:fltk", "plico/taffy"]
 
 [dependencies]
-plico-core.workspace = true
+plico.workspace = true
 taffy.workspace = true
 snafu.workspace = true
 fltk = { version = "1.5", optional = true, features = ["use-ninja"] }

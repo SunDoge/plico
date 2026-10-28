@@ -11,10 +11,10 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
-    ("plico-core", "memo_probe", "core"),
-    ("plico-core", "declaration_churn", "churn"),
+    ("plico", "memo_probe", "core"),
+    ("plico", "declaration_churn", "churn"),
     ("plico-markdown", "parse_cache_probe", "markdown"),
-    ("plico-vello", "memo_backend_probe", "backend"),
+    ("plico-desktop", "memo_backend_probe", "backend"),
 ]
 
 

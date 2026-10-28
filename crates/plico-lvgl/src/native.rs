@@ -6,9 +6,7 @@
 use crate::ffi::{self, Obj, color, pct, with_cstr};
 use crate::projection::{self, NativeClass};
 use lightvgl_sys as sys;
-use plico_core::{
-    Changes, Engine, Entity, FrameDelta, Kind, NodeRef, Style, StyleProperties, Theme,
-};
+use plico::{Changes, Engine, Entity, FrameDelta, Kind, NodeRef, Style, StyleProperties, Theme};
 use snafu::{OptionExt, Snafu};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -476,7 +474,7 @@ impl Adapter {
                     || code == sys::lv_event_code_t_LV_EVENT_CANCEL
                 {
                     if code == sys::lv_event_code_t_LV_EVENT_READY {
-                        buffer.edit(plico_core::InputEdit::Submit);
+                        buffer.edit(plico::InputEdit::Submit);
                     }
                     self.close_keyboard();
                     count += 1;
@@ -784,25 +782,23 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
                 sys::lv_flex_flow_t_LV_FLEX_FLOW_COLUMN
             };
             sys::lv_obj_set_flex_flow(obj, flow);
-            let main = match s.justify.unwrap_or(plico_core::Justify::Start) {
-                plico_core::Justify::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
-                plico_core::Justify::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
-                plico_core::Justify::SpaceBetween => {
-                    sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_BETWEEN
-                }
-                plico_core::Justify::SpaceAround => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_AROUND,
-                plico_core::Justify::SpaceEvenly => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_EVENLY,
-                plico_core::Justify::Start | plico_core::Justify::Stretch => {
+            let main = match s.justify.unwrap_or(plico::Justify::Start) {
+                plico::Justify::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
+                plico::Justify::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
+                plico::Justify::SpaceBetween => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_BETWEEN,
+                plico::Justify::SpaceAround => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_AROUND,
+                plico::Justify::SpaceEvenly => sys::lv_flex_align_t_LV_FLEX_ALIGN_SPACE_EVENLY,
+                plico::Justify::Start | plico::Justify::Stretch => {
                     sys::lv_flex_align_t_LV_FLEX_ALIGN_START
                 }
             };
             // LVGL has no flex baseline/stretch alignment; retain its start fallback.
-            let cross = match s.align.unwrap_or(plico_core::Align::Start) {
-                plico_core::Align::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
-                plico_core::Align::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
-                plico_core::Align::Start
-                | plico_core::Align::Stretch
-                | plico_core::Align::Baseline => sys::lv_flex_align_t_LV_FLEX_ALIGN_START,
+            let cross = match s.align.unwrap_or(plico::Align::Start) {
+                plico::Align::Center => sys::lv_flex_align_t_LV_FLEX_ALIGN_CENTER,
+                plico::Align::End => sys::lv_flex_align_t_LV_FLEX_ALIGN_END,
+                plico::Align::Start | plico::Align::Stretch | plico::Align::Baseline => {
+                    sys::lv_flex_align_t_LV_FLEX_ALIGN_START
+                }
             };
             // LVGL aligns each flex track separately from the items inside it.
             sys::lv_obj_set_flex_align(obj, main, cross, cross);
@@ -819,12 +815,12 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plico_core::{DeclareView, Length, prelude::*};
+    use plico::{DeclareView, Length, prelude::*};
 
     struct View {
         height: Length,
         scroll_y: bool,
-        fill: Option<plico_core::Color>,
+        fill: Option<plico::Color>,
         alpha: f32,
         opacity: f32,
         translate: [f32; 2],
@@ -868,7 +864,7 @@ mod tests {
         let mut view = View {
             height: Length::Px(40.),
             scroll_y: false,
-            fill: Some(plico_core::Color::Accent),
+            fill: Some(plico::Color::Accent),
             alpha: 1.,
             opacity: 1.,
             translate: [0., 0.],
@@ -980,8 +976,8 @@ mod tests {
         struct Editors {
             height: i32,
             font_size: u16,
-            name: plico_core::TextBuffer,
-            password: plico_core::TextBuffer,
+            name: plico::TextBuffer,
+            password: plico::TextBuffer,
             reveal: bool,
             visible: bool,
         }
@@ -1010,7 +1006,7 @@ mod tests {
             height: 54,
             font_size: 16,
             name: Default::default(),
-            password: plico_core::TextBuffer::secret(),
+            password: plico::TextBuffer::secret(),
             reveal: false,
             visible: true,
         };
@@ -1110,7 +1106,7 @@ mod tests {
             .push((ids[1], sys::lv_event_code_t_LV_EVENT_VALUE_CHANGED));
         assert_eq!(adapter.dispatch(&mut engine), 0);
         struct IconView {
-            color: plico_core::Color,
+            color: plico::Color,
             size: f32,
             source: String,
             visible: bool,
@@ -1128,7 +1124,7 @@ mod tests {
             }
         }
         let mut icons = IconView {
-            color: plico_core::Color::Literal(0xff0000), size: 24., visible: true,
+            color: plico::Color::Literal(0xff0000), size: 24., visible: true,
             source: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path d=\"M4 4H20V20H4Z\" fill=\"currentColor\"/></svg>".into(),
         };
         frame(&mut engine, &mut icons, &mut adapter);
@@ -1163,7 +1159,7 @@ mod tests {
         assert_eq!(source, unsafe {
             sys::lv_image_get_src(adapter.nodes[&id].widget.object())
         });
-        icons.color = plico_core::Color::Literal(0x00ff00);
+        icons.color = plico::Color::Literal(0x00ff00);
         frame(&mut engine, &mut icons, &mut adapter);
         assert_eq!(adapter.stats().svg_rasterizations, 1);
         assert_eq!(adapter.object_id(id), object);
@@ -1200,7 +1196,7 @@ mod tests {
                             .align(Align::Center)
                             .justify(Justify::Center)
                             .children(|cx| {
-                                icon(cx, &plico_core::icons::CHECK).size(24., 24.);
+                                icon(cx, &plico::icons::CHECK).size(24., 24.);
                                 text(cx, "Home");
                             });
                     })
@@ -1247,7 +1243,7 @@ mod tests {
             }
             fn show(&mut self, cx: &mut UiContext<'_>) {
                 cx.element(
-                    plico_core::Key::Static("changing"),
+                    plico::Key::Static("changing"),
                     self.kind,
                     Style::default(),
                     "Action",
@@ -1338,7 +1334,7 @@ mod tests {
         preflight_engine
             .frame_declarations(|cx| {
                 text(cx, "must not be applied").key("first");
-                plico_core::widgets::checkbox(cx, "Unsupported", &mut false);
+                plico::widgets::checkbox(cx, "Unsupported", &mut false);
             })
             .unwrap();
         assert!(matches!(

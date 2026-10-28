@@ -37,8 +37,8 @@ Engine；未把模块实例跨调用保留，也未改变现有 ABI 或动态库
 执行：
 
 ```sh
-cargo run --release -p plico-vello --example performance
-cargo test -p plico-vello --test structural_sync
+cargo run --release -p plico-desktop --example performance
+cargo test -p plico-desktop --test structural_sync
 cargo test -p services-demo --test native_services
 ```
 
@@ -207,7 +207,7 @@ Vello 的子区域能力与平台 incremental present 继续作为独立阶段�
 密集更新为 702.7µs→707.3µs；仍使用上述全量回退。
 新增嵌套 clip/layer、剪裁阴影的像素回归，与全量重绘一致。
 
-`cargo run --release -p plico-vello --no-default-features --features skia
+`cargo run --release -p plico-desktop --no-default-features --features skia
 --example local-animation` 展示三条进度条和三个 spinner。
 正常 UI 使用注入时钟；探针的 FrameSource 通过 deadline 固定约 60Hz，
 防止 Xvfb 的 FIFO 不限速影响 A/B。18 秒后退出并打印实际声明帧数；
@@ -388,7 +388,7 @@ Intel Vulkan、真实封面及歌词逐字高亮/滚动的一次离屏结果：
 步骤，不能直接当成 Taffy 或 flatten 时间，也不能与内部 span 相加。
 
 ```sh
-cargo run --release -p plico-vello --features profiling --example flatten_profile
+cargo run --release -p plico-desktop --features profiling --example flatten_profile
 ```
 
 Rust 探针用虚拟时钟驱动静态、重新声明、单点颜色、透明度、位移、尺寸、

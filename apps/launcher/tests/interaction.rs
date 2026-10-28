@@ -1,9 +1,9 @@
 use launcher::{Category, Launcher};
+use plico_desktop::{HostAction, Source, WindowCommand};
 use plico_renderer::{
     FrameSource, ImeEvent, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction,
     SemanticRole, TextContext, UiEvent,
 };
-use plico_vello::{HostAction, Source, WindowCommand};
 fn key(value: &str) -> UiEvent {
     UiEvent::Key(KeyEvent {
         phase: KeyPhase::Down,

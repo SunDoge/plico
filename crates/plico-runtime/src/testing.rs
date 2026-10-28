@@ -3,7 +3,7 @@
 //! Commands can be replayed from JSON or sent directly from Rust. No window,
 //! GPU, OS focus, pixel coordinates or sleeps are needed.
 use crate::{Source, View};
-use plico_core::{ViewNode, VirtualClock};
+use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     SemanticSnapshot, TextContext, UiEvent,

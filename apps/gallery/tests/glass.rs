@@ -1,14 +1,14 @@
 use gallery::{Gallery, Page};
-use plico_core::{Clock, VirtualClock};
+use plico::{Clock, VirtualClock};
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, PaintCommand, Scene, TextContext};
-use plico_vello::Source;
 use std::time::Duration;
 #[test]
 fn glass_background_moves_without_layout_and_pause_returns_to_idle() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Gallery {
-            router: plico_core::Router::new(Page::Glass),
+            router: plico::Router::new(Page::Glass),
             ..Default::default()
         },
         clock.clone(),

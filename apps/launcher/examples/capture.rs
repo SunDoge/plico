@@ -1,6 +1,6 @@
 use launcher::Launcher;
+use plico_desktop::Source;
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_vello::Source;
 use snafu::{ResultExt, Snafu};
 use std::path::PathBuf;
 #[derive(usage_rs::Cli)]
@@ -38,8 +38,8 @@ fn run() -> Result<(), Error> {
     let mut app = Launcher::default();
     app.dark = !options.light;
     app.query
-        .edit(plico_core::InputEdit::Insert(options.query.into()));
-    let clock = plico_core::VirtualClock::default();
+        .edit(plico::InputEdit::Insert(options.query.into()));
+    let clock = plico::VirtualClock::default();
     let mut source = Source::with_clock(app, clock);
     let mut tcx = TextContext::new();
     let nodes = source.build_frame(&mut tcx, options.width, 526);

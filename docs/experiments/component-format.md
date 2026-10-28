@@ -9,10 +9,10 @@
 ## Reproduce
 
 ```sh
-cargo run -p plico-core --example native_children
-cargo test -p plico-core --test native_children
+cargo run -p plico --example native_children
+cargo test -p plico --test native_children
 uv run scripts/experiments/check-component-format.py
-uv run scripts/experiments/format-components.py crates/plico-core/examples/native_children.rs
+uv run scripts/experiments/format-components.py crates/plico/examples/native_children.rs
 python3 scripts/experiments/check-native-children-lsp.py
 ```
 

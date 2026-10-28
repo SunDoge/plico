@@ -14,4 +14,4 @@
 /crates/plico-vello/reference/Cargo.lock
 
 # Lucide SVGs are a local generator cache; Rust, LICENSE and hashes are committed.
-crates/plico-core/assets/lucide/icons/
+crates/plico/assets/lucide/icons/

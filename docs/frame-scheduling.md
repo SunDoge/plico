@@ -30,14 +30,14 @@ BatchStats.retained_samples 统计原生路径复用声明的采样次数；decl
 
 ## 模拟时钟验证
 
-`crates/plico-vello/tests/retained_sampling.rs` 覆盖：
+`crates/plico-desktop/tests/retained_sampling.rs` 覆盖：
 
 - 120 次重复采样，show、声明批次、后端提交次数保持不变，Scene 每次复用；无动画请求。
 - 控件点击后的 settle、服务更新、尺寸/主题/字体失效、DPI-only 场景更新。
 - 逻辑动画持续执行到截止时间，宿主 opacity 动画不重跑 show，结束后保留最终画面。
 - 非法声明重试恢复、显式 try_declare 后提交，以及 100 次外部 update 合并一次声明。
 
-`cargo run --release -p plico-vello --example memo_backend_probe` 比较 1000 文本节点在重复绘制、强制声明、单节点颜色更新和宿主动画中的 CPU 开销，检查实际 show/布局/scene 工作量。三轮前后对比的结果记录在 [memo 实验](memo-experiments.md)；不含窗口、GPU 提交、present 或热重载通信。
+`cargo run --release -p plico-desktop --example memo_backend_probe` 比较 1000 文本节点在重复绘制、强制声明、单节点颜色更新和宿主动画中的 CPU 开销，检查实际 show/布局/scene 工作量。三轮前后对比的结果记录在 [memo 实验](memo-experiments.md)；不含窗口、GPU 提交、present 或热重载通信。
 
 ## 和 MyGO 的关系及边界
 
