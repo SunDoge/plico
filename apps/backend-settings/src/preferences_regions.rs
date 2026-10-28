@@ -1,5 +1,6 @@
 //! Same Preferences page through synchronous and explicit-region APIs.
 //! Opt-in comparison; the existing routed Settings application stays unchanged.
+pub mod scale;
 use crate::{Settings, icons};
 use plico::{DeclareView, Theme, prelude::*};
 use plico_runtime::{

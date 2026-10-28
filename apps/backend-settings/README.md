@@ -85,3 +85,29 @@ notification changes execute one watch without rebuilding the page or toolbar.
 See [measured results and API tradeoffs](../../docs/regions-settings.md). This
 small page currently favors immediate mode for most end-to-end CPU updates;
 smaller declaration scope alone does not imply a faster layout pipeline.
+
+### Scale and update density
+
+```sh
+# 1/8/32/128/512 fully mounted real forms; update 1, 10%, or all forms per frame.
+cargo run --release -p backend-settings --example preferences_scale --features regions -- --iterations 100
+# Same region tree, forcing a full declaration (diagnostic control).
+cargo run --release -p backend-settings --example preferences_scale --features regions -- --updates 1 --full-control
+# Keep the ordinary viewport; update the first visible form.
+cargo run --release -p backend-settings --example preferences_scale --features regions -- --updates 1 --viewport-height 780
+cargo test -p backend-settings --features regions --test preferences_scale
+```
+
+`--sizes`, `--updates`, `--scenarios`, `--iterations` and `--warmup` configure the
+matrix. Percentages round up and duplicate K values are removed. Theme uses one
+global broadcast, not K independent toggle clicks. Targets are resolved outside
+timing; K native events are queued before one CPU frame. Semantic fingerprints
+of the first measured and final frames must match between implementations;
+those checks run outside timing. Tests additionally check exact changed subsets,
+unchanged sibling forms, geometry and stable editor identities.
+
+Without `--viewport-height`, height is 780px per form: all forms are mounted and
+visible, with no framebuffer allocated. This is a retained-tree stress test,
+not a recommended substitute for virtualization. The default CI does not run
+the benchmark matrix. The measured scaling results and limits are recorded in
+[the comparison document](../../docs/regions-settings.md).

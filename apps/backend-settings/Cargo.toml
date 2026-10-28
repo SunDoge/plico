@@ -62,3 +62,7 @@ required-features = ["regions"]
 [[example]]
 name = "preferences_regions"
 required-features = ["regions", "skia"]
+
+[[example]]
+name = "preferences_scale"
+required-features = ["regions"]
