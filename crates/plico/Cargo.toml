@@ -1,0 +1,24 @@
+[package]
+name = "plico"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["desktop"]
+desktop = ["dep:plico-vello"]
+abi = ["plico-dev/abi"]
+skia = ["desktop", "plico-vello/skia"]
+hot-reload = ["desktop", "plico-vello/hot-reload", "abi"]
+profiling = ["desktop", "plico-vello/profiling"]
+
+[dependencies]
+plico-core.workspace = true
+plico-dev.workspace = true
+plico-vello = { path = "../plico-vello", default-features = false, optional = true }
+serde = { workspace = true, features = ["derive"] }
+
+[[example]]
+name = "counter"
+required-features = ["desktop"]

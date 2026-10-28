@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dev-dependencies]
+plico = { path = "crates/plico" }
 plico-core.workspace = true
 plico-dev.workspace = true
 plico-vello = { path = "crates/plico-vello", default-features = false }

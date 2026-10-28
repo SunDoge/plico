@@ -537,10 +537,7 @@ pub fn create(path: &Path, name: Option<&str>, framework: &Path) -> Result<()> {
     );
     std::fs::create_dir(path).context(IoSnafu)?;
     std::fs::create_dir(path.join("src")).context(IoSnafu)?;
-    let core = serde_json::to_string(&framework.join("crates/plico-core")).context(JsonSnafu)?;
-    let dev = serde_json::to_string(&framework.join("crates/plico-dev")).context(JsonSnafu)?;
-    let backend =
-        serde_json::to_string(&framework.join("crates/plico-vello")).context(JsonSnafu)?;
+    let facade = serde_json::to_string(&framework.join("crates/plico")).context(JsonSnafu)?;
     let crate_name = name.replace('-', "_");
     let manifest = format!(
         r#"[package]
@@ -555,9 +552,9 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
-abi = ["plico-dev/abi", "dep:stabby"]
+abi = ["plico/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-vello"]
+desktop = ["plico/desktop"]
 
 [[bin]]
 name = "{name}"
@@ -565,10 +562,7 @@ path = "src/main.rs"
 required-features = ["desktop"]
 
 [dependencies]
-plico-core = {{ path = {core} }}
-plico-dev = {{ path = {dev} }}
-plico-vello = {{ path = {backend}, default-features = false, optional = true }}
-serde = {{ version = "1", features = ["derive"] }}
+plico = {{ path = {facade}, default-features = false }}
 
 # Required by the native ABI export macro; UI modules build without desktop.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -586,15 +580,15 @@ opt-level = 2
     std::fs::write(path.join(".gitignore"), "/target\n").context(IoSnafu)?;
     std::fs::write(
         path.join("src/lib.rs"),
-        r#"use plico_core::prelude::*;
+        r#"use plico::prelude::*;
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
+#[derive(Default, plico::serde::Serialize, plico::serde::Deserialize)]
+#[serde(default, crate = "plico::serde")]
 pub struct Application {
     count: u32,
 }
 
-impl plico_dev::App for Application {
+impl plico::App for Application {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
@@ -609,15 +603,15 @@ impl plico_dev::App for Application {
 }
 
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-plico_dev::export_app!(Application);
+plico::export_app!(Application);
 "#,
     )
     .context(IoSnafu)?;
     std::fs::write(
         path.join("src/main.rs"),
         format!(
-            r#"fn main() -> Result<(), plico_vello::DesktopError> {{
-    plico_vello::run({crate_name}::Application::default(), "{name}")
+            r#"fn main() -> Result<(), plico::DesktopError> {{
+    plico::run({crate_name}::Application::default(), "{name}")
 }}
 "#
         ),

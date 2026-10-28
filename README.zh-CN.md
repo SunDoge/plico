@@ -36,7 +36,7 @@ Plico 提供 immediate mode 的编写方式，底层保留节点、布局、文�
 组件可以直接借用调用方的状态。不保存事件回调，children 闭包也不要求 `'static`。
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 #[rustfmt::skip]
@@ -53,7 +53,9 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 
 完整的 [counter 示例](examples/counter.rs) 可用 `cargo run --example counter` 启动。
 
-在 `plico_dev::App::show` 中调用即可。应用状态仍是普通 Rust 数据，组件无需实现 trait。
+`plico` 是应用的主要入口，提供 UI prelude 和 `App`，默认启用桌面宿主；关闭默认
+feature 可以只使用与后端无关的声明能力，按需启用 `skia`。
+在 `plico::App::show` 中调用即可。应用状态仍是普通 Rust 数据，组件无需实现 trait。
 详见[编写方式](docs/authoring.md)和[局部状态与宿主任务](docs/local-state-and-tasks.md)。
 
 ## 运行与开发

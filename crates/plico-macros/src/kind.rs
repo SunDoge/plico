@@ -182,11 +182,5 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
 }
 
 fn runtime_path() -> Tokens {
-    match proc_macro_crate::crate_name("plico-core") {
-        Ok(proc_macro_crate::FoundCrate::Name(name)) => {
-            let name = Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#name)
-        }
-        _ => quote!(::plico_core),
-    }
+    crate::runtime()
 }

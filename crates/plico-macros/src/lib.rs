@@ -10,14 +10,24 @@ use syn::{
 };
 
 fn runtime() -> Tokens {
-    match proc_macro_crate::crate_name("plico-core") {
-        Ok(proc_macro_crate::FoundCrate::Name(name)) => {
+    use proc_macro_crate::{FoundCrate, crate_name};
+    match crate_name("plico-core") {
+        Ok(FoundCrate::Name(name)) => {
             let name = Ident::new(&name, proc_macro2::Span::call_site());
             quote!(::#name)
         }
-        _ => quote!(::plico_core),
+        Ok(FoundCrate::Itself) => quote!(::plico_core),
+        Err(_) => match crate_name("plico") {
+            Ok(FoundCrate::Name(name)) => {
+                let name = Ident::new(&name, proc_macro2::Span::call_site());
+                quote!(::#name::__core)
+            }
+            Ok(FoundCrate::Itself) => quote!(::plico::__core),
+            Err(_) => quote!(::plico_core),
+        },
     }
 }
+
 struct FormattedText {
     context: Expr,
     format: Tokens,

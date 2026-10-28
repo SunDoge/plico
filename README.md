@@ -43,7 +43,7 @@ The same function can borrow state owned by its caller. There is no stored event
 callback, and the children closure does not need to be `'static`.
 
 ```rust
-use plico_core::prelude::*;
+use plico::prelude::*;
 
 #[component]
 #[rustfmt::skip]
@@ -60,7 +60,10 @@ fn counter(cx: &mut UiContext, count: &mut u32) {
 
 Run the complete [counter example](examples/counter.rs) with `cargo run --example counter`.
 
-Use it inside `plico_dev::App::show`. Application state remains normal Rust data;
+The `plico` crate is the application-facing entry point. It re-exports the UI
+prelude and `App`, and enables the desktop host by default. Disable default
+features for backend-independent declarations; enable `skia` when needed.
+Use the function inside `plico::App::show`. Application state remains normal Rust data;
 components do not need a trait implementation. See [authoring](docs/authoring.md)
 and [local state and tasks](docs/local-state-and-tasks.md).
 
