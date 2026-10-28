@@ -165,21 +165,14 @@ impl Adapter {
         let now = engine.time().now;
         // Description ids are stable for surviving entities and disjoint from all
         // actual semantic ids, including on future arena generation rollover.
-        self.tips.ids.retain(|e, _| {
-            engine
-                .node(*e)
-                .is_some_and(|n| n.kind == Kind::TooltipAnchor && !n.text.is_empty())
+        self.tips.ids.retain(|e, _| self.tooltip_nodes.contains(e));
+        let missing = self.tooltip_nodes.iter().any(|e| {
+            self.stats.tooltip_visits += 1;
+            self.nodes
+                .get(e)
+                .is_some_and(|n| self.placed_indices.contains_key(&n.id))
+                && !self.tips.ids.contains_key(e)
         });
-        let missing = self
-            .placed
-            .iter()
-            .filter_map(|p| self.reverse.get(&p.node_id))
-            .any(|e| {
-                engine
-                    .node(*e)
-                    .is_some_and(|n| n.kind == Kind::TooltipAnchor && !n.text.is_empty())
-                    && !self.tips.ids.contains_key(e)
-            });
         if missing || (self.stats.created > 0 && !self.tips.ids.is_empty()) {
             let mut occupied: HashSet<_> = self.nodes.keys().map(|e| semantic_id(*e)).collect();
             let old_ids = std::mem::take(&mut self.tips.ids);
@@ -189,14 +182,12 @@ impl Adapter {
                 }
             }
             let mut next = u64::MAX;
-            for e in self
-                .placed
-                .iter()
-                .filter_map(|p| self.reverse.get(&p.node_id).copied())
-            {
-                if engine
-                    .node(e)
-                    .is_some_and(|n| n.kind == Kind::TooltipAnchor && !n.text.is_empty())
+            for &e in &self.tooltip_nodes {
+                self.stats.tooltip_visits += 1;
+                if self
+                    .nodes
+                    .get(&e)
+                    .is_some_and(|n| self.placed_indices.contains_key(&n.id))
                     && !self.tips.ids.contains_key(&e)
                 {
                     while occupied.contains(&next) {

@@ -165,13 +165,24 @@ impl FontAsset {
     }
 }
 
-/// The lifetime of a returned [`Layout`] is tied to a borrow of this context.
+fn next_cache_generation() -> usize {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+    NEXT.try_update(
+        std::sync::atomic::Ordering::Relaxed,
+        std::sync::atomic::Ordering::Relaxed,
+        |n| n.checked_add(1),
+    )
+    .expect("text cache generations exhausted")
+}
+
+/// Shared fonts, paragraph engines and bounded caches for derived text data.
 pub struct TextContext {
     #[cfg(feature = "profiling")]
     profile: TextProfile,
     native: Option<Box<dyn crate::paragraph::ParagraphEngine>>,
     font_assets: Vec<FontAsset>,
     paragraph_revision: u64,
+    cache_generation: usize,
     /// Font discovery and fallback database shared by layouts.
     pub font_cx: FontContext,
     /// Scratch state used by Parley while constructing layouts.
@@ -297,6 +308,7 @@ impl TextContext {
             native: None,
             font_assets: Vec::new(),
             paragraph_revision: 0,
+            cache_generation: next_cache_generation(),
             font_cx,
             layout_cx: LayoutContext::new(),
             loaded_fonts: Default::default(),
@@ -426,9 +438,17 @@ impl TextContext {
             "cache.snapshot");
     }
 
+    /// Process-local identity for retained text fragments. Changes after cache
+    /// invalidation (including font registration/backend replacement), and is
+    /// distinct between contexts. Never serialize this token across processes.
+    pub fn cache_generation(&self) -> usize {
+        self.cache_generation
+    }
+
     /// Release derived text layouts and encoded glyph scenes while retaining
     /// the discovered and application-provided font collection.
     pub fn clear_caches(&mut self) {
+        self.cache_generation = next_cache_generation();
         #[cfg(feature = "profiling")]
         {
             self.profile.invalidations += 1;

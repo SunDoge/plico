@@ -142,3 +142,41 @@ P=512、K=1 输入时，声明均值约 1961.66 → 29.89µs；后端准备约 1
 4. 全局 Theme 失效尽早回退完整声明：当前先重放受影响区域再统一刷新，P=512 时可产生 514 个声明 pass；这类广播本来就不应当按稀疏更新宣传。
 
 因此，前面的纯执行基准与真实页面结果并不矛盾：前者验证“能省掉声明执行”，这里验证“省下的时间有没有超过整个管线新增的成本”。当前实现不存在统一、单调的 N/K 交叉点；不能据此否定区域模型，也不能据此宣布其已经比默认 immediate 更快。
+
+## Adapter 局部工作优化后的复测
+
+上面的规模表是 `150c0fd` 时的优化前基线。本节为后续共享 Adapter 优化，默认 immediate 和 regions 都受益；没有更改表单、节点数量、分辨率、布局算法或 Skia damage 开关，也没有重新引入增量 scene/flatten。
+
+保留的改动：
+
+- 在同步/卸载节点时维护 slider、shader、tooltip、selectable 所有者索引，无实例时不再扫描所有 placed 节点。
+- selection 按几何/结构/相关文字或容器变化刷新；无关叶控件的 paint 不重建其他文档的选择模型。关闭最后一个 selectable 所有者仍会清除旧模型与高亮。
+- 滚动容器投影索引随现有 reindex 一起重建，视口反馈和滚动条状态只遍历滚动容器。
+- 原生输入使用每节点单份绘制片段缓存。只有本地尺寸、完整 buffer presentation revision、焦点、placeholder、字体、文字颜色、Theme 或 TextContext 缓存代数变化时重建；绝对位置变化不重建本地片段，但 IME 屏幕位置继续从当前布局计算。
+- TextContext 提供进程内缓存代数：注册字体、换 paragraph engine、清缓存和更换 context 都能使输入缓存失效；不把这个标识序列化或当跨模块 ABI。
+
+另外尝试了控件文字度量缓存，但同核结果未显示稳定收益，没有保留额外缓存结构。
+
+固定 CPU 7、release、预热 40 次、测量 100 次，512 个表单、只操作一张，p50 单位 ms：
+
+| 操作 | Immediate 前 / 后 | Regions 前 / 后 |
+| --- | ---: | ---: |
+| 通知开关 | 4.303 / 1.784 | 4.354 / 0.026 |
+| 输入编辑 | 14.124 / 9.739 | 20.711 / 12.475 |
+| 保存 | 14.291 / 9.663 | 20.535 / 12.311 |
+| advanced 分支 | 14.787 / 10.826 | 21.307 / 14.373 |
+
+这些是 CPU 准备路径，不包含 Scene 编码或 Skia/GPU 光栅化，不等于应用总帧时间的同倍数提升。节点数仍为 10,245 / 15,366。通知不重排时，局部声明的收益现在能兑现；输入/结构变化仍执行必要的布局和全量 flatten，区域版目前依然比普通基线慢。
+
+复测命令：
+
+```sh
+cargo build --release -p backend-settings --example preferences_scale --features regions
+taskset -c 7 target/release/examples/preferences_scale --sizes 32,128,512 --updates 1,100% --scenarios notifications,typing,save,advanced --iterations 100 --warmup 40
+```
+
+新增 CSV / tracing 工作计数：selection_visits、slider_visits、shader_visits、tooltip_visits、input_rebuilds/input_reuses、scroll_visits；Source 的 BatchStats 另有 scroll_viewport_visits。512 表单输入编辑只重建 1 个输入片段，复用其余 511 个；通知场景上述四类非相关访问为 0，滚动状态只访问 1 个容器。
+
+验证覆盖：输入移动时 fragment 复用与 IME 跟随、单 buffer 编辑、preedit、替换 buffer、placeholder/尺寸/字体/Theme/context 失效、selectable 开关清理、无关控件不重建选择、scroll 开关后索引清理、shader 挂载/卸载。现有输入、文字选择、滚动、虚拟列表、popover/modal、对齐、slider 与 tooltip 非 GPU 回归通过；规模复测也核对首帧/最终帧状态指纹。
+
+回归中发现虚拟列表旧断言把 composable button 的节点数当成 leaf button；在原 `150c0fd` checkout 上复现同样失败后，将断言改为按实际挂载行数限制节点预算，保留精确行窗口和滚动位置检查。既有 shader / 带 shader tooltip 的像素测试，在当前默认 Skia 配置下仍报 Unsupported(Shader)，未将它们记为通过；本次 shader 索引另外用无 GPU 原生路径验证。

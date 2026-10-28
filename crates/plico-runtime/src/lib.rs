@@ -76,6 +76,13 @@ pub struct BackendStats {
     pub presentation_visits: usize,
     pub text_measure_invalidations: usize,
     pub placed_node_clones: usize,
+    pub selection_visits: usize,
+    pub slider_visits: usize,
+    pub shader_visits: usize,
+    pub tooltip_visits: usize,
+    pub input_rebuilds: usize,
+    pub input_reuses: usize,
+    pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
     pub svg_parses: usize,
@@ -201,6 +208,10 @@ pub struct Adapter {
     reveal_focus: bool,
     scrollbar_drag: Option<(NodeId, f64, f32)>,
     input_layouts: HashMap<Entity, input::Geometry>,
+    selectable_nodes: HashSet<Entity>,
+    slider_nodes: HashSet<Entity>,
+    shader_nodes: HashSet<Entity>,
+    tooltip_nodes: HashSet<Entity>,
     shaders: HashMap<Entity, shader::Surface>,
     shader_scale: f64,
     shader_motion_enabled: bool,
@@ -209,6 +220,7 @@ pub struct Adapter {
     motions: style_motion::StyleMotions,
     reverse: HashMap<NodeId, Entity>,
     placed_indices: HashMap<NodeId, usize>,
+    scroll_indices: Vec<usize>,
     geometry_dirty: bool,
     paint_dirty: Vec<NodeId>,
     last_theme: Option<Theme>,
@@ -254,6 +266,10 @@ impl Default for Adapter {
             reveal_focus: false,
             scrollbar_drag: None,
             input_layouts: HashMap::new(),
+            selectable_nodes: HashSet::new(),
+            slider_nodes: HashSet::new(),
+            shader_nodes: HashSet::new(),
+            tooltip_nodes: HashSet::new(),
             shaders: HashMap::new(),
             shader_scale: 1.,
             shader_motion_enabled: true,
@@ -262,6 +278,7 @@ impl Default for Adapter {
             motions: Default::default(),
             reverse: HashMap::new(),
             placed_indices: HashMap::new(),
+            scroll_indices: Vec::new(),
             geometry_dirty: false,
             paint_dirty: Vec::new(),
             last_theme: None,
@@ -454,6 +471,10 @@ impl Adapter {
                 };
                 self.motions.remove(e);
                 self.input_layouts.remove(&e);
+                self.selection_dirty |= self.selectable_nodes.remove(&e);
+                self.slider_nodes.remove(&e);
+                self.shader_nodes.remove(&e);
+                self.tooltip_nodes.remove(&e);
                 self.reverse.remove(&n.id);
                 self.scroll_offsets.remove(&n.id);
                 self.scroll_motions.remove(&n.id);
@@ -660,7 +681,9 @@ impl Adapter {
                 self.align_input(index, tcx, engine);
             }
         }
-        for p in &mut self.placed {
+        for &index in &self.scroll_indices {
+            let p = &mut self.placed[index];
+            self.stats.scroll_visits += 1;
             p.scroll.opacity = if p.scroll.range[1] > 0. { 1. } else { 0. };
             p.scroll.interaction = if self.scrollbar_drag.is_some_and(|(id, ..)| id == p.node_id) {
                 2
@@ -675,15 +698,14 @@ impl Adapter {
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
-        // Refreshing selection walks every placed text node; frames where the
-        // backend did no work and no selection state changed skip it entirely.
-        let backend_worked = self.stats.flatten_visits > 0
+        // Layout/structure can move selection geometry. Paint-only leaf
+        // controls must not rebuild unrelated read-only paragraphs.
+        let selection_geometry_changed = self.stats.flatten_visits > 0
             || self.stats.layout_runs > 0
-            || self.stats.paint_writes > 0
             || self.stats.created > 0
             || self.stats.removed > 0
             || self.stats.text_measure_invalidations > 0;
-        if backend_worked || self.selection_dirty {
+        if self.selection_work_needed(engine, selection_geometry_changed) {
             self.refresh_selection(engine, tcx);
             self.selection_dirty = false;
         }
@@ -712,6 +734,9 @@ impl Adapter {
             child_writes = self.stats.child_writes, layout_runs = self.stats.layout_runs,
             flatten_visits = self.stats.flatten_visits, paint_patches = self.stats.paint_patches,
             presentation_visits = self.stats.presentation_visits,
+            selection_visits = self.stats.selection_visits, slider_visits = self.stats.slider_visits,
+            shader_visits = self.stats.shader_visits, tooltip_visits = self.stats.tooltip_visits, input_rebuilds = self.stats.input_rebuilds,
+            input_reuses = self.stats.input_reuses, scroll_visits = self.stats.scroll_visits,
             text_measure_invalidations = self.stats.text_measure_invalidations,
             sync_us = self.stats.sync_micros as u64, backend_update_us = self.stats.layout_micros as u64,
             changes = self.stats.changes.bits(), "backend.work");
@@ -720,12 +745,24 @@ impl Adapter {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
         self.placed_indices.clear();
-        self.placed_indices.extend(
-            self.placed
-                .iter()
-                .enumerate()
-                .map(|(index, node)| (node.node_id, index)),
-        );
+        self.scroll_indices.clear();
+        for (index, node) in self.placed.iter_mut().enumerate() {
+            self.placed_indices.insert(node.node_id, index);
+            // Reset all scroll projections while already rebuilding this index.
+            // Later paint-only updates need to visit actual scroll ports only.
+            node.scroll.opacity = if node.scroll.range[1] > 0. { 1. } else { 0. };
+            node.scroll.interaction = if self
+                .scrollbar_drag
+                .is_some_and(|(id, ..)| id == node.node_id)
+            {
+                2
+            } else {
+                0
+            };
+            if node.scroll.scrollable[1] {
+                self.scroll_indices.push(index);
+            }
+        }
     }
     /// Center the shaped text block in leaf controls. Indicators then follow its
     /// first line, so wrapped labels do not drag the marker to the paragraph center.
@@ -809,6 +846,25 @@ impl Adapter {
         }
         self.stats.sync_visits += 1;
         let n = engine.node(e).unwrap();
+        self.selection_dirty |= if n.style.selectable {
+            self.selectable_nodes.insert(e)
+        } else {
+            self.selectable_nodes.remove(&e)
+        };
+        for (set, member) in [
+            (&mut self.slider_nodes, n.kind == Kind::Slider),
+            (&mut self.shader_nodes, n.kind == Kind::Shader),
+            (
+                &mut self.tooltip_nodes,
+                n.kind == Kind::TooltipAnchor && !n.text.is_empty(),
+            ),
+        ] {
+            if member {
+                set.insert(e);
+            } else {
+                set.remove(&e);
+            }
+        }
         let mut target = n.style;
         let styled_button = n.kind == Kind::Button || n.style.styled_button;
         if n.style.styled_button && n.style.disabled {
@@ -2037,6 +2093,7 @@ pub struct BatchStats {
     pub declaration_batches: usize,
     pub declaration_passes: usize,
     pub backend_commits: usize,
+    pub scroll_viewport_visits: usize,
     pub layout_runs: usize,
 }
 #[derive(Default)]
@@ -2494,7 +2551,9 @@ impl<V: View> Source<V> {
     }
     pub fn try_declare(&mut self) -> Result<(), SourceError> {
         self.batch_stats.declaration_batches += 1;
-        for placed in &self.adapter.placed {
+        for &index in &self.adapter.scroll_indices {
+            let placed = &self.adapter.placed[index];
+            self.batch_stats.scroll_viewport_visits += 1;
             if let Some(&entity) = self.adapter.reverse.get(&placed.node_id)
                 && self
                     .engine

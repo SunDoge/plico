@@ -4,8 +4,17 @@ use peniko::Fill;
 use plico_renderer::PaintScene;
 impl Adapter {
     pub(super) fn align_sliders(&mut self, engine: &Engine) {
-        for node in &mut self.placed {
-            let entity = self.reverse[&node.node_id];
+        for &entity in &self.slider_nodes {
+            let Some(index) = self
+                .nodes
+                .get(&entity)
+                .and_then(|n| self.placed_indices.get(&n.id))
+                .copied()
+            else {
+                continue;
+            };
+            self.stats.slider_visits += 1;
+            let node = &mut self.placed[index];
             let n = engine.node(entity).unwrap();
             if n.kind != Kind::Slider || node.paint.widget.is_some() {
                 continue;

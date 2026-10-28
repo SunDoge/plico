@@ -7,7 +7,21 @@ use plico::InputEdit;
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
 use zeroize::Zeroizing;
 
+#[derive(PartialEq)]
+struct GeometryKey {
+    revision: u64,
+    epoch: usize,
+    size: [f32; 2],
+    font_family: Option<Arc<str>>,
+    font_size: f32,
+    font_weight: f32,
+    theme: Theme,
+    focused: bool,
+    text_color: peniko::Color,
+}
 pub(super) struct Geometry {
+    key: GeometryKey,
+    placeholder: Arc<str>,
     layout: Arc<parley::Layout<[u8; 4]>>,
     offset: f32,
     y: f32,
@@ -20,6 +34,28 @@ impl Adapter {
         let Some((buffer, placeholder)) = engine.input(entity) else {
             return;
         };
+        let focused = self.focused == Some(entity) && !engine.node(entity).unwrap().style.disabled;
+        let key = GeometryKey {
+            revision: buffer.revision(),
+            epoch: tcx.cache_generation(),
+            size: node.content_size,
+            font_family: node.paint.font_family.clone(),
+            font_size: node.paint.font_size,
+            font_weight: node.paint.font_weight,
+            theme: engine.theme(),
+            focused,
+            text_color: node.paint.text_color,
+        };
+        if node.paint.widget.is_some()
+            && self
+                .input_layouts
+                .get(&entity)
+                .is_some_and(|g| g.key == key && g.placeholder.as_ref() == placeholder)
+        {
+            self.stats.input_reuses += 1;
+            return;
+        }
+        self.stats.input_rebuilds += 1;
         let input = buffer.presentation();
         let empty = input.text.is_empty();
         let text: Arc<str> = Arc::from(if empty {
@@ -52,7 +88,6 @@ impl Adapter {
         );
         let head = Cursor::from_byte_index(&layout, input.head, Affinity::Downstream);
         let caret = head.geometry(&layout, 1.);
-        let focused = self.focused == Some(entity) && !engine.node(entity).unwrap().style.disabled;
         let width = node.content_size[0].max(1.);
         let height = node.content_size[1].max(1.);
         let mut offset = self.input_layouts.get(&entity).map_or(0., |g| g.offset);
@@ -109,6 +144,8 @@ impl Adapter {
         }
         scene.pop_layer();
         let geometry = Geometry {
+            key,
+            placeholder: Arc::from(placeholder),
             layout,
             offset,
             y,

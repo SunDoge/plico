@@ -170,6 +170,7 @@ fn bench<V: View>(
     let targets = ids(&source, scenario, k);
     let mut samples = Vec::with_capacity(options.iterations);
     let mut first = None;
+    let mut auxiliary = [0_usize; 7];
     let (mut event_ns, mut declare_us, mut sync_us, mut layout_us) =
         (0_u128, 0_u128, 0_u128, 0_u128);
     let (mut flattened, mut layout_runs, mut sync_visits, mut passes) =
@@ -195,12 +196,23 @@ fn bench<V: View>(
             layout_runs += source.adapter.stats.layout_runs;
             sync_visits += source.adapter.stats.sync_visits;
             passes += source.batch_stats().declaration_passes - before;
+            for (sum, value) in auxiliary.iter_mut().zip([
+                source.adapter.stats.selection_visits,
+                source.adapter.stats.slider_visits,
+                source.adapter.stats.shader_visits,
+                source.adapter.stats.input_rebuilds,
+                source.adapter.stats.input_reuses,
+                source.adapter.stats.scroll_visits,
+                source.adapter.stats.tooltip_visits,
+            ]) {
+                *sum += value;
+            }
         }
     }
     samples.sort_unstable();
     let n = options.iterations as f64;
     println!(
-        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{}",
+        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}",
         k as f64 / panels as f64,
         scenario.name(),
         samples[options.iterations / 2],
@@ -213,7 +225,14 @@ fn bench<V: View>(
         layout_runs as f64 / n,
         sync_visits as f64 / n,
         passes as f64 / n,
-        source.experiment_live_counts().0
+        source.experiment_live_counts().0,
+        auxiliary[0] as f64 / n,
+        auxiliary[1] as f64 / n,
+        auxiliary[2] as f64 / n,
+        auxiliary[3] as f64 / n,
+        auxiliary[4] as f64 / n,
+        auxiliary[5] as f64 / n,
+        auxiliary[6] as f64 / n
     );
     Evidence {
         first: first.unwrap(),
@@ -245,7 +264,7 @@ fn run(options: Options) -> Result<(), Error> {
         .map(|v| Scenario::parse(v.trim()))
         .collect::<Result<_, _>>()?;
     println!(
-        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes"
+        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes,mean_selection_visits,mean_slider_visits,mean_shader_visits,mean_input_rebuilds,mean_input_reuses,mean_scroll_visits,mean_tooltip_visits"
     );
     for panels in sizes {
         let height = if options.viewport_height > 0 {

@@ -37,8 +37,17 @@ impl Adapter {
             .retain(|entity, _| engine.node(*entity).is_some_and(|n| n.kind == Kind::Shader));
         let now = engine.time().now;
         let mut changed = false;
-        for node in &mut self.placed {
-            let entity = self.reverse[&node.node_id];
+        for &entity in &self.shader_nodes {
+            let Some(index) = self
+                .nodes
+                .get(&entity)
+                .and_then(|n| self.placed_indices.get(&n.id))
+                .copied()
+            else {
+                continue;
+            };
+            self.stats.shader_visits += 1;
+            let node = &mut self.placed[index];
             let logical = engine.node(entity).unwrap();
             if logical.kind != Kind::Shader {
                 continue;
