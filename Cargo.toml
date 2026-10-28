@@ -19,7 +19,7 @@ exclude = ["crates/plico-vello/reference", "vendor/global-hotkey"]
 default-members = [".", "crates/plico-core", "crates/plico-cli", "apps/gallery"]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "Apache-2.0"
 
