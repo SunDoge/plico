@@ -2577,7 +2577,16 @@ impl<V: View> Source<V> {
         if self.engine.theme() == self.view.theme()
             && let Some(batch) = self.view.replay_regions(&mut self.engine)
         {
-            let batch = batch.map_err(|source| SourceError::Declaration { source })?;
+            let batch = batch.map_err(|source| {
+                self.pending = true;
+                self.declared_changes.insert(plico::Changes::STRUCTURE);
+                self.declared_dirty.clear();
+                self.declared_seen.clear();
+                match source {
+                    plico::FrameError::DidNotSettle => SourceError::DidNotSettle,
+                    other => SourceError::Declaration { source: other },
+                }
+            })?;
             self.declaration_stats = batch.stats;
             self.declaration_micros = start.elapsed().as_micros();
             self.batch_stats.declaration_passes += batch.passes;

@@ -499,7 +499,11 @@ impl Engine {
                     .is_some_and(|path| self.matches_path(entity, path)))
     }
     pub fn queue_click(&mut self, entity: Entity) {
-        self.clicks.push(entity);
+        // A declaration exposes a boolean click. Coalesce repeated activation
+        // of the same control until it is consumed, including local replays.
+        if !self.clicks.contains(&entity) {
+            self.clicks.push(entity);
+        }
     }
     pub(crate) fn clicked(&mut self, entity: Entity) -> bool {
         let clicked = if let Some(i) = self.clicks.iter().position(|id| *id == entity) {

@@ -186,3 +186,13 @@ type App = RegionApp<Program>;
 [backend-settings Preferences 对照](regions-settings.md) 保留原同步页，增加同控件区域版与无 GPU CPU 基准。当前小页面多数操作仍是同步版更快；边界节点的布局成本抵消了更小的声明范围，不能只看执行区域数来判断性能。
 
 静态组件可使用 `cx.component(deps, callback)` 自动生成调用点身份，动态列表继续用 component_keyed。根状态可用 `app.theme_state(state_of_theme)` 注入全局 Theme；RegionApp 已为 View/App 转发，不需要应用手写转发。主题事件同帧回退完整声明来刷新继承样式。
+
+## 局部重放的差分验收
+
+`plico-runtime/tests/regions_differential.rs` 让同一份区域 UI 分别走局部重放和**每次强制完整声明**。对照路径不依赖区域 dirty 判断来决定是否执行，避免两边共同漏更新。8 个固定 seed 各跑 128 批操作，每批 1–3 次变更，交错覆盖父子同时失效、依赖切换、条件卸载、业务 key 重排、输入/IME、禁用、主题、字号、resize 和迟到的宿主结果；另有固定生命周期序列。
+
+每批比较完整声明树、语义值与顺序、布局、文字与样式、局部状态、owner 析构次数和 IME 锚点。独立 TextBuffer 的全局 revision 身份不同，因此仅该数字不做跨运行时相等断言，缓冲内容仍参与比较。这是无 GPU 的确定性回归，不是像素正确性或所有事件排列的证明。
+
+检验发现并修复了同批重复点击的差异：`.clicked()` 是布尔观察，同一个控件未消费的重复 activation 现在合并，避免局部 settle 多次消费而完整声明只消费一次。已有卸载后的原生事件拒绝、局部槽释放和迟到异步结果拒绝测试继续保留。
+
+错误契约：局部声明返回错误后显式报告，并强制下次完整声明重建边界；无法收敛返回 `SourceError::DidNotSettle`。修正错误原因后可再次声明。用户回调 panic 保留原始 payload 并向外传播，**没有事务回滚保证**；宿主捕获后应丢弃失败的 Source 并重新创建，不能继续使用可能部分修改的树。测试验证退栈清理临时声明上下文后，新 Source 可正常工作。

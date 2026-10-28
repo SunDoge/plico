@@ -967,6 +967,12 @@ impl View for Regions {
         }
     }
     fn replay_regions(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
-        self.replay(engine)
+        let result = self.replay(engine);
+        if matches!(result, Some(Err(_))) {
+            // A failed local declaration can have partially edited the tree.
+            // Re-establish every boundary on the next successful full pass.
+            self.initialized = false;
+        }
+        result
     }
 }
