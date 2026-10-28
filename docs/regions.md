@@ -180,3 +180,9 @@ type App = RegionApp<Program>;
 ```
 
 自动测试经过真实 `plico_dev::render` 的点击 → checkpoint → 新会话恢复 → 再点击流程，以及局部 owner 重建、业务 key 重排、未标记值重置、类型变更、损坏单槽、增删槽和非 JSON map key。尚未在这个新适配器上执行完整的编译器/dylib 自动 reload 窗口验收。快照包含明确标记的敏感值，不自动加密，也不要标记密码缓冲等本就不该迁移的数据。
+
+## 完整页面对照
+
+[backend-settings Preferences 对照](regions-settings.md) 保留原同步页，增加同控件区域版与无 GPU CPU 基准。当前小页面多数操作仍是同步版更快；边界节点的布局成本抵消了更小的声明范围，不能只看执行区域数来判断性能。
+
+静态组件可使用 `cx.component(deps, callback)` 自动生成调用点身份，动态列表继续用 component_keyed。根状态可用 `app.theme_state(state_of_theme)` 注入全局 Theme；RegionApp 已为 View/App 转发，不需要应用手写转发。主题事件同帧回退完整声明来刷新继承样式。

@@ -399,6 +399,9 @@ pub trait WatchUi {
     #[track_caller]
     fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
+    /// A static component uses its call site as identity, like `watch`.
+    #[track_caller]
+    fn component<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     /// A keyed component owns local state; removing it invalidates all its handles.
     fn component_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
     #[track_caller]
@@ -421,6 +424,13 @@ impl WatchUi for UiContext<'_> {
     }
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
         child(self, key, false, render_spec(deps, callback));
+    }
+    #[track_caller]
+    fn component<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        self.component_keyed(hash.finish(), deps, callback);
     }
     fn component_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
         child(self, key, true, render_spec(deps, callback));
@@ -535,6 +545,7 @@ struct Region {
 /// Opt-in region runtime. Root and keyed components own state; watches do not.
 pub struct Regions {
     owner: usize,
+    theme: Option<State<plico::Theme>>,
     mailbox: Arc<tasks::Mailbox>,
     components: SlotMap<ComponentId, Component>,
     root_component: ComponentId,
@@ -567,6 +578,7 @@ impl Regions {
         mailbox.register(root_component);
         let mut app = Self {
             owner,
+            theme: None,
             mailbox,
             components,
             root_component,
@@ -580,6 +592,19 @@ impl Regions {
         build(&mut app);
         assert!(app.root.is_some(), "component root missing");
         app
+    }
+    /// Bind global theme to a root-owned state; inherited styles remain supplied
+    /// by the ordinary UiContext. A theme change requires a full declaration.
+    pub fn theme_state(&mut self, state: State<plico::Theme>) {
+        assert!(
+            self.try_access(state).is_some(),
+            "foreign or expired theme state"
+        );
+        assert_eq!(
+            state.component, self.root_component,
+            "theme must be root-owned"
+        );
+        self.theme = Some(state);
     }
     pub fn state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> State<T> {
         assert!(
@@ -906,6 +931,10 @@ impl Regions {
     }
 }
 impl View for Regions {
+    fn theme(&self) -> plico::Theme {
+        self.theme
+            .map_or_else(plico::Theme::default, |state| *self.access(state).read())
+    }
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.mailbox.set_wake(wake);
     }

@@ -499,6 +499,7 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
+ "serde",
  "snafu",
  "tracing-subscriber",
  "usage-rs",

@@ -2,6 +2,8 @@
 mod animation;
 mod color_icons;
 mod icons;
+#[cfg(feature = "regions")]
+pub mod preferences_regions;
 use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
 use plico::{DeclareView, Router, TextBuffer, Theme, prelude::*};
 

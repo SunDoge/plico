@@ -54,3 +54,34 @@ actions retain Lucide line icons. Sources and licenses live in `assets/fluent/`.
 Regenerate the pinned selection with `python3 scripts/update-fluent-icons.py`;
 ordinary builds embed these files offline. Activity sorting is private persistent
 local state, keeping its order when leaving and returning to the page.
+
+## Explicit-region API comparison (opt-in)
+
+The existing Preferences page also has a region implementation. Both variants
+use the same page shell, controls, labels and style values; the default routed
+application is unchanged.
+
+```sh
+# Region implementation; local profile state belongs to the page component.
+cargo run -p backend-settings --example preferences_regions --features regions,skia
+# Original Settings::preferences function in the same standalone shell.
+cargo run -p backend-settings --example preferences_regions --features regions,skia -- --immediate
+# CPU update benchmark: native event handling, Engine, text and Taffy; no GPU.
+cargo run --release -p backend-settings --example preferences_compare --features regions -- --iterations 5000
+cargo test -p backend-settings --features regions --test preferences_regions
+```
+
+The comparison covers editing/preview, notifications, an advanced branch,
+save/reset, theme and Reduce motion. The region page uses RegionApp instead of a
+custom View forwarding wrapper. Global theme/motion values live in the root;
+editor, notifications, advanced and saved status live in the page component.
+Only marked state is checkpointed; the editor buffer deliberately resets on
+reload. Reduce motion is compared as a setting; this isolated page has no active
+animations and does not verify the routed application's animation policy.
+
+Tests replay identical semantic operations at 900px and 480px, compare control
+states and leaf geometry (within one logical pixel), and verify that typing and
+notification changes execute one watch without rebuilding the page or toolbar.
+See [measured results and API tradeoffs](../../docs/regions-settings.md). This
+small page currently favors immediate mode for most end-to-end CPU updates;
+smaller declaration scope alone does not imply a faster layout pipeline.

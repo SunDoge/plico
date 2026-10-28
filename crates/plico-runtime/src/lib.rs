@@ -2527,7 +2527,11 @@ impl<V: View> Source<V> {
             self.requests = batch.changes & plico::Changes::ANIMATE;
             self.pending = false;
             self.declarations_pending = true;
-            return Ok(());
+            // A region event can change the view's global theme. Refresh all
+            // inherited contexts in this same event, before committing a frame.
+            if self.engine.theme() == self.view.theme() {
+                return Ok(());
+            }
         }
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.

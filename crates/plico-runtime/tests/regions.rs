@@ -563,3 +563,35 @@ fn nested_component_arguments_are_captures_not_subscriptions() {
     assert_eq!(updated, 1, "only the explicit watch subscribes");
     assert!(contains(&source, "Value 5"));
 }
+
+#[test]
+fn static_component_calls_get_distinct_owners_without_manual_keys() {
+    fn counter(cx: &mut UiContext<'_>, (): ()) {
+        let count = cx.local_state(|| 0_i32);
+        cx.watch((count,), |cx, (count,)| {
+            text!(cx, "Local {}", *count.read());
+            button(cx)
+                .text("Local +")
+                .on_click((count.handle(),), |(count,)| count.update(|v| *v += 1));
+        });
+    }
+    let app = Regions::new(|app| {
+        app.root((), |cx, ()| {
+            cx.component((), counter);
+            cx.component((), counter);
+        })
+    });
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    let id = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Button, "Local +", Some(0))
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target: id }));
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Local 1"));
+    assert!(contains(&source, "Local 0"));
+}

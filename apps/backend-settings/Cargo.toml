@@ -7,6 +7,7 @@ publish = false
 
 [features]
 default = []
+regions = ["dep:plico-runtime", "plico-runtime/regions", "dep:plico-renderer", "dep:serde"]
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 vello = ["plico-desktop/vello", "plico-shell/vello", "dep:plico-desktop", "dep:plico-renderer", "dep:plico-runtime", "dep:plico-shell"]
 skia = ["dep:plico-runtime", "dep:plico-renderer", "dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
@@ -20,6 +21,7 @@ egui = [
 ]
 
 [dependencies]
+serde = { workspace = true, features = ["derive"], optional = true }
 plico-egui = { path = "../../crates/plico-egui", optional = true, features = ["widgets"] }
 usage-rs.workspace = true
 snafu.workspace = true
@@ -52,3 +54,11 @@ peniko.workspace = true
 [[example]]
 name = "damage_probe"
 required-features = ["skia"]
+
+[[example]]
+name = "preferences_compare"
+required-features = ["regions"]
+
+[[example]]
+name = "preferences_regions"
+required-features = ["regions", "skia"]

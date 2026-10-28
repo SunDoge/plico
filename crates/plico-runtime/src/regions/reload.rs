@@ -224,11 +224,17 @@ impl<'de, P: RegionProgram> Deserialize<'de> for RegionApp<P> {
     }
 }
 impl<P: RegionProgram> plico_dev::App for RegionApp<P> {
+    fn theme(&self) -> plico::Theme {
+        View::theme(&self.regions)
+    }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         View::show(&mut self.regions, cx);
     }
 }
 impl<P: RegionProgram> View for RegionApp<P> {
+    fn theme(&self) -> plico::Theme {
+        View::theme(&self.regions)
+    }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         View::show(&mut self.regions, cx);
     }

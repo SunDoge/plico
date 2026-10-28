@@ -261,3 +261,21 @@ fn corrupt_slot_payload_resets_only_that_slot() {
     assert_eq!(app.restore_stats().reset, 1);
     assert_eq!(app.restore_stats().restored, 1);
 }
+
+#[test]
+fn region_app_forwards_root_theme_through_development_protocol() {
+    struct Themed;
+    impl RegionProgram for Themed {
+        fn build() -> Regions {
+            Regions::new(|app| {
+                let theme = app.persisted_state(1, plico::Theme::dark);
+                app.theme_state(theme);
+                app.root((), |cx, ()| {
+                    text(cx, "Themed");
+                });
+            })
+        }
+    }
+    let frame = plico_dev::render::<RegionApp<Themed>>(plico_dev::Request::default()).unwrap();
+    assert_eq!(frame.theme, plico::Theme::dark());
+}
