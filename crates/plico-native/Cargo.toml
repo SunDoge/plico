@@ -7,6 +7,7 @@ publish = false
 
 [features]
 default = []
+screen-capture = ["dep:ashpd", "ashpd/screenshot", "dep:tokio"]
 global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
 linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru"]
 
@@ -36,3 +37,7 @@ peniko.workspace = true
 plico-renderer.workspace = true
 plico-shell.workspace = true
 image = { workspace = true, features = ["png"] }
+
+[[example]]
+name = "screenshot"
+required-features = ["screen-capture"]

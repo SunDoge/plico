@@ -12,3 +12,7 @@ pub mod text;
     any(target_os = "linux", target_os = "windows", target_os = "macos")
 ))]
 pub mod hotkeys;
+
+/// Optional, user-authorized system screenshot capture.
+#[cfg(feature = "screen-capture")]
+pub mod capture;

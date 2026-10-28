@@ -311,6 +311,15 @@ mod tests {
     }
 
     #[test]
+    fn floating_overlay_requests_transparency_and_pointer_passthrough() {
+        let options = WindowOptions::floating_overlay();
+        assert_eq!(options.background, WindowBackground::Transparent);
+        assert_eq!(options.window_level, WindowLevel::AlwaysOnTop);
+        assert_eq!(options.input_mode, WindowInputMode::Passthrough);
+        assert!(!options.decorations);
+    }
+
+    #[test]
     fn primary_shortcut_uses_only_the_platform_modifier() {
         let expected = if cfg!(target_os = "macos") {
             Modifiers::META

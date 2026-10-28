@@ -142,6 +142,20 @@ impl WindowOptions {
         Self::default()
     }
 
+    /// Request a transparent, undecorated, pointer-transparent floating window.
+    ///
+    /// Stacking and pointer passthrough depend on the window manager. In
+    /// particular, a normal Wayland window is not a layer-shell surface and
+    /// cannot guarantee overlay stacking or a screen-relative position.
+    /// A frame source must also use a transparent base color to expose alpha.
+    pub fn floating_overlay() -> Self {
+        Self::new()
+            .decorations(false)
+            .background(WindowBackground::Transparent)
+            .window_level(WindowLevel::AlwaysOnTop)
+            .input_mode(WindowInputMode::Passthrough)
+    }
+
     /// Select the graphics consumer without changing the application source.
     pub fn renderer(mut self, renderer: RenderBackend) -> Self {
         self.renderer = renderer;
