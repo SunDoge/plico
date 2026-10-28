@@ -25,6 +25,10 @@ impl UiContext<'_> {
             in_button: context.in_button,
         });
     }
+    /// Stable logical identity, suitable for experimental reload checkpoints.
+    pub fn experiment_logical_path(&self) -> Vec<crate::PathKey> {
+        self.engine.logical_path(self.parent)
+    }
     pub fn experiment_context(&self) -> ExperimentContext {
         ExperimentContext {
             parent: self.parent,

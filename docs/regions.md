@@ -26,7 +26,7 @@ let source = plico_runtime::Source::new(app);
 
 root、watch 与 on_click 都通过依赖元组选择具体函数指针类型，参数类型自动推导。watch 为 `|cx, (a, b)|`，事件为 `|(a, b)|`；空元组分别写 `|cx, ()|` 和 `|()|`。目前支持 0–6 个状态参数，不要求 proc macro。具名函数也可直接传入，不用类型转换。元组解析用同一套 trait，不为每种参数数量维护不同的回调对象。未列出的隐式捕获会编译失败。
 
-`Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 watch。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。watch/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
+`Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 和 component_keyed 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 watch。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。watch/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
 
 ## 运行
 
@@ -121,7 +121,7 @@ Source 的可选 hook 在输入或状态失效时尝试局部声明；只修改�
 
 目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
 
-根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、热重载状态迁移、错误事务回滚和 panic 后恢复尚未实现。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
+根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、错误事务回滚和 panic 后恢复尚未实现。热重载采用下述 opt-in checkpoint，未标记状态重置。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
 
 组件 owner 回归测试覆盖列表重排、resize 复用、卸载释放、旧句柄失效、同 key 重挂载重置，以及持有短期读借用时追加 100 个局部槽。
 
@@ -145,3 +145,38 @@ send 不在后台访问状态；UI 在 poll_async/下一次声明时批量应用
 组件卸载会清除待提交值；卸载后 send 返回 Err(value)。Regions 销毁后 sender 的 Weak 失效，不延长状态生命周期；同 key 新组件不接受旧 sender。成功 send 只代表入队，若随后卸载则仍会丢弃。宿主请求的取消、同一状态多个并发请求的版本先后仍由 Task/应用控制，不宣称网络副作用会自动撤销。
 
 自动测试使用真实后台线程，验证 100 次提交合并、一次唤醒、UI 轮询前值不变、只更新订阅区域、卸载后拒绝旧结果和重挂载隔离。
+
+## Best-effort reload checkpoint
+
+普通 State 支持任意 `'static` 类型，不要求 Serde。明确需要恢复的槽才使用：
+
+```rust
+// 构造阶段的根状态
+let count = app.persisted_state(1, || 0_i32);
+// 组件回调中的局部状态
+let count = cx.local_persisted_state(1, || 0_i32);
+```
+
+槽身份是「组件的 Engine 逻辑路径 + 显式槽 key」，不序列化 Entity、State ID、Rc、函数指针或订阅图。路径包含父容器/区域的身份，所以列表重排可以恢复，移动组件到不同父节点或修改调用点可能导致重置。普通 local_state 在 reload 后重置；它不要求可序列化。
+
+`Regions::checkpoint()` 返回可序列化的 Checkpoint；每个槽通过现有 `StateSnapshot` 保存 named-field MessagePack，因此支持复合 map key 等不能直接表达为 JSON object 的类型。重新构造 Regions 后，在首次声明前调用 `restore_checkpoint(checkpoint)`，局部槽在相应组件第一次声明时恢复。类型名不符或该槽解码失败，保留该槽默认值；新增槽默认初始化，已删除槽忽略。首次完整声明后清掉未匹配记录，`restore_stats()` 报告 restored/reset/unmatched 数量。这不是 schema 自动迁移；类型重命名也可能重置。
+
+现有开发协议适配器为 `RegionApp<P>`：实现 `RegionProgram::build() -> Regions` 提供工厂，`RegionApp<P>` 自动实现 Default、Serde 与 plico_dev::App，可作为现有模块导出的应用类型。反序列化时调用工厂重建回调/owner，再恢复标记值。直接用 `Source<RegionApp<P>>` 仍支持局部重放和宿主 wake；现有 dev 模块驱动走 App::show 的完整声明，并未声称跨 dylib 复用局部重放图。
+
+```rust
+use plico_runtime::regions::{RegionApp, RegionProgram, Regions};
+struct Program;
+impl RegionProgram for Program {
+    fn build() -> Regions {
+        Regions::new(|app| {
+            let count = app.persisted_state(1, || 0_i32);
+            app.root((count,), |cx, (count,)| {
+                // 原生 widgets / watch / on_click
+            });
+        })
+    }
+}
+type App = RegionApp<Program>;
+```
+
+自动测试经过真实 `plico_dev::render` 的点击 → checkpoint → 新会话恢复 → 再点击流程，以及局部 owner 重建、业务 key 重排、未标记值重置、类型变更、损坏单槽、增删槽和非 JSON map key。尚未在这个新适配器上执行完整的编译器/dylib 自动 reload 窗口验收。快照包含明确标记的敏感值，不自动加密，也不要标记密码缓冲等本就不该迁移的数据。

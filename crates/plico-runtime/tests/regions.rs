@@ -482,3 +482,84 @@ fn late_host_results_are_rejected_after_component_unmount() {
     paint(&mut source, &mut text, (600, 400));
     assert!(contains(&source, "Result 4"));
 }
+
+#[test]
+fn nested_component_owners_release_children_before_parents() {
+    use std::{cell::RefCell, rc::Rc};
+    struct Probe {
+        label: &'static str,
+        drops: Rc<RefCell<Vec<&'static str>>>,
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            self.drops.borrow_mut().push(self.label);
+        }
+    }
+    let drops = Rc::default();
+    let mut visible = None;
+    let app = Regions::new(|app| {
+        let shown = app.state(|| true);
+        visible = Some(shown);
+        let drops = app.state(|| Rc::clone(&drops));
+        app.root((shown, drops), |cx, (shown, drops)| {
+            cx.watch((shown.handle(), drops.handle()), |cx, (shown, drops)| {
+                if *shown.read() {
+                    cx.component_keyed(1, (drops.handle(),), |cx, (drops,)| {
+                        let parent = cx.local_state(|| Probe {
+                            label: "parent",
+                            drops: Rc::clone(&drops.read()),
+                        });
+                        cx.component_keyed(2, (parent, drops.handle()), |cx, (parent, drops)| {
+                            let child = cx.local_state(|| Probe {
+                                label: "child",
+                                drops: Rc::clone(&drops.read()),
+                            });
+                            cx.watch((parent.handle(), child), |cx, (parent, child)| {
+                                text!(cx, "{} / {}", parent.read().label, child.read().label);
+                            });
+                        });
+                    });
+                }
+            });
+        });
+    });
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "parent / child"));
+    source.view.access(visible.unwrap()).set(false);
+    paint(&mut source, &mut text, (600, 400));
+    assert_eq!(*drops.borrow(), vec!["child", "parent"]);
+    drop(source);
+    assert_eq!(drops.borrow().len(), 2);
+}
+
+#[test]
+fn nested_component_arguments_are_captures_not_subscriptions() {
+    let mut state = None;
+    let app = Regions::new(|app| {
+        let count = app.state(|| 0_i32);
+        state = Some(count);
+        app.root((count,), |cx, (count,)| {
+            cx.component_keyed(7, (count.handle(),), |cx, (count,)| {
+                cx.watch((count.handle(),), |cx, (count,)| {
+                    text!(cx, "Value {}", *count.read());
+                });
+            });
+        });
+    });
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    let before: std::collections::HashMap<_, _> = source.view.region_runs().into_iter().collect();
+    source.view.access(state.unwrap()).set(5);
+    paint(&mut source, &mut text, (600, 400));
+    let updated = source
+        .view
+        .region_runs()
+        .into_iter()
+        .filter(|(id, runs)| before[id] != *runs)
+        .count();
+    assert_eq!(updated, 1, "only the explicit watch subscribes");
+    assert!(contains(&source, "Value 5"));
+}
