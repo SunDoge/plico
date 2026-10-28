@@ -60,6 +60,7 @@ impl Shell {
         let mut attrs = WindowAttributes::default()
             .with_title(options.title.clone())
             .with_visible(false)
+            .with_active(options.activate_on_show)
             .with_resizable(options.resizable)
             .with_decorations(options.decorations)
             .with_transparent(transparent)

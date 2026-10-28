@@ -114,6 +114,13 @@ pub struct WindowOptions {
     pub window_level: WindowLevel,
     /// Requested initial pointer hit-test behavior.
     pub input_mode: WindowInputMode,
+    /// Whether the first show requests keyboard focus. Platform dependent.
+    #[serde(default = "default_activate_on_show")]
+    pub activate_on_show: bool,
+}
+
+fn default_activate_on_show() -> bool {
+    true
 }
 
 impl Default for WindowOptions {
@@ -132,6 +139,7 @@ impl Default for WindowOptions {
             background: WindowBackground::Opaque,
             window_level: WindowLevel::Normal,
             input_mode: WindowInputMode::Interactive,
+            activate_on_show: true,
         }
     }
 }
@@ -154,6 +162,7 @@ impl WindowOptions {
             .background(WindowBackground::Transparent)
             .window_level(WindowLevel::AlwaysOnTop)
             .input_mode(WindowInputMode::Passthrough)
+            .activate_on_show(false)
     }
 
     /// Select the graphics consumer without changing the application source.
@@ -266,6 +275,12 @@ impl WindowOptions {
         self
     }
 
+    /// Request whether the first show activates this window, where supported.
+    pub fn activate_on_show(mut self, activate: bool) -> Self {
+        self.activate_on_show = activate;
+        self
+    }
+
     /// Set the initial pointer hit-test behavior.
     pub fn input_mode(mut self, input_mode: WindowInputMode) -> Self {
         self.input_mode = input_mode;
@@ -327,8 +342,10 @@ mod backend_tests {
     fn old_window_options_keep_vello_and_skia_roundtrips() {
         let mut value = serde_json::to_value(WindowOptions::new()).unwrap();
         value.as_object_mut().unwrap().remove("renderer");
+        value.as_object_mut().unwrap().remove("activateOnShow");
         let old: WindowOptions = serde_json::from_value(value).unwrap();
         assert_eq!(old.renderer, RenderBackend::Vello);
+        assert!(old.activate_on_show);
         let options = WindowOptions::new().renderer(RenderBackend::Skia);
         let restored: WindowOptions =
             serde_json::from_str(&serde_json::to_string(&options).unwrap()).unwrap();

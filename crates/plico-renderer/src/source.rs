@@ -317,6 +317,7 @@ mod tests {
         assert_eq!(options.window_level, WindowLevel::AlwaysOnTop);
         assert_eq!(options.input_mode, WindowInputMode::Passthrough);
         assert!(!options.decorations);
+        assert!(!options.activate_on_show);
     }
 
     #[test]
