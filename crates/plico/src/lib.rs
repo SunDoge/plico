@@ -165,3 +165,7 @@ pub use capabilities::Capabilities;
 /// Portable style translation shared by native-widget backends.
 #[cfg(feature = "taffy")]
 pub mod taffy_layout;
+
+#[cfg(feature = "experiment-patch")]
+#[doc(hidden)]
+pub use engine::ExperimentContext;

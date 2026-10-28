@@ -6,6 +6,8 @@ description = "Immediate-mode Plico UI engine and shared types"
 publish = false
 
 [features]
+# Restricted declaration/patch experiments, not a supported application API.
+experiment-patch = []
 # Optional portable layout adapter for native-widget backends.
 taffy = ["dep:taffy"]
 

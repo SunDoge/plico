@@ -1,0 +1,17 @@
+[package]
+name = "plico-reactivity-compare"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+plico = { path = "../../crates/plico", features = ["experiment-patch"] }
+plico-runtime = { path = "../../crates/plico-runtime", features = ["experiment-patch"] }
+plico-renderer = { path = "../../crates/plico-renderer" }
+sycamore-reactive = "=0.9.4"
+taffy = "0.15.0"
+kurbo = "0.13.1"
+peniko = "0.6.1"
+slotmap = "1.1.1"

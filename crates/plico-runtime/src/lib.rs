@@ -2151,6 +2151,89 @@ impl<V: View> Source<V> {
         self.request_rebuild();
         update(&mut self.view)
     }
+    /// Benchmark-only: prepare the retained tree and layout without encoding
+    /// a Scene. This has the same invalidation path as a native sampled frame.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_prepare_without_scene(
+        &mut self,
+        tcx: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) {
+        if let Some(now) = self.clock_instant() {
+            self.prepare_frame_at(tcx, width, height, now, false);
+        } else {
+            self.last_error = Some(SourceError::ClockRange);
+        }
+    }
+
+    /// Experiment diagnostics: Engine nodes, retained nodes, Taffy nodes, reverse IDs.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_live_counts(&self) -> (usize, usize, usize, usize) {
+        (
+            self.engine.experiment_live_nodes(),
+            self.adapter.nodes.len(),
+            self.adapter.tree.total_node_count(),
+            self.adapter.reverse.len(),
+        )
+    }
+
+    /// Experimental local declaration, preserving the normal adapter dirty journal.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_redeclare(
+        &mut self,
+        context: plico::ExperimentContext,
+        view: impl FnOnce(&mut plico::UiContext<'_>),
+    ) -> Result<plico::FrameStats, plico::FrameError> {
+        let stats = self.engine.experiment_redeclare(context, view)?;
+        for &entity in self.engine.dirty_nodes() {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+        }
+        self.declared_changes |= self.engine.changes();
+        self.declarations_pending = true;
+        Ok(stats)
+    }
+
+    /// Restricted experiment: patch existing text leaves and schedule the same
+    /// retained adapter and scene pipeline used by declarations. This is not a
+    /// general mutation API; it does not manage application state or ownership.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
+        let changed = self.engine.experiment_patch_text(entity, text)?;
+        if changed {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+            self.declared_changes |= plico::Changes::MEASURE
+                | plico::Changes::LAYOUT
+                | plico::Changes::PAINT
+                | plico::Changes::SEMANTICS;
+            self.declarations_pending = true;
+        }
+        Some(changed)
+    }
+
+    /// Benchmark-only foreground patch for an existing plain text leaf.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_patch_color(&mut self, entity: Entity, color: plico::Color) -> Option<bool> {
+        let changed = self.engine.experiment_patch_color(entity, color)?;
+        if changed {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+            self.declared_changes |= plico::Changes::PAINT;
+            self.declarations_pending = true;
+        }
+        Some(changed)
+    }
+
     /// Mark externally mutated application data for declaration on the next frame.
     pub fn request_rebuild(&mut self) {
         self.batch_stats.rebuild_requests += 1;
