@@ -6,6 +6,7 @@ license.workspace = true
 description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
 
 [dependencies]
+slotmap = { workspace = true, optional = true }
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
@@ -31,6 +32,11 @@ plico-shell.workspace = true
 [features]
 # Restricted benchmark hook; does not introduce a reactive runtime.
 experiment-patch = ["plico/experiment-patch"]
+regions = ["experiment-patch", "dep:slotmap"]
 default = []
 hot-reload = ["plico-dev/host", "dep:notify"]
 profiling = ["plico-renderer/profiling"]
+
+[[example]]
+name = "regions"
+required-features = ["regions"]

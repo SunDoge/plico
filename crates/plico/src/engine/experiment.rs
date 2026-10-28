@@ -11,6 +11,20 @@ pub struct ExperimentContext {
     in_button: bool,
 }
 impl UiContext<'_> {
+    /// Re-enter a container declared earlier in the same full declaration pass.
+    pub fn experiment_enter(
+        &mut self,
+        context: ExperimentContext,
+        build: impl FnOnce(&mut UiContext<'_>),
+    ) {
+        build(&mut UiContext {
+            engine: &mut *self.engine,
+            parent: context.parent,
+            scope: context.scope,
+            inherited: context.inherited,
+            in_button: context.in_button,
+        });
+    }
     pub fn experiment_context(&self) -> ExperimentContext {
         ExperimentContext {
             parent: self.parent,
@@ -33,6 +47,23 @@ impl UiContext<'_> {
     }
 }
 impl Engine {
+    pub fn experiment_replay_ready(&self) -> bool {
+        !self.theme_dirty && !self.viewport_dirty
+    }
+    pub fn experiment_input_entities(&self) -> Vec<Entity> {
+        self.clicks
+            .iter()
+            .copied()
+            .chain(self.values.iter().map(|v| v.0))
+            .collect()
+    }
+    pub fn experiment_parent(&self, entity: Entity) -> Option<Entity> {
+        if entity == self.root {
+            None
+        } else {
+            self.nodes.get(entity).map(|n| n.identity.parent)
+        }
+    }
     pub fn experiment_live_nodes(&self) -> usize {
         self.nodes.len()
     }

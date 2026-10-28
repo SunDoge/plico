@@ -4098,6 +4098,7 @@ dependencies = [
  "plico-shell",
  "serde",
  "serde_json",
+ "slotmap",
  "snafu",
  "taffy",
  "tracing",

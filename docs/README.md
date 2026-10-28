@@ -22,6 +22,7 @@
 | [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
 | [同步 local state 与宿主任务](local-state-and-tasks.md) | 组件局部状态、按需重建、宿主任务取消与迟到结果隔离 |
+| [ID 区域重放实验](regions.md) | 显式元组、无捕获回调、原生控件和可选 Source 驱动 |
 | [状态、事件与提交](runtime.md) | 同步事件、稳定化、失效传播、卸载与错误边界 |
 | [缓存与输出路径](cache.md) | 共享 Scene、原生保留路径、克隆计数与 CPU 对比 |
 | [滚动声明分离](scroll-presentation.md) | 普通滚动跳过 show、按容器观察和模拟时钟对比 |

@@ -32,6 +32,8 @@ mod layout_style;
 mod modal;
 mod popover;
 mod presentation;
+#[cfg(feature = "regions")]
+pub mod regions;
 #[cfg(feature = "hot-reload")]
 pub mod reload;
 mod scroll_motion;
@@ -1969,6 +1971,14 @@ impl<A: plico_dev::App> View for NativeApp<A> {
 /// A view owns application data; the adapter never retains its closures.
 /// Consuming an event automatically requests a settling declaration.
 pub trait View {
+    #[cfg(feature = "regions")]
+    #[doc(hidden)]
+    fn replay_regions(
+        &mut self,
+        _engine: &mut Engine,
+    ) -> Option<Result<regions::ReplayBatch, plico::FrameError>> {
+        None
+    }
     /// Window-local fallback after controls decline a key. Not called during IME
     /// composition or while a popup/modal owns input. Return true to consume it.
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
@@ -2504,6 +2514,21 @@ impl<V: View> Source<V> {
             }
         }
         let start = Instant::now();
+        #[cfg(feature = "regions")]
+        if self.engine.theme() == self.view.theme()
+            && let Some(batch) = self.view.replay_regions(&mut self.engine)
+        {
+            let batch = batch.map_err(|source| SourceError::Declaration { source })?;
+            self.declaration_stats = batch.stats;
+            self.declaration_micros = start.elapsed().as_micros();
+            self.batch_stats.declaration_passes += batch.passes;
+            self.declared_dirty.extend(batch.dirty);
+            self.declared_changes |= batch.changes;
+            self.requests = batch.changes & plico::Changes::ANIMATE;
+            self.pending = false;
+            self.declarations_pending = true;
+            return Ok(());
+        }
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.
         #[cfg(feature = "profiling")]

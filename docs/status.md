@@ -2,10 +2,12 @@
 
 ## 当前主线
 
-唯一声明模型为 immediate mode：plico 的 Engine / UiContext / widgets，
+默认声明模型为 immediate mode：plico 的 Engine / UiContext / widgets，
 plico-desktop 负责真实后端。旧 crates/plico 响应式 Runtime、图实验、共享响应式 2048
 组件与 archive-gallery / game2048 / task-workspace 旧应用已删除。
 Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
+
+默认关闭的 `plico-runtime/regions` 新增 ID 驱动的原生区域重放实验；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。文字/布局/按钮的接入与限制见 [区域实验](regions.md)，不替代默认 immediate API。
 
 ## 已实现
 
