@@ -47,7 +47,9 @@ fn large_list_scrolls_to_real_rows_and_clamps_after_shrink() {
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
     assert_eq!(source.view.built, (0..7).collect::<Vec<_>>());
-    assert!(source.adapter.placed.len() < 25);
+    // A composable button includes its row, control and label. Bound the
+    // retained projection by mounted rows rather than the old leaf-button count.
+    assert!(source.adapter.placed.len() < source.view.built.len() * 4 + 8);
     let port = source
         .adapter
         .placed
@@ -72,7 +74,9 @@ fn large_list_scrolls_to_real_rows_and_clamps_after_shrink() {
         .find(|p| Some(p.node_id) == row.parent_node_id)
         .unwrap();
     assert_eq!(parent.rect[1], 0.);
-    assert!(source.adapter.placed.len() < 25);
+    // A composable button includes its row, control and label. Bound the
+    // retained projection by mounted rows rather than the old leaf-button count.
+    assert!(source.adapter.placed.len() < source.view.built.len() * 4 + 8);
     assert!(source.handle_event(wheel(1_000_000.)).handled);
     source.build_frame(&mut tcx, 400, 300);
     assert_eq!(source.view.built.last(), Some(&9999));
