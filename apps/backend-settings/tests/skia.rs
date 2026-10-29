@@ -111,3 +111,55 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
         .draw_scene(&output, peniko::Color::TRANSPARENT)
         .unwrap();
 }
+
+#[test]
+fn retained_fragment_damage_matches_a_full_skia_redraw() {
+    use plico::prelude::*;
+    use plico_runtime::regions::{Regions, WatchUi};
+
+    let mut state = None;
+    let app = Regions::new(|app| {
+        let value = app.state(|| 0);
+        state = Some(value);
+        app.root((value,), |cx, (value,)| {
+            column(cx).children(|cx| {
+                cx.watch(value.handle(), |cx, value| {
+                    text(cx, format!("value {}", *value.read()));
+                });
+                text(cx, "static sibling");
+            });
+        });
+    });
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    let mut tracked = SkiaSurface::new(300, 100).unwrap();
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 100), 1.)
+        .unwrap();
+    tracked
+        .draw_scene_tracked(&scene, peniko::Color::TRANSPARENT)
+        .unwrap();
+
+    source.view.access(state.unwrap()).set(1);
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 100), 1.)
+        .unwrap();
+    assert!(
+        scene
+            .commands
+            .iter()
+            .any(|command| matches!(command, plico_renderer::PaintCommand::Fragment { .. }))
+    );
+    let damage = tracked
+        .draw_scene_tracked(&scene, peniko::Color::TRANSPARENT)
+        .unwrap();
+    assert!(matches!(
+        damage,
+        plico_renderer::damage::DamageRegion::Rect(_)
+    ));
+
+    let mut full = SkiaSurface::new(300, 100).unwrap();
+    full.draw_scene(&scene, peniko::Color::TRANSPARENT).unwrap();
+    assert_eq!(tracked.read_pixels().unwrap(), full.read_pixels().unwrap());
+}

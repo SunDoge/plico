@@ -46,4 +46,5 @@ pub use widget::{
 
 mod style_ir;
 
+pub mod image_canvas;
 pub mod image_surface;

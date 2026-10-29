@@ -50,7 +50,7 @@ impl<D: Dependencies> Render for Properties<D> {
 /// let app = Regions::new(|app| {
 ///     let count = app.state(|| 0_i32);
 ///     app.root((count,), |cx, (count,)| {
-///         text_empty(cx).font_size(24).reactive((count.handle(),), |node, (count,)| {
+///         text_empty(cx).font_size(24).rx(count.handle(), |node, count| {
 ///             node.text(format!("Count: {}", *count.read()));
 ///         });
 ///     });
@@ -64,7 +64,7 @@ impl<D: Dependencies> Render for Properties<D> {
 /// let app = Regions::new(|app| {
 ///     app.root((), |cx, ()| {
 ///         let hidden = String::from("capture");
-///         text_empty(cx).reactive((), |node, ()| { node.text(hidden.clone()); });
+///         text_empty(cx).rx((), |node, ()| { node.text(hidden.clone()); });
 ///     });
 /// });
 /// ```
@@ -74,17 +74,26 @@ impl<D: Dependencies> Render for Properties<D> {
 /// use plico_runtime::regions::{Reactive, Regions};
 /// let app = Regions::new(|app| {
 ///     app.root((), |cx, ()| {
-///         text_empty(cx).reactive((), |node, ()| {
+///         text_empty(cx).rx((), |node, ()| {
 ///             node.children(|cx| { text(cx, "new child"); });
 ///         });
 ///     });
 /// });
 /// ```
 pub trait Reactive {
-    fn reactive<D: Dependencies>(self, deps: D, callback: D::PropertyCallback);
+    /// Bind one state directly, or pass a tuple to receive a tuple of accessors.
+    fn rx<D: Dependencies>(self, deps: D, callback: D::PropertyCallback);
+
+    #[deprecated(since = "0.1.9", note = "use rx instead")]
+    fn reactive<D: Dependencies>(self, deps: D, callback: D::PropertyCallback)
+    where
+        Self: Sized,
+    {
+        self.rx(deps, callback);
+    }
 }
 impl Reactive for plico::Text<'_, '_, '_> {
-    fn reactive<D: Dependencies>(self, deps: D, callback: D::PropertyCallback) {
+    fn rx<D: Dependencies>(self, deps: D, callback: D::PropertyCallback) {
         let (context, baseline_text, baseline_attributes) = self.experiment_property_target();
         commands().borrow_mut().children.push(Child {
             key: ChildKey {
@@ -103,6 +112,8 @@ impl Reactive for plico::Text<'_, '_, '_> {
                     baseline_attributes,
                 }),
                 fill: false,
+                gap: None,
+                scene_cache: true,
             },
         });
     }

@@ -1,5 +1,5 @@
 //! Same Preferences page through synchronous and explicit-region APIs.
-//! Opt-in comparison; the existing routed ImmediateSettings application stays unchanged.
+//! The immediate version remains a correctness and performance baseline.
 pub mod scale;
 use crate::{ImmediateSettings, icons};
 use plico::{DeclareView, Theme, prelude::*};
@@ -85,7 +85,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
                     .height(36.).bind(name.handle());
             });
-            text_empty(cx).color(Color::Muted).reactive((name,), |node, (name,)| {
+            text_empty(cx).color(Color::Muted).rx((name,), |node, (name,)| {
                 let current = name.read().text().unwrap_or_default();
                 node.text(format!("Current name: {current}"));
             });
@@ -134,7 +134,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 });
             };
         });
-        text(cx, "No changes saved yet").color(Color::Muted).reactive((saved,), |node, (saved,)| {
+        text(cx, "No changes saved yet").color(Color::Muted).rx((saved,), |node, (saved,)| {
             let saved = saved.read();
             if !saved.message.is_empty() {
                 node.text(saved.message.clone());

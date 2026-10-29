@@ -1,10 +1,13 @@
-//! Complete routed application CPU pipeline, without a window, Scene or GPU.
+//! Complete routed application CPU pipeline, without a window or GPU.
 //! Run in release mode; both implementations execute the same semantic events.
 #[cfg(feature = "profiling")]
 mod support;
 use backend_settings::{ImmediateSettings, Settings};
 use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, VirtualClock};
-use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
+use plico_renderer::{
+    FrameSource, Point, PointerEvent, PointerPhase, PointerProperties, SemanticAction,
+    SemanticRole, TextContext, UiEvent,
+};
 use plico_runtime::{Source, View};
 use std::{
     hash::{Hash, Hasher},
@@ -19,6 +22,24 @@ struct Options {
     iterations: usize,
     #[usage(long, default = "200")]
     warmup: usize,
+    /// Include backend-neutral Scene encoding in measured frames.
+    #[usage(long)]
+    scene: bool,
+    /// Force full flattening while retaining Reactive replay.
+    #[usage(long)]
+    full_geometry: bool,
+    /// Force full Scene encoding while retaining Reactive replay.
+    #[usage(long)]
+    full_scene: bool,
+    /// Build and include one semantic snapshot per measured frame.
+    #[usage(long)]
+    semantics: bool,
+    /// Disable semantic node and snapshot reuse.
+    #[usage(long)]
+    full_semantics: bool,
+    /// Use the old linear reverse hit-test.
+    #[usage(long)]
+    full_hit_test: bool,
     #[usage(
         long,
         default = "idle,route,reverse,notifications,typing,save,advanced,theme,details_motion"
@@ -51,6 +72,7 @@ enum Scenario {
     Advanced,
     Theme,
     DetailsMotion,
+    Pointer,
 }
 impl Scenario {
     fn parse(value: &str) -> Self {
@@ -64,6 +86,7 @@ impl Scenario {
             "advanced" => Self::Advanced,
             "theme" => Self::Theme,
             "details_motion" => Self::DetailsMotion,
+            "pointer" => Self::Pointer,
             _ => panic!("unknown scenario {value:?}"),
         }
     }
@@ -78,12 +101,15 @@ impl Scenario {
             Self::Advanced => "advanced",
             Self::Theme => "theme",
             Self::DetailsMotion => "details_motion",
+            Self::Pointer => "pointer",
         }
     }
     fn page(self) -> Option<&'static str> {
         match self {
             Self::Reverse => Some("Activity"),
-            Self::Notifications | Self::Typing | Self::Save | Self::Advanced => Some("Preferences"),
+            Self::Notifications | Self::Typing | Self::Save | Self::Advanced | Self::Pointer => {
+                Some("Preferences")
+            }
             _ => None,
         }
     }
@@ -92,7 +118,7 @@ impl Scenario {
             Self::Reverse => Some((SemanticRole::Button, "Reverse order")),
             Self::Notifications => Some((SemanticRole::CheckBox, "Enable notifications")),
             Self::Typing => Some((SemanticRole::TextInput, "Workspace name")),
-            Self::Save => Some((SemanticRole::Button, "Save changes")),
+            Self::Save | Self::Pointer => Some((SemanticRole::Button, "Save changes")),
             Self::Advanced => Some((SemanticRole::CheckBox, "Show advanced options")),
             Self::Theme => Some((SemanticRole::CheckBox, "Dark theme")),
             _ => None,
@@ -157,8 +183,13 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         view.reduce_motion();
     }
     let mut source = Source::with_clock(view, clock.clone());
+    source.adapter.experiment_force_full_geometry = options.full_geometry;
+    source.adapter.experiment_force_full_semantics = options.full_semantics;
+    source.adapter.experiment_force_full_hit_test = options.full_hit_test;
+    source.experiment_force_full_scene = options.full_scene;
     source.set_reduced_motion(scenario != Scenario::DetailsMotion);
     let mut text = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
     prepare(&mut source, &mut text);
     if let Some(page) = scenario.page() {
         click(&mut source, SemanticRole::Button, page);
@@ -178,6 +209,17 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         prepare(&mut source, &mut text);
     }
 
+    let pointer_position = (scenario == Scenario::Pointer).then(|| {
+        let id = fixed.unwrap();
+        source
+            .adapter
+            .semantics(&source.engine, 0)
+            .nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap()
+            .bounds
+    });
     let iterations = if scenario == Scenario::DetailsMotion {
         options.iterations.min(30)
     } else {
@@ -196,6 +238,10 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
     let (mut visited, mut flattened, mut layout_runs, mut sync_visits, mut passes) =
         (0_usize, 0_usize, 0_usize, 0_usize, 0_usize);
     let (mut batches, mut retained) = (0_usize, 0_usize);
+    let (mut scene_us, mut fragment_builds, mut fragment_reuses) = (0_u128, 0_usize, 0_usize);
+    let (mut flatten_patches, mut scene_full) = (0_usize, 0_usize);
+    let (mut semantic_builds, mut semantic_reuses) = (0_usize, 0_usize);
+    let (mut hit_checks, mut hit_pruned) = (0_usize, 0_usize);
     for index in 0..warmup + iterations {
         if scenario == Scenario::DetailsMotion {
             clock.advance(Duration::from_micros(16_667)).unwrap();
@@ -206,6 +252,20 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         let start = Instant::now();
         match scenario {
             Scenario::Idle | Scenario::DetailsMotion => {}
+            Scenario::Pointer => {
+                let bounds = pointer_position.unwrap();
+                source.handle_event(UiEvent::Pointer(PointerEvent {
+                    phase: PointerPhase::Move,
+                    position: Point {
+                        x: f64::from((bounds[0] + bounds[2]) * 0.5),
+                        y: f64::from((bounds[1] + bounds[3]) * 0.5),
+                    },
+                    button: None,
+                    buttons: 0,
+                    modifiers: Modifiers::empty(),
+                    properties: PointerProperties::default(),
+                }));
+            }
             Scenario::Route => {
                 let label = match index % 3 {
                     0 => "Activity",
@@ -240,7 +300,20 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
             }
         }
         let event = start.elapsed().as_nanos();
-        prepare(&mut source, &mut text);
+        if options.scene {
+            let timing = source
+                .render_retained_frame(&mut scene, &mut text, (1100, 820), 1.)
+                .unwrap();
+            if index >= warmup {
+                scene_us += (timing.2 * 1000.) as u128;
+            }
+            black_box(&scene.commands);
+        } else {
+            prepare(&mut source, &mut text);
+        }
+        if options.semantics {
+            black_box(source.adapter.semantics_shared(&source.engine, 0));
+        }
         let elapsed = start.elapsed().as_nanos();
         black_box(&source.adapter.placed);
         let after = source.batch_stats();
@@ -259,13 +332,23 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
             passes += after.declaration_passes - before.declaration_passes;
             batches += after.declaration_batches - before.declaration_batches;
             retained += after.retained_samples - before.retained_samples;
+            fragment_builds += source.adapter.stats.scene_fragment_builds;
+            fragment_reuses += source.adapter.stats.scene_fragment_reuses;
+            flatten_patches += source.adapter.stats.flatten_patches;
+            scene_full += source.adapter.stats.scene_full_rebuilds;
+            let semantic = source.adapter.experiment_semantic_cache_stats();
+            semantic_builds += semantic.0;
+            semantic_reuses += semantic.1;
+            let hit = source.adapter.experiment_hit_cache_stats();
+            hit_checks += hit.1;
+            hit_pruned += hit.2;
         }
     }
     samples.sort_unstable();
     let n = iterations as f64;
     let final_fingerprint = fingerprint(&source);
     println!(
-        "{mode},{},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{:.2},{},{:016x}",
+        "{mode},{},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{:.2},{},{:016x},{:.2},{:.1},{:.1},{:.1},{:.1},{:.2},{:.2},{:.2},{:.2}",
         scenario.name(),
         samples[iterations / 2],
         samples[(iterations * 95 / 100).min(iterations - 1)],
@@ -282,6 +365,15 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         retained as f64 / n,
         source.experiment_live_counts().0,
         final_fingerprint,
+        scene_us as f64 / n,
+        fragment_builds as f64 / n,
+        fragment_reuses as f64 / n,
+        flatten_patches as f64 / n,
+        scene_full as f64 / n,
+        semantic_builds as f64 / n,
+        semantic_reuses as f64 / n,
+        hit_checks as f64 / n,
+        hit_pruned as f64 / n,
     );
     #[cfg(feature = "profiling")]
     support::report(
@@ -298,7 +390,7 @@ fn main() {
     let options = Options::parse();
     assert!(options.iterations > 0, "iterations must be positive");
     println!(
-        "mode,scenario,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_layout_us,mean_visited,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,mean_declaration_batches,mean_retained_samples,nodes,final_fingerprint"
+        "mode,scenario,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_layout_us,mean_visited,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,mean_declaration_batches,mean_retained_samples,nodes,final_fingerprint,mean_scene_us,mean_fragment_builds,mean_fragment_reuses,mean_flatten_patches,mean_scene_full_rebuilds,mean_semantic_builds,mean_semantic_reuses,mean_hit_checks,mean_hit_pruned"
     );
     for name in options.scenarios.split(',') {
         let scenario = Scenario::parse(name);

@@ -34,7 +34,7 @@ fn root(
         text(cx, "builder fallback")
             .key("dynamic")
             .font_size(24)
-            .reactive((value.handle(), color.handle()), update);
+            .rx((value.handle(), color.handle()), update);
         text(cx, "Sibling").key("sibling");
     });
 }
@@ -148,12 +148,9 @@ fn unmount_cleans_property_subscriptions_and_remount_uses_new_generation() {
                     if *visible.read() {
                         cx.component((value.handle(),), |cx, (value,)| {
                             let local = cx.local_state(|| 10);
-                            text_empty(cx).reactive(
-                                (value.handle(), local),
-                                |node, (value, local)| {
-                                    node.text(format!("{}:{}", *value.read(), *local.read()));
-                                },
-                            );
+                            text_empty(cx).rx((value.handle(), local), |node, (value, local)| {
+                                node.text(format!("{}:{}", *value.read(), *local.read()));
+                            });
                         });
                     }
                 },
@@ -200,7 +197,7 @@ fn dependency_rebinding_unsubscribes_old_state_without_accumulating_bindings() {
                     let selected = if *choose.read() { b } else { a };
                     text_empty(cx)
                         .key("bound")
-                        .reactive((selected,), |node, (value,)| {
+                        .rx((selected,), |node, (value,)| {
                             node.text(value.read().to_string());
                         });
                 },
@@ -241,7 +238,7 @@ fn property_callbacks_cannot_write_state() {
         let value = app.state(|| false);
         state = Some(value);
         app.root((value,), |cx, (value,)| {
-            text_empty(cx).reactive((value.handle(),), |node, (value,)| {
+            text_empty(cx).rx((value.handle(),), |node, (value,)| {
                 node.text("safe read");
                 if *value.read() {
                     value.set(false);
@@ -296,7 +293,7 @@ fn rich_text_target_is_explicitly_rejected() {
                     italic: false,
                     color: None,
                 }])
-                .reactive((), |node, ()| {
+                .rx((), |node, ()| {
                     node.text("changed");
                 });
         });
@@ -317,14 +314,13 @@ fn omitted_properties_restore_builder_baseline_on_local_and_full_updates() {
         let active = app.state(|| true);
         state = Some(active);
         app.root((active,), |cx, (active,)| {
-            text(cx, "baseline").color(Color::Muted).reactive(
-                (active.handle(),),
-                |node, (active,)| {
+            text(cx, "baseline")
+                .color(Color::Muted)
+                .rx(active.handle(), |node, active| {
                     if *active.read() {
                         node.text("override").color(Color::Accent);
                     }
-                },
-            );
+                });
         });
     });
     let mut source = Source::new(app);
@@ -412,7 +408,7 @@ fn typography_fixture() -> (Source<Regions>, State<Typography>) {
                     .weight(400)
                     .font_family(FontFamily::Monospace)
                     .opacity(0.8)
-                    .reactive((attributes.handle(),), |node, (attributes,)| {
+                    .rx((attributes.handle(),), |node, (attributes,)| {
                         let attributes = attributes.read();
                         if attributes.override_baseline {
                             node.font_size(attributes.size)
@@ -589,7 +585,7 @@ fn global_theme_refresh_preserves_dynamic_typography_and_resolves_color_tokens()
         app.theme_state(theme);
         states = Some((theme, size));
         app.root((size,), |cx, (size,)| {
-            text(cx, "Themed").reactive((size.handle(),), |node, (size,)| {
+            text(cx, "Themed").rx((size.handle(),), |node, (size,)| {
                 node.font_size(*size.read())
                     .weight(600)
                     .color(Color::Accent)
@@ -654,7 +650,7 @@ fn ordinary_builder_and_reactive_chains_produce_identical_text_attributes() {
                 if *reactive.read() {
                     text_empty(cx)
                         .key("label")
-                        .reactive((values.handle(),), |node, (values,)| {
+                        .rx((values.handle(),), |node, (values,)| {
                             let values = values.read();
                             node.text(values.text.clone())
                                 .color(values.color)

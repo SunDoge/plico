@@ -48,6 +48,8 @@ impl PartialEq for SvgDocument {
 #[derive(Clone, Debug, PartialEq)]
 #[allow(missing_docs)]
 pub enum PaintCommand {
+    /// An independently encoded, balanced retained subtree.
+    Fragment { scene: Scene, transform: Affine },
     /// A host-native ordinary paragraph in logical coordinates.
     Paragraph {
         request: Arc<crate::paragraph::ParagraphRequest>,
@@ -123,7 +125,8 @@ pub enum PaintCommand {
 impl PaintCommand {
     fn transformed(mut self, parent: Affine) -> Self {
         let transform = match &mut self {
-            Self::PushLayer { transform, .. }
+            Self::Fragment { transform, .. }
+            | Self::PushLayer { transform, .. }
             | Self::PushClip { transform, .. }
             | Self::Stroke { transform, .. }
             | Self::Fill { transform, .. }
@@ -206,6 +209,13 @@ impl Scene {
     /// Create an empty scene fragment.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Expand retained subtree references into the ordinary flat command stream.
+    pub fn flattened(&self) -> Self {
+        let mut flat = Self::with_tolerance(self.tolerance);
+        flat.append_scene(self.clone(), Affine::IDENTITY);
+        flat
     }
 
     /// Create an empty scene with a path flattening tolerance.
@@ -325,10 +335,20 @@ pub trait PaintScene {
         panic!("native paragraph sent to a non-native painter");
     }
 
+    /// Append a reusable subtree. Ordinary painters may expand it immediately;
+    /// the backend-neutral Scene retains it as one cheap command.
+    fn append_cached_scene(&mut self, scene: Scene, transform: Affine) {
+        self.append_scene(scene, transform);
+    }
+
     /// Append a retained fragment under `transform`.
     fn append_scene(&mut self, scene: Scene, transform: Affine) {
         for command in scene.commands {
             match command {
+                PaintCommand::Fragment {
+                    scene: fragment,
+                    transform: local,
+                } => self.append_scene(fragment, transform * local),
                 PaintCommand::Paragraph {
                     request,
                     transform: local,
@@ -581,12 +601,22 @@ impl PaintScene for Scene {
     }
 
     fn append_scene(&mut self, scene: Scene, transform: Affine) {
-        self.commands.extend(
-            scene
-                .commands
-                .into_iter()
-                .map(|command| command.transformed(transform)),
-        );
+        for command in scene.commands {
+            match command {
+                PaintCommand::Fragment {
+                    scene: fragment,
+                    transform: local,
+                } => self.append_scene(fragment, transform * local),
+                command => self.commands.push(command.transformed(transform)),
+            }
+        }
+    }
+
+    fn append_cached_scene(&mut self, scene: Scene, transform: Affine) {
+        if !scene.commands.is_empty() {
+            self.commands
+                .push(PaintCommand::Fragment { scene, transform });
+        }
     }
 
     fn draw_shader_effect(&mut self, effect: ShaderEffect, transform: Affine) {

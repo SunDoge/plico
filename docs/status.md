@@ -9,12 +9,14 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
-`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.reactive(...)` 支持文字、颜色、字号、字重、字体族、透明度，非法属性、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
+`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，watch 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度，非法属性、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
 
 ## 已实现
 
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
+- Reactive Region revision 贯通局部 replay、布局/flatten 与 Scene Fragment 失效；mount/unmount/reorder 可保留独立区域缓存，并有大范围结构变化的全量回退。逐帧全量 Scene oracle 和 seeded 差分覆盖该路径；root Taffy 求解仍保留，route/reverse 的结构性能回退如实记录在[增量执行](incremental.md)。
+- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia opt-in 局部 damage 原生消费 Fragment，Vello/Web 和全量 Skia redraw 保留展开路径。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
 - Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
@@ -47,6 +49,7 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 
 一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。
 依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
+布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。本轮在此收尾，Region 独立布局求解尚未开始；继续扩大缓存前应先补充全量差分和真实窗口验收。
 原生模块协议仍有完整节点快照，不等于所有热重载帧都发送局部 patch。
 
 热重载为 best effort；业务状态不兼容可以重置，不保证任意 Rust 类型无损迁移。
@@ -93,8 +96,11 @@ Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab n
 ## Optional damage tracking
 
 Skia command-stream damage and per-image history, CPU culling and optional Vulkan
-incremental-present hints are implemented as opt-in experiments. Normal windows
-use full drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
+incremental-present hints are implemented as opt-in experiments. Tracked partial
+redraws consume Reactive Scene Fragments natively and cull whole unchanged Regions;
+full redraws and Vello/Web retain the expanded replay path. Region-level damage is
+conservative rather than a minimal per-leaf rectangle. Normal windows use full
+drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
 pass, but the real settings theme animation exposes four one-channel-step pixels
 near a dirty clip edge. A reduced raster probe reproduces this with a rounded
 stroke inside a translucent layer, even without command culling. The 240-frame

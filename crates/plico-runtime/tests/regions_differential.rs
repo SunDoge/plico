@@ -1,6 +1,6 @@
 //! A forced full declaration is the oracle, independent of dirty subscriptions.
 use plico::prelude::*;
-use plico::{Engine, FrameError, VirtualClock};
+use plico::{Engine, Entity, FrameError, VirtualClock};
 use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextContext, UiEvent};
 use plico_runtime::{
     Source, View,
@@ -96,6 +96,9 @@ impl View for Driven {
             self.regions.replay_regions(engine)
         }
     }
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        self.regions.scene_cache_roots()
+    }
 }
 fn application(records: Records, full: bool) -> (Driven, Handles) {
     let mut handles = None;
@@ -150,7 +153,7 @@ fn root(
         .gap(8)
         .children(|cx| {
             text(cx, "Fixture");
-            text_empty(cx).key("property-label").reactive(
+            text_empty(cx).key("property-label").rx(
                 (bindings.read().a, bindings.read().b),
                 |node, (a, b)| {
                     let a = *a.read();
@@ -197,6 +200,8 @@ fn branch(
     (world, bindings, records): (Access<'_, World>, Access<'_, Bindings>, Access<'_, Records>),
 ) {
     let world_handle = world.handle();
+    let bindings_handle = bindings.handle();
+    let records_handle = records.handle();
     let world = world.read();
     let bindings = bindings.read();
     column(cx)
@@ -218,24 +223,22 @@ fn branch(
                         text!(cx, "Selected {}", *selected.read());
                     },
                 );
-                for &id in &world.rows {
-                    cx.component_keyed(
-                        id,
-                        (bindings.infos[id as usize], records.handle(), world_handle),
-                        row,
-                    );
-                }
+                cx.each(
+                    (world_handle, bindings_handle, records_handle),
+                    |(world, _, _)| world.read().rows.clone(),
+                    each_row,
+                );
             } else {
                 text(cx, "Hidden");
             }
         });
 }
-#[component]
-fn row(
+fn each_row(
     cx: &mut UiContext<'_>,
-    (info, records, world): (Access<'_, Info>, Access<'_, Records>, Access<'_, World>),
+    (world, bindings, records): (Access<'_, World>, Access<'_, Bindings>, Access<'_, Records>),
+    id: u64,
 ) {
-    let id = info.read().id;
+    let info = bindings.read().infos[id as usize];
     let count = cx.local_persisted_state(1, || 0_i32);
     let enabled = cx.local_persisted_state(2, || true);
     let draft = cx.local_state(TextBuffer::new);
@@ -252,10 +255,7 @@ fn row(
             enabled,
         },
     );
-    cx.watch(
-        (count, draft, enabled, info.handle(), world.handle()),
-        row_view,
-    );
+    cx.watch((count, draft, enabled, info, world.handle()), row_view);
 }
 #[component]
 #[allow(clippy::type_complexity)] // Exercise heterogeneous explicit dependencies in one fixture.
@@ -299,6 +299,7 @@ fn row_view(
 }
 struct Harness {
     source: Source<Driven>,
+    scene: plico_renderer::Scene,
     text: TextContext,
     handles: Handles,
     records: Records,
@@ -312,9 +313,12 @@ impl Harness {
         let (view, handles) = application(Rc::clone(&records), full);
         let clock = VirtualClock::default();
         let mut source = Source::with_clock(view, clock.clone());
+        source.adapter.experiment_force_full_geometry = full;
+        source.experiment_force_full_scene = full;
         source.set_reduced_motion(true);
         let mut h = Self {
             source,
+            scene: plico_renderer::Scene::new(),
             text: TextContext::new(),
             handles,
             records,
@@ -330,12 +334,26 @@ impl Harness {
             self.source.request_rebuild();
         }
         self.source
-            .experiment_prepare_without_scene(&mut self.text, self.size.0, self.size.1);
+            .render_retained_frame(&mut self.scene, &mut self.text, self.size, 1.);
         assert!(
             self.source.last_error.is_none(),
             "{:?}",
             self.source.last_error
         );
+        let mut reference = plico_renderer::Scene::new();
+        let surface = self.source.engine.theme().surface;
+        let base =
+            peniko::Color::from_rgb8((surface >> 16) as u8, (surface >> 8) as u8, surface as u8);
+        plico_renderer::scene::build_scene_scaled_layers(
+            &mut reference,
+            &[self.source.adapter.placed.as_slice(), &[]],
+            &mut self.text,
+            self.size.0,
+            self.size.1,
+            base,
+            1.,
+        );
+        assert_eq!(self.scene.flattened().commands, reference.commands);
     }
     fn target(&self, role: SemanticRole, label: &str) -> Option<u64> {
         self.source

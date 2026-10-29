@@ -135,7 +135,7 @@ fn stroke_and_isolated_alpha_layer_preserve_coverage() {
 }
 
 #[test]
-fn svg_transform_opacity_and_rejection_are_explicit() {
+fn svg_vector_paint_and_raster_fallback_preserve_pixels() {
     use plico_renderer::svg::SvgImage;
     let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><g opacity="0.5"><path d="M1 4H7" fill="none" stroke="red" stroke-width="2"/></g></svg>"#).unwrap();
     let mut scene = Scene::new();
@@ -151,13 +151,30 @@ fn svg_transform_opacity_and_rejection_are_explicit() {
     let icon = SvgImage::parse(r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><defs><pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="red"/></pattern></defs><rect width="8" height="8" fill="url(#p)"/></svg>"#).unwrap();
     let mut scene = Scene::new();
     scene.draw_svg(icon.document().clone(), Affine::IDENTITY);
-    assert!(matches!(
-        surface.render_scene(&scene, Color::WHITE),
-        Err(Error::Unsupported {
-            command: "SVG pattern"
-        })
-    ));
-    assert!(matches!(surface.read_pixels(), Err(Error::NoFrame)));
+    let pixels = surface.render_scene(&scene, Color::WHITE).unwrap();
+    assert_eq!(pixel(&pixels, 4, 4), [255, 0, 0, 255]);
+}
+
+#[test]
+fn svg_filter_uses_resvg_instead_of_rejecting_the_frame() {
+    use plico_renderer::svg::SvgImage;
+    let icon = SvgImage::parse(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><defs><filter id="f" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1"/></filter></defs><rect x="3" y="3" width="2" height="2" fill="red" filter="url(#f)"/></svg>"#,
+    )
+    .unwrap();
+    let mut scene = Scene::new();
+    scene.draw_svg(icon.document().clone(), Affine::IDENTITY);
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    for _ in 0..2 {
+        let pixels = surface.render_scene(&scene, Color::WHITE).unwrap();
+        assert_eq!(pixel(&pixels, 4, 4)[0], 255);
+        assert!(pixel(&pixels, 4, 4)[1] < 255);
+        let blurred_edge = pixel(&pixels, 6, 4);
+        assert!(
+            blurred_edge[0] == 255 && blurred_edge[1] < 255,
+            "{blurred_edge:?}"
+        );
+    }
 }
 
 #[test]
@@ -532,6 +549,51 @@ fn tracked_text_fractional_motion_color_and_strokes_match_full_pixels() {
 }
 
 #[test]
+fn synthetic_glyph_transform_and_embolden_match_full_redraw() {
+    use peniko::{Blob, FontData, Style};
+    use plico_renderer::{DamageRegion, Glyph};
+    let font = FontData::new(
+        Blob::new(std::sync::Arc::new(
+            include_bytes!("../../../backend/examples/web-preview/public/DejaVuSans.ttf").to_vec(),
+        )),
+        0,
+    );
+    let face = skia_safe::FontMgr::new()
+        .new_from_bytes(font.data.as_ref(), 0)
+        .unwrap();
+    let ids = skia_safe::Font::new(face, 28.).text_to_glyphs_vec("Bold italic");
+    let mut partial = SkiaSurface::new(180, 72).unwrap();
+    let mut full = SkiaSurface::new(180, 72).unwrap();
+    for frame in 0..3 {
+        let mut scene = Scene::new();
+        scene.draw_glyphs(
+            &font,
+            28.,
+            false,
+            &[],
+            kurbo::Vec2::new(0.4, 0.4),
+            &Style::Fill(Fill::NonZero),
+            Color::BLACK,
+            1.,
+            Affine::translate((f64::from(frame) * 0.5, 0.)),
+            Some(Affine::skew(0.25, 0.)),
+            ids.iter().enumerate().map(|(index, id)| Glyph {
+                id: *id as u32,
+                x: 8. + index as f32 * 13.,
+                y: 46.,
+            }),
+        );
+        let damage = partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        if frame == 2 {
+            assert!(matches!(damage, DamageRegion::Rect(_)), "{damage:?}");
+        }
+        let pixels = partial.read_pixels().unwrap();
+        assert_eq!(pixels, full.render_scene(&scene, Color::WHITE).unwrap());
+        assert!(pixels.iter().any(|channel| *channel != 255));
+    }
+}
+
+#[test]
 fn tracked_failure_forces_full_recovery_and_dense_cooldown_is_bounded() {
     use plico_renderer::{DamageRegion, PaintCommand};
     let mut partial = SkiaSurface::new(16, 16).unwrap();
@@ -755,4 +817,60 @@ fn sparse_damage_preserves_gaps_and_avoids_dense_bounding_box_fallback() {
         plico_renderer::DamageRegion::Empty
     );
     assert_eq!(partial.last_damage_coverage(), 0.);
+}
+
+#[test]
+fn tracked_fragments_match_full_redraw_and_damage_only_old_new_region_bounds() {
+    use plico_renderer::DamageRegion;
+
+    fn scene(x: f64, color: Color, mounted: bool) -> Scene {
+        let mut root = Scene::new();
+        if mounted {
+            let mut fragment = Scene::new();
+            fragment.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 8., 8.));
+            fragment.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Rect::new(-4., -4., 12., 12.),
+            );
+            fragment.pop_layer();
+            root.append_cached_scene(fragment, Affine::translate((x, 10.)));
+        }
+        root
+    }
+
+    let mut partial = SkiaSurface::new(64, 64).unwrap();
+    let mut oracle = SkiaSurface::new(64, 64).unwrap();
+    let initial = scene(4., Color::from_rgb8(240, 80, 40), true);
+    assert_eq!(
+        partial.draw_scene_tracked(&initial, Color::WHITE).unwrap(),
+        DamageRegion::Full
+    );
+    assert_eq!(
+        partial.draw_scene_tracked(&initial, Color::WHITE).unwrap(),
+        DamageRegion::Empty
+    );
+
+    for next in [
+        scene(24., Color::from_rgb8(240, 80, 40), true),
+        scene(24., Color::from_rgb8(40, 80, 240), true),
+        scene(24., Color::from_rgb8(40, 80, 240), false),
+    ] {
+        let damage = partial.draw_scene_tracked(&next, Color::WHITE).unwrap();
+        let DamageRegion::Rect(rect) = damage else {
+            panic!("Fragment update should be local: {damage:?}");
+        };
+        assert!(rect.width() <= 40. && rect.height() <= 22., "{rect:?}");
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            oracle.render_scene(&next, Color::WHITE).unwrap(),
+            "damage {damage:?}"
+        );
+        assert_eq!(
+            partial.draw_scene_tracked(&next, Color::WHITE).unwrap(),
+            DamageRegion::Empty
+        );
+    }
 }

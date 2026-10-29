@@ -6,11 +6,12 @@ use plico_renderer::{
     EventResponse, FrameSource, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
     layout::{
         PlacedNode, compute_and_walk_with_scroll, compute_and_walk_with_scroll_into,
-        flatten_with_scroll_into,
+        compute_layout_with_widgets, flatten_subtree_with_scroll, flatten_with_scroll_into,
     },
     style::{CornerRadii, CursorStyle, Paint},
 };
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     sync::{
         Arc,
@@ -71,6 +72,8 @@ pub struct BackendStats {
     pub layout_runs: usize,
     pub tooltip_layout_runs: usize,
     pub flatten_visits: usize,
+    pub flatten_patches: usize,
+    pub layout_cache_checks: usize,
     pub paint_patches: usize,
     pub presentation_visits: usize,
     pub text_measure_invalidations: usize,
@@ -88,6 +91,11 @@ pub struct BackendStats {
     pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
+    pub scene_fragment_builds: usize,
+    pub scene_fragment_reuses: usize,
+    pub scene_encoded_nodes: usize,
+    pub scene_full_rebuilds: usize,
+    pub scene_invalid_roots: usize,
     pub svg_parses: usize,
     pub changes: plico::Changes,
 }
@@ -102,6 +110,32 @@ struct ControlMetrics {
     width: f32,
     metrics: Option<[f32; 3]>,
 }
+#[derive(Clone, Copy, Default)]
+struct HitSubtree {
+    end: usize,
+    first_child: Option<usize>,
+    next_sibling: Option<usize>,
+    bounds: [f32; 4],
+}
+#[derive(Default)]
+struct HitCache {
+    subtrees: Vec<HitSubtree>,
+    dirty: bool,
+    builds: usize,
+    checks: usize,
+    pruned: usize,
+}
+
+#[derive(Default)]
+struct SemanticCache {
+    epoch: u64,
+    snapshot: Option<(u64, u64, Arc<plico_renderer::SemanticSnapshot>)>,
+    nodes: HashMap<Entity, plico_renderer::SemanticNode>,
+    builds: usize,
+    reuses: usize,
+    snapshot_reuses: usize,
+}
+
 struct Retained {
     id: NodeId,
     style: taffy::Style,
@@ -109,6 +143,7 @@ struct Retained {
     spans: Vec<plico::TextSpan>,
     text: Arc<str>,
     children: Vec<NodeId>,
+    layout: Option<taffy::Layout>,
     toggle_line_height: Option<f32>,
     had_grid: bool,
 }
@@ -235,6 +270,17 @@ pub struct Adapter {
     control_align_indices: Vec<usize>,
     input_align_indices: Vec<usize>,
     geometry_dirty: bool,
+    #[doc(hidden)]
+    pub experiment_force_full_geometry: bool,
+    #[doc(hidden)]
+    pub experiment_force_full_semantics: bool,
+    #[doc(hidden)]
+    pub experiment_force_full_hit_test: bool,
+    geometry_roots: HashSet<Entity>,
+    topology_roots: HashSet<Entity>,
+    removed_node_ids: Vec<NodeId>,
+    pub(crate) scene_dirty_nodes: HashSet<NodeId>,
+    pub(crate) scene_full_dirty: bool,
     paint_dirty: Vec<NodeId>,
     last_theme: Option<Theme>,
     interaction_synced: [Option<Entity>; 4],
@@ -243,6 +289,8 @@ pub struct Adapter {
     synced_scratch: HashSet<Entity>,
     svg_cache: SvgCache,
     image_cache: ImageCache,
+    semantic: RefCell<SemanticCache>,
+    hit: RefCell<HitCache>,
 }
 impl Default for Adapter {
     fn default() -> Self {
@@ -298,6 +346,14 @@ impl Default for Adapter {
             control_align_indices: Vec::new(),
             input_align_indices: Vec::new(),
             geometry_dirty: false,
+            experiment_force_full_geometry: false,
+            experiment_force_full_semantics: false,
+            experiment_force_full_hit_test: false,
+            geometry_roots: HashSet::new(),
+            topology_roots: HashSet::new(),
+            removed_node_ids: Vec::new(),
+            scene_dirty_nodes: HashSet::new(),
+            scene_full_dirty: false,
             paint_dirty: Vec::new(),
             last_theme: None,
             interaction_synced: [None; 4],
@@ -305,6 +361,8 @@ impl Default for Adapter {
             synced_scratch: HashSet::new(),
             svg_cache: HashMap::new(),
             image_cache: HashMap::new(),
+            semantic: Default::default(),
+            hit: Default::default(),
             viewport: None,
         }
     }
@@ -347,9 +405,15 @@ impl Adapter {
         changes: plico::Changes,
     ) {
         self.stats = BackendStats::default();
+        self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
         self.anchor_motion_dirty = false;
         self.geometry_dirty = std::mem::take(&mut self.font_dirty);
         self.paint_dirty.clear();
+        self.geometry_roots.clear();
+        self.topology_roots.clear();
+        self.removed_node_ids.clear();
+        self.scene_dirty_nodes.clear();
+        self.scene_full_dirty = false;
         let start = Instant::now();
         let full = self.nodes.is_empty()
             || (changes.contains(plico::Changes::STRUCTURE) && declared.is_empty());
@@ -433,6 +497,16 @@ impl Adapter {
             self.motions.snap_theme();
             dirty.extend(self.nodes.keys().copied());
         }
+        {
+            let semantic = self.semantic.get_mut();
+            if full {
+                semantic.nodes.clear();
+            } else {
+                for entity in &dirty {
+                    semantic.nodes.remove(entity);
+                }
+            }
+        }
         let mut tab_dirty = structural;
         let mut synced = std::mem::take(&mut self.synced_scratch);
         synced.clear();
@@ -497,6 +571,8 @@ impl Adapter {
                 self.shader_nodes.remove(&e);
                 self.tooltip_nodes.remove(&e);
                 self.reverse.remove(&n.id);
+                self.semantic.get_mut().nodes.remove(&e);
+                self.removed_node_ids.push(n.id);
                 self.scroll_offsets.remove(&n.id);
                 self.scroll_motions.remove(&n.id);
                 if self.scrollbar_drag.is_some_and(|(id, ..)| id == n.id) {
@@ -556,17 +632,50 @@ impl Adapter {
         }
         let start = Instant::now();
         if self.geometry_dirty {
-            compute_and_walk_with_scroll_into(
+            let root = self.nodes[&engine.root()].id;
+            compute_layout_with_widgets(
                 &mut self.tree,
-                self.nodes[&engine.root()].id,
+                root,
                 [width as f32, height as f32],
                 tcx,
-                &self.scroll_offsets,
-                &mut self.placed,
+                1.,
+                |_node, _cx| None,
             );
             self.stats.layout_runs = 1;
-            self.stats.flatten_visits = self.placed.len();
-            self.reindex_placed();
+            let wide_structure = self.placed.len() >= 32
+                && (self.stats.created + self.stats.removed) * 4 >= self.placed.len();
+            let attempt_patch = !self.experiment_force_full_geometry
+                && !full
+                && !resized
+                && !theme_changed
+                && !wide_structure
+                && !self.geometry_roots.is_empty();
+            let patch = attempt_patch.then(|| self.patch_dirty_geometry(engine));
+            let incremental = patch == Some(Some(true));
+            if !incremental {
+                // A forced full-geometry control still has exact Reactive dirty
+                // information. Only an initial sync or a failed patch needs to
+                // conservatively invalidate every Scene Region.
+                self.scene_full_dirty =
+                    full || (!self.experiment_force_full_geometry && patch.flatten().is_none());
+                flatten_with_scroll_into(&self.tree, root, &self.scroll_offsets, &mut self.placed);
+                self.stats.flatten_visits = self.placed.len();
+                self.cache_all_layouts();
+                self.reindex_placed();
+            } else {
+                if self.stats.flatten_patches > 0 {
+                    self.reindex_placed();
+                }
+                // A fixed-size measurement change can leave every Taffy box
+                // unchanged. Its resolved Paint still needs to reach `placed`.
+                for id in &self.paint_dirty {
+                    if let Some(index) = self.placed_indices.get(id) {
+                        self.placed[*index].paint =
+                            self.tree.get_node_context(*id).unwrap().clone();
+                        self.stats.paint_patches += 1;
+                    }
+                }
+            }
             // geometry_dirty deliberately stays set: tall centered controls
             // realign their text every frame through the geometry branch
             // (alignment.rs); treating the flag as a consumed latch breaks
@@ -588,6 +697,9 @@ impl Adapter {
                     self.stats.paint_patches += 1;
                 }
             }
+        }
+        if resized || theme_changed || self.scroll_dirty {
+            self.scene_full_dirty = true;
         }
         if self.geometry_dirty || self.scroll_dirty {
             #[cfg(feature = "profiling")]
@@ -721,9 +833,18 @@ impl Adapter {
             };
         }
         let moved_anchor = self.anchor_motion_dirty && !self.geometry_dirty;
+        if self.presentation_dirty {
+            // Transform/opacity motion changes Scene output without necessarily
+            // rewriting Paint. Invalidate the containing cached Region while
+            // keeping unrelated Regions reusable.
+            self.scene_dirty_nodes
+                .extend(self.presentation_roots.iter().copied());
+        }
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation_dirty {
             self.update_presentation();
         }
+        self.scene_dirty_nodes
+            .extend(self.paint_dirty.iter().copied());
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
@@ -772,9 +893,186 @@ impl Adapter {
             sync_us = self.stats.sync_micros as u64, backend_update_us = self.stats.layout_micros as u64,
             changes = self.stats.changes.bits(), "backend.work");
     }
+    fn layout_changed(&mut self, entity: Entity) -> bool {
+        self.stats.layout_cache_checks += 1;
+        let Some(retained) = self.nodes.get(&entity) else {
+            return true;
+        };
+        retained.layout.as_ref() != self.tree.layout(retained.id).ok()
+    }
+
+    fn collect_changed_layouts(
+        &mut self,
+        engine: &Engine,
+        entity: Entity,
+        candidates: &mut HashSet<Entity>,
+    ) {
+        if self.layout_changed(entity) {
+            candidates.insert(entity);
+            return;
+        }
+        // A fixed-size parent can keep its own box while gap, alignment or
+        // distribution changes move its children. Check the whole dirty
+        // subtree instead of treating the unchanged parent as clean.
+        if let Some(node) = engine.node(entity) {
+            for &child in node.children {
+                self.collect_changed_layouts(engine, child, candidates);
+            }
+        }
+    }
+
+    fn cache_layout_subtree(&mut self, id: NodeId) {
+        let layout = self.tree.layout(id).ok().copied();
+        let children = self.reverse.get(&id).and_then(|entity| {
+            let retained = self.nodes.get_mut(entity)?;
+            retained.layout = layout;
+            Some(retained.children.clone())
+        });
+        for child in children.into_iter().flatten() {
+            self.cache_layout_subtree(child);
+        }
+    }
+
+    fn cache_all_layouts(&mut self) {
+        let ids: Vec<_> = self.nodes.values().map(|retained| retained.id).collect();
+        for id in ids {
+            let layout = self.tree.layout(id).ok().copied();
+            if let Some(entity) = self.reverse.get(&id)
+                && let Some(retained) = self.nodes.get_mut(entity)
+            {
+                retained.layout = layout;
+            }
+        }
+    }
+
+    /// Patch only layout-affected subtrees. The ancestor/sibling checks are
+    /// necessary because Taffy's clean cache does not mean that a child's new
+    /// intrinsic size left its parent's other children in the same position.
+    fn patch_dirty_geometry(&mut self, engine: &Engine) -> Option<bool> {
+        let mut candidates = HashSet::new();
+        for &root in &self.topology_roots {
+            if !self.nodes.contains_key(&root) {
+                return None;
+            }
+            // Child insertion, removal and reordering change the preorder even
+            // when every surviving Taffy box keeps its old layout.
+            candidates.insert(root);
+        }
+        let dirty_roots: Vec<_> = self.geometry_roots.iter().copied().collect();
+        for root in dirty_roots {
+            self.collect_changed_layouts(engine, root, &mut candidates);
+            let mut cursor = Some(root);
+            while let Some(entity) = cursor {
+                if !self.nodes.contains_key(&entity) {
+                    return None;
+                }
+                if self.layout_changed(entity) {
+                    candidates.insert(entity);
+                }
+                let Some(parent) = engine.experiment_parent(entity) else {
+                    break;
+                };
+                if let Some(parent_node) = engine.node(parent) {
+                    for &sibling in parent_node.children {
+                        if self.layout_changed(sibling) {
+                            candidates.insert(sibling);
+                        }
+                    }
+                }
+                cursor = Some(parent);
+            }
+        }
+
+        // A changed ancestor already covers its descendants. Also promote a
+        // previously unplaced (zero-size) node to its nearest placed ancestor,
+        // which supplies a valid preorder range and inherited clip.
+        let mut roots = Vec::new();
+        for &entity in &candidates {
+            let mut ancestor = engine.experiment_parent(entity);
+            let mut covered = false;
+            while let Some(parent) = ancestor {
+                if candidates.contains(&parent) {
+                    covered = true;
+                    break;
+                }
+                ancestor = engine.experiment_parent(parent);
+            }
+            if covered {
+                continue;
+            }
+            let mut cursor = Some(entity);
+            let placed = loop {
+                let current = cursor?;
+                let retained = self.nodes.get(&current)?;
+                if self.placed_indices.contains_key(&retained.id) {
+                    break retained.id;
+                }
+                cursor = engine.experiment_parent(current);
+            };
+            roots.push(placed);
+        }
+        roots.sort_by_key(|id| self.placed_indices[id]);
+        roots.dedup();
+
+        let mut patches = Vec::new();
+        let mut covered_end = 0;
+        for id in roots {
+            let start = self.placed_indices[&id];
+            if start < covered_end {
+                continue;
+            }
+            let depth = self.placed[start].depth;
+            let end = self.placed[start + 1..]
+                .iter()
+                .position(|node| node.depth <= depth)
+                .map_or(self.placed.len(), |offset| start + 1 + offset);
+            covered_end = end;
+            patches.push((start, end, id));
+        }
+        let structural =
+            self.stats.created > 0 || self.stats.removed > 0 || self.stats.child_writes > 0;
+        let covered: usize = patches.iter().map(|(start, end, _)| end - start).sum();
+        if structural
+            && self.placed.len() >= 32
+            && (patches.len() > 1 || covered * 2 >= self.placed.len())
+        {
+            // Several structural ranges, or one range covering most of the
+            // window, make a fresh preorder cheaper than checks and splices.
+            // The candidate set is still exact enough for local Scene reuse.
+            for entity in candidates.iter().chain(&self.geometry_roots) {
+                if let Some(retained) = self.nodes.get(entity) {
+                    self.scene_dirty_nodes.insert(retained.id);
+                }
+            }
+            return Some(false);
+        }
+        for (start, end, id) in patches.into_iter().rev() {
+            let entity = self.reverse.get(&id).copied()?;
+            let previous_layout = self.nodes[&entity].layout?;
+            let replacement = flatten_subtree_with_scroll(
+                &self.tree,
+                &self.placed[start],
+                &previous_layout,
+                &self.scroll_offsets,
+            );
+            self.stats.flatten_visits += replacement.len();
+            self.stats.flatten_patches += 1;
+            self.placed.splice(start..end, replacement);
+            self.cache_layout_subtree(id);
+            self.scene_dirty_nodes.insert(id);
+        }
+        for entity in &self.geometry_roots {
+            if let Some(retained) = self.nodes.get(entity) {
+                self.scene_dirty_nodes.insert(retained.id);
+            }
+        }
+        Some(true)
+    }
+
     fn reindex_placed(&mut self) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
+        self.hit.get_mut().dirty = true;
         self.placed_indices.clear();
         self.scroll_indices.clear();
         self.control_align_indices.clear();
@@ -1222,6 +1520,7 @@ impl Adapter {
                     spans: n.spans.to_vec(),
                     text: Arc::from(n.text),
                     children: Vec::new(),
+                    layout: None,
                     toggle_line_height: None,
                     had_grid: n.grid.is_some(),
                 },
@@ -1259,6 +1558,7 @@ impl Adapter {
             retained.style = style;
             self.stats.style_writes += 1;
             self.geometry_dirty = true;
+            self.geometry_roots.insert(e);
         }
         let visual_changes = visual_style.changes_from(retained.paint_key.style);
         self.stats.changes |= visual_changes;
@@ -1345,6 +1645,7 @@ impl Adapter {
             if measurement_changed {
                 self.stats.text_measure_invalidations += 1;
                 self.geometry_dirty = true;
+                self.geometry_roots.insert(e);
                 self.tree.mark_dirty(retained.id).unwrap();
             }
             self.stats.paint_writes += 1;
@@ -1355,25 +1656,145 @@ impl Adapter {
             retained.children = children;
             self.stats.child_writes += 1;
             self.geometry_dirty = true;
+            self.geometry_roots.insert(e);
+            self.topology_roots.insert(e);
         }
         retained.id
     }
     fn hit(&self, engine: &Engine, x: f64, y: f64) -> Option<Entity> {
-        self.placed.iter().rev().find_map(|p| {
-            if !self.visual_contains(p.node_id, x, y) {
-                return None;
+        if self.experiment_force_full_hit_test {
+            return self.placed.iter().rev().find_map(|placed| {
+                if !self.visual_contains(placed.node_id, x, y) {
+                    return None;
+                }
+                let entity = *self.reverse.get(&placed.node_id)?;
+                engine
+                    .node(entity)
+                    .filter(|node| {
+                        interactive(node.kind)
+                            && node.kind != Kind::Overlay
+                            && !node.style.disabled
+                            && self.modal_allows(engine, entity)
+                    })
+                    .map(|_| entity)
+            });
+        }
+        if self.placed.is_empty() {
+            return None;
+        }
+        if self.hit.borrow().dirty || self.hit.borrow().subtrees.len() != self.placed.len() {
+            self.rebuild_hit_cache();
+        }
+        let contains = |bounds: [f32; 4]| {
+            x >= f64::from(bounds[0])
+                && y >= f64::from(bounds[1])
+                && x < f64::from(bounds[2])
+                && y < f64::from(bounds[3])
+        };
+        let mut checks = 0;
+        let mut pruned = 0;
+        let mut result = None;
+        let mut tasks = vec![(0, false)];
+        let cache = self.hit.borrow();
+        while let Some((index, visited)) = tasks.pop() {
+            let subtree = cache.subtrees[index];
+            if !contains(subtree.bounds) {
+                pruned += 1;
+                continue;
             }
-            let e = *self.reverse.get(&p.node_id)?;
-            engine
-                .node(e)
-                .filter(|n| {
-                    interactive(n.kind)
-                        && n.kind != Kind::Overlay
-                        && !n.style.disabled
-                        && self.modal_allows(engine, e)
-                })
-                .map(|_| e)
-        })
+            if !visited {
+                // Children are pushed in source order and popped in reverse,
+                // preserving placed.iter().rev() hit priority. The parent is
+                // tested only after every descendant.
+                tasks.push((index, true));
+                let mut child = subtree.first_child;
+                while let Some(index) = child {
+                    tasks.push((index, false));
+                    child = cache.subtrees[index].next_sibling;
+                }
+                continue;
+            }
+            checks += 1;
+            let placed = &self.placed[index];
+            if !self.visual_contains(placed.node_id, x, y) {
+                continue;
+            }
+            let Some(entity) = self.reverse.get(&placed.node_id).copied() else {
+                continue;
+            };
+            if engine.node(entity).is_some_and(|node| {
+                interactive(node.kind)
+                    && node.kind != Kind::Overlay
+                    && !node.style.disabled
+                    && self.modal_allows(engine, entity)
+            }) {
+                result = Some(entity);
+                break;
+            }
+        }
+        drop(cache);
+        let mut cache = self.hit.borrow_mut();
+        cache.checks = checks;
+        cache.pruned = pruned;
+        result
+    }
+    fn rebuild_hit_cache(&self) {
+        let mut cache = self.hit.borrow_mut();
+        cache.subtrees.clear();
+        cache
+            .subtrees
+            .resize(self.placed.len(), HitSubtree::default());
+        let mut ancestors: Vec<usize> = Vec::new();
+        let mut last_children: Vec<Option<usize>> = vec![None; self.placed.len()];
+        for index in 0..self.placed.len() {
+            let depth = self.placed[index].depth;
+            while ancestors.len() > depth {
+                let ended = ancestors.pop().unwrap();
+                cache.subtrees[ended].end = index;
+            }
+            if let Some(&parent) = ancestors.last() {
+                let first = &mut cache.subtrees[parent].first_child;
+                if first.is_none() {
+                    *first = Some(index);
+                }
+                if let Some(previous) = last_children[parent] {
+                    cache.subtrees[previous].next_sibling = Some(index);
+                }
+                last_children[parent] = Some(index);
+            }
+            ancestors.push(index);
+        }
+        while let Some(ended) = ancestors.pop() {
+            cache.subtrees[ended].end = self.placed.len();
+        }
+        for index in (0..self.placed.len()).rev() {
+            let placed = &self.placed[index];
+            let rect = self.visual_bounds(placed.node_id).unwrap_or(placed.rect);
+            let mut bounds = (rect[0] < rect[2] && rect[1] < rect[3]).then_some(rect);
+            let mut child = cache.subtrees[index].first_child;
+            while let Some(child_index) = child {
+                let child_bounds = cache.subtrees[child_index].bounds;
+                if child_bounds[0] < child_bounds[2] && child_bounds[1] < child_bounds[3] {
+                    bounds = Some(bounds.map_or(child_bounds, |old| {
+                        [
+                            old[0].min(child_bounds[0]),
+                            old[1].min(child_bounds[1]),
+                            old[2].max(child_bounds[2]),
+                            old[3].max(child_bounds[3]),
+                        ]
+                    }));
+                }
+                child = cache.subtrees[child_index].next_sibling;
+            }
+            cache.subtrees[index].bounds = bounds.unwrap_or_default();
+        }
+        cache.builds += 1;
+        cache.dirty = false;
+    }
+    #[doc(hidden)]
+    pub fn experiment_hit_cache_stats(&self) -> (usize, usize, usize) {
+        let cache = self.hit.borrow();
+        (cache.builds, cache.checks, cache.pruned)
     }
     pub fn event(&mut self, engine: &mut Engine, event: UiEvent) -> EventResponse {
         self.event_with_invalidation(engine, event).0
@@ -1386,6 +1807,7 @@ impl Adapter {
         engine: &mut Engine,
         event: UiEvent,
     ) -> (EventResponse, bool) {
+        self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
         if self.tooltip_event(engine, &event) {
             return (
                 EventResponse {
@@ -1691,6 +2113,41 @@ impl Adapter {
             .filter_map(|v| v.as_ref().err().map(|e| e.as_ref()))
     }
     pub fn semantics(&self, engine: &Engine, revision: u64) -> plico_renderer::SemanticSnapshot {
+        (*self.semantics_shared(engine, revision)).clone()
+    }
+    /// Share an immutable semantic projection until the next backend commit or input event.
+    pub fn semantics_shared(
+        &self,
+        engine: &Engine,
+        revision: u64,
+    ) -> Arc<plico_renderer::SemanticSnapshot> {
+        let epoch = self.semantic.borrow().epoch;
+        if self.experiment_force_full_semantics {
+            self.semantic.borrow_mut().nodes.clear();
+            self.semantic.borrow_mut().builds = 0;
+            self.semantic.borrow_mut().reuses = 0;
+            return Arc::new(self.build_semantics(engine, revision));
+        }
+        let cached = self.semantic.borrow().snapshot.clone();
+        if let Some((cached_epoch, cached_revision, snapshot)) = cached
+            && cached_epoch == epoch
+            && cached_revision == revision
+        {
+            self.semantic.borrow_mut().snapshot_reuses += 1;
+            return snapshot;
+        }
+        self.semantic.borrow_mut().builds = 0;
+        self.semantic.borrow_mut().reuses = 0;
+        let snapshot = Arc::new(self.build_semantics(engine, revision));
+        self.semantic.borrow_mut().snapshot = Some((epoch, revision, snapshot.clone()));
+        snapshot
+    }
+    #[doc(hidden)]
+    pub fn experiment_semantic_cache_stats(&self) -> (usize, usize, usize) {
+        let cache = self.semantic.borrow();
+        (cache.builds, cache.reuses, cache.snapshot_reuses)
+    }
+    fn build_semantics(&self, engine: &Engine, revision: u64) -> plico_renderer::SemanticSnapshot {
         use plico_renderer::{
             SemanticNode, SemanticRole as Role, SemanticStates, SemanticToggleState,
         };
@@ -1700,63 +2157,79 @@ impl Adapter {
             .filter_map(|p| {
                 let e = *self.reverse.get(&p.node_id)?;
                 let n = engine.node(e)?;
-                Some(SemanticNode {
-                    id: semantic_id(e),
-                    role: match n.style.role {
-                        Some(plico::WidgetRole::ComboBox) => Role::ComboBox,
-                        Some(plico::WidgetRole::ListBox) => Role::ListBox,
-                        Some(plico::WidgetRole::Option) => Role::Option,
-                        Some(plico::WidgetRole::Menu) => Role::Menu,
-                        Some(plico::WidgetRole::MenuButton) => Role::Button,
-                        Some(plico::WidgetRole::MenuItem) => Role::MenuItem,
-                        None => match n.kind {
-                            Kind::Button | Kind::ButtonBase => Role::Button,
-                            Kind::Slider => Role::Slider,
-                            Kind::Dialog => Role::Dialog,
-                            Kind::TextInput => Role::TextInput,
-                            Kind::Switch => Role::Switch,
-                            Kind::Checkbox => Role::CheckBox,
-                            Kind::Text => Role::Label,
-                            _ => Role::Group,
-                        },
-                    },
-                    label: engine.accessible_name(e).map(|name| name.into_owned()),
-                    value: if n.style.role == Some(plico::WidgetRole::ComboBox) {
-                        n.children
-                            .iter()
-                            .filter_map(|e| engine.node(*e))
-                            .find(|n| n.kind == Kind::Text)
-                            .map(|n| n.text.to_owned())
-                    } else {
-                        n.numeric.map(|range| range.value.to_string())
-                    },
-                    numeric_value: n.numeric.map(|range| range.value),
-                    min_numeric_value: n.numeric.map(|range| range.min),
-                    max_numeric_value: n.numeric.map(|range| range.max),
-                    bounds: self.visual_bounds(p.node_id).unwrap_or(p.rect),
-                    children: n.children.iter().map(|e| semantic_id(*e)).collect(),
-                    controls: Vec::new(),
-                    described_by: self.tooltip_description(engine, e).into_iter().collect(),
-                    active_descendant: None,
-                    disabled: n.style.disabled
-                        || (interactive(n.kind)
-                            && n.kind != Kind::Overlay
-                            && !self.modal_allows(engine, e)),
-                    states: SemanticStates {
-                        modal: (n.kind == Kind::Dialog && n.style.role.is_none())
-                            .then_some(!self.is_popup_panel(engine, e)),
-                        selected: n.style.selected,
-                        expanded: n.style.expanded,
-                        checked: matches!(n.kind, Kind::Switch | Kind::Checkbox).then_some(
-                            if n.style.checked {
-                                SemanticToggleState::On
-                            } else {
-                                SemanticToggleState::Off
+                let cacheable =
+                    n.kind != Kind::ButtonBase && n.style.role != Some(plico::WidgetRole::ComboBox);
+                let cached = cacheable
+                    .then(|| self.semantic.borrow().nodes.get(&e).cloned())
+                    .flatten();
+                let mut semantic = if let Some(cached) = cached {
+                    self.semantic.borrow_mut().reuses += 1;
+                    cached
+                } else {
+                    self.semantic.borrow_mut().builds += 1;
+                    SemanticNode {
+                        id: semantic_id(e),
+                        role: match n.style.role {
+                            Some(plico::WidgetRole::ComboBox) => Role::ComboBox,
+                            Some(plico::WidgetRole::ListBox) => Role::ListBox,
+                            Some(plico::WidgetRole::Option) => Role::Option,
+                            Some(plico::WidgetRole::Menu) => Role::Menu,
+                            Some(plico::WidgetRole::MenuButton) => Role::Button,
+                            Some(plico::WidgetRole::MenuItem) => Role::MenuItem,
+                            None => match n.kind {
+                                Kind::Button | Kind::ButtonBase => Role::Button,
+                                Kind::Slider => Role::Slider,
+                                Kind::Dialog => Role::Dialog,
+                                Kind::TextInput => Role::TextInput,
+                                Kind::Switch => Role::Switch,
+                                Kind::Checkbox => Role::CheckBox,
+                                Kind::Text => Role::Label,
+                                _ => Role::Group,
                             },
-                        ),
-                        ..Default::default()
-                    },
-                })
+                        },
+                        label: engine.accessible_name(e).map(|name| name.into_owned()),
+                        value: if n.style.role == Some(plico::WidgetRole::ComboBox) {
+                            n.children
+                                .iter()
+                                .filter_map(|e| engine.node(*e))
+                                .find(|n| n.kind == Kind::Text)
+                                .map(|n| n.text.to_owned())
+                        } else {
+                            n.numeric.map(|range| range.value.to_string())
+                        },
+                        numeric_value: n.numeric.map(|range| range.value),
+                        min_numeric_value: n.numeric.map(|range| range.min),
+                        max_numeric_value: n.numeric.map(|range| range.max),
+                        bounds: p.rect,
+                        children: n.children.iter().map(|e| semantic_id(*e)).collect(),
+                        controls: Vec::new(),
+                        described_by: Vec::new(),
+                        active_descendant: None,
+                        disabled: n.style.disabled,
+                        states: SemanticStates {
+                            selected: n.style.selected,
+                            expanded: n.style.expanded,
+                            checked: matches!(n.kind, Kind::Switch | Kind::Checkbox).then_some(
+                                if n.style.checked {
+                                    SemanticToggleState::On
+                                } else {
+                                    SemanticToggleState::Off
+                                },
+                            ),
+                            ..Default::default()
+                        },
+                    }
+                };
+                if cacheable {
+                    self.semantic.borrow_mut().nodes.insert(e, semantic.clone());
+                }
+                semantic.bounds = self.visual_bounds(p.node_id).unwrap_or(p.rect);
+                semantic.described_by = self.tooltip_description(engine, e).into_iter().collect();
+                semantic.disabled |=
+                    interactive(n.kind) && n.kind != Kind::Overlay && !self.modal_allows(engine, e);
+                semantic.states.modal = (n.kind == Kind::Dialog && n.style.role.is_none())
+                    .then_some(!self.is_popup_panel(engine, e));
+                Some(semantic)
             })
             .collect();
         // Portals remain independent in layout. In the accessibility tree, an
@@ -1825,6 +2298,7 @@ impl Adapter {
         action: plico_renderer::SemanticAction,
     ) -> bool {
         use plico_renderer::SemanticAction;
+        self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
         let target = match action {
             SemanticAction::Click { target }
             | SemanticAction::Focus { target }
@@ -2118,6 +2592,10 @@ pub trait View {
     ) -> Option<Result<regions::ReplayBatch, plico::FrameError>> {
         None
     }
+    #[doc(hidden)]
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        Vec::new()
+    }
     /// Window-local fallback after controls decline a key. Not called during IME
     /// composition or while a popup/modal owns input. Return true to consume it.
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
@@ -2206,7 +2684,13 @@ pub struct Source<V: View> {
     last_tick: Option<Instant>,
     requests: plico::Changes,
     target_scene: Option<(Scene, u64, u64)>,
-    /// Ranges of the last fully encoded scene, for paint-only re-encoding.
+    scene_cache: plico_renderer::scene::SceneCache,
+    scene_roots: HashSet<NodeId>,
+    scene_revisions: HashMap<NodeId, u64>,
+    pending_region_revisions: Vec<(Entity, u64)>,
+    #[doc(hidden)]
+    pub experiment_force_full_scene: bool,
+    /// Work accumulated across the current host batch.
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
     declared_seen: HashSet<Entity>,
@@ -2241,6 +2725,11 @@ impl<V: View> Source<V> {
             last_tick: None,
             requests: plico::Changes::empty(),
             target_scene: None,
+            scene_cache: Default::default(),
+            scene_roots: HashSet::new(),
+            scene_revisions: HashMap::new(),
+            pending_region_revisions: Vec::new(),
+            experiment_force_full_scene: false,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
@@ -2564,6 +3053,27 @@ impl<V: View> Source<V> {
         self.declared_seen.clear();
         self.declared_changes = plico::Changes::empty();
         self.declarations_pending = false;
+        for &id in &self.adapter.removed_node_ids {
+            self.scene_cache.remove(id);
+            self.scene_revisions.remove(&id);
+        }
+        self.scene_roots = self
+            .view
+            .scene_cache_roots()
+            .into_iter()
+            .filter_map(|entity| self.adapter.backend_id(entity))
+            .collect();
+        for (entity, revision) in std::mem::take(&mut self.pending_region_revisions) {
+            if let Some(id) = self.adapter.backend_id(entity)
+                && self.scene_revisions.get(&id) != Some(&revision)
+            {
+                self.scene_revisions.insert(id, revision);
+                self.adapter.scene_dirty_nodes.insert(id);
+            }
+        }
+        for &id in &self.scene_roots {
+            self.scene_revisions.entry(id).or_insert(0);
+        }
         let stats = self.adapter.stats;
         self.batch_stats.backend_commits += 1;
         self.batch_stats.layout_runs += stats.layout_runs;
@@ -2611,15 +3121,70 @@ impl<V: View> Source<V> {
             (true, Some(nodes)) => [nodes, &[]],
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
-        plico_renderer::scene::build_scene_scaled_layers(
-            scene,
-            &layers,
-            tcx,
-            size.0,
-            size.1,
-            self.base_color(),
-            scale,
-        );
+        let base_color = self.base_color();
+        if self.experiment_force_full_scene
+            || self.scene_roots.is_empty()
+            || !self.adapter.shaders.is_empty()
+        {
+            plico_renderer::scene::build_scene_scaled_layers(
+                scene, &layers, tcx, size.0, size.1, base_color, scale,
+            );
+        } else {
+            if self.adapter.scene_full_dirty {
+                self.scene_cache.clear();
+            }
+            let mut invalid = HashSet::new();
+            if self.adapter.scene_full_dirty {
+                invalid.extend(self.scene_roots.iter().copied());
+            } else {
+                for &dirty in &self.adapter.scene_dirty_nodes {
+                    let mut cursor = Some(dirty);
+                    while let Some(id) = cursor {
+                        if self.scene_roots.contains(&id) {
+                            invalid.insert(id);
+                        }
+                        cursor = self
+                            .adapter
+                            .placed_indices
+                            .get(&id)
+                            .and_then(|&index| self.adapter.placed[index].parent_node_id);
+                    }
+                    // A layout patch can move an entire subtree without
+                    // changing its parent transform. Fragments nested inside
+                    // that subtree contain absolute geometry and must be
+                    // rebuilt as well as every enclosing fragment.
+                    if let Some(&start) = self.adapter.placed_indices.get(&dirty) {
+                        let depth = self.adapter.placed[start].depth;
+                        for (offset, node) in self.adapter.placed[start..].iter().enumerate() {
+                            if offset > 0 && node.depth <= depth {
+                                break;
+                            }
+                            if self.scene_roots.contains(&node.node_id) {
+                                invalid.insert(node.node_id);
+                            }
+                        }
+                    }
+                }
+            }
+            self.adapter.stats.scene_invalid_roots = invalid.len();
+            plico_renderer::scene::build_scene_cached(
+                scene,
+                &layers,
+                &self.scene_roots,
+                &invalid,
+                &mut self.scene_cache,
+                tcx,
+                plico_renderer::scene::SceneTarget {
+                    size: [size.0, size.1],
+                    base_color,
+                    device_scale: scale,
+                },
+            );
+            self.adapter.stats.scene_fragment_builds = self.scene_cache.built;
+            self.adapter.stats.scene_fragment_reuses = self.scene_cache.reused;
+            self.adapter.stats.scene_encoded_nodes = self.scene_cache.encoded_nodes;
+        }
+        self.adapter.stats.scene_full_rebuilds = usize::from(self.adapter.scene_full_dirty);
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
         #[cfg(feature = "profiling")]
         {
@@ -2668,6 +3233,7 @@ impl<V: View> Source<V> {
             self.declaration_micros = start.elapsed().as_micros();
             self.batch_stats.declaration_passes += batch.passes;
             self.declared_dirty.extend(batch.dirty);
+            self.pending_region_revisions.extend(batch.revisions);
             self.declared_changes |= batch.changes;
             self.requests = batch.changes & plico::Changes::ANIMATE;
             self.pending = false;
@@ -2906,7 +3472,7 @@ impl<V: View> FrameSource for Source<V> {
     }
     fn semantic_snapshot(&self) -> Option<Arc<plico_renderer::SemanticSnapshot>> {
         self.semantics_enabled
-            .then(|| Arc::new(self.adapter.semantics(&self.engine, self.revision)))
+            .then(|| self.adapter.semantics_shared(&self.engine, self.revision))
     }
     fn handle_semantic_action(&mut self, action: plico_renderer::SemanticAction) -> bool {
         self.adapter.tips.prefer_hover = false;

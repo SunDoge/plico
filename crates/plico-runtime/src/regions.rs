@@ -130,12 +130,16 @@ struct Slot {
     readers: RefCell<Vec<RegionId>>,
     persistent: Option<reload::Codec>,
 }
-/// A dependency tuple selects concrete function-pointer types. This also lets
-/// named functions coerce without casts on stable Rust's higher-ranked solver.
+/// A single state or dependency tuple selects concrete function-pointer types.
+/// This also lets named functions coerce without casts on stable Rust's
+/// higher-ranked solver.
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
     type PropertyCallback: Copy;
+    type ConditionCallback: Copy;
+    type KeysCallback: Copy;
+    type EachCallback: Copy;
     type RouteCallback<R: 'static>: Copy;
     type ChangeCallback<V: 'static>: Copy;
     #[doc(hidden)]
@@ -149,6 +153,12 @@ pub trait Dependencies: 'static {
     );
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
+    #[doc(hidden)]
+    fn condition(&self, callback: Self::ConditionCallback, app: &Regions) -> bool;
+    #[doc(hidden)]
+    fn keys(&self, callback: Self::KeysCallback, app: &Regions) -> Vec<u64>;
+    #[doc(hidden)]
+    fn each(&self, callback: Self::EachCallback, app: &Regions, cx: &mut UiContext<'_>, key: u64);
     #[doc(hidden)]
     fn event(&self, callback: Self::EventCallback, app: &Regions);
     #[doc(hidden)]
@@ -166,6 +176,9 @@ impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
     type PropertyCallback = fn(&mut TextProperties, ());
+    type ConditionCallback = fn(()) -> bool;
+    type KeysCallback = fn(()) -> Vec<u64>;
+    type EachCallback = for<'a, 'b> fn(&'a mut UiContext<'b>, (), u64);
     type RouteCallback<R: 'static> = for<'a, 'b> fn(&'a mut UiContext<'b>, R, ());
     fn route<R: 'static>(
         &self,
@@ -191,6 +204,15 @@ impl Dependencies for () {
     fn render(&self, callback: Self::Callback, _: &Regions, cx: &mut UiContext<'_>) {
         callback(cx, ());
     }
+    fn condition(&self, callback: Self::ConditionCallback, _: &Regions) -> bool {
+        callback(())
+    }
+    fn keys(&self, callback: Self::KeysCallback, _: &Regions) -> Vec<u64> {
+        callback(())
+    }
+    fn each(&self, callback: Self::EachCallback, _: &Regions, cx: &mut UiContext<'_>, key: u64) {
+        callback(cx, (), key);
+    }
     fn event(&self, callback: Self::EventCallback, _: &Regions) {
         callback(());
     }
@@ -198,18 +220,74 @@ impl Dependencies for () {
         callback((), value);
     }
 }
+impl<T: 'static> Dependencies for State<T> {
+    type Callback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>);
+    type EventCallback = for<'a> fn(Access<'a, T>);
+    type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, Access<'b, T>);
+    type ConditionCallback = for<'a> fn(Access<'a, T>) -> bool;
+    type KeysCallback = for<'a> fn(Access<'a, T>) -> Vec<u64>;
+    type EachCallback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>, u64);
+    type RouteCallback<R: 'static> = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, R, Access<'c, T>);
+    type ChangeCallback<V: 'static> = for<'a> fn(Access<'a, T>, V);
+
+    fn bindings(&self) -> Vec<Binding> {
+        vec![(self.owner, self.component, self.index)]
+    }
+    fn properties(
+        &self,
+        callback: Self::PropertyCallback,
+        app: &Regions,
+        target: &mut TextProperties,
+    ) {
+        callback(target, app.access(*self));
+    }
+    fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) {
+        callback(cx, app.access(*self));
+    }
+    fn condition(&self, callback: Self::ConditionCallback, app: &Regions) -> bool {
+        callback(app.access(*self))
+    }
+    fn keys(&self, callback: Self::KeysCallback, app: &Regions) -> Vec<u64> {
+        callback(app.access(*self))
+    }
+    fn each(&self, callback: Self::EachCallback, app: &Regions, cx: &mut UiContext<'_>, key: u64) {
+        callback(cx, app.access(*self), key);
+    }
+    fn event(&self, callback: Self::EventCallback, app: &Regions) {
+        callback(app.access(*self));
+    }
+    fn route<R: 'static>(
+        &self,
+        callback: Self::RouteCallback<R>,
+        app: &Regions,
+        cx: &mut UiContext<'_>,
+        route: R,
+    ) {
+        callback(cx, route, app.access(*self));
+    }
+    fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V) {
+        callback(app.access(*self), value);
+    }
+}
+
 macro_rules! dependency_tuple {
     ($($name:ident : $index:tt),+) => {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
             type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, ($(Access<'b,$name>,)+));
+            type ConditionCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> bool;
+            type KeysCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> Vec<u64>;
+            type EachCallback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+), u64);
             type RouteCallback<R: 'static> = for<'a,'b,'c> fn(&'a mut UiContext<'b>, R, ($(Access<'c,$name>,)+));
             fn route<R: 'static>(&self, callback: Self::RouteCallback<R>, app: &Regions, cx: &mut UiContext<'_>, route: R) { callback(cx, route, ($(app.access(self.$index),)+)); }
             fn properties(&self, callback: Self::PropertyCallback, app: &Regions, target: &mut TextProperties) { callback(target, ($(app.access(self.$index),)+)); }
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
+            fn condition(&self, callback: Self::ConditionCallback, app: &Regions) -> bool { callback(($(app.access(self.$index),)+)) }
+            fn keys(&self, callback: Self::KeysCallback, app: &Regions) -> Vec<u64> { callback(($(app.access(self.$index),)+)) }
+            fn each(&self, callback: Self::EachCallback, app: &Regions, cx: &mut UiContext<'_>, key: u64) { callback(cx, ($(app.access(self.$index),)+), key); }
             fn event(&self, callback: Self::EventCallback, app: &Regions) { callback(($(app.access(self.$index),)+)); }
             fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V) { callback(($(app.access(self.$index),)+), value); }
         }
@@ -222,6 +300,9 @@ dependency_tuple!(A:0,B:1,C:2,D:3);
 dependency_tuple!(A:0,B:1,C:2,D:3,E:4);
 dependency_tuple!(A:0,B:1,C:2,D:3,E:4,F:5);
 pub type RenderCallback<D> = <D as Dependencies>::Callback;
+pub type ConditionCallback<D> = <D as Dependencies>::ConditionCallback;
+pub type KeysCallback<D> = <D as Dependencies>::KeysCallback;
+pub type EachCallback<D> = <D as Dependencies>::EachCallback;
 pub type EventCallback<D> = <D as Dependencies>::EventCallback;
 trait Render {
     fn property(&self) -> bool {
@@ -238,11 +319,67 @@ impl<D: Dependencies> Render for RenderFn<D> {
         self.deps.render(self.callback, app, cx);
     }
 }
+struct When<D: Dependencies> {
+    deps: D,
+    condition: ConditionCallback<D>,
+    callback: RenderCallback<D>,
+}
+impl<D: Dependencies> Render for When<D> {
+    fn run(&self, app: &Regions, cx: &mut UiContext<'_>) {
+        let mounted = self.deps.condition(self.condition, app);
+        cx.experiment_region_mounted(mounted);
+        if mounted {
+            self.deps.render(self.callback, app, cx);
+        }
+    }
+}
+struct EachItem<D: Dependencies + Copy> {
+    deps: D,
+    callback: EachCallback<D>,
+    key: u64,
+}
+impl<D: Dependencies + Copy> Render for EachItem<D> {
+    fn run(&self, app: &Regions, cx: &mut UiContext<'_>) {
+        self.deps.each(self.callback, app, cx, self.key);
+    }
+}
+struct Each<D: Dependencies + Copy> {
+    deps: D,
+    keys: KeysCallback<D>,
+    callback: EachCallback<D>,
+}
+impl<D: Dependencies + Copy> Render for Each<D> {
+    fn run(&self, app: &Regions, cx: &mut UiContext<'_>) {
+        let keys = self.deps.keys(self.keys, app);
+        cx.experiment_region_mounted(!keys.is_empty());
+        for key in keys {
+            child(
+                cx,
+                key,
+                true,
+                Spec {
+                    deps: self.deps.bindings(),
+                    subscriptions: None,
+                    render: Box::new(EachItem {
+                        deps: self.deps,
+                        callback: self.callback,
+                        key,
+                    }),
+                    fill: false,
+                    gap: None,
+                    scene_cache: false,
+                },
+            );
+        }
+    }
+}
 struct Spec {
     deps: Vec<Binding>,
     subscriptions: Option<Vec<Binding>>,
     render: Box<dyn Render>,
     fill: bool,
+    gap: Option<f32>,
+    scene_cache: bool,
 }
 fn render_spec<D: Dependencies>(deps: D, callback: RenderCallback<D>) -> Spec {
     Spec {
@@ -250,6 +387,8 @@ fn render_spec<D: Dependencies>(deps: D, callback: RenderCallback<D>) -> Spec {
         subscriptions: None,
         render: Box::new(RenderFn { deps, callback }),
         fill: false,
+        gap: None,
+        scene_cache: true,
     }
 }
 trait Action {
@@ -487,6 +626,31 @@ impl Drop for BuildGuard {
 pub trait WatchUi {
     #[track_caller]
     fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    /// Mount content while a condition holds, and dispose only this Region when it turns false.
+    #[track_caller]
+    fn when<D: Dependencies>(
+        &mut self,
+        deps: D,
+        condition: ConditionCallback<D>,
+        callback: RenderCallback<D>,
+    );
+    /// Keyed component children with stable business IDs and per-item local state.
+    #[track_caller]
+    fn each<D: Dependencies + Copy>(
+        &mut self,
+        deps: D,
+        keys: KeysCallback<D>,
+        callback: EachCallback<D>,
+    );
+    /// A keyed list whose Region boundary supplies spacing between item boundaries.
+    #[track_caller]
+    fn each_gap<D: Dependencies + Copy>(
+        &mut self,
+        gap: f32,
+        deps: D,
+        keys: KeysCallback<D>,
+        callback: EachCallback<D>,
+    );
     /// A watch whose boundary participates in flex growth, for page-sized UI.
     #[track_caller]
     fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
@@ -513,6 +677,91 @@ impl WatchUi for UiContext<'_> {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
         self.watch_keyed(hash.finish(), deps, callback);
+    }
+    #[track_caller]
+    fn when<D: Dependencies>(
+        &mut self,
+        deps: D,
+        condition: ConditionCallback<D>,
+        callback: RenderCallback<D>,
+    ) {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        child(
+            self,
+            hash.finish(),
+            false,
+            Spec {
+                deps: deps.bindings(),
+                subscriptions: None,
+                render: Box::new(When {
+                    deps,
+                    condition,
+                    callback,
+                }),
+                fill: false,
+                gap: None,
+                scene_cache: true,
+            },
+        );
+    }
+    #[track_caller]
+    fn each<D: Dependencies + Copy>(
+        &mut self,
+        deps: D,
+        keys: KeysCallback<D>,
+        callback: EachCallback<D>,
+    ) {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        child(
+            self,
+            hash.finish(),
+            false,
+            Spec {
+                deps: deps.bindings(),
+                subscriptions: None,
+                render: Box::new(Each {
+                    deps,
+                    keys,
+                    callback,
+                }),
+                fill: false,
+                gap: None,
+                scene_cache: true,
+            },
+        );
+    }
+    #[track_caller]
+    fn each_gap<D: Dependencies + Copy>(
+        &mut self,
+        gap: f32,
+        deps: D,
+        keys: KeysCallback<D>,
+        callback: EachCallback<D>,
+    ) {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        child(
+            self,
+            hash.finish(),
+            false,
+            Spec {
+                deps: deps.bindings(),
+                subscriptions: None,
+                render: Box::new(Each {
+                    deps,
+                    keys,
+                    callback,
+                }),
+                fill: false,
+                gap: Some(gap),
+                scene_cache: true,
+            },
+        );
     }
     #[track_caller]
     fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
@@ -597,6 +846,9 @@ fn child_with_key(cx: &mut UiContext<'_>, identity: Key, component: bool, spec: 
     if fill {
         boundary = boundary.width_percent(100.).height(0.).grow(1.);
     }
+    if let Some(gap) = spec.gap {
+        boundary = boundary.gap(gap);
+    }
     boundary.children(|cx| {
         context = Some(cx.experiment_context());
         if component {
@@ -666,6 +918,8 @@ struct Region {
     children: HashMap<ChildKey, RegionId>,
     context: Option<ExperimentContext>,
     runs: usize,
+    revision: u64,
+    scene_cache: bool,
 }
 /// Region runtime. Root and keyed components own state; watches do not.
 pub struct Regions {
@@ -685,6 +939,8 @@ pub struct Regions {
 pub struct ReplayBatch {
     pub stats: FrameStats,
     pub dirty: Vec<Entity>,
+    /// Backend cache roots and the output revision produced by local replay.
+    pub revisions: Vec<(Entity, u64)>,
     pub changes: Changes,
     pub passes: usize,
 }
@@ -820,6 +1076,7 @@ impl Regions {
         deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
         deps.dedup();
         let id = self.regions.insert(Region {
+            scene_cache: spec.scene_cache,
             render: spec.render,
             component,
             owns_component,
@@ -828,6 +1085,7 @@ impl Regions {
             children: HashMap::new(),
             context: None,
             runs: 0,
+            revision: 0,
         });
         for &(_, component, index) in &self.regions[id].deps {
             self.slot(component, index).readers.borrow_mut().push(id);
@@ -915,6 +1173,7 @@ impl Regions {
                         .borrow_mut()
                         .push(child_id);
                 }
+                self.regions[child_id].scene_cache = child.spec.scene_cache;
                 self.regions[child_id].render = child.spec.render;
                 child_id
             } else {
@@ -996,6 +1255,7 @@ impl Regions {
         let mut batch = ReplayBatch {
             stats: FrameStats::default(),
             dirty: vec![],
+            revisions: vec![],
             changes: Changes::empty(),
             passes: 0,
         };
@@ -1043,6 +1303,16 @@ impl Regions {
                 };
                 match result {
                     Ok(stats) => {
+                        let output_changed = stats.created > 0
+                            || stats.removed > 0
+                            || stats.text_writes > 0
+                            || stats.paint_updates > 0
+                            || stats.order_changes > 0;
+                        if output_changed {
+                            let revision = &mut self.regions[id].revision;
+                            *revision = revision.checked_add(1).expect("region revision overflow");
+                            batch.revisions.push((context.parent, *revision));
+                        }
                         batch.stats.visited += stats.visited;
                         batch.stats.created += stats.created;
                         batch.stats.reused += stats.reused;
@@ -1108,6 +1378,13 @@ impl View for Regions {
         if !self.dirty.get_mut().is_empty() {
             cx.request_rebuild();
         }
+    }
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        self.bindings
+            .iter()
+            .filter(|(_, id)| self.regions[**id].scene_cache)
+            .map(|(entity, _)| *entity)
+            .collect()
     }
     fn replay_regions(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
         let result = self.replay(engine);

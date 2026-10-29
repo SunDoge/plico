@@ -93,7 +93,7 @@ Tests replay identical semantic operations at 900px and 480px, compare control
 states and leaf geometry (within one logical pixel). Notification changes execute
 one watch; typing executes the editor watch and one property binding, while the
 page root and event toolbar remain untouched. Preview and saved-status text use
-`.reactive(...)` without extra layout containers. The native regions example also
+`.rx(...)` without extra layout containers. The native regions example also
 binds font size, weight and color of its live style preview.
 See [measured results and API tradeoffs](../../docs/regions-settings.md). This
 small page currently favors immediate mode for most end-to-end CPU updates;

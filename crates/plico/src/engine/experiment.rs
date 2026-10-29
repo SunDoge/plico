@@ -105,6 +105,20 @@ impl UiContext<'_> {
             in_button: self.in_button,
         }
     }
+    /// Keep an empty conditional Region boundary out of its parent's flex flow.
+    /// The boundary itself belongs to the parent declaration, so child replay
+    /// cannot remove it directly; absolute positioning supplies display-none
+    /// layout behavior until the condition mounts content again.
+    #[doc(hidden)]
+    pub fn experiment_region_mounted(&mut self, mounted: bool) {
+        let absolute = (!mounted).then_some([0., 0.]);
+        let node = self.engine.nodes.get_mut(self.parent).unwrap();
+        if node.style.absolute != absolute {
+            node.style.absolute = absolute;
+            node.pending_changes |=
+                Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS | Changes::HIT_TEST;
+        }
+    }
     /// Keep this container's descendants without declaring/scanning them.
     /// The caller must replay children whose inherited context changed.
     pub fn experiment_keep_children(&mut self) {
