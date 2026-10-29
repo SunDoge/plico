@@ -158,3 +158,40 @@ List 每帧只创建约 19 个段落节点，工作集缩小后恢复正常。�
 对 Plico 的启发是：保留未变节点的文字测量结果、缩小缓存工作集、使用虚拟化都很重要。
 Reactive 可减少无关区域执行，但这个案例首先说明缓存与布局策略的问题；合理保留缓存的
 immediate backend 也可能避免它。仍需同场景比较才能宣称两者性能差异。
+
+## 真实窗口演示
+
+```sh
+MYGO_DIR=/path/to/mygo benchmarks/mygo-sparse/window.sh
+```
+
+脚本构建并启动真正的 MyGO 原生窗口，使用正常 native renderer；不是截图回放、
+headless Tester 或浏览器。默认 1440×1060，窗口内的 1000 个 Text 都能看到。
+二进制写入本地 `reports/mygo-sparse/mygo-sparse-window`，可直接再次运行。
+`SPARSE_BUILD_ONLY=1` 只构建。该演示目前只验证 Linux。
+
+顶部四个场景：
+
+1. **1000 visible texts**：25×40 个文字单元，只修改左上角的一个；布局与文字缓存保持开启。
+   默认 60Hz，主要用于观察重复声明、布局和 scene 生成的 CPU，而非保证所有机器掉帧。
+2. **Wide table**：256 列、100000 行的原生 Table，保留行虚拟化，只改状态文字。
+3. **5000 paragraphs / Scroll**：长文档普通 Scroll，第一段持续变化，演示缓存工作集过大。
+4. **5000 paragraphs / List**：同一份文档，使用自带虚拟化作为对照。
+
+`State / Text` 使用真实 `Window.Invalidate()`；它本身合并重复请求，源数据保存在 atomic
+槽位，不排队积累成千上万个 Update 回调。`Paint-only control` 使用自定义 Draw 和
+`Painter.After`，跳过 view 重建；它不是 reactive 或完整的原生 Text 更新方案，尤其没有
+同步改变对应可访问性文字。长文档的该对照仅更新独立状态标签，保持正文不变。
+
+`Running` 暂停时后台 ticker 停止，paint-only 也不继续申请帧；`Step` 单步更新。
+暂停后 HUD 保留最后一次活跃测量，不代表仍有同样的 CPU 消耗。
+
+诊断 HUD 显示已完成帧的 CPU prepare、build/layout/paint、native present 墙钟时间、
+滚动约一秒的完成帧率、实际进程 CPU、节点数、新文字布局数及实际 renderer 路径。
+它通过额外的 overlay 宿主包装记录数据，原始 MyGO 源码不被编辑。
+HUD 自身约 4Hz 更新，也可能创建少量文字布局；真实窗口的 CPU 包含 GTK、驱动和
+光栅化线程，所以不能与前面的无 raster/GPU 基准绝对数值直接等同。
+
+真实窗口已经用隔离 X11 / Xvfb 验证初次呈现、paint-only 不执行 build/layout、暂停不
+持续申请帧，以及 Scroll / List 切换；也已在本机 Wayland 桌面以实际 GPU 路径启动。
+截图、窗口日志和本地验证脚本仍只放在 reports，不进入 CI。
