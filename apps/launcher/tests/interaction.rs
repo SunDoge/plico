@@ -49,16 +49,16 @@ fn autofocus_navigation_reveal_and_activation_keep_search_focus() {
         .node_by_role(SemanticRole::Button, "切换明暗主题", None)
         .unwrap()
         .id;
-    assert!(s.view.dark);
+    assert!(s.view.dark());
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert!(!s.view.dark);
+    assert!(!s.view.dark());
     assert_eq!(s.adapter.focused(), focus);
     assert!(s.view.feedback().contains("已切换"));
     // Accessibility/mouse-equivalent click follows the same action path.
     s.handle_semantic_action(SemanticAction::Click { target });
     frame(&mut s, &mut tcx);
-    assert!(s.view.dark);
+    assert!(s.view.dark());
 }
 #[test]
 fn search_empty_recovery_and_escape_close_are_native_actions() {
@@ -74,7 +74,7 @@ fn search_empty_recovery_and_escape_close_are_native_actions() {
     assert!(s.take_host_action().is_none());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(s.view.query.is_empty());
+    assert!(s.view.query_is_empty());
     assert!(s.view.result_count() > 0);
     assert!(s.take_host_action().is_none());
     s.handle_event(key("Escape"));
@@ -101,7 +101,7 @@ fn ime_owns_arrows_enter_and_first_escape_while_composing() {
     assert!(s.view.feedback().is_empty());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(!s.view.query.is_composing());
+    assert!(!s.view.query_is_composing());
     assert!(s.take_host_action().is_none());
     s.handle_event(UiEvent::Ime(ImeEvent::Commit("终端".into())));
     frame(&mut s, &mut tcx);
@@ -116,8 +116,8 @@ fn filter_change_and_case_insensitive_multi_token_search_reset_selection() {
     frame(&mut s, &mut tcx);
     assert_eq!(s.view.result_count(), 1);
     assert_eq!(s.view.selected_id(), Some("code"));
-    s.view.query.clear();
-    s.view.category = Category::Commands;
+    s.view.clear_query();
+    s.view.set_category(Category::Commands);
     frame(&mut s, &mut tcx);
     assert_eq!(s.view.result_count(), 3);
     assert_eq!(s.view.selected_id(), Some("theme"));

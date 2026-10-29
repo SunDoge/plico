@@ -75,9 +75,8 @@ demo 用它保证 Tab 到其他控件后 Escape 仍可退出。它不是系统�
   此验证不代表 Wayland/macOS/Windows 或真实系统输入法已全部验证。
 - 已查看深色 680px、浅色 520px 与空结果的真实 Parley/Vello 离屏截图，见 `reports/launcher/`。
 
-当前 demo 使用原生 `View` 和 `TextBuffer`，没有导出可热重载的应用模块。
-现有 JSON 模块协议仍不能迁移原生输入绑定，不能因为其他 App 支持 reload 就声称此 demo 也支持。
-未来可让宿主持有输入与服务，把可重载视图和搜索策略单独放入模块。
+当前 demo 由 `Launcher` 直接持有 `Regions` 和根 `State`，搜索、筛选、结果与反馈使用独立的 `cx.region`；输入通过 `on_change`、`on_navigation` 和 `on_submit` 回写，不增加应用包装层。`TextBuffer`、一次性 focus/reveal 与窗口动作仍走原生路径。
+它没有导出可热重载的应用模块；现有 JSON 模块协议仍不能迁移原生输入绑定，不能因为其他 App 支持 reload 就声称此 demo 也支持。
 
 尚未提供系统级召回快捷键、托盘驻留/隐藏再召回、平台应用索引、图标解析、文件搜索、
 异步 provider、模糊匹配评分或实际程序启动。它们需要各自的宿主服务与取消/过期结果策略，

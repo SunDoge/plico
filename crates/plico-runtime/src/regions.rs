@@ -561,6 +561,27 @@ impl BindState<plico::TextBuffer> for plico::Input<'_, '_, '_> {
         response
     }
 }
+/// Route navigation consumed by a text input without replaying its parent root.
+pub trait OnNavigation {
+    fn on_navigation<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, plico::InputNavigation>,
+    ) -> Self;
+}
+impl OnNavigation for plico::InputResponse {
+    fn on_navigation<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, plico::InputNavigation>,
+    ) -> Self {
+        if let Some(navigation) = self.navigation {
+            queue_change(deps, navigation, callback);
+        }
+        self
+    }
+}
+
 pub trait OnSubmit {
     fn on_submit<D: Dependencies>(self, deps: D, callback: EventCallback<D>) -> Self;
 }
