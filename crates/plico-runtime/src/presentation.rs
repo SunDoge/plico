@@ -39,6 +39,7 @@ impl Adapter {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.presentation").entered();
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation.is_empty() {
+            self.hit.get_mut().dirty = true;
             self.presentation.clear();
             for index in 0..self.placed.len() {
                 self.update_presentation_node(index);
@@ -46,6 +47,9 @@ impl Adapter {
             self.presentation_roots.clear();
         } else {
             let mut dirty = std::mem::take(&mut self.presentation_roots);
+            if !dirty.is_empty() {
+                self.hit.get_mut().dirty = true;
+            }
             for &id in &dirty {
                 let covered = self
                     .placed_ancestors(id)

@@ -1,4 +1,4 @@
-//! Full native form pipeline. No Scene, window or GPU. Run with --release.
+//! Native form pipeline; --scene includes CPU Scene encoding. No window or GPU.
 #[cfg(feature = "profiling")]
 mod support;
 use backend_settings::preferences_regions::scale::{

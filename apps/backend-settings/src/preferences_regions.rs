@@ -1,5 +1,5 @@
 //! Same Preferences page through synchronous and explicit-region APIs.
-//! Opt-in comparison; the existing routed ImmediateSettings application stays unchanged.
+//! The immediate version remains a correctness and performance baseline.
 pub mod scale;
 use crate::{ImmediateSettings, icons};
 use plico::{DeclareView, Theme, prelude::*};

@@ -26,6 +26,25 @@ let source = plico_runtime::Source::new(app);
 
 root、watch 与 on_click 都通过依赖元组选择具体函数指针类型，参数类型自动推导。watch 为 `|cx, (a, b)|`，事件为 `|(a, b)|`；空元组分别写 `|cx, ()|` 和 `|()|`。目前支持 0–6 个状态参数，不要求 proc macro。具名函数也可直接传入，不用类型转换。元组解析用同一套 trait，不为每种参数数量维护不同的回调对象。未列出的隐式捕获会编译失败。
 
+条件挂载使用 `when`，不要用会反复重建静态分支的 `watch` 模拟。条件为假时卸载内容，区域边界退出 normal flow，不会在父容器的 `gap` 中留下空白；恢复为真时重新挂载。动态业务列表使用 `each`，键为业务 `u64` ID，每项是独立 keyed component，因而可以拥有自己的 `local_state`，删除后旧句柄失效：
+
+```rust
+cx.when(visible, |visible| *visible.read(), |cx, _visible| {
+    text(cx, "Mounted");
+});
+cx.each_gap(
+    4.,
+    tasks,
+    |tasks| tasks.read().iter().map(|task| task.id).collect(),
+    |cx, tasks, id| {
+        let selected = cx.local_state(|| false);
+        // 根据 id 读取任务；selected 随该 keyed item 保留。
+    },
+);
+```
+
+`each` 不保留列表间距；需要与 immediate 列表相同的几何时使用 `each_gap`。列表 Region 默认是一个 Scene 缓存边界，单行不默认建立独立 Fragment，避免小行在 reorder 时产生大量缓存编码。这里的 keyed 状态复用不等于每行都有独立布局或绘制缓存。
+
 `Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 和 component_keyed 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 watch。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。watch/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
 
 ## 运行
@@ -87,7 +106,7 @@ button(cx).text("Remove")
 
 payload 必须为 `'static` 的拥有值，不能持有本轮借用。callback 仍是函数指针，参数依次为解析后的依赖元组和事件值。on_change 的值分别为 bool、f64、InputResponse；on_click_with 可以传入业务 ID 或其他拥有的数据。
 
-任务列表目前在一个列表级 watch 内使用普通 for 和业务 key，重排复用存活行的 Engine Entity。不是逐行 signal/owner，不宣称列表变化只执行 K 行；这里验证的是事件、状态写回与结构协调是否正确。
+事件 payload 仍可用于普通回调。keyed component 列表优先使用上述 `each`；它按业务 ID 重排存活行并保留每项 owner，不宣称列表变化只执行 K 行。列表回调需要其他状态时，应在 item 内取得对应 State 并把它列入嵌套 `watch` 的显式依赖，不能从列表依赖隐式获得其 `Access`。
 
 ## 身份、所有权与事件
 
@@ -107,7 +126,7 @@ cx.component_keyed(user_id, (), |cx, ()| {
 
 状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
 
-watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.rx(...)`。
+watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。手写动态 Region 列表使用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突；需要每项独立 component 状态时优先使用 `each`。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.rx(...)`。
 
 普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存构建命令与当前组件存储的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。每个组件内部有一个 Rc 存储，用于在构建期间安全追加槽，句柄没有引用计数；构建临时引用在返回或退栈后释放。槽采用 elsa 的稳定地址追加容器，持有另一个槽的短期读借用时仍可创建新槽，无需框架自行编写 unsafe。
 
@@ -201,7 +220,7 @@ cargo check -p backend-settings --features egui,fltk --all-targets
 
 `plico-runtime/tests/regions_differential.rs` 让同一份区域 UI 分别走局部重放和**每次强制完整声明**。对照路径不依赖区域 dirty 判断来决定是否执行，避免两边共同漏更新。8 个固定 seed 各跑 128 批操作，每批 1–3 次变更，交错覆盖父子同时失效、依赖切换、条件卸载、业务 key 重排、输入/IME、禁用、主题、字号、resize 和迟到的宿主结果；另有固定生命周期序列。
 
-每批比较完整声明树、语义值与顺序、布局、文字与样式、局部状态、owner 析构次数和 IME 锚点。独立 TextBuffer 的全局 revision 身份不同，因此仅该数字不做跨运行时相等断言，缓冲内容仍参与比较。这是无 GPU 的确定性回归，不是像素正确性或所有事件排列的证明。
+每批比较完整声明树、语义值与顺序、布局、文字与样式、局部状态、owner 析构次数和 IME 锚点。差分包装器同时转发 Region Scene cache roots，每批将实际缓存 Scene 展开后与同一 Source、同一 TextContext 构建的全量 Scene 比较，因此该 oracle 覆盖 Fragment 复用，而不只是声明树。语义节点/快照与 hit-testing 子树缓存也经过同一 seeded 事件差分；其失效边界和强制旧路径开关见[增量执行](incremental.md#语义投影与-hit-testing-缓存2026-10-29)。独立 TextBuffer 的全局 revision 身份不同，因此仅该数字不做跨运行时相等断言，缓冲内容仍参与比较。这是无 GPU 的确定性回归，不是像素正确性或所有事件排列的证明。
 
 检验发现并修复了同批重复点击的差异：`.clicked()` 是布尔观察，同一个控件未消费的重复 activation 现在合并，避免局部 settle 多次消费而完整声明只消费一次。已有卸载后的原生事件拒绝、局部槽释放和迟到异步结果拒绝测试继续保留。
 

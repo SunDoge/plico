@@ -21,7 +21,12 @@ struct Stats {
     partial: usize,
     empty: usize,
     area: f64,
+    expanded_full: usize,
+    expanded_partial: usize,
+    expanded_empty: usize,
+    expanded_area: f64,
     full_us: Vec<f64>,
+    expanded_us: Vec<f64>,
     tracked_us: Vec<f64>,
 }
 fn main() {
@@ -29,7 +34,8 @@ fn main() {
     let mut source = Source::with_clock(Settings::default(), clock.clone());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    let (mut tracked, mut full) = (
+    let (mut tracked, mut expanded_tracked, mut full) = (
+        SkiaSurface::new(1100, 820).unwrap(),
         SkiaSurface::new(1100, 820).unwrap(),
         SkiaSurface::new(1100, 820).unwrap(),
     );
@@ -108,6 +114,14 @@ fn main() {
             .unwrap();
         let tracked_us = t.elapsed().as_secs_f64() * 1e6;
         let t = Instant::now();
+        // Baseline for the previous backend: expand every Fragment before
+        // damage comparison and replay. Include expansion in the measurement.
+        let expanded = scene.flattened();
+        let expanded_damage = expanded_tracked
+            .draw_scene_tracked(&expanded, source.base_color())
+            .unwrap();
+        let expanded_us = t.elapsed().as_secs_f64() * 1e6;
+        let t = Instant::now();
         full.draw_scene(&scene, source.base_color()).unwrap();
         let full_us = t.elapsed().as_secs_f64() * 1e6;
         let actual = tracked.read_pixels().unwrap();
@@ -170,20 +184,33 @@ fn main() {
             _ => stats.partial += 1,
         }
         stats.area += damage.coverage(1100, 820);
+        match expanded_damage {
+            DamageRegion::Full => stats.expanded_full += 1,
+            DamageRegion::Empty => stats.expanded_empty += 1,
+            _ => stats.expanded_partial += 1,
+        }
+        stats.expanded_area += expanded_damage.coverage(1100, 820);
         stats.full_us.push(full_us);
+        stats.expanded_us.push(expanded_us);
         stats.tracked_us.push(tracked_us);
     }
     for (phase, mut s) in phases {
         s.full_us.sort_by(f64::total_cmp);
+        s.expanded_us.sort_by(f64::total_cmp);
         s.tracked_us.sort_by(f64::total_cmp);
         println!(
-            "{phase}: frames={} full={} partial={} empty={} mean_coverage={:.3} full_p50_us={:.1} tracked_p50_us={:.1}",
+            "{phase}: frames={} full={} partial={} empty={} mean_coverage={:.3} expanded_full={} expanded_partial={} expanded_empty={} expanded_coverage={:.3} full_p50_us={:.1} expanded_p50_us={:.1} tracked_p50_us={:.1}",
             s.frames,
             s.full,
             s.partial,
             s.empty,
             s.area / s.frames as f64,
+            s.expanded_full,
+            s.expanded_partial,
+            s.expanded_empty,
+            s.expanded_area / s.frames as f64,
             s.full_us[s.frames / 2],
+            s.expanded_us[s.frames / 2],
             s.tracked_us[s.frames / 2]
         );
     }

@@ -1,6 +1,6 @@
 //! A forced full declaration is the oracle, independent of dirty subscriptions.
 use plico::prelude::*;
-use plico::{Engine, FrameError, VirtualClock};
+use plico::{Engine, Entity, FrameError, VirtualClock};
 use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextContext, UiEvent};
 use plico_runtime::{
     Source, View,
@@ -95,6 +95,9 @@ impl View for Driven {
         } else {
             self.regions.replay_regions(engine)
         }
+    }
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        self.regions.scene_cache_roots()
     }
 }
 fn application(records: Records, full: bool) -> (Driven, Handles) {
@@ -197,6 +200,8 @@ fn branch(
     (world, bindings, records): (Access<'_, World>, Access<'_, Bindings>, Access<'_, Records>),
 ) {
     let world_handle = world.handle();
+    let bindings_handle = bindings.handle();
+    let records_handle = records.handle();
     let world = world.read();
     let bindings = bindings.read();
     column(cx)
@@ -218,24 +223,22 @@ fn branch(
                         text!(cx, "Selected {}", *selected.read());
                     },
                 );
-                for &id in &world.rows {
-                    cx.component_keyed(
-                        id,
-                        (bindings.infos[id as usize], records.handle(), world_handle),
-                        row,
-                    );
-                }
+                cx.each(
+                    (world_handle, bindings_handle, records_handle),
+                    |(world, _, _)| world.read().rows.clone(),
+                    each_row,
+                );
             } else {
                 text(cx, "Hidden");
             }
         });
 }
-#[component]
-fn row(
+fn each_row(
     cx: &mut UiContext<'_>,
-    (info, records, world): (Access<'_, Info>, Access<'_, Records>, Access<'_, World>),
+    (world, bindings, records): (Access<'_, World>, Access<'_, Bindings>, Access<'_, Records>),
+    id: u64,
 ) {
-    let id = info.read().id;
+    let info = bindings.read().infos[id as usize];
     let count = cx.local_persisted_state(1, || 0_i32);
     let enabled = cx.local_persisted_state(2, || true);
     let draft = cx.local_state(TextBuffer::new);
@@ -252,10 +255,7 @@ fn row(
             enabled,
         },
     );
-    cx.watch(
-        (count, draft, enabled, info.handle(), world.handle()),
-        row_view,
-    );
+    cx.watch((count, draft, enabled, info, world.handle()), row_view);
 }
 #[component]
 #[allow(clippy::type_complexity)] // Exercise heterogeneous explicit dependencies in one fixture.

@@ -51,7 +51,12 @@ fn pointer_hover_and_click_are_independent_borrow_free_response_values() {
     assert!(source.view.hovered);
     assert_eq!(source.view.clicks, 0);
     source.handle_event(pointer(PointerPhase::Down));
+    let (builds, checks, pruned) = source.adapter.experiment_hit_cache_stats();
+    assert!(builds > 0);
+    assert!(checks < source.adapter.placed.len(), "checks={checks}");
+    assert!(pruned > 0);
     source.handle_event(pointer(PointerPhase::Up));
+    assert_eq!(source.adapter.experiment_hit_cache_stats().0, builds);
     source.build_frame(&mut text, 300, 200);
     assert_eq!(source.view.clicks, 1);
     assert!(source.view.clicked_hovered);

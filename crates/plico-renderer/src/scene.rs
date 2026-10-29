@@ -665,10 +665,14 @@ struct CachedSubtree {
     inherited_clip: Rect,
 }
 impl SceneCache {
-    /// Drop all fragments after a topology change that may recycle node IDs.
+    /// Drop every retained fragment and its surface context.
     pub fn clear(&mut self) {
         self.entries.clear();
         self.key = None;
+    }
+    /// Drop one unmounted subtree without disturbing independent Regions.
+    pub fn remove(&mut self, id: taffy::NodeId) {
+        self.entries.remove(&id);
     }
     fn begin_frame(&mut self, width: u32, height: u32, scale: f64) {
         self.reused = 0;
@@ -682,6 +686,17 @@ impl SceneCache {
     }
 }
 
+/// Surface parameters shared by every fragment encoded in a frame.
+#[derive(Clone, Copy)]
+pub struct SceneTarget {
+    /// Logical viewport dimensions used by the scene encoder.
+    pub size: [u32; 2],
+    /// Background beneath the root layers.
+    pub base_color: Color,
+    /// Logical-to-device coordinate scale.
+    pub device_scale: f64,
+}
+
 /// Encode a scene while reusing clean Region fragments. `invalid` must include
 /// every cache root whose own paint, geometry or descendant output changed.
 pub fn build_scene_cached(
@@ -691,11 +706,13 @@ pub fn build_scene_cached(
     invalid: &HashSet<taffy::NodeId>,
     cache: &mut SceneCache,
     tcx: &mut TextContext,
-    width: u32,
-    height: u32,
-    base_color: Color,
-    device_scale: f64,
+    target: SceneTarget,
 ) {
+    let SceneTarget {
+        size: [width, height],
+        base_color,
+        device_scale,
+    } = target;
     cache.begin_frame(width, height, device_scale);
     scene.reset();
     let device = Affine::scale(device_scale);
@@ -1028,10 +1045,11 @@ mod tests {
                 &invalid,
                 &mut cache,
                 &mut text,
-                100,
-                100,
-                Color::TRANSPARENT,
-                1.,
+                SceneTarget {
+                    size: [100, 100],
+                    base_color: Color::TRANSPARENT,
+                    device_scale: 1.,
+                },
             );
             assert_eq!(
                 actual.flattened().commands,
@@ -1058,10 +1076,11 @@ mod tests {
             &HashSet::from([parent.node_id]),
             &mut cache,
             &mut text,
-            100,
-            100,
-            Color::TRANSPARENT,
-            1.,
+            SceneTarget {
+                size: [100, 100],
+                base_color: Color::TRANSPARENT,
+                device_scale: 1.,
+            },
         );
         assert_eq!(actual.flattened().commands, encoded(&changed).commands);
     }
@@ -1072,7 +1091,7 @@ mod tests {
         let mut child = test_node(1, [10., 10., 40., 40.]);
         unique_node_ids(&mut [&mut parent, &mut child]);
         child.parent_node_id = Some(parent.node_id);
-        let nodes = vec![child];
+        let nodes = [child];
         let roots = HashSet::from([nodes[0].node_id]);
         let mut cache = SceneCache::default();
         let mut actual = Scene::new();
@@ -1087,10 +1106,11 @@ mod tests {
             &HashSet::new(),
             &mut cache,
             &mut text,
-            100,
-            100,
-            Color::TRANSPARENT,
-            1.,
+            SceneTarget {
+                size: [100, 100],
+                base_color: Color::TRANSPARENT,
+                device_scale: 1.,
+            },
         );
         assert_eq!(actual.flattened().commands, encoded(&with_parent).commands);
 
@@ -1107,10 +1127,11 @@ mod tests {
             &HashSet::new(),
             &mut cache,
             &mut text,
-            100,
-            100,
-            Color::TRANSPARENT,
-            1.,
+            SceneTarget {
+                size: [100, 100],
+                base_color: Color::TRANSPARENT,
+                device_scale: 1.,
+            },
         );
         assert_eq!(cache.built, 1);
         assert_eq!(actual.flattened().commands, encoded(&transformed).commands);
@@ -1133,10 +1154,11 @@ mod tests {
                 &HashSet::new(),
                 &mut cache,
                 &mut text,
-                width,
-                100,
-                Color::TRANSPARENT,
-                scale,
+                SceneTarget {
+                    size: [width, 100],
+                    base_color: Color::TRANSPARENT,
+                    device_scale: scale,
+                },
             );
             let mut expected = Scene::new();
             build_scene_scaled_layers(
@@ -1172,10 +1194,11 @@ mod tests {
             &HashSet::new(),
             &mut cache,
             &mut TextContext::new(),
-            100,
-            100,
-            Color::TRANSPARENT,
-            1.,
+            SceneTarget {
+                size: [100, 100],
+                base_color: Color::TRANSPARENT,
+                device_scale: 1.,
+            },
         );
         assert_eq!(actual.commands, encoded(&nodes).commands);
         assert!(cache.entries.is_empty());

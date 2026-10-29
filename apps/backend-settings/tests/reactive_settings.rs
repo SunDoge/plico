@@ -81,6 +81,14 @@ impl Harness {
             occurrence: None,
         });
     }
+    fn bounds(&self, role: SemanticRole, label: &str) -> [f32; 4] {
+        self.source
+            .adapter
+            .semantics(&self.source.engine, 0)
+            .node_by_role(role, label, None)
+            .unwrap()
+            .bounds
+    }
     fn has(&self, label: &str) -> bool {
         fn find(nodes: &[ViewNode], label: &str) -> bool {
             nodes
@@ -151,6 +159,18 @@ fn route_pages_keep_editor_and_activity_state() {
     assert_eq!(app.source.view.current_page(), Page::Activity);
     app.click("button", "Forward");
     assert_eq!(app.source.view.current_page(), Page::Preferences);
+}
+
+#[test]
+fn conditional_unmount_restores_following_control_geometry() {
+    let mut app = Harness::new(1100);
+    app.click("button", "Preferences");
+    let before = app.bounds(SemanticRole::Button, "Save changes");
+    app.click("checkbox", "Show advanced options");
+    assert!(app.has("Advanced options"));
+    app.click("checkbox", "Show advanced options");
+    assert!(!app.has("Advanced options"));
+    assert_eq!(app.bounds(SemanticRole::Button, "Save changes"), before);
 }
 
 #[test]

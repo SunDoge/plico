@@ -96,53 +96,6 @@ struct ClipState {
     depth: Option<usize>,
 }
 
-/// A depth-derived traversal boundary for the flattened retained tree.
-/// `Exit` is the reusable paint/hit boundary for owner-local overlays.
-#[derive(Clone, Copy)]
-pub enum SubtreeEvent<'a> {
-    /// Traversal entered a node before visiting its descendants.
-    Enter(&'a PlacedNode),
-    /// Traversal left a node after visiting all descendants.
-    Exit(&'a PlacedNode),
-}
-
-/// Iterator that reconstructs enter/exit events from depth-first flat nodes.
-pub struct SubtreeEvents<'a> {
-    nodes: &'a [PlacedNode],
-    index: usize,
-    open: Vec<&'a PlacedNode>,
-}
-
-/// Traverse a flattened depth-first layout with balanced enter/exit events.
-pub fn subtree_events(nodes: &[PlacedNode]) -> SubtreeEvents<'_> {
-    SubtreeEvents {
-        nodes,
-        index: 0,
-        open: Vec::new(),
-    }
-}
-
-impl<'a> Iterator for SubtreeEvents<'a> {
-    type Item = SubtreeEvent<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(next) = self.nodes.get(self.index)
-            && self
-                .open
-                .last()
-                .is_some_and(|open| open.depth >= next.depth)
-        {
-            return self.open.pop().map(SubtreeEvent::Exit);
-        }
-        if let Some(node) = self.nodes.get(self.index) {
-            self.index += 1;
-            self.open.push(node);
-            return Some(SubtreeEvent::Enter(node));
-        }
-        self.open.pop().map(SubtreeEvent::Exit)
-    }
-}
-
 /// Compute layout and flatten it without native-widget intrinsic measurement.
 pub fn compute_and_walk_with_scroll(
     tree: &mut TaffyTree<Paint>,

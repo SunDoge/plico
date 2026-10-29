@@ -4,7 +4,7 @@ use peniko::{
     Brush, Color, Extend, Fill, GradientKind, InterpolationAlphaSpace, Style,
     color::{ColorSpaceTag, Srgb},
 };
-use plico_renderer::{DamageRegion, PaintCommand, Scene};
+use plico_renderer::{DamageRegion, PaintCommand, PaintScene, Scene};
 use skia_safe::{Color4f, Font, FontHinting, FontMgr, Matrix, Paint, Path, PathBuilder, Point};
 use snafu::ResultExt;
 
@@ -92,7 +92,32 @@ impl Resources {
     pub(crate) fn ink_bounds(&mut self, command: &PaintCommand) -> Option<kurbo::Rect> {
         use kurbo::Rect;
         match command {
-            PaintCommand::Fragment { .. } => None,
+            PaintCommand::Fragment { scene, transform } => {
+                // Region damage is deliberately conservative: an unchanged
+                // Fragment contributes no damage, while a changed one damages
+                // its complete old and new bounds. Expand only while computing
+                // those bounds; normal replay keeps the retained boundary.
+                let mut expanded = Scene::new();
+                expanded.append_scene(scene.clone(), *transform);
+                let mut result: Option<Rect> = None;
+                for command in &expanded.commands {
+                    match command {
+                        PaintCommand::PushLayer { filter, blend, .. }
+                            if filter.is_some() || *blend != peniko::BlendMode::default() =>
+                        {
+                            return None;
+                        }
+                        PaintCommand::Shader { .. } => return None,
+                        PaintCommand::PushLayer { .. }
+                        | PaintCommand::PushClip { .. }
+                        | PaintCommand::PopLayer => continue,
+                        _ => {}
+                    }
+                    let bounds = self.ink_bounds(command)?;
+                    result = Some(result.map_or(bounds, |old| old.union(bounds)));
+                }
+                Some(result.unwrap_or(Rect::ZERO))
+            }
             PaintCommand::Paragraph { request, transform } => Some(
                 transform.transform_rect_bbox(
                     self.paragraphs
@@ -383,6 +408,21 @@ impl SkiaSurface {
             );
         }
         self.surface.canvas().clear(color(background));
+        // A full redraw gains nothing from retained boundaries and pays one
+        // save/concat/restore pair per Fragment. Partial redraws keep them so
+        // disjoint Regions can be culled without expanding their commands.
+        let expanded;
+        let scene = if damage == DamageRegion::Full
+            && scene
+                .commands
+                .iter()
+                .any(|command| matches!(command, PaintCommand::Fragment { .. }))
+        {
+            expanded = scene.flattened();
+            &expanded
+        } else {
+            scene
+        };
         let result = self.replay(scene, culling.map(|tracker| (tracker, damage)));
         self.surface.canvas().restore_to_count(1);
         result
@@ -396,19 +436,6 @@ impl SkiaSurface {
         scene: &Scene,
         background: Color,
     ) -> Result<DamageRegion, Error> {
-        // Damage bounds and replay culling must index the same command stream.
-        // Expand retained fragments once before either consumer sees them.
-        let expanded;
-        let scene = if scene
-            .commands
-            .iter()
-            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
-        {
-            expanded = scene.flattened();
-            &expanded
-        } else {
-            scene
-        };
         // Dense redraws cannot repay command comparison. Probe again after a
         // bounded cooldown; content remains correct through full redraws.
         if self.tracking_cooldown > 0 {
@@ -516,17 +543,6 @@ impl SkiaSurface {
     ) -> Result<(), Error> {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::skia", "skia.replay", commands = scene.commands.len()).entered();
-        let expanded;
-        let scene = if scene
-            .commands
-            .iter()
-            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
-        {
-            expanded = scene.flattened();
-            &expanded
-        } else {
-            scene
-        };
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         #[cfg(feature = "profiling")]
         let mut work = crate::diagnostics::ReplayWork::default();
@@ -571,8 +587,12 @@ impl SkiaSurface {
             work.replayed(command);
             let canvas = self.surface.canvas();
             match command {
-                PaintCommand::Fragment { .. } => {
-                    unreachable!("retained fragments are expanded before Skia replay")
+                PaintCommand::Fragment { scene, transform } => {
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    let result = self.replay(scene, None);
+                    self.surface.canvas().restore();
+                    result?;
                 }
                 PaintCommand::Paragraph { request, transform } => {
                     let paragraphs = self.resources.borrow().paragraphs.clone();

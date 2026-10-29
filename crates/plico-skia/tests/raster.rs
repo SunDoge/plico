@@ -756,3 +756,59 @@ fn sparse_damage_preserves_gaps_and_avoids_dense_bounding_box_fallback() {
     );
     assert_eq!(partial.last_damage_coverage(), 0.);
 }
+
+#[test]
+fn tracked_fragments_match_full_redraw_and_damage_only_old_new_region_bounds() {
+    use plico_renderer::DamageRegion;
+
+    fn scene(x: f64, color: Color, mounted: bool) -> Scene {
+        let mut root = Scene::new();
+        if mounted {
+            let mut fragment = Scene::new();
+            fragment.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 8., 8.));
+            fragment.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Rect::new(-4., -4., 12., 12.),
+            );
+            fragment.pop_layer();
+            root.append_cached_scene(fragment, Affine::translate((x, 10.)));
+        }
+        root
+    }
+
+    let mut partial = SkiaSurface::new(64, 64).unwrap();
+    let mut oracle = SkiaSurface::new(64, 64).unwrap();
+    let initial = scene(4., Color::from_rgb8(240, 80, 40), true);
+    assert_eq!(
+        partial.draw_scene_tracked(&initial, Color::WHITE).unwrap(),
+        DamageRegion::Full
+    );
+    assert_eq!(
+        partial.draw_scene_tracked(&initial, Color::WHITE).unwrap(),
+        DamageRegion::Empty
+    );
+
+    for next in [
+        scene(24., Color::from_rgb8(240, 80, 40), true),
+        scene(24., Color::from_rgb8(40, 80, 240), true),
+        scene(24., Color::from_rgb8(40, 80, 240), false),
+    ] {
+        let damage = partial.draw_scene_tracked(&next, Color::WHITE).unwrap();
+        let DamageRegion::Rect(rect) = damage else {
+            panic!("Fragment update should be local: {damage:?}");
+        };
+        assert!(rect.width() <= 40. && rect.height() <= 22., "{rect:?}");
+        assert_eq!(
+            partial.read_pixels().unwrap(),
+            oracle.render_scene(&next, Color::WHITE).unwrap(),
+            "damage {damage:?}"
+        );
+        assert_eq!(
+            partial.draw_scene_tracked(&next, Color::WHITE).unwrap(),
+            DamageRegion::Empty
+        );
+    }
+}

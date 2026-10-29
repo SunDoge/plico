@@ -112,6 +112,8 @@ impl Reactive for plico::Text<'_, '_, '_> {
                     baseline_attributes,
                 }),
                 fill: false,
+                gap: None,
+                scene_cache: true,
             },
         });
     }

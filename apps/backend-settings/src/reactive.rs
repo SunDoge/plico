@@ -635,16 +635,48 @@ fn activity(
         ];
         activity_row(cx, "EVENT", "WORKSPACE", "STATE", true, tracks);
         column(cx).height(0.).grow(1.).scroll_y(true).gap(4) + |cx| {
-            for index in 0..30u64 {
-                let id = if workspace.read().reverse { 29 - index } else { index };
-                cx.keyed(id, |cx| {
-                    activity_row(cx, format_args!("Sync checkpoint {:02}", id + 1),
-                        if id % 2 == 0 { "Desktop client" } else { "Design system" },
-                        if id % 5 == 0 { "Queued" } else { "Complete" }, false, tracks);
-                });
-            }
+            cx.each_gap(
+                4.,
+                (animations.handle(), workspace.handle()),
+                |(_, workspace)| {
+                    (0..30u64).map(|index| {
+                        if workspace.read().reverse { 29 - index } else { index }
+                    }).collect()
+                },
+                activity_item,
+            );
         };
     };
+}
+
+fn activity_item(
+    cx: &mut UiContext,
+    (animations, _): (Access<'_, Animations>, Access<'_, Workspace>),
+    id: u64,
+) {
+    let available =
+        (cx.viewport_width() - animations.read().sidebar() - 40. - 24. - 24. - 20. - 84.).max(0.);
+    let tracks = [
+        Track::Px(available * 0.58),
+        Track::Px(available * 0.42),
+        Track::Px(84.),
+    ];
+    activity_row(
+        cx,
+        format_args!("Sync checkpoint {:02}", id + 1),
+        if id.is_multiple_of(2) {
+            "Desktop client"
+        } else {
+            "Design system"
+        },
+        if id.is_multiple_of(5) {
+            "Queued"
+        } else {
+            "Complete"
+        },
+        false,
+        tracks,
+    );
 }
 
 #[component]
@@ -668,12 +700,15 @@ fn preferences(
             };
         });
         cx.component((editor.handle(),), save_actions);
-        text(cx, "No changes saved yet").color(Color::Muted).rx((editor.handle(),), |node, (editor,)| {
-            let editor = editor.read();
-            if !editor.saved.is_empty() {
-                node.text(editor.saved.clone());
-            }
-        });
+        text(cx, "No changes saved yet").color(Color::Muted).rx(
+            (editor.handle(),),
+            |node, (editor,)| {
+                let editor = editor.read();
+                if !editor.saved.is_empty() {
+                    node.text(editor.saved.clone());
+                }
+            },
+        );
         cx.watch((options.handle(),), |cx, (options,)| {
             let mut reduced = options.read().reduced_motion;
             checkbox(cx, "Reduce motion", &mut reduced).on_change(
@@ -713,16 +748,20 @@ fn profile(cx: &mut UiContext, (editor, options): (Access<'_, Editor>, Access<'_
                 options.update(|options| options.advanced = value);
             },
         );
-        if advanced {
-            column(cx).gap(8).padding(12).background(Color::Control) + |cx| {
-                text(cx, "Advanced options").weight(600);
-                text(cx, "This branch is mounted on demand. Toggle it to test removal and recreation.");
-                row(cx).gap(8) + |cx| {
-                    button(cx).text("Nested action").disabled(true);
-                    button(cx).text("Another action").disabled(true);
-                };
-            };
-        }
+        cx.when(options.handle(), |options| options.read().advanced, advanced_options);
+    };
+}
+
+#[component]
+#[rustfmt::skip]
+fn advanced_options(cx: &mut UiContext, _options: Access<'_, Options>) {
+    column(cx).gap(8).padding(12).background(Color::Control) + |cx| {
+        text(cx, "Advanced options").weight(600);
+        text(cx, "This branch is mounted on demand. Toggle it to test removal and recreation.");
+        row(cx).gap(8) + |cx| {
+            button(cx).text("Nested action").disabled(true);
+            button(cx).text("Another action").disabled(true);
+        };
     };
 }
 

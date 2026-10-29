@@ -34,6 +34,8 @@ impl<R: Copy + Eq + 'static, D: Dependencies + Clone> Render for Outlet<R, D> {
                     render: self.render,
                 }),
                 fill: self.fill,
+                gap: None,
+                scene_cache: true,
             },
         );
     }
@@ -158,6 +160,8 @@ fn outlet_keyed_impl<R: Copy + Eq + 'static, D: Dependencies + Clone>(
                 fill,
             }),
             fill,
+            gap: None,
+            scene_cache: true,
         },
     );
 }
