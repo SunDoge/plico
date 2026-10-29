@@ -41,3 +41,7 @@ profiling = ["plico-renderer/profiling"]
 [[example]]
 name = "regions"
 required-features = ["regions"]
+
+[[example]]
+name = "regions_router"
+required-features = ["regions"]

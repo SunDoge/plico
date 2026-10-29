@@ -1,9 +1,10 @@
 //! Ordered navigation state for multi-page applications.
 //!
-//! Routing is application state, not a framework subsystem: a `Router` lives
-//! in the app struct like any other field, serializes with the rest of the
-//! state through the existing snapshot machinery, and every backend renders
-//! it identically because it is just an enum comparison. The router adds
+//! `Router` contains navigation data, independent of the UI update model. It
+//! can live in an ordinary app struct or an explicit region State slot and
+//! serialize through the existing snapshot machinery. Immediate views select
+//! pages directly; plico-runtime's region outlet manages mounted page owners.
+//! The data model adds
 //! what hand-rolled `page` fields keep getting wrong: a bounded history with
 //! back/forward, `replace` without history, and deep-link restoration.
 //!

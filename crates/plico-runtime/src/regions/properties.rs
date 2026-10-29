@@ -88,14 +88,14 @@ impl Reactive for plico::Text<'_, '_, '_> {
         let (context, baseline_text, baseline_attributes) = self.experiment_property_target();
         commands().borrow_mut().children.push(Child {
             key: ChildKey {
-                parent: context.parent,
-                key: 0,
+                target: context.parent,
                 component: false,
             },
             context,
             path: vec![],
             spec: Spec {
                 deps: deps.bindings(),
+                subscriptions: None,
                 render: Box::new(Properties {
                     deps,
                     callback,

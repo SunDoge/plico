@@ -2,7 +2,9 @@
 //! Root arguments are captures; watch and property arguments subscribe to changes.
 mod properties;
 mod reload;
+mod routing;
 pub use properties::{Reactive, TextProperties};
+pub use routing::{outlet, outlet_keyed};
 mod tasks;
 use crate::View;
 use plico::{
@@ -116,6 +118,7 @@ pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
     type PropertyCallback: Copy;
+    type RouteCallback<R: 'static>: Copy;
     type ChangeCallback<V: 'static>: Copy;
     #[doc(hidden)]
     fn bindings(&self) -> Vec<Binding>;
@@ -131,12 +134,30 @@ pub trait Dependencies: 'static {
     #[doc(hidden)]
     fn event(&self, callback: Self::EventCallback, app: &Regions);
     #[doc(hidden)]
+    fn route<R: 'static>(
+        &self,
+        callback: Self::RouteCallback<R>,
+        app: &Regions,
+        cx: &mut UiContext<'_>,
+        route: R,
+    );
+    #[doc(hidden)]
     fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V);
 }
 impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
     type PropertyCallback = fn(&mut TextProperties, ());
+    type RouteCallback<R: 'static> = for<'a, 'b> fn(&'a mut UiContext<'b>, R, ());
+    fn route<R: 'static>(
+        &self,
+        callback: Self::RouteCallback<R>,
+        _: &Regions,
+        cx: &mut UiContext<'_>,
+        route: R,
+    ) {
+        callback(cx, route, ());
+    }
     fn properties(
         &self,
         callback: Self::PropertyCallback,
@@ -165,6 +186,8 @@ macro_rules! dependency_tuple {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
             type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, ($(Access<'b,$name>,)+));
+            type RouteCallback<R: 'static> = for<'a,'b,'c> fn(&'a mut UiContext<'b>, R, ($(Access<'c,$name>,)+));
+            fn route<R: 'static>(&self, callback: Self::RouteCallback<R>, app: &Regions, cx: &mut UiContext<'_>, route: R) { callback(cx, route, ($(app.access(self.$index),)+)); }
             fn properties(&self, callback: Self::PropertyCallback, app: &Regions, target: &mut TextProperties) { callback(target, ($(app.access(self.$index),)+)); }
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
@@ -199,11 +222,13 @@ impl<D: Dependencies> Render for RenderFn<D> {
 }
 struct Spec {
     deps: Vec<Binding>,
+    subscriptions: Option<Vec<Binding>>,
     render: Box<dyn Render>,
 }
 fn render_spec<D: Dependencies>(deps: D, callback: RenderCallback<D>) -> Spec {
     Spec {
         deps: deps.bindings(),
+        subscriptions: None,
         render: Box::new(RenderFn { deps, callback }),
     }
 }
@@ -381,8 +406,9 @@ impl OnSubmit for plico::InputResponse {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct ChildKey {
-    parent: Entity,
-    key: u64,
+    // Engine identity already includes parent, key and lexical scope. Using its
+    // generational target also distinguishes keyed instances of one call site.
+    target: Entity,
     component: bool,
 }
 struct Child {
@@ -502,17 +528,19 @@ impl WatchUi for UiContext<'_> {
     }
 }
 fn child(cx: &mut UiContext<'_>, key: u64, component: bool, spec: Spec) {
-    let output = commands();
-    let partial = output.borrow().partial;
-    let parent = cx.experiment_context().parent;
-    let mut context = None;
-    let mut path = vec![];
     // Distinct identity namespaces for components and watches.
     let identity = if component {
         Key::Number(key)
     } else {
         Key::Generated(key)
     };
+    child_with_key(cx, identity, component, spec);
+}
+fn child_with_key(cx: &mut UiContext<'_>, identity: Key, component: bool, spec: Spec) {
+    let output = commands();
+    let partial = output.borrow().partial;
+    let mut context = None;
+    let mut path = vec![];
     cx.column().key(identity).children(|cx| {
         context = Some(cx.experiment_context());
         if component {
@@ -522,13 +550,13 @@ fn child(cx: &mut UiContext<'_>, key: u64, component: bool, spec: Spec) {
             cx.experiment_keep_children();
         }
     });
+    let context = context.unwrap();
     output.borrow_mut().children.push(Child {
         key: ChildKey {
-            parent,
-            key,
+            target: context.parent,
             component,
         },
-        context: context.unwrap(),
+        context,
         path,
         spec,
     });
@@ -717,7 +745,11 @@ impl Regions {
     ) -> RegionId {
         self.mailbox.register(component);
         self.check(&spec, component);
-        let mut deps = if subscribe { spec.deps.clone() } else { vec![] };
+        let mut deps = if subscribe {
+            spec.subscriptions.as_ref().unwrap_or(&spec.deps).clone()
+        } else {
+            vec![]
+        };
         deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
         deps.dedup();
         let id = self.regions.insert(Region {
@@ -794,7 +826,12 @@ impl Regions {
                 let mut deps = if child.key.component {
                     vec![]
                 } else {
-                    child.spec.deps.clone()
+                    child
+                        .spec
+                        .subscriptions
+                        .as_ref()
+                        .unwrap_or(&child.spec.deps)
+                        .clone()
                 };
                 deps.sort_by_key(|d| (d.0, slotmap::Key::data(&d.1).as_ffi(), d.2));
                 deps.dedup();

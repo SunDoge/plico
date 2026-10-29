@@ -242,3 +242,7 @@ text(cx, "").reactive((count,), |node, (count,)| {
 ```
 
 这里只有共有的文本样式方法被统一；`.children()`、`.key()` 和布局/事件方法仍属于声明阶段。回归测试直接比较普通 builder 完整声明与属性局部更新的序列化节点和布局，并验证两边对零字号、越界字重、NaN 透明度返回相同的 InvalidStyle。
+
+## 路由与页面实例
+
+`outlet(cx, router_state, captures, render)` 将现有 Router 历史与页面组件所有权分离。控制器只订阅路由，页面接收选中的路由值和显式 State ID 捕获；相同 route key 保留 local state，切换 key 会销毁旧页并使其句柄与页内宿主 sender 失效。支持显式实例 key 的参数路由、嵌套和多个 outlet。跨页数据放在 outlet 上层；当前不提供后台 keep-alive。页面函数仍可能因导航、事件 settle 或父声明而重执行。用法、边界与窗口示例见 [Router](router.md#reactive-page-outlet)。
