@@ -30,8 +30,6 @@ pub(crate) struct Resources {
     pub(crate) paragraphs: std::rc::Rc<std::cell::RefCell<crate::paragraph::ParagraphCache>>,
     fonts: std::collections::HashMap<u64, FontResource>,
     font_manager: FontMgr,
-    svg_scenes:
-        std::collections::HashMap<usize, (std::sync::Weak<plico_renderer::svg::usvg::Tree>, Scene)>,
     svg_rasters: std::collections::HashMap<(usize, u32, u32), SvgRaster>,
     images: ImageCache,
 }
@@ -54,7 +52,6 @@ impl Default for Resources {
             paragraphs: Default::default(),
             fonts: Default::default(),
             font_manager: FontMgr::new(),
-            svg_scenes: Default::default(),
             svg_rasters: Default::default(),
             images: Default::default(),
         }
@@ -112,7 +109,16 @@ impl Resources {
             scale[1].to_bits(),
         );
         if let Some(raster) = self.svg_rasters.get(&key) {
-            return Ok((raster.image.clone(), scale));
+            let image = raster.image.clone();
+            #[cfg(feature = "profiling")]
+            {
+                self.svg_stats.hits += 1;
+            }
+            return Ok((image, scale));
+        }
+        #[cfg(feature = "profiling")]
+        {
+            self.svg_stats.misses += 1;
         }
         let size = document.0.size();
         let width = (size.width() * scale[0]).ceil();
@@ -240,7 +246,7 @@ impl Resources {
                     }
                     let local =
                         Rect::new(r.left as f64, r.top as f64, r.right as f64, r.bottom as f64)
-                            .inflate(embolden.x.abs() as f64, embolden.y.abs() as f64);
+                            .inflate(embolden.x.abs(), embolden.y.abs());
                     let local = glyph_transform
                         .unwrap_or(Affine::IDENTITY)
                         .transform_rect_bbox(local);
@@ -291,13 +297,8 @@ impl Resources {
             entries = faces, blobs = self.fonts.len(), blob_bytes = font_bytes,
             hits_total = self.font_stats.hits, misses_total = self.font_stats.misses,
             evictions_total = self.font_stats.evictions, "cache.snapshot");
-        let commands: usize = self
-            .svg_scenes
-            .values()
-            .map(|(_, scene)| scene.commands.len())
-            .sum();
         tracing::trace!(target: "plico::cache", cache = %"skia.svg", cache_id = self.svg_stats.id,
-            entries = self.svg_scenes.len() + self.svg_rasters.len(), commands, hits_total = self.svg_stats.hits,
+            entries = self.svg_rasters.len(), hits_total = self.svg_stats.hits,
             misses_total = self.svg_stats.misses, evictions_total = self.svg_stats.evictions,
             "cache.snapshot");
     }
@@ -420,11 +421,7 @@ impl SkiaSurface {
         {
             let mut resources = self.resources.borrow_mut();
             #[cfg(feature = "profiling")]
-            let before = (
-                resources.images.entries.len(),
-                resources.svg_scenes.len(),
-                resources.svg_rasters.len(),
-            );
+            let before = (resources.images.entries.len(), resources.svg_rasters.len());
             #[cfg(feature = "profiling")]
             let mut removed_faces = 0;
             resources.fonts.retain(|_, resource| {
@@ -440,9 +437,6 @@ impl SkiaSurface {
                 .entries
                 .retain(|_, (source, _)| source.upgrade().is_some());
             resources
-                .svg_scenes
-                .retain(|_, (tree, _)| tree.strong_count() > 0);
-            resources
                 .svg_rasters
                 .retain(|_, raster| raster.source.strong_count() > 0);
             #[cfg(feature = "profiling")]
@@ -450,9 +444,7 @@ impl SkiaSurface {
                 resources.font_stats.evictions += removed_faces as u64;
                 resources.images.stats.evictions +=
                     (before.0 - resources.images.entries.len()) as u64;
-                resources.svg_stats.evictions += (before.1 - resources.svg_scenes.len() + before.2
-                    - resources.svg_rasters.len())
-                    as u64;
+                resources.svg_stats.evictions += (before.1 - resources.svg_rasters.len()) as u64;
             }
         }
         if damage == DamageRegion::Empty {
@@ -892,62 +884,27 @@ impl SkiaSurface {
                     document,
                     transform,
                 } => {
-                    let key = std::sync::Arc::as_ptr(&document.0) as usize;
-                    let commands = {
-                        let mut resources = self.resources.borrow_mut();
-                        #[cfg(feature = "profiling")]
-                        if resources.svg_scenes.contains_key(&key) {
-                            resources.svg_stats.hits += 1;
-                        } else {
-                            resources.svg_stats.misses += 1;
-                        }
-                        match resources.svg_scenes.entry(key) {
-                            std::collections::hash_map::Entry::Occupied(entry) => {
-                                Some(entry.get().1.clone())
-                            }
-                            std::collections::hash_map::Entry::Vacant(entry) => {
-                                match plico_renderer::svg::convert_paint::commands(&document.0) {
-                                    Ok(commands) => {
-                                        entry.insert((
-                                            std::sync::Arc::downgrade(&document.0),
-                                            commands.clone(),
-                                        ));
-                                        Some(commands)
-                                    }
-                                    Err(_) => None,
-                                }
-                            }
-                        }
-                    };
                     canvas.save();
                     canvas.concat(&matrix(*transform));
-                    if let Some(commands) = commands {
-                        let result = self.replay(&commands, None);
-                        self.surface.canvas().restore();
-                        result?;
-                    } else {
-                        // usvg keeps the complete normalized tree, so resvg can
-                        // faithfully handle filters, masks and patterns that do
-                        // not map to the backend-neutral command stream.
-                        let device = canvas.local_to_device_as_3x3();
-                        let scale = [
-                            device.scale_x().hypot(device.skew_y()),
-                            device.skew_x().hypot(device.scale_y()),
-                        ];
-                        let (image, scale) =
-                            self.resources.borrow_mut().svg_raster(document, scale)?;
-                        canvas.concat(&Matrix::scale((1. / scale[0], 1. / scale[1])));
-                        canvas.draw_image_with_sampling_options(
-                            image,
-                            (0., 0.),
-                            skia_safe::SamplingOptions::new(
-                                skia_safe::FilterMode::Linear,
-                                skia_safe::MipmapMode::Linear,
-                            ),
-                            None,
-                        );
-                        self.surface.canvas().restore();
-                    }
+                    // resvg consumes the retained usvg tree directly, including
+                    // filters and masks that have no PaintCommand equivalent.
+                    let device = canvas.local_to_device_as_3x3();
+                    let scale = [
+                        device.scale_x().hypot(device.skew_y()),
+                        device.skew_x().hypot(device.scale_y()),
+                    ];
+                    let (image, scale) = self.resources.borrow_mut().svg_raster(document, scale)?;
+                    canvas.concat(&Matrix::scale((1. / scale[0], 1. / scale[1])));
+                    canvas.draw_image_with_sampling_options(
+                        image,
+                        (0., 0.),
+                        skia_safe::SamplingOptions::new(
+                            skia_safe::FilterMode::Linear,
+                            skia_safe::MipmapMode::Linear,
+                        ),
+                        None,
+                    );
+                    self.surface.canvas().restore();
                 }
                 PaintCommand::Shader { .. } => return unsupported("Shader"),
             }

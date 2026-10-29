@@ -14,9 +14,11 @@
 支持 solid fill 路径、几何 transform、nonzero/even-odd fill、变换后的路径 clip，
 对称端点描边、普通透明合成图层、高斯模糊圆角矩形 box shadow（与 Vello 的
 BlurredRoundedRectangle 语义一致，sigma 即 std_dev，退化与反向矩形取绝对值），
-以及普通 solid fill glyph run。每次 render 清空旧画面并重置 clip stack，
-失败不返回部分像素，也不能把失败帧导出为 PNG；下一帧可以正常重试。
-像素 API 返回 tightly packed premultiplied RGBA，PNG 由 Skia 编码。
+以及 solid fill glyph run 的合成加粗与逐字形倾斜变换。SVG 直接由 resvg
+消费保留的 usvg tree，按显示缩放光栅化并缓存，覆盖 filter、mask 和 pattern。
+每次 render 清空旧画面并重置 clip stack，失败不返回部分像素，也不能把失败帧
+导出为 PNG；下一帧可以正常重试。像素 API 返回 tightly packed premultiplied
+RGBA，PNG 由 Skia 编码。
 
 `plico-skia` 自身只在启用 `raster` 或 `vulkan` 时加载 skia-safe；桌面宿主默认启用 Skia。
 项目固定使用 rust-skia 0.153.3，并启用 `no-compile`：只允许使用匹配 target 和 feature 的

@@ -589,7 +589,7 @@ fn synthetic_glyph_transform_and_embolden_match_full_redraw() {
         }
         let pixels = partial.read_pixels().unwrap();
         assert_eq!(pixels, full.render_scene(&scene, Color::WHITE).unwrap());
-        assert!(pixels.chunks_exact(4).any(|pixel| pixel != [255; 4]));
+        assert!(pixels.iter().any(|channel| *channel != 255));
     }
 }
 
