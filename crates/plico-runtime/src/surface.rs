@@ -343,12 +343,22 @@ impl<V: View, W: Widget> FrameSource for SurfaceSource<V, W> {
         if route {
             let result = self.widget.handle_event(&event);
             self.drain();
+            // Non-text surfaces can decline window shortcuts without sending
+            // localized pointer coordinates through the ordinary UI adapter.
+            let fallback = !result.is_handled()
+                && !self.widget.accepts_text_input()
+                && matches!(&event, UiEvent::Key(key)
+                    if key.phase == plico_renderer::KeyPhase::Down && !key.synthetic
+                    && self.source.view.on_unhandled_key(key));
+            if fallback {
+                self.source.request_rebuild();
+            }
             // Localized events belong to the surface even if the widget has
             // declined them; do not forward local coordinates to the outer UI.
             return EventResponse {
-                handled: result.is_handled(),
-                request_redraw: result.requests_redraw(),
-                consume_key_text: result.consumes_key_text(),
+                handled: result.is_handled() || fallback,
+                request_redraw: result.requests_redraw() || fallback,
+                consume_key_text: result.consumes_key_text() || fallback,
                 text_input: Some(self.focused && self.widget.accepts_text_input()),
                 clipboard: result.clipboard_request().cloned(),
             };

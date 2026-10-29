@@ -160,3 +160,39 @@ fn higher_plico_controls_win_hits_and_clipboard_actions_use_effects() {
     });
     assert_eq!(s.widget.clipboard, Some((17, Some("reply".into()))));
 }
+
+#[test]
+fn non_text_surface_declined_key_reaches_window_fallback() {
+    struct ShortcutView(bool);
+    impl View for ShortcutView {
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).key("surface").width(200.).height(100.).end();
+        }
+        fn on_unhandled_key(&mut self, key: &plico_renderer::KeyEvent) -> bool {
+            self.0 = key.key == "q";
+            self.0
+        }
+    }
+    struct Passive;
+    impl Widget for Passive {
+        fn paint(&mut self, _: &mut PaintContext) {}
+    }
+    let mut source = SurfaceSource::new(ShortcutView(false), Passive, "surface");
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 300, 200);
+    source.handle_event(pointer(10., 10.));
+    let result = source.handle_event(UiEvent::Key(plico_renderer::KeyEvent {
+        phase: plico_renderer::KeyPhase::Down,
+        key: "q".into(),
+        key_without_modifiers: "q".into(),
+        code: "KeyQ".into(),
+        text: None,
+        text_with_all_modifiers: None,
+        location: plico_renderer::KeyLocation::Standard,
+        modifiers: Modifiers::CONTROL,
+        repeat: false,
+        synthetic: false,
+    }));
+    assert!(source.source.view.0);
+    assert!(result.handled && result.consume_key_text && result.request_redraw);
+}
