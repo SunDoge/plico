@@ -1,56 +1,61 @@
 use plico::prelude::*;
+use plico_runtime::regions::{
+    OnClick, Reactive, RegionApp, RegionProgram, Regions, State, WatchUi,
+};
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-struct Counters {
-    global: i32,
+#[component]
+#[rustfmt::skip]
+fn counters(cx: &mut UiContext, global: State<i32>) {
+    grid(cx).width_percent(100.).height_percent(100.).padding(24).gap(16).grid_columns([fr(1.), fr(1.)])
+        .grid_rows([fr(1.), fr(1.)]) + |cx|
+    {
+        cx.component((), |cx, ()| {
+            let count = cx.local_state(|| 0_i32);
+            counter(cx, "Local A · component state", count);
+        });
+        cx.component((), |cx, ()| {
+            let count = cx.local_state(|| 0_i32);
+            counter(cx, "Local B · component state", count);
+        });
+        counter(cx, "Global A · shared state", global);
+        counter(cx, "Global B · shared state", global);
+    };
 }
 
-impl plico_dev::App for Counters {
-    #[component]
-    #[rustfmt::skip]
-    fn show(&mut self, cx: &mut UiContext) {
-        grid(cx).width_percent(100.).height_percent(100.).padding(24).gap(16).grid_columns([fr(1.), fr(1.)])
-            .grid_rows([fr(1.), fr(1.)]) + |cx|
-        {
-            local_counter(cx, "Local A · cx.state");
-            local_counter(cx, "Local B · cx.state");
-            counter(cx, "Global A · App state", &mut self.global);
-            counter(cx, "Global B · App state", &mut self.global);
-        };
+struct Program;
+
+impl RegionProgram for Program {
+    fn build() -> Regions {
+        Regions::new(|app| {
+            let global = app.persisted_state(1, || 0_i32);
+            app.root((global,), |cx, (global,)| counters(cx, global.handle()));
+        })
     }
 }
 
-// Each component call site owns an independent local slot.
-#[component]
-fn local_counter(cx: &mut UiContext, title: &str) {
-    let count = cx.state(|| 0);
-    count.update(|count| counter(cx, title, count));
-}
+type Application = RegionApp<Program>;
 
-// A reusable component is just a function borrowing its caller's data.
 #[component]
 #[rustfmt::skip]
-fn counter(cx: &mut UiContext, title: &str, count: &mut i32) {
+fn counter(cx: &mut UiContext, title: &str, count: State<i32>) {
     column(cx).min_width(0.).padding(16).gap(12).radius(12.).background(Color::Panel).border(1., Color::Border) + |cx| {
         text(cx, title).font_size(16).weight(600);
-        text!(cx, "{count}").font_size(36);
+        text_empty(cx).font_size(36).rx(count, |node, count| {
+            node.text(count.read().to_string());
+        });
         row(cx).gap(8).wrap(true) + |cx| {
-            if button(cx).text("−").aria_label("Decrement").ghost().clicked() {
-                *count -= 1;
-            }
-            if button(cx).text("+").aria_label("Increment").primary().clicked() {
-                *count += 1;
-            }
-            if button(cx).text("Reset").clicked() {
-                *count = 0;
-            }
+            button(cx).text("−").aria_label("Decrement").ghost()
+                .on_click(count, |count| count.update(|value| *value -= 1));
+            button(cx).text("+").aria_label("Increment").primary()
+                .on_click(count, |count| count.update(|value| *value += 1));
+            button(cx).text("Reset").on_click(count, |count| count.set(0));
         };
     };
 }
 
 fn main() -> Result<(), plico_desktop::DesktopError> {
     plico_desktop::run_with_options(
-        Counters::default(),
+        Application::default(),
         plico_desktop::WindowOptions::new()
             .title("Local and global counters")
             .initial_inner_size(640, 480)

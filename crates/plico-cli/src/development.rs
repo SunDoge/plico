@@ -542,6 +542,8 @@ pub fn create(path: &Path, name: Option<&str>, framework: &Path) -> Result<()> {
     std::fs::create_dir(path.join("src")).context(IoSnafu)?;
     let core = serde_json::to_string(&framework.join("crates/plico")).context(JsonSnafu)?;
     let dev = serde_json::to_string(&framework.join("crates/plico-dev")).context(JsonSnafu)?;
+    let runtime =
+        serde_json::to_string(&framework.join("crates/plico-runtime")).context(JsonSnafu)?;
     let backend =
         serde_json::to_string(&framework.join("crates/plico-desktop")).context(JsonSnafu)?;
     let crate_name = name.replace('-', "_");
@@ -570,6 +572,7 @@ required-features = ["desktop"]
 [dependencies]
 plico = {{ path = {core} }}
 plico-dev = {{ path = {dev} }}
+plico-runtime = {{ path = {runtime} }}
 plico-desktop = {{ path = {backend}, default-features = false, optional = true }}
 serde = {{ version = "1", features = ["derive"] }}
 
@@ -590,26 +593,34 @@ opt-level = 2
     std::fs::write(
         path.join("src/lib.rs"),
         r#"use plico::prelude::*;
+use plico_runtime::regions::{OnClick, Reactive, RegionApp, RegionProgram, Regions, State};
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct Application {
-    count: u32,
+#[component]
+#[rustfmt::skip]
+fn application(cx: &mut UiContext, count: State<u32>) {
+    column(cx).gap(12.).padding(24.) + |cx| {
+        text(cx, "Hello Plico").font_size(28);
+        text_empty(cx).rx(count, |node, count| {
+            node.text(format!("Count: {}", *count.read()));
+        });
+        button(cx).text("Increment").on_click(count, |count| {
+            count.update(|value| *value += 1);
+        });
+    };
 }
 
-impl plico_dev::App for Application {
-    #[component]
-    #[rustfmt::skip]
-    fn show(&mut self, cx: &mut UiContext) {
-        column(cx).gap(12.).padding(24.) + |cx| {
-            text(cx, "Hello Plico").font_size(28);
-            text!(cx, "Count: {}", self.count);
-            if button(cx).text("Increment").clicked() {
-                self.count += 1;
-            }
-        };
+pub struct Program;
+
+impl RegionProgram for Program {
+    fn build() -> Regions {
+        Regions::new(|app| {
+            let count = app.persisted_state(1, || 0_u32);
+            app.root((count,), |cx, (count,)| application(cx, count.handle()));
+        })
     }
 }
+
+pub type Application = RegionApp<Program>;
 
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 plico_dev::export_app!(Application);
@@ -637,6 +648,22 @@ plico_dev::export_app!(Application);
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn starter_projects_default_to_reactive_regions() {
+        let temp = tempfile::tempdir().unwrap();
+        let framework = temp.path().join("framework");
+        std::fs::create_dir_all(framework.join("crates/plico-dev")).unwrap();
+        std::fs::write(framework.join("crates/plico-dev/Cargo.toml"), "").unwrap();
+        let app = temp.path().join("app");
+        create(&app, None, &framework).unwrap();
+        let manifest = std::fs::read_to_string(app.join("Cargo.toml")).unwrap();
+        let source = std::fs::read_to_string(app.join("src/lib.rs")).unwrap();
+        assert!(manifest.contains("plico-runtime = { path ="));
+        assert!(source.contains("pub type Application = RegionApp<Program>;"));
+        assert!(source.contains("app.persisted_state(1, || 0_u32)"));
+        assert!(!source.contains("impl plico_dev::App for Application"));
+    }
+
     #[test]
     fn module_and_host_features_are_separate() {
         let module = build_flags(true, None, &["abi"]);

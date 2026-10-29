@@ -55,7 +55,7 @@ enum Action {
         #[usage(subcommand)]
         command: icons::Action,
     },
-    /// Create an immediate-mode Plico application outside the framework workspace.
+    /// Create a Reactive Plico application outside the framework workspace.
     New {
         path: PathBuf,
         #[usage(long)]

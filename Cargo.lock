@@ -1496,6 +1496,7 @@ dependencies = [
  "plico",
  "plico-desktop",
  "plico-dev",
+ "plico-runtime",
  "serde",
 ]
 

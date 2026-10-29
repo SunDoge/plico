@@ -17,7 +17,7 @@ Cargo 的 `rustc-wrapper` 配置。需要覆盖命令时设置 `PLICO_CARGO=/pat
 
 ## 普通 Rust 项目
 
-生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个 `Application: plico_dev::App` 实现：
+生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个 `Application = RegionApp<Program>`；Regions 通过 `plico_dev::App` 接入现有开发与热重载协议：
 
 ```sh
 cd /tmp/my-plico-app
@@ -86,7 +86,7 @@ plico dev /path/to/app --framework /path/to/plico
 
 | 命令 | 行为 |
 |---|---|
-| new PATH [--name NAME] | 生成使用 component 自动身份的独立应用（Plico、plico-dev、Serde、Stabby） |
+| new PATH [--name NAME] | 生成默认使用 Regions Reactive 的独立应用（Plico、plico-runtime、plico-dev、Serde、Stabby） |
 | render --out PATH | 静态 gallery 的真实后端离屏 PNG |
 | probe | 全部 gallery 页面的后端工作量 JSON（cold/idle/scroll/desktop），含单次粗计时；--legacy 为原 Controls 交互脚本 |
 | check | cargo check --workspace --all-targets |
