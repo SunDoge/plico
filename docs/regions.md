@@ -226,7 +226,7 @@ cargo check -p backend-settings --features egui,fltk --all-targets
 
 错误契约：局部声明返回错误后显式报告，并强制下次完整声明重建边界；无法收敛返回 `SourceError::DidNotSettle`。修正错误原因后可再次声明。用户回调 panic 保留原始 payload 并向外传播，**没有事务回滚保证**；宿主捕获后应丢弃失败的 Source 并重新创建，不能继续使用可能部分修改的树。测试验证退栈清理临时声明上下文后，新 Source 可正常工作。
 
-## Text 属性级绑定
+## Text 与 Button 属性级绑定
 
 导入 `Reactive`，可直接为普通 Text 注册显式属性依赖：
 
@@ -248,13 +248,13 @@ let app = Regions::new(|app| {
 });
 ```
 
-`.rx` 是 builder 结束点。单个状态直接传入并接收一个 `Access<T>`；多个状态继续使用 tuple，并接收对应的 `Access` tuple，无需为单状态保留 `(state,)` 或 `(value,)` 包装。旧 `.reactive(...)` 暂时保留为弃用别名。当前支持普通 Text 的文字、前景色、字号、字重、字体族与透明度，返回的 `TextProperties` 是受限编辑器，没有 children、事件派发或访问任意 Engine 节点的能力；富文本 spans 明确返回 InvalidRegion。普通控件、容器、布局属性尚未接入此方法，不把这个 PoC 称为通用 widget 属性系统。
+Text 的 `.rx` 是 builder 结束点；Button 的 `.rx` 返回普通 `Response`，可以继续链接触发 `on_click`。单个状态直接传入并接收一个 `Access<T>`；多个状态继续使用 tuple，并接收对应的 `Access` tuple，无需为单状态保留 `(state,)` 或 `(value,)` 包装。旧 `.reactive(...)` 暂时保留为弃用别名。当前支持普通 Text 的文字、前景色、字号、字重、字体族与透明度，以及 Button/ButtonBase 实际节点的背景、禁用与 selected；受限属性编辑器没有 children、事件派发或访问任意 Engine 节点的能力，富文本 spans 明确返回 InvalidRegion。其他控件、容器和布局属性尚未接入，不把它称为通用 widget 属性系统。
 
 每个绑定复用现有 region 的依赖调度和 component 所有权，但目标是实际 Text 的代际 Entity，不会插入布局容器。长期保存的是 State ID 元组、函数指针和静态文字/文本样式基线；不保存应用借用，也不保存捕获环境。每次运行从静态 builder 基线计算覆盖值：某个属性未调用 setter，就恢复其静态值。这保证条件属性在局部更新和完整声明中行为一致。静态文字基线可能需要一次拥有式字符串副本；绑定本身也需要订阅和调度记录，并非没有内存成本。
 
-第一次声明立即应用属性；父区域重新声明时重新注册并应用，避免覆盖成 builder 默认值；依赖变化只执行绑定回调并更新目标，文本相等/颜色相等不产生脏标记。文字改变进入 MEASURE/LAYOUT/PAINT/SEMANTICS；字号、字重、字体族、颜色与透明度统一通过现有 Style diff 计算失效，透明度和颜色不引入测量/布局。动态属性先整体验证再修改目标节点，零字号、越界字重、NaN/越界透明度返回 InvalidStyle，不把非法值或同次文字更新写入节点。属性回调禁止写 State。节点移除时取消订阅，组件重建使用新一代身份。当前事件仍走原有 `on_click` 声明协议；属性绑定并没有将全部事件分发改为常驻回调。
+第一次声明立即应用属性；父区域重新声明时重新注册并应用，避免覆盖成 builder 默认值；依赖变化只执行绑定回调并更新目标，文本相等/颜色相等不产生脏标记。文字改变进入 MEASURE/LAYOUT/PAINT/SEMANTICS；字号、字重、字体族、颜色与透明度统一通过现有 Style diff 计算失效，透明度和颜色不引入测量/布局。Button 背景只标 PAINT，selected 只标 SEMANTICS，disabled 使用现有的 PAINT/SEMANTICS/HIT_TEST 分类；styled button 的禁用透明度在局部和完整声明中一致。动态属性先整体验证再修改目标节点，零字号、越界字重、NaN/越界透明度返回 InvalidStyle，不把非法值或同次文字更新写入节点。属性回调禁止写 State。节点移除时取消订阅，组件重建使用新一代身份。当前事件仍走原有 `on_click` 声明协议；属性绑定并没有将全部事件分发改为常驻回调。
 
-`regions_properties` 回归覆盖：命名函数与异构依赖元组、初始应用、父区域/静态兄弟不执行、零节点声明、颜色不重排、文字/语义失效、多行文字改变后兄弟布局与完整声明一致、相同值无脏标记、完整声明与 resize 后属性保留、卸载与新代际、反复依赖切换后旧依赖不再唤醒、宿主异步结果只更新绑定、属性回调写入拒绝、富文本拒绝，以及条件 setter 恢复静态基线。后续增加了字体样式与透明度失效、主题 token 重解析、非法属性拒绝后恢复，以及通过开发协议重建函数/恢复状态后再次更新属性的回归；这不等同于完整 dylib 窗口热重载验收。随机差分测试也包含 text/color 属性绑定，与强制完整声明逐批比较。
+`regions_properties` 回归覆盖：命名函数与异构依赖元组、初始应用、父区域/静态兄弟不执行、零节点声明、颜色不重排、文字/语义失效、多行文字改变后兄弟布局与完整声明一致、相同值无脏标记、完整声明与 resize 后属性保留、卸载与新代际、反复依赖切换后旧依赖不再唤醒、宿主异步结果只更新绑定、属性回调写入拒绝、富文本拒绝，以及条件 setter 恢复静态基线。后续增加了字体样式与透明度失效、主题 token 重解析、非法属性拒绝后恢复，以及通过开发协议重建函数/恢复状态后再次更新属性的回归；Button 回归另外覆盖事件链、三种属性的精确失效通道、相等值和完整声明对照。这不等同于完整 dylib 窗口热重载验收。随机差分测试也包含 text/color 属性绑定，与强制完整声明逐批比较。
 
 原生 `regions` 示例已用此方法实现 Count、Double 和宿主请求状态文字；开启 Skia damage 的 Linux X11/llvmpipe 窗口验证了计数、异步 Loaded 唤醒、条件卸载/重建和 resize。此处不推导硬件 GPU 的性能收益；布局与绘制仍走共享的后端管线。
 
@@ -271,6 +271,22 @@ text_empty(cx).rx(count, |node, count| {
 ```
 
 这里只有共有的文本样式方法被统一；`.children()`、`.key()` 和布局/事件方法仍属于声明阶段。回归测试直接比较普通 builder 完整声明与属性局部更新的序列化节点和布局，并验证两边对零字号、越界字重、NaN 透明度返回相同的 InvalidStyle。
+
+## 一次性 focus 与 reveal
+
+`request_focus_once(requested, deps, consume)` 和 `reveal_once(index, deps, consume)` 把原生一次性命令与应用标志清理放在同一条 builder 链上。只有本次声明实际看到请求时才排队执行 consume；回调通常用 `update_if` 清除 bool/Option 并返回 false，避免额外 settle。输入或列表未挂载时不会消费，请求保留到下次挂载；禁用输入不会获得焦点，但声明会消费该请求。局部 replay、完整声明和重复 settle 都有回归，重复声明不会再次聚焦或覆盖用户滚动。
+
+```rust
+text_input(cx, "Search", &current.query)
+    .request_focus_once(current.focus_search, state, |state| {
+        state.update_if(|model| {
+            model.focus_search = false;
+            false
+        });
+    });
+```
+
+这不是自动副作用依赖收集，也不会在事件发生时直接操作窗口；原生请求仍由现有 Engine/Adapter 边界消费。
 
 ## 路由与页面实例
 

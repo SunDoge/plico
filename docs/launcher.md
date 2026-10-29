@@ -45,7 +45,7 @@ fn search(cx: &mut UiContext, query: &TextBuffer) {
 ```
 
 - `autofocus(true)` 仅首次挂载申请焦点，后续声明不会从其他控件抢回焦点。
-- `request_focus(bool)` 显式申请一次焦点；应用在点击结果或切换筛选后使用。
+- `request_focus(bool)` 显式申请一次焦点；Regions 应用可用 `request_focus_once(...)` 将请求与 bool 清理放在同一链上。
 - `navigation(true)` 仅将无修饰的 Up/Down/PageUp/PageDown/Escape 路由给该输入；默认关闭。
   Home/End/左右键、复制粘贴等仍然编辑文字。上下键支持按住重复，Escape 不因重复关闭窗口。
 - IME 组合期间，导航键和 Enter 留给输入法，第一次 Escape 仅取消组合。
@@ -53,7 +53,7 @@ fn search(cx: &mut UiContext, query: &TextBuffer) {
 - 自动聚焦产生的原生 text client 会直接启用宿主 IME，不依赖首次点击。
 - 窗口重新获得焦点时恢复此前仍有效的控件；不会越过 modal 焦点限制。
 
-`virtual_list(...).reveal(Some(index))` 让指定行可见而不改变输入焦点。
+`virtual_list(...).reveal(Some(index))` 让指定行可见而不改变输入焦点；Regions 的 `reveal_once(...)` 会在本次声明后清理 Option。
 只在键盘选择、筛选等操作发生时传 Some，普通帧传 None，避免对抗鼠标滚轮。
 框架同时改变虚拟行的声明区间与后端滚动位置；定位立即生效，滚轮仍可使用 smooth scroll。
 
@@ -75,7 +75,7 @@ demo 用它保证 Tab 到其他控件后 Escape 仍可退出。它不是系统�
   此验证不代表 Wayland/macOS/Windows 或真实系统输入法已全部验证。
 - 已查看深色 680px、浅色 520px 与空结果的真实 Parley/Vello 离屏截图，见 `reports/launcher/`。
 
-当前 demo 由 `Launcher` 直接持有 `Regions` 和根 `State`，搜索、筛选、结果与反馈使用独立的 `cx.region`；输入通过 `on_change`、`on_navigation` 和 `on_submit` 回写，不增加应用包装层。`TextBuffer`、一次性 focus/reveal 与窗口动作仍走原生路径。
+当前 demo 由 `Launcher` 直接持有 `Regions` 和根 `State`，搜索、筛选、结果与反馈使用独立的 `cx.region`；输入通过 `on_change`、`on_navigation` 和 `on_submit` 回写，不增加应用包装层。`TextBuffer` 与窗口动作仍走原生路径；一次性 focus/reveal 使用 colocated consume 回调，不再有声明后的 `finish_declaration` 清理。
 它没有导出可热重载的应用模块；现有 JSON 模块协议仍不能迁移原生输入绑定，不能因为其他 App 支持 reload 就声称此 demo 也支持。
 
 尚未提供系统级召回快捷键、托盘驻留/隐藏再召回、平台应用索引、图标解析、文件搜索、

@@ -1358,20 +1358,29 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     }
     #[inline(always)]
     fn finish(&mut self) -> Response {
+        self.finish_target().0
+    }
+    fn finish_target(&mut self) -> (Response, crate::Entity) {
         if !self.composable {
             let enabled = !self.inner.style.disabled;
-            let clicked = self.inner.finish().1;
-            return Response {
-                clicked,
-                enabled,
-                hovered: self.inner.hovered,
-            };
+            let (entity, clicked) = self.inner.finish();
+            return (
+                Response {
+                    clicked,
+                    enabled,
+                    hovered: self.inner.hovered,
+                },
+                entity,
+            );
         }
         let text = std::mem::take(&mut self.inner.text);
         let name = self.accessible_name.take();
         let icon = self.icon.take();
-        self.inner
+        let mut entity = None;
+        let response = self
+            .inner
             .children(name.as_deref().unwrap_or(&text), true, |cx| {
+                entity = Some(cx.parent);
                 if let Some(asset) = icon {
                     let size = cx.inherited.font_size.saturating_add(2) as f32;
                     cx.svg(&asset)
@@ -1384,7 +1393,25 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                         .ellipsis(true);
                 }
             })
-            .response
+            .response;
+        (response, entity.expect("button declaration"))
+    }
+    /// Finish this control and retain its identity for a property subscription.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_property_target(
+        mut self,
+    ) -> (
+        crate::ExperimentContext,
+        crate::ExperimentButtonStyle,
+        Response,
+    ) {
+        let mut attributes: crate::ExperimentButtonStyle = self.inner.style.into();
+        attributes.styled_button = self.composable;
+        let mut context = self.inner.ui.as_ref().unwrap().experiment_context();
+        let (response, entity) = self.finish_target();
+        context.parent = entity;
+        (context, attributes, response)
     }
     #[inline(always)]
     pub fn primary(mut self) -> Self {

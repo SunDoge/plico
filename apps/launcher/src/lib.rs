@@ -298,15 +298,6 @@ impl Launcher {
             model.refresh();
         });
     }
-    fn finish_declaration(&mut self) {
-        // These are one-shot native commands, not persistent view preferences.
-        // The just-finished declaration consumed them, so no second dirty pass is needed.
-        self.regions.access(self.model).update_if(|model| {
-            model.reveal = None;
-            model.focus_search = false;
-            false
-        });
-    }
 }
 
 #[component]
@@ -337,29 +328,37 @@ fn application(cx: &mut UiContext, model: plico_runtime::regions::State<Launcher
 #[component]
 #[rustfmt::skip]
 fn search(cx: &mut UiContext, model: plico_runtime::regions::State<LauncherModel>) {
-    use plico_runtime::regions::{OnChange, OnClick, OnNavigation, OnSubmit};
+    use plico_runtime::regions::{FocusOnce, OnChange, OnClick, OnNavigation, OnSubmit};
     cx.region(model, |cx, model| {
         row(cx).height(74.).padding_x(22).gap(16).align(Align::Center) + |cx| {
             icon(cx, &icons::SEARCH).size(22., 22.).color(Color::Muted);
             let state = model.handle();
             let current = model.read();
             text_input(cx, "搜索应用与命令", &current.query).placeholder("搜索应用与命令…").autofocus(true)
-                .request_focus(current.focus_search).navigation(true).width(0.).grow(1.)
-                .height(48.).font_size(20).padding(0).border(0., Color::Border).background(Color::Surface)
+                .request_focus_once(current.focus_search, state, |state| {
+                state.update_if(|model| {
+                    model.focus_search = false;
+                    false
+                });
+            }).navigation(true).width(0.).grow(1.).height(48.).font_size(20).padding(0)
+                .border(0., Color::Border).background(Color::Surface)
                 .on_change((state,), |(state,), _| state.update(LauncherModel::refresh))
                 .on_submit((state,), |(state,)| {
-                    state.update(|model| {
-                        if let Some(index) = model.selected {
-                            model.activate(index);
-                        }
-                    });
-                })
-                .on_navigation((state,), |(state,), action| state.update(|model| model.navigate(action)));
+                state.update(|model| {
+                    if let Some(index) = model.selected {
+                        model.activate(index);
+                    }
+                });
+            }).on_navigation((state,), |(state,), action| {
+                state.update(|model| model.navigate(action))
+            });
             button_base(cx, "关闭").padding(8).radius(6.).hover_background(Color::Control).children(|cx| {
                 icon(cx, &icons::X).size(16., 16.).color(Color::Muted);
-            }).response.on_click(state, |state| state.update(|model| {
-                model.actions.push_back(HostAction::Window(WindowCommand::Close));
-            }));
+            }).response.on_click(state, |state| {
+                state.update(|model| {
+                    model.actions.push_back(HostAction::Window(WindowCommand::Close));
+                })
+            });
         };
     });
 }
@@ -381,14 +380,14 @@ fn filters(cx: &mut UiContext, model: plico_runtime::regions::State<LauncherMode
                         .radius(6.)
                         .background(if current.category == category { Color::Control } else { Color::Surface })
                         .hover_background(Color::Control).children(|cx| {
-                            text(cx, label).font_size(12).weight(600);
-                        }).response.on_click_with((model.handle(),), category, |(model,), category| {
-                            model.update(|model| {
-                                model.category = category;
-                                model.refresh();
-                                model.focus_search = true;
-                            });
+                        text(cx, label).font_size(12).weight(600);
+                    }).response.on_click_with((model.handle(),), category, |(model,), category| {
+                        model.update(|model| {
+                            model.category = category;
+                            model.refresh();
+                            model.focus_search = true;
                         });
+                    });
                 });
             }
             column(cx).grow(1.).end();
@@ -400,7 +399,7 @@ fn filters(cx: &mut UiContext, model: plico_runtime::regions::State<LauncherMode
 #[component]
 #[rustfmt::skip]
 fn results(cx: &mut UiContext, model: plico_runtime::regions::State<LauncherModel>) {
-    use plico_runtime::regions::OnClickWith;
+    use plico_runtime::regions::{OnClickWith, RevealOnce};
     cx.region(model, |cx, model| {
         let current = model.read();
         if current.matches.is_empty() {
@@ -412,14 +411,20 @@ fn results(cx: &mut UiContext, model: plico_runtime::regions::State<LauncherMode
             return;
         }
         let state = model.handle();
-        virtual_list(cx, current.matches.len(), 56.).height(336.).smooth_scroll(true).reveal(current.reveal).rows(
+        virtual_list(cx, current.matches.len(), 56.).height(336.).smooth_scroll(true)
+            .reveal_once(current.reveal, state, |state| {
+            state.update_if(|model| {
+                model.reveal = None;
+                false
+            });
+        }).rows(
             |i| ENTRIES[current.matches[i]].id,
             |cx, i| {
                 let entry = &ENTRIES[current.matches[i]];
                 let selected = current.selected == Some(i);
                 let _ = column(cx).padding_x(10) + |cx| {
-                    button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14).gap(14).radius(8.)
-                        .align(Align::Center).selected(selected)
+                    button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14).gap(14)
+                        .radius(8.).align(Align::Center).selected(selected)
                         .background(if selected { Color::Selection } else { Color::Surface })
                         .hover_background(Color::Control).motion(Motion::Quick).children(|cx| {
                         column(cx).width(32.).height(32.).radius(8.).align(Align::Center)
@@ -482,17 +487,12 @@ impl View for Launcher {
     }
     fn show(&mut self, cx: &mut UiContext) {
         View::show(&mut self.regions, cx);
-        self.finish_declaration();
     }
     fn replay_regions(
         &mut self,
         engine: &mut Engine,
     ) -> Option<Result<plico_runtime::regions::ReplayBatch, plico::FrameError>> {
-        let result = self.regions.replay_regions(engine);
-        if matches!(result, Some(Ok(_))) {
-            self.finish_declaration();
-        }
-        result
+        self.regions.replay_regions(engine)
     }
     fn scene_cache_roots(&self) -> Vec<Entity> {
         self.regions.scene_cache_roots()

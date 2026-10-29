@@ -172,4 +172,4 @@ pub mod taffy_layout;
 
 #[cfg(feature = "experiment-patch")]
 #[doc(hidden)]
-pub use engine::{ExperimentContext, ExperimentTextStyle};
+pub use engine::{ExperimentButtonStyle, ExperimentContext, ExperimentTextStyle};

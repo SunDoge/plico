@@ -1,9 +1,11 @@
 //! ID-driven native regions; components own their local state.
 //! Root arguments are captures; region and property arguments subscribe to changes.
+mod actions;
 mod properties;
 mod reload;
 mod routing;
-pub use properties::{Reactive, TextProperties};
+pub use actions::{FocusOnce, RevealOnce};
+pub use properties::{ButtonProperties, Reactive, TextProperties};
 pub use routing::{outlet, outlet_fill, outlet_keyed};
 mod tasks;
 use crate::View;
@@ -138,7 +140,7 @@ struct Slot {
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
-    type PropertyCallback: Copy;
+    type PropertyCallback<P>: Copy;
     type ConditionCallback: Copy;
     type KeysCallback: Copy;
     type EachCallback: Copy;
@@ -147,12 +149,7 @@ pub trait Dependencies: 'static {
     #[doc(hidden)]
     fn bindings(&self) -> Vec<Binding>;
     #[doc(hidden)]
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        app: &Regions,
-        target: &mut TextProperties,
-    );
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P);
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
     #[doc(hidden)]
@@ -177,7 +174,7 @@ pub trait Dependencies: 'static {
 impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
-    type PropertyCallback = fn(&mut TextProperties, ());
+    type PropertyCallback<P> = fn(&mut P, ());
     type ConditionCallback = fn(()) -> bool;
     type KeysCallback = fn(()) -> Vec<u64>;
     type EachCallback = for<'a, 'b> fn(&'a mut UiContext<'b>, (), u64);
@@ -191,12 +188,7 @@ impl Dependencies for () {
     ) {
         callback(cx, route, ());
     }
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        _: &Regions,
-        target: &mut TextProperties,
-    ) {
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, _: &Regions, target: &mut P) {
         callback(target, ());
     }
     type ChangeCallback<V: 'static> = fn((), V);
@@ -225,7 +217,7 @@ impl Dependencies for () {
 impl<T: 'static> Dependencies for State<T> {
     type Callback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>);
     type EventCallback = for<'a> fn(Access<'a, T>);
-    type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, Access<'b, T>);
+    type PropertyCallback<P> = for<'a, 'b> fn(&'a mut P, Access<'b, T>);
     type ConditionCallback = for<'a> fn(Access<'a, T>) -> bool;
     type KeysCallback = for<'a> fn(Access<'a, T>) -> Vec<u64>;
     type EachCallback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>, u64);
@@ -235,12 +227,7 @@ impl<T: 'static> Dependencies for State<T> {
     fn bindings(&self) -> Vec<Binding> {
         vec![(self.owner, self.component, self.index)]
     }
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        app: &Regions,
-        target: &mut TextProperties,
-    ) {
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P) {
         callback(target, app.access(*self));
     }
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) {
@@ -277,13 +264,13 @@ macro_rules! dependency_tuple {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
-            type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, ($(Access<'b,$name>,)+));
+            type PropertyCallback<P> = for<'a, 'b> fn(&'a mut P, ($(Access<'b,$name>,)+));
             type ConditionCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> bool;
             type KeysCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> Vec<u64>;
             type EachCallback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+), u64);
             type RouteCallback<R: 'static> = for<'a,'b,'c> fn(&'a mut UiContext<'b>, R, ($(Access<'c,$name>,)+));
             fn route<R: 'static>(&self, callback: Self::RouteCallback<R>, app: &Regions, cx: &mut UiContext<'_>, route: R) { callback(cx, route, ($(app.access(self.$index),)+)); }
-            fn properties(&self, callback: Self::PropertyCallback, app: &Regions, target: &mut TextProperties) { callback(target, ($(app.access(self.$index),)+)); }
+            fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P) { callback(target, ($(app.access(self.$index),)+)); }
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
@@ -307,8 +294,8 @@ pub type KeysCallback<D> = <D as Dependencies>::KeysCallback;
 pub type EachCallback<D> = <D as Dependencies>::EachCallback;
 pub type EventCallback<D> = <D as Dependencies>::EventCallback;
 trait Render {
-    fn property(&self) -> bool {
-        false
+    fn property(&self) -> Option<properties::PropertyKind> {
+        None
     }
     fn run(&self, app: &Regions, cx: &mut UiContext<'_>);
 }
@@ -1210,7 +1197,7 @@ impl Regions {
     fn build(&mut self, id: RegionId, cx: &mut UiContext<'_>, partial: bool) {
         // Properties cannot declare children or enqueue UI events. Avoid the
         // per-declaration command buffer and child reconciliation entirely.
-        if self.regions[id].render.property() {
+        if self.regions[id].render.property().is_some() {
             let guard = ReadGuard(&self.building, self.building.replace(true));
             self.regions[id].render.run(self, cx);
             drop(guard);
@@ -1295,7 +1282,7 @@ impl Regions {
                     child.key.component,
                 )
             };
-            if !self.regions[child_id].render.property() {
+            if self.regions[child_id].render.property().is_none() {
                 if let Some(previous) = self.regions[child_id].context {
                     self.bindings.remove(&previous.parent);
                 }
@@ -1391,10 +1378,14 @@ impl Regions {
                 if *count > 8 {
                     return Some(Err(FrameError::DidNotSettle));
                 }
-                let result = if self.regions[id].render.property() {
-                    engine.experiment_redeclare_properties(context, |cx| self.build(id, cx, true))
-                } else {
-                    engine.experiment_redeclare(context, |cx| self.build(id, cx, true))
+                let result = match self.regions[id].render.property() {
+                    Some(properties::PropertyKind::Text) => engine
+                        .experiment_redeclare_properties(context, |cx| self.build(id, cx, true)),
+                    Some(properties::PropertyKind::Button) => engine
+                        .experiment_redeclare_button_properties(context, |cx| {
+                            self.build(id, cx, true)
+                        }),
+                    None => engine.experiment_redeclare(context, |cx| self.build(id, cx, true)),
                 };
                 match result {
                     Ok(stats) => {

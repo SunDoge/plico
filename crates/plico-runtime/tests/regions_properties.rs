@@ -1,5 +1,5 @@
 use plico::{Changes, Entity, prelude::*};
-use plico_renderer::TextContext;
+use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
     Source,
     regions::{Access, Reactive, RegionUi, Regions, State, TextProperties},
@@ -55,6 +55,20 @@ fn target(source: &Source<Regions>) -> Entity {
         })
         .unwrap()
         .0
+}
+fn find_key(source: &Source<Regions>, key: &'static str) -> Entity {
+    fn walk(engine: &plico::Engine, parent: Entity, key: &'static str) -> Option<Entity> {
+        if let Some(found) = engine.find(parent, key) {
+            return Some(found);
+        }
+        engine
+            .node(parent)
+            .unwrap()
+            .children
+            .iter()
+            .find_map(|child| walk(engine, *child, key))
+    }
+    walk(&source.engine, source.engine.root(), key).unwrap()
 }
 #[test]
 fn property_updates_skip_declarations_keep_identity_and_invalidate_correct_channels() {
@@ -768,4 +782,101 @@ fn ordinary_builder_and_reactive_chains_produce_identical_text_attributes() {
         ordinary.try_declare().unwrap();
         reactive.try_declare().unwrap();
     }
+}
+
+#[test]
+fn button_properties_chain_events_and_use_exact_invalidation_channels() {
+    use plico_runtime::regions::OnClick;
+    struct Values {
+        background: Color,
+        selected: bool,
+        disabled: bool,
+    }
+    let mut handles = None;
+    let app = Regions::new(|app| {
+        let values = app.state(|| Values {
+            background: Color::Surface,
+            selected: false,
+            disabled: false,
+        });
+        let clicks = app.state(|| 0_u32);
+        handles = Some((values, clicks));
+        app.root((values, clicks), |cx, (values, clicks)| {
+            button(cx)
+                .key("action")
+                .text("Run")
+                .rx(values.handle(), |node, values| {
+                    let values = values.read();
+                    node.background(values.background)
+                        .selected(values.selected)
+                        .disabled(values.disabled);
+                })
+                .on_click(clicks.handle(), |clicks| clicks.update(|value| *value += 1));
+        });
+    });
+    let (values, clicks) = handles.unwrap();
+    let mut source = Source::new(app);
+    let mut text = TextContext::new();
+    frame(&mut source, &mut text, 800);
+    let target = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Button, "Run", None)
+        .unwrap()
+        .id;
+    let id = find_key(&source, "action");
+    assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+    frame(&mut source, &mut text, 800);
+    assert_eq!(*source.view.access(clicks).read(), 1);
+
+    let declarations = source.view.region_runs();
+    let root = find_key(&source, "regions-root");
+    let root_runs = declarations
+        .iter()
+        .find(|(entity, _)| *entity == root)
+        .unwrap()
+        .1;
+    source.view.access(values).update(|values| {
+        values.background = Color::Accent;
+    });
+    source.try_declare().unwrap();
+    assert_eq!(source.engine.changes(), Changes::PAINT);
+    source.view.access(values).update(|values| {
+        values.selected = true;
+    });
+    source.try_declare().unwrap();
+    assert_eq!(source.engine.changes(), Changes::SEMANTICS);
+    source.view.access(values).update(|values| {
+        values.disabled = true;
+    });
+    source.try_declare().unwrap();
+    assert_eq!(
+        source.engine.changes(),
+        Changes::PAINT | Changes::SEMANTICS | Changes::HIT_TEST
+    );
+    assert!(
+        !source.engine.changes().intersects(
+            Changes::MEASURE | Changes::LAYOUT | Changes::STRUCTURE | Changes::TRANSFORM
+        )
+    );
+    let after = source.view.region_runs();
+    assert_eq!(
+        after.iter().find(|(entity, _)| *entity == root).unwrap().1,
+        root_runs
+    );
+    let style = source.engine.node(id).unwrap().style;
+    assert_eq!(style.background, Some(Color::Accent));
+    assert_eq!(style.selected, Some(true));
+    assert!(style.disabled);
+    assert_eq!(style.opacity, 0.45);
+
+    source.view.access(values).notify();
+    source.try_declare().unwrap();
+    assert!(source.engine.changes().is_empty());
+    source.engine.set_viewport(480., 700.).unwrap();
+    source.try_declare().unwrap();
+    let full = source.engine.node(id).unwrap().style;
+    assert_eq!(full.background, style.background);
+    assert_eq!(full.selected, style.selected);
+    assert_eq!(full.disabled, style.disabled);
 }
