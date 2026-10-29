@@ -15,7 +15,7 @@ abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
 desktop = ["dep:plico-desktop"]
 hot-reload = ["desktop", "plico-desktop/hot-reload"]
-# Verification only: require a new UI field so the old UI checkpoint resets.
+# Verification only: use a new persisted slot key so that UI value resets.
 schema-reset-fixture = []
 
 [dependencies]

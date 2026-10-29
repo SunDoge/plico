@@ -11,7 +11,9 @@ use plico::{
     Button, Changes, Engine, Entity, ExperimentContext, FrameError, FrameStats, Key, Response,
     UiContext,
 };
-pub use reload::{Checkpoint, CheckpointError, RegionApp, RegionProgram, RestoreStats};
+pub use reload::{
+    Checkpoint, CheckpointError, RegionApp, RegionProgram, RegionServiceProgram, RestoreStats,
+};
 use slotmap::{SlotMap, new_key_type};
 use std::{
     any::Any,
@@ -942,9 +944,46 @@ struct Region {
     revision: u64,
     scene_cache: bool,
 }
-/// Region runtime. Root and keyed components own state; watches do not.
+trait ServiceBinding {
+    fn sync(&self, app: &Regions, services: &mut dyn Any);
+    fn drain(&self, app: &Regions, services: &mut dyn Any);
+}
+struct ServiceStates<S, C> {
+    snapshot: State<S>,
+    commands: State<Vec<C>>,
+}
+impl<S: Clone + PartialEq + 'static, C: 'static> ServiceBinding for ServiceStates<S, C> {
+    fn sync(&self, app: &Regions, services: &mut dyn Any) {
+        let services = services
+            .downcast_mut::<plico_dev::services::Services<S, C>>()
+            .expect("service snapshot/command types match service_state");
+        let next = services.snapshot();
+        app.access(self.snapshot).update_if(|current| {
+            if current == next {
+                return false;
+            }
+            current.clone_from(next);
+            true
+        });
+    }
+    fn drain(&self, app: &Regions, services: &mut dyn Any) {
+        let services = services
+            .downcast_mut::<plico_dev::services::Services<S, C>>()
+            .expect("service snapshot/command types match service_state");
+        let mut commands = Vec::new();
+        app.access(self.commands).update_if(|pending| {
+            commands = std::mem::take(pending);
+            !commands.is_empty()
+        });
+        for command in commands {
+            services.send(command);
+        }
+    }
+}
+/// Region runtime. Root and keyed components own state; regions do not.
 pub struct Regions {
     owner: usize,
+    service: Option<Box<dyn ServiceBinding>>,
     theme: Option<State<plico::Theme>>,
     mailbox: Arc<tasks::Mailbox>,
     components: SlotMap<ComponentId, Component>,
@@ -957,14 +996,7 @@ pub struct Regions {
     initialized: bool,
 }
 #[doc(hidden)]
-pub struct ReplayBatch {
-    pub stats: FrameStats,
-    pub dirty: Vec<Entity>,
-    /// Backend cache roots and the output revision produced by local replay.
-    pub revisions: Vec<(Entity, u64)>,
-    pub changes: Changes,
-    pub passes: usize,
-}
+pub use plico_dev::ReplayBatch;
 impl Regions {
     pub fn new(build: impl FnOnce(&mut Self)) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(1);
@@ -980,6 +1012,7 @@ impl Regions {
         mailbox.register(root_component);
         let mut app = Self {
             owner,
+            service: None,
             theme: None,
             mailbox,
             components,
@@ -1007,6 +1040,47 @@ impl Regions {
             "theme must be root-owned"
         );
         self.theme = Some(state);
+    }
+    /// Mark root states as the typed host snapshot and transient command outbox.
+    /// Neither state is checkpointed; the host retains service ownership.
+    pub fn service_state<S, C>(&mut self, snapshot: State<S>, commands: State<Vec<C>>)
+    where
+        S: Clone + PartialEq + 'static,
+        C: 'static,
+    {
+        assert!(self.service.is_none(), "service states already registered");
+        for state in [snapshot.component, commands.component] {
+            assert_eq!(
+                state, self.root_component,
+                "service states must be root-owned"
+            );
+        }
+        assert!(
+            self.try_access(snapshot).is_some(),
+            "foreign snapshot state"
+        );
+        assert!(self.try_access(commands).is_some(), "foreign command state");
+        self.service = Some(Box::new(ServiceStates { snapshot, commands }));
+    }
+    #[doc(hidden)]
+    pub fn sync_services<S: 'static, C: 'static>(
+        &self,
+        services: &mut plico_dev::services::Services<S, C>,
+    ) {
+        self.service
+            .as_ref()
+            .expect("service_state was not registered")
+            .sync(self, services);
+    }
+    #[doc(hidden)]
+    pub fn drain_services<S: 'static, C: 'static>(
+        &self,
+        services: &mut plico_dev::services::Services<S, C>,
+    ) {
+        self.service
+            .as_ref()
+            .expect("service_state was not registered")
+            .drain(self, services);
     }
     pub fn state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> State<T> {
         assert!(

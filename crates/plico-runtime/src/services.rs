@@ -35,19 +35,52 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
     for ServiceView<A, S>
 {
     fn snapshot_changed(&self) -> bool {
-        self.services
+        self.app.regions_changed()
+            || self
+                .services
+                .snapshot_revision()
+                .is_some_and(|revision| Some(revision) != self.snapshot_revision)
+    }
+    fn scene_cache_roots(&self) -> Vec<plico::Entity> {
+        self.app.scene_cache_roots()
+    }
+    fn replay_regions(
+        &mut self,
+        engine: &mut plico::Engine,
+    ) -> Option<Result<plico_dev::ReplayBatch, plico::FrameError>> {
+        let service_changed = self
+            .services
             .snapshot_revision()
-            .is_some_and(|revision| Some(revision) != self.snapshot_revision)
+            .is_some_and(|revision| Some(revision) != self.snapshot_revision);
+        if !self.app.regions_changed()
+            && !service_changed
+            && engine.experiment_input_entities().is_empty()
+        {
+            return None;
+        }
+        self.refresh_snapshot();
+        let batch = self.app.replay_regions(engine, &mut self.context)?;
+        let commands = self.context.take_commands();
+        let sent = !commands.is_empty();
+        for command in commands {
+            self.services.send(command);
+        }
+        // Commands may synchronously change an unversioned host. Settle that
+        // projection through the same full-declaration path as ordinary apps.
+        (!sent).then_some(batch)
     }
     fn set_frame_time(&mut self, time: plico::FrameTime) {
         self.app.set_frame_time(time);
     }
     fn set_wake_callback(&mut self, wake: crate::WakeCallback) {
+        self.app.set_regions_wake_callback(wake.clone());
         self.services.set_wake_callback(wake.clone());
         wake();
     }
     fn poll_reload(&mut self) -> bool {
-        self.services.poll()
+        let services = self.services.poll();
+        let regions = self.app.poll_regions();
+        services || regions
     }
     fn theme(&self) -> plico::Theme {
         self.app.theme()

@@ -37,6 +37,15 @@ pub enum Error {
     Module { message: String },
 }
 pub type Result<T> = std::result::Result<T, Error>;
+/// Host-neutral result of replaying explicit runtime regions.
+#[doc(hidden)]
+pub struct ReplayBatch {
+    pub stats: plico::FrameStats,
+    pub dirty: Vec<plico::Entity>,
+    pub revisions: Vec<(plico::Entity, u64)>,
+    pub changes: plico::Changes,
+    pub passes: usize,
+}
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Request {
     pub version: u32,

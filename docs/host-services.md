@@ -41,6 +41,26 @@ impl ServiceApp for Application {
 plico_dev::export_service_app!(Application);
 ```
 
+Regions 应用复用同一个 `RegionApp<Program>`，不需要另写 Application、Serde 或 View 转发。
+`RegionServiceProgram` 提供关联 Snapshot/Command；构造根状态时显式登记快照和临时 outbox：
+
+```rust
+impl RegionServiceProgram for Program {
+    type Snapshot = TaskSnapshot;
+    type Command = TaskCommand;
+}
+
+// Regions::new(|app| { ... }) 内：
+let task = app.state(TaskSnapshot::default);
+let commands = app.state(Vec::<TaskCommand>::new);
+app.service_state(task, commands);
+```
+
+`RegionApp` 自动实现 `ServiceApp`：声明和局部 replay 前投影快照，随后一次性 drain 命令，
+并转发 Regions 的 wake、mailbox 与 scene cache roots。快照相等时不标脏；两个状态都不进入
+checkpoint。普通局部事件可以跳过根声明；命令发出后保守地走完整 settle，以保留同步宿主投影。
+`service_state` 必须在构造时登记，且两个 State 必须属于根组件；它不会自动发现其他状态。
+
 只读快照和消息 outbox 是当前调用的临时上下文，不属于 Application 的序列化状态。
 模块内部仍使用普通函数、泛型、短借用与 children，不保存事件闭包。
 
@@ -134,14 +154,14 @@ cargo run -p services-demo --features hot-reload --example services-reload -- \
 
 上述库名和命令在 Linux 实测；其他平台需要相应 DLL 后缀/复制命令。
 验证包括兼容激活、损坏库拒绝、不兼容 UI 重置后 worker 身份/进度仍在、完成与取消。
-`schema-reset-fixture` 只用于制造旧 checkpoint 缺字段的测试，正常运行不启用。
+`schema-reset-fixture` 只用于换用新的 persisted slot key，制造该 UI 值不兼容的测试，正常运行不启用。
 
 另在隔离 X11 中执行了真正的 `plico dev apps/services-demo`：启动任务并增加 UI counter，
 保存一次 UI 源码触发 watcher，确认宿主 PID 和 counter 保留，进度条继续变化。
 本地截图可用 `cargo run -p services-demo --example services-capture -- --running --out reports/services/running.png`
 生成。报告与截图不参与提交。
 
-静态 ServiceView 支持通过 HostService::snapshot_revision 复用 typed snapshot；默认仍为 eager，使用约定与动态路径边界见 [性能说明](performance.md)。
+静态 ServiceView 支持通过 HostService::snapshot_revision 复用 typed snapshot；默认仍为 eager，使用约定与动态路径边界见 [性能说明](performance.md)。RegionApp 接入时还支持真实局部 replay；动态模块协议仍按帧同步，不把 Rust 区域句柄暴露到 ABI。
 
 宿主唤醒会在 Source 层合并，服务 poll 应处理可用结果批次，见 [批次边界](batching.md)。
 

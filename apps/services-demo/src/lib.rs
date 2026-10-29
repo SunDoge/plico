@@ -1,9 +1,9 @@
 //! UI + value protocol only. The worker is compiled into main.rs, never this module.
 pub mod icons;
 use plico::prelude::*;
-use plico_dev::services::{ServiceApp, Services};
-use plico_runtime::View;
-use plico_runtime::regions::{BindState, Checkpoint, OnClick, Reactive, RegionUi, Regions, State};
+use plico_runtime::regions::{
+    BindState, OnClick, Reactive, RegionApp, RegionServiceProgram, RegionUi, Regions, State,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,84 +30,33 @@ pub enum TaskCommand {
     Cancel,
 }
 
-/// The existing service adapter owns no second application wrapper. Regions
-/// holds only UI state and a transient command outbox; host snapshots are not
-/// checkpointed.
-pub struct Application {
-    regions: Regions,
-    task: State<TaskSnapshot>,
-    commands: State<Vec<TaskCommand>>,
-}
-
-impl Default for Application {
-    fn default() -> Self {
-        let mut task_handle = None;
-        let mut commands_handle = None;
-        let regions = Regions::new(|app| {
+/// Regions owns only UI state and a transient command outbox. The host retains
+/// the live worker and supplies its non-persistent snapshot on each frame.
+pub struct Program;
+impl plico_runtime::regions::RegionProgram for Program {
+    fn build() -> Regions {
+        Regions::new(|app| {
             let task = app.state(TaskSnapshot::default);
             let commands = app.state(Vec::<TaskCommand>::new);
+            app.service_state(task, commands);
+            #[cfg(feature = "schema-reset-fixture")]
+            let counter = app.persisted_state(1001, || 0_u64);
+            #[cfg(not(feature = "schema-reset-fixture"))]
             let counter = app.persisted_state(1, || 0_u64);
-            task_handle = Some(task);
-            commands_handle = Some(commands);
             app.root(
                 (task, commands, counter),
                 |cx, (task, commands, counter)| {
                     workspace(cx, task.handle(), commands.handle(), counter.handle());
                 },
             );
-        });
-        Self {
-            regions,
-            task: task_handle.unwrap(),
-            commands: commands_handle.unwrap(),
-        }
+        })
     }
 }
-
-#[derive(Serialize, Deserialize)]
-struct ApplicationCheckpoint {
-    regions: Checkpoint,
-    #[cfg(feature = "schema-reset-fixture")]
-    incompatible_fixture: bool,
-}
-impl Serialize for Application {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        ApplicationCheckpoint {
-            regions: self
-                .regions
-                .checkpoint()
-                .map_err(serde::ser::Error::custom)?,
-            #[cfg(feature = "schema-reset-fixture")]
-            incompatible_fixture: false,
-        }
-        .serialize(serializer)
-    }
-}
-impl<'de> Deserialize<'de> for Application {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let checkpoint = ApplicationCheckpoint::deserialize(deserializer)?;
-        let mut app = Self::default();
-        app.regions.restore_checkpoint(checkpoint.regions);
-        Ok(app)
-    }
-}
-
-impl ServiceApp for Application {
+impl RegionServiceProgram for Program {
     type Snapshot = TaskSnapshot;
     type Command = TaskCommand;
-
-    fn show(&mut self, cx: &mut UiContext, services: &mut Services<TaskSnapshot, TaskCommand>) {
-        let snapshot = services.snapshot();
-        if *self.regions.access(self.task).read() != *snapshot {
-            self.regions.access(self.task).set(snapshot.clone());
-        }
-        View::show(&mut self.regions, cx);
-        let commands = self.regions.access(self.commands).update(std::mem::take);
-        for command in commands {
-            services.send(command);
-        }
-    }
 }
+pub type Application = RegionApp<Program>;
 
 #[component]
 #[rustfmt::skip]
@@ -132,39 +81,51 @@ fn workspace(
             column(cx).padding(20).gap(16).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
                 row(cx).justify(Justify::SpaceBetween) + |cx| {
                     text(cx, "Background task").font_size(16).weight(650);
-                    text(cx, match task.status {
-                        TaskStatus::Idle => "Ready",
-                        TaskStatus::Running => "Running",
-                        TaskStatus::Completed => "Completed",
-                        TaskStatus::Cancelled => "Cancelled",
-                        TaskStatus::Failed => "Could not start",
-                    }).font_size(12).color(Color::Muted);
+                    text(
+                        cx,
+                        match task.status {
+                            TaskStatus::Idle => "Ready",
+                            TaskStatus::Running => "Running",
+                            TaskStatus::Completed => "Completed",
+                            TaskStatus::Cancelled => "Cancelled",
+                            TaskStatus::Failed => "Could not start",
+                        },
+                    ).font_size(12).color(Color::Muted);
                 };
                 progress(cx, "Progress", f32::from(task.progress) / 100.);
                 row(cx).gap(10) + |cx| {
                     button(cx).text("Start task").primary().disabled(running)
                         .on_click(commands.handle(), |commands| {
-                            commands.update(|commands| commands.push(TaskCommand::Start));
-                        });
-                    button(cx).text("Cancel task").disabled(!running)
-                        .on_click(commands.handle(), |commands| {
+                        commands.update(|commands| commands.push(TaskCommand::Start));
+                    });
+                    button(cx).text("Cancel task").disabled(!running).on_click(
+                        commands.handle(),
+                        |commands| {
                             commands.update(|commands| commands.push(TaskCommand::Cancel));
-                        });
+                        },
+                    );
                 };
                 text!(cx, "Completed tasks: {}", task.completed).font_size(12).color(Color::Muted);
             };
         });
-        column(cx).padding(20).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
-            text(cx, "View state").font_size(16).weight(650);
-            row(cx).gap(12).align(Align::Center) + |cx| {
-                button(cx).text("Increment view counter")
-                    .on_click(counter, |counter| counter.update(|value| *value += 1));
-                text_empty(cx).font_size(18).weight(650).rx(counter, |node, counter| {
-                    node.text(format!("View counter: {}", *counter.read()));
-                });
+        cx.region(counter, |cx, counter| {
+            let counter = counter.handle();
+            column(cx).padding(20).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
+                text(cx, "View state").font_size(16).weight(650);
+                row(cx).gap(12).align(Align::Center) + |cx| {
+                    button(cx).text("Increment view counter").on_click(counter, |counter| {
+                        counter.update(|value| *value += 1)
+                    });
+                    text_empty(cx).font_size(18).weight(650).rx(
+                        counter,
+                        |node, counter| {
+                            node.text(format!("View counter: {}", *counter.read()));
+                        },
+                    );
+                };
+                reload_notes(cx);
             };
-            reload_notes(cx);
-        };
+        });
         text(cx, "The task is simulated; no files or network requests are made.").font_size(11).color(Color::Muted);
     };
 }

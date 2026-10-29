@@ -2611,8 +2611,8 @@ pub trait View {
         false
     }
     /// Whether the view's own data source changed since the last rendered
-    /// snapshot. Service-backed views override this so revision bumps force
-    /// a re-declaration with structural synchronization.
+    /// snapshot. Service-backed views override this so revision bumps request
+    /// a declaration; reactive views may replay only their dirty regions.
     fn snapshot_changed(&self) -> bool {
         false
     }
@@ -2954,9 +2954,8 @@ impl<V: View> Source<V> {
         self.frame_time = now;
         self.set_tick(now, true);
         if self.view.snapshot_changed() {
-            // A service revision arrived: re-declare with full structural sync
-            // so re-declared subtrees reach the adapter even when only text
-            // changed deep inside retained panels.
+            // External service data or explicit region state changed. The view
+            // chooses between local replay and a full synchronized declaration.
             self.pending = true;
         }
         let motion_dirty = self.adapter.motions.advance(now);

@@ -188,9 +188,9 @@ fn run() -> Result<()> {
         source.request_rebuild();
         frame(&mut source, &mut tcx)?;
         snafu::ensure!(
-            source.view.snapshot().reset.is_some() && has_label(&source, "View counter: 0"),
+            has_label(&source, "View counter: 0"),
             VerifySnafu {
-                message: "incompatible UI did not reset"
+                message: "incompatible UI slot did not reset"
             }
         );
     }
