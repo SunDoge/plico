@@ -1,5 +1,7 @@
 # 完整设置页：immediate 与显式区域对照
 
+本文按实现阶段记录测量。前部表格保留旧基线；当前属性绑定接入与复测见末节。
+
 ## 范围与复现
 
 在 backend-settings 内保留原 `Settings::preferences`，并新增 `preferences_regions` 模块。两版复用同一独立页面外壳，显示相同控件、文字与样式，包括原生名称输入/预览、通知、advanced 条件分支、保存/重置、主题与 Reduce motion。不是整个多路由应用的迁移；原应用默认行为不变。
@@ -201,3 +203,31 @@ PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions --features regi
 ```
 
 限制：这些结果来自 Linux X11 的软件 Vulkan 驱动，不代表 Wayland、独立显卡、Windows/macOS 或真实中文输入法已经验收。Preferences 示例没有持续动画，静态帧比较不证明动画中间帧、帧间延迟或帧率；异步示例仅验证结果唤醒，不验证真实网络的取消/失败行为。GUI 列表验收检查可见顺序和结果，State owner 的释放与旧句柄拒绝仍由生命周期回归测试覆盖。
+
+## 属性绑定接入页面（2026-10-29，基线 c6d61d8）
+
+设置页的名称预览与保存提示已从区域声明改为 Text `.reactive(...)`：名称标签是静态节点，输入更新执行编辑器 watch 和预览属性绑定；保存提示不再有独立布局容器。编辑器仍使用原生 TextBuffer/bind，工具栏仍走现有事件协议，主题仍由根 Theme 注入。完整页面对照、窄屏、输入身份保持、marked-state checkpoint 恢复和多表单批量更新测试继续覆盖这些改动。
+
+折叠页面节点从 36 降到 34。输入更新的 region batch 声明 visited 从 8 降到 2；属性回调单独运行不计入节点声明 visited，但仍有依赖调度与回调执行成本，不能把这个比例当成总 CPU 加速比。
+
+在同机 release、固定 CPU 7 下，对基线和修改版交错运行三轮；每种交互先预热 200 次，再测 1000 次，取三轮 p50 的中位数。沿用 `preferences_compare` 的事件 → CPU 帧准备计时，不含窗口、Scene 或 GPU。重新构建后核对二进制哈希不同，并核对节点计数 36/34；曾因共享 target 误复用同一二进制的初次结果已丢弃。
+
+| Region 页面操作 | 改前 µs | 改后 µs |
+| --- | ---: | ---: |
+| 通知 | 2.52 | 2.59 |
+| 输入 | 17.90 | 17.31 |
+| 保存 | 33.99 | 33.87 |
+| 重置 | 20.57 | 19.82 |
+| advanced | 37.55 | 40.24 |
+| 主题 | 33.83 | 33.73 |
+
+这轮只支持“声明范围和节点数减少”的结论，不能宣布端到端普遍提速。同步控制组的输入也从 14.79 变为 15.81µs，advanced 从 34.08 变为 36.31µs，提示微小差异会受编译布局与运行负载等因素影响。布局、flatten 和输入管线仍需处理必要工作；小页面仍不支持强制所有代码改用 reactive 的结论。
+
+```sh
+cargo build --release -p backend-settings --example preferences_compare --features regions
+taskset -c 7 target/release/examples/preferences_compare --iterations 1000
+```
+
+跨 checkout 对比应使用独立 target 或明确强制重建，并验证产物哈希和工作计数；不能仅凭 cargo 成功退出认定测量了不同版本。
+
+属性版页面再次完成 X11/Skia llvmpipe 窗口验收：同步/区域以及 damage 开关的 20 对同状态截图仍为 RMSE=0。原生 regions 示例还通过滑块和开关驱动 `.reactive` 的字号、字重、颜色，窗口 OCR 确认 Intensity 为 90%、预览仍显示；计数、宿主 Loaded 唤醒、条件卸载与恢复、resize 也通过。截图与日志只保留在本地 reports，不加入 CI 或仓库。

@@ -64,18 +64,15 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                     text(cx, "").reactive((status,), |node, (status,)| {
                         node.text(status.read().clone());
                     });
-                    button(cx).text("Load on host").on_click(
-                        (status,),
-                        |(status,)| {
-                            status.set(String::from("Loading…"));
-                            let result = status.sender();
-                            std::thread::spawn(move || {
-                                // Simulated host I/O. The UI thread never waits.
-                                std::thread::sleep(std::time::Duration::from_millis(600));
-                                let _ = result.send(String::from("Loaded"));
-                            });
-                        },
-                    );
+                    button(cx).text("Load on host").on_click((status,), |(status,)| {
+                        status.set(String::from("Loading…"));
+                        let result = status.sender();
+                        std::thread::spawn(move || {
+                            // Simulated host I/O. The UI thread never waits.
+                            std::thread::sleep(std::time::Duration::from_millis(600));
+                            let _ = result.send(String::from("Loaded"));
+                        });
+                    });
                     cx.watch((count,), |cx, (count,)| {
                         text!(cx, "Component-local: {}", *count.read());
                         button(cx).text("Local +1").on_click(
@@ -133,12 +130,17 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                             },
                         );
                         text!(cx, "Intensity: {:.0}%", preferences.read().volume);
-                        let settings = *preferences.read();
-                        text(cx, "Live style preview").font_size(14 + (settings.volume / 10.) as u16)
-                            .weight(if settings.enabled { 700 } else { 400 })
-                            .color(if settings.enabled { Color::Accent } else { Color::Muted });
                     };
                 });
+                text(cx, "Live style preview").reactive(
+                    (preferences.handle(),),
+                    |node, (preferences,)| {
+                        let settings = *preferences.read();
+                        node.font_size(14 + (settings.volume / 10.) as u16)
+                            .weight(if settings.enabled { 700 } else { 400 })
+                            .color(if settings.enabled { Color::Accent } else { Color::Muted });
+                    },
+                );
             };
             column(cx).min_width(0.).padding(16).gap(12).radius(12.).background(Color::Panel)
                 .border(1., Color::Border) + |cx|

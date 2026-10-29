@@ -5,7 +5,9 @@ use crate::{Settings, icons};
 use plico::{DeclareView, Theme, prelude::*};
 use plico_runtime::{
     View,
-    regions::{Access, BindState, OnChange, OnClick, RegionApp, RegionProgram, Regions, WatchUi},
+    regions::{
+        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, Regions, WatchUi,
+    },
 };
 
 /// Baseline: the existing Preferences function and ordinary application state.
@@ -78,14 +80,14 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
     column(cx).gap(18) + |cx| {
         column(cx).padding(18).gap(14).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
             text(cx, "Profile / 工作区").font_size(18).weight(600);
+            text(cx, "Workspace name");
             cx.watch((name,), |cx, (name,)| {
-                column(cx).gap(14) + |cx| {
-                    text(cx, "Workspace name");
-                    text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name")
-                        .width_percent(100.).height(36.).bind(name.handle());
-                    let current = name.read().text().unwrap_or_default();
-                    text!(cx, "Current name: {current}").color(Color::Muted);
-                };
+                text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
+                    .height(36.).bind(name.handle());
+            });
+            text(cx, "").color(Color::Muted).reactive((name,), |node, (name,)| {
+                let current = name.read().text().unwrap_or_default();
+                node.text(format!("Current name: {current}"));
             });
             cx.watch((notifications,), |cx, (notifications,)| {
                 let mut value = *notifications.read();
@@ -132,9 +134,11 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 });
             };
         });
-        cx.watch((saved,), |cx, (saved,)| {
+        text(cx, "No changes saved yet").color(Color::Muted).reactive((saved,), |node, (saved,)| {
             let saved = saved.read();
-            text(cx, if saved.message.is_empty() { "No changes saved yet" } else { &saved.message }).color(Color::Muted);
+            if !saved.message.is_empty() {
+                node.text(saved.message.clone());
+            }
         });
         cx.watch((reduced.handle(),), |cx, (reduced,)| {
             let mut value = *reduced.read();

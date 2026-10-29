@@ -381,3 +381,255 @@ fn multiline_property_update_reflows_siblings_like_full_declaration() {
     frame(&mut source, &mut text, 480);
     assert_eq!(geometry(&source), local);
 }
+
+#[derive(Clone, Copy)]
+struct Typography {
+    size: u16,
+    weight: u16,
+    family: FontFamily,
+    opacity: f32,
+    override_baseline: bool,
+}
+impl Default for Typography {
+    fn default() -> Self {
+        Self {
+            size: 18,
+            weight: 400,
+            family: FontFamily::Monospace,
+            opacity: 0.8,
+            override_baseline: true,
+        }
+    }
+}
+fn typography_fixture() -> (Source<Regions>, State<Typography>) {
+    let mut state = None;
+    let app = Regions::new(|app| {
+        let attributes = app.state(Typography::default);
+        state = Some(attributes);
+        app.root((attributes,), |cx, (attributes,)| {
+            column(cx).children(|cx| {
+                text(cx, "Typography")
+                    .font_size(18)
+                    .weight(400)
+                    .font_family(FontFamily::Monospace)
+                    .opacity(0.8)
+                    .reactive((attributes.handle(),), |node, (attributes,)| {
+                        let attributes = attributes.read();
+                        if attributes.override_baseline {
+                            node.font_size(attributes.size)
+                                .weight(attributes.weight)
+                                .font_family(attributes.family)
+                                .opacity(attributes.opacity);
+                            if attributes.size == 0 {
+                                node.text("must not apply invalid text");
+                            }
+                        }
+                    });
+                text(cx, "Following sibling");
+            });
+        });
+    });
+    (Source::new(app), state.unwrap())
+}
+#[test]
+fn typography_reflows_and_opacity_only_repaints_with_baseline_restoration() {
+    let (mut source, attributes) = typography_fixture();
+    let mut text = TextContext::new();
+    frame(&mut source, &mut text, 600);
+    let id = target(&source);
+    let parents = source.view.region_runs();
+    let mut values = Typography {
+        opacity: 0.3,
+        ..Typography::default()
+    };
+    source.view.access(attributes).set(values);
+    source.try_declare().unwrap();
+    assert!(source.engine.changes().contains(Changes::PAINT));
+    assert!(
+        !source
+            .engine
+            .changes()
+            .intersects(Changes::MEASURE | Changes::LAYOUT | Changes::STRUCTURE)
+    );
+    frame(&mut source, &mut text, 600);
+    assert_eq!(source.engine.node(id).unwrap().style.opacity, 0.3);
+    values.size = 34;
+    values.weight = 700;
+    values.family = FontFamily::Serif;
+    source.view.access(attributes).set(values);
+    source.try_declare().unwrap();
+    assert!(
+        source
+            .engine
+            .changes()
+            .contains(Changes::MEASURE | Changes::LAYOUT)
+    );
+    assert_eq!(source.engine.dirty_nodes(), &[id]);
+    frame(&mut source, &mut text, 600);
+    let node = source.engine.node(id).unwrap();
+    assert_eq!(
+        (
+            node.style.font_size,
+            node.style.font_weight,
+            node.style.font_family
+        ),
+        (34, 700, FontFamily::Serif)
+    );
+    assert_eq!(source.declaration_stats.visited, 0);
+    for (entity, runs) in parents {
+        if entity != id {
+            assert_eq!(
+                source
+                    .view
+                    .region_runs()
+                    .iter()
+                    .find(|(e, _)| *e == entity)
+                    .unwrap()
+                    .1,
+                runs
+            );
+        }
+    }
+    let local = source
+        .adapter
+        .placed
+        .iter()
+        .map(|p| p.rect)
+        .collect::<Vec<_>>();
+    source.request_rebuild();
+    frame(&mut source, &mut text, 600);
+    assert_eq!(
+        source
+            .adapter
+            .placed
+            .iter()
+            .map(|p| p.rect)
+            .collect::<Vec<_>>(),
+        local
+    );
+    values.override_baseline = false;
+    source.view.access(attributes).set(values);
+    frame(&mut source, &mut text, 600);
+    let style = source.engine.node(id).unwrap().style;
+    assert_eq!(
+        (
+            style.font_size,
+            style.font_weight,
+            style.font_family,
+            style.opacity
+        ),
+        (18, 400, FontFamily::Monospace, 0.8)
+    );
+    source.view.access(attributes).notify();
+    source.try_declare().unwrap();
+    assert!(source.engine.changes().is_empty());
+}
+#[test]
+fn invalid_dynamic_attributes_are_rejected_before_mutation_and_recover() {
+    let (mut source, state) = typography_fixture();
+    let mut text = TextContext::new();
+    frame(&mut source, &mut text, 600);
+    let id = target(&source);
+    let valid = Typography::default();
+    for invalid in [
+        Typography { size: 0, ..valid },
+        Typography {
+            weight: 99,
+            ..valid
+        },
+        Typography {
+            weight: 901,
+            ..valid
+        },
+        Typography {
+            opacity: f32::NAN,
+            ..valid
+        },
+        Typography {
+            opacity: f32::INFINITY,
+            ..valid
+        },
+        Typography {
+            opacity: -0.1,
+            ..valid
+        },
+        Typography {
+            opacity: 1.1,
+            ..valid
+        },
+    ] {
+        source.view.access(state).set(invalid);
+        assert!(matches!(
+            source.try_declare(),
+            Err(plico_runtime::SourceError::Declaration {
+                source: plico::FrameError::InvalidStyle
+            })
+        ));
+        let node = source.engine.node(id).unwrap();
+        assert_eq!(node.text, "Typography");
+        assert_eq!(
+            (
+                node.style.font_size,
+                node.style.font_weight,
+                node.style.opacity
+            ),
+            (18, 400, 0.8)
+        );
+        source.view.access(state).set(valid);
+        source.try_declare().unwrap();
+        frame(&mut source, &mut text, 600);
+    }
+}
+
+#[test]
+fn global_theme_refresh_preserves_dynamic_typography_and_resolves_color_tokens() {
+    let mut states = None;
+    let app = Regions::new(|app| {
+        let theme = app.state(Theme::light);
+        let size = app.state(|| 28_u16);
+        app.theme_state(theme);
+        states = Some((theme, size));
+        app.root((size,), |cx, (size,)| {
+            text(cx, "Themed").reactive((size.handle(),), |node, (size,)| {
+                node.font_size(*size.read())
+                    .weight(600)
+                    .color(Color::Accent)
+                    .opacity(0.8);
+            });
+        });
+    });
+    let (theme, size) = states.unwrap();
+    let mut source = Source::new(app);
+    source.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    frame(&mut source, &mut text, 600);
+    let id = target(&source);
+    for theme_value in [Theme::dark(), Theme::light()] {
+        source.view.access(theme).set(theme_value);
+        source.view.access(size).set(32);
+        frame(&mut source, &mut text, 600);
+        assert_eq!(source.engine.theme(), theme_value);
+        assert_eq!(target(&source), id);
+        let style = source.engine.node(id).unwrap().style;
+        assert_eq!(
+            (
+                style.font_size,
+                style.font_weight,
+                style.foreground,
+                style.opacity
+            ),
+            (32, 600, Color::Accent, 0.8)
+        );
+        let paint = source
+            .adapter
+            .placed
+            .iter()
+            .find(|p| p.paint.text.as_deref() == Some("Themed"))
+            .unwrap();
+        let rgb = theme_value.accent;
+        assert_eq!(
+            paint.paint.text_color,
+            peniko::Color::from_rgb8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+        );
+    }
+}

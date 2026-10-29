@@ -156,6 +156,14 @@ fn root(
                 |node, (a, b)| {
                     let a = *a.read();
                     node.text(format!("Bound: {a}/{}", *b.read()))
+                        .font_size(12 + (a.unsigned_abs() % 12) as u16)
+                        .weight(if a % 2 == 0 { 700 } else { 400 })
+                        .font_family(if *b.read() % 2 == 0 {
+                            FontFamily::Monospace
+                        } else {
+                            FontFamily::SansSerif
+                        })
+                        .opacity(if a < 0 { 0.4 } else { 1. })
                         .color(if a % 2 == 0 {
                             Color::Accent
                         } else {

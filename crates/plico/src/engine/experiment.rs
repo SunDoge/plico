@@ -10,10 +10,40 @@ pub struct ExperimentContext {
     inherited: Style,
     in_button: bool,
 }
+/// Value-only text attributes available to the explicit property experiment.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
+pub struct ExperimentTextStyle {
+    pub color: crate::Color,
+    pub font_size: u16,
+    pub weight: u16,
+    pub font_family: crate::FontFamily,
+    pub opacity: f32,
+}
+impl From<Style> for ExperimentTextStyle {
+    fn from(style: Style) -> Self {
+        Self {
+            color: style.foreground,
+            font_size: style.font_size,
+            weight: style.font_weight,
+            font_family: style.font_family,
+            opacity: style.opacity,
+        }
+    }
+}
+impl Default for ExperimentTextStyle {
+    fn default() -> Self {
+        Style::default().into()
+    }
+}
 impl UiContext<'_> {
     /// Apply values to an existing plain text leaf, preserving its identity.
     #[doc(hidden)]
-    pub fn experiment_text_properties(&mut self, text: Option<&str>, color: Option<crate::Color>) {
+    pub fn experiment_text_properties(
+        &mut self,
+        text: Option<&str>,
+        attributes: ExperimentTextStyle,
+    ) {
         let node = self
             .engine
             .nodes
@@ -21,6 +51,17 @@ impl UiContext<'_> {
             .expect("missing property target");
         if node.kind != Kind::Text || !node.spans.is_empty() {
             self.engine.error = Some(FrameError::InvalidRegion);
+            return;
+        }
+        let mut style = node.style;
+        style.foreground = attributes.color;
+        style.font_size = attributes.font_size;
+        style.font_weight = attributes.weight;
+        style.font_family = attributes.font_family;
+        style.opacity = attributes.opacity;
+        // Validate before changing text or style, including NaN/invalid opacity.
+        if !style.valid() {
+            self.engine.error = Some(FrameError::InvalidStyle);
             return;
         }
         if let Some(text) = text
@@ -33,14 +74,10 @@ impl UiContext<'_> {
                 Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
             self.engine.stats.text_writes += 1;
         }
-        if let Some(color) = color {
-            let mut style = node.style;
-            style.foreground = color;
-            let diff = style.diff(node.style);
-            node.pending_changes |= diff.changes;
-            node.pending_properties |= diff.properties;
-            node.style = style;
-        }
+        let diff = style.diff(node.style);
+        node.pending_changes |= diff.changes;
+        node.pending_properties |= diff.properties;
+        node.style = style;
     }
     /// Re-enter a container declared earlier in the same full declaration pass.
     pub fn experiment_enter(

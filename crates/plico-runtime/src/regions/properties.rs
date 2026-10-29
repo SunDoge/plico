@@ -2,12 +2,12 @@
 use super::*;
 
 /// Restricted property editor. No tree access and no persistent widget borrow.
-/// Each callback starts from the ordinary builder's text and color. Omitting a
+/// Each callback starts from the ordinary builder's text and attributes. Omitting a
 /// property restores that baseline, so local and full declarations agree.
 #[derive(Default)]
 pub struct TextProperties {
     text: Option<String>,
-    color: Option<plico::Color>,
+    attributes: plico::ExperimentTextStyle,
 }
 impl TextProperties {
     pub fn text(&mut self, value: impl Into<String>) -> &mut Self {
@@ -15,7 +15,23 @@ impl TextProperties {
         self
     }
     pub fn color(&mut self, value: plico::Color) -> &mut Self {
-        self.color = Some(value);
+        self.attributes.color = value;
+        self
+    }
+    pub fn font_size(&mut self, value: u16) -> &mut Self {
+        self.attributes.font_size = value;
+        self
+    }
+    pub fn weight(&mut self, value: u16) -> &mut Self {
+        self.attributes.weight = value;
+        self
+    }
+    pub fn font_family(&mut self, value: plico::FontFamily) -> &mut Self {
+        self.attributes.font_family = value;
+        self
+    }
+    pub fn opacity(&mut self, value: f32) -> &mut Self {
+        self.attributes.opacity = value;
         self
     }
 }
@@ -24,18 +40,21 @@ struct Properties<D: Dependencies> {
     deps: D,
     callback: D::PropertyCallback,
     baseline_text: String,
-    baseline_color: plico::Color,
+    baseline_attributes: plico::ExperimentTextStyle,
 }
 impl<D: Dependencies> Render for Properties<D> {
     fn property(&self) -> bool {
         true
     }
     fn run(&self, app: &Regions, cx: &mut UiContext<'_>) {
-        let mut values = TextProperties::default();
+        let mut values = TextProperties {
+            attributes: self.baseline_attributes,
+            ..TextProperties::default()
+        };
         self.deps.properties(self.callback, app, &mut values);
         cx.experiment_text_properties(
             Some(values.text.as_deref().unwrap_or(&self.baseline_text)),
-            Some(values.color.unwrap_or(self.baseline_color)),
+            values.attributes,
         );
     }
 }
@@ -73,7 +92,7 @@ pub trait Reactive {
 }
 impl Reactive for plico::Text<'_, '_, '_> {
     fn reactive<D: Dependencies>(self, deps: D, callback: D::PropertyCallback) {
-        let (context, baseline_text, baseline_color) = self.experiment_property_target();
+        let (context, baseline_text, baseline_attributes) = self.experiment_property_target();
         commands().borrow_mut().children.push(Child {
             key: ChildKey {
                 parent: context.parent,
@@ -88,7 +107,7 @@ impl Reactive for plico::Text<'_, '_, '_> {
                     deps,
                     callback,
                     baseline_text,
-                    baseline_color,
+                    baseline_attributes,
                 }),
             },
         });

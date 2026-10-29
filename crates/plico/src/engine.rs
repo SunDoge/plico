@@ -2,7 +2,7 @@
 mod experiment;
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
 #[cfg(feature = "experiment-patch")]
-pub use experiment::ExperimentContext;
+pub use experiment::{ExperimentContext, ExperimentTextStyle};
 use std::{borrow::Cow, collections::HashMap};
 
 /// A view the engine can settle: theme and declarations, driven per pass.

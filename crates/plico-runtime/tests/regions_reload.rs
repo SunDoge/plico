@@ -279,3 +279,65 @@ fn region_app_forwards_root_theme_through_development_protocol() {
     let frame = plico_dev::render::<RegionApp<Themed>>(plico_dev::Request::default()).unwrap();
     assert_eq!(frame.theme, plico::Theme::dark());
 }
+
+#[test]
+fn development_reload_rebuilds_property_callbacks_and_restores_dynamic_attributes() {
+    use plico_dev::{Request, render};
+    use plico_runtime::regions::Reactive;
+    struct Styled;
+    impl RegionProgram for Styled {
+        fn build() -> Regions {
+            Regions::new(|app| {
+                let size = app.persisted_state(1, || 18_u16);
+                app.root((size,), |cx, (size,)| {
+                    text(cx, "").reactive((size.handle(),), |node, (size,)| {
+                        let size = *size.read();
+                        node.text(format!("Size {size}"))
+                            .font_size(size)
+                            .weight(if size > 18 { 700 } else { 400 })
+                            .opacity(0.65);
+                    });
+                    button(cx)
+                        .text("Bigger")
+                        .on_click((size.handle(),), |(size,)| size.update(|size| *size += 4));
+                });
+            })
+        }
+    }
+    fn find<'a>(nodes: &'a [plico::ViewNode], label: &str) -> Option<&'a plico::ViewNode> {
+        nodes.iter().find_map(|node| {
+            if node.text == label {
+                Some(node)
+            } else {
+                find(&node.children, label)
+            }
+        })
+    }
+    type App = RegionApp<Styled>;
+    let first = render::<App>(Request::default()).unwrap();
+    let clicked = render::<App>(Request {
+        resume: true,
+        clicks: vec![find_path(&first.nodes, "Bigger").unwrap()],
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(has_text(&clicked.nodes, "Size 22"));
+    let restored = render::<App>(Request {
+        state: clicked.state,
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(restored.reset.is_none());
+    let style = find(&restored.nodes, "Size 22").unwrap().style;
+    assert_eq!(
+        (style.font_size, style.font_weight, style.opacity),
+        (22, 700, 0.65)
+    );
+    let next = render::<App>(Request {
+        resume: true,
+        clicks: vec![find_path(&restored.nodes, "Bigger").unwrap()],
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(find(&next.nodes, "Size 26").unwrap().style.font_size, 26);
+}

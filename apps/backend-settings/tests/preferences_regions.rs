@@ -199,18 +199,35 @@ fn ordinary_updates_skip_page_roots_and_keep_editor_identity() {
     regions.command(Command::Text {
         text: "New name".into(),
     });
-    let changed = regions
+    let changed: Vec<_> = regions
         .source
         .view
         .regions
         .region_runs()
         .into_iter()
         .filter(|(id, runs)| *runs != before[id])
-        .count();
+        .map(|(id, _)| regions.source.engine.node(id).unwrap().kind)
+        .collect();
     assert_eq!(
-        changed, 1,
-        "typing must not replay page or event-only toolbar"
+        changed.len(),
+        2,
+        "only editor watch and preview binding execute"
     );
+    assert_eq!(
+        changed
+            .iter()
+            .filter(|kind| **kind == plico::Kind::Text)
+            .count(),
+        1
+    );
+    assert_eq!(
+        changed
+            .iter()
+            .filter(|kind| **kind == plico::Kind::Column)
+            .count(),
+        1
+    );
+
     assert!(regions.has("Current name: New name"));
 }
 #[test]

@@ -7,7 +7,7 @@ plico-desktop 负责真实后端。旧 crates/plico 响应式 Runtime、图实�
 组件与 archive-gallery / game2048 / task-workspace 旧应用已删除。
 Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
-默认关闭的 `plico-runtime/regions` 新增 ID 驱动的原生区域重放实验；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。接入与限制见 [区域实验](regions.md)，不替代默认 immediate API。
+默认关闭的 `plico-runtime/regions` 新增 ID 驱动的原生区域重放实验；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.reactive(...)` 已支持文字、颜色、字号、字重、字体族、透明度，设置页预览与保存提示使用属性绑定；非法属性、主题更新与开发协议恢复有回归覆盖。接入与限制见 [区域实验](regions.md)，不替代默认 immediate API。
 
 ## 已实现
 
