@@ -231,3 +231,43 @@ taskset -c 7 target/release/examples/preferences_compare --iterations 1000
 跨 checkout 对比应使用独立 target 或明确强制重建，并验证产物哈希和工作计数；不能仅凭 cargo 成功退出认定测量了不同版本。
 
 属性版页面再次完成 X11/Skia llvmpipe 窗口验收：同步/区域以及 damage 开关的 20 对同状态截图仍为 RMSE=0。原生 regions 示例还通过滑块和开关驱动 `.reactive` 的字号、字重、颜色，窗口 OCR 确认 Intensity 为 90%、预览仍显示；计数、宿主 Loaded 唤醒、条件卸载与恢复、resize 也通过。截图与日志只保留在本地 reports，不加入 CI 或仓库。
+
+## 完整路由应用 profile 与无变化通知优化
+
+`settings_compare` 对同一个完整三路应用执行相同语义事件，而不是只测独立 Preferences 表单。覆盖空闲采样、Overview/Activity/Preferences 导航、30 行列表重排、通知、输入、保存、advanced、全局主题和 Details 连续动画；1100×820、release、不创建窗口/Scene/GPU。每轮预热 500 次、测量 5000 次；动画最多取前 30 个 16.667ms 采样。两版最终语义指纹（含叶节点几何）必须一致。
+
+```sh
+cargo build --release -p backend-settings --example settings_compare
+taskset -c 7 target/release/examples/settings_compare --iterations 5000 --warmup 500
+# 也可只跑一个场景：
+taskset -c 7 target/release/examples/settings_compare --scenarios route --iterations 5000
+```
+
+本机固定 CPU 7 的最终 p50（µs；idle 为 ns）：
+
+| 场景 | Immediate | Reactive |
+| --- | ---: | ---: |
+| idle（ns） | 78 | 116 |
+| route | 266.7 | 292.8 |
+| reverse | 75.4 | 85.7 |
+| notifications | 12.1 | 5.0 |
+| typing | 30.0 | 26.3 |
+| save | 46.1 | 44.6 |
+| advanced | 50.8 | 48.9 |
+| theme | 109.1 | 114.2 |
+| Details 动画帧 | 167.4 | 184.6 |
+
+这轮 profile 找到的最大 Reactive 声明浪费是导航后的动画策略：即使采样值和 active 状态都没变，`Access::update` 仍通知 Sidebar/页面，触发额外 replay。新增 `Access::update_if`，允许内部时钟正常推进，但仅在闭包报告可观察变化时通知；普通 `update` 语义不变。同时修复动画补 settle 时没有下一批工作却丢弃已完成 ReplayBatch 的问题。
+
+同核基线与优化后的 route 对照：
+
+| 指标 | 优化前 | 优化后 |
+| --- | ---: | ---: |
+| p50 总耗时 | 302.6µs | 292.8µs |
+| 平均声明/replay | 59.84µs | 50.42µs |
+| visited（Region batch 合计） | 197.0 | 118.3 |
+| declaration passes | 11.0 | 8.33 |
+
+端到端改善约 3.2%，声明阶段约 15.7%。顺序执行的绝对数值仍受 CPU 频率影响，未把其他场景的小幅波动宣称为优化或回归。曾试验父 Region 内 eager 递归 replay，虽然减少排队 pass，但总体收益不稳定且扩大局部 sweep 改动，最终没有保留。
+
+当前结论不是 Reactive 全面更快：局部表单更新已经体现收益，路由、列表结构变化、主题和动画仍受真实 Region column、事件后的第二次声明、全树 Adapter/Taffy 工作影响。下一步优先考虑更新边界与布局节点解耦，以及缩小结构变化后的布局传播；这些需要独立正确性和性能验证。

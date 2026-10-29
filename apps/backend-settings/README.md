@@ -26,6 +26,13 @@ use injected time and finite plico-motion tweens; the host sleeps after settling
 Preferences and Activity state belong to the owner above the route outlet, so
 they remain intact when another route unmounts the active page.
 
+Complete routed-application CPU profiling (navigation, forms, list reorder,
+theme, idle and animation; no window or GPU):
+
+```sh
+cargo run --release -p backend-settings --example settings_compare -- --iterations 5000
+```
+
 ```sh
 xvfb-run -a python3 scripts/check-fltk.py
 cargo test -p backend-settings --features vello --all-targets

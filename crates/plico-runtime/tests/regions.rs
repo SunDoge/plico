@@ -109,6 +109,25 @@ fn real_button_event_updates_native_watch_and_nested_widgets() {
     assert!(contains(&source, "Double 4"));
 }
 #[test]
+fn update_if_can_advance_internal_state_without_notifying() {
+    let (app, count) = app();
+    let mut source = Source::new(app);
+    source.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    paint(&mut source, &mut text, (600, 400));
+    assert!(!source.view.access(count).update_if(|value| {
+        *value += 1;
+        false
+    }));
+    assert_eq!(*source.view.access(count).read(), 1);
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Count 0"));
+    assert!(source.view.access(count).update_if(|_| true));
+    paint(&mut source, &mut text, (600, 400));
+    assert!(contains(&source, "Count 1"));
+}
+
+#[test]
 fn external_state_change_skips_component_root() {
     let (app, count) = app();
     let mut source = Source::new(app);

@@ -106,6 +106,24 @@ impl<T: 'static> Access<'_, T> {
             .extend(slot.readers.borrow().iter().copied());
         result
     }
+    /// Mutate internal state but notify subscribers only when the closure
+    /// reports an observable change. Useful for clocks and animation policies.
+    /// Returning false skips UI invalidation even though the value was mutated.
+    pub fn update_if(&self, f: impl FnOnce(&mut T) -> bool) -> bool {
+        assert!(
+            !self.app.building.get(),
+            "write state in an event callback, not watch"
+        );
+        let slot = &self.app.slot(self.state.component, self.state.index);
+        let changed = f(slot.value.borrow_mut().downcast_mut().unwrap());
+        if changed {
+            self.app
+                .dirty
+                .borrow_mut()
+                .extend(slot.readers.borrow().iter().copied());
+        }
+        changed
+    }
 }
 struct Slot {
     value: RefCell<Box<dyn Any>>,

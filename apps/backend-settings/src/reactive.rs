@@ -154,7 +154,13 @@ impl Settings {
         self.last_width = width;
         self.regions
             .access(self.states.animations)
-            .update(|animations| {
+            .update_if(|animations| {
+                let before = (
+                    animations.sidebar(),
+                    animations.inspector(),
+                    animations.progress(),
+                    animations.active(),
+                );
                 animations.advance(now);
                 animations.set_reduced(policy.reduced);
                 if policy.page != Page::Overview {
@@ -164,6 +170,13 @@ impl Settings {
                     policy.compact || policy.narrow,
                     policy.inspector && policy.page == Page::Overview && policy.details_visible,
                 );
+                before
+                    != (
+                        animations.sidebar(),
+                        animations.inspector(),
+                        animations.progress(),
+                        animations.active(),
+                    )
             });
     }
     fn policy_targets_changed(&self, now: Duration, width: f32) -> bool {
@@ -272,10 +285,11 @@ impl View for Settings {
             let next = self.regions.replay_regions(engine);
             match (result.as_mut(), next) {
                 (Some(Ok(batch)), Some(Ok(next))) => merge_batch(batch, next),
-                (_, next) => {
-                    result = next;
+                (_, Some(next)) => {
+                    result = Some(next);
                     break;
                 }
+                (_, None) => break,
             }
         }
         if self.animation_requested(now, width)
