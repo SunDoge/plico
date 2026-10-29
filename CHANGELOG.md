@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11](https://github.com/SunDoge/plico/compare/v0.1.10...v0.1.11) - 2026-10-29
+
+### Added
+
+- *(regions)* make reactive settings the default model
+- *(regions)* mount keyed route pages through reactive outlets
+- *(regions)* expand reactive text styles and adopt settings bindings
+- *(regions)* bind text properties to explicit state dependencies
+- *(settings)* compare region and immediate preferences APIs
+- *(runtime)* restore region state with best-effort checkpoints
+- *(runtime)* route host task results to region state IDs
+- *(runtime)* own region local state by keyed components
+- *(runtime)* bind form controls and keyed lists to native regions
+- *(runtime)* add opt-in native regions with tuple callbacks
+- *(experiments)* validate ID-driven nested region replay
+
+### Fixed
+
+- *(regions)* align batched events and recover failed replays
+
+### Other
+
+- *(renderer)* reuse paint storage during full-tree flattening
+- *(runtime)* skip unrelated adapter work on local updates
+- *(runtime)* skip unrelated nodes during geometry alignment
+- *(regions)* avoid unchanged animation replays
+- *(ui)* share text style setters with reactive bindings
+
 ## [0.1.10](https://github.com/SunDoge/plico/compare/v0.1.9...v0.1.10) - 2026-10-28
 
 ### Added
