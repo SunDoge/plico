@@ -8,6 +8,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	"log"
 	"math"
+	"os"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
 )
@@ -24,10 +26,14 @@ type demo struct {
 	latest                   atomic.Uint64
 	config                   atomic.Uint64
 	wake                     chan struct{}
+	hud                      bool
 }
 
 func newDemo() *demo {
-	a := &demo{running: true, frequency: 2, wake: make(chan struct{}, 1)}
+	a := &demo{running: true, frequency: 2, wake: make(chan struct{}, 1), hud: os.Getenv("SPARSE_HUD") != "0"}
+	if os.Getenv("SPARSE_DRIVER") == "paint" {
+		a.driver = 1
+	}
 	for i := 0; i < 1000; i++ {
 		a.labels = append(a.labels, fmt.Sprintf("%03d:00", i))
 	}
@@ -117,11 +123,13 @@ func (a *demo) view(c *ui.Context, stats *ui.SparseWindowStats) {
 				a.latest.Add(1)
 			}
 		})
-		ui.Box(c).Height(70).Shrink(0).Radius(8).Background(t.Surface).Clip().Draw(func(p *ui.Painter, r ui.Rect) {
-			for i, line := range stats.Lines {
-				p.Text(r.X+10, r.Y+7+float32(i)*19, line, 13, t.Text)
-			}
-		})
+		if a.hud {
+			ui.Box(c).Height(70).Shrink(0).Radius(8).Background(t.Surface).Clip().Draw(func(p *ui.Painter, r ui.Rect) {
+				for i, line := range stats.Lines {
+					p.Text(r.X+10, r.Y+7+float32(i)*19, line, 13, t.Text)
+				}
+			})
+		}
 		caption := "All 1000 labels are visible; only the first label changes. Cached layouts stay enabled."
 		if a.scene == 1 {
 			caption = "Native Table, row virtualization enabled; one status label changes. Horizontal columns are not virtualized."
@@ -184,6 +192,9 @@ func main() {
 	a := newDemo()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	profileDone := make(chan struct{})
+	go func() { defer close(profileDone); recordProfile(ctx) }()
+	defer func() { cancel(); <-profileDone }()
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{Title: "MyGO sparse-update lab", Width: 1440, Height: 1060, MinWidth: 1180, MinHeight: 1000, UseContentSize: true, Content: ui.SparseDiagnosticView(a.view)})
 		a.win.OnClosed(cancel)
@@ -192,5 +203,38 @@ func main() {
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// Optional real-window profile: settle for 2s, sample for 6s. No work is added
+// to the UI loop; SPARSE_AUTOCLOSE only closes explicitly requested test runs.
+func recordProfile(ctx context.Context) {
+	path := os.Getenv("SPARSE_PROFILE")
+	if path == "" {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(2 * time.Second):
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		log.Printf("profile: %v", err)
+		return
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		f.Close()
+		log.Printf("profile: %v", err)
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(6 * time.Second):
+	}
+	pprof.StopCPUProfile()
+	f.Close()
+	if os.Getenv("SPARSE_AUTOCLOSE") == "1" {
+		mygo.App.Quit()
 	}
 }

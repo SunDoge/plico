@@ -195,3 +195,43 @@ HUD 自身约 4Hz 更新，也可能创建少量文字布局；真实窗口的 C
 真实窗口已经用隔离 X11 / Xvfb 验证初次呈现、paint-only 不执行 build/layout、暂停不
 持续申请帧，以及 Scroll / List 切换；也已在本机 Wayland 桌面以实际 GPU 路径启动。
 截图、窗口日志和本地验证脚本仍只放在 reports，不进入 CI。
+
+### Paint-only 仍高 CPU：真实窗口 profile
+
+窗口现在支持以下诊断环境变量，不改变默认场景：
+
+- `SPARSE_DRIVER=paint`：启动时选中 paint-only。
+- `SPARSE_HUD=0`：不绘制诊断 HUD，排除 HUD 自身的文字成本。
+- `SPARSE_PROFILE=/absolute/path/profile.cpu`：窗口启动 2 秒后，采集 6 秒 Go CPU profile。
+- `SPARSE_AUTOCLOSE=1`：该 profile 完成后关闭本次测试窗口。
+
+```sh
+MYGO_DIR=/path/to/mygo SPARSE_DRIVER=paint SPARSE_HUD=0 \
+  SPARSE_PROFILE="$PWD/reports/mygo-sparse/paint.cpu" SPARSE_AUTOCLOSE=1 \
+  benchmarks/mygo-sparse/window.sh
+go tool pprof -top reports/mygo-sparse/mygo-sparse-window reports/mygo-sparse/paint.cpu
+```
+
+2026-10-29，本机实际 Wayland / GPU 窗口，1000 个可见 Text，顺序采样三组，每组
+2 秒预热、6 秒 profile。窗口日志中活跃一秒 CPU 样本的中位数：
+
+| 模式 | 实际完成频率 | 进程 CPU，单核口径 | build / layout |
+| --- | ---: | ---: | --- |
+| paint-only，有 HUD | 46.6 帧/s | 35.3% | 0 / 0 |
+| paint-only，无 HUD | 46.4 帧/s | 34.5% | 0 / 0 |
+| 状态更新，无 HUD | 59.9 帧/s | 50.4% | 约 0.84 / 1.04ms |
+
+这是短时间顺序测量，并非统计严谨的框架加速比。尤其 `Painter.After` 和外部 ticker
+在实际窗口中交付的频率不同，不能把 35% / 50% 的差值直接归因于跳过声明与布局。
+按上述样本粗略除以完成帧数，两条无 HUD 路径约为 7.4 / 8.4ms 进程 CPU/帧，进程
+范围含 GTK 和驱动线程，不等于 UI 线程 prepare 墙钟时间。
+
+无 HUD 的 paint-only profile 中，`Painter.element` 累计约占 CPU 样本 38.3%，其中
+`textForeground` 约 29.1%，`System.Glyph` 约 11.7%；GPU Builder 约 5.6%。这些包含关系
+不能相加。约 49.5% flat 样本停留在 `runtime.cgocall`，Go profile 未解析原生栈，无法再
+区分 GTK、GL 驱动和 interop 的具体占比；不能把它直接解释成 purego 边界调用开销。
+
+因此用户看到 paint-only 仍占单核约 39% 是可复现的量级，HUD 并非主要原因，且该路径
+确实跳过了声明与布局。仍会每帧遍历可见元素、查询缓存字形、重新生成 Scene / GPU
+实例并提交 native renderer。这个结果不能被用来证明 reactive 能消除全部高 CPU，
+需要分别处理前端更新范围与后端绘制成本。此轮未修改 MyGO 原始实现。
