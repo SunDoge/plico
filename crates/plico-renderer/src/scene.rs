@@ -1,12 +1,15 @@
 //! Build a retained Wabou paint scene from the flattened layout list.
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use crate::{PaintScene, Scene};
 use kurbo::{Affine, Rect, Stroke};
 use peniko::{BlendMode, Color, Fill};
 
-use crate::layout::{PlacedNode, SubtreeEvent, subtree_events};
+use crate::layout::PlacedNode;
 use crate::scrollbar::{ScrollAxis, thumb as scrollbar_thumb, track as scrollbar_track};
 use crate::style::{CornerRadii, IrLength, PaintTransform, Shadow};
 use crate::text::TextContext;
@@ -569,16 +572,8 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine, open_l
 }
 
 enum Layer {
-    Clip { depth: usize },
-    Opacity { depth: usize },
-}
-
-impl Layer {
-    fn depth(&self) -> usize {
-        match self {
-            Self::Clip { depth } | Self::Opacity { depth } => *depth,
-        }
-    }
+    Clip,
+    Opacity,
 }
 
 /// Paint `nodes` into `scene` over a `base_color` background. Text nodes are
@@ -628,97 +623,219 @@ pub fn build_scene_scaled_layers(
 ) {
     scene.reset();
     let device = Affine::scale(device_scale);
-
     let bg = Rect::new(0.0, 0.0, width as f64, height as f64);
-    let viewport = bg;
     if base_color != Color::TRANSPARENT {
         scene.fill(Fill::NonZero, device, base_color, None, &bg);
     }
+    let roots_for_cache = HashSet::new();
+    let invalid = HashSet::new();
+    let mut encoder = Encoder {
+        tcx,
+        device,
+        bg,
+        viewport: bg,
+        device_scale,
+        cache_roots: &roots_for_cache,
+        invalid: &invalid,
+        cache: None,
+    };
+    for nodes in roots {
+        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg);
+    }
+}
 
-    // Ancestor transforms keyed by depth. Enter/Exit events are balanced
-    // preorder, so a node's parent is the deepest still-open entry and its
-    // own transform stays on the stack until its Exit: no per-node hashing
-    // on the scene-encoding path.
-    let mut transforms: Vec<(usize, Affine)> = Vec::new();
-    let mut layers = Vec::new();
-    let mut clips: Vec<(usize, Rect)> = Vec::new();
-    let mut skipped_depth = None;
-    for event in roots.iter().flat_map(|nodes| subtree_events(nodes)) {
-        if let Some(depth) = skipped_depth {
-            if matches!(event, SubtreeEvent::Exit(n) if n.depth == depth) {
-                skipped_depth = None;
-            }
-            continue;
+/// Reusable, independently encoded Region subtrees.
+///
+/// Unlike per-node command ranges, a clean subtree is appended as one retained
+/// fragment. Reuse therefore does not copy its commands into a new flat Vec.
+#[derive(Default)]
+pub struct SceneCache {
+    entries: HashMap<taffy::NodeId, CachedSubtree>,
+    key: Option<(u32, u32, u64)>,
+    /// Number of fragments appended without re-encoding this frame.
+    pub reused: usize,
+    /// Number of Region fragments encoded this frame.
+    pub built: usize,
+    /// Number of placed nodes whose own paint was encoded this frame.
+    pub encoded_nodes: usize,
+}
+struct CachedSubtree {
+    scene: Scene,
+    parent_transform: Affine,
+    inherited_clip: Rect,
+}
+impl SceneCache {
+    /// Drop all fragments after a topology change that may recycle node IDs.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.key = None;
+    }
+    fn begin_frame(&mut self, width: u32, height: u32, scale: f64) {
+        self.reused = 0;
+        self.built = 0;
+        self.encoded_nodes = 0;
+        let key = (width, height, scale.to_bits());
+        if self.key != Some(key) {
+            self.entries.clear();
+            self.key = Some(key);
         }
-        let SubtreeEvent::Enter(n) = event else {
-            let SubtreeEvent::Exit(n) = event else {
-                unreachable!()
-            };
-            // All descendants have exited and popped their entries, so this
-            // node's own transform is on top of the stack.
-            if let Some(&(_, transform)) = transforms.last().filter(|(depth, _)| *depth == n.depth)
-                && paints_viewport(n, transform, viewport)
-            {
-                draw_scrollbars(scene, n, device * transform);
+    }
+}
+
+/// Encode a scene while reusing clean Region fragments. `invalid` must include
+/// every cache root whose own paint, geometry or descendant output changed.
+pub fn build_scene_cached(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    cache_roots: &HashSet<taffy::NodeId>,
+    invalid: &HashSet<taffy::NodeId>,
+    cache: &mut SceneCache,
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+) {
+    cache.begin_frame(width, height, device_scale);
+    scene.reset();
+    let device = Affine::scale(device_scale);
+    let bg = Rect::new(0.0, 0.0, width as f64, height as f64);
+    if base_color != Color::TRANSPARENT {
+        scene.fill(Fill::NonZero, device, base_color, None, &bg);
+    }
+    let mut encoder = Encoder {
+        tcx,
+        device,
+        bg,
+        viewport: bg,
+        device_scale,
+        cache_roots,
+        invalid,
+        cache: Some(cache),
+    };
+    for nodes in roots {
+        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg);
+    }
+}
+
+struct Encoder<'a> {
+    tcx: &'a mut TextContext,
+    device: Affine,
+    bg: Rect,
+    viewport: Rect,
+    device_scale: f64,
+    cache_roots: &'a HashSet<taffy::NodeId>,
+    invalid: &'a HashSet<taffy::NodeId>,
+    cache: Option<&'a mut SceneCache>,
+}
+impl Encoder<'_> {
+    fn encode_nodes(
+        &mut self,
+        scene: &mut Scene,
+        mut nodes: &[PlacedNode],
+        parent_transform: Affine,
+        inherited_clip: Rect,
+    ) {
+        while let Some(first) = nodes.first() {
+            let len = nodes[1..]
+                .iter()
+                .position(|node| node.depth <= first.depth)
+                .map_or(nodes.len(), |index| index + 1);
+            self.encode_one(scene, &nodes[..len], parent_transform, inherited_clip);
+            nodes = &nodes[len..];
+        }
+    }
+
+    fn encode_one(
+        &mut self,
+        scene: &mut Scene,
+        nodes: &[PlacedNode],
+        parent_transform: Affine,
+        inherited_clip: Rect,
+    ) {
+        let node = &nodes[0];
+        if self.cache_roots.contains(&node.node_id) {
+            let cached = self.cache.as_ref().and_then(|cache| {
+                cache.entries.get(&node.node_id).and_then(|cached| {
+                    (!self.invalid.contains(&node.node_id)
+                        && cached.parent_transform == parent_transform
+                        && cached.inherited_clip == inherited_clip)
+                        .then(|| cached.scene.clone())
+                })
+            });
+            if let Some(fragment) = cached {
+                scene.append_cached_scene(fragment, Affine::IDENTITY);
+                if let Some(cache) = self.cache.as_deref_mut() {
+                    cache.reused += 1;
+                }
+                return;
             }
-            while clips.last().is_some_and(|(depth, _)| *depth >= n.depth) {
-                clips.pop();
+            // Backdrop sampling reads commands preceding this subtree. Encoding
+            // it into an independent fragment would capture the wrong backdrop.
+            let independent = !nodes.iter().any(|node| node.paint.backdrop_blur > 0.0);
+            if independent {
+                let mut fragment = Scene::new();
+                self.encode_contents(&mut fragment, nodes, parent_transform, inherited_clip);
+                scene.append_cached_scene(fragment.clone(), Affine::IDENTITY);
+                if let Some(cache) = self.cache.as_deref_mut() {
+                    cache.built += 1;
+                    cache.entries.insert(
+                        node.node_id,
+                        CachedSubtree {
+                            scene: fragment,
+                            parent_transform,
+                            inherited_clip,
+                        },
+                    );
+                }
+                return;
             }
-            while transforms
-                .last()
-                .is_some_and(|(depth, _)| *depth >= n.depth)
-            {
-                transforms.pop();
-            }
-            while layers
-                .last()
-                .is_some_and(|layer: &Layer| layer.depth() >= n.depth)
-            {
-                scene.pop_layer();
-                layers.pop();
-            }
-            continue;
-        };
-        let inherited_clip = clips.last().map_or(viewport, |(_, rect)| *rect);
+        }
+        self.encode_contents(scene, nodes, parent_transform, inherited_clip);
+    }
+
+    fn encode_contents(
+        &mut self,
+        scene: &mut Scene,
+        nodes: &[PlacedNode],
+        parent_transform: Affine,
+        inherited_clip: Rect,
+    ) {
+        let n = &nodes[0];
+        if let Some(cache) = self.cache.as_deref_mut() {
+            cache.encoded_nodes += 1;
+        }
         let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
-            skipped_depth = Some(n.depth);
-            continue;
+            return;
         }
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
-        while transforms
-            .last()
-            .is_some_and(|(depth, _)| *depth >= n.depth)
-        {
-            transforms.pop();
-        }
-        let parent_transform = transforms
-            .last()
-            .map_or(Affine::IDENTITY, |(_, transform)| *transform);
         let css_transform = resolve_node_transform(n, parent_transform);
-        transforms.push((n.depth, css_transform));
-        let node_transform = device * css_transform;
+        let node_transform = self.device * css_transform;
         let paints_node = paints_viewport(n, css_transform, inherited_clip);
         let child_clip = n
             .own_clip
             .and_then(|clip| clip_bounds(clip, css_transform))
             .map_or(inherited_clip, |clip| inherited_clip.intersect(clip));
-        clips.push((n.depth, child_clip));
-
         let enc = EncodeCtx {
             node: n,
             node_transform,
             paints_node,
             has_rounded_corners,
-            device,
-            bg: &bg,
-            viewport,
-            device_scale,
+            device: self.device,
+            bg: &self.bg,
+            viewport: self.viewport,
+            device_scale: self.device_scale,
         };
-        encode_node(scene, tcx, &enc, &mut layers);
-    }
-    while layers.pop().is_some() {
-        scene.pop_layer();
+        let mut layers = Vec::new();
+        encode_node(scene, self.tcx, &enc, &mut layers);
+        self.encode_nodes(scene, &nodes[1..], css_transform, child_clip);
+        if paints_viewport(n, css_transform, self.viewport) {
+            draw_scrollbars(scene, n, node_transform);
+        }
+        while layers.pop().is_some() {
+            scene.pop_layer();
+        }
     }
 }
 
@@ -763,7 +880,7 @@ fn encode_node(
     let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
     if opacity < 1.0 {
         scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
-        layers.push(Layer::Opacity { depth: n.depth });
+        layers.push(Layer::Opacity);
     }
 
     if paints_node {
@@ -787,7 +904,7 @@ fn encode_node(
             *node_transform,
             &clip_rect.to_rounded_rect(n.own_clip_radii.as_f64_tuple()),
         );
-        layers.push(Layer::Clip { depth: n.depth });
+        layers.push(Layer::Clip);
     }
 
     if paints_node {
@@ -883,6 +1000,188 @@ mod tests {
         assert_eq!(std_dev, 7.5);
     }
     #[test]
+    fn cached_subtrees_match_full_transform_clip_and_layer_encoding() {
+        let mut parent = test_node(0, [5., 7., 95., 107.]);
+        parent.own_clip = Some([5., 7., 95., 107.]);
+        parent.paint.opacity = 0.8;
+        parent.paint.transform = vec![PaintTransform::Translate(
+            IrLength::Px { value: 2. },
+            IrLength::Px { value: 0. },
+        )];
+        let mut child = test_node(1, [10., 12., 30., 32.]);
+        child.parent_node_id = Some(parent.node_id);
+        child.paint.background = Some(Color::WHITE);
+        let mut sibling = test_node(1, [40., 12., 60., 32.]);
+        unique_node_ids(&mut [&mut parent, &mut child, &mut sibling]);
+        sibling.parent_node_id = Some(parent.node_id);
+        child.parent_node_id = Some(parent.node_id);
+        let nodes = vec![parent.clone(), child.clone(), sibling];
+        let roots = HashSet::from([parent.node_id]);
+        let mut cache = SceneCache::default();
+        let mut actual = Scene::new();
+        let mut text = TextContext::new();
+        for (iteration, invalid) in [HashSet::new(), HashSet::new()].into_iter().enumerate() {
+            build_scene_cached(
+                &mut actual,
+                &[&nodes],
+                &roots,
+                &invalid,
+                &mut cache,
+                &mut text,
+                100,
+                100,
+                Color::TRANSPARENT,
+                1.,
+            );
+            assert_eq!(
+                actual.flattened().commands,
+                encoded(&nodes).commands,
+                "iteration {iteration}"
+            );
+            assert!(
+                !actual
+                    .flattened()
+                    .commands
+                    .iter()
+                    .any(|command| { matches!(command, crate::PaintCommand::Fragment { .. }) })
+            );
+        }
+        assert_eq!(cache.reused, 1);
+        assert_eq!(cache.encoded_nodes, 0);
+
+        let mut changed = vec![parent.clone(), child, test_node(1, [45., 20., 65., 40.])];
+        changed[2].parent_node_id = Some(parent.node_id);
+        build_scene_cached(
+            &mut actual,
+            &[&changed],
+            &roots,
+            &HashSet::from([parent.node_id]),
+            &mut cache,
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(actual.flattened().commands, encoded(&changed).commands);
+    }
+
+    #[test]
+    fn cached_subtree_rejects_changed_inherited_context() {
+        let mut parent = test_node(0, [0., 0., 100., 100.]);
+        let mut child = test_node(1, [10., 10., 40., 40.]);
+        unique_node_ids(&mut [&mut parent, &mut child]);
+        child.parent_node_id = Some(parent.node_id);
+        let nodes = vec![child];
+        let roots = HashSet::from([nodes[0].node_id]);
+        let mut cache = SceneCache::default();
+        let mut actual = Scene::new();
+        let mut text = TextContext::new();
+        // Build the context through a non-cached parent, then remove that
+        // parent without clearing the cache to exercise the context key.
+        let with_parent = vec![parent.clone(), nodes[0].clone()];
+        build_scene_cached(
+            &mut actual,
+            &[&with_parent],
+            &roots,
+            &HashSet::new(),
+            &mut cache,
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(actual.flattened().commands, encoded(&with_parent).commands);
+
+        let mut transformed_parent = parent;
+        transformed_parent.paint.transform = vec![PaintTransform::Translate(
+            IrLength::Px { value: 8. },
+            IrLength::Px { value: 0. },
+        )];
+        let transformed = vec![transformed_parent, nodes[0].clone()];
+        build_scene_cached(
+            &mut actual,
+            &[&transformed],
+            &roots,
+            &HashSet::new(),
+            &mut cache,
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(cache.built, 1);
+        assert_eq!(actual.flattened().commands, encoded(&transformed).commands);
+    }
+
+    #[test]
+    fn scene_cache_key_includes_viewport_and_device_scale() {
+        let mut node = test_node(0, [0., 0., 40., 40.]);
+        unique_node_ids(&mut [&mut node]);
+        let nodes = vec![node.clone()];
+        let roots = HashSet::from([node.node_id]);
+        let mut cache = SceneCache::default();
+        let mut actual = Scene::new();
+        let mut text = TextContext::new();
+        for (width, scale) in [(100, 1.), (100, 2.), (200, 2.)] {
+            build_scene_cached(
+                &mut actual,
+                &[&nodes],
+                &roots,
+                &HashSet::new(),
+                &mut cache,
+                &mut text,
+                width,
+                100,
+                Color::TRANSPARENT,
+                scale,
+            );
+            let mut expected = Scene::new();
+            build_scene_scaled_layers(
+                &mut expected,
+                &[&nodes],
+                &mut TextContext::new(),
+                width,
+                100,
+                Color::TRANSPARENT,
+                scale,
+            );
+            assert_eq!(cache.built, 1);
+            assert_eq!(cache.reused, 0);
+            assert_eq!(actual.flattened().commands, expected.commands);
+        }
+    }
+
+    #[test]
+    fn backdrop_subtrees_stay_inline_with_their_actual_background() {
+        let mut parent = test_node(0, [0., 0., 100., 100.]);
+        let mut child = test_node(1, [10., 10., 40., 40.]);
+        unique_node_ids(&mut [&mut parent, &mut child]);
+        child.parent_node_id = Some(parent.node_id);
+        child.paint.backdrop_blur = 3.;
+        let nodes = vec![parent.clone(), child];
+        let roots = HashSet::from([parent.node_id]);
+        let mut cache = SceneCache::default();
+        let mut actual = Scene::new();
+        build_scene_cached(
+            &mut actual,
+            &[&nodes],
+            &roots,
+            &HashSet::new(),
+            &mut cache,
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(actual.commands, encoded(&nodes).commands);
+        assert!(cache.entries.is_empty());
+    }
+
+    #[test]
     fn shadow_radius_can_be_independent_from_node_radius_and_spread() {
         let shadow = Shadow {
             offset_x: 0.0,
@@ -896,6 +1195,13 @@ mod tests {
 
         assert_eq!(radius, 24.0);
     }
+    fn unique_node_ids(nodes: &mut [&mut PlacedNode]) {
+        let mut tree = taffy::TaffyTree::<()>::new();
+        for node in nodes {
+            node.node_id = tree.new_leaf(taffy::Style::default()).unwrap();
+        }
+    }
+
     fn test_node(depth: usize, rect: [f32; 4]) -> PlacedNode {
         let mut tree = taffy::TaffyTree::<()>::new();
         let node_id = tree.new_leaf(taffy::Style::default()).unwrap();

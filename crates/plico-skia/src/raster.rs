@@ -92,6 +92,7 @@ impl Resources {
     pub(crate) fn ink_bounds(&mut self, command: &PaintCommand) -> Option<kurbo::Rect> {
         use kurbo::Rect;
         match command {
+            PaintCommand::Fragment { .. } => None,
             PaintCommand::Paragraph { request, transform } => Some(
                 transform.transform_rect_bbox(
                     self.paragraphs
@@ -395,6 +396,19 @@ impl SkiaSurface {
         scene: &Scene,
         background: Color,
     ) -> Result<DamageRegion, Error> {
+        // Damage bounds and replay culling must index the same command stream.
+        // Expand retained fragments once before either consumer sees them.
+        let expanded;
+        let scene = if scene
+            .commands
+            .iter()
+            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
+        {
+            expanded = scene.flattened();
+            &expanded
+        } else {
+            scene
+        };
         // Dense redraws cannot repay command comparison. Probe again after a
         // bounded cooldown; content remains correct through full redraws.
         if self.tracking_cooldown > 0 {
@@ -502,6 +516,17 @@ impl SkiaSurface {
     ) -> Result<(), Error> {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::skia", "skia.replay", commands = scene.commands.len()).entered();
+        let expanded;
+        let scene = if scene
+            .commands
+            .iter()
+            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
+        {
+            expanded = scene.flattened();
+            &expanded
+        } else {
+            scene
+        };
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         #[cfg(feature = "profiling")]
         let mut work = crate::diagnostics::ReplayWork::default();
@@ -546,6 +571,9 @@ impl SkiaSurface {
             work.replayed(command);
             let canvas = self.surface.canvas();
             match command {
+                PaintCommand::Fragment { .. } => {
+                    unreachable!("retained fragments are expanded before Skia replay")
+                }
                 PaintCommand::Paragraph { request, transform } => {
                     let paragraphs = self.resources.borrow().paragraphs.clone();
                     let paragraph = paragraphs.borrow_mut().layout(request.clone());

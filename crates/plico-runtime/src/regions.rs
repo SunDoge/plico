@@ -130,8 +130,9 @@ struct Slot {
     readers: RefCell<Vec<RegionId>>,
     persistent: Option<reload::Codec>,
 }
-/// A dependency tuple selects concrete function-pointer types. This also lets
-/// named functions coerce without casts on stable Rust's higher-ranked solver.
+/// A single state or dependency tuple selects concrete function-pointer types.
+/// This also lets named functions coerce without casts on stable Rust's
+/// higher-ranked solver.
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
@@ -198,6 +199,44 @@ impl Dependencies for () {
         callback((), value);
     }
 }
+impl<T: 'static> Dependencies for State<T> {
+    type Callback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>);
+    type EventCallback = for<'a> fn(Access<'a, T>);
+    type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, Access<'b, T>);
+    type RouteCallback<R: 'static> = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, R, Access<'c, T>);
+    type ChangeCallback<V: 'static> = for<'a> fn(Access<'a, T>, V);
+
+    fn bindings(&self) -> Vec<Binding> {
+        vec![(self.owner, self.component, self.index)]
+    }
+    fn properties(
+        &self,
+        callback: Self::PropertyCallback,
+        app: &Regions,
+        target: &mut TextProperties,
+    ) {
+        callback(target, app.access(*self));
+    }
+    fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) {
+        callback(cx, app.access(*self));
+    }
+    fn event(&self, callback: Self::EventCallback, app: &Regions) {
+        callback(app.access(*self));
+    }
+    fn route<R: 'static>(
+        &self,
+        callback: Self::RouteCallback<R>,
+        app: &Regions,
+        cx: &mut UiContext<'_>,
+        route: R,
+    ) {
+        callback(cx, route, app.access(*self));
+    }
+    fn change<V: 'static>(&self, callback: Self::ChangeCallback<V>, app: &Regions, value: V) {
+        callback(app.access(*self), value);
+    }
+}
+
 macro_rules! dependency_tuple {
     ($($name:ident : $index:tt),+) => {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
@@ -1108,6 +1147,9 @@ impl View for Regions {
         if !self.dirty.get_mut().is_empty() {
             cx.request_rebuild();
         }
+    }
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        self.bindings.keys().copied().collect()
     }
     fn replay_regions(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
         let result = self.replay(engine);

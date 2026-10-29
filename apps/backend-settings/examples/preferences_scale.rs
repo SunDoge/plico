@@ -19,6 +19,15 @@ struct Options {
     /// Add the same region tree with local replay disabled (bookkeeping remains).
     #[usage(long)]
     full_control: bool,
+    /// Force full flattening while retaining the same local Reactive replay.
+    #[usage(long)]
+    full_geometry: bool,
+    /// Include backend-neutral Scene encoding in every measured frame.
+    #[usage(long)]
+    scene: bool,
+    /// Force full Scene encoding while retaining local Reactive replay.
+    #[usage(long)]
+    full_scene: bool,
     /// Counts or percentages of forms changed per frame, e.g. 1,10%,100%.
     #[usage(long, default = "1,10%,100%")]
     updates: String,
@@ -166,8 +175,11 @@ fn bench<V: View>(
     options: &Options,
 ) -> Evidence {
     let mut source = Source::new(view);
+    source.adapter.experiment_force_full_geometry = options.full_geometry;
+    source.experiment_force_full_scene = options.full_scene;
     source.set_reduced_motion(true);
     let mut text = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
     prepare(&mut source, &mut text, height);
     let targets = ids(&source, scenario, k);
     #[cfg(feature = "profiling")]
@@ -179,6 +191,10 @@ fn bench<V: View>(
         (0_u128, 0_u128, 0_u128, 0_u128);
     let (mut flattened, mut layout_runs, mut sync_visits, mut passes) =
         (0_usize, 0_usize, 0_usize, 0_usize);
+    let (mut scene_us, mut scene_builds, mut flatten_patches, mut layout_checks) =
+        (0_u128, 0_usize, 0_usize, 0_usize);
+    let (mut fragment_builds, mut fragment_reuses, mut scene_nodes) = (0_usize, 0_usize, 0_usize);
+    let (mut scene_full, mut scene_invalid) = (0_usize, 0_usize);
     for index in 0..options.warmup + options.iterations {
         let before = source.batch_stats().declaration_passes;
         #[cfg(feature = "profiling")]
@@ -186,7 +202,18 @@ fn bench<V: View>(
         let start = Instant::now();
         event(&mut source, scenario, &targets, index);
         let events = start.elapsed().as_nanos();
-        prepare(&mut source, &mut text, height);
+        if options.scene {
+            let timing = source
+                .render_retained_frame(&mut scene, &mut text, (900, height), 1.)
+                .unwrap();
+            if index >= options.warmup {
+                scene_us += (timing.2 * 1000.) as u128;
+            }
+            black_box(&scene.commands);
+        } else {
+            prepare(&mut source, &mut text, height);
+        }
+        assert!(source.last_error.is_none(), "{:?}", source.last_error);
         let elapsed = start.elapsed().as_nanos();
         black_box(&source.adapter.placed);
         if index == options.warmup {
@@ -204,6 +231,14 @@ fn bench<V: View>(
             layout_runs += source.adapter.stats.layout_runs;
             sync_visits += source.adapter.stats.sync_visits;
             passes += source.batch_stats().declaration_passes - before;
+            scene_builds += source.adapter.stats.scene_builds;
+            flatten_patches += source.adapter.stats.flatten_patches;
+            layout_checks += source.adapter.stats.layout_cache_checks;
+            fragment_builds += source.adapter.stats.scene_fragment_builds;
+            fragment_reuses += source.adapter.stats.scene_fragment_reuses;
+            scene_nodes += source.adapter.stats.scene_encoded_nodes;
+            scene_full += source.adapter.stats.scene_full_rebuilds;
+            scene_invalid += source.adapter.stats.scene_invalid_roots;
             for (sum, value) in auxiliary.iter_mut().zip([
                 source.adapter.stats.selection_visits,
                 source.adapter.stats.slider_visits,
@@ -220,7 +255,7 @@ fn bench<V: View>(
     samples.sort_unstable();
     let n = options.iterations as f64;
     println!(
-        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}",
+        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.2},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}",
         k as f64 / panels as f64,
         scenario.name(),
         samples[options.iterations / 2],
@@ -240,7 +275,16 @@ fn bench<V: View>(
         auxiliary[3] as f64 / n,
         auxiliary[4] as f64 / n,
         auxiliary[5] as f64 / n,
-        auxiliary[6] as f64 / n
+        auxiliary[6] as f64 / n,
+        scene_us as f64 / n,
+        scene_builds as f64 / n,
+        flatten_patches as f64 / n,
+        layout_checks as f64 / n,
+        fragment_builds as f64 / n,
+        fragment_reuses as f64 / n,
+        scene_nodes as f64 / n,
+        scene_full as f64 / n,
+        scene_invalid as f64 / n
     );
     #[cfg(feature = "profiling")]
     support::report(
@@ -281,7 +325,7 @@ fn run(options: Options) -> Result<(), Error> {
         .map(|v| Scenario::parse(v.trim()))
         .collect::<Result<_, _>>()?;
     println!(
-        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes,mean_selection_visits,mean_slider_visits,mean_shader_visits,mean_input_rebuilds,mean_input_reuses,mean_scroll_visits,mean_tooltip_visits"
+        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes,mean_selection_visits,mean_slider_visits,mean_shader_visits,mean_input_rebuilds,mean_input_reuses,mean_scroll_visits,mean_tooltip_visits,mean_scene_us,mean_scene_builds,mean_flatten_patches,mean_layout_cache_checks,mean_scene_fragment_builds,mean_scene_fragment_reuses,mean_scene_encoded_nodes,mean_scene_full_rebuilds,mean_scene_invalid_roots"
     );
     for panels in sizes {
         let height = if options.viewport_height > 0 {

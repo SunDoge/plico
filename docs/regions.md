@@ -107,7 +107,7 @@ cx.component_keyed(user_id, (), |cx, ()| {
 
 状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
 
-watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.reactive(...)`。
+watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.rx(...)`。
 
 普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存构建命令与当前组件存储的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。每个组件内部有一个 Rc 存储，用于在构建期间安全追加槽，句柄没有引用计数；构建临时引用在返回或退栈后释放。槽采用 elsa 的稳定地址追加容器，持有另一个槽的短期读借用时仍可创建新槽，无需框架自行编写 unsafe。
 
@@ -218,7 +218,7 @@ let app = Regions::new(|app| {
     let count = app.state(|| 0_i32);
     let accent = app.state(|| Color::Accent);
     app.root((count, accent), |cx, (count, accent)| {
-        text_empty(cx).font_size(24).reactive(
+        text_empty(cx).font_size(24).rx(
             (count.handle(), accent.handle()),
             |node, (count, accent)| {
                 node.text(format!("Count: {}", *count.read()));
@@ -229,7 +229,7 @@ let app = Regions::new(|app| {
 });
 ```
 
-`.reactive` 是 builder 结束点。当前支持普通 Text 的文字、前景色、字号、字重、字体族与透明度，返回的 `TextProperties` 是受限编辑器，没有 children、事件派发或访问任意 Engine 节点的能力；富文本 spans 明确返回 InvalidRegion。普通控件、容器、布局属性尚未接入此方法，不把这个 PoC 称为通用 widget 属性系统。
+`.rx` 是 builder 结束点。单个状态直接传入并接收一个 `Access<T>`；多个状态继续使用 tuple，并接收对应的 `Access` tuple，无需为单状态保留 `(state,)` 或 `(value,)` 包装。旧 `.reactive(...)` 暂时保留为弃用别名。当前支持普通 Text 的文字、前景色、字号、字重、字体族与透明度，返回的 `TextProperties` 是受限编辑器，没有 children、事件派发或访问任意 Engine 节点的能力；富文本 spans 明确返回 InvalidRegion。普通控件、容器、布局属性尚未接入此方法，不把这个 PoC 称为通用 widget 属性系统。
 
 每个绑定复用现有 region 的依赖调度和 component 所有权，但目标是实际 Text 的代际 Entity，不会插入布局容器。长期保存的是 State ID 元组、函数指针和静态文字/文本样式基线；不保存应用借用，也不保存捕获环境。每次运行从静态 builder 基线计算覆盖值：某个属性未调用 setter，就恢复其静态值。这保证条件属性在局部更新和完整声明中行为一致。静态文字基线可能需要一次拥有式字符串副本；绑定本身也需要订阅和调度记录，并非没有内存成本。
 
@@ -245,7 +245,7 @@ let app = Regions::new(|app| {
 
 ```rust
 text(cx, "Static").font_size(24).weight(700).color(Color::Accent);
-text_empty(cx).reactive((count,), |node, (count,)| {
+text_empty(cx).rx(count, |node, count| {
     node.text(format!("Count: {}", *count.read()))
         .font_size(24).weight(700).color(Color::Accent);
 });

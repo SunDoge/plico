@@ -6,7 +6,8 @@ use crate::{
     color_icons, icons, progress_bar,
 };
 use plico::{
-    Changes, DeclareView, Engine, FrameError, FrameTime, Router, TextBuffer, Theme, prelude::*,
+    Changes, DeclareView, Engine, Entity, FrameError, FrameTime, Router, TextBuffer, Theme,
+    prelude::*,
 };
 use plico_runtime::{
     View,
@@ -270,6 +271,9 @@ impl View for Settings {
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.show_with_tick(cx);
     }
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        self.regions.scene_cache_roots()
+    }
     fn replay_regions(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
         let now = engine.time().now;
         let width = engine.viewport_width();
@@ -365,7 +369,7 @@ fn root(cx: &mut UiContext, states: RootAccess<'_>) {
             );
             row(cx).gap(8) + |cx| {
                 text(cx, "Shared Plico view · Taffy geometry").font_size(12).color(Color::Muted).grow(1.);
-                text_empty(cx).font_size(12).color(Color::Muted).reactive(
+                text_empty(cx).font_size(12).color(Color::Muted).rx(
                     (animations.handle(),),
                     |node, (animations,)| {
                         node.text(if animations.read().active() {
@@ -664,7 +668,7 @@ fn preferences(
             };
         });
         cx.component((editor.handle(),), save_actions);
-        text(cx, "No changes saved yet").color(Color::Muted).reactive((editor.handle(),), |node, (editor,)| {
+        text(cx, "No changes saved yet").color(Color::Muted).rx((editor.handle(),), |node, (editor,)| {
             let editor = editor.read();
             if !editor.saved.is_empty() {
                 node.text(editor.saved.clone());

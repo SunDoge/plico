@@ -68,7 +68,7 @@ let app = Regions::new(|app| {
         outlet(cx, router.handle(), (), |cx, page, ()| match page {
             Page::Counter => {
                 let count = cx.local_state(|| 0_i32);
-                text_empty(cx).reactive((count,), |node, (count,)| {
+                text_empty(cx).rx((count,), |node, (count,)| {
                     node.text(format!("Count: {}", *count.read()));
                 });
             }

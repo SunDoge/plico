@@ -61,7 +61,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 cx.component_keyed(key, (), |cx, ()| {
                     let count = cx.local_state(|| 0_i32);
                     let status = cx.local_state(|| String::from("Idle"));
-                    text_empty(cx).reactive((status,), |node, (status,)| {
+                    text_empty(cx).rx((status,), |node, (status,)| {
                         node.text(status.read().clone());
                     });
                     button(cx).text("Load on host").on_click((status,), |(status,)| {
@@ -85,7 +85,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 });
             }
         };
-        text_empty(cx).font_size(32).reactive((count.handle(),), |node, (count,)| {
+        text_empty(cx).font_size(32).rx((count.handle(),), |node, (count,)| {
             node.text(format!("Count: {}", *count.read()));
         });
         cx.watch(
@@ -94,7 +94,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 if *expanded.read() {
                     column(cx).padding(16).gap(8).radius(12.).background(Color::Panel) + |cx| {
                         text(cx, "Nested region").weight(600);
-                        text_empty(cx).reactive((count.handle(),), |node, (count,)| {
+                        text_empty(cx).rx((count.handle(),), |node, (count,)| {
                             node.text(format!("Double: {}", *count.read() * 2));
                         });
                     };
@@ -132,7 +132,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                         text!(cx, "Intensity: {:.0}%", preferences.read().volume);
                     };
                 });
-                text(cx, "Live style preview").reactive(
+                text(cx, "Live style preview").rx(
                     (preferences.handle(),),
                     |node, (preferences,)| {
                         let settings = *preferences.read();

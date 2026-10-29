@@ -65,7 +65,7 @@ fn shell(cx: &mut UiContext, (router, theme): (Access<'_, Router<Page>>, Access<
                 );
             };
         });
-        text_empty(cx).color(Color::Muted).reactive((router.handle(),), |node, (router,)| {
+        text_empty(cx).color(Color::Muted).rx((router.handle(),), |node, (router,)| {
             node.text(format!("Current page: {}", router.read().current().label()));
         });
         column(cx).height(0.).grow(1.).scroll_y(true).padding(20).background(Color::Panel).border(1., Color::Border)
@@ -84,7 +84,7 @@ fn counter(cx: &mut UiContext) {
     let count = cx.local_persisted_state(1, || 0_i32);
     column(cx).gap(16) + |cx| {
         text(cx, "Counter page").font_size(22).weight(600);
-        text_empty(cx).font_size(48).reactive((count,), |node, (count,)| {
+        text_empty(cx).font_size(48).rx((count,), |node, (count,)| {
             node.text(format!("Count: {}", *count.read()));
         });
         row(cx).gap(8) + |cx| {
@@ -109,7 +109,7 @@ fn editor(cx: &mut UiContext) {
                 .height(40.).bind(draft.handle());
         });
         button(cx).text("Save draft").primary().on_click((draft, saved), save_draft);
-        text(cx, "No saved draft").color(Color::Muted).reactive((saved,), |node, (saved,)| {
+        text(cx, "No saved draft").color(Color::Muted).rx((saved,), |node, (saved,)| {
             if !saved.read().is_empty() {
                 node.text(format!("Saved: {}", *saved.read()));
             }

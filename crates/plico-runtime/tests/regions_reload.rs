@@ -289,7 +289,7 @@ fn development_reload_rebuilds_property_callbacks_and_restores_dynamic_attribute
             Regions::new(|app| {
                 let size = app.persisted_state(1, || 18_u16);
                 app.root((size,), |cx, (size,)| {
-                    text_empty(cx).reactive((size.handle(),), |node, (size,)| {
+                    text_empty(cx).rx((size.handle(),), |node, (size,)| {
                         let size = *size.read();
                         node.text(format!("Size {size}"))
                             .font_size(size)

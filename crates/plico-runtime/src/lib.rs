@@ -6,7 +6,7 @@ use plico_renderer::{
     EventResponse, FrameSource, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
     layout::{
         PlacedNode, compute_and_walk_with_scroll, compute_and_walk_with_scroll_into,
-        flatten_with_scroll_into,
+        compute_layout_with_widgets, flatten_subtree_with_scroll, flatten_with_scroll_into,
     },
     style::{CornerRadii, CursorStyle, Paint},
 };
@@ -71,6 +71,8 @@ pub struct BackendStats {
     pub layout_runs: usize,
     pub tooltip_layout_runs: usize,
     pub flatten_visits: usize,
+    pub flatten_patches: usize,
+    pub layout_cache_checks: usize,
     pub paint_patches: usize,
     pub presentation_visits: usize,
     pub text_measure_invalidations: usize,
@@ -88,6 +90,11 @@ pub struct BackendStats {
     pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
+    pub scene_fragment_builds: usize,
+    pub scene_fragment_reuses: usize,
+    pub scene_encoded_nodes: usize,
+    pub scene_full_rebuilds: usize,
+    pub scene_invalid_roots: usize,
     pub svg_parses: usize,
     pub changes: plico::Changes,
 }
@@ -109,6 +116,7 @@ struct Retained {
     spans: Vec<plico::TextSpan>,
     text: Arc<str>,
     children: Vec<NodeId>,
+    layout: Option<taffy::Layout>,
     toggle_line_height: Option<f32>,
     had_grid: bool,
 }
@@ -235,6 +243,11 @@ pub struct Adapter {
     control_align_indices: Vec<usize>,
     input_align_indices: Vec<usize>,
     geometry_dirty: bool,
+    #[doc(hidden)]
+    pub experiment_force_full_geometry: bool,
+    geometry_roots: HashSet<Entity>,
+    pub(crate) scene_dirty_nodes: HashSet<NodeId>,
+    pub(crate) scene_full_dirty: bool,
     paint_dirty: Vec<NodeId>,
     last_theme: Option<Theme>,
     interaction_synced: [Option<Entity>; 4],
@@ -298,6 +311,10 @@ impl Default for Adapter {
             control_align_indices: Vec::new(),
             input_align_indices: Vec::new(),
             geometry_dirty: false,
+            experiment_force_full_geometry: false,
+            geometry_roots: HashSet::new(),
+            scene_dirty_nodes: HashSet::new(),
+            scene_full_dirty: false,
             paint_dirty: Vec::new(),
             last_theme: None,
             interaction_synced: [None; 4],
@@ -350,6 +367,9 @@ impl Adapter {
         self.anchor_motion_dirty = false;
         self.geometry_dirty = std::mem::take(&mut self.font_dirty);
         self.paint_dirty.clear();
+        self.geometry_roots.clear();
+        self.scene_dirty_nodes.clear();
+        self.scene_full_dirty = false;
         let start = Instant::now();
         let full = self.nodes.is_empty()
             || (changes.contains(plico::Changes::STRUCTURE) && declared.is_empty());
@@ -556,17 +576,42 @@ impl Adapter {
         }
         let start = Instant::now();
         if self.geometry_dirty {
-            compute_and_walk_with_scroll_into(
+            let root = self.nodes[&engine.root()].id;
+            compute_layout_with_widgets(
                 &mut self.tree,
-                self.nodes[&engine.root()].id,
+                root,
                 [width as f32, height as f32],
                 tcx,
-                &self.scroll_offsets,
-                &mut self.placed,
+                1.,
+                |_node, _cx| None,
             );
             self.stats.layout_runs = 1;
-            self.stats.flatten_visits = self.placed.len();
-            self.reindex_placed();
+            let incremental = !self.experiment_force_full_geometry
+                && !structural
+                && !resized
+                && !theme_changed
+                && !self.geometry_roots.is_empty()
+                && self.patch_dirty_geometry(engine);
+            if !incremental {
+                self.scene_full_dirty = true;
+                flatten_with_scroll_into(&self.tree, root, &self.scroll_offsets, &mut self.placed);
+                self.stats.flatten_visits = self.placed.len();
+                self.cache_all_layouts();
+                self.reindex_placed();
+            } else {
+                if self.stats.flatten_patches > 0 {
+                    self.reindex_placed();
+                }
+                // A fixed-size measurement change can leave every Taffy box
+                // unchanged. Its resolved Paint still needs to reach `placed`.
+                for id in &self.paint_dirty {
+                    if let Some(index) = self.placed_indices.get(id) {
+                        self.placed[*index].paint =
+                            self.tree.get_node_context(*id).unwrap().clone();
+                        self.stats.paint_patches += 1;
+                    }
+                }
+            }
             // geometry_dirty deliberately stays set: tall centered controls
             // realign their text every frame through the geometry branch
             // (alignment.rs); treating the flag as a consumed latch breaks
@@ -588,6 +633,15 @@ impl Adapter {
                     self.stats.paint_patches += 1;
                 }
             }
+        }
+        if self.stats.created > 0
+            || self.stats.removed > 0
+            || self.stats.child_writes > 0
+            || resized
+            || theme_changed
+            || self.scroll_dirty
+        {
+            self.scene_full_dirty = true;
         }
         if self.geometry_dirty || self.scroll_dirty {
             #[cfg(feature = "profiling")]
@@ -721,9 +775,18 @@ impl Adapter {
             };
         }
         let moved_anchor = self.anchor_motion_dirty && !self.geometry_dirty;
+        if self.presentation_dirty {
+            // Transform/opacity motion changes Scene output without necessarily
+            // rewriting Paint. Invalidate the containing cached Region while
+            // keeping unrelated Regions reusable.
+            self.scene_dirty_nodes
+                .extend(self.presentation_roots.iter().copied());
+        }
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation_dirty {
             self.update_presentation();
         }
+        self.scene_dirty_nodes
+            .extend(self.paint_dirty.iter().copied());
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
@@ -772,6 +835,144 @@ impl Adapter {
             sync_us = self.stats.sync_micros as u64, backend_update_us = self.stats.layout_micros as u64,
             changes = self.stats.changes.bits(), "backend.work");
     }
+    fn layout_changed(&mut self, entity: Entity) -> bool {
+        self.stats.layout_cache_checks += 1;
+        let Some(retained) = self.nodes.get(&entity) else {
+            return true;
+        };
+        retained.layout.as_ref() != self.tree.layout(retained.id).ok()
+    }
+
+    fn cache_layout_subtree(&mut self, id: NodeId) {
+        let layout = self.tree.layout(id).ok().copied();
+        let children = self.reverse.get(&id).and_then(|entity| {
+            let retained = self.nodes.get_mut(entity)?;
+            retained.layout = layout;
+            Some(retained.children.clone())
+        });
+        for child in children.into_iter().flatten() {
+            self.cache_layout_subtree(child);
+        }
+    }
+
+    fn cache_all_layouts(&mut self) {
+        let ids: Vec<_> = self.nodes.values().map(|retained| retained.id).collect();
+        for id in ids {
+            let layout = self.tree.layout(id).ok().copied();
+            if let Some(entity) = self.reverse.get(&id)
+                && let Some(retained) = self.nodes.get_mut(entity)
+            {
+                retained.layout = layout;
+            }
+        }
+    }
+
+    /// Patch only layout-affected subtrees. The ancestor/sibling checks are
+    /// necessary because Taffy's clean cache does not mean that a child's new
+    /// intrinsic size left its parent's other children in the same position.
+    fn patch_dirty_geometry(&mut self, engine: &Engine) -> bool {
+        let mut candidates = HashSet::new();
+        let dirty_roots: Vec<_> = self.geometry_roots.iter().copied().collect();
+        for root in dirty_roots {
+            let mut cursor = Some(root);
+            while let Some(entity) = cursor {
+                if !self.nodes.contains_key(&entity) {
+                    return false;
+                }
+                if self.layout_changed(entity) {
+                    candidates.insert(entity);
+                }
+                let Some(parent) = engine.experiment_parent(entity) else {
+                    break;
+                };
+                if let Some(parent_node) = engine.node(parent) {
+                    for &sibling in parent_node.children {
+                        if self.layout_changed(sibling) {
+                            candidates.insert(sibling);
+                        }
+                    }
+                }
+                cursor = Some(parent);
+            }
+        }
+
+        // A changed ancestor already covers its descendants. Also promote a
+        // previously unplaced (zero-size) node to its nearest placed ancestor,
+        // which supplies a valid preorder range and inherited clip.
+        let mut roots = Vec::new();
+        for &entity in &candidates {
+            let mut ancestor = engine.experiment_parent(entity);
+            let mut covered = false;
+            while let Some(parent) = ancestor {
+                if candidates.contains(&parent) {
+                    covered = true;
+                    break;
+                }
+                ancestor = engine.experiment_parent(parent);
+            }
+            if covered {
+                continue;
+            }
+            let mut cursor = Some(entity);
+            let placed = loop {
+                let Some(current) = cursor else {
+                    return false;
+                };
+                let Some(retained) = self.nodes.get(&current) else {
+                    return false;
+                };
+                if self.placed_indices.contains_key(&retained.id) {
+                    break retained.id;
+                }
+                cursor = engine.experiment_parent(current);
+            };
+            roots.push(placed);
+        }
+        roots.sort_by_key(|id| self.placed_indices[id]);
+        roots.dedup();
+
+        let mut patches = Vec::new();
+        let mut covered_end = 0;
+        for id in roots {
+            let start = self.placed_indices[&id];
+            if start < covered_end {
+                continue;
+            }
+            let depth = self.placed[start].depth;
+            let end = self.placed[start + 1..]
+                .iter()
+                .position(|node| node.depth <= depth)
+                .map_or(self.placed.len(), |offset| start + 1 + offset);
+            covered_end = end;
+            patches.push((start, end, id));
+        }
+        for (start, end, id) in patches.into_iter().rev() {
+            let Some(entity) = self.reverse.get(&id).copied() else {
+                return false;
+            };
+            let Some(previous_layout) = self.nodes[&entity].layout else {
+                return false;
+            };
+            let replacement = flatten_subtree_with_scroll(
+                &self.tree,
+                &self.placed[start],
+                &previous_layout,
+                &self.scroll_offsets,
+            );
+            self.stats.flatten_visits += replacement.len();
+            self.stats.flatten_patches += 1;
+            self.placed.splice(start..end, replacement);
+            self.cache_layout_subtree(id);
+            self.scene_dirty_nodes.insert(id);
+        }
+        for entity in &self.geometry_roots {
+            if let Some(retained) = self.nodes.get(entity) {
+                self.scene_dirty_nodes.insert(retained.id);
+            }
+        }
+        true
+    }
+
     fn reindex_placed(&mut self) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
@@ -1222,6 +1423,7 @@ impl Adapter {
                     spans: n.spans.to_vec(),
                     text: Arc::from(n.text),
                     children: Vec::new(),
+                    layout: None,
                     toggle_line_height: None,
                     had_grid: n.grid.is_some(),
                 },
@@ -1259,6 +1461,7 @@ impl Adapter {
             retained.style = style;
             self.stats.style_writes += 1;
             self.geometry_dirty = true;
+            self.geometry_roots.insert(e);
         }
         let visual_changes = visual_style.changes_from(retained.paint_key.style);
         self.stats.changes |= visual_changes;
@@ -1345,6 +1548,7 @@ impl Adapter {
             if measurement_changed {
                 self.stats.text_measure_invalidations += 1;
                 self.geometry_dirty = true;
+                self.geometry_roots.insert(e);
                 self.tree.mark_dirty(retained.id).unwrap();
             }
             self.stats.paint_writes += 1;
@@ -1355,6 +1559,7 @@ impl Adapter {
             retained.children = children;
             self.stats.child_writes += 1;
             self.geometry_dirty = true;
+            self.geometry_roots.insert(e);
         }
         retained.id
     }
@@ -2118,6 +2323,10 @@ pub trait View {
     ) -> Option<Result<regions::ReplayBatch, plico::FrameError>> {
         None
     }
+    #[doc(hidden)]
+    fn scene_cache_roots(&self) -> Vec<Entity> {
+        Vec::new()
+    }
     /// Window-local fallback after controls decline a key. Not called during IME
     /// composition or while a popup/modal owns input. Return true to consume it.
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
@@ -2206,6 +2415,10 @@ pub struct Source<V: View> {
     last_tick: Option<Instant>,
     requests: plico::Changes,
     target_scene: Option<(Scene, u64, u64)>,
+    scene_cache: plico_renderer::scene::SceneCache,
+    scene_roots: HashSet<NodeId>,
+    #[doc(hidden)]
+    pub experiment_force_full_scene: bool,
     /// Ranges of the last fully encoded scene, for paint-only re-encoding.
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
@@ -2241,6 +2454,9 @@ impl<V: View> Source<V> {
             last_tick: None,
             requests: plico::Changes::empty(),
             target_scene: None,
+            scene_cache: Default::default(),
+            scene_roots: HashSet::new(),
+            experiment_force_full_scene: false,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
@@ -2564,6 +2780,12 @@ impl<V: View> Source<V> {
         self.declared_seen.clear();
         self.declared_changes = plico::Changes::empty();
         self.declarations_pending = false;
+        self.scene_roots = self
+            .view
+            .scene_cache_roots()
+            .into_iter()
+            .filter_map(|entity| self.adapter.backend_id(entity))
+            .collect();
         let stats = self.adapter.stats;
         self.batch_stats.backend_commits += 1;
         self.batch_stats.layout_runs += stats.layout_runs;
@@ -2611,15 +2833,69 @@ impl<V: View> Source<V> {
             (true, Some(nodes)) => [nodes, &[]],
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
-        plico_renderer::scene::build_scene_scaled_layers(
-            scene,
-            &layers,
-            tcx,
-            size.0,
-            size.1,
-            self.base_color(),
-            scale,
-        );
+        let base_color = self.base_color();
+        if self.experiment_force_full_scene
+            || self.scene_roots.is_empty()
+            || !self.adapter.shaders.is_empty()
+        {
+            plico_renderer::scene::build_scene_scaled_layers(
+                scene, &layers, tcx, size.0, size.1, base_color, scale,
+            );
+        } else {
+            if self.adapter.scene_full_dirty {
+                self.scene_cache.clear();
+            }
+            let mut invalid = HashSet::new();
+            if self.adapter.scene_full_dirty {
+                invalid.extend(self.scene_roots.iter().copied());
+            } else {
+                for &dirty in &self.adapter.scene_dirty_nodes {
+                    let mut cursor = Some(dirty);
+                    while let Some(id) = cursor {
+                        if self.scene_roots.contains(&id) {
+                            invalid.insert(id);
+                        }
+                        cursor = self
+                            .adapter
+                            .placed_indices
+                            .get(&id)
+                            .and_then(|&index| self.adapter.placed[index].parent_node_id);
+                    }
+                    // A layout patch can move an entire subtree without
+                    // changing its parent transform. Fragments nested inside
+                    // that subtree contain absolute geometry and must be
+                    // rebuilt as well as every enclosing fragment.
+                    if let Some(&start) = self.adapter.placed_indices.get(&dirty) {
+                        let depth = self.adapter.placed[start].depth;
+                        for (offset, node) in self.adapter.placed[start..].iter().enumerate() {
+                            if offset > 0 && node.depth <= depth {
+                                break;
+                            }
+                            if self.scene_roots.contains(&node.node_id) {
+                                invalid.insert(node.node_id);
+                            }
+                        }
+                    }
+                }
+            }
+            self.adapter.stats.scene_invalid_roots = invalid.len();
+            plico_renderer::scene::build_scene_cached(
+                scene,
+                &layers,
+                &self.scene_roots,
+                &invalid,
+                &mut self.scene_cache,
+                tcx,
+                size.0,
+                size.1,
+                base_color,
+                scale,
+            );
+            self.adapter.stats.scene_fragment_builds = self.scene_cache.built;
+            self.adapter.stats.scene_fragment_reuses = self.scene_cache.reused;
+            self.adapter.stats.scene_encoded_nodes = self.scene_cache.encoded_nodes;
+        }
+        self.adapter.stats.scene_full_rebuilds = usize::from(self.adapter.scene_full_dirty);
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
         #[cfg(feature = "profiling")]
         {

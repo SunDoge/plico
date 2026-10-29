@@ -82,6 +82,17 @@ impl WebRenderer {
         {
             return Err("custom WGSL effects require a WebGPU backend".into());
         }
+        let expanded;
+        let scene = if scene
+            .commands
+            .iter()
+            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
+        {
+            expanded = scene.flattened();
+            &expanded
+        } else {
+            scene
+        };
         self.scene.reset_and_resize(width, height);
         let mut used = HashSet::new();
         let mut layers = Vec::new();

@@ -206,7 +206,7 @@ PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions,plico-shell/ski
 
 ## 属性绑定接入页面（2026-10-29，基线 c6d61d8）
 
-设置页的名称预览与保存提示已从区域声明改为 Text `.reactive(...)`：名称标签是静态节点，输入更新执行编辑器 watch 和预览属性绑定；保存提示不再有独立布局容器。编辑器仍使用原生 TextBuffer/bind，工具栏仍走现有事件协议，主题仍由根 Theme 注入。完整页面对照、窄屏、输入身份保持、marked-state checkpoint 恢复和多表单批量更新测试继续覆盖这些改动。
+设置页的名称预览与保存提示已从区域声明改为 Text `.rx(...)`：名称标签是静态节点，输入更新执行编辑器 watch 和预览属性绑定；保存提示不再有独立布局容器。编辑器仍使用原生 TextBuffer/bind，工具栏仍走现有事件协议，主题仍由根 Theme 注入。完整页面对照、窄屏、输入身份保持、marked-state checkpoint 恢复和多表单批量更新测试继续覆盖这些改动。
 
 折叠页面节点从 36 降到 34。输入更新的 region batch 声明 visited 从 8 降到 2；属性回调单独运行不计入节点声明 visited，但仍有依赖调度与回调执行成本，不能把这个比例当成总 CPU 加速比。
 
@@ -230,7 +230,7 @@ taskset -c 7 target/release/examples/preferences_compare --iterations 1000
 
 跨 checkout 对比应使用独立 target 或明确强制重建，并验证产物哈希和工作计数；不能仅凭 cargo 成功退出认定测量了不同版本。
 
-属性版页面再次完成 X11/Skia llvmpipe 窗口验收：同步/区域以及 damage 开关的 20 对同状态截图仍为 RMSE=0。原生 regions 示例还通过滑块和开关驱动 `.reactive` 的字号、字重、颜色，窗口 OCR 确认 Intensity 为 90%、预览仍显示；计数、宿主 Loaded 唤醒、条件卸载与恢复、resize 也通过。截图与日志只保留在本地 reports，不加入 CI 或仓库。
+属性版页面再次完成 X11/Skia llvmpipe 窗口验收：同步/区域以及 damage 开关的 20 对同状态截图仍为 RMSE=0。原生 regions 示例还通过滑块和开关驱动 `.rx` 的字号、字重、颜色，窗口 OCR 确认 Intensity 为 90%、预览仍显示；计数、宿主 Loaded 唤醒、条件卸载与恢复、resize 也通过。截图与日志只保留在本地 reports，不加入 CI 或仓库。
 
 ## 完整路由应用 profile 与无变化通知优化
 

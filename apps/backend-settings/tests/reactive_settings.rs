@@ -1,6 +1,6 @@
 use backend_settings::{ImmediateSettings, Page, Settings};
 use plico::{ViewNode, VirtualClock};
-use plico_renderer::{SemanticRole, SemanticSnapshot, TextContext};
+use plico_renderer::{FrameSource, Scene, SemanticRole, SemanticSnapshot, TextContext};
 use plico_runtime::{
     Source,
     testing::{Command, dispatch},
@@ -9,30 +9,62 @@ use std::time::Duration;
 
 struct Harness {
     source: Source<Settings>,
+    scene: Scene,
     text: TextContext,
     clock: VirtualClock,
     width: u32,
+    frame_index: usize,
 }
 impl Harness {
     fn new(width: u32) -> Self {
         let clock = VirtualClock::default();
         let mut app = Self {
             source: Source::with_clock(Settings::default(), clock.clone()),
+            scene: Scene::new(),
             text: TextContext::new(),
             clock,
             width,
+            frame_index: 0,
         };
         app.frame();
         app
     }
     fn frame(&mut self) {
         self.source
-            .experiment_prepare_without_scene(&mut self.text, self.width, 820);
+            .render_retained_frame(&mut self.scene, &mut self.text, (self.width, 820), 1.);
         assert!(
             self.source.last_error.is_none(),
             "{:?}",
             self.source.last_error
         );
+        let mut reference = Scene::new();
+        let surface = self.source.engine.theme().surface;
+        plico_renderer::scene::build_scene_scaled_layers(
+            &mut reference,
+            &[self.source.adapter.placed.as_slice(), &[]],
+            &mut self.text,
+            self.width,
+            820,
+            peniko::Color::from_rgb8((surface >> 16) as u8, (surface >> 8) as u8, surface as u8),
+            1.,
+        );
+        let actual = self.scene.flattened().commands;
+        if actual != reference.commands {
+            let first = actual
+                .iter()
+                .zip(reference.commands.iter())
+                .position(|(a, b)| a != b);
+            panic!(
+                "frame {} stats={:?} lengths={}/{} first={first:?}\nactual={:?}\nexpect={:?}",
+                self.frame_index,
+                self.source.adapter.stats,
+                actual.len(),
+                reference.commands.len(),
+                first.and_then(|i| actual.get(i)),
+                first.and_then(|i| reference.commands.get(i)),
+            );
+        }
+        self.frame_index += 1;
     }
     fn at(&mut self, millis: u64) {
         self.clock.set(Duration::from_millis(millis)).unwrap();

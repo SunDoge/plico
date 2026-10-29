@@ -9,7 +9,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
-`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.reactive(...)` 支持文字、颜色、字号、字重、字体族、透明度，非法属性、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
+`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，watch 和事件使用显式依赖元组与函数指针。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度，非法属性、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
 
 ## 已实现
 

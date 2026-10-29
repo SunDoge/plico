@@ -193,7 +193,9 @@ pub fn compute_and_walk_with_scroll_into(
     flatten_with_scroll_into(tree, root, scroll_offsets, out);
 }
 
-fn compute_layout_with_widgets(
+/// Compute retained layout while preserving Taffy's clean-subtree caches.
+/// Callers may subsequently flatten the whole tree or patch affected subtrees.
+pub fn compute_layout_with_widgets(
     tree: &mut TaffyTree<Paint>,
     root: NodeId,
     viewport: [f32; 2],
@@ -454,6 +456,40 @@ pub fn flatten_with_scroll_into(
         &mut output,
     );
     output.nodes.truncate(output.used);
+}
+
+/// Re-encode one previously placed subtree after a structure-stable layout.
+///
+/// `previous` and `previous_layout` supply the unchanged parent's absolute
+/// origin and inherited clip. The caller must patch every changed ancestor;
+/// otherwise the old parent origin would produce stale absolute coordinates.
+pub fn flatten_subtree_with_scroll(
+    tree: &TaffyTree<Paint>,
+    previous: &PlacedNode,
+    previous_layout: &taffy::Layout,
+    scroll_offsets: &HashMap<NodeId, [f32; 2]>,
+) -> Vec<PlacedNode> {
+    let mut nodes = Vec::new();
+    let mut output = FlattenOutput {
+        nodes: &mut nodes,
+        used: 0,
+    };
+    walk(
+        tree,
+        previous.node_id,
+        previous.parent_node_id,
+        previous.depth,
+        previous.rect[0] - previous_layout.location.x,
+        previous.rect[1] - previous_layout.location.y,
+        ClipState {
+            rect: previous.clip,
+            radii: previous.clip_radii,
+            depth: previous.clip_depth,
+        },
+        scroll_offsets,
+        &mut output,
+    );
+    nodes
 }
 
 // Only storage is reused. Every node, geometry field and paint value is visited

@@ -117,10 +117,10 @@ fn page(
         });
     }
     text(cx, selected.label());
-    text_empty(cx).reactive((count,), |node, (count,)| {
+    text_empty(cx).rx((count,), |node, (count,)| {
         node.text(format!("Count {}", *count.read()));
     });
-    text_empty(cx).reactive((shared.handle(),), |node, (shared,)| {
+    text_empty(cx).rx((shared.handle(),), |node, (shared,)| {
         node.text(format!("Shared {}", *shared.read()));
     });
     button(cx)
@@ -348,7 +348,7 @@ fn parameterized_route_keys_control_remount_or_parameter_reuse() {
                             let local = cx.local_state(|| 0_i32);
                             records.read().borrow_mut().push(local);
                             text!(cx, "Document {id}");
-                            text_empty(cx).reactive((local,), |node, (local,)| {
+                            text_empty(cx).rx((local,), |node, (local,)| {
                                 node.text(local.read().to_string());
                             });
                         },
@@ -393,7 +393,7 @@ fn sibling_outlets_have_independent_page_owners() {
     fn render(cx: &mut UiContext<'_>, _: Page, (records,): (Access<'_, Counts>,)) {
         let count = cx.local_state(|| 0_i32);
         records.read().borrow_mut().push(count);
-        text_empty(cx).reactive((count,), |node, (count,)| {
+        text_empty(cx).rx((count,), |node, (count,)| {
             node.text(count.read().to_string());
         });
     }
@@ -459,7 +459,7 @@ fn parent_route_unmount_recursively_disposes_nested_outlet_and_its_state() {
                                 let count = cx.local_state(|| 0_i32);
                                 records.read().borrow_mut().push((inner.handle(), count));
                                 text(cx, page.label());
-                                text_empty(cx).reactive((count,), |node, (count,)| {
+                                text_empty(cx).rx((count,), |node, (count,)| {
                                     node.text(count.read().to_string());
                                 });
                             },
