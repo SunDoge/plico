@@ -10,7 +10,7 @@ description = "Skia CPU and Vulkan consumers for the Plico command stream"
 default = []
 profiling = ["dep:tracing"]
 # Consumes the backend-neutral command stream with Skia raster surfaces.
-raster = ["dep:skia-safe", "dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:lru"]
+raster = ["dep:skia-safe", "dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:lru", "dep:resvg"]
 # Ganesh Vulkan render targets; never falls back to CPU raster.
 vulkan = ["raster", "skia-safe/vulkan", "skia-safe/ganesh", "dep:ash"]
 window = ["vulkan", "dep:ash-window", "dep:raw-window-handle", "dep:winit"]
@@ -23,6 +23,7 @@ plico-renderer = { path = "../plico-renderer", optional = true }
 skia-safe = { version = "=0.153.3", optional = true, features = ["textlayout", "no-compile"] }
 snafu.workspace = true
 lru = { version = "0.19", optional = true }
+resvg = { version = "0.48.1", default-features = false, optional = true }
 ash = { version = "0.38", optional = true }
 ash-window = { version = "0.13", optional = true }
 raw-window-handle = { version = "0.6", optional = true }

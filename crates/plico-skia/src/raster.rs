@@ -32,7 +32,12 @@ pub(crate) struct Resources {
     font_manager: FontMgr,
     svg_scenes:
         std::collections::HashMap<usize, (std::sync::Weak<plico_renderer::svg::usvg::Tree>, Scene)>,
+    svg_rasters: std::collections::HashMap<(usize, u32, u32), SvgRaster>,
     images: ImageCache,
+}
+struct SvgRaster {
+    source: std::sync::Weak<plico_renderer::svg::usvg::Tree>,
+    image: skia_safe::Image,
 }
 struct FontResource {
     source: peniko::WeakBlob<u8>,
@@ -50,6 +55,7 @@ impl Default for Resources {
             fonts: Default::default(),
             font_manager: FontMgr::new(),
             svg_scenes: Default::default(),
+            svg_rasters: Default::default(),
             images: Default::default(),
         }
     }
@@ -89,6 +95,71 @@ impl Resources {
         });
         Ok(skfont)
     }
+    fn svg_raster(
+        &mut self,
+        document: &plico_renderer::SvgDocument,
+        mut scale: [f32; 2],
+    ) -> Result<(skia_safe::Image, [f32; 2]), Error> {
+        // Render above the device resolution when needed, then let Skia sample
+        // the cached pixels through the original SVG transform. Quantization
+        // avoids a new bitmap for tiny fractional animation changes.
+        for value in &mut scale {
+            *value = (value.max(1.) * 4.).ceil() / 4.;
+        }
+        let key = (
+            std::sync::Arc::as_ptr(&document.0) as usize,
+            scale[0].to_bits(),
+            scale[1].to_bits(),
+        );
+        if let Some(raster) = self.svg_rasters.get(&key) {
+            return Ok((raster.image.clone(), scale));
+        }
+        let size = document.0.size();
+        let width = (size.width() * scale[0]).ceil();
+        let height = (size.height() * scale[1]).ceil();
+        if !width.is_finite()
+            || !height.is_finite()
+            || width < 1.
+            || height < 1.
+            || width > 8192.
+            || height > 8192.
+        {
+            return unsupported("SVG raster dimensions");
+        }
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width as u32, height as u32).ok_or(
+            Error::Unsupported {
+                command: "SVG raster dimensions",
+            },
+        )?;
+        resvg::render(
+            &document.0,
+            resvg::tiny_skia::Transform::from_scale(scale[0], scale[1]),
+            &mut pixmap.as_mut(),
+        );
+        let info = skia_safe::ImageInfo::new(
+            (width as i32, height as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Premul,
+            skia_safe::ColorSpace::new_srgb(),
+        );
+        let image = skia_safe::images::raster_from_data(
+            &info,
+            skia_safe::Data::new_copy(pixmap.data()),
+            width as usize * 4,
+        )
+        .ok_or(Error::Unsupported {
+            command: "SVG raster pixels",
+        })?;
+        self.svg_rasters.insert(
+            key,
+            SvgRaster {
+                source: std::sync::Arc::downgrade(&document.0),
+                image: image.clone(),
+            },
+        );
+        Ok((image, scale))
+    }
+
     pub(crate) fn ink_bounds(&mut self, command: &PaintCommand) -> Option<kurbo::Rect> {
         use kurbo::Rect;
         match command {
@@ -151,11 +222,10 @@ impl Resources {
                 glyph_transform,
                 ..
             } if normalized_coords.iter().all(|v| *v == 0)
-                && *embolden == Default::default()
-                && glyph_transform.is_none()
                 && matches!(style, Style::Fill(Fill::NonZero)) =>
             {
-                let font = self.font(font, *font_size, *hint).ok()?;
+                let mut font = self.font(font, *font_size, *hint).ok()?;
+                font.set_embolden(*embolden != Default::default());
                 let ids = glyphs
                     .iter()
                     .map(|g| u16::try_from(g.id))
@@ -168,11 +238,17 @@ impl Resources {
                     if r.is_empty() {
                         continue;
                     }
+                    let local =
+                        Rect::new(r.left as f64, r.top as f64, r.right as f64, r.bottom as f64)
+                            .inflate(embolden.x.abs() as f64, embolden.y.abs() as f64);
+                    let local = glyph_transform
+                        .unwrap_or(Affine::IDENTITY)
+                        .transform_rect_bbox(local);
                     let r = Rect::new(
-                        (r.left + glyph.x) as f64,
-                        (r.top + glyph.y) as f64,
-                        (r.right + glyph.x) as f64,
-                        (r.bottom + glyph.y) as f64,
+                        local.x0 + f64::from(glyph.x),
+                        local.y0 + f64::from(glyph.y),
+                        local.x1 + f64::from(glyph.x),
+                        local.y1 + f64::from(glyph.y),
                     );
                     result = Some(result.map_or(r, |old| old.union(r)));
                 }
@@ -221,7 +297,7 @@ impl Resources {
             .map(|(_, scene)| scene.commands.len())
             .sum();
         tracing::trace!(target: "plico::cache", cache = %"skia.svg", cache_id = self.svg_stats.id,
-            entries = self.svg_scenes.len(), commands, hits_total = self.svg_stats.hits,
+            entries = self.svg_scenes.len() + self.svg_rasters.len(), commands, hits_total = self.svg_stats.hits,
             misses_total = self.svg_stats.misses, evictions_total = self.svg_stats.evictions,
             "cache.snapshot");
     }
@@ -344,7 +420,11 @@ impl SkiaSurface {
         {
             let mut resources = self.resources.borrow_mut();
             #[cfg(feature = "profiling")]
-            let before = (resources.images.entries.len(), resources.svg_scenes.len());
+            let before = (
+                resources.images.entries.len(),
+                resources.svg_scenes.len(),
+                resources.svg_rasters.len(),
+            );
             #[cfg(feature = "profiling")]
             let mut removed_faces = 0;
             resources.fonts.retain(|_, resource| {
@@ -362,12 +442,17 @@ impl SkiaSurface {
             resources
                 .svg_scenes
                 .retain(|_, (tree, _)| tree.strong_count() > 0);
+            resources
+                .svg_rasters
+                .retain(|_, raster| raster.source.strong_count() > 0);
             #[cfg(feature = "profiling")]
             {
                 resources.font_stats.evictions += removed_faces as u64;
                 resources.images.stats.evictions +=
                     (before.0 - resources.images.entries.len()) as u64;
-                resources.svg_stats.evictions += (before.1 - resources.svg_scenes.len()) as u64;
+                resources.svg_stats.evictions += (before.1 - resources.svg_scenes.len() + before.2
+                    - resources.svg_rasters.len())
+                    as u64;
             }
         }
         if damage == DamageRegion::Empty {
@@ -652,24 +737,46 @@ impl SkiaSurface {
                     if normalized_coords.iter().any(|c| *c != 0) {
                         return unsupported("variable font coordinates");
                     }
-                    if *embolden != Default::default() || glyph_transform.is_some() {
-                        return unsupported("synthetic glyph transform/embolden");
-                    }
                     if !matches!(style, Style::Fill(Fill::NonZero)) {
                         return unsupported("stroked/even-odd glyphs");
                     }
-                    let skfont = self.resources.borrow_mut().font(font, *font_size, *hint)?;
+                    let mut skfont = self.resources.borrow_mut().font(font, *font_size, *hint)?;
+                    skfont.set_embolden(*embolden != Default::default());
                     let mut paint = paint(brush, None, &mut self.resources.borrow_mut().images)?;
                     paint.set_alpha_f(paint.alpha_f() * brush_alpha);
                     let ids: Vec<u16> = glyphs
                         .iter()
                         .map(|g| u16::try_from(g.id).map_err(|_| Error::GlyphId))
                         .collect::<Result<_, _>>()?;
-                    let positions: Vec<Point> =
-                        glyphs.iter().map(|g| Point::new(g.x, g.y)).collect();
                     canvas.save();
                     canvas.concat(&matrix(*transform));
-                    canvas.draw_glyphs_at(&ids, positions.as_slice(), (0., 0.), &skfont, &paint);
+                    if let Some(glyph_transform) = glyph_transform {
+                        // Glyph positions stay outside the synthesis transform:
+                        // run * position * skew, matching Vello's fake italics.
+                        for (id, glyph) in ids.iter().zip(glyphs) {
+                            canvas.save();
+                            canvas.translate((glyph.x, glyph.y));
+                            canvas.concat(&matrix(*glyph_transform));
+                            canvas.draw_glyphs_at(
+                                std::slice::from_ref(id),
+                                &[Point::new(0., 0.)][..],
+                                (0., 0.),
+                                &skfont,
+                                &paint,
+                            );
+                            canvas.restore();
+                        }
+                    } else {
+                        let positions: Vec<Point> =
+                            glyphs.iter().map(|g| Point::new(g.x, g.y)).collect();
+                        canvas.draw_glyphs_at(
+                            &ids,
+                            positions.as_slice(),
+                            (0., 0.),
+                            &skfont,
+                            &paint,
+                        );
+                    }
                     canvas.restore();
                 }
                 PaintCommand::PushLayer {
@@ -796,24 +903,51 @@ impl SkiaSurface {
                         }
                         match resources.svg_scenes.entry(key) {
                             std::collections::hash_map::Entry::Occupied(entry) => {
-                                entry.get().1.clone()
+                                Some(entry.get().1.clone())
                             }
                             std::collections::hash_map::Entry::Vacant(entry) => {
-                                let commands =
-                                    plico_renderer::svg::convert_paint::commands(&document.0)?;
-                                entry.insert((
-                                    std::sync::Arc::downgrade(&document.0),
-                                    commands.clone(),
-                                ));
-                                commands
+                                match plico_renderer::svg::convert_paint::commands(&document.0) {
+                                    Ok(commands) => {
+                                        entry.insert((
+                                            std::sync::Arc::downgrade(&document.0),
+                                            commands.clone(),
+                                        ));
+                                        Some(commands)
+                                    }
+                                    Err(_) => None,
+                                }
                             }
                         }
                     };
                     canvas.save();
                     canvas.concat(&matrix(*transform));
-                    let result = self.replay(&commands, None);
-                    self.surface.canvas().restore();
-                    result?;
+                    if let Some(commands) = commands {
+                        let result = self.replay(&commands, None);
+                        self.surface.canvas().restore();
+                        result?;
+                    } else {
+                        // usvg keeps the complete normalized tree, so resvg can
+                        // faithfully handle filters, masks and patterns that do
+                        // not map to the backend-neutral command stream.
+                        let device = canvas.local_to_device_as_3x3();
+                        let scale = [
+                            device.scale_x().hypot(device.skew_y()),
+                            device.skew_x().hypot(device.scale_y()),
+                        ];
+                        let (image, scale) =
+                            self.resources.borrow_mut().svg_raster(document, scale)?;
+                        canvas.concat(&Matrix::scale((1. / scale[0], 1. / scale[1])));
+                        canvas.draw_image_with_sampling_options(
+                            image,
+                            (0., 0.),
+                            skia_safe::SamplingOptions::new(
+                                skia_safe::FilterMode::Linear,
+                                skia_safe::MipmapMode::Linear,
+                            ),
+                            None,
+                        );
+                        self.surface.canvas().restore();
+                    }
                 }
                 PaintCommand::Shader { .. } => return unsupported("Shader"),
             }
