@@ -1,6 +1,6 @@
 //! Fully mounted copies of the real form, for CPU scaling experiments.
 use super::{frame, preferences};
-use crate::Settings;
+use crate::ImmediateSettings;
 use plico::{Theme, prelude::*};
 use plico_runtime::{
     View,
@@ -8,14 +8,14 @@ use plico_runtime::{
 };
 
 pub struct ImmediatePanels {
-    panels: Vec<Settings>,
+    panels: Vec<ImmediateSettings>,
     dark: bool,
     reduced: bool,
 }
 impl ImmediatePanels {
     pub fn new(count: usize) -> Self {
         Self {
-            panels: (0..count).map(|_| Settings::default()).collect(),
+            panels: (0..count).map(|_| ImmediateSettings::default()).collect(),
             dark: false,
             reduced: false,
         }

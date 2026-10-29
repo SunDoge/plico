@@ -50,7 +50,7 @@ impl<D: Dependencies> Render for Properties<D> {
 /// let app = Regions::new(|app| {
 ///     let count = app.state(|| 0_i32);
 ///     app.root((count,), |cx, (count,)| {
-///         text(cx, "").font_size(24).reactive((count.handle(),), |node, (count,)| {
+///         text_empty(cx).font_size(24).reactive((count.handle(),), |node, (count,)| {
 ///             node.text(format!("Count: {}", *count.read()));
 ///         });
 ///     });
@@ -64,7 +64,7 @@ impl<D: Dependencies> Render for Properties<D> {
 /// let app = Regions::new(|app| {
 ///     app.root((), |cx, ()| {
 ///         let hidden = String::from("capture");
-///         text(cx, "").reactive((), |node, ()| { node.text(hidden.clone()); });
+///         text_empty(cx).reactive((), |node, ()| { node.text(hidden.clone()); });
 ///     });
 /// });
 /// ```
@@ -74,7 +74,7 @@ impl<D: Dependencies> Render for Properties<D> {
 /// use plico_runtime::regions::{Reactive, Regions};
 /// let app = Regions::new(|app| {
 ///     app.root((), |cx, ()| {
-///         text(cx, "").reactive((), |node, ()| {
+///         text_empty(cx).reactive((), |node, ()| {
 ///             node.children(|cx| { text(cx, "new child"); });
 ///         });
 ///     });
@@ -102,6 +102,7 @@ impl Reactive for plico::Text<'_, '_, '_> {
                     baseline_text,
                     baseline_attributes,
                 }),
+                fill: false,
             },
         });
     }

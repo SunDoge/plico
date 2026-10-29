@@ -2,10 +2,11 @@
 mod animation;
 mod color_icons;
 mod icons;
-#[cfg(feature = "regions")]
 pub mod preferences_regions;
+mod reactive;
 use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
 use plico::{DeclareView, Router, TextBuffer, Theme, prelude::*};
+pub use reactive::Settings;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico::Route)]
 pub enum Page {
@@ -17,7 +18,7 @@ pub enum Page {
     #[route(icon = color_icons::SETTINGS)]
     Preferences,
 }
-pub struct Settings {
+pub struct ImmediateSettings {
     pub router: Router<Page>,
     pub dark: bool,
     pub advanced: bool,
@@ -31,7 +32,7 @@ pub struct Settings {
     pub selected_project: u64,
     animations: Animations,
 }
-impl Default for Settings {
+impl Default for ImmediateSettings {
     fn default() -> Self {
         let name = TextBuffer::new();
         name.set("Plico workspace".to_owned().into());
@@ -77,7 +78,7 @@ fn nav_entry(cx: &mut UiContext, router: &mut Router<Page>, page: Page, expand: 
     });
 }
 
-impl Settings {
+impl ImmediateSettings {
     pub fn progress(&self) -> f32 {
         self.animations.progress()
     }
@@ -91,7 +92,7 @@ impl Settings {
         self.animations.active()
     }
 }
-impl DeclareView for Settings {
+impl DeclareView for ImmediateSettings {
     fn theme(&self) -> Theme {
         if self.dark {
             Theme::dark()
@@ -167,7 +168,7 @@ impl DeclareView for Settings {
         }
     }
 }
-impl Settings {
+impl ImmediateSettings {
     #[component]
     #[rustfmt::skip]
     fn sidebar(&mut self, cx: &mut UiContext) {
@@ -189,7 +190,7 @@ impl Settings {
                     nav_entry(cx, &mut self.router, *page, expand);
                 }
             };
-            column(cx).height(0.).grow(1.) + |_cx| {};
+            column(cx).height(0.).grow(1.).end();
             // While the narrow viewport forces the collapse, the toggle is
             // disabled: activating it would flip the saved preference in the
             // opposite direction and silently pin a later wide window.
@@ -373,7 +374,7 @@ impl Settings {
 #[rustfmt::skip]
 fn progress_bar(cx: &mut UiContext, value: f32) {
     row(cx).height(8.).width_percent(100.).background(Color::Control).radius(4.).clip(true) + |cx| {
-        column(cx).height(8.).width_percent(value.clamp(0., 1.) * 100.).background(Color::Accent).radius(4.) + |_cx| {};
+        column(cx).height(8.).width_percent(value.clamp(0., 1.) * 100.).background(Color::Accent).radius(4.).end();
     };
 }
 #[component]
@@ -394,8 +395,7 @@ fn activity_row(
         text(cx, state).font_size(13).color(if heading { Color::Muted } else { Color::Accent });
     };
 }
-#[cfg(any(feature = "vello", feature = "skia", feature = "egui"))]
-impl plico_runtime::View for Settings {
+impl plico_runtime::View for ImmediateSettings {
     fn show(&mut self, cx: &mut UiContext) {
         DeclareView::show(self, cx);
     }

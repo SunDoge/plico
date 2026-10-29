@@ -13,7 +13,9 @@ with multiple features, select one explicitly (default order: Vello, Skia, FLTK)
 cargo run -p backend-settings --features vello,skia -- --backend skia
 ```
 
-All backends run the same Plico view and state:
+All backends run the same Regions Reactive `Settings` view and state. The former
+implementation remains available as `ImmediateSettings` for differential tests
+and CPU comparisons:
 
 - Overview: responsive metric Grid, project list and animated Details split pane.
 - Activity: keyed, reversible scrolling rows with an aligned fixed header.
@@ -21,7 +23,8 @@ All backends run the same Plico view and state:
 
 Try Collapse, Details, Run preview/Stop, navigation and Back/Forward. Animations
 use injected time and finite plico-motion tweens; the host sleeps after settling.
-Preferences remain in application state when another route unmounts the editor.
+Preferences and Activity state belong to the owner above the route outlet, so
+they remain intact when another route unmounts the active page.
 
 ```sh
 xvfb-run -a python3 scripts/check-fltk.py
@@ -52,23 +55,23 @@ See [Skia support and limitations](../../docs/skia.md).
 Navigation and project entries use selected Fluent System Icons Color SVGs;
 actions retain Lucide line icons. Sources and licenses live in `assets/fluent/`.
 Regenerate the pinned selection with `python3 scripts/update-fluent-icons.py`;
-ordinary builds embed these files offline. Activity sorting is private persistent
-local state, keeping its order when leaving and returning to the page.
+ordinary builds embed these files offline. Activity sorting is owned above the outlet, keeping its order when leaving and
+returning to the page without retaining inactive page component trees.
 
-## Explicit-region API comparison (opt-in)
+## Isolated Preferences API comparison
 
-The existing Preferences page also has a region implementation. Both variants
-use the same page shell, controls, labels and style values; the default routed
-application is unchanged.
+The standalone Preferences comparison still has immediate and region variants.
+Both use the same page shell, controls, labels and style values; it isolates the
+form from the now-Reactive routed application.
 
 ```sh
 # Region implementation; local profile state belongs to the page component.
-cargo run -p backend-settings --example preferences_regions --features regions,skia
-# Original Settings::preferences function in the same standalone shell.
-cargo run -p backend-settings --example preferences_regions --features regions,skia -- --immediate
+cargo run -p backend-settings --example preferences_regions --features skia
+# Original ImmediateSettings::preferences function in the same standalone shell.
+cargo run -p backend-settings --example preferences_regions --features skia -- --immediate
 # CPU update benchmark: native event handling, Engine, text and Taffy; no GPU.
-cargo run --release -p backend-settings --example preferences_compare --features regions -- --iterations 5000
-cargo test -p backend-settings --features regions --test preferences_regions
+cargo run --release -p backend-settings --example preferences_compare -- --iterations 5000
+cargo test -p backend-settings --test preferences_regions
 ```
 
 The comparison covers editing/preview, notifications, an advanced branch,
@@ -93,12 +96,12 @@ smaller declaration scope alone does not imply a faster layout pipeline.
 
 ```sh
 # 1/8/32/128/512 fully mounted real forms; update 1, 10%, or all forms per frame.
-cargo run --release -p backend-settings --example preferences_scale --features regions -- --iterations 100
+cargo run --release -p backend-settings --example preferences_scale -- --iterations 100
 # Same region tree, forcing a full declaration (diagnostic control).
-cargo run --release -p backend-settings --example preferences_scale --features regions -- --updates 1 --full-control
+cargo run --release -p backend-settings --example preferences_scale -- --updates 1 --full-control
 # Keep the ordinary viewport; update the first visible form.
-cargo run --release -p backend-settings --example preferences_scale --features regions -- --updates 1 --viewport-height 780
-cargo test -p backend-settings --features regions --test preferences_scale
+cargo run --release -p backend-settings --example preferences_scale -- --updates 1 --viewport-height 780
+cargo test -p backend-settings --test preferences_scale
 ```
 
 `--sizes`, `--updates`, `--scenarios`, `--iterations` and `--warmup` configure the

@@ -1,4 +1,3 @@
-#![cfg(feature = "regions")]
 use backend_settings::preferences_regions::scale::{
     FullRegionPanels, ImmediatePanels, region_panels,
 };

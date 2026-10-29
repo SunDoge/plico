@@ -1,4 +1,3 @@
-#![cfg(feature = "regions")]
 use backend_settings::preferences_regions::{ImmediatePreferences, RegionPreferences};
 use plico::{Theme, ViewNode};
 use plico_renderer::{SemanticRole, TextContext};

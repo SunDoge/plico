@@ -1,6 +1,6 @@
-# 显式依赖的原生区域实验
+# 显式依赖的原生区域
 
-`plico-runtime/regions` 是默认关闭的实验功能。它保留现有 UiContext、widgets、trailing lambda 和 Engine/Adapter 管线，增加按状态 ID 失效、按区域重放的可选驱动。默认应用继续使用 immediate `App::show`；这不是新的默认框架模型。
+`plico_runtime::regions` 是常驻 API，不再需要 Cargo feature。它保留现有 UiContext、widgets、trailing lambda 和 Engine/Adapter 管线，增加按状态 ID 失效、按区域重放的驱动。新工作默认使用 Reactive 状态模型；已有 immediate `App::show` 继续受支持，并可用于迁移对照或经 profiling 确认的高频局部路径。backend-settings 的完整路由应用已默认使用 Regions。
 
 ## 写法
 
@@ -33,14 +33,14 @@ root、watch 与 on_click 都通过依赖元组选择具体函数指针类型，
 Skia 窗口示例位于 `crates/plico-runtime/examples/regions.rs`：
 
 ```sh
-cargo run -p plico-runtime --example regions --features regions,plico-shell/skia
+cargo run -p plico-runtime --example regions --features plico-shell/skia
 ```
 
 它包含计数器、条件面板、嵌套 watch、checkbox/switch、slider、TextInput 和可增删/重排的任务列表。后台仍使用正常 Source、窗口宿主和渲染器。本机 Wayland 已启动窗口；在独立 X11/Xvfb Skia 窗口中实测了计数、开关、滑块样式更新、输入/Enter 添加、反转和删除，不代表其他平台已完成视觉验收。
 
 ```sh
-cargo test -p plico-runtime --features regions --test regions --test regions_controls
-cargo test -p plico-runtime --features regions --doc
+cargo test -p plico-runtime --test regions --test regions_controls
+cargo test -p plico-runtime --doc
 ```
 
 ## 表单与事件 payload
@@ -107,19 +107,19 @@ cx.component_keyed(user_id, (), |cx, ()| {
 
 状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
 
-watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。
+watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。动态列表必须用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.reactive(...)`。
 
 普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存构建命令与当前组件存储的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。每个组件内部有一个 Rc 存储，用于在构建期间安全追加槽，句柄没有引用计数；构建临时引用在返回或退栈后释放。槽采用 elsa 的稳定地址追加容器，持有另一个槽的短期读借用时仍可创建新槽，无需框架自行编写 unsafe。
 
 按钮使用已有 Engine 的 Entity、命中测试、键盘/语义点击分发。点击首先使所属区域执行以消费事件；on_click 将函数指针和显式参数暂存为动作，待当前读取借用结束后执行。多次写入合并，后续区域在后端提交前更新到最终值。不维护另一套长期捕获闭包或按钮事件树。
 
-Source 的可选 hook 在输入或状态失效时尝试局部声明；只修改状态时可以跳过组件根函数。父区域刷新孩子的回调、依赖和上下文；被移除的后代任务被丢弃。按单个区域最多八次重执行检测不收敛，嵌套层数不占用这个上限。viewport/全局上下文变化回退完整声明，状态和匹配身份保留。没有可定位的局部输入时也保守回退完整声明。
+Source 的 Regions hook 在输入或状态失效时尝试局部声明；只修改状态时可以跳过组件根函数。父区域刷新孩子的回调、依赖和上下文；被移除的后代任务被丢弃。按单个区域最多八次重执行检测不收敛，嵌套层数不占用这个上限。viewport/全局上下文变化回退完整声明，状态和匹配身份保留。没有可定位的局部输入时也保守回退完整声明。
 
 ## 验证与限制
 
 自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 watch/on_click 自动推导。编译失败测试覆盖隐式捕获。新增表单测试还覆盖 slider 数值归一化、TextBuffer 焦点/绑定保留、提交只触发一次、IME commit、secret buffer 不进入展示/IME 文本、聚焦输入卸载后的 IME 清理，以及列表 payload 删除和存活节点身份。
 
-目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景、动画和平台能力尚未逐项验收；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
+目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景和平台能力尚未逐项验收；backend-settings 已覆盖路由动画的无窗口及 Vello/Skia 后端回归；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
 
 根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、错误事务回滚和 panic 后恢复尚未实现。热重载采用下述 opt-in checkpoint，未标记状态重置。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
 
@@ -183,7 +183,17 @@ type App = RegionApp<Program>;
 
 ## 完整页面对照
 
-[backend-settings Preferences 对照](regions-settings.md) 保留原同步页，增加同控件区域版与无 GPU CPU 基准。当前小页面多数操作仍是同步版更快；边界节点的布局成本抵消了更小的声明范围，不能只看执行区域数来判断性能。
+backend-settings 的默认 `Settings` 已完整迁移到 Reactive：Overview、Activity、Preferences、Router 历史、跨路由编辑器/列表状态和有限动画均走 Regions。需要跨路由保留的 Workspace/Editor 状态由 outlet 上层 owner 持有，不保留非活跃页面组件树。`ImmediateSettings` 只用于差分和性能对照。
+
+```sh
+cargo test -p backend-settings
+cargo test -p backend-settings --features vello,skia --test sidebar_motion --test skia --test vello
+cargo check -p backend-settings --features egui,fltk --all-targets
+```
+
+差分测试在三个页面及 1100/520 宽度下比较语义角色、文字、值、禁用状态和叶节点几何，容差小于一个逻辑像素；动画测试覆盖事件同批 retarget、打断、reduced motion、窄屏和闲时停帧。Vello/Skia 后端回归已通过；Skia 真实窗口的路由、Details、主题与 resize，以及 FLTK 原生输入、条件挂载/卸载、路由状态和动画调度均已验收。egui 完成宿主编译检查，尚未做本次迁移的窗口验收。
+
+[backend-settings Preferences 对照](regions-settings.md) 另外保留隔离的同步页、同控件区域版与无 GPU CPU 基准。当前小页面多数操作仍是同步版更快；边界节点的布局成本抵消了更小的声明范围，不能只看执行区域数来判断性能。默认采用 Reactive 是架构选择，不表示这些测量已出现性能反转。
 
 静态组件可使用 `cx.component(deps, callback)` 自动生成调用点身份，动态列表继续用 component_keyed。根状态可用 `app.theme_state(state_of_theme)` 注入全局 Theme；RegionApp 已为 View/App 转发，不需要应用手写转发。主题事件同帧回退完整声明来刷新继承样式。
 
@@ -199,7 +209,7 @@ type App = RegionApp<Program>;
 
 ## Text 属性级绑定
 
-在 `regions` feature 内导入 `Reactive`，可直接为普通 Text 注册显式属性依赖：
+导入 `Reactive`，可直接为普通 Text 注册显式属性依赖：
 
 ```rust
 use plico::prelude::*;
@@ -208,7 +218,7 @@ let app = Regions::new(|app| {
     let count = app.state(|| 0_i32);
     let accent = app.state(|| Color::Accent);
     app.root((count, accent), |cx, (count, accent)| {
-        text(cx, "").font_size(24).reactive(
+        text_empty(cx).font_size(24).reactive(
             (count.handle(), accent.handle()),
             |node, (count, accent)| {
                 node.text(format!("Count: {}", *count.read()));
@@ -235,7 +245,7 @@ let app = Regions::new(|app| {
 
 ```rust
 text(cx, "Static").font_size(24).weight(700).color(Color::Accent);
-text(cx, "").reactive((count,), |node, (count,)| {
+text_empty(cx).reactive((count,), |node, (count,)| {
     node.text(format!("Count: {}", *count.read()))
         .font_size(24).weight(700).color(Color::Accent);
 });

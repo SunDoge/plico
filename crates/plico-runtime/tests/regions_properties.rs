@@ -1,4 +1,3 @@
-#![cfg(feature = "regions")]
 use plico::{Changes, Entity, prelude::*};
 use plico_renderer::TextContext;
 use plico_runtime::{
@@ -149,7 +148,7 @@ fn unmount_cleans_property_subscriptions_and_remount_uses_new_generation() {
                     if *visible.read() {
                         cx.component((value.handle(),), |cx, (value,)| {
                             let local = cx.local_state(|| 10);
-                            text(cx, "").reactive(
+                            text_empty(cx).reactive(
                                 (value.handle(), local),
                                 |node, (value, local)| {
                                     node.text(format!("{}:{}", *value.read(), *local.read()));
@@ -199,7 +198,7 @@ fn dependency_rebinding_unsubscribes_old_state_without_accumulating_bindings() {
                 |cx, (choose, bundle)| {
                     let (a, b) = *bundle.read();
                     let selected = if *choose.read() { b } else { a };
-                    text(cx, "")
+                    text_empty(cx)
                         .key("bound")
                         .reactive((selected,), |node, (value,)| {
                             node.text(value.read().to_string());
@@ -242,7 +241,7 @@ fn property_callbacks_cannot_write_state() {
         let value = app.state(|| false);
         state = Some(value);
         app.root((value,), |cx, (value,)| {
-            text(cx, "").reactive((value.handle(),), |node, (value,)| {
+            text_empty(cx).reactive((value.handle(),), |node, (value,)| {
                 node.text("safe read");
                 if *value.read() {
                     value.set(false);
@@ -653,7 +652,7 @@ fn ordinary_builder_and_reactive_chains_produce_identical_text_attributes() {
             state = Some(values);
             app.root((values, reactive), |cx, (values, reactive)| {
                 if *reactive.read() {
-                    text(cx, "")
+                    text_empty(cx)
                         .key("label")
                         .reactive((values.handle(),), |node, (values,)| {
                             let values = values.read();

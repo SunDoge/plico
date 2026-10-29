@@ -1,4 +1,3 @@
-#![cfg(feature = "regions")]
 use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{

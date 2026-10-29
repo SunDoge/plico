@@ -16,6 +16,7 @@ struct Outlet<R: Copy + Eq + 'static, D: Dependencies + Clone> {
     captures: D,
     identity: fn(R) -> Key,
     render: D::RouteCallback<R>,
+    fill: bool,
 }
 impl<R: Copy + Eq + 'static, D: Dependencies + Clone> Render for Outlet<R, D> {
     fn run(&self, app: &Regions, cx: &mut UiContext<'_>) {
@@ -32,6 +33,7 @@ impl<R: Copy + Eq + 'static, D: Dependencies + Clone> Render for Outlet<R, D> {
                     captures: self.captures.clone(),
                     render: self.render,
                 }),
+                fill: self.fill,
             },
         );
     }
@@ -83,12 +85,31 @@ pub fn outlet<R: plico::Route, D: Dependencies + Clone>(
     captures: D,
     render: D::RouteCallback<R>,
 ) {
-    outlet_keyed(
+    outlet_keyed_impl(
         cx,
         router,
         captures,
         |route| Key::Static(route.id()),
         render,
+        false,
+    );
+}
+
+/// Route outlet whose watch and page boundaries fill the remaining flex space.
+#[track_caller]
+pub fn outlet_fill<R: plico::Route, D: Dependencies + Clone>(
+    cx: &mut UiContext<'_>,
+    router: State<plico::Router<R>>,
+    captures: D,
+    render: D::RouteCallback<R>,
+) {
+    outlet_keyed_impl(
+        cx,
+        router,
+        captures,
+        |route| Key::Static(route.id()),
+        render,
+        true,
     );
 }
 
@@ -103,6 +124,18 @@ pub fn outlet_keyed<R: Copy + Eq + 'static, D: Dependencies + Clone>(
     captures: D,
     identity: fn(R) -> Key,
     render: D::RouteCallback<R>,
+) {
+    outlet_keyed_impl(cx, router, captures, identity, render, false);
+}
+
+#[track_caller]
+fn outlet_keyed_impl<R: Copy + Eq + 'static, D: Dependencies + Clone>(
+    cx: &mut UiContext<'_>,
+    router: State<plico::Router<R>>,
+    captures: D,
+    identity: fn(R) -> Key,
+    render: D::RouteCallback<R>,
+    fill: bool,
 ) {
     let site = Location::caller();
     let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -122,7 +155,9 @@ pub fn outlet_keyed<R: Copy + Eq + 'static, D: Dependencies + Clone>(
                 captures,
                 identity,
                 render,
+                fill,
             }),
+            fill,
         },
     );
 }

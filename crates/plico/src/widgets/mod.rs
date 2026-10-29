@@ -164,6 +164,10 @@ pub fn text<'u, 'e, 't>(
 ) -> crate::Text<'u, 'e, 't> {
     cx.text(label)
 }
+/// Declare empty text, typically as the baseline for a reactive property binding.
+pub fn text_empty<'u, 'e, 't>(cx: &'u mut crate::UiContext<'e>) -> crate::Text<'u, 'e, 't> {
+    cx.text("")
+}
 /// Declare a themed button, then configure it before reading its response.
 pub fn button<'u, 'e, 't>(cx: &'u mut crate::UiContext<'e>) -> crate::Button<'u, 'e, 't> {
     cx.button("").composable()

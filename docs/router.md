@@ -51,7 +51,7 @@ The gallery uses `Page::ALL` for its sidebar, with each item scoped by `page.id(
 
 ## Reactive page outlet
 
-With `plico-runtime/regions`, navigation data and mounted pages have separate
+With `plico_runtime::regions`, navigation data and mounted pages have separate
 responsibilities. Keep the existing `Router<Page>` for history and put it in a
 root or parent-owned State slot. Use an outlet to create the active page owner:
 
@@ -68,7 +68,7 @@ let app = Regions::new(|app| {
         outlet(cx, router.handle(), (), |cx, page, ()| match page {
             Page::Counter => {
                 let count = cx.local_state(|| 0_i32);
-                text(cx, "").reactive((count,), |node, (count,)| {
+                text_empty(cx).reactive((count,), |node, (count,)| {
                     node.text(format!("Count: {}", *count.read()));
                 });
             }
@@ -110,18 +110,21 @@ local state while passing a new ID to its render function. Keys must distinguish
 incompatible page kinds; a shared key means the local state schema is compatible.
 
 An outlet still has two real column boundaries: its controller and the active
-page component. Render functions can execute again on navigation notifications,
+page component. Use `outlet_fill` when those boundaries must fill the parent's
+remaining flex space; page-local `cx.watch_fill(...)` provides the same layout
+behavior for a page-sized watch. Ordinary `outlet` and `watch` keep automatic
+sizes. Render functions can execute again on navigation notifications,
 input settling, resize, theme changes or a parent declaration. This version
 establishes state ownership and update boundaries; it does not promise a
 one-time-only build, suspended background pages, keep-alive caches, transition
 retention, URL transport, or asynchronous navigation guards.
 
-The old immediate API (`router.show` / `match router.current()`) remains valid
-and does not depend on the regions feature.
+The immediate API (`router.show` / `match router.current()`) remains valid
+for existing applications, differential tests and profiled local escape paths.
 
 ```sh
-cargo run -p plico-runtime --example regions_router --features regions,plico-shell/skia
-cargo test -p plico-runtime --features regions --test regions_router
+cargo run -p plico-runtime --example regions_router --features plico-shell/skia
+cargo test -p plico-runtime --test regions_router
 ```
 
 The window example covers Counter/Editor, repeat selection, Back/Forward, local

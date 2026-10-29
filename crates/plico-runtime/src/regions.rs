@@ -1,10 +1,10 @@
-//! Opt-in ID-driven native regions. Experimental; components own their local state.
+//! ID-driven native regions; components own their local state.
 //! Root arguments are captures; watch and property arguments subscribe to changes.
 mod properties;
 mod reload;
 mod routing;
 pub use properties::{Reactive, TextProperties};
-pub use routing::{outlet, outlet_keyed};
+pub use routing::{outlet, outlet_fill, outlet_keyed};
 mod tasks;
 use crate::View;
 use plico::{
@@ -224,12 +224,14 @@ struct Spec {
     deps: Vec<Binding>,
     subscriptions: Option<Vec<Binding>>,
     render: Box<dyn Render>,
+    fill: bool,
 }
 fn render_spec<D: Dependencies>(deps: D, callback: RenderCallback<D>) -> Spec {
     Spec {
         deps: deps.bindings(),
         subscriptions: None,
         render: Box::new(RenderFn { deps, callback }),
+        fill: false,
     }
 }
 trait Action {
@@ -306,6 +308,19 @@ impl OnClickWith for Button<'_, '_, '_> {
             queue_change(deps, value, callback);
         }
         response
+    }
+}
+impl OnClickWith for Response {
+    fn on_click_with<D: Dependencies, V: 'static>(
+        self,
+        deps: D,
+        value: V,
+        callback: ChangeCallback<D, V>,
+    ) -> Response {
+        if self.clicked() {
+            queue_change(deps, value, callback);
+        }
+        self
     }
 }
 pub trait OnChange {
@@ -454,6 +469,9 @@ impl Drop for BuildGuard {
 pub trait WatchUi {
     #[track_caller]
     fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    /// A watch whose boundary participates in flex growth, for page-sized UI.
+    #[track_caller]
+    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
     /// A static component uses its call site as identity, like `watch`.
     #[track_caller]
@@ -477,6 +495,21 @@ impl WatchUi for UiContext<'_> {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
         self.watch_keyed(hash.finish(), deps, callback);
+    }
+    #[track_caller]
+    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+        let site = Location::caller();
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        (site.file(), site.line(), site.column()).hash(&mut hash);
+        child(
+            self,
+            hash.finish(),
+            false,
+            Spec {
+                fill: true,
+                ..render_spec(deps, callback)
+            },
+        );
     }
     fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
         child(self, key, false, render_spec(deps, callback));
@@ -541,7 +574,12 @@ fn child_with_key(cx: &mut UiContext<'_>, identity: Key, component: bool, spec: 
     let partial = output.borrow().partial;
     let mut context = None;
     let mut path = vec![];
-    cx.column().key(identity).children(|cx| {
+    let fill = spec.fill;
+    let mut boundary = cx.column().key(identity);
+    if fill {
+        boundary = boundary.width_percent(100.).height(0.).grow(1.);
+    }
+    boundary.children(|cx| {
         context = Some(cx.experiment_context());
         if component {
             path = cx.experiment_logical_path();
@@ -590,6 +628,17 @@ impl OnClick for Button<'_, '_, '_> {
         response
     }
 }
+impl OnClick for Response {
+    fn on_click<D: Dependencies>(self, deps: D, callback: EventCallback<D>) -> Response {
+        if self.clicked() {
+            commands()
+                .borrow_mut()
+                .actions
+                .push(EventSpec(Box::new(Event { deps, callback })));
+        }
+        self
+    }
+}
 struct Region {
     render: Box<dyn Render>,
     deps: Vec<Binding>,
@@ -600,7 +649,7 @@ struct Region {
     context: Option<ExperimentContext>,
     runs: usize,
 }
-/// Opt-in region runtime. Root and keyed components own state; watches do not.
+/// Region runtime. Root and keyed components own state; watches do not.
 pub struct Regions {
     owner: usize,
     theme: Option<State<plico::Theme>>,

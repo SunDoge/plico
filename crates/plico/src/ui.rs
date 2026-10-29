@@ -231,6 +231,11 @@ impl<'e> UiContext<'e> {
             inner: self.leaf(Kind::Text, text.into()),
         }
     }
+    /// Declare empty text, typically as the baseline for a reactive binding.
+    #[inline(always)]
+    pub fn text_empty<'u, 't>(&'u mut self) -> Text<'u, 'e, 't> {
+        self.text("")
+    }
     /// Format synchronously into an engine-owned reusable scratch buffer.
     #[inline(always)]
     pub fn text_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Text<'_, 'e, 'static> {
@@ -823,6 +828,13 @@ impl Layout<'_, '_> {
     pub fn disabled(mut self, value: bool) -> Self {
         self.style.disabled |= value;
         self
+    }
+
+    /// Declare an empty container, such as a flex spacer or painted track.
+    /// This is shorthand for `children(|_| {})` / `+ |_cx| {}`.
+    #[inline(always)]
+    pub fn end(self) -> InnerResponse<()> {
+        self.children(|_| {})
     }
 
     /// Declare this container's children. Returns `InnerResponse<R>` so the

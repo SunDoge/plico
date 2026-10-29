@@ -6,12 +6,12 @@ license.workspace = true
 description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
 
 [dependencies]
-elsa = { version = "1.11.2", optional = true }
-slotmap = { workspace = true, optional = true }
+elsa = "1.11.2"
+slotmap.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
-plico.workspace = true
+plico = { workspace = true, features = ["experiment-patch"] }
 parley.workspace = true
 zeroize = "1.9"
 plico-renderer.workspace = true
@@ -31,17 +31,8 @@ gallery = { path = "../../apps/gallery" }
 plico-shell.workspace = true
 
 [features]
-# Restricted benchmark hook; does not introduce a reactive runtime.
-experiment-patch = ["plico/experiment-patch"]
-regions = ["experiment-patch", "dep:slotmap", "dep:elsa"]
+# Kept for the standalone declaration benchmark; Regions is always available.
+experiment-patch = []
 default = []
 hot-reload = ["plico-dev/host", "dep:notify"]
 profiling = ["plico-renderer/profiling"]
-
-[[example]]
-name = "regions"
-required-features = ["regions"]
-
-[[example]]
-name = "regions_router"
-required-features = ["regions"]

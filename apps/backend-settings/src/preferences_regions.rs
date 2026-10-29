@@ -1,7 +1,7 @@
 //! Same Preferences page through synchronous and explicit-region APIs.
-//! Opt-in comparison; the existing routed Settings application stays unchanged.
+//! Opt-in comparison; the existing routed ImmediateSettings application stays unchanged.
 pub mod scale;
-use crate::{Settings, icons};
+use crate::{ImmediateSettings, icons};
 use plico::{DeclareView, Theme, prelude::*};
 use plico_runtime::{
     View,
@@ -12,7 +12,7 @@ use plico_runtime::{
 
 /// Baseline: the existing Preferences function and ordinary application state.
 #[derive(Default)]
-pub struct ImmediatePreferences(pub Settings);
+pub struct ImmediatePreferences(pub ImmediateSettings);
 impl View for ImmediatePreferences {
     fn theme(&self) -> Theme {
         DeclareView::theme(&self.0)
@@ -85,7 +85,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
                     .height(36.).bind(name.handle());
             });
-            text(cx, "").color(Color::Muted).reactive((name,), |node, (name,)| {
+            text_empty(cx).color(Color::Muted).reactive((name,), |node, (name,)| {
                 let current = name.read().text().unwrap_or_default();
                 node.text(format!("Current name: {current}"));
             });

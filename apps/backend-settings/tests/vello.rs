@@ -38,7 +38,7 @@ fn routed_workspace_uses_the_same_clock_and_grid_on_vello() {
     assert!(!source.view.animation_active());
     click(&mut source, "Activity");
     source.build_frame(&mut tcx, 1100, 820);
-    assert_eq!(source.view.router.current(), Page::Activity);
+    assert_eq!(source.view.current_page(), Page::Activity);
     let find_x = |label: &str| {
         source
             .adapter
@@ -52,11 +52,11 @@ fn routed_workspace_uses_the_same_clock_and_grid_on_vello() {
     assert!((find_x("STATE") - find_x("Complete")).abs() < 1.);
     click(&mut source, "Back");
     source.build_frame(&mut tcx, 1100, 820);
-    assert_eq!(source.view.router.current(), Page::Overview);
+    assert_eq!(source.view.current_page(), Page::Overview);
     click(&mut source, "Forward");
     source.build_frame(&mut tcx, 1100, 820);
-    assert_eq!(source.view.router.current(), Page::Activity);
-    source.view.router.go(Page::Preferences);
+    assert_eq!(source.view.current_page(), Page::Activity);
+    source.view.go(Page::Preferences);
     source.request_rebuild();
     source.build_frame(&mut tcx, 520, 760);
     assert!(source.last_error.is_none());

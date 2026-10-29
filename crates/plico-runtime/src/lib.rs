@@ -32,7 +32,6 @@ mod layout_style;
 mod modal;
 mod popover;
 mod presentation;
-#[cfg(feature = "regions")]
 pub mod regions;
 #[cfg(feature = "hot-reload")]
 pub mod reload;
@@ -2027,7 +2026,6 @@ impl<A: plico_dev::App> View for NativeApp<A> {
 /// A view owns application data; the adapter never retains its closures.
 /// Consuming an event automatically requests a settling declaration.
 pub trait View {
-    #[cfg(feature = "regions")]
     #[doc(hidden)]
     fn replay_regions(
         &mut self,
@@ -2221,7 +2219,6 @@ impl<V: View> Source<V> {
     /// Benchmark-only: prepare the retained tree and layout without encoding
     /// a Scene. This has the same invalidation path as a native sampled frame.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
     pub fn experiment_prepare_without_scene(
         &mut self,
         tcx: &mut TextContext,
@@ -2237,7 +2234,6 @@ impl<V: View> Source<V> {
 
     /// Experiment diagnostics: Engine nodes, retained nodes, Taffy nodes, reverse IDs.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
     pub fn experiment_live_counts(&self) -> (usize, usize, usize, usize) {
         (
             self.engine.experiment_live_nodes(),
@@ -2249,7 +2245,6 @@ impl<V: View> Source<V> {
 
     /// Experimental local declaration, preserving the normal adapter dirty journal.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
     pub fn experiment_redeclare(
         &mut self,
         context: plico::ExperimentContext,
@@ -2270,7 +2265,6 @@ impl<V: View> Source<V> {
     /// retained adapter and scene pipeline used by declarations. This is not a
     /// general mutation API; it does not manage application state or ownership.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
     pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
         let changed = self.engine.experiment_patch_text(entity, text)?;
         if changed {
@@ -2288,7 +2282,6 @@ impl<V: View> Source<V> {
 
     /// Benchmark-only foreground patch for an existing plain text leaf.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
     pub fn experiment_patch_color(&mut self, entity: Entity, color: plico::Color) -> Option<bool> {
         let changed = self.engine.experiment_patch_color(entity, color)?;
         if changed {
@@ -2573,7 +2566,6 @@ impl<V: View> Source<V> {
             }
         }
         let start = Instant::now();
-        #[cfg(feature = "regions")]
         if self.engine.theme() == self.view.theme()
             && let Some(batch) = self.view.replay_regions(&mut self.engine)
         {

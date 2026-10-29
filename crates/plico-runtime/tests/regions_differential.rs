@@ -1,4 +1,3 @@
-#![cfg(feature = "regions")]
 //! A forced full declaration is the oracle, independent of dirty subscriptions.
 use plico::prelude::*;
 use plico::{Engine, FrameError, VirtualClock};
@@ -151,7 +150,7 @@ fn root(
         .gap(8)
         .children(|cx| {
             text(cx, "Fixture");
-            text(cx, "").key("property-label").reactive(
+            text_empty(cx).key("property-label").reactive(
                 (bindings.read().a, bindings.read().b),
                 |node, (a, b)| {
                     let a = *a.read();

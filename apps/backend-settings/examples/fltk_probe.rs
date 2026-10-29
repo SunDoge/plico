@@ -4,6 +4,19 @@ use fltk_native::{app, draw, group::Group, prelude::*, window::Window};
 use plico::{Engine, Entity, Kind};
 use plico_fltk::{Adapter, Event};
 use std::{io::Write, time::Instant};
+fn has_text(engine: &Engine, fragment: &str) -> bool {
+    fn visit(engine: &Engine, entity: Entity, fragment: &str) -> bool {
+        let Some(node) = engine.node(entity) else {
+            return false;
+        };
+        node.text.contains(fragment)
+            || node
+                .children
+                .iter()
+                .any(|child| visit(engine, *child, fragment))
+    }
+    visit(engine, engine.root(), fragment)
+}
 fn named(engine: &Engine, kind: Kind, name: &str) -> Entity {
     fn visit(engine: &Engine, e: Entity, kind: Kind, name: &str) -> Option<Entity> {
         let n = engine.node(e)?;
@@ -81,7 +94,7 @@ fn main() {
     let mut engine = Engine::default();
     engine.set_viewport(680., 700.).unwrap();
     let mut view = Settings::default();
-    view.router.replace(backend_settings::Page::Preferences);
+    view.go(backend_settings::Page::Preferences);
     engine.declare_until_settled(&mut view).unwrap();
     adapter.sync(&engine).unwrap();
     app::check();
@@ -100,7 +113,7 @@ fn main() {
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     engine.declare_until_settled(&mut view).unwrap();
     adapter.sync(&engine).unwrap();
-    assert_eq!(view.name.text().as_deref(), Some(edit));
+    assert!(has_text(&engine, &format!("Current name: {edit}")));
     assert_eq!(
         adapter.native_widget(input).unwrap().as_widget_ptr(),
         pointer
@@ -111,8 +124,7 @@ fn main() {
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     engine.declare_until_settled(&mut view).unwrap();
     adapter.sync(&engine).unwrap();
-    assert_eq!(view.saves, 1);
-    assert!(view.saved.contains(edit));
+    assert!(has_text(&engine, &format!("Saved 1: {edit}")));
     let disabled = named(&engine, Kind::ButtonBase, "Disabled action");
     assert!(!adapter.native_widget(disabled).unwrap().active());
     assert!(!Adapter::dispatch(&mut engine, Event::Activate(disabled)));
@@ -123,14 +135,14 @@ fn main() {
         assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
         engine.declare_until_settled(&mut view).unwrap();
         adapter.sync(&engine).unwrap();
-        assert!(view.advanced);
+        assert!(has_text(&engine, "Advanced options"));
         let nested = named(&engine, Kind::ButtonBase, "Nested action");
         old_nested = Some(nested);
         adapter.native_widget(advanced).unwrap().do_callback();
         assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
         engine.declare_until_settled(&mut view).unwrap();
         adapter.sync(&engine).unwrap();
-        assert!(!view.advanced);
+        assert!(!has_text(&engine, "Advanced options"));
         assert!(adapter.native_widget(nested).is_none());
         assert!(!Adapter::dispatch(&mut engine, Event::Activate(nested)));
         assert_eq!(
@@ -139,7 +151,7 @@ fn main() {
         );
     }
     assert!(old_nested.is_some());
-    view.dark = true;
+    view.set_dark(true);
     engine.declare_until_settled(&mut view).unwrap();
     adapter.sync(&engine).unwrap();
     capture(&mut window, "dark");
@@ -181,14 +193,14 @@ fn main() {
         .unwrap()
         .resize(0, 0, 1100, 820);
     engine.set_viewport(1100., 820.).unwrap();
-    view.dark = false;
+    view.set_dark(false);
     let nav = named(&engine, Kind::ButtonBase, "Overview");
     let nav_pointer = adapter.native_widget(nav).unwrap().as_widget_ptr();
     adapter.native_widget(nav).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 500);
     frame_at(&mut engine, &mut view, &mut adapter, 800);
-    assert_eq!(view.router.current(), backend_settings::Page::Overview);
+    assert_eq!(view.current_page(), backend_settings::Page::Overview);
     let metrics: Vec<_> = ["PROJECTS", "STORAGE", "SYNC HEALTH"]
         .map(|name| adapter.bounds(named(&engine, Kind::Text, name)).unwrap())
         .to_vec();
@@ -279,7 +291,7 @@ fn main() {
     adapter.native_widget(preferences).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 4600);
-    assert_eq!(view.name.text().as_deref(), Some(edit));
+    assert!(has_text(&engine, &format!("Current name: {edit}")));
     assert_eq!(
         adapter
             .native_input(named(&engine, Kind::TextInput, "Workspace name"))
@@ -291,15 +303,15 @@ fn main() {
     adapter.native_widget(back).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 4700);
-    assert_eq!(view.router.current(), backend_settings::Page::Activity);
+    assert_eq!(view.current_page(), backend_settings::Page::Activity);
     let forward = named(&engine, Kind::ButtonBase, "Forward");
     adapter.native_widget(forward).unwrap().do_callback();
     assert!(Adapter::dispatch(&mut engine, rx.recv().unwrap()));
     frame_at(&mut engine, &mut view, &mut adapter, 4800);
-    assert_eq!(view.router.current(), backend_settings::Page::Preferences);
-    view.compact = false;
-    view.inspector = false;
-    view.reduced_motion = true;
+    assert_eq!(view.current_page(), backend_settings::Page::Preferences);
+    view.set_compact(false);
+    view.set_inspector(false);
+    view.set_reduced_motion(true);
     frame_at(&mut engine, &mut view, &mut adapter, 5000);
     assert_eq!(view.sidebar_width(), 200.);
     assert!(!view.animation_active());

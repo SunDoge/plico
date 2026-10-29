@@ -4,7 +4,10 @@
 use backend_settings::Settings;
 use plico::VirtualClock;
 use plico_renderer::{DamageRegion, FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
-use plico_runtime::Source;
+use plico_runtime::{
+    Source,
+    testing::{Command, dispatch},
+};
 use plico_skia::SkiaSurface;
 use std::{
     collections::BTreeMap,
@@ -59,15 +62,36 @@ fn main() {
                 assert!(source.handle_semantic_action(SemanticAction::Click { target }));
             }
             90 => {
-                source.view.dark = true;
+                source.view.set_dark(true);
                 source.request_rebuild();
             }
             120 => {
-                source
-                    .view
-                    .name
-                    .set("A different workspace name".to_owned().into());
-                source.request_rebuild();
+                for command in [
+                    Command::Focus {
+                        role: "textbox".into(),
+                        label: "Workspace name".into(),
+                        occurrence: None,
+                    },
+                    Command::KeyEvent {
+                        event: plico::KeyEvent {
+                            phase: plico::KeyPhase::Down,
+                            key: "a".into(),
+                            code: "KeyA".into(),
+                            key_without_modifiers: "a".into(),
+                            text: None,
+                            text_with_all_modifiers: None,
+                            location: plico::KeyLocation::Standard,
+                            modifiers: plico::Modifiers::CONTROL,
+                            repeat: false,
+                            synthetic: false,
+                        },
+                    },
+                    Command::Text {
+                        text: "A different workspace name".into(),
+                    },
+                ] {
+                    dispatch(&mut source, &mut text, &command).unwrap();
+                }
             }
             _ => {}
         }

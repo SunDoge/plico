@@ -4,13 +4,13 @@
 
 ## 范围与复现
 
-在 backend-settings 内保留原 `Settings::preferences`，并新增 `preferences_regions` 模块。两版复用同一独立页面外壳，显示相同控件、文字与样式，包括原生名称输入/预览、通知、advanced 条件分支、保存/重置、主题与 Reduce motion。不是整个多路由应用的迁移；原应用默认行为不变。
+在 backend-settings 内保留原 `ImmediateSettings::preferences`，并由 `preferences_regions` 模块提供独立对照。两版复用同一页面外壳，显示相同控件、文字与样式，包括原生名称输入/预览、通知、advanced 条件分支、保存/重置、主题与 Reduce motion。本文记录的是隔离表单及历史性能实验；完整多路由 `Settings` 后来已迁移为 Reactive，旧实现保留为 `ImmediateSettings`。
 
 ```sh
-cargo run -p backend-settings --example preferences_regions --features regions,skia
-cargo run -p backend-settings --example preferences_regions --features regions,skia -- --immediate
-cargo test -p backend-settings --features regions --test preferences_regions
-cargo run --release -p backend-settings --example preferences_compare --features regions -- --iterations 5000
+cargo run -p backend-settings --example preferences_regions --features skia
+cargo run -p backend-settings --example preferences_regions --features skia -- --immediate
+cargo test -p backend-settings --test preferences_regions
+cargo run --release -p backend-settings --example preferences_compare -- --iterations 5000
 ```
 
 基准对每种操作分别创建两版 Source、禁用表现动画、预热 200 次后测量 5000 次。计时包括真实语义事件/文本事件、状态处理、声明/协调以及同一 Adapter 的文本和 Taffy 准备路径；不构建 Scene、不运行窗口、不提交 GPU。这是 CPU 准备耗时，不是完整 input-to-photon 延迟，也不代表 Skia/Vello 绘制性能。无窗口 TextContext 使用默认文字路径，不能把数值当成 SkParagraph 的窗口布局成绩。
@@ -36,13 +36,13 @@ Intel Core Ultra 9 285K / Linux / rustc 1.99.1 / release；以下为一次本机
 
 CSV 包含 p50/p95、事件时间、声明/同步/布局阶段、flatten 次数、布局次数和声明 pass。现有 Source 的 visited 统计在 full immediate 是最后一个 settle pass，在 regions 是本次 region batch 的合计；CSV 明确标记了这个口径，不能直接把两列除出来当成总执行量的倍率。微秒阶段计时有取整误差，整体 p50/p95 用纳秒计时。不同阶段字段也不是严格可加的分区。
 
-这次证明了“业务代码只执行局部”，没有证明“小页面整次更新更快”。不据此切换默认模型。后续已扩展到约 1.5 万节点，见下方规模实验。
+这次证明了“业务代码只执行局部”，没有证明“小页面整次更新更快”。后续已扩展到约 1.5 万节点，见下方规模实验；当前迁移是统一状态模型的架构选择，不表示这些性能结论已经反转。
 
 ## 写法与状态分布
 
-原 preferences 函数约 42 行，直接读写 Settings 的字段。区域版函数约 76 行，另有根状态工厂、保存状态类型和回调。两者业务控件相同，但区域版多出依赖元组、read/handle、bind/update 与边界。行数受 formatter 和注释影响，仅用来说明当前人体工学成本。
+原 preferences 函数约 42 行，直接读写 ImmediateSettings 的字段。区域版函数约 76 行，另有根状态工厂、保存状态类型和回调。两者业务控件相同，但区域版多出依赖元组、read/handle、bind/update 与边界。行数受 formatter 和注释影响，仅用来说明当前人体工学成本。
 
-区域版有两份根状态：Theme、Reduce motion；四份页面局部状态：TextBuffer、notifications、advanced、Saved（文字与计数）。状态本体没有在 app/runtime/节点间重复存储；控件使用的 bool 临时副本用于适配既有受控 widget。Saved 与开关使用标记槽支持 checkpoint，TextBuffer 未标记，reload 后重置。原 immediate API 本身也支持 cx.state，所以 local state 并不是区域模型独占的能力；这里对照的是现有 Settings 页面。
+区域版有两份根状态：Theme、Reduce motion；四份页面局部状态：TextBuffer、notifications、advanced、Saved（文字与计数）。状态本体没有在 app/runtime/节点间重复存储；控件使用的 bool 临时副本用于适配既有受控 widget。Saved 与开关使用标记槽支持 checkpoint，TextBuffer 未标记，reload 后重置。原 immediate API 本身也支持 cx.state，所以 local state 并不是区域模型独占的能力；这里对照的是 ImmediateSettings 页面。
 
 工具栏需要 name/saved 的句柄来处理事件，却不需要在 name/saved 变化时重新声明。因此用 `cx.component((name, saved), callback)` 作为非订阅的捕获边界，内部再声明按钮；页面的局部状态仍归外层页面组件所有。这个写法可行，但为了表达“只捕获、不订阅”增加一个有真实布局节点的组件，仍是当前 API 的成本。
 
@@ -60,14 +60,14 @@ CSV 包含 p50/p95、事件时间、声明/同步/布局阶段、flatten 次数�
 
 ## 后续判断
 
-目前应继续把 regions 留作可选实验。明确的改进对象是区域边界的布局成本、事件捕获与订阅的分离，以及重复 settle；不应为漂亮的 API 先引入自动依赖图或额外宏。是否值得继续扩大迁移，应在这些成本被测量和改善后再判断。这个小页面不支持“默认改为 reactive 会更划算”的结论。
+这是迁移前的历史判断：这个小页面不支持“默认改为 reactive 会更划算”的结论。当前 Regions 已常驻且完整应用默认采用 Reactive，目标是统一状态模型，而不是宣称它更快。区域边界布局成本、事件捕获与订阅分离、重复 settle 仍是明确的改进对象；高频路径是否使用 immediate 逃生口必须由后续 profiling 决定。
 
 ## 规模扩展：完整表单与批量事件
 
 `preferences_scale` 复用上面的真实表单，不改成纯 label/signal setter。分别创建 1、8、32、128、512 个表单，每次修改 1、ceil(10%)、100% 个表单；K 相同时去重，默认共 53 个条件、两版 106 行测量结果。测试 notifications、typing、save、advanced；Theme 是一次影响所有表单的全局广播，单独测量。
 
 ```sh
-cargo build --release -p backend-settings --example preferences_scale --features regions
+cargo build --release -p backend-settings --example preferences_scale
 # 固定同一 CPU 核，避免混合核心调度差异；核号按当前机器调整。
 taskset -c 7 target/release/examples/preferences_scale --iterations 100 --warmup 40
 # 同一棵区域树关闭 replay，保留真实依赖/组件维护成本。
@@ -173,7 +173,7 @@ P=512、K=1 输入时，声明均值约 1961.66 → 29.89µs；后端准备约 1
 复测命令：
 
 ```sh
-cargo build --release -p backend-settings --example preferences_scale --features regions
+cargo build --release -p backend-settings --example preferences_scale
 taskset -c 7 target/release/examples/preferences_scale --sizes 32,128,512 --updates 1,100% --scenarios notifications,typing,save,advanced --iterations 100 --warmup 40
 ```
 
@@ -196,10 +196,10 @@ Preferences 对照依次执行：初始状态 → 全选并输入 `Region window
 复现入口：
 
 ```sh
-cargo run -p backend-settings --example preferences_regions --features regions,skia
-cargo run -p backend-settings --example preferences_regions --features regions,skia -- --immediate
-PLICO_SKIA_DAMAGE=1 cargo run -p backend-settings --example preferences_regions --features regions,skia
-PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions --features regions,plico-shell/skia
+cargo run -p backend-settings --example preferences_regions --features skia
+cargo run -p backend-settings --example preferences_regions --features skia -- --immediate
+PLICO_SKIA_DAMAGE=1 cargo run -p backend-settings --example preferences_regions --features skia
+PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions,plico-shell/skia
 ```
 
 限制：这些结果来自 Linux X11 的软件 Vulkan 驱动，不代表 Wayland、独立显卡、Windows/macOS 或真实中文输入法已经验收。Preferences 示例没有持续动画，静态帧比较不证明动画中间帧、帧间延迟或帧率；异步示例仅验证结果唤醒，不验证真实网络的取消/失败行为。GUI 列表验收检查可见顺序和结果，State owner 的释放与旧句柄拒绝仍由生命周期回归测试覆盖。
@@ -224,7 +224,7 @@ PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions --features regi
 这轮只支持“声明范围和节点数减少”的结论，不能宣布端到端普遍提速。同步控制组的输入也从 14.79 变为 15.81µs，advanced 从 34.08 变为 36.31µs，提示微小差异会受编译布局与运行负载等因素影响。布局、flatten 和输入管线仍需处理必要工作；小页面仍不支持强制所有代码改用 reactive 的结论。
 
 ```sh
-cargo build --release -p backend-settings --example preferences_compare --features regions
+cargo build --release -p backend-settings --example preferences_compare
 taskset -c 7 target/release/examples/preferences_compare --iterations 1000
 ```
 
