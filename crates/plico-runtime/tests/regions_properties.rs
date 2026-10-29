@@ -633,3 +633,144 @@ fn global_theme_refresh_preserves_dynamic_typography_and_resolves_color_tokens()
         );
     }
 }
+
+#[test]
+fn ordinary_builder_and_reactive_chains_produce_identical_text_attributes() {
+    #[derive(Clone)]
+    struct Values {
+        text: String,
+        color: Color,
+        size: u16,
+        weight: u16,
+        family: FontFamily,
+        opacity: f32,
+    }
+    fn make(reactive: bool, initial: Values) -> (Source<Regions>, State<Values>) {
+        let mut state = None;
+        let app = Regions::new(|app| {
+            let values = app.state(|| initial);
+            let reactive = app.state(|| reactive);
+            state = Some(values);
+            app.root((values, reactive), |cx, (values, reactive)| {
+                if *reactive.read() {
+                    text(cx, "")
+                        .key("label")
+                        .reactive((values.handle(),), |node, (values,)| {
+                            let values = values.read();
+                            node.text(values.text.clone())
+                                .color(values.color)
+                                .font_size(values.size)
+                                .weight(values.weight)
+                                .font_family(values.family)
+                                .opacity(values.opacity);
+                        });
+                } else {
+                    let values = values.read();
+                    text(cx, &values.text)
+                        .key("label")
+                        .color(values.color)
+                        .font_size(values.size)
+                        .weight(values.weight)
+                        .font_family(values.family)
+                        .opacity(values.opacity);
+                }
+            });
+        });
+        (Source::new(app), state.unwrap())
+    }
+    let initial = Values {
+        text: "First".into(),
+        color: Color::Accent,
+        size: 16,
+        weight: 400,
+        family: FontFamily::SansSerif,
+        opacity: 1.,
+    };
+    let (mut ordinary, ordinary_state) = make(false, initial.clone());
+    let (mut reactive, reactive_state) = make(true, initial.clone());
+    let (mut ordinary_text, mut reactive_text) = (TextContext::new(), TextContext::new());
+    for values in [
+        initial,
+        Values {
+            text: "Second\nline".into(),
+            color: Color::Muted,
+            size: 32,
+            weight: 700,
+            family: FontFamily::Monospace,
+            opacity: 0.4,
+        },
+        Values {
+            text: "Third".into(),
+            color: Color::Literal(0x345678),
+            size: 12,
+            weight: 450,
+            family: FontFamily::Serif,
+            opacity: 0.,
+        },
+    ] {
+        ordinary.view.access(ordinary_state).set(values.clone());
+        ordinary.request_rebuild();
+        reactive.view.access(reactive_state).set(values);
+        frame(&mut ordinary, &mut ordinary_text, 480);
+        frame(&mut reactive, &mut reactive_text, 480);
+        assert_eq!(
+            serde_json::to_value(ordinary.engine.snapshot()).unwrap(),
+            serde_json::to_value(reactive.engine.snapshot()).unwrap()
+        );
+        assert_eq!(
+            ordinary
+                .adapter
+                .placed
+                .iter()
+                .map(|p| p.rect)
+                .collect::<Vec<_>>(),
+            reactive
+                .adapter
+                .placed
+                .iter()
+                .map(|p| p.rect)
+                .collect::<Vec<_>>()
+        );
+    }
+    let valid = Values {
+        text: "Valid".into(),
+        color: Color::Accent,
+        size: 16,
+        weight: 400,
+        family: FontFamily::Default,
+        opacity: 1.,
+    };
+    for invalid in [
+        Values {
+            size: 0,
+            ..valid.clone()
+        },
+        Values {
+            weight: 901,
+            ..valid.clone()
+        },
+        Values {
+            opacity: f32::NAN,
+            ..valid.clone()
+        },
+    ] {
+        ordinary.view.access(ordinary_state).set(invalid.clone());
+        reactive.view.access(reactive_state).set(invalid);
+        assert!(matches!(
+            ordinary.try_declare(),
+            Err(plico_runtime::SourceError::Declaration {
+                source: plico::FrameError::InvalidStyle
+            })
+        ));
+        assert!(matches!(
+            reactive.try_declare(),
+            Err(plico_runtime::SourceError::Declaration {
+                source: plico::FrameError::InvalidStyle
+            })
+        ));
+        ordinary.view.access(ordinary_state).set(valid.clone());
+        reactive.view.access(reactive_state).set(valid.clone());
+        ordinary.try_declare().unwrap();
+        reactive.try_declare().unwrap();
+    }
+}

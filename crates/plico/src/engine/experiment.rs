@@ -14,18 +14,18 @@ pub struct ExperimentContext {
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
 pub struct ExperimentTextStyle {
-    pub color: crate::Color,
+    pub foreground: crate::Color,
     pub font_size: u16,
-    pub weight: u16,
+    pub font_weight: u16,
     pub font_family: crate::FontFamily,
     pub opacity: f32,
 }
 impl From<Style> for ExperimentTextStyle {
     fn from(style: Style) -> Self {
         Self {
-            color: style.foreground,
+            foreground: style.foreground,
             font_size: style.font_size,
-            weight: style.font_weight,
+            font_weight: style.font_weight,
             font_family: style.font_family,
             opacity: style.opacity,
         }
@@ -54,9 +54,9 @@ impl UiContext<'_> {
             return;
         }
         let mut style = node.style;
-        style.foreground = attributes.color;
+        style.foreground = attributes.foreground;
         style.font_size = attributes.font_size;
-        style.font_weight = attributes.weight;
+        style.font_weight = attributes.font_weight;
         style.font_family = attributes.font_family;
         style.opacity = attributes.opacity;
         // Validate before changing text or style, including NaN/invalid opacity.

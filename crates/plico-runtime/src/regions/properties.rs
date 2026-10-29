@@ -14,26 +14,7 @@ impl TextProperties {
         self.text = Some(value.into());
         self
     }
-    pub fn color(&mut self, value: plico::Color) -> &mut Self {
-        self.attributes.color = value;
-        self
-    }
-    pub fn font_size(&mut self, value: u16) -> &mut Self {
-        self.attributes.font_size = value;
-        self
-    }
-    pub fn weight(&mut self, value: u16) -> &mut Self {
-        self.attributes.weight = value;
-        self
-    }
-    pub fn font_family(&mut self, value: plico::FontFamily) -> &mut Self {
-        self.attributes.font_family = value;
-        self
-    }
-    pub fn opacity(&mut self, value: f32) -> &mut Self {
-        self.attributes.opacity = value;
-        self
-    }
+    plico::macro_support::text_style_methods!(borrowed(attributes));
 }
 
 struct Properties<D: Dependencies> {
@@ -84,6 +65,18 @@ impl<D: Dependencies> Render for Properties<D> {
 ///     app.root((), |cx, ()| {
 ///         let hidden = String::from("capture");
 ///         text(cx, "").reactive((), |node, ()| { node.text(hidden.clone()); });
+///     });
+/// });
+/// ```
+/// Structure is declared by the ordinary builder, outside the property callback.
+/// ```compile_fail
+/// use plico::prelude::*;
+/// use plico_runtime::regions::{Reactive, Regions};
+/// let app = Regions::new(|app| {
+///     app.root((), |cx, ()| {
+///         text(cx, "").reactive((), |node, ()| {
+///             node.children(|cx| { text(cx, "new child"); });
+///         });
 ///     });
 /// });
 /// ```

@@ -998,6 +998,7 @@ pub struct Button<'u, 'e, 't> {
 macro_rules! common {
     ($name:ident) => {
         impl $name<'_, '_, '_> {
+            crate::macro_support::text_style_methods!(owned(inner.style));
             #[inline(always)]
             pub fn min_width(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("min_width", value.into());
@@ -1213,11 +1214,6 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
-            pub fn weight(mut self, value: u16) -> Self {
-                self.inner.style.font_weight = value;
-                self
-            }
-            #[inline(always)]
             pub fn width_percent(mut self, value: f32) -> Self {
                 self.inner
                     .style
@@ -1227,17 +1223,6 @@ macro_rules! common {
             #[inline(always)]
             pub fn grow(mut self, value: f32) -> Self {
                 self.inner.style.grow = value;
-                self
-            }
-            #[inline(always)]
-            pub fn font_size(mut self, px: u16) -> Self {
-                self.inner.style.font_size = px;
-                self
-            }
-            /// Select a portable generic font family for this control or text.
-            #[inline(always)]
-            pub fn font_family(mut self, family: crate::FontFamily) -> Self {
-                self.inner.style.font_family = family;
                 self
             }
             #[inline(always)]
@@ -1292,11 +1277,6 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
-            pub fn opacity(mut self, value: f32) -> Self {
-                self.inner.style.opacity = value;
-                self
-            }
-            #[inline(always)]
             pub fn radius(mut self, px: f32) -> Self {
                 self.inner.style.radius = px;
                 self
@@ -1313,11 +1293,6 @@ macro_rules! common {
             #[inline(always)]
             pub fn transition(mut self, milliseconds: u16) -> Self {
                 self.inner.style.transition_ms = milliseconds;
-                self
-            }
-            #[inline(always)]
-            pub fn color(mut self, color: Color) -> Self {
-                self.inner.style.foreground = color;
                 self
             }
             #[inline(always)]

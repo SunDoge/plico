@@ -32,6 +32,7 @@ pub use numeric::{NumericRange, SliderResponse};
 mod shader;
 pub use shader::{ShaderAsset, ShaderParams};
 mod snapshot;
+mod text_style;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -75,6 +76,9 @@ pub use ui::{
 /// FNV-1a hasher back deterministic identity across builds; `bitflags` is
 /// re-exported because generated invalidation flags need it in scope.
 pub mod macro_support {
+    /// Shared setter definitions used by framework builders and property editors.
+    #[doc(hidden)]
+    pub use crate::__plico_text_style_methods as text_style_methods;
     pub use bitflags::bitflags;
     /// Deterministic namespace hash, evaluated at compile time by macros.
     pub const fn site_id(namespace: &str, site: u32) -> u64 {

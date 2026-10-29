@@ -228,3 +228,17 @@ let app = Regions::new(|app| {
 `regions_properties` 回归覆盖：命名函数与异构依赖元组、初始应用、父区域/静态兄弟不执行、零节点声明、颜色不重排、文字/语义失效、多行文字改变后兄弟布局与完整声明一致、相同值无脏标记、完整声明与 resize 后属性保留、卸载与新代际、反复依赖切换后旧依赖不再唤醒、宿主异步结果只更新绑定、属性回调写入拒绝、富文本拒绝，以及条件 setter 恢复静态基线。后续增加了字体样式与透明度失效、主题 token 重解析、非法属性拒绝后恢复，以及通过开发协议重建函数/恢复状态后再次更新属性的回归；这不等同于完整 dylib 窗口热重载验收。随机差分测试也包含 text/color 属性绑定，与强制完整声明逐批比较。
 
 原生 `regions` 示例已用此方法实现 Count、Double 和宿主请求状态文字；开启 Skia damage 的 Linux X11/llvmpipe 窗口验证了计数、异步 Loaded 唤醒、条件卸载/重建和 resize。此处不推导硬件 GPU 的性能收益；布局与绘制仍走共享的后端管线。
+
+### 与普通 builder 共用链式属性
+
+`color(Color)`、`font_size(u16)`、`weight(u16)`、`font_family(FontFamily)`、`opacity(f32)` 使用同一份编译期方法定义。普通 Text/控件 builder 返回自身，属性编辑器返回 `&mut Self`，两种接收方式都支持连续链式调用；共有方法的名称、参数类型和字段映射不会分别维护。校验继续统一落在 Engine 的 Style 校验边界，失效继续使用 Style diff，没有为共用方法新增运行时分发或分配。
+
+```rust
+text(cx, "Static").font_size(24).weight(700).color(Color::Accent);
+text(cx, "").reactive((count,), |node, (count,)| {
+    node.text(format!("Count: {}", *count.read()))
+        .font_size(24).weight(700).color(Color::Accent);
+});
+```
+
+这里只有共有的文本样式方法被统一；`.children()`、`.key()` 和布局/事件方法仍属于声明阶段。回归测试直接比较普通 builder 完整声明与属性局部更新的序列化节点和布局，并验证两边对零字号、越界字重、NaN 透明度返回相同的 InvalidStyle。
