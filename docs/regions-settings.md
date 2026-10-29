@@ -180,3 +180,24 @@ taskset -c 7 target/release/examples/preferences_scale --sizes 32,128,512 --upda
 验证覆盖：输入移动时 fragment 复用与 IME 跟随、单 buffer 编辑、preedit、替换 buffer、placeholder/尺寸/字体/Theme/context 失效、selectable 开关清理、无关控件不重建选择、scroll 开关后索引清理、shader 挂载/卸载。现有输入、文字选择、滚动、虚拟列表、popover/modal、对齐、slider 与 tooltip 非 GPU 回归通过；规模复测也核对首帧/最终帧状态指纹。
 
 回归中发现虚拟列表旧断言把 composable button 的节点数当成 leaf button；在原 `150c0fd` checkout 上复现同样失败后，将断言改为按实际挂载行数限制节点预算，保留精确行窗口和滚动位置检查。既有 shader / 带 shader tooltip 的像素测试，在当前默认 Skia 配置下仍报 Unsupported(Shader)，未将它们记为通过；本次 shader 索引另外用无 GPU 原生路径验证。
+
+## 原生窗口交互验收（2026-10-29）
+
+在 `b07d5a4` 的代码上，使用独立 Xvfb/X11 显示、Skia Vulkan 的 llvmpipe 设备，运行真实 winit 窗口；通过 xdotool 注入操作系统鼠标/键盘事件，ImageMagick 捕获窗口像素，Tesseract 核对编辑预览、保存结果与重置文本。这一轮覆盖窗口输入与 swapchain 呈现，不是 `Driver` 的无窗口模拟。
+
+Preferences 对照依次执行：初始状态 → 全选并输入 `Region window verified` → Save → 展开 advanced → Dark theme → 缩至 480×600 → 向下滚动至 Reduce motion → 恢复 900×780 并 Reset name → unmap/map → advanced 连续展开/收起 12 轮。每个状态先移开指针、清除编辑焦点，再截取同尺寸窗口图，排除 caret 闪烁和 hover 对比较的干扰。
+
+分别运行 immediate、regions（damage 关闭）、regions（damage 开启）三组。10 个对应状态的 immediate/regions 比较，以及 regions 的 damage 开关比较，共 20 对截图，RMSE 均为 0。编辑预览与保存/重置文字也通过 OCR 断言；日志未出现 panic、presentation failure 或 Vulkan validation 错误。未将生成截图与日志纳入仓库，也未增加 CI 窗口任务。
+
+另运行 `plico-runtime` 的 `regions` 原生窗口示例，开启 damage，实际验证：全局计数与嵌套 Double 同步更新；两个组件 local count 分别为 2 和 1；第一个组件宿主异步请求从 Idle/Loading 返回 Loaded，第二个仍为 Idle；输入任务并 Enter 提交从 3 项增至 4 项；Reverse 后新任务排到首位，删除后恢复 3 项；拖动 slider 将 Intensity 改到 90% 并更新文字样式；折叠嵌套区域期间把 Count 从 3 改到 5，再展开显示 Double: 10，已有 local count 保留；缩至 760×600 后外层可滚动。
+
+复现入口：
+
+```sh
+cargo run -p backend-settings --example preferences_regions --features regions,skia
+cargo run -p backend-settings --example preferences_regions --features regions,skia -- --immediate
+PLICO_SKIA_DAMAGE=1 cargo run -p backend-settings --example preferences_regions --features regions,skia
+PLICO_SKIA_DAMAGE=1 cargo run -p plico-runtime --example regions --features regions,plico-shell/skia
+```
+
+限制：这些结果来自 Linux X11 的软件 Vulkan 驱动，不代表 Wayland、独立显卡、Windows/macOS 或真实中文输入法已经验收。Preferences 示例没有持续动画，静态帧比较不证明动画中间帧、帧间延迟或帧率；异步示例仅验证结果唤醒，不验证真实网络的取消/失败行为。GUI 列表验收检查可见顺序和结果，State owner 的释放与旧句柄拒绝仍由生命周期回归测试覆盖。
