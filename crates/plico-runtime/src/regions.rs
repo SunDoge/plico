@@ -61,10 +61,21 @@ pub struct Access<'a, T> {
     state: State<T>,
 }
 impl<T: 'static> Access<'_, T> {
+    fn check_writable(&self) {
+        assert!(
+            !self
+                .app
+                .slot(self.state.component, self.state.index)
+                .derived
+                .get(),
+            "derived state is read-only"
+        );
+    }
     pub fn sender(&self) -> StateSender<T>
     where
         T: Send,
     {
+        self.check_writable();
         self.app.sender(self.state)
     }
     pub fn handle(&self) -> State<T> {
@@ -85,14 +96,9 @@ impl<T: 'static> Access<'_, T> {
             !self.app.building.get(),
             "notify state in an event callback, not region"
         );
-        self.app.dirty.borrow_mut().extend(
-            self.app
-                .slot(self.state.component, self.state.index)
-                .readers
-                .borrow()
-                .iter()
-                .copied(),
-        );
+        self.check_writable();
+        self.app
+            .notify_binding((self.state.owner, self.state.component, self.state.index));
     }
     pub fn set(&self, value: T) {
         self.update(|current| *current = value);
@@ -102,12 +108,11 @@ impl<T: 'static> Access<'_, T> {
             !self.app.building.get(),
             "write state in an event callback, not region"
         );
+        self.check_writable();
         let slot = &self.app.slot(self.state.component, self.state.index);
         let result = f(slot.value.borrow_mut().downcast_mut().unwrap());
         self.app
-            .dirty
-            .borrow_mut()
-            .extend(slot.readers.borrow().iter().copied());
+            .notify_binding((self.state.owner, self.state.component, self.state.index));
         result
     }
     /// Mutate internal state but notify subscribers only when the closure
@@ -118,21 +123,35 @@ impl<T: 'static> Access<'_, T> {
             !self.app.building.get(),
             "write state in an event callback, not region"
         );
+        self.check_writable();
         let slot = &self.app.slot(self.state.component, self.state.index);
         let changed = f(slot.value.borrow_mut().downcast_mut().unwrap());
         if changed {
             self.app
-                .dirty
-                .borrow_mut()
-                .extend(slot.readers.borrow().iter().copied());
+                .notify_binding((self.state.owner, self.state.component, self.state.index));
         }
         changed
+    }
+}
+/// Read-only source access passed to an explicit derived selector.
+/// The handle can be carried into the projection for colocated event callbacks.
+pub struct Selector<'a, T> {
+    access: Access<'a, T>,
+}
+impl<T: 'static> Selector<'_, T> {
+    pub fn handle(&self) -> State<T> {
+        self.access.handle()
+    }
+    pub fn read(&self) -> Ref<'_, T> {
+        self.access.read()
     }
 }
 struct Slot {
     value: RefCell<Box<dyn Any>>,
     readers: RefCell<Vec<RegionId>>,
     persistent: Option<reload::Codec>,
+    derived: Cell<bool>,
+    dependents: RefCell<Vec<usize>>,
 }
 /// A single state or dependency tuple selects concrete function-pointer types.
 /// This also lets named functions coerce without casts on stable Rust's
@@ -931,6 +950,35 @@ struct Region {
     revision: u64,
     scene_cache: bool,
 }
+trait Derivation {
+    fn target(&self) -> Binding;
+    fn update(&self, app: &Regions) -> bool;
+}
+struct DerivedState<T, U> {
+    source: State<T>,
+    target: State<U>,
+    select: for<'a> fn(Selector<'a, T>) -> U,
+}
+impl<T: 'static, U: PartialEq + 'static> Derivation for DerivedState<T, U> {
+    fn target(&self) -> Binding {
+        (self.target.owner, self.target.component, self.target.index)
+    }
+    fn update(&self, app: &Regions) -> bool {
+        let next = (self.select)(Selector {
+            access: app.access(self.source),
+        });
+        let mut value = app
+            .slot(self.target.component, self.target.index)
+            .value
+            .borrow_mut();
+        let current = value.downcast_mut::<U>().unwrap();
+        if *current == next {
+            return false;
+        }
+        *current = next;
+        true
+    }
+}
 trait ServiceBinding {
     fn sync(&self, app: &Regions, services: &mut dyn Any);
     fn drain(&self, app: &Regions, services: &mut dyn Any);
@@ -971,6 +1019,7 @@ impl<S: Clone + PartialEq + 'static, C: 'static> ServiceBinding for ServiceState
 pub struct Regions {
     owner: usize,
     service: Option<Box<dyn ServiceBinding>>,
+    derivations: Vec<Box<dyn Derivation>>,
     theme: Option<State<plico::Theme>>,
     mailbox: Arc<tasks::Mailbox>,
     components: SlotMap<ComponentId, Component>,
@@ -1000,6 +1049,7 @@ impl Regions {
         let mut app = Self {
             owner,
             service: None,
+            derivations: vec![],
             theme: None,
             mailbox,
             components,
@@ -1080,12 +1130,70 @@ impl Regions {
             value: RefCell::new(Box::new(init())),
             readers: RefCell::new(vec![]),
             persistent: None,
+            derived: Cell::new(false),
+            dependents: RefCell::new(vec![]),
         }));
         State {
             owner: self.owner,
             component: self.root_component,
             index,
             marker: PhantomData,
+        }
+    }
+    /// Project one root state into a read-only root state. The selector runs on
+    /// source notification; equal outputs do not invalidate downstream readers.
+    /// Derived values are transient and are recomputed after checkpoint restore.
+    pub fn derived<T: 'static, U: PartialEq + 'static>(
+        &mut self,
+        source: State<T>,
+        select: for<'a> fn(Selector<'a, T>) -> U,
+    ) -> State<U> {
+        assert!(
+            !self.initialized,
+            "create derived state during construction"
+        );
+        assert!(
+            self.try_access(source).is_some(),
+            "foreign or expired derived source"
+        );
+        assert_eq!(
+            source.component, self.root_component,
+            "derived source must be root-owned"
+        );
+        let initial = select(Selector {
+            access: self.access(source),
+        });
+        let target = self.state(|| initial);
+        self.slot(target.component, target.index).derived.set(true);
+        let index = self.derivations.len();
+        self.derivations.push(Box::new(DerivedState {
+            source,
+            target,
+            select,
+        }));
+        self.slot(source.component, source.index)
+            .dependents
+            .borrow_mut()
+            .push(index);
+        target
+    }
+    fn notify_binding(&self, source: Binding) {
+        let mut pending = VecDeque::from([source]);
+        while let Some((_, component, index)) = pending.pop_front() {
+            let slot = self.slot(component, index);
+            self.dirty
+                .borrow_mut()
+                .extend(slot.readers.borrow().iter().copied());
+            for &derivation in slot.dependents.borrow().iter() {
+                if self.derivations[derivation].update(self) {
+                    pending.push_back(self.derivations[derivation].target());
+                }
+            }
+        }
+    }
+    pub(super) fn refresh_derivations(&self) {
+        for derivation in &self.derivations {
+            derivation.update(self);
         }
     }
     /// Root arguments are explicit captures, not reactive subscriptions.

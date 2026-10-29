@@ -47,6 +47,29 @@ cx.each_gap(
 
 `Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 和 component_keyed 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 region。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。region/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
 
+## 显式派生与字段选择
+
+`app.derived(source, selector)` 在构造阶段创建一个 root-owned 派生状态。selector 接收只读 `Selector<T>`，可读取字段并复制拥有值，也可把 `handle()` 放进输出，供该区域的事件回写源状态；它不能捕获环境或直接修改状态。输出只需 `PartialEq + 'static`，不要求 Clone 或 Serde：
+
+```rust
+let filters = app.derived(model, |model| {
+    let current = model.read();
+    FilterProjection {
+        source: model.handle(),
+        category: current.category,
+        count: current.matches.len(),
+    }
+});
+```
+
+源状态每次 `set/update/notify` 或异步结果应用时都会执行 selector；输出相等则不通知下游 region，也不继续唤起依赖该输出的派生链。输出变化才按普通 State 的读取者失效，同一批多次写入仍由 replay 去重。`update_if` 返回 false 时连派生计算也推迟，之后可显式 `notify`。派生输出是只读状态，直接 `set/update/sender` 会 panic；事件应使用 projection 中显式保存的源 handle 回写。
+
+当前只支持单源、root-owned 派生，不在组件声明中创建，也不自动分析读取字段或构建多源依赖图。Selector 本身不是缓存：即使输出没有读取者也会运行，减少的是不相等输出的下游声明，不应预先宣称总 CPU 一定更低。派生槽不进入 checkpoint；恢复 persisted 源槽后按构造顺序重新计算，因此派生链与首次声明使用恢复后的值。卸载的派生读取者按普通 Region 清理，重挂读取最新输出。
+
+```sh
+cargo test -p plico-runtime --test regions_derived
+```
+
 ## 运行
 
 Skia 窗口示例位于 `crates/plico-runtime/examples/regions.rs`：
@@ -140,7 +163,7 @@ Source 的 Regions hook 在输入或状态失效时尝试局部声明；只修�
 
 目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景和平台能力尚未逐项验收；backend-settings 已覆盖路由动画的无窗口及 Vello/Skia 后端回归；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 region。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
 
-根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、错误事务回滚和 panic 后恢复尚未实现。热重载采用下述 opt-in checkpoint，未标记状态重置。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
+根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、多源/组件局部派生、自动 memo、异步计算图、错误事务回滚和 panic 后恢复尚未实现。热重载采用下述 opt-in checkpoint，未标记状态重置。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
 
 组件 owner 回归测试覆盖列表重排、resize 复用、卸载释放、旧句柄失效、同 key 重挂载重置，以及持有短期读借用时追加 100 个局部槽。
 
@@ -176,7 +199,7 @@ let count = app.persisted_state(1, || 0_i32);
 let count = cx.local_persisted_state(1, || 0_i32);
 ```
 
-槽身份是「组件的 Engine 逻辑路径 + 显式槽 key」，不序列化 Entity、State ID、Rc、函数指针或订阅图。路径包含父容器/区域的身份，所以列表重排可以恢复，移动组件到不同父节点或修改调用点可能导致重置。普通 local_state 在 reload 后重置；它不要求可序列化。
+槽身份是「组件的 Engine 逻辑路径 + 显式槽 key」，不序列化 Entity、State ID、Rc、函数指针或订阅图。路径包含父容器/区域的身份，所以列表重排可以恢复，移动组件到不同父节点或修改调用点可能导致重置。普通 local_state 在 reload 后重置；它不要求可序列化。root-owned derived 槽同样不序列化，restore_checkpoint 会在首次声明前从恢复后的源重新计算。
 
 `Regions::checkpoint()` 返回可序列化的 Checkpoint；每个槽通过现有 `StateSnapshot` 保存 named-field MessagePack，因此支持复合 map key 等不能直接表达为 JSON object 的类型。重新构造 Regions 后，在首次声明前调用 `restore_checkpoint(checkpoint)`，局部槽在相应组件第一次声明时恢复。类型名不符或该槽解码失败，保留该槽默认值；新增槽默认初始化，已删除槽忽略。首次完整声明后清掉未匹配记录，`restore_stats()` 报告 restored/reset/unmatched 数量。这不是 schema 自动迁移；类型重命名也可能重置。
 

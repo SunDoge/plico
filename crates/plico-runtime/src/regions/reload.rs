@@ -86,6 +86,8 @@ impl Storage {
             value: RefCell::new(value),
             readers: RefCell::new(vec![]),
             persistent: codec,
+            derived: Cell::new(false),
+            dependents: RefCell::new(vec![]),
         }));
         locals.insert(key, index);
         index
@@ -173,6 +175,7 @@ impl Regions {
                 *slot.value.borrow_mut() = value;
             }
         }
+        self.refresh_derivations();
     }
     pub fn restore_stats(&self) -> RestoreStats {
         self.components[self.root_component]

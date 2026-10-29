@@ -75,7 +75,7 @@ demo 用它保证 Tab 到其他控件后 Escape 仍可退出。它不是系统�
   此验证不代表 Wayland/macOS/Windows 或真实系统输入法已全部验证。
 - 已查看深色 680px、浅色 520px 与空结果的真实 Parley/Vello 离屏截图，见 `reports/launcher/`。
 
-当前 demo 由 `Launcher` 直接持有 `Regions` 和根 `State`，搜索、筛选、结果与反馈使用独立的 `cx.region`；输入通过 `on_change`、`on_navigation` 和 `on_submit` 回写，不增加应用包装层。`TextBuffer` 与窗口动作仍走原生路径；一次性 focus/reveal 使用 colocated consume 回调，不再有声明后的 `finish_declaration` 清理。
+当前 demo 由 `Launcher` 直接持有 `Regions` 和根 `State`，搜索、筛选、结果与反馈使用独立的 `cx.region`；搜索字段、筛选类别/数量和反馈文本通过 root-owned `derived` 投影订阅，选择移动不会通知筛选或反馈。真实 Launcher sampled replay 回归连续执行选择更新，断言结果区只重跑一次且筛选、反馈、根均跳过；键盘输入仍有自己的 input settle，不把该断言扩大为所有按键只做局部重放。输入通过 `on_change`、`on_navigation` 和 `on_submit` 回写，不增加应用包装层。`TextBuffer` 与窗口动作仍走原生路径；一次性 focus/reveal 使用 colocated consume 回调，不再有声明后的 `finish_declaration` 清理。
 它没有导出可热重载的应用模块；现有 JSON 模块协议仍不能迁移原生输入绑定，不能因为其他 App 支持 reload 就声称此 demo 也支持。
 
 尚未提供系统级召回快捷键、托盘驻留/隐藏再召回、平台应用索引、图标解析、文件搜索、
