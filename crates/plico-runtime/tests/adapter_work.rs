@@ -315,3 +315,123 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
         .unwrap();
     assert_eq!(s.batch_stats().scroll_viewport_visits, before);
 }
+
+#[test]
+fn geometry_alignment_only_visits_controls_and_reuses_metrics_without_origin_drift() {
+    let mut s = Source::new(Form::new(20));
+    s.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    frame(&mut s, &mut text);
+    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    let origin = s
+        .adapter
+        .placed
+        .iter()
+        .find(|n| n.paint.text.as_deref() == Some("Unrelated toggle"))
+        .unwrap()
+        .content_origin;
+    for _ in 0..3 {
+        s.view.offset += 40.;
+        s.request_rebuild();
+        frame(&mut s, &mut text);
+        assert_eq!(s.adapter.stats.control_align_checks, 1);
+        assert_eq!(s.adapter.stats.input_align_checks, 20);
+        assert_eq!(s.adapter.stats.control_metric_builds, 0);
+        assert_eq!(s.adapter.stats.control_metric_reuses, 1);
+    }
+    let next = s
+        .adapter
+        .placed
+        .iter()
+        .find(|n| n.paint.text.as_deref() == Some("Unrelated toggle"))
+        .unwrap()
+        .content_origin;
+    assert_eq!(next[0], origin[0]);
+    assert!((next[1] - origin[1] - 120.).abs() < 0.01);
+    s.view.dark = true;
+    s.request_rebuild();
+    frame(&mut s, &mut text);
+    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    text.clear_caches();
+    s.view.offset += 1.;
+    s.request_rebuild();
+    frame(&mut s, &mut text);
+    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+}
+
+#[derive(Clone)]
+struct Controls {
+    visible: bool,
+    label: &'static str,
+    width: f32,
+    font: u16,
+    checked: bool,
+}
+impl View for Controls {
+    #[component]
+    fn show(&mut self, cx: &mut UiContext) {
+        column(cx).children(|cx| {
+            if self.visible {
+                checkbox(cx, self.label, &mut self.checked)
+                    .width(self.width)
+                    .font_size(self.font);
+            }
+        });
+    }
+}
+#[test]
+fn control_metric_invalidation_matches_fresh_layout_and_cleans_unmounted_membership() {
+    let mut s = Source::new(Controls {
+        visible: true,
+        label: "A label that wraps when the control becomes narrow",
+        width: 300.,
+        font: 14,
+        checked: false,
+    });
+    s.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    let draw = |s: &mut Source<Controls>, text: &mut TextContext| {
+        s.render_retained_frame(&mut Scene::new(), text, (600, 600), 1.)
+            .unwrap();
+        assert!(s.last_error.is_none(), "{:?}", s.last_error);
+    };
+    draw(&mut s, &mut text);
+    for change in 0..3 {
+        match change {
+            0 => s.view.width = 120.,
+            1 => s.view.font = 24,
+            _ => s.view.label = "New label",
+        }
+        s.request_rebuild();
+        draw(&mut s, &mut text);
+        assert_eq!(s.adapter.stats.control_metric_builds, 1);
+        let mut fresh = Source::new(s.view.clone());
+        fresh.set_reduced_motion(true);
+        draw(&mut fresh, &mut text);
+        let actual = s
+            .adapter
+            .placed
+            .iter()
+            .find(|n| n.paint.text.as_deref() == Some(s.view.label))
+            .unwrap();
+        let expected = fresh
+            .adapter
+            .placed
+            .iter()
+            .find(|n| n.paint.text.as_deref() == Some(s.view.label))
+            .unwrap();
+        assert_eq!(actual.rect, expected.rect);
+        assert_eq!(actual.content_origin, expected.content_origin);
+        assert_eq!(actual.content_size, expected.content_size);
+    }
+    s.view.visible = false;
+    s.request_rebuild();
+    draw(&mut s, &mut text);
+    assert_eq!(s.adapter.stats.control_align_checks, 0);
+    assert_eq!(s.adapter.stats.control_metric_reuses, 0);
+    s.view.visible = true;
+    s.request_rebuild();
+    draw(&mut s, &mut text);
+    assert_eq!(s.adapter.stats.control_align_checks, 1);
+    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+}

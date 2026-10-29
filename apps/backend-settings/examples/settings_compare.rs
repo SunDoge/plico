@@ -1,5 +1,7 @@
 //! Complete routed application CPU pipeline, without a window, Scene or GPU.
 //! Run in release mode; both implementations execute the same semantic events.
+#[cfg(feature = "profiling")]
+mod support;
 use backend_settings::{ImmediateSettings, Settings};
 use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, VirtualClock};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
@@ -186,6 +188,8 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
     } else {
         options.warmup
     };
+    #[cfg(feature = "profiling")]
+    let mut phases = [0_u128; 8];
     let mut samples = Vec::with_capacity(iterations);
     let (mut event_ns, mut declare_us, mut sync_us, mut layout_us) =
         (0_u128, 0_u128, 0_u128, 0_u128);
@@ -197,6 +201,8 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
             clock.advance(Duration::from_micros(16_667)).unwrap();
         }
         let before = source.batch_stats();
+        #[cfg(feature = "profiling")]
+        support::reset();
         let start = Instant::now();
         match scenario {
             Scenario::Idle | Scenario::DetailsMotion => {}
@@ -239,6 +245,8 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         black_box(&source.adapter.placed);
         let after = source.batch_stats();
         if index >= warmup {
+            #[cfg(feature = "profiling")]
+            support::accumulate(&mut phases);
             samples.push(elapsed);
             event_ns += event;
             declare_us += source.declaration_micros;
@@ -256,7 +264,6 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
     samples.sort_unstable();
     let n = iterations as f64;
     let final_fingerprint = fingerprint(&source);
-    if scenario != Scenario::DetailsMotion {}
     println!(
         "{mode},{},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{:.2},{},{:016x}",
         scenario.name(),
@@ -276,10 +283,18 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         source.experiment_live_counts().0,
         final_fingerprint,
     );
+    #[cfg(feature = "profiling")]
+    support::report(
+        &format!("mode={mode} scenario={}", scenario.name()),
+        phases,
+        iterations,
+    );
     final_fingerprint
 }
 
 fn main() {
+    #[cfg(feature = "profiling")]
+    support::install();
     let options = Options::parse();
     assert!(options.iterations > 0, "iterations must be positive");
     println!(

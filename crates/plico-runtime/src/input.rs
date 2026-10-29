@@ -29,6 +29,7 @@ pub(super) struct Geometry {
 }
 impl Adapter {
     pub(super) fn align_input(&mut self, index: usize, tcx: &mut TextContext, engine: &Engine) {
+        self.stats.input_align_checks += 1;
         let node = &self.placed[index];
         let entity = self.reverse[&node.node_id];
         let Some((buffer, placeholder)) = engine.input(entity) else {

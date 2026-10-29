@@ -271,3 +271,69 @@ taskset -c 7 target/release/examples/settings_compare --scenarios route --iterat
 端到端改善约 3.2%，声明阶段约 15.7%。顺序执行的绝对数值仍受 CPU 频率影响，未把其他场景的小幅波动宣称为优化或回归。曾试验父 Region 内 eager 递归 replay，虽然减少排队 pass，但总体收益不稳定且扩大局部 sweep 改动，最终没有保留。
 
 当前结论不是 Reactive 全面更快：局部表单更新已经体现收益，路由、列表结构变化、主题和动画仍受真实 Region column、事件后的第二次声明、全树 Adapter/Taffy 工作影响。下一步优先考虑更新边界与布局节点解耦，以及缩小结构变化后的布局传播；这些需要独立正确性和性能验证。
+
+## 后端消费细粒度变化：布局后对齐（2026-10-29）
+
+基线 `328bb38` 已将脏 Entity、Changes 和样式属性变化送到 Adapter，paint-only 更新也已按
+脏节点处理；不能说后端完全没有利用前端的细粒度信息。但尺寸/文字变化触发布局后，仍会
+flatten 全树，并为每个 placed 节点尝试控件文字对齐和输入框几何更新。即使绝大多数是
+普通文字或容器，也会查询 retained 记录及输入绑定。
+
+增加可选阶段计时，使用 tracing span 的 CPU 墙钟时间，没有硬件采样；正常构建不开启：
+
+```sh
+cargo build --release -p backend-settings --features profiling \
+  --example preferences_scale --example settings_compare
+taskset -c 7 target/release/examples/preferences_scale \
+  --sizes 128,512 --updates 1 --scenarios typing,save,advanced \
+  --iterations 40 --warmup 30
+```
+
+CSV 继续写 stdout，阶段平均值写 stderr。`backend.geometry_post` 包含 `backend.align`，
+两者不能相加。512 个表单的 reactive typing，14,342 个存活节点，本机阶段均值如下：
+
+| CPU 阶段 | 改前 µs | 改后 µs |
+| --- | ---: | ---: |
+| Taffy compute | 2069 | 1810 |
+| flatten | 3607 | 3510 |
+| placed 索引维护 | 179 | 433 |
+| 控件/输入对齐 | 4182 | 702 |
+
+只优化最后一项及其索引；compute/flatten 的差异不作为本轮优化成果。只加文字度量缓存时，
+对齐仍约 3982µs，因此保留以下组合，而不是宣称重复 shaping 是唯一热点：
+
+- targeted sync 维护真实叶控件和输入框成员集合，卸载时删除；已有 reindex 之后只为这些
+  成员查找 placed 索引。不能在 reindex 中对全树读取大 retained 记录来分类，否则只是
+  把耗时转移到索引阶段。
+- 布局、滚动和焦点滚动只对这些实际控件执行对齐；paint-only 仍按脏节点处理。
+- 普通叶控件缓存三个文字几何标量，不持有额外 paragraph；宽度或 TextContext generation
+  改变时重算，任何 retained paint 写入保守失效。内容原点每次从新布局框计算，避免滚动、
+  位移或动画帧累加偏移。
+- `BackendStats` / `backend.work` 增加 `control_align_checks`、`input_align_checks`、
+  `control_metric_builds`、`control_metric_reuses`，可检查实际访问范围。
+
+随后关闭 profiling，分别保存基线和修改后的 release 二进制，核对哈希不同，同核交错执行
+三轮。大表单每轮预热 40 次、采样 80 次；完整应用预热 200 次、采样 1000 次。
+取三轮 p50 的中位数；计时从相同语义事件开始，到 CPU 帧准备完成，不含 Scene、窗口或 GPU。
+第一轮曾与测试构建重叠，已丢弃，未混入以下结果。
+
+| Reactive 工作负载 | 改前 µs | 改后 µs |
+| --- | ---: | ---: |
+| 128 表单，编辑 1 个 | 1126.78 | 826.29 |
+| 512 表单，编辑 1 个 | 11251.97 | 7493.01 |
+| 512 表单，保存 1 个 | 11202.42 | 7699.74 |
+| 512 表单，切换 1 个 advanced | 13495.74 | 9479.41 |
+| 完整设置页，输入 | 26.38 | 22.99 |
+| 完整设置页，保存 | 42.78 | 39.23 |
+| 完整设置页，路由 | 293.19 | 292.56 |
+| 完整设置页，主题 | 113.30 | 115.05 |
+
+大表单默认视口让所有表单可见，是放大后处理开销的压力场景，不是常见窗口大小。
+完整设置页通知仍约 5µs，route/theme 没有稳定改善；这不是所有操作都快 33%。
+输入/布局属性、主题、宽度、字体、换行、缓存重置、卸载重挂、原点位移及输入框局部片段
+均由 CPU 回归测试覆盖；完整应用探针继续断言 immediate/reactive 语义指纹一致。
+未新增 CI 性能阈值，也未更改渲染器或重新引入增量 flatten/scene。
+
+剩余主要开销是布局及全树 flatten；脏节点 ID 并不足以证明文字变化不会影响祖先和兄弟
+的几何。后续优化必须继续保留这些依赖的正确性。该测量不含真实窗口呈现，也未测功耗，
+不能把 CPU 阶段降幅当作整进程 CPU 或电量降幅。

@@ -501,6 +501,7 @@ dependencies = [
  "plico-skia",
  "serde",
  "snafu",
+ "tracing",
  "tracing-subscriber",
  "usage-rs",
 ]

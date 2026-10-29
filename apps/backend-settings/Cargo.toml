@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [features]
+profiling = ["plico-runtime/profiling", "dep:tracing", "dep:tracing-subscriber"]
 default = []
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 vello = ["plico-desktop/vello", "plico-shell/vello", "dep:plico-desktop", "dep:plico-shell"]
@@ -18,6 +19,7 @@ egui = [
 ]
 
 [dependencies]
+tracing = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 plico-egui = { path = "../../crates/plico-egui", optional = true, features = ["widgets"] }
 usage-rs.workspace = true

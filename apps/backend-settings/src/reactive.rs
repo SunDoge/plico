@@ -478,19 +478,21 @@ fn nav_entry(cx: &mut UiContext, router: &Access<'_, Router<Page>>, page: Page, 
     });
 }
 
+type PageAccess<'a> = (
+    Access<'a, Animations>,
+    Access<'a, bool>,
+    Access<'a, Options>,
+    Access<'a, Workspace>,
+    Access<'a, Editor>,
+    Access<'a, Theme>,
+);
+
 #[component]
 #[rustfmt::skip]
 fn page(
     cx: &mut UiContext,
     page: Page,
-    (animations, inspector, options, workspace, editor, theme): (
-        Access<'_, Animations>,
-        Access<'_, bool>,
-        Access<'_, Options>,
-        Access<'_, Workspace>,
-        Access<'_, Editor>,
-        Access<'_, Theme>,
-    ),
+    (animations, inspector, options, workspace, editor, theme): PageAccess<'_>,
 ) {
     match page {
         Page::Overview => cx.watch_fill((animations.handle(), inspector.handle(), workspace.handle()), overview),

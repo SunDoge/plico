@@ -1,4 +1,6 @@
 //! Full native form pipeline. No Scene, window or GPU. Run with --release.
+#[cfg(feature = "profiling")]
+mod support;
 use backend_settings::preferences_regions::scale::{
     FullRegionPanels, ImmediatePanels, region_panels,
 };
@@ -168,6 +170,8 @@ fn bench<V: View>(
     let mut text = TextContext::new();
     prepare(&mut source, &mut text, height);
     let targets = ids(&source, scenario, k);
+    #[cfg(feature = "profiling")]
+    let mut phases = [0_u128; 8];
     let mut samples = Vec::with_capacity(options.iterations);
     let mut first = None;
     let mut auxiliary = [0_usize; 7];
@@ -177,6 +181,8 @@ fn bench<V: View>(
         (0_usize, 0_usize, 0_usize, 0_usize);
     for index in 0..options.warmup + options.iterations {
         let before = source.batch_stats().declaration_passes;
+        #[cfg(feature = "profiling")]
+        support::reset();
         let start = Instant::now();
         event(&mut source, scenario, &targets, index);
         let events = start.elapsed().as_nanos();
@@ -187,6 +193,8 @@ fn bench<V: View>(
             first = Some(fingerprint(&source));
         }
         if index >= options.warmup {
+            #[cfg(feature = "profiling")]
+            support::accumulate(&mut phases);
             samples.push(elapsed);
             event_ns += events;
             declare_us += source.declaration_micros;
@@ -233,6 +241,15 @@ fn bench<V: View>(
         auxiliary[4] as f64 / n,
         auxiliary[5] as f64 / n,
         auxiliary[6] as f64 / n
+    );
+    #[cfg(feature = "profiling")]
+    support::report(
+        &format!(
+            "mode={mode} panels={panels} k={k} scenario={}",
+            scenario.name()
+        ),
+        phases,
+        options.iterations,
     );
     Evidence {
         first: first.unwrap(),
@@ -375,6 +392,8 @@ fn run(options: Options) -> Result<(), Error> {
     Ok(())
 }
 fn main() -> std::process::ExitCode {
+    #[cfg(feature = "profiling")]
+    support::install();
     match run(Options::parse()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
