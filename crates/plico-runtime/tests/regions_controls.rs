@@ -5,7 +5,7 @@ use plico_renderer::{
 };
 use plico_runtime::{
     Source,
-    regions::{Access, BindState, OnChange, OnClickWith, OnSubmit, Regions, State, RegionUi},
+    regions::{Access, BindState, OnChange, OnClickWith, OnSubmit, RegionUi, Regions, State},
 };
 
 fn paint(s: &mut Source<Regions>, text: &mut TextContext) {

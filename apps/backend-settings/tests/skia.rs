@@ -115,7 +115,7 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
 #[test]
 fn retained_fragment_damage_matches_a_full_skia_redraw() {
     use plico::prelude::*;
-    use plico_runtime::regions::{Regions, RegionUi};
+    use plico_runtime::regions::{RegionUi, Regions};
 
     let mut state = None;
     let app = Regions::new(|app| {

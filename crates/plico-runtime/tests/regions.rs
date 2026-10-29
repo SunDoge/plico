@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
     Source,
-    regions::{OnClick, Regions, State, RegionUi},
+    regions::{OnClick, RegionUi, Regions, State},
 };
 
 fn app() -> (Regions, State<i32>) {

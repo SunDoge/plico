@@ -3,7 +3,7 @@ use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
     Source,
     regions::{
-        Access, BindState, OnClick, Reactive, Regions, State, RegionUi, outlet, outlet_fill,
+        Access, BindState, OnClick, Reactive, RegionUi, Regions, State, outlet, outlet_fill,
         outlet_keyed,
     },
 };

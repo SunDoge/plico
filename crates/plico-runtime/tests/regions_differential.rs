@@ -5,8 +5,8 @@ use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextCo
 use plico_runtime::{
     Source, View,
     regions::{
-        Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, Regions, State, StateSender,
-        RegionUi,
+        Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, RegionUi, Regions, State,
+        StateSender,
     },
 };
 use std::{

@@ -4,7 +4,7 @@ use plico_runtime::{
     Source,
     regions::{
         Access, BindState, OnChange, OnClick, OnClickWith, Reactive, RegionApp, RegionProgram,
-        Regions, RegionUi, outlet,
+        RegionUi, Regions, outlet,
     },
 };
 

@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico_runtime::regions::{
-    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Reactive, Regions, RegionUi,
+    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Reactive, RegionUi, Regions,
 };
 
 #[derive(Clone, Copy)]

@@ -3,7 +3,7 @@ pub mod icons;
 use plico::prelude::*;
 use plico_dev::services::{ServiceApp, Services};
 use plico_runtime::View;
-use plico_runtime::regions::{BindState, Checkpoint, OnClick, Reactive, Regions, State, RegionUi};
+use plico_runtime::regions::{BindState, Checkpoint, OnClick, Reactive, RegionUi, Regions, State};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

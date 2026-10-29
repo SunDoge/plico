@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico_runtime::regions::{
-    OnClick, Reactive, RegionApp, RegionProgram, Regions, State, RegionUi,
+    OnClick, Reactive, RegionApp, RegionProgram, RegionUi, Regions, State,
 };
 
 #[component]

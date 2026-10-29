@@ -6,7 +6,7 @@ use plico::{Engine, Entity, FrameError, prelude::*};
 use plico_renderer::{FrameSource, RenderBackend, Scene, TextContext, WakeCallback, WindowOptions};
 use plico_runtime::{
     Source, View,
-    regions::{Access, Reactive, Regions, ReplayBatch, State, RegionUi},
+    regions::{Access, Reactive, RegionUi, Regions, ReplayBatch, State},
 };
 use std::{
     sync::{

@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_runtime::{
     Source,
-    regions::{Checkpoint, OnClick, RegionApp, RegionProgram, Regions, State, RegionUi},
+    regions::{Checkpoint, OnClick, RegionApp, RegionProgram, RegionUi, Regions, State},
 };
 use std::{cell::RefCell, rc::Rc};
 

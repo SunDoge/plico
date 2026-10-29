@@ -6,7 +6,7 @@ use plico::{DeclareView, Theme, prelude::*};
 use plico_runtime::{
     View,
     regions::{
-        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, Regions, RegionUi,
+        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, RegionUi, Regions,
     },
 };
 

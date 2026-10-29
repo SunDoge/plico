@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_runtime::{
     Source,
-    regions::{Regions, RegionUi},
+    regions::{RegionUi, Regions},
 };
 fn snapshot(full: bool) -> Vec<(String, [f32; 4])> {
     let mut state = None;

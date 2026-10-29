@@ -12,7 +12,7 @@ use plico::{
 use plico_runtime::{
     View,
     regions::{
-        Access, OnChange, OnClick, OnClickWith, Reactive, Regions, ReplayBatch, State, RegionUi,
+        Access, OnChange, OnClick, OnClickWith, Reactive, RegionUi, Regions, ReplayBatch, State,
         outlet_fill,
     },
 };

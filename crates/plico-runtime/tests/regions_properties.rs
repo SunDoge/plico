@@ -2,7 +2,7 @@ use plico::{Changes, Entity, prelude::*};
 use plico_renderer::TextContext;
 use plico_runtime::{
     Source,
-    regions::{Access, Reactive, Regions, State, TextProperties, RegionUi},
+    regions::{Access, Reactive, RegionUi, Regions, State, TextProperties},
 };
 
 fn update(node: &mut TextProperties, (value, color): (Access<'_, String>, Access<'_, Color>)) {
