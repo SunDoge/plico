@@ -94,7 +94,7 @@ fn reduced_motion_snaps_mid_flight_and_completes_immediately() {
     assert!(source.view.sidebar_width() > 72.);
 
     // Enabling reduced motion mid-flight lands on the target in the same frame.
-    source.view.reduced_motion = true;
+    source.view.set_reduced_motion(true);
     frame(&mut source, &mut tcx, 1100);
     assert_eq!(source.view.sidebar_width(), 72.);
     assert!(!source.view.animation_active());
@@ -123,7 +123,7 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     frame(&mut source, &mut tcx, 700);
     assert_eq!(source.view.sidebar_width(), 72.);
     assert!(
-        !source.view.compact,
+        !source.view.compact(),
         "auto-collapse must not edit the preference"
     );
 
@@ -133,7 +133,7 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     clock.set(Duration::from_millis(1200)).unwrap();
     frame(&mut source, &mut tcx, 1100);
     assert_eq!(source.view.sidebar_width(), 200.);
-    assert!(!source.view.compact);
+    assert!(!source.view.compact());
 
     // A user collapse sticks when the window narrows and widens again.
     click(&mut source, "Toggle sidebar");
@@ -145,7 +145,7 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     assert_eq!(source.view.sidebar_width(), 72.);
     frame(&mut source, &mut tcx, 1100);
     assert_eq!(source.view.sidebar_width(), 72.);
-    assert!(source.view.compact);
+    assert!(source.view.compact());
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
     // accessible name routes the app without any explicit request_rebuild.
     click(&mut source, "Activity");
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.router.current(), Page::Activity);
+    assert_eq!(source.view.current_page(), Page::Activity);
 }
 
 #[test]
@@ -381,12 +381,12 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
     frame(&mut source, &mut tcx, 1100);
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100);
-    assert!(source.view.compact);
+    assert!(source.view.compact());
 
     // Back to expanded for a clean state.
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100);
-    assert!(!source.view.compact);
+    assert!(!source.view.compact());
 
     // Narrow: the viewport forces the collapse and the toggle is disabled.
     // A semantic activation is refused, so the saved preference stays
@@ -404,7 +404,7 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
         !source.handle_semantic_action(SemanticAction::Click { target: id }),
         "the disabled toggle must refuse activation while narrow"
     );
-    assert!(!source.view.compact, "the saved preference is untouched");
+    assert!(!source.view.compact(), "the saved preference is untouched");
     assert_eq!(
         source.view.sidebar_width(),
         72.,
@@ -417,5 +417,5 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
     clock.set(Duration::from_millis(1000)).unwrap();
     frame(&mut source, &mut tcx, 1100);
     assert_eq!(source.view.sidebar_width(), 200.);
-    assert!(!source.view.compact);
+    assert!(!source.view.compact());
 }

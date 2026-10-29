@@ -32,6 +32,7 @@ mod layout_style;
 mod modal;
 mod popover;
 mod presentation;
+pub mod regions;
 #[cfg(feature = "hot-reload")]
 pub mod reload;
 mod scroll_motion;
@@ -74,6 +75,17 @@ pub struct BackendStats {
     pub presentation_visits: usize,
     pub text_measure_invalidations: usize,
     pub placed_node_clones: usize,
+    pub selection_visits: usize,
+    pub slider_visits: usize,
+    pub shader_visits: usize,
+    pub tooltip_visits: usize,
+    pub input_rebuilds: usize,
+    pub input_reuses: usize,
+    pub control_align_checks: usize,
+    pub input_align_checks: usize,
+    pub control_metric_builds: usize,
+    pub control_metric_reuses: usize,
+    pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
     pub svg_parses: usize,
@@ -84,6 +96,11 @@ enum SyncMode {
     Node,
     Structure,
     Full,
+}
+struct ControlMetrics {
+    epoch: usize,
+    width: f32,
+    metrics: Option<[f32; 3]>,
 }
 struct Retained {
     id: NodeId,
@@ -199,6 +216,11 @@ pub struct Adapter {
     reveal_focus: bool,
     scrollbar_drag: Option<(NodeId, f64, f32)>,
     input_layouts: HashMap<Entity, input::Geometry>,
+    control_metrics: HashMap<Entity, ControlMetrics>,
+    selectable_nodes: HashSet<Entity>,
+    slider_nodes: HashSet<Entity>,
+    shader_nodes: HashSet<Entity>,
+    tooltip_nodes: HashSet<Entity>,
     shaders: HashMap<Entity, shader::Surface>,
     shader_scale: f64,
     shader_motion_enabled: bool,
@@ -207,6 +229,11 @@ pub struct Adapter {
     motions: style_motion::StyleMotions,
     reverse: HashMap<NodeId, Entity>,
     placed_indices: HashMap<NodeId, usize>,
+    scroll_indices: Vec<usize>,
+    control_align_nodes: HashSet<Entity>,
+    input_align_nodes: HashSet<Entity>,
+    control_align_indices: Vec<usize>,
+    input_align_indices: Vec<usize>,
     geometry_dirty: bool,
     paint_dirty: Vec<NodeId>,
     last_theme: Option<Theme>,
@@ -252,6 +279,11 @@ impl Default for Adapter {
             reveal_focus: false,
             scrollbar_drag: None,
             input_layouts: HashMap::new(),
+            control_metrics: HashMap::new(),
+            selectable_nodes: HashSet::new(),
+            slider_nodes: HashSet::new(),
+            shader_nodes: HashSet::new(),
+            tooltip_nodes: HashSet::new(),
             shaders: HashMap::new(),
             shader_scale: 1.,
             shader_motion_enabled: true,
@@ -260,6 +292,11 @@ impl Default for Adapter {
             motions: Default::default(),
             reverse: HashMap::new(),
             placed_indices: HashMap::new(),
+            scroll_indices: Vec::new(),
+            control_align_nodes: HashSet::new(),
+            input_align_nodes: HashSet::new(),
+            control_align_indices: Vec::new(),
+            input_align_indices: Vec::new(),
             geometry_dirty: false,
             paint_dirty: Vec::new(),
             last_theme: None,
@@ -452,6 +489,13 @@ impl Adapter {
                 };
                 self.motions.remove(e);
                 self.input_layouts.remove(&e);
+                self.control_metrics.remove(&e);
+                self.control_align_nodes.remove(&e);
+                self.input_align_nodes.remove(&e);
+                self.selection_dirty |= self.selectable_nodes.remove(&e);
+                self.slider_nodes.remove(&e);
+                self.shader_nodes.remove(&e);
+                self.tooltip_nodes.remove(&e);
                 self.reverse.remove(&n.id);
                 self.scroll_offsets.remove(&n.id);
                 self.scroll_motions.remove(&n.id);
@@ -464,6 +508,8 @@ impl Adapter {
             }
         }
         if structural || theme_changed || self.stats.svg_parses > 0 {
+            #[cfg(feature = "profiling")]
+            let _span = tracing::trace_span!(target: "plico::layout", "backend.assets").entered();
             self.image_cache.retain(|encoded, _| {
                 self.nodes
                     .values()
@@ -544,6 +590,9 @@ impl Adapter {
             }
         }
         if self.geometry_dirty || self.scroll_dirty {
+            #[cfg(feature = "profiling")]
+            let _span =
+                tracing::trace_span!(target: "plico::layout", "backend.geometry_post").entered();
             self.position_popovers(engine, tcx, width, height);
             let mut clamped = false;
             for p in &self.placed {
@@ -581,11 +630,15 @@ impl Adapter {
                 self.reindex_placed();
             }
             self.scroll_dirty = false;
-            for index in 0..self.placed.len() {
-                self.align_control_text(index, tcx);
-                self.align_input(index, tcx, engine);
+            {
+                #[cfg(feature = "profiling")]
+                let _span =
+                    tracing::trace_span!(target: "plico::layout", "backend.align").entered();
+                self.align_controls(tcx, engine);
             }
         } else {
+            #[cfg(feature = "profiling")]
+            let _span = tracing::trace_span!(target: "plico::layout", "backend.align").entered();
             for dirty in 0..self.paint_dirty.len() {
                 if let Some(&index) = self.placed_indices.get(&self.paint_dirty[dirty]) {
                     self.align_control_text(index, tcx);
@@ -653,12 +706,13 @@ impl Adapter {
         }
         if focus_scrolled {
             self.position_popovers(engine, tcx, width, height);
-            for index in 0..self.placed.len() {
-                self.align_control_text(index, tcx);
-                self.align_input(index, tcx, engine);
-            }
+            #[cfg(feature = "profiling")]
+            let _span = tracing::trace_span!(target: "plico::layout", "backend.align").entered();
+            self.align_controls(tcx, engine);
         }
-        for p in &mut self.placed {
+        for &index in &self.scroll_indices {
+            let p = &mut self.placed[index];
+            self.stats.scroll_visits += 1;
             p.scroll.opacity = if p.scroll.range[1] > 0. { 1. } else { 0. };
             p.scroll.interaction = if self.scrollbar_drag.is_some_and(|(id, ..)| id == p.node_id) {
                 2
@@ -673,15 +727,14 @@ impl Adapter {
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
-        // Refreshing selection walks every placed text node; frames where the
-        // backend did no work and no selection state changed skip it entirely.
-        let backend_worked = self.stats.flatten_visits > 0
+        // Layout/structure can move selection geometry. Paint-only leaf
+        // controls must not rebuild unrelated read-only paragraphs.
+        let selection_geometry_changed = self.stats.flatten_visits > 0
             || self.stats.layout_runs > 0
-            || self.stats.paint_writes > 0
             || self.stats.created > 0
             || self.stats.removed > 0
             || self.stats.text_measure_invalidations > 0;
-        if backend_worked || self.selection_dirty {
+        if self.selection_work_needed(engine, selection_geometry_changed) {
             self.refresh_selection(engine, tcx);
             self.selection_dirty = false;
         }
@@ -710,6 +763,11 @@ impl Adapter {
             child_writes = self.stats.child_writes, layout_runs = self.stats.layout_runs,
             flatten_visits = self.stats.flatten_visits, paint_patches = self.stats.paint_patches,
             presentation_visits = self.stats.presentation_visits,
+            selection_visits = self.stats.selection_visits, slider_visits = self.stats.slider_visits,
+            shader_visits = self.stats.shader_visits, tooltip_visits = self.stats.tooltip_visits, input_rebuilds = self.stats.input_rebuilds,
+            input_reuses = self.stats.input_reuses, scroll_visits = self.stats.scroll_visits,
+            control_align_checks = self.stats.control_align_checks, input_align_checks = self.stats.input_align_checks,
+            control_metric_builds = self.stats.control_metric_builds, control_metric_reuses = self.stats.control_metric_reuses,
             text_measure_invalidations = self.stats.text_measure_invalidations,
             sync_us = self.stats.sync_micros as u64, backend_update_us = self.stats.layout_micros as u64,
             changes = self.stats.changes.bits(), "backend.work");
@@ -718,16 +776,51 @@ impl Adapter {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
         self.placed_indices.clear();
-        self.placed_indices.extend(
-            self.placed
-                .iter()
-                .enumerate()
-                .map(|(index, node)| (node.node_id, index)),
-        );
+        self.scroll_indices.clear();
+        self.control_align_indices.clear();
+        self.input_align_indices.clear();
+        for (index, node) in self.placed.iter_mut().enumerate() {
+            self.placed_indices.insert(node.node_id, index);
+            // Reset all scroll projections while already rebuilding this index.
+            // Later paint-only updates need to visit actual scroll ports only.
+            node.scroll.opacity = if node.scroll.range[1] > 0. { 1. } else { 0. };
+            node.scroll.interaction = if self
+                .scrollbar_drag
+                .is_some_and(|(id, ..)| id == node.node_id)
+            {
+                2
+            } else {
+                0
+            };
+            if node.scroll.scrollable[1] {
+                self.scroll_indices.push(index);
+            }
+        }
+        // Membership is maintained by targeted sync. Do not fetch the large
+        // retained record for every placed label/container just to classify it.
+        for (members, indices) in [
+            (&self.control_align_nodes, &mut self.control_align_indices),
+            (&self.input_align_nodes, &mut self.input_align_indices),
+        ] {
+            for entity in members {
+                if let Some(index) = self.placed_indices.get(&self.nodes[entity].id) {
+                    indices.push(*index);
+                }
+            }
+        }
+    }
+    fn align_controls(&mut self, tcx: &mut TextContext, engine: &Engine) {
+        for slot in 0..self.control_align_indices.len() {
+            self.align_control_text(self.control_align_indices[slot], tcx);
+        }
+        for slot in 0..self.input_align_indices.len() {
+            self.align_input(self.input_align_indices[slot], tcx, engine);
+        }
     }
     /// Center the shaped text block in leaf controls. Indicators then follow its
     /// first line, so wrapped labels do not drag the marker to the paragraph center.
     fn align_control_text(&mut self, index: usize, tcx: &mut TextContext) {
+        self.stats.control_align_checks += 1;
         let placed = &mut self.placed[index];
         let Some(&entity) = self.reverse.get(&placed.node_id) else {
             return;
@@ -743,27 +836,49 @@ impl Adapter {
         if !matches!(kind, Kind::Button | Kind::Switch | Kind::Checkbox) {
             return;
         }
-        let text_layout = plico_renderer::scene::layout_node_paragraph(tcx, placed);
-        if let Some(text) = &text_layout {
+        let epoch = tcx.cache_generation();
+        let metrics = if let Some(cached) = self.control_metrics.get(&entity)
+            && cached.epoch == epoch
+            && cached.width == placed.content_size[0]
+        {
+            self.stats.control_metric_reuses += 1;
+            cached.metrics
+        } else {
+            self.stats.control_metric_builds += 1;
+            let metrics = plico_renderer::scene::layout_node_paragraph(tcx, placed).map(|layout| {
+                let metrics = layout.metrics();
+                [metrics.width, metrics.height, metrics.first_line_height]
+            });
+            self.control_metrics.insert(
+                entity,
+                ControlMetrics {
+                    epoch,
+                    width: placed.content_size[0],
+                    metrics,
+                },
+            );
+            metrics
+        };
+        if let Some([text_width, text_height, _]) = metrics {
             let geometry = self.tree.layout(placed.node_id).unwrap();
             // Rebuild from the box every time: paint-only animation frames reuse
             // placed nodes, and adding an offset would accumulate vertical drift.
             placed.content_origin[1] = placed.rect[1]
                 + geometry.border.top
                 + geometry.padding.top
-                + (placed.content_size[1] - text.metrics().height).max(0.) / 2.;
+                + (placed.content_size[1] - text_height).max(0.) / 2.;
             if kind == Kind::Button {
                 placed.content_origin[0] = placed.rect[0]
                     + geometry.border.left
                     + geometry.padding.left
-                    + (placed.content_size[0] - text.metrics().width).max(0.) / 2.;
+                    + (placed.content_size[0] - text_width).max(0.) / 2.;
             }
         }
         if kind == Kind::Button {
             return;
         }
-        let line_height = text_layout
-            .map(|layout| layout.metrics().first_line_height)
+        let line_height = metrics
+            .map(|metrics| metrics[2])
             .unwrap_or(placed.content_size[1]);
         if placed.paint.widget.is_some() && retained.toggle_line_height == Some(line_height) {
             return;
@@ -807,6 +922,30 @@ impl Adapter {
         }
         self.stats.sync_visits += 1;
         let n = engine.node(e).unwrap();
+        self.selection_dirty |= if n.style.selectable {
+            self.selectable_nodes.insert(e)
+        } else {
+            self.selectable_nodes.remove(&e)
+        };
+        for (set, member) in [
+            (
+                &mut self.control_align_nodes,
+                matches!(n.kind, Kind::Button | Kind::Switch | Kind::Checkbox),
+            ),
+            (&mut self.input_align_nodes, n.kind == Kind::TextInput),
+            (&mut self.slider_nodes, n.kind == Kind::Slider),
+            (&mut self.shader_nodes, n.kind == Kind::Shader),
+            (
+                &mut self.tooltip_nodes,
+                n.kind == Kind::TooltipAnchor && !n.text.is_empty(),
+            ),
+        ] {
+            if member {
+                set.insert(e);
+            } else {
+                set.remove(&e);
+            }
+        }
         let mut target = n.style;
         let styled_button = n.kind == Kind::Button || n.style.styled_button;
         if n.style.styled_button && n.style.disabled {
@@ -1161,6 +1300,9 @@ impl Adapter {
                 .as_deref()
                 != Some(font_family.as_ref());
         if paint_needed {
+            // This is the single retained paint mutation path: invalidate all
+            // text-affecting values conservatively, including rich runs/theme.
+            self.control_metrics.remove(&e);
             if retained.text.as_ref() != n.text {
                 retained.text = Arc::from(n.text);
             }
@@ -1969,6 +2111,13 @@ impl<A: plico_dev::App> View for NativeApp<A> {
 /// A view owns application data; the adapter never retains its closures.
 /// Consuming an event automatically requests a settling declaration.
 pub trait View {
+    #[doc(hidden)]
+    fn replay_regions(
+        &mut self,
+        _engine: &mut Engine,
+    ) -> Option<Result<regions::ReplayBatch, plico::FrameError>> {
+        None
+    }
     /// Window-local fallback after controls decline a key. Not called during IME
     /// composition or while a popup/modal owns input. Return true to consume it.
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
@@ -2027,6 +2176,7 @@ pub struct BatchStats {
     pub declaration_batches: usize,
     pub declaration_passes: usize,
     pub backend_commits: usize,
+    pub scroll_viewport_visits: usize,
     pub layout_runs: usize,
 }
 #[derive(Default)]
@@ -2151,6 +2301,84 @@ impl<V: View> Source<V> {
         self.request_rebuild();
         update(&mut self.view)
     }
+    /// Benchmark-only: prepare the retained tree and layout without encoding
+    /// a Scene. This has the same invalidation path as a native sampled frame.
+    #[doc(hidden)]
+    pub fn experiment_prepare_without_scene(
+        &mut self,
+        tcx: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) {
+        if let Some(now) = self.clock_instant() {
+            self.prepare_frame_at(tcx, width, height, now, false);
+        } else {
+            self.last_error = Some(SourceError::ClockRange);
+        }
+    }
+
+    /// Experiment diagnostics: Engine nodes, retained nodes, Taffy nodes, reverse IDs.
+    #[doc(hidden)]
+    pub fn experiment_live_counts(&self) -> (usize, usize, usize, usize) {
+        (
+            self.engine.experiment_live_nodes(),
+            self.adapter.nodes.len(),
+            self.adapter.tree.total_node_count(),
+            self.adapter.reverse.len(),
+        )
+    }
+
+    /// Experimental local declaration, preserving the normal adapter dirty journal.
+    #[doc(hidden)]
+    pub fn experiment_redeclare(
+        &mut self,
+        context: plico::ExperimentContext,
+        view: impl FnOnce(&mut plico::UiContext<'_>),
+    ) -> Result<plico::FrameStats, plico::FrameError> {
+        let stats = self.engine.experiment_redeclare(context, view)?;
+        for &entity in self.engine.dirty_nodes() {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+        }
+        self.declared_changes |= self.engine.changes();
+        self.declarations_pending = true;
+        Ok(stats)
+    }
+
+    /// Restricted experiment: patch existing text leaves and schedule the same
+    /// retained adapter and scene pipeline used by declarations. This is not a
+    /// general mutation API; it does not manage application state or ownership.
+    #[doc(hidden)]
+    pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
+        let changed = self.engine.experiment_patch_text(entity, text)?;
+        if changed {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+            self.declared_changes |= plico::Changes::MEASURE
+                | plico::Changes::LAYOUT
+                | plico::Changes::PAINT
+                | plico::Changes::SEMANTICS;
+            self.declarations_pending = true;
+        }
+        Some(changed)
+    }
+
+    /// Benchmark-only foreground patch for an existing plain text leaf.
+    #[doc(hidden)]
+    pub fn experiment_patch_color(&mut self, entity: Entity, color: plico::Color) -> Option<bool> {
+        let changed = self.engine.experiment_patch_color(entity, color)?;
+        if changed {
+            if self.declared_seen.insert(entity) {
+                self.declared_dirty.push(entity);
+            }
+            self.declared_changes |= plico::Changes::PAINT;
+            self.declarations_pending = true;
+        }
+        Some(changed)
+    }
+
     /// Mark externally mutated application data for declaration on the next frame.
     pub fn request_rebuild(&mut self) {
         self.batch_stats.rebuild_requests += 1;
@@ -2401,7 +2629,9 @@ impl<V: View> Source<V> {
     }
     pub fn try_declare(&mut self) -> Result<(), SourceError> {
         self.batch_stats.declaration_batches += 1;
-        for placed in &self.adapter.placed {
+        for &index in &self.adapter.scroll_indices {
+            let placed = &self.adapter.placed[index];
+            self.batch_stats.scroll_viewport_visits += 1;
             if let Some(&entity) = self.adapter.reverse.get(&placed.node_id)
                 && self
                     .engine
@@ -2421,6 +2651,33 @@ impl<V: View> Source<V> {
             }
         }
         let start = Instant::now();
+        if self.engine.theme() == self.view.theme()
+            && let Some(batch) = self.view.replay_regions(&mut self.engine)
+        {
+            let batch = batch.map_err(|source| {
+                self.pending = true;
+                self.declared_changes.insert(plico::Changes::STRUCTURE);
+                self.declared_dirty.clear();
+                self.declared_seen.clear();
+                match source {
+                    plico::FrameError::DidNotSettle => SourceError::DidNotSettle,
+                    other => SourceError::Declaration { source: other },
+                }
+            })?;
+            self.declaration_stats = batch.stats;
+            self.declaration_micros = start.elapsed().as_micros();
+            self.batch_stats.declaration_passes += batch.passes;
+            self.declared_dirty.extend(batch.dirty);
+            self.declared_changes |= batch.changes;
+            self.requests = batch.changes & plico::Changes::ANIMATE;
+            self.pending = false;
+            self.declarations_pending = true;
+            // A region event can change the view's global theme. Refresh all
+            // inherited contexts in this same event, before committing a frame.
+            if self.engine.theme() == self.view.theme() {
+                return Ok(());
+            }
+        }
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.
         #[cfg(feature = "profiling")]

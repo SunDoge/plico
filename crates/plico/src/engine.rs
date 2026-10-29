@@ -1,4 +1,8 @@
+#[cfg(feature = "experiment-patch")]
+mod experiment;
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
+#[cfg(feature = "experiment-patch")]
+pub use experiment::{ExperimentContext, ExperimentTextStyle};
 use std::{borrow::Cow, collections::HashMap};
 
 /// A view the engine can settle: theme and declarations, driven per pass.
@@ -16,6 +20,10 @@ pub struct Engine {
     pub(crate) stats: FrameStats,
     pub(crate) error: Option<FrameError>,
     declarations: Vec<(Entity, Entity)>,
+    #[cfg(feature = "experiment-patch")]
+    pub(crate) experiment_kept: std::collections::HashSet<Entity>,
+    #[cfg(feature = "experiment-patch")]
+    pub(crate) experiment_active: bool,
     pub(crate) locals: crate::local::LocalStore,
     pub(crate) storage: crate::storage::StateStorage,
     removed: Vec<Entity>,
@@ -69,6 +77,10 @@ impl Default for Engine {
             stats: FrameStats::default(),
             error: None,
             declarations: Vec::new(),
+            #[cfg(feature = "experiment-patch")]
+            experiment_kept: Default::default(),
+            #[cfg(feature = "experiment-patch")]
+            experiment_active: false,
             locals: Default::default(),
             storage: Default::default(),
             removed: Vec::new(),
@@ -294,6 +306,39 @@ impl Engine {
     pub fn set_time(&mut self, time: crate::FrameTime) {
         self.time = time;
     }
+    /// Benchmark-only direct text mutation. This bypasses the declaration protocol
+    /// and is valid only for an existing plain text leaf owned by the experiment.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
+        let node = self.nodes.get_mut(entity)?;
+        if node.kind != Kind::Text || !node.spans.is_empty() {
+            return None;
+        }
+        if node.text == text {
+            return Some(false);
+        }
+        node.text.clear();
+        node.text.push_str(text);
+        node.text_revision += 1;
+        Some(true)
+    }
+
+    /// Benchmark-only mutation of a plain text leaf's foreground.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_patch_color(&mut self, entity: Entity, color: crate::Color) -> Option<bool> {
+        let node = self.nodes.get_mut(entity)?;
+        if node.kind != Kind::Text || !node.spans.is_empty() {
+            return None;
+        }
+        if node.style.foreground == color {
+            return Some(false);
+        }
+        node.style.foreground = color;
+        Some(true)
+    }
+
     /// FrameStats of the most recent declaration pass.
     pub fn last_stats(&self) -> FrameStats {
         self.stats
@@ -454,7 +499,11 @@ impl Engine {
                     .is_some_and(|path| self.matches_path(entity, path)))
     }
     pub fn queue_click(&mut self, entity: Entity) {
-        self.clicks.push(entity);
+        // A declaration exposes a boolean click. Coalesce repeated activation
+        // of the same control until it is consumed, including local replays.
+        if !self.clicks.contains(&entity) {
+            self.clicks.push(entity);
+        }
     }
     pub(crate) fn clicked(&mut self, entity: Entity) -> bool {
         let clicked = if let Some(i) = self.clicks.iter().position(|id| *id == entity) {

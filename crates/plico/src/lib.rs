@@ -32,6 +32,7 @@ pub use numeric::{NumericRange, SliderResponse};
 mod shader;
 pub use shader::{ShaderAsset, ShaderParams};
 mod snapshot;
+mod text_style;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -75,6 +76,9 @@ pub use ui::{
 /// FNV-1a hasher back deterministic identity across builds; `bitflags` is
 /// re-exported because generated invalidation flags need it in scope.
 pub mod macro_support {
+    /// Shared setter definitions used by framework builders and property editors.
+    #[doc(hidden)]
+    pub use crate::__plico_text_style_methods as text_style_methods;
     pub use bitflags::bitflags;
     /// Deterministic namespace hash, evaluated at compile time by macros.
     pub const fn site_id(namespace: &str, site: u32) -> u64 {
@@ -145,8 +149,8 @@ pub mod prelude {
         badge, button, button_base, calendar, calendar_content, calendar_with, checkbox, choice,
         collapsible, column, grid, icon, image, menu, menu_item, modal, nav_item, nav_menu, panel,
         popover, progress, property_field, row, ruby_text, segmented, select, separator, shader,
-        slider, stat, svg, svg_source, switch, table_header, table_row, text, text_input, tooltip,
-        virtual_list,
+        slider, stat, svg, svg_source, switch, table_header, table_row, text, text_empty,
+        text_input, tooltip, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
@@ -165,3 +169,7 @@ pub use capabilities::Capabilities;
 /// Portable style translation shared by native-widget backends.
 #[cfg(feature = "taffy")]
 pub mod taffy_layout;
+
+#[cfg(feature = "experiment-patch")]
+#[doc(hidden)]
+pub use engine::{ExperimentContext, ExperimentTextStyle};

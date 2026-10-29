@@ -438,7 +438,10 @@ pub fn flatten_with_scroll_into(
 ) {
     #[cfg(feature = "profiling")]
     let _span = tracing::trace_span!(target: "plico::layout", "layout.flatten").entered();
-    out.clear();
+    let mut output = FlattenOutput {
+        nodes: out,
+        used: 0,
+    };
     walk(
         tree,
         root,
@@ -448,8 +451,21 @@ pub fn flatten_with_scroll_into(
         0.0,
         ClipState::default(),
         scroll_offsets,
-        out,
+        &mut output,
     );
+    output.nodes.truncate(output.used);
+}
+
+// Only storage is reused. Every node, geometry field and paint value is visited
+// and refreshed, including when order, clipping or topology changes.
+struct FlattenOutput<'a> {
+    nodes: &'a mut Vec<PlacedNode>,
+    used: usize,
+}
+impl FlattenOutput<'_> {
+    fn last_mut(&mut self) -> Option<&mut PlacedNode> {
+        self.nodes.get_mut(self.used.checked_sub(1)?)
+    }
 }
 
 /// Depth-first walk accumulating absolute positions. `x0`,`y0` is the absolute
@@ -464,19 +480,14 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-#[allow(clippy::too_many_arguments)]
 fn node_clip(
-    tree: &TaffyTree<Paint>,
-    node: NodeId,
+    style: &taffy::Style,
+    paint: Option<&Paint>,
     layout: &taffy::Layout,
-    x0: f32,
-    y0: f32,
-    width: f32,
-    height: f32,
-    inherited: ClipState,
+    rect: [f32; 4],
     depth: usize,
 ) -> Option<ClipState> {
-    let style = tree.style(node).ok()?;
+    let [x0, y0, x1, y1] = rect;
     let clips_x = style.overflow.x != taffy::Overflow::Visible;
     let clips_y = style.overflow.y != taffy::Overflow::Visible;
     if !clips_x && !clips_y {
@@ -490,46 +501,66 @@ fn node_clip(
     ];
     if clips_x {
         own[0] = x0 + layout.border.left;
-        own[2] = x0 + width - layout.border.right;
+        own[2] = x1 - layout.border.right;
     }
     if clips_y {
         own[1] = y0 + layout.border.top;
-        own[3] = y0 + height - layout.border.bottom;
+        own[3] = y1 - layout.border.bottom;
     }
-    let rect = inherited.rect.map_or(own, |clip| intersect(clip, own));
-    let radii = if clips_x && clips_y && rect == own {
-        tree.get_node_context(node)
-            .map_or_else(CornerRadii::default, |paint| {
-                paint.border_radii.inset(
-                    layout
-                        .border
-                        .top
-                        .max(layout.border.right)
-                        .max(layout.border.bottom)
-                        .max(layout.border.left),
-                )
-            })
-    } else if inherited.rect != Some(rect) {
-        CornerRadii::default()
+    let radii = if clips_x && clips_y {
+        paint.map_or_else(CornerRadii::default, |paint| {
+            paint.border_radii.inset(
+                layout
+                    .border
+                    .top
+                    .max(layout.border.right)
+                    .max(layout.border.bottom)
+                    .max(layout.border.left),
+            )
+        })
     } else {
-        inherited.radii
+        CornerRadii::default()
     };
     Some(ClipState {
-        rect: Some(rect),
+        rect: Some(own),
         radii,
         depth: Some(depth),
     })
 }
 
-fn ordered_children(tree: &TaffyTree<Paint>, node: NodeId) -> Vec<NodeId> {
-    let mut children: Vec<_> = tree.child_ids(node).collect();
-    children.sort_by_key(|child| {
-        tree.get_node_context(*child)
+fn intersect_clip(own: ClipState, inherited: ClipState, clips_both_axes: bool) -> ClipState {
+    let bounds = own.rect.unwrap();
+    let rect = inherited
+        .rect
+        .map_or(bounds, |clip| intersect(clip, bounds));
+    let radii = if clips_both_axes && rect == bounds {
+        own.radii
+    } else if inherited.rect == Some(rect) {
+        inherited.radii
+    } else {
+        CornerRadii::default()
+    };
+    ClipState {
+        rect: Some(rect),
+        radii,
+        depth: own.depth,
+    }
+}
+
+fn ordered_children(tree: &TaffyTree<Paint>, node: NodeId) -> impl Iterator<Item = NodeId> {
+    // The child iterator has no exact size hint. Reserve once rather than grow
+    // 4/8/16/... slots, and resolve paint order once rather than per comparison.
+    let mut children = Vec::with_capacity(tree.child_count(node));
+    children.extend(tree.child_ids(node).map(|child| {
+        let key = tree
+            .get_node_context(child)
             .map_or_else(Default::default, |paint| {
                 (paint.overlay_plane, paint.z_index)
-            })
-    });
-    children
+            });
+        (key, child)
+    }));
+    children.sort_by_key(|(key, _)| *key);
+    children.into_iter().map(|(_, child)| child)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -542,17 +573,17 @@ fn walk(
     parent_y0: f32,
     inherited_clip: ClipState,
     scroll_offsets: &HashMap<NodeId, [f32; 2]>,
-    out: &mut Vec<PlacedNode>,
+    out: &mut FlattenOutput<'_>,
 ) {
     let layout = match tree.layout(node) {
         Ok(l) => l,
         Err(_) => return,
     };
-    if let Ok(style) = tree.style(node)
-        && style.display == taffy::Display::None
-    {
-        return;
-    }
+    let style = match tree.style(node) {
+        Ok(style) if style.display != taffy::Display::None => style,
+        _ => return,
+    };
+    let paint = tree.get_node_context(node);
 
     let x0 = parent_x0 + layout.location.x;
     let y0 = parent_y0 + layout.location.y;
@@ -569,72 +600,119 @@ fn walk(
         (h - layout.border.top - layout.border.bottom - layout.padding.top - layout.padding.bottom)
             .max(0.0);
     let scroll = scroll_offsets.get(&node).copied().unwrap_or([0.0, 0.0]);
-    let style = tree.style(node).ok();
-    let scrollable = style.map_or([false; 2], |style| {
-        [
-            style.overflow.x == taffy::Overflow::Scroll,
-            style.overflow.y == taffy::Overflow::Scroll,
-        ]
-    });
+    let scrollable = [
+        style.overflow.x == taffy::Overflow::Scroll,
+        style.overflow.y == taffy::Overflow::Scroll,
+    ];
     let scroll_range = [layout.scroll_width(), layout.scroll_height()];
 
-    if let Some(paint) = tree.get_node_context(node)
+    if let Some(paint) = paint
         && w > 0.0
         && h > 0.0
     {
-        out.push(PlacedNode {
-            node_id: node,
-            parent_node_id,
-            depth,
-            rect,
-            content_origin: [cx, cy],
-            content_size: [content_width, content_height],
-            clip: inherited_clip.rect,
-            clip_radius: inherited_clip.radii.max(),
-            clip_radii: inherited_clip.radii,
-            clip_depth: inherited_clip.depth,
-            own_clip: None,
-            own_clip_radius: 0.0,
-            own_clip_radii: CornerRadii::default(),
-            border_widths: [
-                layout.border.top,
-                layout.border.right,
-                layout.border.bottom,
-                layout.border.left,
-            ],
-            scroll: ScrollMetrics {
-                port: [
-                    x0 + layout.border.left,
-                    y0 + layout.border.top,
-                    x0 + w - layout.border.right,
-                    y0 + h - layout.border.bottom,
+        if out.used == out.nodes.len() {
+            out.nodes.push(PlacedNode {
+                node_id: node,
+                parent_node_id,
+                depth,
+                rect,
+                content_origin: [cx, cy],
+                content_size: [content_width, content_height],
+                clip: inherited_clip.rect,
+                clip_radius: inherited_clip.radii.max(),
+                clip_radii: inherited_clip.radii,
+                clip_depth: inherited_clip.depth,
+                own_clip: None,
+                own_clip_radius: 0.0,
+                own_clip_radii: CornerRadii::default(),
+                border_widths: [
+                    layout.border.top,
+                    layout.border.right,
+                    layout.border.bottom,
+                    layout.border.left,
                 ],
-                scrollable,
-                range: scroll_range,
-                offset: scroll,
-                opacity: 0.0,
-                interaction: 0,
-            },
-            paint: paint.clone(),
-        });
+                scroll: ScrollMetrics {
+                    port: [
+                        x0 + layout.border.left,
+                        y0 + layout.border.top,
+                        x0 + w - layout.border.right,
+                        y0 + h - layout.border.bottom,
+                    ],
+                    scrollable,
+                    range: scroll_range,
+                    offset: scroll,
+                    opacity: 0.0,
+                    interaction: 0,
+                },
+                paint: paint.clone(),
+            });
+        } else {
+            out.nodes[out.used].paint.clone_from(paint);
+        }
+        let PlacedNode {
+            node_id: slot_node_id,
+            parent_node_id: slot_parent_node_id,
+            depth: slot_depth,
+            rect: slot_rect,
+            content_origin: slot_content_origin,
+            content_size: slot_content_size,
+            clip: slot_clip,
+            clip_radius: slot_clip_radius,
+            clip_radii: slot_clip_radii,
+            clip_depth: slot_clip_depth,
+            own_clip: slot_own_clip,
+            own_clip_radius: slot_own_clip_radius,
+            own_clip_radii: slot_own_clip_radii,
+            border_widths: slot_border_widths,
+            scroll: slot_scroll,
+            paint: _,
+        } = &mut out.nodes[out.used];
+        *slot_node_id = node;
+        *slot_parent_node_id = parent_node_id;
+        *slot_depth = depth;
+        *slot_rect = rect;
+        *slot_content_origin = [cx, cy];
+        *slot_content_size = [content_width, content_height];
+        *slot_clip = inherited_clip.rect;
+        *slot_clip_radius = inherited_clip.radii.max();
+        *slot_clip_radii = inherited_clip.radii;
+        *slot_clip_depth = inherited_clip.depth;
+        *slot_own_clip = None;
+        *slot_own_clip_radius = 0.0;
+        *slot_own_clip_radii = CornerRadii::default();
+        *slot_border_widths = [
+            layout.border.top,
+            layout.border.right,
+            layout.border.bottom,
+            layout.border.left,
+        ];
+        *slot_scroll = ScrollMetrics {
+            port: [
+                x0 + layout.border.left,
+                y0 + layout.border.top,
+                x0 + w - layout.border.right,
+                y0 + h - layout.border.bottom,
+            ],
+            scrollable,
+            range: scroll_range,
+            offset: scroll,
+            opacity: 0.0,
+            interaction: 0,
+        };
+        out.used += 1;
     }
 
-    let established_clip = node_clip(tree, node, layout, x0, y0, w, h, inherited_clip, depth);
-    let child_clip = established_clip.unwrap_or(inherited_clip);
-    // Keep the local clipping boundary intact: ancestors and this node can
-    // have different presentation transforms. Intersecting here would bake
-    // untransformed ancestor coordinates into a transformed child clip.
-    let own_clip = node_clip(
-        tree,
-        node,
-        layout,
-        x0,
-        y0,
-        w,
-        h,
-        ClipState::default(),
-        depth,
-    );
+    // Compute the local boundary once. Its ancestor intersection is only a
+    // projection: presentation transforms still need the un-intersected clip.
+    let own_clip = node_clip(style, paint, layout, rect, depth);
+    let child_clip = own_clip.map_or(inherited_clip, |own| {
+        intersect_clip(
+            own,
+            inherited_clip,
+            style.overflow.x != taffy::Overflow::Visible
+                && style.overflow.y != taffy::Overflow::Visible,
+        )
+    });
     if let Some(clip) = own_clip
         && let Some(placed) = out.last_mut()
         && placed.node_id == node
@@ -652,6 +730,22 @@ fn walk(
         .and_then(|clip| clip.rect)
         .is_some_and(|clip| clip[2] <= clip[0] || clip[3] <= clip[1])
     {
+        return;
+    }
+    if tree.child_count(node) < 2 {
+        for child in tree.child_ids(node) {
+            walk(
+                tree,
+                child,
+                Some(node),
+                depth + 1,
+                x0 - scroll[0],
+                y0 - scroll[1],
+                child_clip,
+                scroll_offsets,
+                out,
+            );
+        }
         return;
     }
     // Most siblings already have paint order (usually all z=0). Avoid a
@@ -1111,6 +1205,199 @@ mod tests {
 
         assert_eq!(placed.len(), 1);
         assert_eq!(placed[0].node_id, root);
+    }
+
+    #[test]
+    fn reused_flatten_slots_match_fresh_scene_after_paint_order_and_clip_changes() {
+        use crate::{
+            Scene,
+            scene::build_scene,
+            style::{PaintTransform, Shadow},
+        };
+        use peniko::Color;
+        let mut tree = TaffyTree::new();
+        let style = taffy::Style {
+            size: Size {
+                width: taffy::Dimension::length(90.),
+                height: taffy::Dimension::length(28.),
+            },
+            flex_shrink: 0.,
+            ..Default::default()
+        };
+        let children: Vec<_> = (0..24)
+            .map(|_| {
+                tree.new_leaf_with_context(style.clone(), Paint::default())
+                    .unwrap()
+            })
+            .collect();
+        let root_style = taffy::Style {
+            flex_direction: taffy::FlexDirection::Column,
+            size: Size {
+                width: taffy::Dimension::length(120.),
+                height: taffy::Dimension::length(300.),
+            },
+            ..Default::default()
+        };
+        let root = tree
+            .new_with_children(root_style.clone(), &children)
+            .unwrap();
+        tree.set_node_context(root, Some(Paint::default())).unwrap();
+        let mut out = Vec::new();
+        let mut text = TextContext::new();
+        for frame in 0..18 {
+            let mut style = root_style.clone();
+            style.overflow.y = if frame % 3 == 0 {
+                taffy::Overflow::Scroll
+            } else {
+                taffy::Overflow::Visible
+            };
+            style.overflow.x = if frame % 2 == 0 {
+                taffy::Overflow::Hidden
+            } else {
+                taffy::Overflow::Visible
+            };
+            tree.set_style(root, style).unwrap();
+            let count = if frame % 3 == 0 {
+                0
+            } else if frame % 3 == 1 {
+                13
+            } else {
+                24
+            };
+            tree.set_children(root, &children[..count]).unwrap();
+            for (index, id) in children.iter().enumerate() {
+                let mut paint = Paint {
+                    text: Some(Arc::from(format!("Frame {frame}, label {index}"))),
+                    background: Some(Color::from_rgb8(index as u8 * 8, 80, 120)),
+                    opacity: 0.5 + (index % 2) as f32 * 0.5,
+                    z_index: ((index + frame) % 4) as i32,
+                    border_radii: CornerRadii::uniform((frame % 5) as f32),
+                    ..Paint::default()
+                };
+                if frame % 2 == 0 {
+                    paint.transform.push(PaintTransform::Scale(0.95, 1.));
+                    paint.shadows.push(Shadow {
+                        offset_x: 1.,
+                        offset_y: 2.,
+                        spread: 1.,
+                        std_dev: 1.,
+                        color: Color::BLACK,
+                        radius: None,
+                    });
+                    paint.selection_rects = Arc::from([[0., 0., 10., 12.]]);
+                }
+                tree.set_node_context(*id, Some(paint)).unwrap();
+            }
+            tree.compute_layout(
+                root,
+                Size {
+                    width: AvailableSpace::MaxContent,
+                    height: AvailableSpace::MaxContent,
+                },
+            )
+            .unwrap();
+            let offsets = HashMap::from([(root, [0., (frame * 2) as f32])]);
+            flatten_with_scroll_into(&tree, root, &offsets, &mut out);
+            let fresh = flatten_with_scroll(&tree, root, &offsets);
+            assert_eq!(out.len(), fresh.len());
+            for (a, b) in out.iter().zip(&fresh) {
+                assert_eq!(
+                    (
+                        a.node_id,
+                        a.parent_node_id,
+                        a.depth,
+                        a.rect,
+                        a.content_origin,
+                        a.content_size
+                    ),
+                    (
+                        b.node_id,
+                        b.parent_node_id,
+                        b.depth,
+                        b.rect,
+                        b.content_origin,
+                        b.content_size
+                    )
+                );
+                assert_eq!(
+                    (
+                        a.clip,
+                        a.clip_radii,
+                        a.clip_depth,
+                        a.own_clip,
+                        a.own_clip_radii,
+                        a.border_widths,
+                        a.scroll
+                    ),
+                    (
+                        b.clip,
+                        b.clip_radii,
+                        b.clip_depth,
+                        b.own_clip,
+                        b.own_clip_radii,
+                        b.border_widths,
+                        b.scroll
+                    )
+                );
+            }
+            let (mut actual, mut expected) = (Scene::new(), Scene::new());
+            build_scene(&mut actual, &out, &mut text, 160, 350, Color::WHITE);
+            build_scene(&mut expected, &fresh, &mut text, 160, 350, Color::WHITE);
+            assert_eq!(
+                actual, expected,
+                "frame {frame}: stale geometry or Paint in reused slot"
+            );
+        }
+    }
+
+    #[test]
+    fn reused_flatten_releases_removed_payloads_and_reuses_transform_storage() {
+        use crate::style::PaintTransform;
+        let mut tree = TaffyTree::new();
+        let label: Arc<str> = Arc::from("Removed payload");
+        let weak = Arc::downgrade(&label);
+        let root = tree
+            .new_leaf_with_context(
+                taffy::Style {
+                    size: Size {
+                        width: taffy::Dimension::length(100.),
+                        height: taffy::Dimension::length(40.),
+                    },
+                    ..Default::default()
+                },
+                Paint {
+                    text: Some(label),
+                    transform: vec![PaintTransform::Scale(1., 1.)],
+                    ..Paint::default()
+                },
+            )
+            .unwrap();
+        tree.compute_layout(
+            root,
+            Size {
+                width: AvailableSpace::MaxContent,
+                height: AvailableSpace::MaxContent,
+            },
+        )
+        .unwrap();
+        let mut out = flatten_with_scroll(&tree, root, &HashMap::new());
+        let storage = out[0].paint.transform.as_ptr();
+        flatten_with_scroll_into(&tree, root, &HashMap::new(), &mut out);
+        assert_eq!(storage, out[0].paint.transform.as_ptr());
+        tree.get_node_context_mut(root).unwrap().text = None;
+        flatten_with_scroll_into(&tree, root, &HashMap::new(), &mut out);
+        assert!(weak.upgrade().is_none());
+        let label: Arc<str> = Arc::from("Clipped payload");
+        let weak = Arc::downgrade(&label);
+        tree.get_node_context_mut(root).unwrap().text = Some(label);
+        flatten_with_scroll_into(&tree, root, &HashMap::new(), &mut out);
+        tree.set_node_context(root, None).unwrap();
+        flatten_with_scroll_into(&tree, root, &HashMap::new(), &mut out);
+        assert!(out.is_empty());
+        assert!(
+            weak.upgrade().is_none(),
+            "unused tail slots must drop resources"
+        );
     }
 
     #[test]

@@ -526,6 +526,9 @@ pub struct FrameStats {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, snafu::Snafu)]
 pub enum FrameError {
+    #[cfg(feature = "experiment-patch")]
+    #[snafu(display("invalid or stale experimental region context; full declaration required"))]
+    InvalidRegion,
     #[snafu(display("duplicate UI key {key:?} under {parent:?}"))]
     DuplicateKey { parent: Entity, key: Key },
     #[snafu(display("UI style has an invalid size or font"))]

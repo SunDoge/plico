@@ -42,11 +42,44 @@ impl Adapter {
         }
         None
     }
+    pub(super) fn selection_work_needed(&self, engine: &Engine, geometry_changed: bool) -> bool {
+        if self.selection_dirty {
+            return true;
+        }
+        if self.selectable_nodes.is_empty() && self.selection.paragraphs.is_empty() {
+            return false;
+        }
+        geometry_changed
+            || self.paint_dirty.iter().any(|id| {
+                self.reverse
+                    .get(id)
+                    .and_then(|e| engine.node(*e))
+                    .is_none_or(|node| {
+                        let caps = node.kind.capabilities();
+                        // Leaf editing/visual controls cannot change a read-only
+                        // selection elsewhere. Containers and selectable text remain
+                        // conservative because they can affect eligibility/geometry.
+                        !node.children.is_empty()
+                            || (caps.contains(Capabilities::TEXT_SELECT)
+                                && !caps.contains(Capabilities::TEXT_EDIT))
+                    })
+            })
+    }
     pub(super) fn refresh_selection(&mut self, engine: &Engine, tcx: &mut TextContext) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.selection").entered();
+        // No selectable owner and no previous selection to invalidate. Avoid
+        // walking/shaping every label after unrelated paint-only changes.
+        if self.selectable_nodes.is_empty()
+            && self.selection.paragraphs.is_empty()
+            && self.selection.anchor.is_none()
+            && self.selection.head.is_none()
+        {
+            return;
+        }
         let mut paragraphs = Vec::new();
         for p in &self.placed {
+            self.stats.selection_visits += 1;
             let entity = self.reverse[&p.node_id];
             if engine.node(entity).is_none_or(|n| {
                 let caps = n.kind.capabilities();

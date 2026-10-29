@@ -231,6 +231,11 @@ impl<'e> UiContext<'e> {
             inner: self.leaf(Kind::Text, text.into()),
         }
     }
+    /// Declare empty text, typically as the baseline for a reactive binding.
+    #[inline(always)]
+    pub fn text_empty<'u, 't>(&'u mut self) -> Text<'u, 'e, 't> {
+        self.text("")
+    }
     /// Format synchronously into an engine-owned reusable scratch buffer.
     #[inline(always)]
     pub fn text_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Text<'_, 'e, 'static> {
@@ -825,6 +830,13 @@ impl Layout<'_, '_> {
         self
     }
 
+    /// Declare an empty container, such as a flex spacer or painted track.
+    /// This is shorthand for `children(|_| {})` / `+ |_cx| {}`.
+    #[inline(always)]
+    pub fn end(self) -> InnerResponse<()> {
+        self.children(|_| {})
+    }
+
     /// Declare this container's children. Returns `InnerResponse<R>` so the
     /// result chains without parentheses, matching every other container:
     /// containers are never interactive, so their response reports only the
@@ -965,6 +977,18 @@ pub struct Text<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
 }
 impl Text<'_, '_, '_> {
+    /// Finish this leaf and return its generational target for property bindings.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_property_target(
+        mut self,
+    ) -> (crate::ExperimentContext, String, crate::ExperimentTextStyle) {
+        let text = self.inner.text.to_string();
+        let attributes = self.inner.style.into();
+        let mut context = self.inner.ui.as_ref().unwrap().experiment_context();
+        context.parent = self.inner.finish().0;
+        (context, text, attributes)
+    }
     #[inline(always)]
     pub fn spans(mut self, spans: &[crate::TextSpan]) -> Self {
         self.inner.spans.extend_from_slice(spans);
@@ -986,6 +1010,7 @@ pub struct Button<'u, 'e, 't> {
 macro_rules! common {
     ($name:ident) => {
         impl $name<'_, '_, '_> {
+            crate::macro_support::text_style_methods!(owned(inner.style));
             #[inline(always)]
             pub fn min_width(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_dimension("min_width", value.into());
@@ -1201,11 +1226,6 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
-            pub fn weight(mut self, value: u16) -> Self {
-                self.inner.style.font_weight = value;
-                self
-            }
-            #[inline(always)]
             pub fn width_percent(mut self, value: f32) -> Self {
                 self.inner
                     .style
@@ -1215,17 +1235,6 @@ macro_rules! common {
             #[inline(always)]
             pub fn grow(mut self, value: f32) -> Self {
                 self.inner.style.grow = value;
-                self
-            }
-            #[inline(always)]
-            pub fn font_size(mut self, px: u16) -> Self {
-                self.inner.style.font_size = px;
-                self
-            }
-            /// Select a portable generic font family for this control or text.
-            #[inline(always)]
-            pub fn font_family(mut self, family: crate::FontFamily) -> Self {
-                self.inner.style.font_family = family;
                 self
             }
             #[inline(always)]
@@ -1280,11 +1289,6 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
-            pub fn opacity(mut self, value: f32) -> Self {
-                self.inner.style.opacity = value;
-                self
-            }
-            #[inline(always)]
             pub fn radius(mut self, px: f32) -> Self {
                 self.inner.style.radius = px;
                 self
@@ -1301,11 +1305,6 @@ macro_rules! common {
             #[inline(always)]
             pub fn transition(mut self, milliseconds: u16) -> Self {
                 self.inner.style.transition_ms = milliseconds;
-                self
-            }
-            #[inline(always)]
-            pub fn color(mut self, color: Color) -> Self {
-                self.inner.style.foreground = color;
                 self
             }
             #[inline(always)]

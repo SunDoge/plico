@@ -499,7 +499,9 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
+ "serde",
  "snafu",
+ "tracing",
  "tracing-subscriber",
  "usage-rs",
 ]
@@ -1328,6 +1330,15 @@ name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
+
+[[package]]
+name = "elsa"
+version = "1.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9abf33c656a7256451ebb7d0082c5a471820c31269e49d807c538c252352186e"
+dependencies = [
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "emath"
@@ -4086,6 +4097,7 @@ dependencies = [
 name = "plico-runtime"
 version = "0.1.10"
 dependencies = [
+ "elsa",
  "gallery",
  "kurbo 0.13.1",
  "notify",
@@ -4098,6 +4110,7 @@ dependencies = [
  "plico-shell",
  "serde",
  "serde_json",
+ "slotmap",
  "snafu",
  "taffy",
  "tracing",

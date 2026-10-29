@@ -25,7 +25,7 @@ fn events(nodes: &[ViewNode], result: &mut Vec<String>) {
 fn activity_sort_survives_page_unmount() {
     let mut engine = Engine::default();
     let mut app = Settings::default();
-    app.router.go(Page::Activity);
+    app.go(Page::Activity);
     engine.declare_until_settled(&mut app).unwrap();
     let path = find(&engine.snapshot(), "Reverse order", &mut Vec::new()).unwrap();
     engine.queue_click_path(path);
@@ -33,9 +33,9 @@ fn activity_sort_survives_page_unmount() {
     let mut reversed = Vec::new();
     events(&engine.snapshot(), &mut reversed);
     assert_eq!(reversed.first().unwrap(), "Sync checkpoint 30");
-    app.router.go(Page::Preferences);
+    app.go(Page::Preferences);
     engine.declare_until_settled(&mut app).unwrap();
-    app.router.go(Page::Activity);
+    app.go(Page::Activity);
     engine.declare_until_settled(&mut app).unwrap();
     let mut after = Vec::new();
     events(&engine.snapshot(), &mut after);

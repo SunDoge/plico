@@ -550,7 +550,6 @@ pub struct HostPaint {
 /// Inherited properties are concrete values — no `Option` meaning "inherit"
 /// and no parallel `*_declared` flags. Authored declarations live on
 /// [`DeclaredPaint`].
-#[derive(Clone)]
 pub struct Paint {
     /// Host-requested backdrop Gaussian sigma in logical pixels.
     pub backdrop_blur: f32,
@@ -642,6 +641,167 @@ pub struct Paint {
     /// Intrinsic content size supplied by a host widget. CSS known dimensions
     /// override either axis during Taffy measurement.
     pub intrinsic_size: Option<[f32; 2]>,
+}
+
+impl Clone for Paint {
+    fn clone(&self) -> Self {
+        Self {
+            backdrop_blur: self.backdrop_blur,
+            background: self.background,
+            opacity: self.opacity,
+            transform: self.transform.clone(),
+            transform_origin: self.transform_origin.clone(),
+            runtime_transform: self.runtime_transform,
+            motion_transform: self.motion_transform,
+            motion_opacity: self.motion_opacity,
+            overlay_plane: self.overlay_plane,
+            scrollbar: self.scrollbar.clone(),
+            shadows: self.shadows.clone(),
+            border_radii: self.border_radii,
+            border: self.border,
+            outline_width: self.outline_width,
+            outline_offset: self.outline_offset,
+            outline_color: self.outline_color,
+            cursor: self.cursor,
+            text: self.text.clone(),
+            text_runs: self.text_runs.clone(),
+            selection_rects: self.selection_rects.clone(),
+            text_color: self.text_color,
+            font_size: self.font_size,
+            font_weight: self.font_weight,
+            font_italic: self.font_italic,
+            letter_spacing: self.letter_spacing,
+            line_height: self.line_height,
+            wrap_text: self.wrap_text,
+            text_ellipsis: self.text_ellipsis,
+            text_max_lines: self.text_max_lines,
+            text_clip_lines: self.text_clip_lines,
+            text_selectable: self.text_selectable,
+            text_select_all: self.text_select_all,
+            text_align: self.text_align,
+            pointer_events: self.pointer_events,
+            z_index: self.z_index,
+            font_family: self.font_family.clone(),
+            svg: self.svg.clone(),
+            vector_path: self.vector_path.clone(),
+            image: self.image.clone(),
+            widget: self.widget.clone(),
+            intrinsic_size: self.intrinsic_size,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        // Exhaustive destructuring makes new fields a compile error until both
+        // clone paths are updated. Shared payloads need no refcount round-trip
+        // when rebuilding the same output slot; all values still come from source.
+        let Self {
+            backdrop_blur,
+            background,
+            opacity,
+            transform,
+            transform_origin,
+            runtime_transform,
+            motion_transform,
+            motion_opacity,
+            overlay_plane,
+            scrollbar,
+            shadows,
+            border_radii,
+            border,
+            outline_width,
+            outline_offset,
+            outline_color,
+            cursor,
+            text,
+            text_runs,
+            selection_rects,
+            text_color,
+            font_size,
+            font_weight,
+            font_italic,
+            letter_spacing,
+            line_height,
+            wrap_text,
+            text_ellipsis,
+            text_max_lines,
+            text_clip_lines,
+            text_selectable,
+            text_select_all,
+            text_align,
+            pointer_events,
+            z_index,
+            font_family,
+            svg,
+            vector_path,
+            image,
+            widget,
+            intrinsic_size,
+        } = self;
+        *backdrop_blur = source.backdrop_blur;
+        *background = source.background;
+        *opacity = source.opacity;
+        transform.clone_from(&source.transform);
+        transform_origin.clone_from(&source.transform_origin);
+        *runtime_transform = source.runtime_transform;
+        *motion_transform = source.motion_transform;
+        *motion_opacity = source.motion_opacity;
+        *overlay_plane = source.overlay_plane;
+        if !matches!((scrollbar.as_ref(), source.scrollbar.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            scrollbar.clone_from(&source.scrollbar);
+        }
+        shadows.clone_from(&source.shadows);
+        *border_radii = source.border_radii;
+        *border = source.border;
+        *outline_width = source.outline_width;
+        *outline_offset = source.outline_offset;
+        *outline_color = source.outline_color;
+        *cursor = source.cursor;
+        if !matches!((text.as_ref(), source.text.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            text.clone_from(&source.text);
+        }
+        if !Arc::ptr_eq(text_runs, &source.text_runs) {
+            text_runs.clone_from(&source.text_runs);
+        }
+        if !Arc::ptr_eq(selection_rects, &source.selection_rects) {
+            selection_rects.clone_from(&source.selection_rects);
+        }
+        *text_color = source.text_color;
+        *font_size = source.font_size;
+        *font_weight = source.font_weight;
+        *font_italic = source.font_italic;
+        *letter_spacing = source.letter_spacing;
+        *line_height = source.line_height;
+        *wrap_text = source.wrap_text;
+        *text_ellipsis = source.text_ellipsis;
+        *text_max_lines = source.text_max_lines;
+        *text_clip_lines = source.text_clip_lines;
+        *text_selectable = source.text_selectable;
+        *text_select_all = source.text_select_all;
+        *text_align = source.text_align;
+        *pointer_events = source.pointer_events;
+        *z_index = source.z_index;
+        if !matches!((font_family.as_ref(), source.font_family.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            font_family.clone_from(&source.font_family);
+        }
+        if !matches!((svg.as_ref(), source.svg.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b)) {
+            svg.clone_from(&source.svg);
+        }
+        if !matches!((vector_path.as_ref(), source.vector_path.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            vector_path.clone_from(&source.vector_path);
+        }
+        if !matches!((image.as_ref(), source.image.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            image.clone_from(&source.image);
+        }
+        if !matches!((widget.as_ref(), source.widget.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        {
+            widget.clone_from(&source.widget);
+        }
+        *intrinsic_size = source.intrinsic_size;
+    }
 }
 
 impl Paint {
