@@ -6,7 +6,7 @@ use plico::{Engine, Entity, FrameError, prelude::*};
 use plico_renderer::{FrameSource, RenderBackend, Scene, TextContext, WakeCallback, WindowOptions};
 use plico_runtime::{
     Source, View,
-    regions::{Access, Reactive, Regions, ReplayBatch, State, WatchUi},
+    regions::{Access, Reactive, Regions, ReplayBatch, State, RegionUi},
 };
 use std::{
     sync::{
@@ -174,7 +174,7 @@ fn download_dashboard(
                 column(cx).width(0.).grow(1.).children(|cx| {
                     if i == 0 {
                         if let Some(state) = state {
-                            cx.watch_keyed(1, (state,), |cx, (value,)| download_meter(cx, *value.read()));
+                            cx.region_keyed(1, (state,), |cx, (value,)| download_meter(cx, *value.read()));
                         } else {
                             column(cx).children(|cx| download_meter(cx, value));
                         }

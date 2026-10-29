@@ -6,13 +6,13 @@
 
 ```rust
 use plico::prelude::*;
-use plico_runtime::regions::{Regions, WatchUi, OnClick};
+use plico_runtime::regions::{Regions, RegionUi, OnClick};
 
 let app = Regions::new(|app| {
     let count = app.state(|| 0_i32);
     app.root((count,), |cx, (count,)| {
         column(cx).gap(12).children(|cx| {
-            cx.watch((count.handle(),), |cx, (count,)| {
+            cx.region((count.handle(),), |cx, (count,)| {
                 text!(cx, "Count {}", *count.read());
             });
             button(cx).text("Increment").on_click((count.handle(),), |(count,)| {
@@ -24,9 +24,9 @@ let app = Regions::new(|app| {
 let source = plico_runtime::Source::new(app);
 ```
 
-root、watch 与 on_click 都通过依赖元组选择具体函数指针类型，参数类型自动推导。watch 为 `|cx, (a, b)|`，事件为 `|(a, b)|`；空元组分别写 `|cx, ()|` 和 `|()|`。目前支持 0–6 个状态参数，不要求 proc macro。具名函数也可直接传入，不用类型转换。元组解析用同一套 trait，不为每种参数数量维护不同的回调对象。未列出的隐式捕获会编译失败。
+root、region 与 on_click 都通过依赖元组选择具体函数指针类型，参数类型自动推导。region 为 `|cx, (a, b)|`，事件为 `|(a, b)|`；空元组分别写 `|cx, ()|` 和 `|()|`。目前支持 0–6 个状态参数，不要求 proc macro。具名函数也可直接传入，不用类型转换。元组解析用同一套 trait，不为每种参数数量维护不同的回调对象。未列出的隐式捕获会编译失败。
 
-条件挂载使用 `when`，不要用会反复重建静态分支的 `watch` 模拟。条件为假时卸载内容，区域边界退出 normal flow，不会在父容器的 `gap` 中留下空白；恢复为真时重新挂载。动态业务列表使用 `each`，键为业务 `u64` ID，每项是独立 keyed component，因而可以拥有自己的 `local_state`，删除后旧句柄失效：
+条件挂载使用 `when`，不要用会反复重建静态分支的 `region` 模拟。条件为假时卸载内容，区域边界退出 normal flow，不会在父容器的 `gap` 中留下空白；恢复为真时重新挂载。动态业务列表使用 `each`，键为业务 `u64` ID，每项是独立 keyed component，因而可以拥有自己的 `local_state`，删除后旧句柄失效：
 
 ```rust
 cx.when(visible, |visible| *visible.read(), |cx, _visible| {
@@ -45,7 +45,7 @@ cx.each_gap(
 
 `each` 不保留列表间距；需要与 immediate 列表相同的几何时使用 `each_gap`。列表 Region 默认是一个 Scene 缓存边界，单行不默认建立独立 Fragment，避免小行在 reorder 时产生大量缓存编码。这里的 keyed 状态复用不等于每行都有独立布局或绘制缓存。
 
-`Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 和 component_keyed 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 watch。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。watch/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
+`Regions::new` 的初始化闭包同步执行，可以读取配置或创建状态；它本身不会被保存。root 和 component_keyed 的参数是组件捕获，不建立订阅。需要随状态变化重新执行的内容必须放进 region。`Access::read` 临时借用状态，`handle` 得到可复制 ID，`update` 在修改结束后标脏显式读取者。region/根声明期间直接修改此状态会被运行时拒绝，事件动作则在该次回调的读取借用结束后执行。这里尚未以 Read/Write 类型在编译期区分权限。
 
 ## 运行
 
@@ -55,7 +55,7 @@ Skia 窗口示例位于 `crates/plico-runtime/examples/regions.rs`：
 cargo run -p plico-runtime --example regions --features plico-shell/skia
 ```
 
-它包含计数器、条件面板、嵌套 watch、checkbox/switch、slider、TextInput 和可增删/重排的任务列表。后台仍使用正常 Source、窗口宿主和渲染器。本机 Wayland 已启动窗口；在独立 X11/Xvfb Skia 窗口中实测了计数、开关、滑块样式更新、输入/Enter 添加、反转和删除，不代表其他平台已完成视觉验收。
+它包含计数器、条件面板、嵌套 region、checkbox/switch、slider、TextInput 和可增删/重排的任务列表。后台仍使用正常 Source、窗口宿主和渲染器。本机 Wayland 已启动窗口；在独立 X11/Xvfb Skia 窗口中实测了计数、开关、滑块样式更新、输入/Enter 添加、反转和删除，不代表其他平台已完成视觉验收。
 
 ```sh
 cargo test -p plico-runtime --test regions --test regions_controls
@@ -92,7 +92,7 @@ text_input(cx, "Draft", &draft.read())
     .on_submit((draft.handle(), tasks.handle()), add_task);
 ```
 
-`Access::notify()` 用于已经通过共享对象 API 修改内容后通知依赖，例如在事件中执行 `draft.read().take()` 清空输入，然后 `draft.notify()`。普通 State 替换则用 `set` 或 `update`，它们自动通知。notify/set/update 都不能直接在 watch 声明期间执行。
+`Access::notify()` 用于已经通过共享对象 API 修改内容后通知依赖，例如在事件中执行 `draft.read().take()` 清空输入，然后 `draft.notify()`。普通 State 替换则用 `set` 或 `update`，它们自动通知。notify/set/update 都不能直接在 region 声明期间执行。
 
 任务行 ID 不靠隐式闭包捕获，使用 owned payload：
 
@@ -106,7 +106,7 @@ button(cx).text("Remove")
 
 payload 必须为 `'static` 的拥有值，不能持有本轮借用。callback 仍是函数指针，参数依次为解析后的依赖元组和事件值。on_change 的值分别为 bool、f64、InputResponse；on_click_with 可以传入业务 ID 或其他拥有的数据。
 
-事件 payload 仍可用于普通回调。keyed component 列表优先使用上述 `each`；它按业务 ID 重排存活行并保留每项 owner，不宣称列表变化只执行 K 行。列表回调需要其他状态时，应在 item 内取得对应 State 并把它列入嵌套 `watch` 的显式依赖，不能从列表依赖隐式获得其 `Access`。
+事件 payload 仍可用于普通回调。keyed component 列表优先使用上述 `each`；它按业务 ID 重排存活行并保留每项 owner，不宣称列表变化只执行 K 行。列表回调需要其他状态时，应在 item 内取得对应 State 并把它列入嵌套 `region` 的显式依赖，不能从列表依赖隐式获得其 `Access`。
 
 ## 身份、所有权与事件
 
@@ -115,7 +115,7 @@ Regions 根和每个 `cx.component_keyed(id, deps, callback)` 实例分别拥有
 ```rust
 cx.component_keyed(user_id, (), |cx, ()| {
     let count = cx.local_state(|| 0);
-    cx.watch((count,), |cx, (count,)| {
+    cx.region((count,), |cx, (count,)| {
         text!(cx, "Count: {}", *count.read());
         button(cx).text("+").on_click((count.handle(),), |(count,)| {
             count.update(|value| *value += 1);
@@ -124,9 +124,9 @@ cx.component_keyed(user_id, (), |cx, ()| {
 });
 ```
 
-状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 watch 只是读取者，卸载 watch 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
+状态值只存一次，State 句柄不持有 Rc/Arc，不延长 owner 生命周期。句柄包含代际 component ID，旧句柄不能访问新实例，`Regions::try_access` 对过期句柄返回 None。依赖只允许引用本组件或祖先组件的状态；兄弟组件共享值放在公共祖先。嵌套 region 只是读取者，卸载 region 不释放组件共享状态。组件内部局部槽按调用点匹配，不根据本轮是否调用而删除；需要独立释放的动态部分应建 component。`local_state` 不替代已有 immediate `cx.state`，后者仍是另一套机制。
 
-watch 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。手写动态 Region 列表使用 `cx.watch_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突；需要每项独立 component 状态时优先使用 `each`。区域边界目前是真实 column，会参与布局。页面级区域可用 `watch_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.rx(...)`。
+region 的默认身份来自调用位置，并结合实际父节点区分实例；当前实现使用 `track_caller` 的文件/行/列哈希，不是宏生成的编译期 ID。手写动态 Region 列表使用 `cx.region_keyed(business_id, deps, callback)`，否则同一父节点下重复调用会冲突；需要每项独立 component 状态时优先使用 `each`。区域边界目前是真实 column，会参与布局。页面级区域可用 `region_fill` 分配剩余 flex 空间；空容器直接写 `column(cx).grow(1.).end()`，不需要 `+ |_cx| {}`。属性绑定用 `text_empty(cx)` 建立空文字 baseline，再设置静态样式并调用 `.rx(...)`。
 
 普通 children 闭包同步执行，可以正常借用局部变量。为了让原生 UiContext 在任意 children 层级发现当前区域，构建期间使用安全的线程局部栈，暂存构建命令与当前组件存储的 Rc；不存放 UiContext 指针或用户状态引用，不使用 unsafe。每个组件内部有一个 Rc 存储，用于在构建期间安全追加槽，句柄没有引用计数；构建临时引用在返回或退栈后释放。槽采用 elsa 的稳定地址追加容器，持有另一个槽的短期读借用时仍可创建新槽，无需框架自行编写 unsafe。
 
@@ -136,9 +136,9 @@ Source 的 Regions hook 在输入或状态失效时尝试局部声明；只修�
 
 ## 验证与限制
 
-自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 watch/on_click 自动推导。编译失败测试覆盖隐式捕获。新增表单测试还覆盖 slider 数值归一化、TextBuffer 焦点/绑定保留、提交只触发一次、IME commit、secret buffer 不进入展示/IME 文本、聚焦输入卸载后的 IME 清理，以及列表 payload 删除和存活节点身份。
+自动测试覆盖真实原生按钮/语义事件、状态变化跳过根声明、分支移除后旧事件拒绝、resize 后恢复局部更新、反复切换后的节点数量、12 层嵌套、owner 销毁释放状态，以及不同类型的三参数 region/on_click 自动推导。编译失败测试覆盖隐式捕获。新增表单测试还覆盖 slider 数值归一化、TextBuffer 焦点/绑定保留、提交只触发一次、IME commit、secret buffer 不进入展示/IME 文本、聚焦输入卸载后的 IME 清理，以及列表 payload 删除和存活节点身份。
 
-目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景和平台能力尚未逐项验收；backend-settings 已覆盖路由动画的无窗口及 Vello/Skia 后端回归；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 watch。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
+目前验证文字、布局、按钮，以及 toggle/slider 的绑定、普通输入和 Enter 提交、IME commit、密码展示隔离、聚焦输入卸载与重挂载。输入内容和提交计数的变化可以定位到所属区域，无需重跑组件根函数；preedit 等仅展示变化仍可能保守回退完整声明。editor、terminal、复杂 IME 场景和平台能力尚未逐项验收；backend-settings 已覆盖路由动画的无窗口及 Vello/Skia 后端回归；portal 式 modal 尚未接入区域局部声明。不要据此认为所有含可变应用借用的 immediate 用法都可直接搬入 region。外部线程通过 StateSender 回传结果，并沿 Source 的 wake 通路唤醒 UI；此功能没有另起后台调度器。
 
 根状态可在 Regions 构造阶段创建，局部状态可在组件回调中创建。动态依赖追踪、selector/memo、异步计算图、错误事务回滚和 panic 后恢复尚未实现。热重载采用下述 opt-in checkpoint，未标记状态重置。实验基准仍保留在 `experiments/reactivity-compare`，旧基准数据不代表新增原生接入的性能。
 
@@ -190,7 +190,7 @@ impl RegionProgram for Program {
         Regions::new(|app| {
             let count = app.persisted_state(1, || 0_i32);
             app.root((count,), |cx, (count,)| {
-                // 原生 widgets / watch / on_click
+                // 原生 widgets / region / on_click
             });
         })
     }

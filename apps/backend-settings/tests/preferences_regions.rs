@@ -173,7 +173,7 @@ fn ordinary_updates_skip_page_roots_and_keep_editor_identity() {
         .into_iter()
         .filter(|(id, runs)| *runs != before[id])
         .count();
-    assert_eq!(changed, 1, "only the toggle's watch executes");
+    assert_eq!(changed, 1, "only the toggle's region executes");
     let after = regions
         .source
         .adapter
@@ -210,7 +210,7 @@ fn ordinary_updates_skip_page_roots_and_keep_editor_identity() {
     assert_eq!(
         changed.len(),
         2,
-        "only editor watch and preview binding execute"
+        "only editor region and preview binding execute"
     );
     assert_eq!(
         changed

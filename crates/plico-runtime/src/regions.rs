@@ -1,5 +1,5 @@
 //! ID-driven native regions; components own their local state.
-//! Root arguments are captures; watch and property arguments subscribe to changes.
+//! Root arguments are captures; region and property arguments subscribe to changes.
 mod properties;
 mod reload;
 mod routing;
@@ -79,7 +79,7 @@ impl<T: 'static> Access<'_, T> {
     pub fn notify(&self) {
         assert!(
             !self.app.building.get(),
-            "notify state in an event callback, not watch"
+            "notify state in an event callback, not region"
         );
         self.app.dirty.borrow_mut().extend(
             self.app
@@ -96,7 +96,7 @@ impl<T: 'static> Access<'_, T> {
     pub fn update<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         assert!(
             !self.app.building.get(),
-            "write state in an event callback, not watch"
+            "write state in an event callback, not region"
         );
         let slot = &self.app.slot(self.state.component, self.state.index);
         let result = f(slot.value.borrow_mut().downcast_mut().unwrap());
@@ -112,7 +112,7 @@ impl<T: 'static> Access<'_, T> {
     pub fn update_if(&self, f: impl FnOnce(&mut T) -> bool) -> bool {
         assert!(
             !self.app.building.get(),
-            "write state in an event callback, not watch"
+            "write state in an event callback, not region"
         );
         let slot = &self.app.slot(self.state.component, self.state.index);
         let changed = f(slot.value.borrow_mut().downcast_mut().unwrap());
@@ -623,9 +623,9 @@ impl Drop for BuildGuard {
     }
 }
 /// Extension is available inside any ordinary trailing-lambda children closure.
-pub trait WatchUi {
+pub trait RegionUi {
     #[track_caller]
-    fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    fn region<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     /// Mount content while a condition holds, and dispose only this Region when it turns false.
     #[track_caller]
     fn when<D: Dependencies>(
@@ -651,11 +651,11 @@ pub trait WatchUi {
         keys: KeysCallback<D>,
         callback: EachCallback<D>,
     );
-    /// A watch whose boundary participates in flex growth, for page-sized UI.
+    /// A region whose boundary participates in flex growth, for page-sized UI.
     #[track_caller]
-    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
-    fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
-    /// A static component uses its call site as identity, like `watch`.
+    fn region_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    fn region_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
+    /// A static component uses its call site as identity, like `region`.
     #[track_caller]
     fn component<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     /// A keyed component owns local state; removing it invalidates all its handles.
@@ -670,13 +670,13 @@ pub trait WatchUi {
     ) -> State<T>;
     fn local_state_keyed<T: 'static>(&mut self, key: u64, init: impl FnOnce() -> T) -> State<T>;
 }
-impl WatchUi for UiContext<'_> {
+impl RegionUi for UiContext<'_> {
     #[track_caller]
-    fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+    fn region<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
         let site = Location::caller();
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
-        self.watch_keyed(hash.finish(), deps, callback);
+        self.region_keyed(hash.finish(), deps, callback);
     }
     #[track_caller]
     fn when<D: Dependencies>(
@@ -764,7 +764,7 @@ impl WatchUi for UiContext<'_> {
         );
     }
     #[track_caller]
-    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+    fn region_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
         let site = Location::caller();
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
@@ -778,7 +778,7 @@ impl WatchUi for UiContext<'_> {
             },
         );
     }
-    fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
+    fn region_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
         child(self, key, false, render_spec(deps, callback));
     }
     #[track_caller]
@@ -1146,7 +1146,7 @@ impl Regions {
         let mut visit = Vec::new();
         for child in children {
             self.check(&child.spec, self.regions[id].component);
-            assert!(!next.contains_key(&child.key), "duplicate watch key");
+            assert!(!next.contains_key(&child.key), "duplicate region key");
             let child_id = if let Some(child_id) = old.remove(&child.key) {
                 let mut deps = if child.key.component {
                     vec![]

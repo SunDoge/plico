@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
     Source,
-    regions::{OnClick, Regions, State, WatchUi},
+    regions::{OnClick, Regions, State, RegionUi},
 };
 
 fn app() -> (Regions, State<i32>) {
@@ -26,17 +26,17 @@ fn app() -> (Regions, State<i32>) {
                             expanded.update(|v| *v = !*v);
                         });
                 });
-                cx.watch_keyed(1, (count.handle(),), |cx, (count,)| {
+                cx.region_keyed(1, (count.handle(),), |cx, (count,)| {
                     text!(cx, "Count {}", *count.read());
                 });
-                cx.watch_keyed(
+                cx.region_keyed(
                     2,
                     (expanded.handle(), count.handle()),
                     |cx, (expanded, count)| {
                         if *expanded.read() {
                             row(cx).gap(4).children(|cx| {
                                 text(cx, "Details");
-                                cx.watch_keyed(3, (count.handle(),), |cx, (count,)| {
+                                cx.region_keyed(3, (count.handle(),), |cx, (count,)| {
                                     text!(cx, "Double {}", *count.read() * 2);
                                     button(cx).text("Inner increment").on_click(
                                         (count.handle(),),
@@ -209,7 +209,7 @@ fn deep_regions_are_not_mistaken_for_an_eight_pass_state_cycle() {
     fn level(cx: &mut UiContext, (data,): (plico_runtime::regions::Access<'_, Level>,)) {
         text!(cx, "Level {}", data.read().value);
         if let Some(next) = data.read().next {
-            cx.watch_keyed(1, (next,), level);
+            cx.region_keyed(1, (next,), level);
         }
     }
     let mut saved = None;
@@ -221,7 +221,7 @@ fn deep_regions_are_not_mistaken_for_an_eight_pass_state_cycle() {
         let top = next.unwrap();
         saved = Some(top);
         app.root((top,), |cx, (top,)| {
-            cx.watch_keyed(1, (top.handle(),), level)
+            cx.region_keyed(1, (top.handle(),), level)
         });
     });
     let mut source = Source::new(app);
@@ -270,7 +270,7 @@ fn heterogeneous_tuple_arguments_are_inferred_for_watch_and_event() {
                     b.update(|v| v.push('!'));
                     c.update(|v| *v = !*v);
                 });
-            cx.watch((a.handle(), b.handle(), c.handle()), |cx, (a, b, c)| {
+            cx.region((a.handle(), b.handle(), c.handle()), |cx, (a, b, c)| {
                 text!(cx, "{} {} {}", *a.read(), *b.read(), *c.read());
             });
         });
@@ -286,7 +286,7 @@ fn heterogeneous_tuple_arguments_are_inferred_for_watch_and_event() {
 #[component]
 fn scoped_component(cx: &mut UiContext, (count,): (plico_runtime::regions::Access<'_, i32>,)) {
     column(cx).children(|cx| {
-        cx.watch((count.handle(),), |cx, (count,)| {
+        cx.region((count.handle(),), |cx, (count,)| {
             text!(cx, "Scoped {}", *count.read());
             button(cx)
                 .text("Scoped increment")
@@ -336,7 +336,7 @@ fn component_local_state_survives_reorder_and_dies_on_unmount() {
         ids = Some(rows);
         let probe = app.state(|| (Rc::clone(&drops), Rc::clone(&records)));
         app.root((rows, probe), |cx, (rows, probe)| {
-            cx.watch((rows.handle(), probe.handle()), |cx, (rows, probe)| {
+            cx.region((rows.handle(), probe.handle()), |cx, (rows, probe)| {
                 for &key in rows.read().iter() {
                     cx.component_keyed(key, (probe.handle(),), |cx, (probe,)| {
                         let local = cx.local_state(|| Local {
@@ -344,7 +344,7 @@ fn component_local_state_survives_reorder_and_dies_on_unmount() {
                             drops: Rc::clone(&probe.read().0),
                         });
                         probe.read().1.borrow_mut().push(local);
-                        cx.watch((local,), |cx, (local,)| {
+                        cx.region((local,), |cx, (local,)| {
                             text!(cx, "Local {}", local.read().count);
                             button(cx).text("Local increment").on_click(
                                 (local.handle(),),
@@ -400,7 +400,7 @@ fn allocating_local_slots_keeps_existing_short_borrows_valid() {
     let app = Regions::new(|app| {
         app.root((), |cx, ()| {
             let a = cx.local_state(|| String::from("first"));
-            cx.watch((a,), |cx, (a,)| {
+            cx.region((a,), |cx, (a,)| {
                 let value = a.read();
                 // Same owner; grow its arena while another state is borrowed.
                 for key in 0..100 {
@@ -467,13 +467,13 @@ fn late_host_results_are_rejected_after_component_unmount() {
         visible = Some(expanded);
         let endpoints = app.state(|| Rc::clone(&endpoints));
         app.root((expanded, endpoints), |cx, (expanded, endpoints)| {
-            cx.watch(
+            cx.region(
                 (expanded.handle(), endpoints.handle()),
                 |cx, (expanded, endpoints)| {
                     if *expanded.read() {
                         cx.component_keyed(1, (endpoints.handle(),), |cx, (endpoints,)| {
                             let state = cx.local_state(|| 0_i32);
-                            cx.watch((state, endpoints.handle()), |cx, (state, endpoints)| {
+                            cx.region((state, endpoints.handle()), |cx, (state, endpoints)| {
                                 endpoints.read().borrow_mut().push(state.sender());
                                 text!(cx, "Result {}", *state.read());
                             });
@@ -520,7 +520,7 @@ fn nested_component_owners_release_children_before_parents() {
         visible = Some(shown);
         let drops = app.state(|| Rc::clone(&drops));
         app.root((shown, drops), |cx, (shown, drops)| {
-            cx.watch((shown.handle(), drops.handle()), |cx, (shown, drops)| {
+            cx.region((shown.handle(), drops.handle()), |cx, (shown, drops)| {
                 if *shown.read() {
                     cx.component_keyed(1, (drops.handle(),), |cx, (drops,)| {
                         let parent = cx.local_state(|| Probe {
@@ -532,7 +532,7 @@ fn nested_component_owners_release_children_before_parents() {
                                 label: "child",
                                 drops: Rc::clone(&drops.read()),
                             });
-                            cx.watch((parent.handle(), child), |cx, (parent, child)| {
+                            cx.region((parent.handle(), child), |cx, (parent, child)| {
                                 text!(cx, "{} / {}", parent.read().label, child.read().label);
                             });
                         });
@@ -560,7 +560,7 @@ fn nested_component_arguments_are_captures_not_subscriptions() {
         state = Some(count);
         app.root((count,), |cx, (count,)| {
             cx.component_keyed(7, (count.handle(),), |cx, (count,)| {
-                cx.watch((count.handle(),), |cx, (count,)| {
+                cx.region((count.handle(),), |cx, (count,)| {
                     text!(cx, "Value {}", *count.read());
                 });
             });
@@ -578,7 +578,7 @@ fn nested_component_arguments_are_captures_not_subscriptions() {
         .into_iter()
         .filter(|(id, runs)| before[id] != *runs)
         .count();
-    assert_eq!(updated, 1, "only the explicit watch subscribes");
+    assert_eq!(updated, 1, "only the explicit region subscribes");
     assert!(contains(&source, "Value 5"));
 }
 
@@ -586,7 +586,7 @@ fn nested_component_arguments_are_captures_not_subscriptions() {
 fn static_component_calls_get_distinct_owners_without_manual_keys() {
     fn counter(cx: &mut UiContext<'_>, (): ()) {
         let count = cx.local_state(|| 0_i32);
-        cx.watch((count,), |cx, (count,)| {
+        cx.region((count,), |cx, (count,)| {
             text!(cx, "Local {}", *count.read());
             button(cx)
                 .text("Local +")

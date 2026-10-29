@@ -6,7 +6,7 @@ use plico::{DeclareView, Theme, prelude::*};
 use plico_runtime::{
     View,
     regions::{
-        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, Regions, WatchUi,
+        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, Regions, RegionUi,
     },
 };
 
@@ -81,7 +81,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
         column(cx).padding(18).gap(14).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
             text(cx, "Profile / 工作区").font_size(18).weight(600);
             text(cx, "Workspace name");
-            cx.watch((name,), |cx, (name,)| {
+            cx.region((name,), |cx, (name,)| {
                 text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
                     .height(36.).bind(name.handle());
             });
@@ -89,11 +89,11 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 let current = name.read().text().unwrap_or_default();
                 node.text(format!("Current name: {current}"));
             });
-            cx.watch((notifications,), |cx, (notifications,)| {
+            cx.region((notifications,), |cx, (notifications,)| {
                 let mut value = *notifications.read();
                 checkbox(cx, "Enable notifications", &mut value).bind(notifications.handle());
             });
-            cx.watch((advanced,), |cx, (advanced,)| {
+            cx.region((advanced,), |cx, (advanced,)| {
                 column(cx).gap(14) + |cx| {
                     let mut value = *advanced.read();
                     checkbox(cx, "Show advanced options", &mut value).bind(advanced.handle());
@@ -110,7 +110,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 };
             });
         };
-        cx.watch((theme.handle(),), |cx, (theme,)| {
+        cx.region((theme.handle(),), |cx, (theme,)| {
             row(cx).gap(12).wrap(true) + |cx| {
                 let mut value = *theme.read() == Theme::dark();
                 checkbox(cx, "Dark theme", &mut value).on_change(
@@ -140,7 +140,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 node.text(saved.message.clone());
             }
         });
-        cx.watch((reduced.handle(),), |cx, (reduced,)| {
+        cx.region((reduced.handle(),), |cx, (reduced,)| {
             let mut value = *reduced.read();
             checkbox(cx, "Reduce motion", &mut value).bind(reduced.handle());
         });

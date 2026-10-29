@@ -115,7 +115,7 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
 #[test]
 fn retained_fragment_damage_matches_a_full_skia_redraw() {
     use plico::prelude::*;
-    use plico_runtime::regions::{Regions, WatchUi};
+    use plico_runtime::regions::{Regions, RegionUi};
 
     let mut state = None;
     let app = Regions::new(|app| {
@@ -123,7 +123,7 @@ fn retained_fragment_damage_matches_a_full_skia_redraw() {
         state = Some(value);
         app.root((value,), |cx, (value,)| {
             column(cx).children(|cx| {
-                cx.watch(value.handle(), |cx, value| {
+                cx.region(value.handle(), |cx, value| {
                     text(cx, format!("value {}", *value.read()));
                 });
                 text(cx, "static sibling");

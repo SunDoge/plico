@@ -5,7 +5,7 @@ use plico_renderer::{
 };
 use plico_runtime::{
     Source,
-    regions::{Access, BindState, OnChange, OnClickWith, OnSubmit, Regions, State, WatchUi},
+    regions::{Access, BindState, OnChange, OnClickWith, OnSubmit, Regions, State, RegionUi},
 };
 
 fn paint(s: &mut Source<Regions>, text: &mut TextContext) {
@@ -72,18 +72,18 @@ impl Form {
                 (enabled, volume, draft, submitted),
                 |cx, (enabled, volume, draft, submitted)| {
                     column(cx).gap(8).children(|cx| {
-                        cx.watch_keyed(1, (enabled.handle(),), |cx, (enabled,)| {
+                        cx.region_keyed(1, (enabled.handle(),), |cx, (enabled,)| {
                             let mut checked = *enabled.read();
                             checkbox(cx, "Enabled", &mut checked).bind(enabled.handle());
                             let mut checked = *enabled.read();
                             switch(cx, "Power", &mut checked)
                                 .on_change((enabled.handle(),), set_enabled);
                         });
-                        cx.watch_keyed(2, (volume.handle(),), |cx, (volume,)| {
+                        cx.region_keyed(2, (volume.handle(),), |cx, (volume,)| {
                             let mut value = *volume.read();
                             slider(cx, "Volume", &mut value, 0. ..=100.).bind(volume.handle());
                         });
-                        cx.watch_keyed(
+                        cx.region_keyed(
                             3,
                             (draft.handle(), submitted.handle()),
                             |cx, (draft, submitted)| {
@@ -95,7 +95,7 @@ impl Form {
                                     });
                             },
                         );
-                        cx.watch_keyed(
+                        cx.region_keyed(
                             4,
                             (enabled.handle(), volume.handle(), draft.handle()),
                             |cx, (enabled, volume, draft)| {
@@ -246,7 +246,7 @@ fn payload_row_removal_and_reordering_preserve_surviving_widget_ids() {
         let rows = app.state(|| vec![10_u64, 20, 30]);
         saved = Some(rows);
         app.root((rows,), |cx, (rows,)| {
-            cx.watch_keyed(1, (rows.handle(),), |cx, (rows,)| {
+            cx.region_keyed(1, (rows.handle(),), |cx, (rows,)| {
                 for &id in rows.read().iter() {
                     row(cx).key(id).children(|cx| {
                         text!(cx, "Row {id}").key("label");
@@ -282,7 +282,7 @@ fn secret_buffer_binding_keeps_password_out_of_presentation_and_ime() {
     let app = Regions::new(|app| {
         let secret = app.state(TextBuffer::secret);
         app.root((secret,), |cx, (secret,)| {
-            cx.watch((secret.handle(),), |cx, (secret,)| {
+            cx.region((secret.handle(),), |cx, (secret,)| {
                 text_input(cx, "Password", &secret.read()).bind(secret.handle());
             });
         });
@@ -310,7 +310,7 @@ fn focused_input_unmount_clears_ime_and_remount_preserves_buffer() {
         let draft = app.state(TextBuffer::new);
         saved = Some((visible, draft));
         app.root((visible, draft), |cx, (visible, draft)| {
-            cx.watch(
+            cx.region(
                 (visible.handle(), draft.handle()),
                 |cx, (visible, draft)| {
                     if *visible.read() {

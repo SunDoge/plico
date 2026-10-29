@@ -2,7 +2,7 @@ use plico::{Changes, Entity, prelude::*};
 use plico_renderer::TextContext;
 use plico_runtime::{
     Source,
-    regions::{Access, Reactive, Regions, State, TextProperties, WatchUi},
+    regions::{Access, Reactive, Regions, State, TextProperties, RegionUi},
 };
 
 fn update(node: &mut TextProperties, (value, color): (Access<'_, String>, Access<'_, Color>)) {
@@ -27,7 +27,7 @@ fn root(
 ) {
     column(cx).key("shell").gap(10).children(|cx| {
         text(cx, "Static").key("static");
-        cx.watch((visible.handle(),), |cx, (visible,)| {
+        cx.region((visible.handle(),), |cx, (visible,)| {
             text(cx, if *visible.read() { "visible" } else { "hidden" });
         });
         // The parent captures these IDs, but only this leaf subscribes to them.
@@ -142,7 +142,7 @@ fn unmount_cleans_property_subscriptions_and_remount_uses_new_generation() {
         let value = app.state(|| 1);
         handles = Some((visible, value));
         app.root((visible, value), |cx, (visible, value)| {
-            cx.watch(
+            cx.region(
                 (visible.handle(), value.handle()),
                 |cx, (visible, value)| {
                     if *visible.read() {
@@ -190,7 +190,7 @@ fn dependency_rebinding_unsubscribes_old_state_without_accumulating_bindings() {
         let bundle = app.state(|| (a, b));
         handles = Some((choose, a, b));
         app.root((choose, bundle), |cx, (choose, bundle)| {
-            cx.watch(
+            cx.region(
                 (choose.handle(), bundle.handle()),
                 |cx, (choose, bundle)| {
                     let (a, b) = *bundle.read();

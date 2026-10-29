@@ -4,7 +4,7 @@ use crate::ImmediateSettings;
 use plico::{Theme, prelude::*};
 use plico_runtime::{
     View,
-    regions::{Regions, WatchUi},
+    regions::{Regions, RegionUi},
 };
 
 pub struct ImmediatePanels {

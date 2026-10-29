@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico_runtime::regions::{
-    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Reactive, Regions, WatchUi,
+    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Reactive, Regions, RegionUi,
 };
 
 #[derive(Clone, Copy)]
@@ -73,7 +73,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                             let _ = result.send(String::from("Loaded"));
                         });
                     });
-                    cx.watch((count,), |cx, (count,)| {
+                    cx.region((count,), |cx, (count,)| {
                         text!(cx, "Component-local: {}", *count.read());
                         button(cx).text("Local +1").on_click(
                             (count.handle(),),
@@ -88,7 +88,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
         text_empty(cx).font_size(32).rx((count.handle(),), |node, (count,)| {
             node.text(format!("Count: {}", *count.read()));
         });
-        cx.watch(
+        cx.region(
             (expanded.handle(), count.handle()),
             |cx, (expanded, count)| {
                 if *expanded.read() {
@@ -106,7 +106,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 .border(1., Color::Border) + |cx|
             {
                 text(cx, "Live preferences").font_size(20).weight(600);
-                cx.watch((preferences.handle(),), |cx, (preferences,)| {
+                cx.region((preferences.handle(),), |cx, (preferences,)| {
                     column(cx).gap(12) + |cx| {
                         let mut enabled = preferences.read().enabled;
                         checkbox(cx, "Enable accent", &mut enabled).on_change(
@@ -146,7 +146,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 .border(1., Color::Border) + |cx|
             {
                 text(cx, "Keyed task list").font_size(20).weight(600);
-                cx.watch((draft.handle(), tasks.handle()), |cx, (draft, tasks)| {
+                cx.region((draft.handle(), tasks.handle()), |cx, (draft, tasks)| {
                     row(cx).gap(8) + |cx| {
                         text_input(cx, "New task", &draft.read()).placeholder("Type a task, then Enter")
                             .grow(1.).width(0.).bind(draft.handle())
@@ -155,7 +155,7 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                             .on_click((draft.handle(), tasks.handle()), add_task);
                     };
                 });
-                cx.watch((tasks.handle(),), |cx, (tasks,)| {
+                cx.region((tasks.handle(),), |cx, (tasks,)| {
                     column(cx).gap(8) + |cx| {
                         row(cx).gap(8).align(Align::Center) + |cx| {
                             text!(cx, "{} tasks", tasks.read().len()).grow(1.);

@@ -4,7 +4,7 @@ use plico_runtime::{
     Source,
     regions::{
         Access, BindState, OnChange, OnClick, OnClickWith, Reactive, RegionApp, RegionProgram,
-        Regions, WatchUi, outlet,
+        Regions, RegionUi, outlet,
     },
 };
 
@@ -35,7 +35,7 @@ fn shell(cx: &mut UiContext, (router, theme): (Access<'_, Router<Page>>, Access<
     column(cx).width_percent(100.).height_percent(100.).padding(24).gap(16).background(Color::Surface) + |cx| {
         text(cx, "Reactive router").font_size(28).weight(700);
         text(cx, "Route keys own page state. Leaving a page destroys its local state.").color(Color::Muted);
-        cx.watch((router.handle(), theme.handle()), |cx, (router, theme)| {
+        cx.region((router.handle(), theme.handle()), |cx, (router, theme)| {
             row(cx).gap(8).wrap(true).align(Align::Center) + |cx| {
                 button(cx).text("Back").disabled(!router.read().can_back())
                     .on_click((router.handle(),), |(router,)| {
@@ -104,7 +104,7 @@ fn editor(cx: &mut UiContext) {
     let saved = cx.local_persisted_state(1, String::new);
     column(cx).gap(16) + |cx| {
         text(cx, "Editor page").font_size(22).weight(600);
-        cx.watch((draft,), |cx, (draft,)| {
+        cx.region((draft,), |cx, (draft,)| {
             text_input(cx, "Page draft", &draft.read()).placeholder("A page-local draft").width_percent(100.)
                 .height(40.).bind(draft.handle());
         });
