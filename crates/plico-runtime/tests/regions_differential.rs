@@ -6,7 +6,8 @@ use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextCo
 use plico_runtime::{
     Source, View,
     regions::{
-        Access, BindState, OnClick, OnClickWith, OnSubmit, Regions, State, StateSender, WatchUi,
+        Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, Regions, State, StateSender,
+        WatchUi,
     },
 };
 use std::{
@@ -150,6 +151,18 @@ fn root(
         .gap(8)
         .children(|cx| {
             text(cx, "Fixture");
+            text(cx, "").key("property-label").reactive(
+                (bindings.read().a, bindings.read().b),
+                |node, (a, b)| {
+                    let a = *a.read();
+                    node.text(format!("Bound: {a}/{}", *b.read()))
+                        .color(if a % 2 == 0 {
+                            Color::Accent
+                        } else {
+                            Color::Muted
+                        });
+                },
+            );
             button(cx)
                 .text("Visibility")
                 .on_click((world.handle(),), |(world,)| {

@@ -11,6 +11,37 @@ pub struct ExperimentContext {
     in_button: bool,
 }
 impl UiContext<'_> {
+    /// Apply values to an existing plain text leaf, preserving its identity.
+    #[doc(hidden)]
+    pub fn experiment_text_properties(&mut self, text: Option<&str>, color: Option<crate::Color>) {
+        let node = self
+            .engine
+            .nodes
+            .get_mut(self.parent)
+            .expect("missing property target");
+        if node.kind != Kind::Text || !node.spans.is_empty() {
+            self.engine.error = Some(FrameError::InvalidRegion);
+            return;
+        }
+        if let Some(text) = text
+            && node.text != text
+        {
+            node.text.clear();
+            node.text.push_str(text);
+            node.text_revision += 1;
+            node.pending_changes |=
+                Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
+            self.engine.stats.text_writes += 1;
+        }
+        if let Some(color) = color {
+            let mut style = node.style;
+            style.foreground = color;
+            let diff = style.diff(node.style);
+            node.pending_changes |= diff.changes;
+            node.pending_properties |= diff.properties;
+            node.style = style;
+        }
+    }
     /// Re-enter a container declared earlier in the same full declaration pass.
     pub fn experiment_enter(
         &mut self,
@@ -51,6 +82,54 @@ impl UiContext<'_> {
     }
 }
 impl Engine {
+    /// Property-only replay: no declaration, sweep, or additional container.
+    #[doc(hidden)]
+    pub fn experiment_redeclare_properties(
+        &mut self,
+        context: ExperimentContext,
+        update: impl FnOnce(&mut UiContext<'_>),
+    ) -> Result<FrameStats, FrameError> {
+        let entity = context.parent;
+        if self
+            .nodes
+            .get(entity)
+            .is_none_or(|n| n.kind != Kind::Text || !n.spans.is_empty())
+        {
+            return Err(FrameError::InvalidRegion);
+        }
+        self.stats = FrameStats::default();
+        self.dirty_nodes.clear();
+        self.node_changes.clear();
+        self.changes = Changes::empty();
+        self.error = None;
+        update(&mut UiContext {
+            engine: self,
+            parent: entity,
+            scope: context.scope,
+            inherited: context.inherited,
+            in_button: context.in_button,
+        });
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+        if self.stats.visited != 0 {
+            return Err(FrameError::InvalidRegion);
+        }
+        let node = self.nodes.get_mut(entity).unwrap();
+        let changes = std::mem::take(&mut node.pending_changes);
+        let properties = std::mem::take(&mut node.pending_properties);
+        if !changes.is_empty() {
+            self.dirty_nodes.push(entity);
+            self.node_changes.push(NodeChange {
+                entity,
+                changes,
+                properties,
+            });
+            self.changes |= changes;
+            self.stats.paint_updates = 1;
+        }
+        Ok(self.stats)
+    }
     pub fn experiment_replay_ready(&self) -> bool {
         !self.theme_dirty && !self.viewport_dirty
     }

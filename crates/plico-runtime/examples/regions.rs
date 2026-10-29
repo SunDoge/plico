@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico_runtime::regions::{
-    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Regions, WatchUi,
+    Access, BindState, OnChange, OnClick, OnClickWith, OnSubmit, Reactive, Regions, WatchUi,
 };
 
 #[derive(Clone, Copy)]
@@ -61,21 +61,21 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 cx.component_keyed(key, (), |cx, ()| {
                     let count = cx.local_state(|| 0_i32);
                     let status = cx.local_state(|| String::from("Idle"));
-                    cx.watch((status,), |cx, (status,)| {
-                        text(cx, &*status.read());
-                        button(cx).text("Load on host").on_click(
-                            (status.handle(),),
-                            |(status,)| {
-                                status.set(String::from("Loading…"));
-                                let result = status.sender();
-                                std::thread::spawn(move || {
-                                    // Simulated host I/O. The UI thread never waits.
-                                    std::thread::sleep(std::time::Duration::from_millis(600));
-                                    let _ = result.send(String::from("Loaded"));
-                                });
-                            },
-                        );
+                    text(cx, "").reactive((status,), |node, (status,)| {
+                        node.text(status.read().clone());
                     });
+                    button(cx).text("Load on host").on_click(
+                        (status,),
+                        |(status,)| {
+                            status.set(String::from("Loading…"));
+                            let result = status.sender();
+                            std::thread::spawn(move || {
+                                // Simulated host I/O. The UI thread never waits.
+                                std::thread::sleep(std::time::Duration::from_millis(600));
+                                let _ = result.send(String::from("Loaded"));
+                            });
+                        },
+                    );
                     cx.watch((count,), |cx, (count,)| {
                         text!(cx, "Component-local: {}", *count.read());
                         button(cx).text("Local +1").on_click(
@@ -88,8 +88,8 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 });
             }
         };
-        cx.watch((count.handle(),), |cx, (count,)| {
-            text!(cx, "Count: {}", *count.read()).font_size(32);
+        text(cx, "").font_size(32).reactive((count.handle(),), |node, (count,)| {
+            node.text(format!("Count: {}", *count.read()));
         });
         cx.watch(
             (expanded.handle(), count.handle()),
@@ -97,8 +97,8 @@ fn counters(cx: &mut UiContext, (count, expanded, preferences, draft, tasks): Ca
                 if *expanded.read() {
                     column(cx).padding(16).gap(8).radius(12.).background(Color::Panel) + |cx| {
                         text(cx, "Nested region").weight(600);
-                        cx.watch((count.handle(),), |cx, (count,)| {
-                            text!(cx, "Double: {}", *count.read() * 2);
+                        text(cx, "").reactive((count.handle(),), |node, (count,)| {
+                            node.text(format!("Double: {}", *count.read() * 2));
                         });
                     };
                 }

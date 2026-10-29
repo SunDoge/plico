@@ -196,3 +196,35 @@ type App = RegionApp<Program>;
 检验发现并修复了同批重复点击的差异：`.clicked()` 是布尔观察，同一个控件未消费的重复 activation 现在合并，避免局部 settle 多次消费而完整声明只消费一次。已有卸载后的原生事件拒绝、局部槽释放和迟到异步结果拒绝测试继续保留。
 
 错误契约：局部声明返回错误后显式报告，并强制下次完整声明重建边界；无法收敛返回 `SourceError::DidNotSettle`。修正错误原因后可再次声明。用户回调 panic 保留原始 payload 并向外传播，**没有事务回滚保证**；宿主捕获后应丢弃失败的 Source 并重新创建，不能继续使用可能部分修改的树。测试验证退栈清理临时声明上下文后，新 Source 可正常工作。
+
+## Text 属性级绑定
+
+在 `regions` feature 内导入 `Reactive`，可直接为普通 Text 注册显式属性依赖：
+
+```rust
+use plico::prelude::*;
+use plico_runtime::regions::{Reactive, Regions};
+let app = Regions::new(|app| {
+    let count = app.state(|| 0_i32);
+    let accent = app.state(|| Color::Accent);
+    app.root((count, accent), |cx, (count, accent)| {
+        text(cx, "").font_size(24).reactive(
+            (count.handle(), accent.handle()),
+            |node, (count, accent)| {
+                node.text(format!("Count: {}", *count.read()));
+                node.color(*accent.read());
+            },
+        );
+    });
+});
+```
+
+`.reactive` 是 builder 结束点。当前只支持普通 Text 的文字与前景色，返回的 `TextProperties` 是受限编辑器，没有 children、事件派发或访问任意 Engine 节点的能力；富文本 spans 明确返回 InvalidRegion。普通控件、容器、布局属性尚未接入此方法，不把这个 PoC 称为通用 widget 属性系统。
+
+每个绑定复用现有 region 的依赖调度和 component 所有权，但目标是实际 Text 的代际 Entity，不会插入布局容器。长期保存的是 State ID 元组、函数指针和静态文字/颜色基线；不保存应用借用，也不保存捕获环境。每次运行从静态 builder 基线计算覆盖值：某个属性未调用 setter，就恢复其静态值。这保证条件属性在局部更新和完整声明中行为一致。静态文字基线可能需要一次拥有式字符串副本；绑定本身也需要订阅和调度记录，并非没有内存成本。
+
+第一次声明立即应用属性；父区域重新声明时重新注册并应用，避免覆盖成 builder 默认值；依赖变化只执行绑定回调并更新目标，文本相等/颜色相等不产生脏标记。文字改变进入 MEASURE/LAYOUT/PAINT/SEMANTICS，颜色通过现有 Style diff 产生绘制属性失效。属性回调禁止写 State。节点移除时取消订阅，组件重建使用新一代身份。当前事件仍走原有 `on_click` 声明协议；属性绑定并没有将全部事件分发改为常驻回调。
+
+`regions_properties` 回归覆盖：命名函数与异构依赖元组、初始应用、父区域/静态兄弟不执行、零节点声明、颜色不重排、文字/语义失效、多行文字改变后兄弟布局与完整声明一致、相同值无脏标记、完整声明与 resize 后属性保留、卸载与新代际、反复依赖切换后旧依赖不再唤醒、宿主异步结果只更新绑定、属性回调写入拒绝、富文本拒绝，以及条件 setter 恢复静态基线。随机差分测试也包含 text/color 属性绑定，与强制完整声明逐批比较。
+
+原生 `regions` 示例已用此方法实现 Count、Double 和宿主请求状态文字；开启 Skia damage 的 Linux X11/llvmpipe 窗口验证了计数、异步 Loaded 唤醒、条件卸载/重建和 resize。此处不推导硬件 GPU 的性能收益；布局与绘制仍走共享的后端管线。

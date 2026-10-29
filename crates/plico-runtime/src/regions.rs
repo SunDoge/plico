@@ -1,6 +1,8 @@
 //! Opt-in ID-driven native regions. Experimental; components own their local state.
-//! Root arguments are captures; only watch arguments subscribe to changes.
+//! Root arguments are captures; watch and property arguments subscribe to changes.
+mod properties;
 mod reload;
+pub use properties::{Reactive, TextProperties};
 mod tasks;
 use crate::View;
 use plico::{
@@ -113,9 +115,17 @@ struct Slot {
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
+    type PropertyCallback: Copy;
     type ChangeCallback<V: 'static>: Copy;
     #[doc(hidden)]
     fn bindings(&self) -> Vec<Binding>;
+    #[doc(hidden)]
+    fn properties(
+        &self,
+        callback: Self::PropertyCallback,
+        app: &Regions,
+        target: &mut TextProperties,
+    );
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
     #[doc(hidden)]
@@ -126,6 +136,15 @@ pub trait Dependencies: 'static {
 impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
+    type PropertyCallback = fn(&mut TextProperties, ());
+    fn properties(
+        &self,
+        callback: Self::PropertyCallback,
+        _: &Regions,
+        target: &mut TextProperties,
+    ) {
+        callback(target, ());
+    }
     type ChangeCallback<V: 'static> = fn((), V);
     fn bindings(&self) -> Vec<Binding> {
         Vec::new()
@@ -145,6 +164,8 @@ macro_rules! dependency_tuple {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
+            type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, ($(Access<'b,$name>,)+));
+            fn properties(&self, callback: Self::PropertyCallback, app: &Regions, target: &mut TextProperties) { callback(target, ($(app.access(self.$index),)+)); }
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
@@ -162,6 +183,9 @@ dependency_tuple!(A:0,B:1,C:2,D:3,E:4,F:5);
 pub type RenderCallback<D> = <D as Dependencies>::Callback;
 pub type EventCallback<D> = <D as Dependencies>::EventCallback;
 trait Render {
+    fn property(&self) -> bool {
+        false
+    }
     fn run(&self, app: &Regions, cx: &mut UiContext<'_>);
 }
 struct RenderFn<D: Dependencies> {
@@ -385,6 +409,12 @@ fn commands() -> Rc<RefCell<Commands>> {
                 .expect("region API outside a region callback"),
         )
     })
+}
+struct ReadGuard<'a>(&'a Cell<bool>, bool);
+impl Drop for ReadGuard<'_> {
+    fn drop(&mut self) {
+        self.0.set(self.1);
+    }
 }
 struct BuildGuard;
 impl Drop for BuildGuard {
@@ -726,6 +756,15 @@ impl Regions {
         }
     }
     fn build(&mut self, id: RegionId, cx: &mut UiContext<'_>, partial: bool) {
+        // Properties cannot declare children or enqueue UI events. Avoid the
+        // per-declaration command buffer and child reconciliation entirely.
+        if self.regions[id].render.property() {
+            let guard = ReadGuard(&self.building, self.building.replace(true));
+            self.regions[id].render.run(self, cx);
+            drop(guard);
+            self.regions[id].runs += 1;
+            return;
+        }
         let commands = Rc::new(RefCell::new(Commands {
             partial,
             owner: self.owner,
@@ -736,14 +775,7 @@ impl Regions {
         }));
         BUILD.with(|stack| stack.borrow_mut().push(Rc::clone(&commands)));
         let guard = BuildGuard;
-        struct ReadGuard<'a>(&'a Cell<bool>);
-        impl Drop for ReadGuard<'_> {
-            fn drop(&mut self) {
-                self.0.set(false);
-            }
-        }
-        self.building.set(true);
-        let read_guard = ReadGuard(&self.building);
+        let read_guard = ReadGuard(&self.building, self.building.replace(true));
         self.regions[id].render.run(self, cx);
         drop(read_guard);
         drop(guard);
@@ -805,11 +837,13 @@ impl Regions {
                     child.key.component,
                 )
             };
-            if let Some(previous) = self.regions[child_id].context {
-                self.bindings.remove(&previous.parent);
+            if !self.regions[child_id].render.property() {
+                if let Some(previous) = self.regions[child_id].context {
+                    self.bindings.remove(&previous.parent);
+                }
+                self.bindings.insert(child.context.parent, child_id);
             }
             self.regions[child_id].context = Some(child.context);
-            self.bindings.insert(child.context.parent, child_id);
             next.insert(child.key, child_id);
             visit.push((child_id, child.context));
         }
@@ -898,7 +932,12 @@ impl Regions {
                 if *count > 8 {
                     return Some(Err(FrameError::DidNotSettle));
                 }
-                match engine.experiment_redeclare(context, |cx| self.build(id, cx, true)) {
+                let result = if self.regions[id].render.property() {
+                    engine.experiment_redeclare_properties(context, |cx| self.build(id, cx, true))
+                } else {
+                    engine.experiment_redeclare(context, |cx| self.build(id, cx, true))
+                };
+                match result {
                     Ok(stats) => {
                         batch.stats.visited += stats.visited;
                         batch.stats.created += stats.created;

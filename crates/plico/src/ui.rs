@@ -965,6 +965,16 @@ pub struct Text<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
 }
 impl Text<'_, '_, '_> {
+    /// Finish this leaf and return its generational target for property bindings.
+    #[doc(hidden)]
+    #[cfg(feature = "experiment-patch")]
+    pub fn experiment_property_target(mut self) -> (crate::ExperimentContext, String, Color) {
+        let text = self.inner.text.to_string();
+        let color = self.inner.style.foreground;
+        let mut context = self.inner.ui.as_ref().unwrap().experiment_context();
+        context.parent = self.inner.finish().0;
+        (context, text, color)
+    }
     #[inline(always)]
     pub fn spans(mut self, spans: &[crate::TextSpan]) -> Self {
         self.inner.spans.extend_from_slice(spans);
