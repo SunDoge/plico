@@ -66,3 +66,10 @@ name = "preferences_scale"
 
 [[example]]
 name = "settings_compare"
+
+[[example]]
+name = "visible_texts"
+required-features = ["skia"]
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"

@@ -30,6 +30,7 @@
 | [声明帧与保留帧](frame-scheduling.md) | 原生失效调度、宿主动画、干净帧复用和外部状态更新契约 |
 | [声明成本与 memo 实验](memo-experiments.md) | 核心声明、Markdown 解析缓存、宿主动画与更新边界的实验和限制 |
 | [增量执行](incremental.md) | dirty journal、活跃动画、paint patch 与场景复用边界 |
+| [可见文字与下载面板对比](visible-texts-comparison.md) | immediate/reactive 的历史基线、真实窗口测量方法与阶段计时 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
 | [libmpv 视频实验](video.md) | 可选宿主播放器、软件帧 surface、暂停/跳转与 GPU 接入限制 |
 | [Skia / Vello 绘制对照](skia.md) | SkParagraph 普通文字、CPU / Vulkan Skia，以及相同 Parley glyph 的后端对照 |
