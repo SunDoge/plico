@@ -5005,6 +5005,7 @@ dependencies = [
  "plico-desktop",
  "plico-dev",
  "plico-renderer",
+ "plico-runtime",
  "plico-shell",
  "serde",
  "serde_json",
