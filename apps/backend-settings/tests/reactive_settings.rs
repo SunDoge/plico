@@ -166,9 +166,9 @@ fn reduced_motion_and_narrow_viewport_keep_the_saved_preference() {
     assert_eq!(app.source.view.sidebar_width(), 200.);
 }
 
-fn semantic_leaves(
-    snapshot: &SemanticSnapshot,
-) -> Vec<(SemanticRole, Option<String>, Option<String>, bool, [f32; 4])> {
+type SemanticLeaf = (SemanticRole, Option<String>, Option<String>, bool, [f32; 4]);
+
+fn semantic_leaves(snapshot: &SemanticSnapshot) -> Vec<SemanticLeaf> {
     snapshot
         .exposed_nodes()
         .into_iter()
