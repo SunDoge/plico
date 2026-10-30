@@ -93,19 +93,21 @@ Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and 
 
 Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.
 
-## Optional damage tracking
+## Damage tracking
 
-Skia command-stream damage and per-image history, CPU culling and optional Vulkan
-incremental-present hints are implemented as opt-in experiments. Tracked partial
+Skia windows enable command-stream damage and per-image history by default;
+`PLICO_SKIA_DAMAGE=0` restores full drawing. Multi-rectangle damage and Vulkan
+incremental-present hints remain opt-in. Tracked partial
 redraws consume Reactive Scene Fragments natively and cull whole unchanged Regions;
 full redraws and Vello/Web retain the expanded replay path. Region-level damage is
 conservative rather than a minimal per-leaf rectangle. Normal windows skip an exactly
 unchanged presented Scene by default (`PLICO_SKIA_PRESENT_SKIP=0` disables this);
-partial drawing remains opt-in with `PLICO_SKIA_DAMAGE=1`. The tracker expands
-partially intersected top-level text and stroke commands to their complete bounds;
+the tracker expands partially intersected text, stroke and atomic Fragment commands
+to their complete bounds;
 the strict Immediate 240-frame settings probe and repeated-input raster matrices
-match full redraws exactly, at a measured coverage/raster cost. Fragment-internal
-AA and explicitly supplied damaged regions remain outside that guarantee, and the
+match full redraws exactly, at a measured coverage/raster cost. Nested Fragment AA
+also passes CPU and Intel Vulkan pixel comparisons including resize. Explicitly
+supplied damaged regions remain the caller's responsibility, and the
 reduced dirty-clip probe stays an ignored diagnostic. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).

@@ -262,7 +262,7 @@ Vello paint 上传桥接仍使用 `vello_common`，保留相关直接依赖。�
 
 ## Present skip 与实验性多矩形 damage
 
-两项可独立对照；present skip 默认开启，多矩形 damage 默认关闭：
+damage tracking 与 present skip 默认开启，可独立关闭对照；多矩形模式仍默认关闭：
 
 - 比较最后一次成功显示的 scene 与背景色，在 acquire/fence wait/flush/present
   之前跳过完全相同的帧；`PLICO_SKIA_PRESENT_SKIP=0` 禁用。Shader 和 filter 不
@@ -270,7 +270,9 @@ Vello paint 上传桥接仍使用 `vello_common`，保留相关直接依赖。�
   A→B→A 仍需呈现，尺寸/交换链重建、窗口恢复、显式 invalidation 也强制呈现。
   历史 Scene 共享不可变的 COW 命令存储，不逐项深拷贝绘制命令。嵌套 Fragment
   内的 shader、filter 和非默认 blend 同样按保守路径处理。
-- `PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1`：为每个交换链 image 独立保留
+- Skia 窗口默认按每个交换链 image 的历史做局部重绘；`PLICO_SKIA_DAMAGE=0`
+  或 `false` 关闭，恢复全量绘制。首次绘制、resize、未知及非局部效果自动回退全量。
+- `PLICO_SKIA_MULTI_RECT=1`：为每个交换链 image 独立保留
   最多八个不重叠脏矩形，合并相交/相接区域，超额时合并增加面积最少的一对。
   逐矩形设置非 AA 的整数 clip/scissor，局部清除并按原顺序回放相交命令。
   不使用一个包围大范围的复杂 clip mask，避免其 GPU 开销。
@@ -300,7 +302,7 @@ profiling 记录 `present.skip` / `submit.skip`，draw span 记录真实脏区�
 在 Lyrune checkout 中可试：
 
 ```sh
-PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1 PLICO_SKIA_PRESENT_SKIP=1 cargo run --release -p lyrune-plico --features skia -- --renderer skia
+PLICO_SKIA_MULTI_RECT=1 cargo run --release -p lyrune-plico --features skia -- --renderer skia
 ```
 
 这些是实验性开关：本地验证包括 resize、清理、显式刷新与多 image 历史，
@@ -333,3 +335,10 @@ Linux / Core Ultra 9 285K，release、固定 CPU 7，保存改前/后独立二�
 逐像素回归将新路径与原 save/concat/paint/restore 路径直接对比，覆盖透明文字、
 中英文、整数/分数/负 origin 及缩放、旋转、斜切父变换；严格 Immediate damage
 探针和嵌套 Fragment CPU/GPU 对照也继续通过。
+
+默认开启验收另覆盖 NVIDIA GeForce RTX 5080 的真实 XWayland 交换链：
+`damage_window` 不再手动开启 damage，使用构造器默认值，180 帧中 168 帧局部重绘，
+每次实际绘制均与同 GPU 的全量 redraw 严格一致；包含窗口 resize。
+该次验收设置 `PLICO_SKIA_INCREMENTAL_PRESENT=0`，与普通窗口默认配置一致。
+开启该可选平台扩展的探针虽未出现像素差异，但未达到 present hint 数量断言，
+因此不据此启用 incremental-present，也不宣称该扩展已在此平台完成验收。

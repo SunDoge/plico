@@ -37,7 +37,6 @@ impl ApplicationHandler for Demo {
         let device = std::env::var("PLICO_SKIA_DEVICE").ok();
         let mut renderer = SkiaWindow::new(window.clone(), false, device.as_deref()).unwrap();
         renderer.set_gpu_cache_limit(4 * 1024 * 1024);
-        renderer.set_damage_tracking(true);
         renderer.set_multi_rect_damage(matches!(
             std::env::var("PLICO_SKIA_MULTI_RECT").as_deref(),
             Ok("1" | "true")

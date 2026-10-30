@@ -45,11 +45,11 @@ route 的大面积页面替换按阈值走全量路径；advanced 的 Scene 编�
 
 ## Skia 原生 Fragment 与局部 damage（2026-10-29）
 
-Skia 的 opt-in tracked damage 不再预先把所有 `Fragment` 展开。Tracker 在顶层比较 Region Fragment：不变时复用 bounds，内容或 transform 变化时保守失效旧、新整个 Fragment bounds；局部重绘可以剔除 damage 外的完整子树，命中的 Fragment 原生递归回放。全量 damage 仍一次展开后回放，因为实测全量路径逐个 Fragment `save/concat/restore` 没有收益。Fragment 内 filter、非默认 blend、Shader 或未知 ink bounds 继续保守回退；当前没有递归求 Fragment 内部的最小 damage。嵌套区域更新也可能使外层大 Fragment 的整个绘制范围失效，因此减少 Scene 编码不等于按同样比例减少重绘面积；应结合真实窗口的 damage coverage 和 CPU/GPU 指标验收。
+Skia 的 tracked damage 不再预先把所有 `Fragment` 展开。Tracker 在顶层比较 Region Fragment：不变时复用 bounds，内容或 transform 变化时保守失效旧、新整个 Fragment bounds；局部重绘可以剔除 damage 外的完整子树，命中的 Fragment 原生递归回放。全量 damage 仍一次展开后回放，因为实测全量路径逐个 Fragment `save/concat/restore` 没有收益。Fragment 内 filter、非默认 blend、Shader 或未知 ink bounds 继续保守回退；当前没有递归求 Fragment 内部的最小 damage。嵌套区域更新也可能使外层大 Fragment 的整个绘制范围失效，因此减少 Scene 编码不等于按同样比例减少重绘面积；应结合真实窗口的 damage coverage 和 CPU/GPU 指标验收。
 
-这不是 Vello/Web 的原生 Fragment 缓存：它们仍沿既有展开/普通 painter 路径。Skia 普通窗口默认跳过完全相同的已显示 Scene（`PLICO_SKIA_PRESENT_SKIP=0` 可对照），局部绘制仍默认全量，只有 `PLICO_SKIA_DAMAGE=1` 等 opt-in 入口使用 tracked damage。2026-10-30 将 damage 外层裁剪显式改为设备整数 `clipIRect` 后，严格 rounded-stroke 回归仍有 2 个 AA 差异像素，因此取整或固定外扩 bounds 本身不是 pixel-perfect 修复。
+这不是 Vello/Web 的原生 Fragment 缓存：它们仍沿既有展开/普通 painter 路径。Skia 普通窗口默认跳过完全相同的已显示 Scene（`PLICO_SKIA_PRESENT_SKIP=0` 可对照），tracked damage 现已默认开启，`PLICO_SKIA_DAMAGE=0` 恢复全量绘制，多矩形模式仍需显式开启。2026-10-30 将 damage 外层裁剪显式改为设备整数 `clipIRect` 后，严格 rounded-stroke 回归仍有 2 个 AA 差异像素，因此取整或固定外扩 bounds 本身不是 pixel-perfect 修复。
 
-随后 Tracker 对与 damage 部分相交的顶层 Paragraph、GlyphRun、Stroke 迭代扩张到完整命令 bounds，避免 outer clip 切开 AA 光栅化。Immediate `damage_probe` 的严格 240 帧以及 routed/多面板重复输入矩阵均达到 0 个最终差异像素，同时保留部分 Partial 帧；但 typing 覆盖率和 raster 成本明显增加，具体数据见 performance.md。后续补上 Fragment 原子边界扩张：脏区穿过未变化 Fragment 时也纳入其完整 bounds，避免裁断嵌套文字或描边；CPU 单/多矩形和 Intel Vulkan 的嵌套文字像素对照通过。Fragment 内 shader/filter/非默认 blend 递归检测，持续要求全量重绘，移除效果后的首帧也全量恢复。显式 `draw_scene_damaged` 绕过 Tracker，调用者仍负责安全边界；局部 damage 继续 opt-in，不据此宣称任意手工 damage 输入均安全。
+随后 Tracker 对与 damage 部分相交的顶层 Paragraph、GlyphRun、Stroke 迭代扩张到完整命令 bounds，避免 outer clip 切开 AA 光栅化。Immediate `damage_probe` 的严格 240 帧以及 routed/多面板重复输入矩阵均达到 0 个最终差异像素，同时保留部分 Partial 帧；但 typing 覆盖率和 raster 成本明显增加，具体数据见 performance.md。后续补上 Fragment 原子边界扩张：脏区穿过未变化 Fragment 时也纳入其完整 bounds，避免裁断嵌套文字或描边；CPU 单/多矩形和 Intel Vulkan 的嵌套文字像素对照通过。Fragment 内 shader/filter/非默认 blend 递归检测，持续要求全量重绘，移除效果后的首帧也全量恢复。显式 `draw_scene_damaged` 绕过 Tracker，调用者仍负责安全边界；窗口 tracked damage 已默认开启，但不据此宣称任意手工 damage 输入均安全。
 
 新增像素 oracle 覆盖 Fragment 移动、内部颜色变化、删除、内部 clip、重复不变帧和旧/新 bounds；Reactive Settings 的真实 Fragment 也与全量 Skia redraw 比较。既有 paragraph、稀疏 damage 和交换链历史回归继续保留。
 
@@ -99,7 +99,7 @@ cargo run -p plico-desktop --example incremental
 修复前，小色块的脏区穿过未变化的两层 Fragment 内的斜体文字/半透明描边时，
 CPU raster 在第 2 帧就与全量绘制不同。Tracker 现在把相交 Fragment 当作不可分割的
 绘制命令，迭代扩张到它的完整边界；不新增 Fragment 内部失效表或子树 diff。
-代价是重叠的大 Fragment 可能扩大脏区甚至回退全量，因此仍保持 opt-in。
+代价是重叠的大 Fragment 可能扩大脏区甚至回退全量。完成以下验证后，Skia 窗口默认开启 tracked damage；保留 `PLICO_SKIA_DAMAGE=0` 关闭入口，多矩形模式仍默认关闭。
 
 回归覆盖 120 帧、CPU 单/多矩形模式，均严格逐字节相等；另在 Intel Graphics (ARL)
 Vulkan 上验证了 60 帧、多矩形和 resize，与全量 GPU 绘制严格相等且仍保留部分重绘帧。
