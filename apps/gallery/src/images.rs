@@ -269,7 +269,7 @@ fn load(format: Format, refresh: bool) -> Result<Arc<AnimatedImage>, String> {
 pub struct GalleryHost {
     pub app: super::Gallery,
 }
-impl plico_desktop::View for GalleryHost {
+impl plico_desktop::HostView for GalleryHost {
     fn show(&mut self, cx: &mut UiContext) {
         plico_dev::App::show(&mut self.app, cx);
     }

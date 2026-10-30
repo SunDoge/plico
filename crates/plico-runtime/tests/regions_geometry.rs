@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_runtime::{
     Source,
-    regions::{Regions, WatchUi},
+    regions::{RegionUi, Regions},
 };
 fn snapshot(full: bool) -> Vec<(String, [f32; 4])> {
     let mut state = None;
@@ -10,7 +10,7 @@ fn snapshot(full: bool) -> Vec<(String, [f32; 4])> {
         let gap = app.state(|| false);
         state = Some(gap);
         app.root(gap, |cx, gap| {
-            cx.watch(gap.handle(), |cx, gap| {
+            cx.region(gap.handle(), |cx, gap| {
                 row(cx)
                     .width(400.)
                     .height(80.)
@@ -103,7 +103,7 @@ fn structural_replay_reuses_independent_scene_regions() {
                         },
                     );
                 });
-                cx.watch(current.sibling, |cx, sibling| {
+                cx.region(current.sibling, |cx, sibling| {
                     text!(cx, "Sibling {}", *sibling.read());
                 });
             });
@@ -162,7 +162,7 @@ fn semantic_projection_reuses_snapshot_and_clean_node_records() {
         state = Some(value);
         app.root(value, |cx, value| {
             column(cx).children(|cx| {
-                cx.watch(value.handle(), |cx, value| {
+                cx.region(value.handle(), |cx, value| {
                     text!(cx, "Value {}", *value.read());
                 });
                 text(cx, "Static sibling");

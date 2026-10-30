@@ -245,7 +245,7 @@ fn native_runtime_selection_drag_and_copy_use_painted_geometry() {
         PointerButton, PointerEvent, PointerPhase, PointerProperties, UiEvent,
     };
     struct Document;
-    impl plico_runtime::View for Document {
+    impl plico_runtime::HostView for Document {
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)
                 .width(280.)

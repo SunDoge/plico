@@ -2,7 +2,7 @@
 //! CPU only; no GPU or present. Complements memo_backend_probe, which
 //! reports whole-frame totals.
 use plico::{Color, UiContext, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Duration;
 use std::{
@@ -41,7 +41,7 @@ struct Demo {
     count: usize,
     changed: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         cx.column().children(|cx| {
             for i in 0..self.count {

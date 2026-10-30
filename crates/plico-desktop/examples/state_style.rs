@@ -2,7 +2,7 @@
 //! Run: cargo run -p plico-desktop --example state_style
 //! Tests: cargo test -p plico-desktop --example state_style
 use plico::{Clock, VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Duration;
 
@@ -130,7 +130,7 @@ struct Sample {
 struct Experiment {
     samples: Vec<Sample>,
 }
-impl View for Experiment {
+impl HostView for Experiment {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

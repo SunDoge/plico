@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico::{Clock, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, TextContext, UiEvent, WheelDeltaMode, WheelEvent,
 };
@@ -10,7 +10,7 @@ struct Demo {
     built: Vec<usize>,
     smooth: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.built.clear();
@@ -191,7 +191,7 @@ fn grabbing_thumb_interrupts_animation_and_dragging_is_direct() {
 #[test]
 fn nested_smooth_ports_chain_to_ancestors_and_settle() {
     struct Nested;
-    impl View for Nested {
+    impl HostView for Nested {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)
@@ -246,7 +246,7 @@ fn nested_smooth_ports_chain_to_ancestors_and_settle() {
 fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
     use plico_renderer::{SemanticAction, SemanticRole};
     struct FocusDemo;
-    impl View for FocusDemo {
+    impl HostView for FocusDemo {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)

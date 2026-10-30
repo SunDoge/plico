@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     TextContext, UiEvent,
@@ -14,7 +14,7 @@ struct Demo {
     reverse: bool,
     empty: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         let mut options = vec![
@@ -212,7 +212,7 @@ struct LongList {
     popup: PopoverState,
     value: usize,
 }
-impl View for LongList {
+impl HostView for LongList {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         let labels: Vec<_> = (0..80).map(|i| format!("Option {i}")).collect();

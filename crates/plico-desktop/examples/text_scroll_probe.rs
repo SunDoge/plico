@@ -1,6 +1,6 @@
 //! Follow actual retained smooth scrolling from fractional geometry to text pixels.
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, Scene, TextContext, UiEvent, WheelDeltaMode,
     WheelEvent,
@@ -8,7 +8,7 @@ use plico_renderer::{
 use std::{path::PathBuf, time::Duration};
 
 struct Demo;
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)

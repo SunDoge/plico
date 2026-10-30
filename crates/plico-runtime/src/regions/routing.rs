@@ -53,7 +53,7 @@ impl<R: Copy + Eq + 'static, D: Dependencies + Clone> Render for Outlet<R, D> {
 ///
 /// ```
 /// use plico::{Router, prelude::*};
-/// use plico_runtime::regions::{Regions, WatchUi, outlet};
+/// use plico_runtime::regions::{Regions, RegionUi, outlet};
 /// #[derive(Clone, Copy, PartialEq, Eq, plico::Route)]
 /// enum Page { Home, Settings }
 /// let app = Regions::new(|app| {
@@ -97,7 +97,7 @@ pub fn outlet<R: plico::Route, D: Dependencies + Clone>(
     );
 }
 
-/// Route outlet whose watch and page boundaries fill the remaining flex space.
+/// Route outlet whose region and page boundaries fill the remaining flex space.
 #[track_caller]
 pub fn outlet_fill<R: plico::Route, D: Dependencies + Clone>(
     cx: &mut UiContext<'_>,

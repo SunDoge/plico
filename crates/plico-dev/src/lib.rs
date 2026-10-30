@@ -37,6 +37,15 @@ pub enum Error {
     Module { message: String },
 }
 pub type Result<T> = std::result::Result<T, Error>;
+/// Host-neutral result of replaying explicit runtime regions.
+#[doc(hidden)]
+pub struct ReplayBatch {
+    pub stats: plico::FrameStats,
+    pub dirty: Vec<plico::Entity>,
+    pub revisions: Vec<(plico::Entity, u64)>,
+    pub changes: plico::Changes,
+    pub passes: usize,
+}
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Request {
     pub version: u32,
@@ -129,7 +138,7 @@ pub struct Frame {
 }
 /// Local adapter: an `App` driven by the engine's settle loop.
 struct AppView<'a, A: App>(&'a mut A);
-impl<A: App> plico::DeclareView for AppView<'_, A> {
+impl<A: App> plico::View for AppView<'_, A> {
     fn theme(&self) -> plico::Theme {
         App::theme(self.0)
     }
@@ -137,6 +146,8 @@ impl<A: App> plico::DeclareView for AppView<'_, A> {
         App::show(self.0, ui)
     }
 }
+/// Application root with development checkpoints, services, and host events.
+/// Its `show` and `theme` methods are the ordinary application UI surface.
 pub trait App: Default + Serialize + DeserializeOwned {
     #[doc(hidden)]
     fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {

@@ -260,21 +260,29 @@ Skia 测试仅用 dev-dependency 构造暂不支持的 Vello filter，验证明�
 Vello paint 上传桥接仍使用 `vello_common`，保留相关直接依赖。后续若替换这些
 契约，应单独设计和验证，不把它们与基础类型的 import 迁移混在一起。
 
-## 实验性 present skip 与多矩形 damage
+## Present skip 与实验性多矩形 damage
 
-两项均默认关闭，可独立对照：
+damage tracking 与 present skip 默认开启，可独立关闭对照；多矩形模式仍默认关闭：
 
-- `PLICO_SKIA_PRESENT_SKIP=1`：比较最后一次成功显示的 scene 与背景色，在
-  acquire/fence wait/flush/present 之前跳过完全相同的帧。Shader 和 filter 不
+- 比较最后一次成功显示的 scene 与背景色，在 acquire/fence wait/flush/present
+  之前跳过完全相同的帧；`PLICO_SKIA_PRESENT_SKIP=0` 禁用。Shader 和 filter 不
   被视为可证明不变。不是根据某个交换链 image 的 Empty damage 跳过显示：
   A→B→A 仍需呈现，尺寸/交换链重建、窗口恢复、显式 invalidation 也强制呈现。
-- `PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1`：为每个交换链 image 独立保留
+  历史 Scene 共享不可变的 COW 命令存储，不逐项深拷贝绘制命令。嵌套 Fragment
+  内的 shader、filter 和非默认 blend 同样按保守路径处理。
+- Skia 窗口默认按每个交换链 image 的历史做局部重绘；`PLICO_SKIA_DAMAGE=0`
+  或 `false` 关闭，恢复全量绘制。首次绘制、resize、未知及非局部效果自动回退全量。
+- `PLICO_SKIA_MULTI_RECT=1`：为每个交换链 image 独立保留
   最多八个不重叠脏矩形，合并相交/相接区域，超额时合并增加面积最少的一对。
   逐矩形设置非 AA 的整数 clip/scissor，局部清除并按原顺序回放相交命令。
   不使用一个包围大范围的复杂 clip mask，避免其 GPU 开销。
 
 多个矩形重放时不会将同一像素混合多次。背景变化、未知/非局部效果、首次
-绘制及失败恢复仍走全量；密集变化按实际脏区面积触发全量 cooldown。
+绘制及失败恢复仍走全量；密集变化按实际脏区面积触发全量 cooldown。Tracker 还会把
+与 damage 部分相交的 Paragraph、GlyphRun、Stroke 扩张到完整命令 bounds，避免
+整数 clip 切开文字或 stroke 的 AA 光栅化；普通 Fill 不做这种扩张。Fragment 作为
+原子边界扩张到完整 bounds，保护内部嵌套文字与描边，但不计算其内部的最小 damage。
+该策略会增加覆盖率与光栅化成本，详见 performance.md 的严格像素与成本对照。显式 `draw_scene_damaged` 绕过 tracker，调用者仍须提供安全 damage。
 核心 `DamageRegion` 的 Copy/单包围框 API 保持兼容；多矩形通过
 `SceneDamageTracker::damage_rects()` 读取。`last_damage()` 仍是保守包围框，
 实际覆盖与数量使用 `last_damage_coverage()` / `last_damage_rect_count()`。
@@ -294,8 +302,47 @@ profiling 记录 `present.skip` / `submit.skip`，draw span 记录真实脏区�
 在 Lyrune checkout 中可试：
 
 ```sh
-PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1 PLICO_SKIA_PRESENT_SKIP=1 cargo run --release -p lyrune-plico --features skia -- --renderer skia
+PLICO_SKIA_MULTI_RECT=1 cargo run --release -p lyrune-plico --features skia -- --renderer skia
 ```
 
 这些是实验性开关：本地验证包括 resize、清理、显式刷新与多 image 历史，
 不据此宣称所有平台的 expose/遮挡与帧节奏都已完成验收。
+
+## 纯平移 Paragraph 回放
+
+普通文字的局部变换若只有平移，直接以目标 origin 调用 SkParagraph paint；不额外
+执行外层 Canvas save/concat/restore。缩放、旋转和斜切继续走完整矩阵路径；已有父层
+clip、opacity 和变换保持生效。这不增加 Paragraph、Picture 或纹理缓存。
+
+实现思路参考 Freya 的 Label 直接在布局 origin 绘制已排版 Paragraph 的方式：
+[Freya label.rs，c406fe17](https://github.com/marc2332/freya/blob/c406fe17/crates/freya-core/src/elements/label.rs)
+（MIT，Copyright Marc Espín Sanz）。本轮借鉴绘制策略，没有复制其组件或渲染器实现。
+同版本 Freya 的主 RenderPipeline 仍清屏遍历可见节点，并保留 incremental rendering
+TODO；HTML 组件另有 PictureRecorder 缓存，不能将后者误称为整个框架的局部重绘。
+
+可复现的 CPU 光栅化探针：
+
+```sh
+cargo run --release -p plico-skia --features raster --example paragraph_replay
+```
+
+构建与 readback 不计时，100 帧预热、500 帧采样；包含纯平移与旋转对照。2026-10-30
+Linux / Core Ultra 9 285K，release、固定 CPU 7，保存改前/后独立二进制并交错三轮，
+每轮 p50 的中位数：500 段可见文字的完整 CPU raster 从 402.67µs 降为 364.94µs
+（约 9.4%）；旋转对照为 403.63µs → 403.57µs，无可辨识改善。这是隔离 replay
+结果，不代表整个应用 CPU 或 GPU 耗时下降 9.4%。
+
+逐像素回归将新路径与原 save/concat/paint/restore 路径直接对比，覆盖透明文字、
+中英文、整数/分数/负 origin 及缩放、旋转、斜切父变换；严格 Immediate damage
+探针和嵌套 Fragment CPU/GPU 对照也继续通过。
+
+默认开启验收另覆盖 NVIDIA GeForce RTX 5080 的真实 XWayland 交换链：
+`damage_window` 不再手动开启 damage，使用构造器默认值，180 帧中 168 帧局部重绘（该次未启用 present skip），
+每次实际绘制均与同 GPU 的全量 redraw 严格一致；包含窗口 resize。
+该次验收设置 `PLICO_SKIA_INCREMENTAL_PRESENT=0`，与普通窗口默认配置一致。
+开启该可选平台扩展的探针虽未出现像素差异，但未达到 present hint 数量断言，
+因此不据此启用 incremental-present，也不宣称该扩展已在此平台完成验收。
+
+窗口探针已对齐普通窗口默认开关：damage/present skip 开启，incremental-present
+提示关闭；无需环境变量即可运行。清理后 RTX 5080 的 180 帧默认配置复验中，
+51 帧局部重绘、117 帧跳过重复提交，所有实际绘制帧均与全量 GPU redraw 严格一致。

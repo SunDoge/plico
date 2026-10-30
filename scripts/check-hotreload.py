@@ -10,6 +10,10 @@ CLI=TARGET/'debug'/('plico.exe' if os.name=='nt' else 'plico')
 REPORT=ROOT/'reports/hotreload';REPORT.mkdir(parents=True,exist_ok=True)
 def texts(nodes):
     return [n['text'] for n in nodes]+[t for n in nodes for t in texts(n['children'])]
+def counter(value):
+    labels=[text for text in texts(value['nodes']) if text.startswith('Count: ')]
+    assert len(labels)==1,labels
+    return labels[0].removeprefix('Count: ')
 with tempfile.TemporaryDirectory(prefix='plico reload proof ') as temp:
     app=Path(temp)/'app'
     subprocess.run([str(CLI),'new',str(app),'--name','plico-reload-proof'],check=True)
@@ -37,10 +41,10 @@ with tempfile.TemporaryDirectory(prefix='plico reload proof ') as temp:
     try:
         print('Waiting for initial app/host build...',flush=True)
         ready=receive(300);assert ready['event']=='ready',ready;pid=ready['pid']
-        first=request('click',role='button',label='Increment');assert first['state']['count']==1,first
+        first=request('click',role='button',label='Increment');assert counter(first)=='1',first
         source.write_text('\n\n// whitespace-only movement of the component\n'+original.replace('Hello Plico','Reloaded Plico'))
         changed=wait_for(lambda v:'Reloaded Plico' in texts(v.get('nodes',[])))
-        assert changed['pid']==pid and changed['state']['count']==1,changed
+        assert changed['pid']==pid and counter(changed)=='1',changed
         def keys(nodes): return [(n['key'], keys(n['children'])) for n in nodes]
         assert keys(first['nodes'])==keys(changed['nodes']), 'generated IDs changed after text/whitespace edit'
         # Reading/compiling sources must not create an endless watch rebuild loop.
@@ -55,23 +59,23 @@ with tempfile.TemporaryDirectory(prefix='plico reload proof ') as temp:
         until=time.monotonic()+90
         while 'build failed for plico-reload-proof' not in (REPORT/'watcher.log').read_text():
             assert time.monotonic()<until;time.sleep(.15)
-        old=request('click',role='button',label='Increment');assert old['state']['count']==2 and old['pid']==pid,old
-        schema=original.replace('count: u32','count: String').replace('self.count += 1;','self.count.push(\'!\');').replace('Hello Plico','Schema changed')
+        old=request('click',role='button',label='Increment');assert counter(old)=='2' and old['pid']==pid,old
+        schema=original.replace('app.persisted_state(1, || 0_u32)','app.persisted_state(1, String::new)').replace('State<u32>','State<String>').replace('*value += 1',"value.push('!')").replace('Hello Plico','Schema changed')
         source.write_text(schema)
         reset=wait_for(lambda v:'Schema changed' in texts(v.get('nodes',[])))
-        assert reset['state']['count']=='' and reset['pid']==pid,reset
+        assert counter(reset)=='' and reset['pid']==pid,reset
         # CI denies warnings: fail at runtime, not with an unreachable-code diagnostic.
-        source.write_text(schema.replace("fn show(&mut self, cx: &mut UiContext) {", "fn show(&mut self, cx: &mut UiContext) { if std::hint::black_box(true) { panic!(\"candidate panic\"); }"))
+        source.write_text(schema.replace("fn application(cx: &mut UiContext, count: State<String>) {", "fn application(cx: &mut UiContext, count: State<String>) { if std::hint::black_box(true) { panic!(\"candidate panic\"); }"))
         failed=wait_for(lambda v:'panicked' in str(v.get('error','')))
-        assert failed['state']['count']=='' and failed['pid']==pid,failed
+        assert counter(failed)=='' and failed['pid']==pid,failed
         # Keep the exported fixture body warning-free under stabby macro expansion.
         mismatched=schema.replace('plico_dev::export_app!(Application);', '#[stabby::export] pub extern "C" fn plico_app_render(_input: stabby::vec::Vec<u8>) -> u32 { std::hint::black_box(()); 0 }')
         source.write_text(mismatched)
         rejected=wait_for(lambda v:'ABI layout check' in str(v.get('error','')))
-        assert rejected['pid']==pid and rejected['state']['count']=='',rejected
+        assert rejected['pid']==pid and counter(rejected)=='',rejected
         source.write_text(schema.replace('Schema changed','Recovered Plico'))
         recovered=wait_for(lambda v:'Recovered Plico' in texts(v.get('nodes',[])) and v.get('error') is None)
-        updated=request('click',role='button',label='Increment');assert updated['state']['count']=='!',updated
+        updated=request('click',role='button',label='Increment');assert counter(updated)=='!',updated
         request('capture',out=str(REPORT/'recovered.png'))
         result={'generated_keys_survive_text_and_whitespace_edit':True,'resident_pid_preserved':True,'compatible_state_preserved':True,'incompatible_state_reset':True,'compile_failure_kept_last_good':True,'panic_candidate_rejected':True,'abi_mismatch_rejected':True,'recovery_works':True,'only_app_rebuilt_after_edit':True,'idle_watcher_does_not_rebuild':True,'app_edit_build':build,'headless_native_capture':str(REPORT/'recovered.png')}
         (REPORT/'report.json').write_text(json.dumps(result,indent=2)+'\n')

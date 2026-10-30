@@ -1,7 +1,7 @@
 //! nav_menu composes Route-derived metadata with Router navigation.
 use plico::Router;
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, plico::Route)]
@@ -15,7 +15,7 @@ enum Nav {
 struct Menu {
     router: Router<Nav>,
 }
-impl View for Menu {
+impl HostView for Menu {
     fn show(&mut self, cx: &mut UiContext) {
         nav_menu(cx, &mut self.router);
     }

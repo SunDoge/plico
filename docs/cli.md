@@ -17,7 +17,7 @@ Cargo 的 `rustc-wrapper` 配置。需要覆盖命令时设置 `PLICO_CARGO=/pat
 
 ## 普通 Rust 项目
 
-生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个 `Application: plico_dev::App` 实现：
+生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个普通 Rust `Application`；它直接实现 `plico_dev::App::show`，通过 Immediate API 接入现有开发与热重载协议。计数器使用 `UiContext::persisted_state` 保留检查点状态，不引入 Regions：
 
 ```sh
 cd /tmp/my-plico-app
@@ -61,7 +61,7 @@ CLI 从目录判断当前 package，workspace 根目录优先选择唯一可用�
 
 第一次构建常驻的 `plico-desktop` host（不依赖 gallery），再构建轻量的 app cdylib。后续由 notify 监听 Rust 源码/Cargo.toml 变化，只重新构建 app。开发构建使用 `--lib --no-default-features --features abi`，不启用桌面后端依赖；重载不重新链接 renderer，也不重启窗口。
 
-产物复制到本次会话的私有路径后，原子更新 active descriptor。宿主通过 Stabby 的布局报告加载导出函数，以版本化 JSON 请求/响应交换状态与 UI 声明；成功才激活，失败保留上一版。普通 Rust panic 在模块边界转换成错误并保留 panic 消息。恢复不了应用状态时重置为 Default 并报告原因；当前恢复粒度是整个 App struct，不是逐个状态槽位。
+产物复制到本次会话的私有路径后，原子更新 active descriptor。宿主通过 Stabby 的布局报告加载导出函数，以版本化 JSON 请求/响应交换状态与 UI 声明；成功才激活，失败保留上一版。普通 Rust panic 在模块边界转换成错误并保留 panic 消息。普通 App 恢复不了应用状态时重置为 Default 并报告原因；`RegionApp` 按显式命名的 persisted slot 恢复，新增、删除或类型不兼容的槽位使用各自默认值。
 
 模块在 UI 线程保留 App 与 Engine：纯动画/滚动帧使用 lean 请求，跳过 App 状态双向序列化；事件与服务帧继续活跃会话并输出完整 checkpoint，失败后从宿主的上一份好状态恢复。重载前只读取得最新 checkpoint，不丢弃逻辑动画更新。普通 TextInput 通过逻辑路径同步文本、placeholder 与绝对提交计数；`#[serde(skip)]` 缓冲在普通事件中保持，兼容重载时由宿主恢复内容且不重复提交。密码输入在热重载预览中显式禁用，正式 native 路径不受影响。未消费的路径事件计入 `Frame.unmatched_events`；计数能发现丢弃，但不能识别错误匹配到另一个合法控件的情况。协议、恢复边界和验证脚本见 [热重载协议 v2](hotreload-protocol.md)。
 
@@ -86,7 +86,7 @@ plico dev /path/to/app --framework /path/to/plico
 
 | 命令 | 行为 |
 |---|---|
-| new PATH [--name NAME] | 生成使用 component 自动身份的独立应用（Plico、plico-dev、Serde、Stabby） |
+| new PATH [--name NAME] | 生成默认使用 Regions Reactive 的独立应用（Plico、plico-runtime、plico-dev、Serde、Stabby） |
 | render --out PATH | 静态 gallery 的真实后端离屏 PNG |
 | probe | 全部 gallery 页面的后端工作量 JSON（cold/idle/scroll/desktop），含单次粗计时；--legacy 为原 Controls 交互脚本 |
 | check | cargo check --workspace --all-targets |
@@ -138,9 +138,11 @@ node_modules 和 reports。所有文件完成解析与格式化后才开始写�
 ```sh
 cargo build -p plico-cli
 python3 scripts/check-hotreload.py
+# 需要 Xvfb、xdotool、ImageMagick 和可用的 Skia llvmpipe
+python3 scripts/check-regions-window-reload.py
 ```
 
-测试创建临时独立 app，使用真实 watcher、编译器、动态库和常驻离屏宿主验证：同一 PID、兼容状态保留、schema 变化重置、编译失败、panic/ABI 错误拒绝、恢复后继续交互、依赖 fresh、文字/空行编辑后的自动 ID 一致，以及真实 Vello PNG。不打开用户桌面窗口、不修改用户应用或框架源码。
+离屏脚本创建临时独立 app，使用真实 watcher、编译器、动态库和常驻宿主验证：同一 PID、Regions persisted slot 兼容保留与类型变化重置、编译失败、panic/ABI 错误拒绝、恢复后继续交互、依赖 fresh、文字/空行编辑后的自动 ID 一致，以及真实后端 PNG。窗口脚本另在隔离 Xvfb 中点击生成的 RegionApp，触发自动编译和 dylib 激活，并比较重载前后的计数文字像素；不打开用户桌面窗口、不修改用户应用或框架源码。
 
 `dev --headless` 是可脚本驱动的 resident host，stdin JSON 命令支持 snapshot、click(role/label)、capture(out)，每行响应一份 JSON；供回归测试使用。
 

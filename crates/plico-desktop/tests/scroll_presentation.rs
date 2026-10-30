@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico::{Clock, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, Scene,
     TextContext, UiEvent, WheelDeltaMode, WheelEvent,
@@ -17,7 +17,7 @@ struct Demo {
     clicks: usize,
     last_clicked: Option<usize>,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
         if self.virtualized {

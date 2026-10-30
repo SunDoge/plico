@@ -26,17 +26,8 @@ impl PresentationHistory {
     fn record(&mut self, scene: &Scene, background: Color) {
         // External/time-dependent effects are never proven unchanged solely
         // by command equality, even if their retained handles are identical.
-        self.previous = (!scene.commands.iter().any(|c| {
-            matches!(
-                c,
-                plico_renderer::PaintCommand::Shader { .. }
-                    | plico_renderer::PaintCommand::PushLayer {
-                        filter: Some(_),
-                        ..
-                    }
-            )
-        }))
-        .then(|| (scene.clone(), background));
+        // Scene snapshots share immutable COW commands.
+        self.previous = (!scene.has_nonlocal_effects()).then(|| (scene.clone(), background));
     }
 }
 
@@ -114,7 +105,7 @@ impl SkiaWindow {
             desired: [size.width, size.height],
             transparent,
             recreate: true,
-            damage_tracking: false,
+            damage_tracking: true,
             damage_validation: false,
             last_damage: DamageRegion::Full,
             incremental_present: false,
@@ -124,7 +115,7 @@ impl SkiaWindow {
             multi_rect_damage: false,
             last_damage_coverage: 1.,
             last_damage_rect_count: 1,
-            present_skip: false,
+            present_skip: true,
             last_present_skipped: false,
             presentation: Default::default(),
         };
@@ -147,9 +138,9 @@ impl SkiaWindow {
     pub fn trim_gpu_cache(&mut self) {
         super::trim_gpu_cache(&mut self.context);
     }
-    /// Opt into skipping acquisition/submission when the last successfully
+    /// Select skipping acquisition/submission when the last successfully
     /// displayed scene is identical. Resize/recreation and explicit invalidation
-    /// always require a real present. Disabled by default for A/B testing.
+    /// always require a real present. Enabled by default; disable for A/B testing.
     pub fn set_present_skip(&mut self, enabled: bool) {
         if self.present_skip != enabled {
             self.presentation.clear();
@@ -180,7 +171,7 @@ impl SkiaWindow {
     pub fn last_damage_rect_count(&self) -> usize {
         self.last_damage_rect_count
     }
-    /// Select command-stream damage or unconditional full drawing (the default).
+    /// Select command-stream damage (the default) or unconditional full drawing.
     /// History is owned per swapchain image; newly created targets draw fully.
     pub fn set_damage_tracking(&mut self, enabled: bool) {
         self.damage_tracking = enabled;
@@ -800,6 +791,36 @@ mod tests {
             "expose/recreation must present again"
         );
     }
+    #[test]
+    fn unchanged_present_rejects_filters_inside_nested_fragments() {
+        use plico_renderer::PaintScene;
+        let mut filtered = Scene::new();
+        filtered.push_layer(
+            peniko::BlendMode::default(),
+            1.,
+            kurbo::Affine::IDENTITY,
+            &Rect::new(0., 0., 10., 10.),
+            Some(Arc::new(
+                vello_common::filter_effects::Filter::from_function(
+                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                ),
+            )),
+            None,
+        );
+        filtered.pop_layer();
+        let mut inner = Scene::new();
+        inner.append_cached_scene(filtered, kurbo::Affine::IDENTITY);
+        let mut outer = Scene::new();
+        outer.append_cached_scene(inner, kurbo::Affine::IDENTITY);
+        let mut history = PresentationHistory::default();
+        history.record(&Scene::new(), Color::WHITE);
+        for _ in 0..2 {
+            history.record(&outer, Color::WHITE);
+            assert!(!history.unchanged(&outer, Color::WHITE));
+        }
+        assert!(!history.unchanged(&Scene::new(), Color::WHITE));
+    }
+
     #[test]
     fn present_regions_round_outwards_and_clamp_to_surface() {
         let r =

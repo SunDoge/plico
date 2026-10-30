@@ -1,7 +1,7 @@
 //! Deterministic real-render captures; no native window or sleeps.
 use gallery::Gallery;
 use plico::UiContext;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use std::time::{Duration, Instant};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -85,7 +85,7 @@ struct Batch {
     expanded: bool,
     calls: usize,
 }
-impl View for Batch {
+impl HostView for Batch {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         for id in 0..self.count {

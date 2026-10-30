@@ -2,24 +2,24 @@
 #[cfg(feature = "profiling")]
 mod visible_texts_profile;
 
+mod bench_support;
+use bench_support::{Feed, thread_cpu_ns};
+
 use plico::{Engine, Entity, FrameError, prelude::*};
 use plico_renderer::{FrameSource, RenderBackend, Scene, TextContext, WakeCallback, WindowOptions};
 use plico_runtime::{
     Source, View,
-    regions::{Access, Reactive, Regions, ReplayBatch, State, WatchUi},
+    regions::{Access, Reactive, RegionUi, Regions, ReplayBatch, State},
 };
 use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-    thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    sync::{Arc, atomic::Ordering},
+    time::Instant,
 };
 
 #[derive(usage_rs::Cli)]
 #[usage(about = "Compare a visible text grid or download dashboard on the same Skia backend")]
 struct Options {
+    /// Use immediate in a window; with --headless, run only the immediate workload.
     #[usage(long)]
     immediate: bool,
     /// Batch-download dashboard: 48 visible tasks with segmented progress meters.
@@ -27,6 +27,9 @@ struct Options {
     downloads: bool,
     #[usage(long)]
     headless: bool,
+    /// Headless forced redeclaration with unchanged values (not an idle-window test).
+    #[usage(long)]
+    unchanged: bool,
     /// Emit existing Skia cache counters outside timed samples (requires plico-skia/profiling).
     #[usage(long)]
     cache_stats: bool,
@@ -43,48 +46,6 @@ enum Error {
     Option { message: &'static str },
     #[snafu(display("native window failed: {source}"))]
     Window { source: plico_shell::Error },
-}
-struct Feed {
-    value: Arc<AtomicUsize>,
-    wake: Arc<Mutex<Option<WakeCallback>>>,
-    stopped: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
-}
-impl Feed {
-    fn new(hz: usize) -> Self {
-        let value = Arc::new(AtomicUsize::new(0));
-        let wake = Arc::new(Mutex::new(None::<WakeCallback>));
-        let stopped = Arc::new(AtomicBool::new(false));
-        let (v, w, stop) = (value.clone(), wake.clone(), stopped.clone());
-        let worker = thread::spawn(move || {
-            while !stop.load(Ordering::Acquire) {
-                thread::park_timeout(Duration::from_secs_f64(1. / hz as f64));
-                if stop.load(Ordering::Acquire) {
-                    break;
-                }
-                v.fetch_add(1, Ordering::AcqRel);
-                let callback = w.lock().unwrap().clone();
-                if let Some(callback) = callback {
-                    callback();
-                }
-            }
-        });
-        Self {
-            value,
-            wake,
-            stopped,
-            worker: Some(worker),
-        }
-    }
-}
-impl Drop for Feed {
-    fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.take() {
-            worker.thread().unpark();
-            worker.join().unwrap();
-        }
-    }
 }
 struct Texts {
     labels: Arc<Vec<String>>,
@@ -174,7 +135,7 @@ fn download_dashboard(
                 column(cx).width(0.).grow(1.).children(|cx| {
                     if i == 0 {
                         if let Some(state) = state {
-                            cx.watch_keyed(1, (state,), |cx, (value,)| download_meter(cx, *value.read()));
+                            cx.region_keyed(1, (state,), |cx, (value,)| download_meter(cx, *value.read()));
                         } else {
                             column(cx).children(|cx| download_meter(cx, value));
                         }
@@ -322,15 +283,26 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
     surface.configure_text(&mut text);
     let mut scene = Scene::new();
     prepare(&mut source, &mut text, &mut scene);
+    if !immediate {
+        assert!(
+            source.adapter.stats.scene_fragment_builds + source.adapter.stats.scene_fragment_reuses
+                > 0,
+            "reactive benchmark must exercise retained Scene fragments"
+        );
+    }
     if options.cache_stats {
         surface.draw_scene(&scene, peniko::Color::WHITE).unwrap();
     }
     let mut samples = Vec::with_capacity(options.updates);
     let (mut declared, mut backend, mut visited, mut flattened, mut layouts) =
         (0_u128, 0_u128, 0, 0, 0);
+    let mut cpu_start = 0;
     for i in 0..options.warmup + options.updates {
+        if i == options.warmup {
+            cpu_start = thread_cpu_ns();
+        }
         let start = Instant::now();
-        source.view.set(i + 1);
+        source.view.set(if options.unchanged { 0 } else { i + 1 });
         source.request_rebuild();
         prepare(&mut source, &mut text, &mut scene);
         if i >= options.warmup {
@@ -342,20 +314,21 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
             layouts += source.adapter.stats.layout_runs;
         }
     }
+    let mean_cpu_us = if cfg!(target_os = "linux") {
+        format!(
+            "{:.2}",
+            (thread_cpu_ns() - cpu_start) as f64 / options.updates as f64 / 1000.
+        )
+    } else {
+        "NA".to_owned()
+    };
     if options.cache_stats {
         surface.draw_scene(&scene, peniko::Color::WHITE).unwrap();
-    }
-    if !immediate {
-        assert!(
-            source.adapter.stats.scene_fragment_builds + source.adapter.stats.scene_fragment_reuses
-                > 0,
-            "reactive benchmark must exercise retained Scene fragments"
-        );
     }
     samples.sort_unstable();
     let n = options.updates as f64;
     println!(
-        "{},{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{},{}",
+        "{},{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{},{},{}",
         if immediate { "immediate" } else { "reactive" },
         samples[options.updates / 2] as f64 / 1000.,
         samples[(options.updates * 95 / 100).min(options.updates - 1)] as f64 / 1000.,
@@ -365,7 +338,8 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
         flattened as f64 / n,
         layouts as f64 / n,
         scene.commands.len(),
-        scene.flattened().commands.len()
+        scene.flattened().commands.len(),
+        mean_cpu_us
     );
     let result: Vec<_> = source
         .adapter
@@ -383,7 +357,14 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
         assert_eq!(result.len(), 500);
     }
     if options.downloads {
-        let expected = format!("{}%", (options.warmup + options.updates) % 100);
+        let expected = format!(
+            "{}%",
+            if options.unchanged {
+                0
+            } else {
+                (options.warmup + options.updates) % 100
+            }
+        );
         assert!(
             source
                 .adapter
@@ -454,6 +435,11 @@ fn main() -> Result<(), Error> {
             .with_writer(std::io::stderr)
             .init();
     }
+    if options.unchanged && !options.headless {
+        return Err(Error::Option {
+            message: "--unchanged requires --headless",
+        });
+    }
     if options.hz == 0 || options.hz > 240 || options.updates == 0 {
         return Err(Error::Option {
             message: "hz must be 1..240 and updates must be positive",
@@ -461,11 +447,13 @@ fn main() -> Result<(), Error> {
     }
     if options.headless {
         println!(
-            "model,p50_us,p95_us,mean_declare_us,mean_backend_us,visited,flattened,layout_runs,top_level_commands,expanded_commands"
+            "model,p50_us,p95_us,mean_declare_us,mean_backend_us,visited,flattened,layout_runs,top_level_commands,expanded_commands,mean_thread_cpu_us"
         );
         let a = bench(true, &options);
-        let b = bench(false, &options);
-        assert_eq!(a, b, "both models must produce identical text and geometry");
+        if !options.immediate {
+            let b = bench(false, &options);
+            assert_eq!(a, b, "both models must produce identical text and geometry");
+        }
         return Ok(());
     }
     let mut view = Texts::new(options.immediate, options.downloads);

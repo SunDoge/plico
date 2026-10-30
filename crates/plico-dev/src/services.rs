@@ -111,6 +111,29 @@ pub trait ServiceApp: Default + Serialize + DeserializeOwned {
             && key.modifiers.is_empty()
             && self.on_key(&key.key, services)
     }
+    /// Optional host hooks implemented by reactive application adapters.
+    #[doc(hidden)]
+    fn replay_regions(
+        &mut self,
+        _engine: &mut plico::Engine,
+        _services: &mut Services<Self::Snapshot, Self::Command>,
+    ) -> Option<std::result::Result<crate::ReplayBatch, plico::FrameError>> {
+        None
+    }
+    #[doc(hidden)]
+    fn scene_cache_roots(&self) -> Vec<plico::Entity> {
+        Vec::new()
+    }
+    #[doc(hidden)]
+    fn set_regions_wake_callback(&mut self, _wake: Wake) {}
+    #[doc(hidden)]
+    fn poll_regions(&mut self) -> bool {
+        false
+    }
+    #[doc(hidden)]
+    fn regions_changed(&self) -> bool {
+        false
+    }
 }
 struct ServiceModule<A: ServiceApp> {
     app: A,

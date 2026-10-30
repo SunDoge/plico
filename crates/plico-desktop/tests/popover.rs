@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     TextContext, UiEvent,
@@ -12,7 +12,7 @@ struct Demo {
     disabled: bool,
     shows: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.shows += 1;
@@ -175,7 +175,7 @@ struct Nested {
     dialog: ModalState,
     popup: PopoverState,
 }
-impl View for Nested {
+impl HostView for Nested {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         button(cx).text("Background");

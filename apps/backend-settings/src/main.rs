@@ -70,7 +70,7 @@ fn run() -> Result<(), Error> {
     match backend {
         #[cfg(feature = "vello")]
         "vello" => plico_desktop::run_source_with_options(
-            plico_desktop::Source::new(backend_settings::Settings::default()),
+            plico_desktop::Source::new(backend_settings::ImmediateSettings::default()),
             plico_desktop::WindowOptions::new()
                 .title("Plico settings — Vello")
                 .initial_inner_size(1100, 820)
@@ -87,7 +87,7 @@ fn run() -> Result<(), Error> {
                 .init();
             plico_shell::run_window_with_options(
                 Box::new(plico_runtime::Source::new(
-                    backend_settings::Settings::default(),
+                    backend_settings::ImmediateSettings::default(),
                 )),
                 plico_renderer::WindowOptions::new()
                     .title("Plico settings — Skia")
@@ -106,7 +106,7 @@ fn run() -> Result<(), Error> {
                 .init();
             plico_shell::run_window_with_options(
                 Box::new(plico_egui::Source::new(
-                    backend_settings::Settings::default(),
+                    backend_settings::ImmediateSettings::default(),
                 )),
                 plico_renderer::WindowOptions::new()
                     .title("Plico settings — egui")
@@ -117,7 +117,7 @@ fn run() -> Result<(), Error> {
         }
         #[cfg(feature = "fltk")]
         "fltk" => plico_fltk::run(
-            backend_settings::Settings::default(),
+            backend_settings::ImmediateSettings::default(),
             "Plico settings — FLTK",
             1100,
             820,

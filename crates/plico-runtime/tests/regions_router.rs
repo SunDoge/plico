@@ -3,7 +3,7 @@ use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
     Source,
     regions::{
-        Access, BindState, OnClick, Reactive, Regions, State, WatchUi, outlet, outlet_fill,
+        Access, BindState, OnClick, Reactive, RegionUi, Regions, State, outlet, outlet_fill,
         outlet_keyed,
     },
 };
@@ -139,7 +139,7 @@ fn page(
         });
     if selected == Page::Editor {
         let draft = cx.local_state(TextBuffer::new);
-        cx.watch((draft,), |cx, (draft,)| {
+        cx.region((draft,), |cx, (draft,)| {
             text_input(cx, "Draft", &draft.read()).bind(draft.handle());
         });
     }
@@ -540,7 +540,7 @@ fn fill_outlet_and_watch_allocate_the_remaining_page_height() {
                 + |cx| {
                     text(cx, "Shell header");
                     outlet_fill(cx, router.handle(), (), |cx, _, ()| {
-                        cx.watch_fill((), |cx, ()| {
+                        cx.region_fill((), |cx, ()| {
                             let _ = column(cx).width_percent(100.).height_percent(100.)
                                 + |cx| {
                                     text(cx, "Page header");

@@ -1,17 +1,21 @@
 //! ID-driven native regions; components own their local state.
-//! Root arguments are captures; watch and property arguments subscribe to changes.
+//! Root arguments are captures; region and property arguments subscribe to changes.
+mod actions;
 mod properties;
 mod reload;
 mod routing;
-pub use properties::{Reactive, TextProperties};
+pub use actions::{FocusOnce, RevealOnce};
+pub use properties::{ButtonProperties, Reactive, TextProperties};
 pub use routing::{outlet, outlet_fill, outlet_keyed};
 mod tasks;
-use crate::View;
+use crate::HostView;
 use plico::{
     Button, Changes, Engine, Entity, ExperimentContext, FrameError, FrameStats, Key, Response,
     UiContext,
 };
-pub use reload::{Checkpoint, CheckpointError, RegionApp, RegionProgram, RestoreStats};
+pub use reload::{
+    Checkpoint, CheckpointError, RegionApp, RegionProgram, RegionServiceProgram, RestoreStats,
+};
 use slotmap::{SlotMap, new_key_type};
 use std::{
     any::Any,
@@ -57,10 +61,21 @@ pub struct Access<'a, T> {
     state: State<T>,
 }
 impl<T: 'static> Access<'_, T> {
+    fn check_writable(&self) {
+        assert!(
+            !self
+                .app
+                .slot(self.state.component, self.state.index)
+                .derived
+                .get(),
+            "derived state is read-only"
+        );
+    }
     pub fn sender(&self) -> StateSender<T>
     where
         T: Send,
     {
+        self.check_writable();
         self.app.sender(self.state)
     }
     pub fn handle(&self) -> State<T> {
@@ -79,16 +94,11 @@ impl<T: 'static> Access<'_, T> {
     pub fn notify(&self) {
         assert!(
             !self.app.building.get(),
-            "notify state in an event callback, not watch"
+            "notify state in an event callback, not region"
         );
-        self.app.dirty.borrow_mut().extend(
-            self.app
-                .slot(self.state.component, self.state.index)
-                .readers
-                .borrow()
-                .iter()
-                .copied(),
-        );
+        self.check_writable();
+        self.app
+            .notify_binding((self.state.owner, self.state.component, self.state.index));
     }
     pub fn set(&self, value: T) {
         self.update(|current| *current = value);
@@ -96,14 +106,13 @@ impl<T: 'static> Access<'_, T> {
     pub fn update<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         assert!(
             !self.app.building.get(),
-            "write state in an event callback, not watch"
+            "write state in an event callback, not region"
         );
+        self.check_writable();
         let slot = &self.app.slot(self.state.component, self.state.index);
         let result = f(slot.value.borrow_mut().downcast_mut().unwrap());
         self.app
-            .dirty
-            .borrow_mut()
-            .extend(slot.readers.borrow().iter().copied());
+            .notify_binding((self.state.owner, self.state.component, self.state.index));
         result
     }
     /// Mutate internal state but notify subscribers only when the closure
@@ -112,23 +121,37 @@ impl<T: 'static> Access<'_, T> {
     pub fn update_if(&self, f: impl FnOnce(&mut T) -> bool) -> bool {
         assert!(
             !self.app.building.get(),
-            "write state in an event callback, not watch"
+            "write state in an event callback, not region"
         );
+        self.check_writable();
         let slot = &self.app.slot(self.state.component, self.state.index);
         let changed = f(slot.value.borrow_mut().downcast_mut().unwrap());
         if changed {
             self.app
-                .dirty
-                .borrow_mut()
-                .extend(slot.readers.borrow().iter().copied());
+                .notify_binding((self.state.owner, self.state.component, self.state.index));
         }
         changed
+    }
+}
+/// Read-only source access passed to an explicit derived selector.
+/// The handle can be carried into the projection for colocated event callbacks.
+pub struct Selector<'a, T> {
+    access: Access<'a, T>,
+}
+impl<T: 'static> Selector<'_, T> {
+    pub fn handle(&self) -> State<T> {
+        self.access.handle()
+    }
+    pub fn read(&self) -> Ref<'_, T> {
+        self.access.read()
     }
 }
 struct Slot {
     value: RefCell<Box<dyn Any>>,
     readers: RefCell<Vec<RegionId>>,
     persistent: Option<reload::Codec>,
+    derived: Cell<bool>,
+    dependents: RefCell<Vec<usize>>,
 }
 /// A single state or dependency tuple selects concrete function-pointer types.
 /// This also lets named functions coerce without casts on stable Rust's
@@ -136,7 +159,7 @@ struct Slot {
 pub trait Dependencies: 'static {
     type Callback: Copy;
     type EventCallback: Copy;
-    type PropertyCallback: Copy;
+    type PropertyCallback<P>: Copy;
     type ConditionCallback: Copy;
     type KeysCallback: Copy;
     type EachCallback: Copy;
@@ -145,12 +168,7 @@ pub trait Dependencies: 'static {
     #[doc(hidden)]
     fn bindings(&self) -> Vec<Binding>;
     #[doc(hidden)]
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        app: &Regions,
-        target: &mut TextProperties,
-    );
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P);
     #[doc(hidden)]
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>);
     #[doc(hidden)]
@@ -175,7 +193,7 @@ pub trait Dependencies: 'static {
 impl Dependencies for () {
     type Callback = for<'a, 'b> fn(&'a mut UiContext<'b>, ());
     type EventCallback = fn(());
-    type PropertyCallback = fn(&mut TextProperties, ());
+    type PropertyCallback<P> = fn(&mut P, ());
     type ConditionCallback = fn(()) -> bool;
     type KeysCallback = fn(()) -> Vec<u64>;
     type EachCallback = for<'a, 'b> fn(&'a mut UiContext<'b>, (), u64);
@@ -189,12 +207,7 @@ impl Dependencies for () {
     ) {
         callback(cx, route, ());
     }
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        _: &Regions,
-        target: &mut TextProperties,
-    ) {
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, _: &Regions, target: &mut P) {
         callback(target, ());
     }
     type ChangeCallback<V: 'static> = fn((), V);
@@ -223,7 +236,7 @@ impl Dependencies for () {
 impl<T: 'static> Dependencies for State<T> {
     type Callback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>);
     type EventCallback = for<'a> fn(Access<'a, T>);
-    type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, Access<'b, T>);
+    type PropertyCallback<P> = for<'a, 'b> fn(&'a mut P, Access<'b, T>);
     type ConditionCallback = for<'a> fn(Access<'a, T>) -> bool;
     type KeysCallback = for<'a> fn(Access<'a, T>) -> Vec<u64>;
     type EachCallback = for<'a, 'b, 'c> fn(&'a mut UiContext<'b>, Access<'c, T>, u64);
@@ -233,12 +246,7 @@ impl<T: 'static> Dependencies for State<T> {
     fn bindings(&self) -> Vec<Binding> {
         vec![(self.owner, self.component, self.index)]
     }
-    fn properties(
-        &self,
-        callback: Self::PropertyCallback,
-        app: &Regions,
-        target: &mut TextProperties,
-    ) {
+    fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P) {
         callback(target, app.access(*self));
     }
     fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) {
@@ -275,13 +283,13 @@ macro_rules! dependency_tuple {
         impl<$($name: 'static),+> Dependencies for ($(State<$name>,)+) {
             type Callback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+));
             type EventCallback = for<'a> fn(($(Access<'a,$name>,)+));
-            type PropertyCallback = for<'a, 'b> fn(&'a mut TextProperties, ($(Access<'b,$name>,)+));
+            type PropertyCallback<P> = for<'a, 'b> fn(&'a mut P, ($(Access<'b,$name>,)+));
             type ConditionCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> bool;
             type KeysCallback = for<'a> fn(($(Access<'a,$name>,)+)) -> Vec<u64>;
             type EachCallback = for<'a,'b,'c> fn(&'a mut UiContext<'b>, ($(Access<'c,$name>,)+), u64);
             type RouteCallback<R: 'static> = for<'a,'b,'c> fn(&'a mut UiContext<'b>, R, ($(Access<'c,$name>,)+));
             fn route<R: 'static>(&self, callback: Self::RouteCallback<R>, app: &Regions, cx: &mut UiContext<'_>, route: R) { callback(cx, route, ($(app.access(self.$index),)+)); }
-            fn properties(&self, callback: Self::PropertyCallback, app: &Regions, target: &mut TextProperties) { callback(target, ($(app.access(self.$index),)+)); }
+            fn properties<P>(&self, callback: Self::PropertyCallback<P>, app: &Regions, target: &mut P) { callback(target, ($(app.access(self.$index),)+)); }
             type ChangeCallback<V: 'static> = for<'a> fn(($(Access<'a,$name>,)+), V);
             fn bindings(&self) -> Vec<Binding> { vec![$((self.$index.owner,self.$index.component,self.$index.index),)+] }
             fn render(&self, callback: Self::Callback, app: &Regions, cx: &mut UiContext<'_>) { callback(cx, ($(app.access(self.$index),)+)); }
@@ -305,8 +313,8 @@ pub type KeysCallback<D> = <D as Dependencies>::KeysCallback;
 pub type EachCallback<D> = <D as Dependencies>::EachCallback;
 pub type EventCallback<D> = <D as Dependencies>::EventCallback;
 trait Render {
-    fn property(&self) -> bool {
-        false
+    fn property(&self) -> Option<properties::PropertyKind> {
+        None
     }
     fn run(&self, app: &Regions, cx: &mut UiContext<'_>);
 }
@@ -561,6 +569,27 @@ impl BindState<plico::TextBuffer> for plico::Input<'_, '_, '_> {
         response
     }
 }
+/// Route navigation consumed by a text input without replaying its parent root.
+pub trait OnNavigation {
+    fn on_navigation<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, plico::InputNavigation>,
+    ) -> Self;
+}
+impl OnNavigation for plico::InputResponse {
+    fn on_navigation<D: Dependencies>(
+        self,
+        deps: D,
+        callback: ChangeCallback<D, plico::InputNavigation>,
+    ) -> Self {
+        if let Some(navigation) = self.navigation {
+            queue_change(deps, navigation, callback);
+        }
+        self
+    }
+}
+
 pub trait OnSubmit {
     fn on_submit<D: Dependencies>(self, deps: D, callback: EventCallback<D>) -> Self;
 }
@@ -623,9 +652,9 @@ impl Drop for BuildGuard {
     }
 }
 /// Extension is available inside any ordinary trailing-lambda children closure.
-pub trait WatchUi {
+pub trait RegionUi {
     #[track_caller]
-    fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    fn region<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     /// Mount content while a condition holds, and dispose only this Region when it turns false.
     #[track_caller]
     fn when<D: Dependencies>(
@@ -651,11 +680,11 @@ pub trait WatchUi {
         keys: KeysCallback<D>,
         callback: EachCallback<D>,
     );
-    /// A watch whose boundary participates in flex growth, for page-sized UI.
+    /// A region whose boundary participates in flex growth, for page-sized UI.
     #[track_caller]
-    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
-    fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
-    /// A static component uses its call site as identity, like `watch`.
+    fn region_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
+    fn region_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>);
+    /// A static component uses its call site as identity, like `region`.
     #[track_caller]
     fn component<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>);
     /// A keyed component owns local state; removing it invalidates all its handles.
@@ -670,13 +699,13 @@ pub trait WatchUi {
     ) -> State<T>;
     fn local_state_keyed<T: 'static>(&mut self, key: u64, init: impl FnOnce() -> T) -> State<T>;
 }
-impl WatchUi for UiContext<'_> {
+impl RegionUi for UiContext<'_> {
     #[track_caller]
-    fn watch<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+    fn region<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
         let site = Location::caller();
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
-        self.watch_keyed(hash.finish(), deps, callback);
+        self.region_keyed(hash.finish(), deps, callback);
     }
     #[track_caller]
     fn when<D: Dependencies>(
@@ -764,7 +793,7 @@ impl WatchUi for UiContext<'_> {
         );
     }
     #[track_caller]
-    fn watch_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
+    fn region_fill<D: Dependencies>(&mut self, deps: D, callback: RenderCallback<D>) {
         let site = Location::caller();
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         (site.file(), site.line(), site.column()).hash(&mut hash);
@@ -778,7 +807,7 @@ impl WatchUi for UiContext<'_> {
             },
         );
     }
-    fn watch_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
+    fn region_keyed<D: Dependencies>(&mut self, key: u64, deps: D, callback: RenderCallback<D>) {
         child(self, key, false, render_spec(deps, callback));
     }
     #[track_caller]
@@ -921,9 +950,76 @@ struct Region {
     revision: u64,
     scene_cache: bool,
 }
-/// Region runtime. Root and keyed components own state; watches do not.
+trait Derivation {
+    fn target(&self) -> Binding;
+    fn update(&self, app: &Regions) -> bool;
+}
+struct DerivedState<T, U> {
+    source: State<T>,
+    target: State<U>,
+    select: for<'a> fn(Selector<'a, T>) -> U,
+}
+impl<T: 'static, U: PartialEq + 'static> Derivation for DerivedState<T, U> {
+    fn target(&self) -> Binding {
+        (self.target.owner, self.target.component, self.target.index)
+    }
+    fn update(&self, app: &Regions) -> bool {
+        let next = (self.select)(Selector {
+            access: app.access(self.source),
+        });
+        let mut value = app
+            .slot(self.target.component, self.target.index)
+            .value
+            .borrow_mut();
+        let current = value.downcast_mut::<U>().unwrap();
+        if *current == next {
+            return false;
+        }
+        *current = next;
+        true
+    }
+}
+trait ServiceBinding {
+    fn sync(&self, app: &Regions, services: &mut dyn Any);
+    fn drain(&self, app: &Regions, services: &mut dyn Any);
+}
+struct ServiceStates<S, C> {
+    snapshot: State<S>,
+    commands: State<Vec<C>>,
+}
+impl<S: Clone + PartialEq + 'static, C: 'static> ServiceBinding for ServiceStates<S, C> {
+    fn sync(&self, app: &Regions, services: &mut dyn Any) {
+        let services = services
+            .downcast_mut::<plico_dev::services::Services<S, C>>()
+            .expect("service snapshot/command types match service_state");
+        let next = services.snapshot();
+        app.access(self.snapshot).update_if(|current| {
+            if current == next {
+                return false;
+            }
+            current.clone_from(next);
+            true
+        });
+    }
+    fn drain(&self, app: &Regions, services: &mut dyn Any) {
+        let services = services
+            .downcast_mut::<plico_dev::services::Services<S, C>>()
+            .expect("service snapshot/command types match service_state");
+        let mut commands = Vec::new();
+        app.access(self.commands).update_if(|pending| {
+            commands = std::mem::take(pending);
+            !commands.is_empty()
+        });
+        for command in commands {
+            services.send(command);
+        }
+    }
+}
+/// Region runtime. Root and keyed components own state; regions do not.
 pub struct Regions {
     owner: usize,
+    service: Option<Box<dyn ServiceBinding>>,
+    derivations: Vec<Box<dyn Derivation>>,
     theme: Option<State<plico::Theme>>,
     mailbox: Arc<tasks::Mailbox>,
     components: SlotMap<ComponentId, Component>,
@@ -936,14 +1032,7 @@ pub struct Regions {
     initialized: bool,
 }
 #[doc(hidden)]
-pub struct ReplayBatch {
-    pub stats: FrameStats,
-    pub dirty: Vec<Entity>,
-    /// Backend cache roots and the output revision produced by local replay.
-    pub revisions: Vec<(Entity, u64)>,
-    pub changes: Changes,
-    pub passes: usize,
-}
+pub use plico_dev::ReplayBatch;
 impl Regions {
     pub fn new(build: impl FnOnce(&mut Self)) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(1);
@@ -959,6 +1048,8 @@ impl Regions {
         mailbox.register(root_component);
         let mut app = Self {
             owner,
+            service: None,
+            derivations: vec![],
             theme: None,
             mailbox,
             components,
@@ -987,6 +1078,47 @@ impl Regions {
         );
         self.theme = Some(state);
     }
+    /// Mark root states as the typed host snapshot and transient command outbox.
+    /// Neither state is checkpointed; the host retains service ownership.
+    pub fn service_state<S, C>(&mut self, snapshot: State<S>, commands: State<Vec<C>>)
+    where
+        S: Clone + PartialEq + 'static,
+        C: 'static,
+    {
+        assert!(self.service.is_none(), "service states already registered");
+        for state in [snapshot.component, commands.component] {
+            assert_eq!(
+                state, self.root_component,
+                "service states must be root-owned"
+            );
+        }
+        assert!(
+            self.try_access(snapshot).is_some(),
+            "foreign snapshot state"
+        );
+        assert!(self.try_access(commands).is_some(), "foreign command state");
+        self.service = Some(Box::new(ServiceStates { snapshot, commands }));
+    }
+    #[doc(hidden)]
+    pub fn sync_services<S: 'static, C: 'static>(
+        &self,
+        services: &mut plico_dev::services::Services<S, C>,
+    ) {
+        self.service
+            .as_ref()
+            .expect("service_state was not registered")
+            .sync(self, services);
+    }
+    #[doc(hidden)]
+    pub fn drain_services<S: 'static, C: 'static>(
+        &self,
+        services: &mut plico_dev::services::Services<S, C>,
+    ) {
+        self.service
+            .as_ref()
+            .expect("service_state was not registered")
+            .drain(self, services);
+    }
     pub fn state<T: 'static>(&mut self, init: impl FnOnce() -> T) -> State<T> {
         assert!(
             !self.initialized,
@@ -998,12 +1130,70 @@ impl Regions {
             value: RefCell::new(Box::new(init())),
             readers: RefCell::new(vec![]),
             persistent: None,
+            derived: Cell::new(false),
+            dependents: RefCell::new(vec![]),
         }));
         State {
             owner: self.owner,
             component: self.root_component,
             index,
             marker: PhantomData,
+        }
+    }
+    /// Project one root state into a read-only root state. The selector runs on
+    /// source notification; equal outputs do not invalidate downstream readers.
+    /// Derived values are transient and are recomputed after checkpoint restore.
+    pub fn derived<T: 'static, U: PartialEq + 'static>(
+        &mut self,
+        source: State<T>,
+        select: for<'a> fn(Selector<'a, T>) -> U,
+    ) -> State<U> {
+        assert!(
+            !self.initialized,
+            "create derived state during construction"
+        );
+        assert!(
+            self.try_access(source).is_some(),
+            "foreign or expired derived source"
+        );
+        assert_eq!(
+            source.component, self.root_component,
+            "derived source must be root-owned"
+        );
+        let initial = select(Selector {
+            access: self.access(source),
+        });
+        let target = self.state(|| initial);
+        self.slot(target.component, target.index).derived.set(true);
+        let index = self.derivations.len();
+        self.derivations.push(Box::new(DerivedState {
+            source,
+            target,
+            select,
+        }));
+        self.slot(source.component, source.index)
+            .dependents
+            .borrow_mut()
+            .push(index);
+        target
+    }
+    fn notify_binding(&self, source: Binding) {
+        let mut pending = VecDeque::from([source]);
+        while let Some((_, component, index)) = pending.pop_front() {
+            let slot = self.slot(component, index);
+            self.dirty
+                .borrow_mut()
+                .extend(slot.readers.borrow().iter().copied());
+            for &derivation in slot.dependents.borrow().iter() {
+                if self.derivations[derivation].update(self) {
+                    pending.push_back(self.derivations[derivation].target());
+                }
+            }
+        }
+    }
+    pub(super) fn refresh_derivations(&self) {
+        for derivation in &self.derivations {
+            derivation.update(self);
         }
     }
     /// Root arguments are explicit captures, not reactive subscriptions.
@@ -1115,7 +1305,7 @@ impl Regions {
     fn build(&mut self, id: RegionId, cx: &mut UiContext<'_>, partial: bool) {
         // Properties cannot declare children or enqueue UI events. Avoid the
         // per-declaration command buffer and child reconciliation entirely.
-        if self.regions[id].render.property() {
+        if self.regions[id].render.property().is_some() {
             let guard = ReadGuard(&self.building, self.building.replace(true));
             self.regions[id].render.run(self, cx);
             drop(guard);
@@ -1146,7 +1336,7 @@ impl Regions {
         let mut visit = Vec::new();
         for child in children {
             self.check(&child.spec, self.regions[id].component);
-            assert!(!next.contains_key(&child.key), "duplicate watch key");
+            assert!(!next.contains_key(&child.key), "duplicate region key");
             let child_id = if let Some(child_id) = old.remove(&child.key) {
                 let mut deps = if child.key.component {
                     vec![]
@@ -1200,7 +1390,7 @@ impl Regions {
                     child.key.component,
                 )
             };
-            if !self.regions[child_id].render.property() {
+            if self.regions[child_id].render.property().is_none() {
                 if let Some(previous) = self.regions[child_id].context {
                     self.bindings.remove(&previous.parent);
                 }
@@ -1296,10 +1486,14 @@ impl Regions {
                 if *count > 8 {
                     return Some(Err(FrameError::DidNotSettle));
                 }
-                let result = if self.regions[id].render.property() {
-                    engine.experiment_redeclare_properties(context, |cx| self.build(id, cx, true))
-                } else {
-                    engine.experiment_redeclare(context, |cx| self.build(id, cx, true))
+                let result = match self.regions[id].render.property() {
+                    Some(properties::PropertyKind::Text) => engine
+                        .experiment_redeclare_properties(context, |cx| self.build(id, cx, true)),
+                    Some(properties::PropertyKind::Button) => engine
+                        .experiment_redeclare_button_properties(context, |cx| {
+                            self.build(id, cx, true)
+                        }),
+                    None => engine.experiment_redeclare(context, |cx| self.build(id, cx, true)),
                 };
                 match result {
                     Ok(stats) => {
@@ -1343,7 +1537,7 @@ impl Regions {
             .collect()
     }
 }
-impl View for Regions {
+impl HostView for Regions {
     fn theme(&self) -> plico::Theme {
         self.theme
             .map_or_else(plico::Theme::default, |state| *self.access(state).read())

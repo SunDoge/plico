@@ -1,11 +1,11 @@
 use plico::{Align, Justify, UiContext};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 struct Flex {
     align: Align,
     wrap: bool,
 }
-impl View for Flex {
+impl HostView for Flex {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         let _ = ui
             .row()
@@ -94,7 +94,7 @@ fn cross_axis_changes_invalidate_geometry_and_settle() {
     assert_eq!(s.adapter.stats.sync_visits, 0);
 }
 struct Wrap(bool);
-impl View for Wrap {
+impl HostView for Wrap {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         let _ = ui.row().width(180.).gap(10).wrap(self.0).children(|ui| {
             for i in 0..3usize {

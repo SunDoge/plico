@@ -1,5 +1,5 @@
 use plico::{Motion, SvgAsset, UiContext, VirtualClock, component};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 use std::{sync::Arc, time::Duration};
 static ICON: SvgAsset = SvgAsset::new(
@@ -11,7 +11,7 @@ struct Icons {
     invalid: bool,
     wide: bool,
 }
-impl View for Icons {
+impl HostView for Icons {
     #[component]
     fn show(&mut self, ui: &mut UiContext) {
         if self.visible {

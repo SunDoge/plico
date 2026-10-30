@@ -2,7 +2,7 @@
 //!
 //! Commands can be replayed from JSON or sent directly from Rust. No window,
 //! GPU, OS focus, pixel coordinates or sleeps are needed.
-use crate::{Source, View};
+use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
@@ -66,7 +66,7 @@ pub enum Error {
     Clock,
 }
 
-fn find_target<V: View>(
+fn find_target<V: HostView>(
     source: &Source<V>,
     role: &str,
     label: &str,
@@ -95,7 +95,7 @@ fn find_target<V: View>(
 
 /// Apply a shared command to an existing source, including the development host.
 /// The caller builds the resulting frame and owns transport/serialization.
-pub fn dispatch<V: View>(
+pub fn dispatch<V: HostView>(
     source: &mut Source<V>,
     text: &mut TextContext,
     command: &Command,
@@ -162,13 +162,13 @@ pub fn dispatch<V: View>(
 
 /// A headless application with an explicitly advanced clock. Layout and input
 /// use the real runtime; this does not simulate an OS window or GPU swapchain.
-pub struct Driver<V: View> {
+pub struct Driver<V: HostView> {
     pub source: Source<V>,
     text: TextContext,
     clock: VirtualClock,
     size: (u32, u32),
 }
-impl<V: View> Driver<V> {
+impl<V: HostView> Driver<V> {
     pub fn new(view: V, width: u32, height: u32) -> Result<Self, Error> {
         if width == 0 || height == 0 {
             return Err(Error::Viewport);

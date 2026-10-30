@@ -1,7 +1,7 @@
 //! Actual settings UI, semantic input and virtual time; tracked pixels must
 //! match full raster redraws, apart from bounded one-step AA rounding.
 //! Set PLICO_DAMAGE_STRICT=1 for exact equality. Readback is outside timings.
-use backend_settings::Settings;
+use backend_settings::ImmediateSettings;
 use plico::VirtualClock;
 use plico_renderer::{DamageRegion, FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use plico_runtime::{
@@ -31,7 +31,7 @@ struct Stats {
 }
 fn main() {
     let clock = VirtualClock::default();
-    let mut source = Source::with_clock(Settings::default(), clock.clone());
+    let mut source = Source::with_clock(ImmediateSettings::default(), clock.clone());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     let (mut tracked, mut expanded_tracked, mut full) = (
@@ -68,7 +68,7 @@ fn main() {
                 assert!(source.handle_semantic_action(SemanticAction::Click { target }));
             }
             90 => {
-                source.view.set_dark(true);
+                source.view.dark = true;
                 source.request_rebuild();
             }
             120 => {

@@ -11,7 +11,7 @@
 //! ```ignore
 //! enum Page { Home, Settings }
 //! struct App { router: Router<Page> }
-//! impl DeclareView for App {
+//! impl View for App {
 //!     fn show(&mut self, cx: &mut UiContext) {
 //!         if self.router.show(Page::Home) { home(cx); }
 //!         if self.router.show(Page::Settings) { settings(cx); }

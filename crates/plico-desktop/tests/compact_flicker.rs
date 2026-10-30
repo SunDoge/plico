@@ -2,7 +2,7 @@
 //! rendered scenes must never present an intermediate state (sizes from the
 //! old metrics with paint from the new, or vice versa).
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,7 +10,7 @@ use std::time::Duration;
 struct App {
     compact: bool,
 }
-impl View for App {
+impl HostView for App {
     fn theme(&self) -> plico::Theme {
         let mut theme = plico::Theme::light();
         if self.compact {

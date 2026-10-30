@@ -1,5 +1,5 @@
 use plico::{UiContext, prelude::*};
-use plico_desktop::{ServiceView, Source, View};
+use plico_desktop::{HostView, ServiceView, Source};
 use plico_dev::services::{HostService, ServiceApp, Services, Wake};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use serde::{Deserialize, Serialize};
@@ -145,7 +145,7 @@ fn async_commands_preserve_order_without_resettling_unchanged_snapshot() {
 }
 #[derive(Default)]
 struct Counter(usize);
-impl View for Counter {
+impl HostView for Counter {
     fn show(&mut self, cx: &mut UiContext) {
         if button(cx).text("Increment").clicked() {
             self.0 += 1;

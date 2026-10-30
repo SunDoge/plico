@@ -82,8 +82,8 @@ impl NativeParagraph for SkParagraph {
     }
 }
 impl SkParagraph {
-    pub(crate) fn paint(&self, canvas: &skia_safe::Canvas) {
-        self.paragraph.paint(canvas, (0., 0.));
+    pub(crate) fn paint(&self, canvas: &skia_safe::Canvas, origin: (f32, f32)) {
+        self.paragraph.paint(canvas, origin);
     }
     pub(crate) fn ink_bounds(&self) -> kurbo::Rect {
         self.ink

@@ -206,6 +206,20 @@ impl Default for Scene {
 }
 
 impl Scene {
+    /// Whether shaders, filters, or non-default blends require conservative redraw.
+    /// Retained fragments are inspected recursively; command equality alone does
+    /// not prove that these effects are independent of external pixels or time.
+    pub fn has_nonlocal_effects(&self) -> bool {
+        self.commands.iter().any(|command| match command {
+            PaintCommand::Fragment { scene, .. } => scene.has_nonlocal_effects(),
+            PaintCommand::Shader { .. } => true,
+            PaintCommand::PushLayer { filter, blend, .. } => {
+                filter.is_some() || *blend != BlendMode::default()
+            }
+            _ => false,
+        })
+    }
+
     /// Create an empty scene fragment.
     pub fn new() -> Self {
         Self::default()

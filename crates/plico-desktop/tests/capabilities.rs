@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
     TextContext, UiEvent,
@@ -11,7 +11,7 @@ struct Demo {
     clicks: usize,
     checked: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).children(|cx| {
@@ -80,7 +80,7 @@ fn programmatic_dialog_focus_does_not_require_a_tab_stop() {
     struct EmptyDialog {
         state: ModalState,
     }
-    impl View for EmptyDialog {
+    impl HostView for EmptyDialog {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             modal(cx, &mut self.state).title("Empty").children(|cx| {

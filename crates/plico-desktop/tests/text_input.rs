@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, ImeEvent, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction,
     SemanticRole, TextContext, UiEvent, WidgetImePurpose,
@@ -10,7 +10,7 @@ struct Form {
     secret: Option<TextBuffer>,
     submitted: bool,
 }
-impl View for Form {
+impl HostView for Form {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         let secret = self.secret.get_or_insert_with(TextBuffer::secret);

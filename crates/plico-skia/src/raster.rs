@@ -478,10 +478,9 @@ impl SkiaSurface {
         self.surface.canvas().restore_to_count(1);
         if let DamageRegion::Rect(r) = damage {
             self.surface.canvas().save();
-            self.surface.canvas().clip_rect(
-                skia_safe::Rect::new(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32),
+            self.surface.canvas().clip_irect(
+                skia_safe::IRect::new(r.x0 as i32, r.y0 as i32, r.x1 as i32, r.y1 as i32),
                 None,
-                false,
             );
         }
         self.surface.canvas().clear(color(background));
@@ -623,7 +622,7 @@ impl SkiaSurface {
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         #[cfg(feature = "profiling")]
         let mut work = crate::diagnostics::ReplayWork::default();
-        let mut depth = 0usize;
+        let mut restore_counts = Vec::new();
         let mut skipped_scope = 0usize;
         for (index, command) in scene.commands.iter().enumerate() {
             #[cfg(feature = "profiling")]
@@ -674,10 +673,15 @@ impl SkiaSurface {
                 PaintCommand::Paragraph { request, transform } => {
                     let paragraphs = self.resources.borrow().paragraphs.clone();
                     let paragraph = paragraphs.borrow_mut().layout(request.clone());
-                    canvas.save();
-                    canvas.concat(&matrix(*transform));
-                    paragraph.paint(canvas);
-                    canvas.restore();
+                    let [a, b, c, d, x, y] = transform.as_coeffs();
+                    if [a, b, c, d] == [1., 0., 0., 1.] {
+                        paragraph.paint(canvas, (x as f32, y as f32));
+                    } else {
+                        canvas.save();
+                        canvas.concat(&matrix(*transform));
+                        paragraph.paint(canvas, (0., 0.));
+                        canvas.restore();
+                    }
                 }
                 PaintCommand::Fill {
                     fill,
@@ -704,14 +708,15 @@ impl SkiaSurface {
                 PaintCommand::PushClip { transform, clip } => {
                     canvas.save();
                     canvas.clip_path(&path(clip).make_transform(&matrix(*transform)), None, true);
-                    depth += 1;
+                    restore_counts.push(1u8);
                 }
                 PaintCommand::PopLayer => {
-                    if depth == 0 {
+                    let Some(restores) = restore_counts.pop() else {
                         return Err(Error::ClipStack);
+                    };
+                    for _ in 0..restores {
+                        canvas.restore();
                     }
-                    canvas.restore();
-                    depth -= 1;
                 }
                 PaintCommand::GlyphRun {
                     font,
@@ -778,15 +783,28 @@ impl SkiaSurface {
                     clip,
                     filter,
                 } => {
-                    if filter.is_some() {
-                        return unsupported("layer filter");
-                    }
                     if *blend != peniko::BlendMode::default() {
                         return unsupported("layer blend mode");
                     }
                     let mut layer_paint = Paint::default();
                     layer_paint.set_alpha_f(*alpha);
+                    let image_filter = filter
+                        .as_deref()
+                        .map(|filter| layer_image_filter(filter, *transform))
+                        .transpose()?
+                        .flatten();
+                    let has_filter = image_filter.is_some();
+                    if let Some(filter) = image_filter {
+                        layer_paint.set_image_filter(filter);
+                    }
                     let clip = path(clip).make_transform(&matrix(*transform));
+                    if has_filter {
+                        // A paint image filter runs when the layer restores, after
+                        // clips installed inside it are gone. Keep an outer scope
+                        // so blurred output cannot escape the requested clip.
+                        canvas.save();
+                        canvas.clip_path(&clip, None, true);
+                    }
                     // Bounds are an allocation hint; preserve the original AA
                     // clip and group opacity instead of clipping twice.
                     canvas.save_layer(
@@ -794,8 +812,10 @@ impl SkiaSurface {
                             .bounds(clip.bounds())
                             .paint(&layer_paint),
                     );
-                    canvas.clip_path(&clip, None, true);
-                    depth += 1;
+                    if !has_filter {
+                        canvas.clip_path(&clip, None, true);
+                    }
+                    restore_counts.push(if has_filter { 2 } else { 1 });
                 }
                 PaintCommand::Stroke {
                     style,
@@ -909,7 +929,7 @@ impl SkiaSurface {
                 PaintCommand::Shader { .. } => return unsupported("Shader"),
             }
         }
-        if depth != 0 {
+        if !restore_counts.is_empty() {
             return Err(Error::ClipStack);
         }
         #[cfg(feature = "profiling")]
@@ -1072,6 +1092,44 @@ fn paint(
     Ok(paint)
 }
 
+fn layer_image_filter(
+    filter: &vello_common::filter_effects::Filter,
+    transform: Affine,
+) -> Result<Option<skia_safe::ImageFilter>, Error> {
+    use vello_common::filter_effects::{EdgeMode, FilterPrimitive};
+
+    if filter.graph.output.0 != 0 || filter.graph.primitives.len() != 1 {
+        return unsupported("layer filter graph");
+    }
+    let FilterPrimitive::GaussianBlur {
+        std_deviation,
+        edge_mode,
+    } = filter.graph.primitives[0]
+    else {
+        return unsupported("layer filter primitive");
+    };
+    if !std_deviation.is_finite() || std_deviation < 0. {
+        return unsupported("layer blur sigma");
+    }
+    if std_deviation == 0. {
+        return Ok(None);
+    }
+    let tile_mode = match edge_mode {
+        EdgeMode::None => skia_safe::TileMode::Decal,
+        EdgeMode::Duplicate => skia_safe::TileMode::Clamp,
+        EdgeMode::Wrap => skia_safe::TileMode::Repeat,
+        EdgeMode::Mirror => skia_safe::TileMode::Mirror,
+    };
+    let [a, b, c, d, ..] = transform.as_coeffs();
+    let sigma_x = std_deviation * a.hypot(b) as f32;
+    let sigma_y = std_deviation * c.hypot(d) as f32;
+    skia_safe::image_filters::blur((sigma_x, sigma_y), tile_mode, None, None)
+        .map(Some)
+        .ok_or(Error::Unsupported {
+            command: "layer blur filter",
+        })
+}
+
 fn matrix(transform: Affine) -> Matrix {
     let [a, b, c, d, e, f] = transform.as_coeffs();
     Matrix::new_all(
@@ -1112,6 +1170,62 @@ mod resource_tests {
     use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
     use plico_renderer::PaintScene;
     use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+    #[test]
+    fn translated_paragraphs_match_saved_matrix_replay_under_parent_transforms() {
+        use plico_renderer::{paragraph::ParagraphRequest, style::Paint};
+        let request = Arc::new(
+            ParagraphRequest::from_paint(
+                &Paint {
+                    text: Some("Settings S 世界".into()),
+                    font_size: 23.,
+                    text_color: peniko::Color::from_rgba8(30, 80, 150, 180),
+                    ..Default::default()
+                },
+                Some(220.),
+            )
+            .unwrap(),
+        );
+        let mut actual = SkiaSurface::new(320, 180).unwrap();
+        let mut oracle = SkiaSurface::new(320, 180).unwrap();
+        let paragraphs = oracle.resources.borrow().paragraphs.clone();
+        let paragraph = paragraphs.borrow_mut().layout(request.clone());
+        for parent in [
+            Affine::IDENTITY,
+            Affine::scale(1.25),
+            Affine::translate((14.5, 18.25)) * Affine::rotate(0.07),
+            Affine::new([1., 0.1, 0.15, 1., 4., 8.]),
+        ] {
+            for position in [(4., 5.), (4.25, 5.75), (-3.5, 0.125)] {
+                let transform = Affine::translate(position);
+                let mut inner = Scene::new();
+                inner.commands.push(PaintCommand::Paragraph {
+                    request: request.clone(),
+                    transform,
+                });
+                let mut scene = Scene::new();
+                scene.append_cached_scene(inner, parent);
+                actual.draw_scene(&scene, Color::WHITE).unwrap();
+                let canvas = oracle.surface.canvas();
+                canvas.clear(skia_safe::Color::WHITE);
+                canvas.save();
+                canvas.concat(&matrix(parent));
+                canvas.save();
+                canvas.concat(&matrix(transform));
+                paragraph.paint(canvas, (0., 0.));
+                canvas.restore();
+                canvas.restore();
+                // The manually replayed oracle deliberately uses the old path.
+                oracle.frame_valid = true;
+                let expected = oracle.read_pixels().unwrap();
+                let pixels = actual.read_pixels().unwrap();
+                assert!(
+                    pixels == expected,
+                    "parent={parent:?} position={position:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn font_resources_release_dead_sources_and_share_sizes() {
