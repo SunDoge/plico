@@ -4827,6 +4827,7 @@ version = "0.1.9"
 dependencies = [
  "ash",
  "ash-window",
+ "harfrust",
  "image",
  "kurbo 0.13.1",
  "lru",
@@ -4841,6 +4842,9 @@ dependencies = [
  "snafu",
  "taffy",
  "tracing",
+ "unicode-segmentation",
+ "unicode-vo",
+ "usage-rs",
  "vello_common 0.3.0",
  "winit",
 ]

@@ -31,6 +31,10 @@ raw-window-handle = { version = "0.6", optional = true }
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
+harfrust = "0.12"
+unicode-vo = "0.1"
+unicode-segmentation = "1.12"
+usage-rs.workspace = true
 plico.workspace = true
 plico-runtime = { path = "../plico-runtime" }
 taffy.workspace = true
@@ -55,4 +59,8 @@ required-features = ["vulkan"]
 
 [[example]]
 name = "paragraph_replay"
+required-features = ["raster"]
+
+[[example]]
+name = "vertical_text"
 required-features = ["raster"]

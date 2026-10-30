@@ -73,6 +73,7 @@
 阅读顺序建议：vision → architecture → runtime → status。实现变更时同步更新对应文档，尤其要保留“已实现 / 原实验已验证 / 尚在设计”的区别。
 
 - [通用声明期裁剪](visibility.md)：可见矩形、原图坐标变换、固定行列范围与卸载边界。
+- [漫画竖排嵌字实验](vertical-text-experiment.md)：HarfRust 竖排整形、固定字数换列与 Skia 离屏合成。
 - [固定行高虚拟列表](virtual-list.md)：可见窗口、业务身份和热重载滚动反馈。
 
 - [性能与结构同步](performance.md)：CPU/分配探针、局部同步与服务快照版本。
