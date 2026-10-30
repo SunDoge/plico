@@ -385,9 +385,51 @@ impl SceneDamageTracker {
         if !clips.is_empty() {
             self.regions.add(DamageRegion::Full);
         }
+        self.expand_to_whole_command_bounds(&scene.commands);
         self.previous = Some(scene.clone());
         self.size = Some((width, height));
         self.regions.bounding_region().for_surface(width, height)
+    }
+
+    /// Do not let the outer damage clip cut through text or stroked AA geometry.
+    /// Plain fills keep their original damage; unknown AA bounds may reach Full.
+    fn expand_to_whole_command_bounds(&mut self, commands: &[crate::PaintCommand]) {
+        use crate::PaintCommand;
+        let mut index = 0;
+        while index < self.regions.rects.len() {
+            let damage = self.regions.rects[index];
+            let mut expanded = false;
+            for (command, bounds) in commands.iter().zip(&self.bounds) {
+                if !matches!(
+                    command,
+                    PaintCommand::Paragraph { .. }
+                        | PaintCommand::Stroke { .. }
+                        | PaintCommand::GlyphRun { .. }
+                ) {
+                    continue;
+                }
+                match *bounds {
+                    DamageRegion::Full => {
+                        self.regions.add(DamageRegion::Full);
+                        return;
+                    }
+                    DamageRegion::Rect(bounds)
+                        if damage.intersect(bounds).area() > 0.
+                            && damage.union(bounds) != damage =>
+                    {
+                        self.regions.add(DamageRegion::Rect(bounds));
+                        expanded = true;
+                        break;
+                    }
+                    DamageRegion::Empty | DamageRegion::Rect(_) => {}
+                }
+            }
+            if expanded {
+                index = 0;
+            } else {
+                index += 1;
+            }
+        }
     }
 }
 fn finite(r: Rect) -> bool {
@@ -481,6 +523,56 @@ mod tracker_tests {
             DamageRegion::Full
         );
     }
+    #[test]
+    fn aa_commands_expand_partial_intersections_but_plain_fills_do_not() {
+        let paragraph = PaintCommand::Paragraph {
+            request: std::sync::Arc::new(
+                crate::paragraph::ParagraphRequest::from_paint(
+                    &crate::style::Paint {
+                        text: Some("AA text".into()),
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap(),
+            ),
+            transform: Affine::IDENTITY,
+        };
+        let mut stroked = Scene::new();
+        stroked.stroke(
+            &kurbo::Stroke::new(2.),
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(0., 0., 60., 60.),
+        );
+        let stroke = stroked.commands[0].clone();
+        for command in [paragraph, stroke] {
+            let mut tracker = SceneDamageTracker::default();
+            tracker.bounds = vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))];
+            tracker
+                .regions
+                .add(DamageRegion::Rect(Rect::new(10., 10., 20., 20.)));
+            tracker.expand_to_whole_command_bounds(&[command]);
+            assert_eq!(
+                tracker.regions.bounding_region(),
+                DamageRegion::Rect(Rect::new(0., 0., 60., 60.))
+            );
+        }
+
+        let fill = scene(0.).commands[0].clone();
+        let mut tracker = SceneDamageTracker::default();
+        tracker.bounds = vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))];
+        tracker
+            .regions
+            .add(DamageRegion::Rect(Rect::new(10., 10., 20., 20.)));
+        tracker.expand_to_whole_command_bounds(&[fill]);
+        assert_eq!(
+            tracker.regions.bounding_region(),
+            DamageRegion::Rect(Rect::new(10., 10., 20., 20.))
+        );
+    }
+
     #[test]
     fn display_damage_is_not_the_acquired_buffers_damage() {
         let (a, b) = (scene(10.), scene(40.));

@@ -478,10 +478,9 @@ impl SkiaSurface {
         self.surface.canvas().restore_to_count(1);
         if let DamageRegion::Rect(r) = damage {
             self.surface.canvas().save();
-            self.surface.canvas().clip_rect(
-                skia_safe::Rect::new(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32),
+            self.surface.canvas().clip_irect(
+                skia_safe::IRect::new(r.x0 as i32, r.y0 as i32, r.x1 as i32, r.y1 as i32),
                 None,
-                false,
             );
         }
         self.surface.canvas().clear(color(background));

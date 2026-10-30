@@ -170,6 +170,8 @@ damage 计算不依赖 Adapter 的节点 dirty 队列。
 这解决的是保留 surface 的局部绘制；系统 incremental-present 提示另行按需开启。
 
 - `PLICO_SKIA_DAMAGE=1`：显式开启实验自动 damage；默认关闭。`0` 供全量对照。
+- `PLICO_SKIA_PRESENT_SKIP=0`：关闭默认的完全相同 Scene 呈现跳过，用于恢复每次
+  acquire/submit/present 的对照；`1`/`true` 可显式开启。局部 damage 与此开关独立。
 - `PLICO_SKIA_DAMAGE_VALIDATE=1`：昂贵的窗口诊断，在同一张 GPU image 上
   比较局部绘制与全量绘制像素；不一致报错，默认关闭。
 - `plico::perf` trace 的 `damage_coverage` 是实际应用到目标 image 的区域比例，
@@ -288,24 +290,34 @@ resize/错误回退、复用共享 damage 协议，补 Vello glyph ink 的保守
 
 ### 实验默认值与已知差异
 
-Skia 窗口默认全量绘制。设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 damage；
+Skia 窗口默认跳过完全相同的已显示 Scene；设置 `PLICO_SKIA_PRESENT_SKIP=0`
+可强制每次呈现。局部绘制仍默认全量，设置 `PLICO_SKIA_DAMAGE=1` 才启用自动 damage；
 `draw_scene_tracked()` 仍是显式实验 API。Vello 的 capability probe 继续保留，
 没有删除或接管其正常窗口路径。
 
-真实 settings 的虚拟时钟主题动画在第 96 帧发现 4 个像素差异，每通道最多
-1（8-bit）。关闭 CPU culling、仅使用相同 outer clip 也能复现同样的 4 像素；
-将 clip 向外扩 4 像素后该帧一致。这将范围缩小到 clip 附近的栅格化/抗锯齿
-差异，尚未证明所有场景可由固定 padding 正确解决，因此保持 opt-in。
+2026-10-30 将外层裁剪从等价的整数浮点 `clipRect(..., false)` 改为显式设备
+`clipIRect` 后，最小严格回归仍有 2 个差异像素；固定外扩 glyph bounds 也没有消除
+差异。这说明整数 clip 和 guard pixel 本身不是 AA 修复。随后 tracker 对任何与
+damage 部分相交的 `Paragraph`、`GlyphRun`、`Stroke` 迭代扩张到完整命令 bounds，
+避免 outer clip 从这些命令的 AA 光栅化中间穿过；普通 Fill 不因相交而扩张。
 
-`cargo run -p backend-settings --features skia --example damage_probe` 使用真实
-设置页、语义点击和虚拟时钟跑 240 帧，覆盖侧栏、导航、主题、文字修改及静止。
-本机 raster 结果中 121 帧有 AA 舍入差异，最多 8 个像素、每通道 1/255；
-静止阶段未继续累积。该手动探针明确允许最多 16 个这样的像素，并报告实际数量；
-越界立即失败。除此之外，damage 区域外与上一帧必须逐字节相同，Empty 帧必须
-完全保留，均不使用容差。设置 `PLICO_DAMAGE_STRICT=1` 可恢复严格全帧逐像素
-比较，当前会在第 96 帧失败。独立透明图层最小复现保留为 ignored 诊断测试，
-常规 raster/GPU 回归仍使用精确相等。以上是该场景的验收范围，不代表所有
-栅格差异都可以忽略，也没有改变窗口 strict validation 的行为。
+`PLICO_DAMAGE_STRICT=1 cargo run --release -p backend-settings --features skia
+--example damage_probe` 使用 Immediate 设置页、语义点击和虚拟时钟跑 240 帧，
+覆盖侧栏、导航、主题、文字修改及静止。最终严格结果为 0 个差异像素，同时文字
+阶段仍有 1 帧 Partial、主题阶段有 6 帧 Partial，并非全部回退 Full。`settings_compare
+--tracked-raster` 的 typing/save/notifications/theme/advanced/route/reverse/
+details_motion 矩阵也全部为 0 个最终差异像素。
+
+正确性收益有明显成本。同机 release、200 次测量（20 次预热）的 Immediate typing
+平均 damage 覆盖为 27.05%，tracked raster 为 596.02µs，全量对照为 1536.88µs；
+save 分别为 0.399%、19.35µs、1535.73µs。`preferences_scale` 在 1/32/128 panels、
+稀疏/10%/100% typing 和 save 下也全部为 0 个最终差异像素；32 panels 单目标 typing
+的覆盖为 34.75%，tracked raster 为 11.48ms，全量 Immediate 对照为 26.49ms。
+这些是一次本机 CPU 测量，不是 GPU、功耗或所有场景的普遍加速结论。
+
+当前扩张不递归 Regions Fragment 内部，显式 `draw_scene_damaged` 也绕过 tracker；
+独立透明图层的最小 dirty-clip 复现仍保留为 ignored 诊断测试。因此该策略只改善
+tracked 顶层命令的已测场景，不能把 partial damage 变成无差别默认路径。
 
 
 ### 分阶段验收状态
