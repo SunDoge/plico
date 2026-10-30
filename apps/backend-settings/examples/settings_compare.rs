@@ -1,4 +1,4 @@
-//! Complete routed application CPU pipeline, without a window or GPU.
+//! Complete routed application CPU pipeline, with optional Skia CPU raster.
 //! Run in release mode; both implementations execute the same semantic events.
 #[cfg(feature = "profiling")]
 mod support;
@@ -25,6 +25,12 @@ struct Options {
     /// Include backend-neutral Scene encoding in measured frames.
     #[usage(long)]
     scene: bool,
+    /// Include Scene encoding and full Skia CPU rasterization (requires skia).
+    #[usage(long)]
+    raster: bool,
+    /// Track Scene damage and skip or clip Skia CPU rasterization (requires skia).
+    #[usage(long)]
+    tracked_raster: bool,
     /// Force full flattening while retaining Reactive replay.
     #[usage(long)]
     full_geometry: bool,
@@ -59,6 +65,12 @@ impl BenchView for Settings {
     fn reduce_motion(&mut self) {
         self.set_reduced_motion(true);
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Evidence {
+    semantic: u64,
+    pixels: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,7 +188,25 @@ fn fingerprint<V: View>(source: &Source<V>) -> u64 {
     hash.finish()
 }
 
-fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64 {
+#[cfg(feature = "skia")]
+fn tracked_pixel_delta(actual: &[u8], expected: &[u8]) -> (usize, u8) {
+    let differing = actual
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0)
+        .filter(|(a, b)| a != b)
+        .count();
+    let max_delta = actual
+        .iter()
+        .zip(expected)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    (differing, max_delta)
+}
+
+fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> Evidence {
     let clock = VirtualClock::default();
     let mut view = V::default();
     if scenario != Scenario::DetailsMotion {
@@ -190,6 +220,14 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
     source.set_reduced_motion(scenario != Scenario::DetailsMotion);
     let mut text = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
+    #[cfg(feature = "skia")]
+    let mut raster = (options.raster || options.tracked_raster)
+        .then(|| plico_skia::SkiaSurface::new(1100, 820).unwrap());
+    #[cfg(not(feature = "skia"))]
+    assert!(
+        !options.raster && !options.tracked_raster,
+        "--raster and --tracked-raster require --features skia"
+    );
     prepare(&mut source, &mut text);
     if let Some(page) = scenario.page() {
         click(&mut source, SemanticRole::Button, page);
@@ -239,6 +277,11 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         (0_usize, 0_usize, 0_usize, 0_usize, 0_usize);
     let (mut batches, mut retained) = (0_usize, 0_usize);
     let (mut scene_us, mut fragment_builds, mut fragment_reuses) = (0_u128, 0_usize, 0_usize);
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let mut raster_us = 0_u128;
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let (mut damage_coverage, mut damage_empty, mut damage_partial, mut damage_full) =
+        (0_f64, 0_usize, 0_usize, 0_usize);
     let (mut flatten_patches, mut scene_full) = (0_usize, 0_usize);
     let (mut semantic_builds, mut semantic_reuses) = (0_usize, 0_usize);
     let (mut hit_checks, mut hit_pruned) = (0_usize, 0_usize);
@@ -300,7 +343,7 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
             }
         }
         let event = start.elapsed().as_nanos();
-        if options.scene {
+        if options.scene || options.raster || options.tracked_raster {
             let timing = source
                 .render_retained_frame(&mut scene, &mut text, (1100, 820), 1.)
                 .unwrap();
@@ -310,6 +353,29 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
             black_box(&scene.commands);
         } else {
             prepare(&mut source, &mut text);
+        }
+        #[cfg(feature = "skia")]
+        if let Some(surface) = &mut raster {
+            let start = Instant::now();
+            let damage = if options.tracked_raster {
+                surface
+                    .draw_scene_tracked(&scene, source.base_color())
+                    .unwrap()
+            } else {
+                surface.draw_scene(&scene, source.base_color()).unwrap();
+                plico_renderer::DamageRegion::Full
+            };
+            if index >= warmup {
+                raster_us += start.elapsed().as_nanos();
+                if options.tracked_raster {
+                    damage_coverage += damage.coverage(1100, 820);
+                    match damage {
+                        plico_renderer::DamageRegion::Empty => damage_empty += 1,
+                        plico_renderer::DamageRegion::Rect(_) => damage_partial += 1,
+                        plico_renderer::DamageRegion::Full => damage_full += 1,
+                    }
+                }
+            }
         }
         if options.semantics {
             black_box(source.adapter.semantics_shared(&source.engine, 0));
@@ -346,9 +412,39 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
     }
     samples.sort_unstable();
     let n = iterations as f64;
-    let final_fingerprint = fingerprint(&source);
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let (mut tracked_pixel_differences, mut tracked_max_channel_delta) = (0_usize, 0_u8);
+    let evidence = Evidence {
+        semantic: fingerprint(&source),
+        pixels: {
+            #[cfg(feature = "skia")]
+            {
+                raster.as_mut().map(|surface| {
+                    let mut pixels = surface.read_pixels().unwrap();
+                    if options.tracked_raster {
+                        surface.draw_scene(&scene, source.base_color()).unwrap();
+                        let full = surface.read_pixels().unwrap();
+                        (tracked_pixel_differences, tracked_max_channel_delta) =
+                            tracked_pixel_delta(&pixels, &full);
+                        pixels = full;
+                    }
+                    let mut hash = std::collections::hash_map::DefaultHasher::new();
+                    pixels.hash(&mut hash);
+                    hash.finish()
+                })
+            }
+            #[cfg(not(feature = "skia"))]
+            {
+                None
+            }
+        },
+    };
+    let pixel_fingerprint = evidence
+        .pixels
+        .map(|hash| format!("{hash:016x}"))
+        .unwrap_or_default();
     println!(
-        "{mode},{},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{:.2},{},{:016x},{:.2},{:.1},{:.1},{:.1},{:.1},{:.2},{:.2},{:.2},{:.2}",
+        "{mode},{},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{:.2},{},{:016x},{:.2},{:.1},{:.1},{:.1},{:.1},{:.2},{:.2},{:.2},{:.2},{:.2},{:.5},{:.1},{:.1},{:.1},{tracked_pixel_differences},{tracked_max_channel_delta},{pixel_fingerprint}",
         scenario.name(),
         samples[iterations / 2],
         samples[(iterations * 95 / 100).min(iterations - 1)],
@@ -364,7 +460,7 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         batches as f64 / n,
         retained as f64 / n,
         source.experiment_live_counts().0,
-        final_fingerprint,
+        evidence.semantic,
         scene_us as f64 / n,
         fragment_builds as f64 / n,
         fragment_reuses as f64 / n,
@@ -374,6 +470,11 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         semantic_reuses as f64 / n,
         hit_checks as f64 / n,
         hit_pruned as f64 / n,
+        raster_us as f64 / n / 1000.,
+        damage_coverage / n,
+        damage_empty as f64 / n,
+        damage_partial as f64 / n,
+        damage_full as f64 / n,
     );
     #[cfg(feature = "profiling")]
     support::report(
@@ -381,7 +482,7 @@ fn bench<V: BenchView>(mode: &str, scenario: Scenario, options: &Options) -> u64
         phases,
         iterations,
     );
-    final_fingerprint
+    evidence
 }
 
 fn main() {
@@ -389,13 +490,18 @@ fn main() {
     support::install();
     let options = Options::parse();
     assert!(options.iterations > 0, "iterations must be positive");
+    assert!(
+        !(options.raster && options.tracked_raster),
+        "--raster and --tracked-raster are mutually exclusive"
+    );
     println!(
-        "mode,scenario,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_layout_us,mean_visited,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,mean_declaration_batches,mean_retained_samples,nodes,final_fingerprint,mean_scene_us,mean_fragment_builds,mean_fragment_reuses,mean_flatten_patches,mean_scene_full_rebuilds,mean_semantic_builds,mean_semantic_reuses,mean_hit_checks,mean_hit_pruned"
+        "mode,scenario,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_layout_us,mean_visited,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,mean_declaration_batches,mean_retained_samples,nodes,final_fingerprint,mean_scene_us,mean_fragment_builds,mean_fragment_reuses,mean_flatten_patches,mean_scene_full_rebuilds,mean_semantic_builds,mean_semantic_reuses,mean_hit_checks,mean_hit_pruned,mean_raster_us,mean_damage_coverage,empty_frame_fraction,partial_frame_fraction,full_frame_fraction,tracked_pixel_differences,tracked_max_channel_delta,pixel_fingerprint"
     );
     for name in options.scenarios.split(',') {
         let scenario = Scenario::parse(name);
         let immediate = bench::<ImmediateSettings>("immediate", scenario, &options);
         let reactive = bench::<Settings>("reactive", scenario, &options);
+        assert_eq!(immediate.pixels, reactive.pixels, "pixel mismatch");
         if scenario != Scenario::DetailsMotion {
             assert_eq!(
                 immediate,
