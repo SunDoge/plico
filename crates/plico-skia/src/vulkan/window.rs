@@ -26,7 +26,7 @@ impl PresentationHistory {
     fn record(&mut self, scene: &Scene, background: Color) {
         // External/time-dependent effects are never proven unchanged solely
         // by command equality, even if their retained handles are identical.
-        self.previous = (!scene.commands.iter().any(|c| {
+        let stable = !scene.commands.iter().any(|c| {
             matches!(
                 c,
                 plico_renderer::PaintCommand::Shader { .. }
@@ -35,8 +35,17 @@ impl PresentationHistory {
                         ..
                     }
             )
-        }))
-        .then(|| (scene.clone(), background));
+        });
+        if !stable {
+            self.previous = None;
+        } else if let Some((previous, color)) = &mut self.previous {
+            // Keep the command allocation across animated presents. Clean-frame
+            // detection must not add a fresh Scene allocation to every frame.
+            previous.clone_from(scene);
+            *color = background;
+        } else {
+            self.previous = Some((scene.clone(), background));
+        }
     }
 }
 
@@ -124,7 +133,7 @@ impl SkiaWindow {
             multi_rect_damage: false,
             last_damage_coverage: 1.,
             last_damage_rect_count: 1,
-            present_skip: false,
+            present_skip: true,
             last_present_skipped: false,
             presentation: Default::default(),
         };
@@ -147,9 +156,9 @@ impl SkiaWindow {
     pub fn trim_gpu_cache(&mut self) {
         super::trim_gpu_cache(&mut self.context);
     }
-    /// Opt into skipping acquisition/submission when the last successfully
+    /// Select skipping acquisition/submission when the last successfully
     /// displayed scene is identical. Resize/recreation and explicit invalidation
-    /// always require a real present. Disabled by default for A/B testing.
+    /// always require a real present. Enabled by default; disable for A/B testing.
     pub fn set_present_skip(&mut self, enabled: bool) {
         if self.present_skip != enabled {
             self.presentation.clear();
