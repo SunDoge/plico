@@ -21,6 +21,7 @@
 | [egui 原生控件后端](egui.md) | Plico 声明、Taffy 外部布局与 egui 文字/控件，替代 Scene 回放实验 |
 | [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
+| [NSH 最小后端实验](nsh.md) | NSH element 投影、自带 Taffy/原生文字与 Entity 事件回传 |
 | [同步 local state 与宿主任务](local-state-and-tasks.md) | 组件局部状态、按需重建、宿主任务取消与迟到结果隔离 |
 | [ID 区域重放机制](regions.md) | 保留但默认不使用的显式区域、原生控件和可选 Source 驱动 |
 | [完整设置页对照](regions-settings.md) | 同步/区域 API、状态归属与无 GPU CPU 实测 |
