@@ -8,7 +8,7 @@ use plico_renderer::{
     FrameSource, Point, PointerEvent, PointerPhase, PointerProperties, SemanticAction,
     SemanticRole, TextContext, UiEvent,
 };
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::{
     hash::{Hash, Hasher},
     hint::black_box,
@@ -53,7 +53,7 @@ struct Options {
     scenarios: String,
 }
 
-trait BenchView: View + Default {
+trait BenchView: HostView + Default {
     fn reduce_motion(&mut self);
 }
 impl BenchView for ImmediateSettings {
@@ -138,11 +138,11 @@ impl Scenario {
     }
 }
 
-fn prepare<V: View>(source: &mut Source<V>, text: &mut TextContext) {
+fn prepare<V: HostView>(source: &mut Source<V>, text: &mut TextContext) {
     source.experiment_prepare_without_scene(text, 1100, 820);
     assert!(source.last_error.is_none(), "{:?}", source.last_error);
 }
-fn target<V: View>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
+fn target<V: HostView>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
     source
         .adapter
         .semantics(&source.engine, 0)
@@ -150,11 +150,11 @@ fn target<V: View>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
         .unwrap_or_else(|| panic!("missing {role:?} {label:?}"))
         .id
 }
-fn click<V: View>(source: &mut Source<V>, role: SemanticRole, label: &str) {
+fn click<V: HostView>(source: &mut Source<V>, role: SemanticRole, label: &str) {
     let id = target(source, role, label);
     assert!(source.handle_semantic_action(SemanticAction::Click { target: id }));
 }
-fn fingerprint<V: View>(source: &Source<V>) -> u64 {
+fn fingerprint<V: HostView>(source: &Source<V>) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     for node in source
         .adapter

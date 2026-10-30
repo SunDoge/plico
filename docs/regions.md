@@ -237,7 +237,7 @@ cargo check -p backend-settings --features egui,fltk --all-targets
 
 [backend-settings Preferences 对照](regions-settings.md) 另外保留隔离的同步页、同控件区域版与无 GPU CPU 基准。当前小页面多数操作仍是同步版更快；边界节点的布局成本抵消了更小的声明范围，不能只看执行区域数来判断性能。默认采用 Reactive 是架构选择，不表示这些测量已出现性能反转。
 
-静态组件可使用 `cx.component(deps, callback)` 自动生成调用点身份，动态列表继续用 component_keyed。根状态可用 `app.theme_state(state_of_theme)` 注入全局 Theme；RegionApp 已为 View/App 转发，不需要应用手写转发。主题事件同帧回退完整声明来刷新继承样式。
+静态组件可使用 `cx.component(deps, callback)` 自动生成调用点身份，动态列表继续用 component_keyed。根状态可用 `app.theme_state(state_of_theme)` 注入全局 Theme；RegionApp 已为 HostView/App 转发，不需要应用手写转发。主题事件同帧回退完整声明来刷新继承样式。
 
 ## 局部重放的差分验收
 

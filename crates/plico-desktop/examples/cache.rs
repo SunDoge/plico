@@ -1,6 +1,6 @@
 //! Compare immutable scene copies and owned/retained frame paths without a window.
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::{
     hint::black_box,
@@ -11,7 +11,7 @@ struct Demo {
     active: bool,
     layout: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).children(|cx| {

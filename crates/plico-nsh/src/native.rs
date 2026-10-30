@@ -6,7 +6,7 @@ use nsh_core::element::{
     AnyElement, AnyValue, Children, Component, IntoElement, NoEvent, PropError, PropSpec, Props,
     Root, Scope, Slot, TsTypes, dynamic, signal, stored, text,
 };
-use plico::{DeclareView, Engine, Entity};
+use plico::{Engine, Entity, View};
 use std::rc::Rc;
 
 #[cfg(target_os = "linux")]
@@ -16,18 +16,14 @@ pub use nsh_platform_macos as platform;
 #[cfg(target_os = "windows")]
 pub use nsh_platform_windows as platform;
 
-/// Make an NSH root for an ordinary Plico `DeclareView` factory.
-pub fn root<V: DeclareView + 'static>(make: fn() -> V) -> Root {
+/// Make an NSH root for an ordinary Plico `View` factory.
+pub fn root<V: View + 'static>(make: fn() -> V) -> Root {
     root_with_viewport(make, 720., 820.)
 }
 
 /// Make an NSH root and initialize Plico's logical viewport. This viewport is
 /// declaration context only; NSH still owns actual window layout.
-pub fn root_with_viewport<V: DeclareView + 'static>(
-    make: fn() -> V,
-    width: f32,
-    height: f32,
-) -> Root {
+pub fn root_with_viewport<V: View + 'static>(make: fn() -> V, width: f32, height: f32) -> Root {
     Root::new::<PlicoComponent<V>>(move || Factory {
         make: Some(make),
         viewport: [width, height],
@@ -86,7 +82,7 @@ impl<V: 'static> Props for Factory<V> {
 
 struct PlicoComponent<V>(std::marker::PhantomData<fn() -> V>);
 
-impl<V: DeclareView + 'static> Component for PlicoComponent<V> {
+impl<V: View + 'static> Component for PlicoComponent<V> {
     type Props = Factory<V>;
     type Event = NoEvent;
 
@@ -113,7 +109,7 @@ struct Host<V> {
     viewport_error: Option<plico::FrameError>,
 }
 
-impl<V: DeclareView> Host<V> {
+impl<V: View> Host<V> {
     fn new(make: fn() -> V, viewport: [f32; 2]) -> Self {
         let mut engine = Engine::default();
         let viewport_error = engine.set_viewport(viewport[0], viewport[1]).err();
@@ -157,7 +153,7 @@ mod tests {
         disabled: bool,
     }
 
-    impl DeclareView for Toggle {
+    impl View for Toggle {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }

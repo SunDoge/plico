@@ -1,4 +1,4 @@
-//! Host-agnostic declaration runtime: Engine adapter, Source, View and motion.
+//! Host-agnostic declaration runtime: Engine adapter, Source, HostView and motion.
 //! Window and GPU backends live in plico-desktop / plico-shell; no window deps here.
 use peniko::Color;
 use plico::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
@@ -2542,6 +2542,23 @@ fn make_paint(
     p
 }
 
+/// Adapt an ordinary application view to the native host contract.
+///
+/// Most applications use this implicitly through their backend's `run_view`
+/// entry point. Implement [`HostView`] directly only when the application owns
+/// host capabilities such as services, hot reload, Regions, or native wakeups.
+pub struct NativeView<V>(pub V);
+
+impl<V: plico::View> HostView for NativeView<V> {
+    fn show(&mut self, ui: &mut plico::UiContext<'_>) {
+        plico::View::show(&mut self.0, ui);
+    }
+
+    fn theme(&self) -> Theme {
+        plico::View::theme(&self.0)
+    }
+}
+
 /// A statically linked application using the same App implementation as hot reload.
 pub struct NativeApp<A>(pub A);
 
@@ -2550,10 +2567,10 @@ pub use plico as __ui_core;
 #[doc(hidden)]
 pub use plico_dev as __app_protocol;
 
-/// Shared forwarding for both the wrapper and application's direct View implementation.
+/// Shared forwarding for both the wrapper and application's direct HostView implementation.
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __plico_app_view_methods {
+macro_rules! __plico_app_host_view_methods {
     ($this:ident, $app:expr, $shared:expr) => {
         fn set_frame_time(&mut $this, time: $crate::__ui_core::FrameTime) {
             $crate::__app_protocol::App::set_frame_time($app, time);
@@ -2569,22 +2586,28 @@ macro_rules! __plico_app_view_methods {
         }
     };
 }
-/// Implement View using the same forwarding as NativeApp.
+/// Implement HostView using the same forwarding as NativeApp.
 #[macro_export]
-macro_rules! impl_view_for_app {
+macro_rules! impl_host_view_for_app {
     ($app:ty) => {
-        impl $crate::View for $app {
-            $crate::__plico_app_view_methods!(self, self, self);
+        impl $crate::HostView for $app {
+            $crate::__plico_app_host_view_methods!(self, self, self);
         }
     };
 }
-impl<A: plico_dev::App> View for NativeApp<A> {
-    crate::__plico_app_view_methods!(self, &mut self.0, &self.0);
+impl<A: plico_dev::App> HostView for NativeApp<A> {
+    crate::__plico_app_host_view_methods!(self, &mut self.0, &self.0);
 }
 
-/// A view owns application data; the adapter never retains its closures.
+#[doc(hidden)]
+pub use impl_host_view_for_app as impl_view_for_app;
+
+/// Advanced host contract for native windows and retained frame sources.
+///
+/// Ordinary applications implement `plico::View` or `plico_dev::App` instead.
+/// `HostView` adds host actions, wakeups, reload, Regions, and cache metadata.
 /// Consuming an event automatically requests a settling declaration.
-pub trait View {
+pub trait HostView {
     #[doc(hidden)]
     fn replay_regions(
         &mut self,
@@ -2621,14 +2644,17 @@ pub trait View {
         Theme::default()
     }
 }
-/// Local adapter: a `View` driven by the engine's settle loop.
-struct ViewChild<'a, V: View>(&'a mut V);
-impl<V: View> plico::DeclareView for ViewChild<'_, V> {
+#[doc(hidden)]
+pub use HostView as View;
+
+/// Local adapter: a `HostView` driven by the engine's settle loop.
+struct HostViewChild<'a, V: HostView>(&'a mut V);
+impl<V: HostView> plico::View for HostViewChild<'_, V> {
     fn theme(&self) -> plico::Theme {
-        View::theme(self.0)
+        HostView::theme(self.0)
     }
     fn show(&mut self, ui: &mut plico::UiContext<'_>) {
-        View::show(self.0, ui)
+        HostView::show(self.0, ui)
     }
 }
 #[derive(Debug, snafu::Snafu)]
@@ -2663,7 +2689,7 @@ struct WakeBatch {
     notifications: AtomicUsize,
     scheduled: AtomicUsize,
 }
-pub struct Source<V: View> {
+pub struct Source<V: HostView> {
     fonts: Vec<FontAsset>,
     pub last_error: Option<SourceError>,
     pub engine: Engine,
@@ -2699,7 +2725,7 @@ pub struct Source<V: View> {
     /// try_declare may be called explicitly before a native frame commits it.
     declarations_pending: bool,
 }
-impl<V: View> Source<V> {
+impl<V: HostView> Source<V> {
     pub fn new(view: V) -> Self {
         Self::with_clock(view, plico::SystemClock::default())
     }
@@ -3251,7 +3277,7 @@ impl<V: View> Source<V> {
         let _guard = span.enter();
         let passes = self
             .engine
-            .declare_until_settled(&mut ViewChild(&mut self.view))
+            .declare_until_settled(&mut HostViewChild(&mut self.view))
             .map_err(|source| {
                 self.pending = true;
                 self.declared_changes.insert(plico::Changes::STRUCTURE);
@@ -3279,7 +3305,7 @@ impl<V: View> Source<V> {
         Ok(())
     }
 }
-impl<V: View> FrameSource for Source<V> {
+impl<V: HostView> FrameSource for Source<V> {
     fn take_host_action(&mut self) -> Option<HostAction> {
         self.view.take_host_action()
     }
@@ -3495,7 +3521,7 @@ mod theme_tests {
         gallery: gallery::Gallery,
         calls: usize,
     }
-    impl View for Counting {
+    impl HostView for Counting {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
             self.calls += 1;
             plico_dev::App::show(&mut self.gallery, ui)

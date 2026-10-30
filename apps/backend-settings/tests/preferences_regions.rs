@@ -2,15 +2,15 @@ use backend_settings::preferences_regions::{ImmediatePreferences, RegionPreferen
 use plico::{Theme, ViewNode};
 use plico_renderer::{SemanticRole, TextContext};
 use plico_runtime::{
-    Source, View,
+    HostView, Source,
     testing::{Command, dispatch},
 };
-struct Harness<V: View> {
+struct Harness<V: HostView> {
     source: Source<V>,
     text: TextContext,
     width: u32,
 }
-impl<V: View + Default> Harness<V> {
+impl<V: HostView + Default> Harness<V> {
     fn new(width: u32) -> Self {
         let mut source = Source::new(V::default());
         source.set_reduced_motion(true);

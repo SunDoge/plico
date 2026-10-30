@@ -17,10 +17,19 @@ pub fn run<A: plico_dev::App + 'static>(app: A, title: &str) -> Result<(), Deskt
     run_with_options(app, WindowOptions::new().title(title))
 }
 
-/// Launch a view without requiring serializable application state.
-/// Useful for services, channels and data that must not enter reload snapshots.
+/// Launch an ordinary application view without serializable application state.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run_view_with_options<V: View + 'static>(
+pub fn run_view_with_options<V: plico::View + 'static>(
+    view: V,
+    options: WindowOptions,
+) -> Result<(), DesktopError> {
+    run_host_view_with_options(NativeView(view), options)
+}
+
+/// Launch a view that implements native host capabilities directly.
+/// Useful for services, hot reload, Regions, and application-owned wakeups.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_host_view_with_options<V: HostView + 'static>(
     view: V,
     options: WindowOptions,
 ) -> Result<(), DesktopError> {
@@ -80,7 +89,7 @@ mod services_host {
                 let view =
                     plico_runtime::reload::ReloadView::with_services(descriptor.into(), services)
                         .map_err(|source| ServiceDesktopError::Module { source })?;
-                return crate::run_view_with_options(view, options)
+                return crate::run_host_view_with_options(view, options)
                     .map_err(|source| ServiceDesktopError::Desktop { source });
             }
             #[cfg(not(feature = "hot-reload"))]
@@ -89,7 +98,7 @@ mod services_host {
                 return Err(ServiceDesktopError::HotReloadDisabled);
             }
         }
-        crate::run_view_with_options(ServiceView::new(app, services), options)
+        crate::run_host_view_with_options(ServiceView::new(app, services), options)
             .map_err(|source| ServiceDesktopError::Desktop { source })
     }
 }

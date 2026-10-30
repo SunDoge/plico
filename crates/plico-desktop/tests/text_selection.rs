@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     ClipboardRequest, FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point,
     PointerButton, PointerEvent, PointerPhase, PointerProperties, TextContext, UiEvent,
@@ -11,7 +11,7 @@ struct Document {
     hidden: bool,
     input: TextBuffer,
 }
-impl View for Document {
+impl HostView for Document {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).width(300.).gap(12).children(|cx| {

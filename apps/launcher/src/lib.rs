@@ -2,7 +2,7 @@
 //! previews, never shell commands. Native buffers and host actions are not serialized.
 pub mod icons;
 use plico::{Engine, Entity, InputEdit, prelude::*};
-use plico_desktop::{HostAction, View, WindowCommand};
+use plico_desktop::{HostAction, HostView, WindowCommand};
 use plico_runtime::regions::{RegionUi, State};
 use std::collections::VecDeque;
 
@@ -520,7 +520,7 @@ fn results(cx: &mut UiContext, model: State<LauncherModel>) {
     });
 }
 
-impl View for Launcher {
+impl HostView for Launcher {
     fn on_unhandled_key(&mut self, key: &plico_desktop::KeyEvent) -> bool {
         if key.key == "Escape" && key.modifiers.is_empty() && !key.repeat {
             self.regions.access(self.model).update(|model| {
@@ -557,7 +557,7 @@ impl View for Launcher {
         }
     }
     fn show(&mut self, cx: &mut UiContext) {
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
     }
     fn replay_regions(
         &mut self,

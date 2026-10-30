@@ -3,7 +3,7 @@
 //! No window, GPU or present; timings are not end-to-end frame latency.
 use plico::VirtualClock;
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, Scene, TextContext, UiEvent, WheelDeltaMode,
     WheelEvent,
@@ -16,7 +16,7 @@ struct Log {
     smooth: bool,
     calls: usize,
 }
-impl View for Log {
+impl HostView for Log {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

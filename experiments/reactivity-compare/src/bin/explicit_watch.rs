@@ -2,7 +2,7 @@
 use plico::{Entity, UiContext, VirtualClock};
 use plico_reactivity_compare::{RegionId, Runtime, State, watch};
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_runtime::{Source, View};
+use plico_runtime::{Source, HostView};
 use slotmap::SecondaryMap;
 use std::{
     hint::black_box,
@@ -14,7 +14,7 @@ const ON: &str = "Other value";
 struct Screen {
     values: Vec<bool>,
 }
-impl View for Screen {
+impl HostView for Screen {
     fn show(&mut self, cx: &mut UiContext) {
         cx.column().key(999_999u64).children(|cx| {
             for (i, &value) in self.values.iter().enumerate() {

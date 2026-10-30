@@ -2,7 +2,7 @@
 #[path = "support/icons.rs"]
 mod icons;
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::svg::{SvgImage, usvg};
 use plico_renderer::{FrameSource, PaintCommand, SvgDocument, TextContext};
 use std::{sync::Arc, time::Duration};
@@ -33,7 +33,7 @@ struct Demo {
     compact: bool,
     visible: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         if self.visible {

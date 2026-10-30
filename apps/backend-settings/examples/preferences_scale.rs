@@ -5,7 +5,7 @@ use backend_settings::preferences_regions::scale::{
     FullRegionPanels, ImmediatePanels, region_panels,
 };
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::{
     hash::{Hash, Hasher},
     hint::black_box,
@@ -95,11 +95,11 @@ impl Scenario {
         }
     }
 }
-fn prepare<V: View>(source: &mut Source<V>, text: &mut TextContext, height: u32) {
+fn prepare<V: HostView>(source: &mut Source<V>, text: &mut TextContext, height: u32) {
     source.experiment_prepare_without_scene(text, 900, height);
     assert!(source.last_error.is_none(), "{:?}", source.last_error);
 }
-fn ids<V: View>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
+fn ids<V: HostView>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
     let (role, label) = scenario.control();
     let tree = source.adapter.semantics(&source.engine, 0);
     let ids: Vec<_> = tree
@@ -112,7 +112,7 @@ fn ids<V: View>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
     assert_eq!(ids.len(), k, "not enough accessible controls");
     ids
 }
-fn event<V: View>(source: &mut Source<V>, scenario: Scenario, targets: &[u64], index: usize) {
+fn event<V: HostView>(source: &mut Source<V>, scenario: Scenario, targets: &[u64], index: usize) {
     for &id in targets {
         if scenario == Scenario::Typing {
             assert!(source.handle_semantic_action(SemanticAction::Focus { target: id }));
@@ -144,7 +144,7 @@ struct Evidence {
     last: u64,
     pixels: Option<u64>,
 }
-fn fingerprint<V: View>(source: &Source<V>) -> u64 {
+fn fingerprint<V: HostView>(source: &Source<V>) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     let tree = source.adapter.semantics(&source.engine, 0);
     for node in tree.exposed_nodes().into_iter().filter(|n| {
@@ -190,7 +190,7 @@ fn tracked_pixel_delta(actual: &[u8], expected: &[u8]) -> (usize, u8) {
     (differing, max_delta)
 }
 
-fn bench<V: View>(
+fn bench<V: HostView>(
     mode: &str,
     view: V,
     panels: usize,

@@ -2,7 +2,7 @@
 
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use plico::{DeclareView, Theme, prelude::*};
+use plico::{Theme, View, prelude::*};
 use plico_nsh::native::{platform, root_with_viewport};
 
 struct Counter {
@@ -23,7 +23,7 @@ impl Default for Counter {
     }
 }
 
-impl DeclareView for Counter {
+impl View for Counter {
     fn theme(&self) -> Theme {
         Theme::default()
     }

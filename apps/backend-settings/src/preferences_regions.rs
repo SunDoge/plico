@@ -2,9 +2,9 @@
 //! The immediate version remains a correctness and performance baseline.
 pub mod scale;
 use crate::{ImmediateSettings, icons};
-use plico::{DeclareView, Theme, prelude::*};
+use plico::{Theme, View, prelude::*};
 use plico_runtime::{
-    View,
+    HostView,
     regions::{
         Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, RegionUi, Regions,
     },
@@ -13,9 +13,9 @@ use plico_runtime::{
 /// Baseline: the existing Preferences function and ordinary application state.
 #[derive(Default)]
 pub struct ImmediatePreferences(pub ImmediateSettings);
-impl View for ImmediatePreferences {
+impl HostView for ImmediatePreferences {
     fn theme(&self) -> Theme {
-        DeclareView::theme(&self.0)
+        View::theme(&self.0)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         frame(cx, |cx| self.0.preferences(cx));
@@ -39,7 +39,7 @@ struct Saved {
 }
 
 /// Global theme/motion state belongs to the root. Profile state belongs to its
-/// component. The existing adapter supplies View and best-effort reload support.
+/// component. The existing adapter supplies HostView and best-effort reload support.
 pub type RegionPreferences = RegionApp<PreferencesProgram>;
 pub struct PreferencesProgram;
 impl RegionProgram for PreferencesProgram {

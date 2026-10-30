@@ -323,7 +323,7 @@ fn apply_text_ellipsis(mut element: Text, enabled: bool) -> Text {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plico::{DeclareView, Theme, prelude::*};
+    use plico::{Theme, View, prelude::*};
 
     #[derive(Default)]
     struct Counter {
@@ -333,7 +333,7 @@ mod tests {
         rows: Vec<u64>,
     }
 
-    impl DeclareView for Counter {
+    impl View for Counter {
         fn theme(&self) -> Theme {
             Theme::default()
         }

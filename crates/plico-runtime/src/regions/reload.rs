@@ -233,10 +233,10 @@ impl<'de, P: RegionProgram> Deserialize<'de> for RegionApp<P> {
 }
 impl<P: RegionProgram> plico_dev::App for RegionApp<P> {
     fn theme(&self) -> plico::Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
     }
 }
 impl<P: RegionServiceProgram> plico_dev::services::ServiceApp for RegionApp<P> {
@@ -249,11 +249,11 @@ impl<P: RegionServiceProgram> plico_dev::services::ServiceApp for RegionApp<P> {
         services: &mut plico_dev::services::Services<Self::Snapshot, Self::Command>,
     ) {
         self.regions.sync_services(services);
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
         self.regions.drain_services(services);
     }
     fn theme(&self) -> plico::Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn replay_regions(
         &mut self,
@@ -266,7 +266,7 @@ impl<P: RegionServiceProgram> plico_dev::services::ServiceApp for RegionApp<P> {
         batch
     }
     fn scene_cache_roots(&self) -> Vec<Entity> {
-        View::scene_cache_roots(&self.regions)
+        HostView::scene_cache_roots(&self.regions)
     }
     fn set_regions_wake_callback(&mut self, wake: plico_dev::services::Wake) {
         self.regions.set_wake_callback(wake);
@@ -278,18 +278,18 @@ impl<P: RegionServiceProgram> plico_dev::services::ServiceApp for RegionApp<P> {
         self.regions.snapshot_changed()
     }
 }
-impl<P: RegionProgram> View for RegionApp<P> {
+impl<P: RegionProgram> HostView for RegionApp<P> {
     fn theme(&self) -> plico::Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
     }
     fn replay_regions(&mut self, engine: &mut Engine) -> Option<Result<ReplayBatch, FrameError>> {
         self.regions.replay_regions(engine)
     }
     fn scene_cache_roots(&self) -> Vec<Entity> {
-        View::scene_cache_roots(&self.regions)
+        HostView::scene_cache_roots(&self.regions)
     }
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.regions.set_wake_callback(wake);

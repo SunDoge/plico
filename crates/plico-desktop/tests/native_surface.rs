@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 use plico::prelude::*;
-use plico_desktop::{SurfaceSource, View};
+use plico_desktop::{HostView, SurfaceSource};
 use plico_renderer::platform::effect::{EffectCompletion, EffectPayload, EffectResult};
 use plico_renderer::{
     EffectRequest, FrameSource, HostAction, Modifiers, PaintContext, PaintScene, Point,
@@ -12,7 +12,7 @@ struct Demo {
     show: bool,
     overlay: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         let _ = column(cx)
             .key("container")
@@ -164,7 +164,7 @@ fn higher_plico_controls_win_hits_and_clipboard_actions_use_effects() {
 #[test]
 fn non_text_surface_declined_key_reaches_window_fallback() {
     struct ShortcutView(bool);
-    impl View for ShortcutView {
+    impl HostView for ShortcutView {
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).key("surface").width(200.).height(100.).end();
         }

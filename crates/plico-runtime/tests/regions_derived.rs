@@ -1,7 +1,7 @@
 use plico::prelude::*;
 use plico_renderer::{FrameSource, TextContext};
 use plico_runtime::{
-    Source, View,
+    HostView, Source,
     regions::{OnClick, RegionUi, Regions, State},
 };
 use serde::{Deserialize, Serialize};

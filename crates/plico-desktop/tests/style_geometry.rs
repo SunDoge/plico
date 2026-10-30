@@ -1,6 +1,6 @@
 use peniko::Color as PaintColor;
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, SemanticAction,
     SemanticRole, TextContext, UiEvent,
@@ -13,7 +13,7 @@ struct Demo {
     locked: bool,
     calls: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;

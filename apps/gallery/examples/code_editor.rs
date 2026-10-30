@@ -2,13 +2,13 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), plico_desktop::DesktopError> {
     use plico::prelude::*;
-    use plico_desktop::{SurfaceSource, View, WindowOptions};
+    use plico_desktop::{HostView, SurfaceSource, WindowOptions};
     use plico_editor::{CodeEditor, CodeEditorState};
 
     struct Demo {
         state: CodeEditorState,
     }
-    impl View for Demo {
+    impl HostView for Demo {
         fn theme(&self) -> Theme {
             Theme::dark()
         }

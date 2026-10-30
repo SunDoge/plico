@@ -6,11 +6,10 @@ use crate::{
     color_icons, icons, progress_bar,
 };
 use plico::{
-    Changes, DeclareView, Engine, Entity, FrameError, FrameTime, Router, TextBuffer, Theme,
-    prelude::*,
+    Changes, Engine, Entity, FrameError, FrameTime, Router, TextBuffer, Theme, View, prelude::*,
 };
 use plico_runtime::{
-    View,
+    HostView,
     regions::{
         Access, OnChange, OnClick, OnClickWith, Reactive, RegionUi, Regions, ReplayBatch, State,
         outlet_fill,
@@ -197,7 +196,7 @@ impl Settings {
         let now = cx.now();
         let width = cx.viewport_width();
         self.tick(now, width);
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
         if self.animation_requested(now, width) {
             cx.request_animation_frame();
         }
@@ -256,17 +255,17 @@ impl Settings {
         self.regions.access(self.states.animations).read().active()
     }
 }
-impl DeclareView for Settings {
+impl View for Settings {
     fn theme(&self) -> Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.show_with_tick(cx);
     }
 }
-impl View for Settings {
+impl HostView for Settings {
     fn theme(&self) -> Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.show_with_tick(cx);

@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
     PointerPhase, SemanticAction, SemanticRole, TextContext, UiEvent,
@@ -12,7 +12,7 @@ struct Demo {
     changes: usize,
     shows: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.shows += 1;

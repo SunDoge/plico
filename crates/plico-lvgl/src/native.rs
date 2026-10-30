@@ -815,7 +815,7 @@ fn apply_style(obj: *mut Obj, node: &NodeRef<'_>, theme: Theme) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plico::{DeclareView, Length, prelude::*};
+    use plico::{Length, View, prelude::*};
 
     struct View {
         height: Length,
@@ -826,7 +826,7 @@ mod tests {
         translate: [f32; 2],
         theme: Theme,
     }
-    impl DeclareView for View {
+    impl View for View {
         fn theme(&self) -> Theme {
             self.theme
         }
@@ -848,7 +848,7 @@ mod tests {
             });
         }
     }
-    fn frame(engine: &mut Engine, view: &mut impl DeclareView, adapter: &mut Adapter) {
+    fn frame(engine: &mut Engine, view: &mut impl View, adapter: &mut Adapter) {
         engine.declare_until_settled(view).unwrap();
         let delta = engine.take_frame_delta();
         adapter.sync_delta(engine, Some(delta)).unwrap();
@@ -981,7 +981,7 @@ mod tests {
             reveal: bool,
             visible: bool,
         }
-        impl DeclareView for Editors {
+        impl View for Editors {
             fn theme(&self) -> Theme {
                 Theme::default()
             }
@@ -1111,7 +1111,7 @@ mod tests {
             source: String,
             visible: bool,
         }
-        impl DeclareView for IconView {
+        impl View for IconView {
             fn theme(&self) -> Theme {
                 Theme::default()
             }
@@ -1180,7 +1180,7 @@ mod tests {
         struct Navigation {
             clicked: bool,
         }
-        impl DeclareView for Navigation {
+        impl View for Navigation {
             fn theme(&self) -> Theme {
                 Theme::default()
             }
@@ -1237,7 +1237,7 @@ mod tests {
             kind: Kind,
             child: bool,
         }
-        impl DeclareView for KindView {
+        impl View for KindView {
             fn theme(&self) -> Theme {
                 Theme::default()
             }

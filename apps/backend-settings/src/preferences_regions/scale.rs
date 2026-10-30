@@ -3,7 +3,7 @@ use super::{frame, preferences};
 use crate::ImmediateSettings;
 use plico::{Theme, prelude::*};
 use plico_runtime::{
-    View,
+    HostView,
     regions::{RegionUi, Regions},
 };
 
@@ -21,7 +21,7 @@ impl ImmediatePanels {
         }
     }
 }
-impl View for ImmediatePanels {
+impl HostView for ImmediatePanels {
     fn theme(&self) -> Theme {
         if self.dark {
             Theme::dark()
@@ -75,7 +75,7 @@ impl FullRegionPanels {
         Self(region_panels(count))
     }
 }
-impl View for FullRegionPanels {
+impl HostView for FullRegionPanels {
     fn theme(&self) -> Theme {
         self.0.theme()
     }

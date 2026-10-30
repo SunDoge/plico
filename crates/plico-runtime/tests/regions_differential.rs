@@ -3,7 +3,7 @@ use plico::prelude::*;
 use plico::{Engine, Entity, FrameError, VirtualClock};
 use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextContext, UiEvent};
 use plico_runtime::{
-    Source, View,
+    HostView, Source,
     regions::{
         Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, RegionUi, Regions, State,
         StateSender,
@@ -73,7 +73,7 @@ struct Driven {
     regions: Regions,
     full: bool,
 }
-impl View for Driven {
+impl HostView for Driven {
     fn theme(&self) -> Theme {
         self.regions.theme()
     }

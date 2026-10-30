@@ -1,7 +1,7 @@
 # NSH 最小后端实验
 
 `crates/plico-nsh` 把普通 Plico immediate 声明投影到 [NSH](https://github.com/longbridge/nsh)
-0.3 的 element tree。应用仍实现 `plico::DeclareView`，使用普通 Rust 状态、
+0.3 的 element tree。应用仍实现 `plico::View`，使用普通 Rust 状态、
 `#[component]` 和 `+ |cx|`；不需要迁移到 NSH 的响应式组件 API。
 
 职责边界与 LVGL 实验相同：Plico 保留 `Engine` 和声明身份，NSH 负责 keyed

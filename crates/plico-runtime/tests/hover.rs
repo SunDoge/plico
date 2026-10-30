@@ -3,7 +3,7 @@ use plico_renderer::{
     FrameSource, Point, PointerButton, PointerEvent, PointerPhase, PointerProperties,
     SemanticAction, SemanticRole, TextContext, UiEvent,
 };
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 #[derive(Default)]
 struct Demo {
     hovered: bool,
@@ -11,7 +11,7 @@ struct Demo {
     clicked_hovered: bool,
     disabled: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         let response = button(cx)

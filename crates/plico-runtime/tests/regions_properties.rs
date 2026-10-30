@@ -195,7 +195,7 @@ fn unmount_cleans_property_subscriptions_and_remount_uses_new_generation() {
 
 #[test]
 fn dependency_rebinding_unsubscribes_old_state_without_accumulating_bindings() {
-    use plico_runtime::View;
+    use plico_runtime::HostView;
     let mut handles = None;
     let app = Regions::new(|app| {
         let choose = app.state(|| false);

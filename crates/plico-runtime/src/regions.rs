@@ -8,7 +8,7 @@ pub use actions::{FocusOnce, RevealOnce};
 pub use properties::{ButtonProperties, Reactive, TextProperties};
 pub use routing::{outlet, outlet_fill, outlet_keyed};
 mod tasks;
-use crate::View;
+use crate::HostView;
 use plico::{
     Button, Changes, Engine, Entity, ExperimentContext, FrameError, FrameStats, Key, Response,
     UiContext,
@@ -1537,7 +1537,7 @@ impl Regions {
             .collect()
     }
 }
-impl View for Regions {
+impl HostView for Regions {
     fn theme(&self) -> plico::Theme {
         self.theme
             .map_or_else(plico::Theme::default, |state| *self.access(state).read())

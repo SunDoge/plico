@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 
 #[derive(Default)]
@@ -7,7 +7,7 @@ struct Demo {
     extra: bool,
     reversed: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         let _ = column(cx).children(|cx| {
             for i in 0..1000 {

@@ -1,5 +1,5 @@
 //! Resident service ownership for statically linked and replaceable application views.
-use crate::View;
+use crate::HostView;
 use plico_dev::services::{HostService, ServiceApp, Services};
 
 pub struct ServiceView<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>>
@@ -31,7 +31,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         }
     }
 }
-impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>> View
+impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>> HostView
     for ServiceView<A, S>
 {
     fn snapshot_changed(&self) -> bool {

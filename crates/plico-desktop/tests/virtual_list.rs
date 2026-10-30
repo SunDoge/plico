@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, TextContext, UiEvent, WheelDeltaMode, WheelEvent,
 };
@@ -8,7 +8,7 @@ struct Demo {
     count: usize,
     built: Vec<usize>,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.built.clear();
@@ -128,7 +128,7 @@ struct FillDemo {
     count: usize,
     built: Vec<usize>,
 }
-impl View for FillDemo {
+impl HostView for FillDemo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.built.clear();

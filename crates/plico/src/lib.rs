@@ -66,7 +66,9 @@ where
         self(ui)
     }
 }
-pub use engine::DeclareView;
+#[doc(hidden)]
+pub use View as DeclareView;
+pub use engine::View;
 pub use ui::{
     Button, ButtonBase, Image, InnerResponse, Input, InputResponse, Layout, Response, Shader,
     Slider, Svg, Text, Toggle, ToggleResponse, UiContext,

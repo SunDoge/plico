@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
     PointerPhase, SemanticAction, SemanticRole, TextContext, UiEvent,
@@ -13,7 +13,7 @@ struct Demo {
     removed: bool,
     dialog: ModalState,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.shows += 1;
@@ -278,7 +278,7 @@ fn tooltip_in_modal_escapes_clip_and_escape_hides_tip_before_dialog() {
 struct Editor {
     buffer: TextBuffer,
 }
-impl View for Editor {
+impl HostView for Editor {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         tooltip(cx, "Type a project name").children(|cx| {
@@ -323,7 +323,7 @@ struct Shaded;
 static EFFECT: ShaderAsset = ShaderAsset::new(
     "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> {return vec4<f32>(0.0,1.0,0.0,1.0);}",
 );
-impl View for Shaded {
+impl HostView for Shaded {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).padding(20).align(Align::Start).children(|cx| {
@@ -375,7 +375,7 @@ fn actual_gpu_tooltip_is_present_with_shader_and_scene_cache_removes_it_on_escap
 }
 
 struct LongTip;
-impl View for LongTip {
+impl HostView for LongTip {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).width_percent(100.).height_percent(100.).padding(8).align(Align::End).justify(Justify::End).children(|cx| {

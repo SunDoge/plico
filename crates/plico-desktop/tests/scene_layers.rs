@@ -1,11 +1,11 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 
 struct Layers {
     changed: bool,
 }
-impl View for Layers {
+impl HostView for Layers {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
@@ -63,7 +63,7 @@ fn scene_rebuilds_preserve_nested_layers_and_siblings() {
 #[test]
 fn unchanged_backdrop_is_reencoded_when_its_prefix_changes() {
     struct Backdrop(bool);
-    impl View for Backdrop {
+    impl HostView for Backdrop {
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)
                 .width(80)

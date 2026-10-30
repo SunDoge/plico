@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{
     FrameSource, ImeEvent, Scene, SemanticAction, SemanticRole, TextContext, UiEvent,
 };
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::sync::Arc;
 struct Form {
     buffers: Vec<TextBuffer>,
@@ -28,7 +28,7 @@ impl Form {
         }
     }
 }
-impl View for Form {
+impl HostView for Form {
     fn theme(&self) -> Theme {
         if self.dark {
             Theme::dark()
@@ -205,7 +205,7 @@ fn shader_registry_tracks_mount_and_unmount_without_gpu_rasterization() {
     struct Demo {
         present: bool,
     }
-    impl View for Demo {
+    impl HostView for Demo {
         #[component]
         fn show(&mut self, cx: &mut UiContext<'_>) {
             column(cx).children(|cx| {
@@ -263,7 +263,7 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
         checked: bool,
         scroll: bool,
     }
-    impl View for Demo {
+    impl HostView for Demo {
         #[component]
         fn show(&mut self, cx: &mut UiContext<'_>) {
             column(cx).children(|cx| {
@@ -367,7 +367,7 @@ struct Controls {
     font: u16,
     checked: bool,
 }
-impl View for Controls {
+impl HostView for Controls {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).children(|cx| {

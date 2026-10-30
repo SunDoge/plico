@@ -3,7 +3,7 @@ pub mod icons;
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use plico::prelude::*;
-    use plico_desktop::{SurfaceSource, View, WindowOptions};
+    use plico_desktop::{HostView, SurfaceSource, WindowOptions};
     use plico_renderer::{Widget, WidgetNodeEvent};
     use plico_terminal::{TerminalWidget, event};
     use snafu::{ResultExt, Snafu};
@@ -31,7 +31,7 @@ mod native {
         exited: bool,
         compact: bool,
     }
-    impl View for Chrome {
+    impl HostView for Chrome {
         #[component]
         #[rustfmt::skip]
         fn show(&mut self, cx: &mut UiContext) {
