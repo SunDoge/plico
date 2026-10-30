@@ -748,3 +748,61 @@ CPU 7 交错执行三轮，以下取三轮 p50 的中位数：
 缩短子树后的复用输出与全新 flatten 的几何及最终 Scene 命令逐项比较；另检查资源替换、
 空输出时 Weak 引用释放和 transform 存储复用。原有布局、滚动、控件对齐及 reactive
 语义对照继续验证。探针、测试和本节结论可以重建；原始 CSV 与二进制保留在本地 reports。
+
+## 稀疏 graph 的真实 XWayland 窗口 profiling（2026-10-30）
+
+本轮用本地 `graph_declaration` 实验测量真实窗口，而不是只比较孤立 declaration +
+diff。 workload 为 512 张 cards、每张 12 个 ports，只持续改变第一张 card 的 dot
+color。主比较是手工只声明可见 cards 的普通 Immediate 与 Region；不裁剪声明的完整
+Immediate 作为补充。Region 仍只是对照，不改变 Immediate 默认路径。
+
+测量使用 release Skia + tracing profiling，在现有 XWayland 桌面运行，并确认窗口持续
+show、截图非空。每个 steady-state 窗口采样 6 秒 `/proc/<pid>/task/*/stat`，将所有线程
+的 utime + stime 相加；下表 CPU 以一个逻辑核心为 100%，不是整机利用率。逐线程分解显示
+可见 Immediate 主线程约 50.32%，全部线程约 52.16%，主要成本不在后台 Feed 线程。
+processed updates 取 backend commit/work，physical presents 取实际成功显示事件；实际频率
+由同一次 trace 的 `frame.complete` 首末时间计算，不用目标 60Hz 代替。
+
+| 路径 | 全线程 CPU | processed updates | declarations | Scene builds / presents | 实际 present/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全图 Immediate | 78.31% | 421 | 422 | 420 / 420 | 55.81 |
+| 可见 Immediate | 52.16% | 452 | 453 | 452 / 452 | 59.07 |
+| 可见 Region | 52.98% | 455 | 2 | 455 / 455 | 59.29 |
+| 可见 Immediate + opt-in damage | 38.81% | 456 | 457 | 456 / 456 | 59.29 |
+
+每帧主要 span 均值如下。`frame.retained` 已包含 declaration、backend 与 Scene retained
+路径，不能再与 `frame.declare` 或 Scene 时间相加；Scene 时间是该阶段的独立均值。
+
+| 路径 | `frame.declare` | `frame.retained` | Scene | `skia.replay` | `skia.flush_submit` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全图 Immediate | 3995.5µs | 7074.1µs | 2136µs | 1526.5µs | 644.5µs |
+| 可见 Immediate | 263.7µs | 1008.5µs | 360µs | 1704.1µs | 689.6µs |
+| 可见 Region | — | 563.1µs | 108µs | 1700.5µs | 673.9µs |
+| 可见 Immediate + opt-in damage | — | — | 389µs | 184.9µs | 162.3µs |
+
+可见 Immediate 与 Region 使用相同的 1,423-node retained tree；窗口显示 24 张 cards。
+三种非 damage 路径每次绘制都实际回放 835 条命令、530 个 Paragraph，因此 Region 的
+CPU 不是通过少画可见内容得到的。三者使用同一 Skia 窗口、裁剪和缓存配置；unchanged
+present skip 在这些持续变化帧中没有替代实际 present。Region 的两次 declaration 是初始
+建立，后续是局部 replay，不能把这个计数解释成它与 Immediate 执行了相同声明工作。
+
+damage 行只用于定位共享后端成本，默认路径没有改变。它平均只使约 5.307% surface 成为
+脏区，每次访问 835 条顶层命令、剔除 786 条，只回放 28 个 Paragraph；所以其较低 CPU
+不能与全量回放直接当作同工作量优化。既有严格 Immediate damage oracle 仍通过 240 帧、
+0 个最终差异像素，damage 继续 opt-in。
+
+结果只支持三个结论：完整 Immediate 的重复声明是明确热点；可见声明裁剪后，共享 Skia
+全量 replay 是主要可优化成本之一；可见 Region 与可见 Immediate 的全线程 CPU 基本相同，
+不能宣称 Region 更省。`skia.queue_present` 墙钟均值约 7.6–8.1ms，但包含 WSI 等待，不能
+当成等量 CPU 热点。本轮检查了 Paragraph request/cache 与 Scene 编码路径，没有找到足够
+小且有把握的正确性保持优化，因此没有为凑收益新增缓存、增量 flatten 或 Region 独立布局。
+
+这些是一次本机、开启 trace 的运行，不是统计显著性实验。CPU 的 6 秒 steady-state 窗口与
+完整 trace 的事件计数窗口不同，不能直接用表中的总次数除以 6 秒；各次运行实际帧率也不完全
+相同。processed updates 可能合并原始 Feed tick，不等于 tick 数。trace 本身增加开销，
+`frame.retained` 等嵌套 span 也不能重复求和。本轮真实 graph 截图用于确认持续显示，没有
+把不同运行的动画帧当作逐像素相等 oracle；未改动画速率和输出内容。
+
+尚未解决：全量 Immediate 声明及离屏子树 Scene 遍历成本、普通 Skia 全量 replay 成本、
+present 等待中的具体 CPU/WSI 分解，以及此前 Wayland 只 show 首帧的问题。本轮只在
+XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland 或其他应用。
