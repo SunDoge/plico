@@ -52,3 +52,7 @@ required-features = ["raster"]
 [[example]]
 name = "text_motion"
 required-features = ["vulkan"]
+
+[[example]]
+name = "paragraph_replay"
+required-features = ["raster"]

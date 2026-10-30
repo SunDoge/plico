@@ -305,3 +305,31 @@ PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1 PLICO_SKIA_PRESENT_SKIP=1 cargo run 
 
 这些是实验性开关：本地验证包括 resize、清理、显式刷新与多 image 历史，
 不据此宣称所有平台的 expose/遮挡与帧节奏都已完成验收。
+
+## 纯平移 Paragraph 回放
+
+普通文字的局部变换若只有平移，直接以目标 origin 调用 SkParagraph paint；不额外
+执行外层 Canvas save/concat/restore。缩放、旋转和斜切继续走完整矩阵路径；已有父层
+clip、opacity 和变换保持生效。这不增加 Paragraph、Picture 或纹理缓存。
+
+实现思路参考 Freya 的 Label 直接在布局 origin 绘制已排版 Paragraph 的方式：
+[Freya label.rs，c406fe17](https://github.com/marc2332/freya/blob/c406fe17/crates/freya-core/src/elements/label.rs)
+（MIT，Copyright Marc Espín Sanz）。本轮借鉴绘制策略，没有复制其组件或渲染器实现。
+同版本 Freya 的主 RenderPipeline 仍清屏遍历可见节点，并保留 incremental rendering
+TODO；HTML 组件另有 PictureRecorder 缓存，不能将后者误称为整个框架的局部重绘。
+
+可复现的 CPU 光栅化探针：
+
+```sh
+cargo run --release -p plico-skia --features raster --example paragraph_replay
+```
+
+构建与 readback 不计时，100 帧预热、500 帧采样；包含纯平移与旋转对照。2026-10-30
+Linux / Core Ultra 9 285K，release、固定 CPU 7，保存改前/后独立二进制并交错三轮，
+每轮 p50 的中位数：500 段可见文字的完整 CPU raster 从 402.67µs 降为 364.94µs
+（约 9.4%）；旋转对照为 403.63µs → 403.57µs，无可辨识改善。这是隔离 replay
+结果，不代表整个应用 CPU 或 GPU 耗时下降 9.4%。
+
+逐像素回归将新路径与原 save/concat/paint/restore 路径直接对比，覆盖透明文字、
+中英文、整数/分数/负 origin 及缩放、旋转、斜切父变换；严格 Immediate damage
+探针和嵌套 Fragment CPU/GPU 对照也继续通过。

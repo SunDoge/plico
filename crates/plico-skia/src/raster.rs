@@ -673,10 +673,15 @@ impl SkiaSurface {
                 PaintCommand::Paragraph { request, transform } => {
                     let paragraphs = self.resources.borrow().paragraphs.clone();
                     let paragraph = paragraphs.borrow_mut().layout(request.clone());
-                    canvas.save();
-                    canvas.concat(&matrix(*transform));
-                    paragraph.paint(canvas);
-                    canvas.restore();
+                    let [a, b, c, d, x, y] = transform.as_coeffs();
+                    if [a, b, c, d] == [1., 0., 0., 1.] {
+                        paragraph.paint(canvas, (x as f32, y as f32));
+                    } else {
+                        canvas.save();
+                        canvas.concat(&matrix(*transform));
+                        paragraph.paint(canvas, (0., 0.));
+                        canvas.restore();
+                    }
                 }
                 PaintCommand::Fill {
                     fill,
@@ -1111,6 +1116,62 @@ mod resource_tests {
     use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
     use plico_renderer::PaintScene;
     use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+    #[test]
+    fn translated_paragraphs_match_saved_matrix_replay_under_parent_transforms() {
+        use plico_renderer::{paragraph::ParagraphRequest, style::Paint};
+        let request = Arc::new(
+            ParagraphRequest::from_paint(
+                &Paint {
+                    text: Some("Settings S 世界".into()),
+                    font_size: 23.,
+                    text_color: peniko::Color::from_rgba8(30, 80, 150, 180),
+                    ..Default::default()
+                },
+                Some(220.),
+            )
+            .unwrap(),
+        );
+        let mut actual = SkiaSurface::new(320, 180).unwrap();
+        let mut oracle = SkiaSurface::new(320, 180).unwrap();
+        let paragraphs = oracle.resources.borrow().paragraphs.clone();
+        let paragraph = paragraphs.borrow_mut().layout(request.clone());
+        for parent in [
+            Affine::IDENTITY,
+            Affine::scale(1.25),
+            Affine::translate((14.5, 18.25)) * Affine::rotate(0.07),
+            Affine::new([1., 0.1, 0.15, 1., 4., 8.]),
+        ] {
+            for position in [(4., 5.), (4.25, 5.75), (-3.5, 0.125)] {
+                let transform = Affine::translate(position);
+                let mut inner = Scene::new();
+                inner.commands.push(PaintCommand::Paragraph {
+                    request: request.clone(),
+                    transform,
+                });
+                let mut scene = Scene::new();
+                scene.append_cached_scene(inner, parent);
+                actual.draw_scene(&scene, Color::WHITE).unwrap();
+                let canvas = oracle.surface.canvas();
+                canvas.clear(skia_safe::Color::WHITE);
+                canvas.save();
+                canvas.concat(&matrix(parent));
+                canvas.save();
+                canvas.concat(&matrix(transform));
+                paragraph.paint(canvas, (0., 0.));
+                canvas.restore();
+                canvas.restore();
+                // The manually replayed oracle deliberately uses the old path.
+                oracle.frame_valid = true;
+                let expected = oracle.read_pixels().unwrap();
+                let pixels = actual.read_pixels().unwrap();
+                assert!(
+                    pixels == expected,
+                    "parent={parent:?} position={position:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn font_resources_release_dead_sources_and_share_sizes() {
