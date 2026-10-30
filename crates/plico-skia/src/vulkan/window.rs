@@ -26,17 +26,8 @@ impl PresentationHistory {
     fn record(&mut self, scene: &Scene, background: Color) {
         // External/time-dependent effects are never proven unchanged solely
         // by command equality, even if their retained handles are identical.
-        let stable = !scene.has_nonlocal_effects();
-        if !stable {
-            self.previous = None;
-        } else if let Some((previous, color)) = &mut self.previous {
-            // Keep the command allocation across animated presents. Clean-frame
-            // detection must not add a fresh Scene allocation to every frame.
-            previous.clone_from(scene);
-            *color = background;
-        } else {
-            self.previous = Some((scene.clone(), background));
-        }
+        // Scene snapshots share immutable COW commands.
+        self.previous = (!scene.has_nonlocal_effects()).then(|| (scene.clone(), background));
     }
 }
 

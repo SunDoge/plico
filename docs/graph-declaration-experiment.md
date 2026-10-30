@@ -25,8 +25,9 @@ text shaping, scene encoding, rasterization, GPU, or a window:
 cargo run --release -p backend-settings --features skia --example graph_declaration -- --headless --nodes 512 --updates 300
 ```
 
-All three paths compare the final visible node kinds, styles and text. This is
-declaration parity, not a pixel/geometry assertion. Headless measured loops do
+All four paths (including regions with the same viewport culling) compare the
+final visible node kinds, styles and text. This is declaration parity, not a
+pixel/geometry assertion. Headless measured loops do
 not initialize a renderer. Window CPU includes shared downstream work and must
 not be interpreted as declaration CPU.
 
@@ -83,6 +84,9 @@ comparison had different retained tree sizes (30,214 vs 1,422), so it must not
 be interpreted as a controlled comparison of the two APIs. Even with matching
 culling these short runs do not resolve a reliable API advantage. The isolated
 117.1−8.5 µs saving corresponds to only ~0.65 percentage points of one core at
-60 updates/sec, much smaller than the observed whole-window variation. The
-remaining high CPU needs stage profiling; these measurements do not identify
-which downstream stage dominates.
+60 updates/sec, much smaller than the observed whole-window variation. These early measurements did not identify which downstream stage dominates.
+Subsequent frame-counted tracing is recorded in
+[the performance report](performance.md#稀疏-graph-的真实-xwayland-窗口-profiling2026-10-30).
+The window figures above predate default damage tracking and must not be presented
+as current default-window CPU. On platforms without the Linux thread CPU clock,
+the headless CPU column reports `NA` rather than a misleading zero.

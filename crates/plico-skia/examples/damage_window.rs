@@ -41,14 +41,14 @@ impl ApplicationHandler for Demo {
             std::env::var("PLICO_SKIA_MULTI_RECT").as_deref(),
             Ok("1" | "true")
         ));
-        renderer.set_present_skip(matches!(
+        renderer.set_present_skip(!matches!(
             std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
-            Ok("1" | "true")
+            Ok("0" | "false")
         ));
         renderer.set_damage_validation(true);
-        let enabled = !matches!(
+        let enabled = matches!(
             std::env::var("PLICO_SKIA_INCREMENTAL_PRESENT").as_deref(),
-            Ok("0" | "false")
+            Ok("1" | "true")
         );
         renderer.set_incremental_present(enabled);
         self.hint_supported = enabled && renderer.incremental_present_supported();
@@ -171,9 +171,9 @@ impl ApplicationHandler for Demo {
                         .request_surface_size(winit::dpi::LogicalSize::new(size.0, size.1).into());
                 }
                 if self.frame >= 180 {
-                    if matches!(
+                    if !matches!(
                         std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
-                        Ok("1" | "true")
+                        Ok("0" | "false")
                     ) {
                         assert!(self.skips > 80, "must exercise unchanged-frame skipping");
                     }

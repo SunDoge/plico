@@ -337,8 +337,12 @@ Linux / Core Ultra 9 285K，release、固定 CPU 7，保存改前/后独立二�
 探针和嵌套 Fragment CPU/GPU 对照也继续通过。
 
 默认开启验收另覆盖 NVIDIA GeForce RTX 5080 的真实 XWayland 交换链：
-`damage_window` 不再手动开启 damage，使用构造器默认值，180 帧中 168 帧局部重绘，
+`damage_window` 不再手动开启 damage，使用构造器默认值，180 帧中 168 帧局部重绘（该次未启用 present skip），
 每次实际绘制均与同 GPU 的全量 redraw 严格一致；包含窗口 resize。
 该次验收设置 `PLICO_SKIA_INCREMENTAL_PRESENT=0`，与普通窗口默认配置一致。
 开启该可选平台扩展的探针虽未出现像素差异，但未达到 present hint 数量断言，
 因此不据此启用 incremental-present，也不宣称该扩展已在此平台完成验收。
+
+窗口探针已对齐普通窗口默认开关：damage/present skip 开启，incremental-present
+提示关闭；无需环境变量即可运行。清理后 RTX 5080 的 180 帧默认配置复验中，
+51 帧局部重绘、117 帧跳过重复提交，所有实际绘制帧均与全量 GPU redraw 严格一致。

@@ -116,7 +116,7 @@ fn canvas(cx: &mut UiContext<'_>, config: Config, tick: usize, reactive: Option<
     column(cx).width_percent(100.).height_percent(100.).background(Color::Surface).children(|cx| {
         column(cx).height(80.).padding(12).gap(4).shrink(0.).children(|cx| {
             text(cx, "Workflow graph · sparse execution activity").font_size(22).weight(700);
-            text(cx, "Simulated graph, one active node at 60 Hz. Offscreen nodes are clipped. --visible-only also culls declarations.").font_size(13);
+            text(cx, "Simulated graph, one active node. Offscreen nodes are clipped. --visible-only also culls declarations.").font_size(13);
         });
         column(cx).width_percent(100.).height(0.).grow(1.).clip(true).background(Color::Panel).children(|cx| {
             for index in 0..config.nodes {
@@ -293,10 +293,17 @@ fn bench(config: Config, immediate: bool, options: &Options) -> Vec<String> {
             visited += source.declaration_stats.visited;
         }
     }
-    let cpu_us = (thread_cpu_ns() - cpu_start) as f64 / options.updates as f64 / 1000.;
+    let cpu_us = if cfg!(target_os = "linux") {
+        format!(
+            "{:.2}",
+            (thread_cpu_ns() - cpu_start) as f64 / options.updates as f64 / 1000.
+        )
+    } else {
+        "NA".to_owned()
+    };
     samples.sort_unstable();
     println!(
-        "{},{},{},{:.2},{:.2},{:.2},{:.1}",
+        "{},{},{},{:.2},{:.2},{},{:.1}",
         if immediate { "immediate" } else { "region" },
         config.visible_only,
         config.nodes,
@@ -330,7 +337,7 @@ fn main() -> Result<(), Error> {
         println!(
             "model,visible_only,graph_nodes,p50_declare_diff_us,p95_declare_diff_us,mean_thread_cpu_us,visited"
         );
-        let a = bench(
+        let reference = bench(
             Config {
                 visible_only: false,
                 ..config
@@ -338,24 +345,20 @@ fn main() -> Result<(), Error> {
             true,
             &options,
         );
-        let b = bench(
-            Config {
-                visible_only: true,
-                ..config
-            },
-            true,
-            &options,
-        );
-        let c = bench(
-            Config {
-                visible_only: false,
-                ..config
-            },
-            false,
-            &options,
-        );
-        assert_eq!(a, b, "viewport culling must preserve visible declarations");
-        assert_eq!(a, c, "region replay must preserve visible declarations");
+        for (immediate, visible_only) in [(true, true), (false, false), (false, true)] {
+            let output = bench(
+                Config {
+                    visible_only,
+                    ..config
+                },
+                immediate,
+                &options,
+            );
+            assert_eq!(
+                reference, output,
+                "visible declarations differ: immediate={immediate}, visible_only={visible_only}"
+            );
+        }
         return Ok(());
     }
     let mut view = Graph::new(config, options.immediate);
