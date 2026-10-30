@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/SunDoge/plico/compare/v0.1.11...v0.1.12) - 2026-10-30
+
+### Added
+
+- *(runtime)* add incremental reactive backend updates
+- *(renderer)* add editable retained image canvas
+
+### Fixed
+
+- *(runtime)* harden incremental regions and backend invalidation
+- *(skia)* render synthetic glyphs and complex SVGs
+
+### Other
+
+- *(skia)* remove redundant SVG projection path
+
 ## [0.1.11](https://github.com/SunDoge/plico/compare/v0.1.10...v0.1.11) - 2026-10-29
 
 ### Added
