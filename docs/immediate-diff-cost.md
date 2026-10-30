@@ -100,3 +100,42 @@ is checked in, and its `mean_thread_cpu_us` column is NA on platforms without
 the Linux thread CPU clock. Without --immediate, headless mode still runs both
 models and asserts output parity; --immediate selects only the immediate path
 for profiling.
+
+## Generating declarations and diff together
+
+The same stacks can also isolate work in declare_until_settled that is outside
+Engine node reconciliation and its post-view commit. This residual includes
+running the application's declaration code, constructing builders/inherited
+styles and parameters, formatting dynamic labels, and dropping temporary
+objects. It is an estimate of declaration generation, not the cost of creating
+an entirely new heap-allocated widget tree: Plico retains its nodes.
+
+Subtract only front-end reconciliation from declaration-inclusive samples.
+Adapter synchronization is outside declaration and must not be subtracted a
+second time. For sparse text the 1200-sample deeper-stack repeat is used; for
+the sparse dashboard the two 1200-sample runs are pooled. All node-reconcile
+samples in these runs retain the outer declaration stack frame.
+
+| Sparse workload | Generate declarations | Front-end reconciliation | Backend sync | Combined | Equivalent one-core CPU at 60 Hz / 144 Hz |
+|---|---:|---:|---:|---:|---:|
+| 500 visible texts, one changes | about 46 µs | about 34 µs | about 1 µs | about 81 µs | 0.49% / 1.17% |
+| 48 transfers, one progress changes | about 115 µs | about 66 µs | about 1 µs | about 182 µs | 1.09% / 2.62% |
+
+The forced-unchanged controls give generation estimates of about 47/114 µs
+and combined generation+reconciliation+sync of about 80/183 µs respectively,
+consistent with the same amount of declaration work when inputs are unchanged.
+The much larger share of a cheaper unchanged frame is not a larger absolute
+cost.
+
+This generation+diff total excludes Taffy layout, flatten, text measurement,
+Scene encoding, rasterization and presentation. Total CPU preparation in the
+sparse cases remains about 310/925 µs. The unprofiled declaration wall-time
+counters of about 77/187 µs provide an independent scale check against sampled
+front-end CPU estimates of about 80/181 µs. These are different instruments,
+not precision-equivalent measurements.
+
+For these compact, cheap declaration workloads, generation+diff is still a
+small desktop CPU expense. A reactive path cannot eliminate this entire sum:
+it executes affected bindings/regions and pays its own notification/scheduling
+cost. The results do not predict application-wide speedups or workloads with
+expensive application-derived calculations.
