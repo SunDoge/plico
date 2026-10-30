@@ -622,7 +622,7 @@ impl SkiaSurface {
         let culling = culling.filter(|(_, damage)| matches!(damage, DamageRegion::Rect(_)));
         #[cfg(feature = "profiling")]
         let mut work = crate::diagnostics::ReplayWork::default();
-        let mut depth = 0usize;
+        let mut restore_counts = Vec::new();
         let mut skipped_scope = 0usize;
         for (index, command) in scene.commands.iter().enumerate() {
             #[cfg(feature = "profiling")]
@@ -708,14 +708,15 @@ impl SkiaSurface {
                 PaintCommand::PushClip { transform, clip } => {
                     canvas.save();
                     canvas.clip_path(&path(clip).make_transform(&matrix(*transform)), None, true);
-                    depth += 1;
+                    restore_counts.push(1u8);
                 }
                 PaintCommand::PopLayer => {
-                    if depth == 0 {
+                    let Some(restores) = restore_counts.pop() else {
                         return Err(Error::ClipStack);
+                    };
+                    for _ in 0..restores {
+                        canvas.restore();
                     }
-                    canvas.restore();
-                    depth -= 1;
                 }
                 PaintCommand::GlyphRun {
                     font,
@@ -782,15 +783,28 @@ impl SkiaSurface {
                     clip,
                     filter,
                 } => {
-                    if filter.is_some() {
-                        return unsupported("layer filter");
-                    }
                     if *blend != peniko::BlendMode::default() {
                         return unsupported("layer blend mode");
                     }
                     let mut layer_paint = Paint::default();
                     layer_paint.set_alpha_f(*alpha);
+                    let image_filter = filter
+                        .as_deref()
+                        .map(|filter| layer_image_filter(filter, *transform))
+                        .transpose()?
+                        .flatten();
+                    let has_filter = image_filter.is_some();
+                    if let Some(filter) = image_filter {
+                        layer_paint.set_image_filter(filter);
+                    }
                     let clip = path(clip).make_transform(&matrix(*transform));
+                    if has_filter {
+                        // A paint image filter runs when the layer restores, after
+                        // clips installed inside it are gone. Keep an outer scope
+                        // so blurred output cannot escape the requested clip.
+                        canvas.save();
+                        canvas.clip_path(&clip, None, true);
+                    }
                     // Bounds are an allocation hint; preserve the original AA
                     // clip and group opacity instead of clipping twice.
                     canvas.save_layer(
@@ -798,8 +812,10 @@ impl SkiaSurface {
                             .bounds(clip.bounds())
                             .paint(&layer_paint),
                     );
-                    canvas.clip_path(&clip, None, true);
-                    depth += 1;
+                    if !has_filter {
+                        canvas.clip_path(&clip, None, true);
+                    }
+                    restore_counts.push(if has_filter { 2 } else { 1 });
                 }
                 PaintCommand::Stroke {
                     style,
@@ -913,7 +929,7 @@ impl SkiaSurface {
                 PaintCommand::Shader { .. } => return unsupported("Shader"),
             }
         }
-        if depth != 0 {
+        if !restore_counts.is_empty() {
             return Err(Error::ClipStack);
         }
         #[cfg(feature = "profiling")]
@@ -1074,6 +1090,44 @@ fn paint(
         }
     }
     Ok(paint)
+}
+
+fn layer_image_filter(
+    filter: &vello_common::filter_effects::Filter,
+    transform: Affine,
+) -> Result<Option<skia_safe::ImageFilter>, Error> {
+    use vello_common::filter_effects::{EdgeMode, FilterPrimitive};
+
+    if filter.graph.output.0 != 0 || filter.graph.primitives.len() != 1 {
+        return unsupported("layer filter graph");
+    }
+    let FilterPrimitive::GaussianBlur {
+        std_deviation,
+        edge_mode,
+    } = filter.graph.primitives[0]
+    else {
+        return unsupported("layer filter primitive");
+    };
+    if !std_deviation.is_finite() || std_deviation < 0. {
+        return unsupported("layer blur sigma");
+    }
+    if std_deviation == 0. {
+        return Ok(None);
+    }
+    let tile_mode = match edge_mode {
+        EdgeMode::None => skia_safe::TileMode::Decal,
+        EdgeMode::Duplicate => skia_safe::TileMode::Clamp,
+        EdgeMode::Wrap => skia_safe::TileMode::Repeat,
+        EdgeMode::Mirror => skia_safe::TileMode::Mirror,
+    };
+    let [a, b, c, d, ..] = transform.as_coeffs();
+    let sigma_x = std_deviation * a.hypot(b) as f32;
+    let sigma_y = std_deviation * c.hypot(d) as f32;
+    skia_safe::image_filters::blur((sigma_x, sigma_y), tile_mode, None, None)
+        .map(Some)
+        .ok_or(Error::Unsupported {
+            command: "layer blur filter",
+        })
 }
 
 fn matrix(transform: Affine) -> Matrix {

@@ -44,8 +44,8 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
         Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_function(
-                vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+            vello_common::filter_effects::Filter::from_primitive(
+                vello_common::filter_effects::FilterPrimitive::Offset { dx: 1., dy: 1. },
             ),
         )),
         None,
@@ -53,7 +53,7 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "layer filter"
+            command: "layer filter primitive"
         })
     ));
     assert!(matches!(
@@ -74,6 +74,59 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         surface.render_scene(&unclosed, Color::WHITE),
         Err(Error::ClipStack)
     ));
+}
+
+#[test]
+fn gaussian_layer_filter_blurs_contents_and_respects_clip() {
+    let mut scene = Scene::new();
+    scene.push_layer(
+        peniko::BlendMode::default(),
+        1.,
+        Affine::IDENTITY,
+        &Rect::new(2., 2., 14., 14.),
+        Some(std::sync::Arc::new(
+            vello_common::filter_effects::Filter::from_function(
+                vello_common::filter_effects::FilterFunction::Blur { radius: 2. },
+            ),
+        )),
+        None,
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(255, 0, 0),
+        None,
+        &Rect::new(0., 0., 8., 16.),
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(0, 0, 255),
+        None,
+        &Rect::new(8., 0., 16., 16.),
+    );
+    scene.pop_layer();
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(0, 255, 0),
+        None,
+        &Rect::new(7., 7., 9., 9.),
+    );
+
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+    assert_eq!(pixel(&bytes, 1, 8), [255; 4], "clip must contain blur");
+    assert_eq!(
+        pixel(&bytes, 8, 8),
+        [0, 255, 0, 255],
+        "foreground stays sharp"
+    );
+    let mixed = pixel(&bytes, 7, 10);
+    assert!(
+        mixed[0] > 0 && mixed[2] > 0,
+        "expected blurred red/blue mixing: {mixed:?}"
+    );
 }
 
 #[test]
