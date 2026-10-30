@@ -3,13 +3,13 @@
 ## 当前主线
 
 plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续共用；
-新工作默认采用 Regions Reactive 状态驱动，已有 immediate `App::show` 仍受支持，
-并保留为迁移对照及经 profiling 确认的局部路径。backend-settings 已完整迁移并默认
-使用 Reactive；其他既有应用不因 API 常驻而自动改写。旧 crates/plico 响应式 Runtime、
+新工作、生成模板和 backend-settings 默认采用 Immediate `App::show`。Regions/Reactive
+机制、测试与示例保留，但暂不作为默认应用路径；未来有明确的大型局部更新需求时，
+可按区域定向启用，而不是恢复全局依赖收集。旧 crates/plico 响应式 Runtime、
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
-`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，region 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度；Button 支持背景、禁用和 selected，并可继续链接触发事件。一次性 focus/reveal 有显式 consume 桥接；单源 root-owned `derived` 按输出相等性抑制无关区域通知，checkpoint 后重新计算。非法属性、精确 dirty 分类、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
+`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，region 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度；Button 支持背景、禁用和 selected，并可继续链接触发事件。一次性 focus/reveal 有显式 consume 桥接；单源 root-owned `derived` 按输出相等性抑制无关区域通知，checkpoint 后重新计算。非法属性、精确 dirty 分类、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的 `Settings` 保留完整 Reactive 三路页面、跨路由上层状态和局部动画 settle，用于语义/几何与性能对照；正常入口和生成模板使用 Immediate。接入与限制见 [Regions](regions.md)。
 
 ## 已实现
 
@@ -99,13 +99,13 @@ Skia command-stream damage and per-image history, CPU culling and optional Vulka
 incremental-present hints are implemented as opt-in experiments. Tracked partial
 redraws consume Reactive Scene Fragments natively and cull whole unchanged Regions;
 full redraws and Vello/Web retain the expanded replay path. Region-level damage is
-conservative rather than a minimal per-leaf rectangle. Normal windows use full
-drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
-pass, but the real settings theme animation exposes four one-channel-step pixels
-near a dirty clip edge. A reduced raster probe reproduces this with a rounded
-stroke inside a translucent layer, even without command culling. The 240-frame
-settings probe permits explicitly bounded AA rounding (at most 16 pixels, one
-channel step), checks unchanged pixels outside damage exactly, and retains an
-optional strict mode; measured maximum is eight pixels with no growth at rest. Vello's preserved-target partial
+conservative rather than a minimal per-leaf rectangle. Normal windows skip an exactly
+unchanged presented Scene by default (`PLICO_SKIA_PRESENT_SKIP=0` disables this);
+partial drawing remains opt-in with `PLICO_SKIA_DAMAGE=1`. The tracker expands
+partially intersected top-level text and stroke commands to their complete bounds;
+the strict Immediate 240-frame settings probe and repeated-input raster matrices
+match full redraws exactly, at a measured coverage/raster cost. Fragment-internal
+AA and explicitly supplied damaged regions remain outside that guarantee, and the
+reduced dirty-clip probe stays an ignored diagnostic. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).

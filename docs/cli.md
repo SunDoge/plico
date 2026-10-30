@@ -17,7 +17,7 @@ Cargo 的 `rustc-wrapper` 配置。需要覆盖命令时设置 `PLICO_CARGO=/pat
 
 ## 普通 Rust 项目
 
-生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个 `Application = RegionApp<Program>`；Regions 通过 `plico_dev::App` 接入现有开发与热重载协议：
+生成的项目包含 `src/main.rs` 和 `src/lib.rs`，共享同一个普通 Rust `Application`；它直接实现 `plico_dev::App::show`，通过 Immediate API 接入现有开发与热重载协议。计数器使用 `UiContext::persisted_state` 保留检查点状态，不引入 Regions：
 
 ```sh
 cd /tmp/my-plico-app

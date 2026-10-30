@@ -593,34 +593,24 @@ opt-level = 2
     std::fs::write(
         path.join("src/lib.rs"),
         r#"use plico::prelude::*;
-use plico_runtime::regions::{OnClick, Reactive, RegionApp, RegionProgram, Regions, State};
 
-#[component]
-#[rustfmt::skip]
-fn application(cx: &mut UiContext, count: State<u32>) {
-    column(cx).gap(12.).padding(24.) + |cx| {
-        text(cx, "Hello Plico").font_size(28);
-        text_empty(cx).rx(count, |node, count| {
-            node.text(format!("Count: {}", *count.read()));
-        });
-        button(cx).text("Increment").on_click(count, |count| {
-            count.update(|value| *value += 1);
-        });
-    };
-}
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct Application;
 
-pub struct Program;
-
-impl RegionProgram for Program {
-    fn build() -> Regions {
-        Regions::new(|app| {
-            let count = app.persisted_state(1, || 0_u32);
-            app.root((count,), |cx, (count,)| application(cx, count.handle()));
-        })
+impl plico_dev::App for Application {
+    #[component]
+    #[rustfmt::skip]
+    fn show(&mut self, cx: &mut UiContext) {
+        let count = cx.persisted_state("count", || 0_u32);
+        column(cx).gap(12.).padding(24.) + |cx| {
+            text(cx, "Hello Plico").font_size(28);
+            text!(cx, "Count: {}", count.get());
+            if button(cx).text("Increment").clicked() {
+                count.update(|value| *value += 1);
+            }
+        };
     }
 }
-
-pub type Application = RegionApp<Program>;
 
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 plico_dev::export_app!(Application);
@@ -649,7 +639,7 @@ plico_dev::export_app!(Application);
 mod tests {
     use super::*;
     #[test]
-    fn starter_projects_default_to_reactive_regions() {
+    fn starter_projects_default_to_immediate_app() {
         let temp = tempfile::tempdir().unwrap();
         let framework = temp.path().join("framework");
         std::fs::create_dir_all(framework.join("crates/plico-dev")).unwrap();
@@ -659,9 +649,9 @@ mod tests {
         let manifest = std::fs::read_to_string(app.join("Cargo.toml")).unwrap();
         let source = std::fs::read_to_string(app.join("src/lib.rs")).unwrap();
         assert!(manifest.contains("plico-runtime = { path ="));
-        assert!(source.contains("pub type Application = RegionApp<Program>;"));
-        assert!(source.contains("app.persisted_state(1, || 0_u32)"));
-        assert!(!source.contains("impl plico_dev::App for Application"));
+        assert!(source.contains("impl plico_dev::App for Application"));
+        assert!(source.contains("cx.persisted_state(\"count\", || 0_u32)"));
+        assert!(!source.contains("RegionApp"));
     }
 
     #[test]
