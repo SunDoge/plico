@@ -25,6 +25,8 @@ mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
 pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
+mod visibility;
+pub use visibility::VisibleRegion;
 mod virtual_list;
 pub use virtual_list::{VirtualList, VirtualListResponse};
 mod numeric;
@@ -159,7 +161,7 @@ pub mod prelude {
         Modifiers, Motion, PopoverState, Position, Response, Route, Router, SelectOption,
         SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut,
         SvgAsset, TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
-        VirtualListResponse, Widget, component, fr, minmax, percent, px, text,
+        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
     };
 }
 

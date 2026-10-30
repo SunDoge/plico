@@ -107,12 +107,14 @@ fn position(index: usize) -> [f32; 2] {
         (index / 32) as f32 * 290. + 12.,
     ]
 }
-fn visible(index: usize, ports: usize) -> bool {
+fn visible(region: VisibleRegion, index: usize, ports: usize) -> bool {
     let [x, y] = position(index);
-    x < WIDTH && y < CANVAS_HEIGHT && x + 220. > 0. && y + ports as f32 * 18. + 64. > 0.
+    region.intersects([x, y, x + 220., y + ports as f32 * 18. + 64.])
 }
 #[component]
 fn canvas(cx: &mut UiContext<'_>, config: Config, tick: usize, reactive: Option<&GraphState>) {
+    let viewport =
+        VisibleRegion::from_size([cx.viewport_width(), (cx.viewport_size()[1] - 80.).max(0.)]);
     column(cx).width_percent(100.).height_percent(100.).background(Color::Surface).children(|cx| {
         column(cx).height(80.).padding(12).gap(4).shrink(0.).children(|cx| {
             text(cx, "Workflow graph · sparse execution activity").font_size(22).weight(700);
@@ -120,7 +122,7 @@ fn canvas(cx: &mut UiContext<'_>, config: Config, tick: usize, reactive: Option<
         });
         column(cx).width_percent(100.).height(0.).grow(1.).clip(true).background(Color::Panel).children(|cx| {
             for index in 0..config.nodes {
-                if config.visible_only && !visible(index, config.ports) { continue; }
+                if config.visible_only && !visible(viewport, index, config.ports) { continue; }
                 let [x,y] = position(index);
                 column(cx).key(index as u64).absolute(x,y).width(220.).height(config.ports as f32 * 18. + 64.)
                     .padding(8).radius(8.).background(Color::Surface).border(1.,Color::Border).children(|cx| {

@@ -24,7 +24,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
 - Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
-- 虚拟列表、smooth scroll、宿主滚动和声明分离、条件帧调度。
+- [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；不引入空间索引或自动节点几何订阅。虚拟列表复用该计算，保留 smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
 - 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
 - [窗口内快捷键](shortcuts.md)：App/ServiceApp 完整组合键、显式作用域 action 表、冲突检查，以及静态/热重载一致的事件转发。

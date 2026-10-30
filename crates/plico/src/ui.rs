@@ -299,6 +299,12 @@ impl<'e> UiContext<'e> {
     pub fn viewport_size(&self) -> [f32; 2] {
         self.engine.viewport_size()
     }
+    /// Root window visibility in logical coordinates, not the current container's
+    /// layout or clip. Use `to_local` and intersect explicit container bounds for
+    /// nested content. Drawing still needs the usual layout clip.
+    pub fn viewport_region(&self) -> crate::VisibleRegion {
+        crate::VisibleRegion::from_size(self.viewport_size())
+    }
     /// Logical width of the root viewport, for responsive application layouts.
     pub fn viewport_width(&self) -> f32 {
         self.engine.viewport_width()

@@ -15,8 +15,9 @@ cargo run --release -p backend-settings --features skia --example graph_declarat
 cargo run --release -p backend-settings --features skia --example graph_declaration -- --immediate --visible-only
 ```
 
-The camera/culling rectangle is fixed at 1440 × 920 logical pixels. This is a
-workload, not a complete graph editor; resize does not change that rectangle.
+The benchmark viewport is 1440 × 1000 logical pixels, with an 80-pixel header.
+Window culling uses the shared `VisibleRegion` query and follows window resize;
+the camera remains fixed. This is a workload, not a complete graph editor.
 
 For isolated state mutation + declaration + reconciliation, without layout,
 text shaping, scene encoding, rasterization, GPU, or a window:
