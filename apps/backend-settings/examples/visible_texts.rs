@@ -20,6 +20,7 @@ use std::{
 #[derive(usage_rs::Cli)]
 #[usage(about = "Compare a visible text grid or download dashboard on the same Skia backend")]
 struct Options {
+    /// Use immediate in a window; with --headless, run only the immediate workload.
     #[usage(long)]
     immediate: bool,
     /// Batch-download dashboard: 48 visible tasks with segmented progress meters.
@@ -27,6 +28,9 @@ struct Options {
     downloads: bool,
     #[usage(long)]
     headless: bool,
+    /// Headless forced redeclaration with unchanged values (not an idle-window test).
+    #[usage(long)]
+    unchanged: bool,
     /// Emit existing Skia cache counters outside timed samples (requires plico-skia/profiling).
     #[usage(long)]
     cache_stats: bool,
@@ -314,6 +318,25 @@ fn prepare(source: &mut Source<Texts>, text: &mut TextContext, scene: &mut Scene
         .unwrap();
     assert!(source.last_error.is_none(), "{:?}", source.last_error);
 }
+// Two clock reads around the entire measured batch, never per node/property.
+fn thread_cpu_ns() -> u128 {
+    #[cfg(target_os = "linux")]
+    {
+        let mut time = std::mem::MaybeUninit::<libc::timespec>::uninit();
+        // SAFETY: clock_gettime writes a timespec to a correctly sized output.
+        assert_eq!(
+            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: successful clock_gettime initialized the output.
+        let time = unsafe { time.assume_init() };
+        time.tv_sec as u128 * 1_000_000_000 + time.tv_nsec as u128
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
 fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
     let mut source = Source::new(Texts::new(immediate, options.downloads));
     source.set_reduced_motion(true);
@@ -322,15 +345,26 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
     surface.configure_text(&mut text);
     let mut scene = Scene::new();
     prepare(&mut source, &mut text, &mut scene);
+    if !immediate {
+        assert!(
+            source.adapter.stats.scene_fragment_builds + source.adapter.stats.scene_fragment_reuses
+                > 0,
+            "reactive benchmark must exercise retained Scene fragments"
+        );
+    }
     if options.cache_stats {
         surface.draw_scene(&scene, peniko::Color::WHITE).unwrap();
     }
     let mut samples = Vec::with_capacity(options.updates);
     let (mut declared, mut backend, mut visited, mut flattened, mut layouts) =
         (0_u128, 0_u128, 0, 0, 0);
+    let mut cpu_start = 0;
     for i in 0..options.warmup + options.updates {
+        if i == options.warmup {
+            cpu_start = thread_cpu_ns();
+        }
         let start = Instant::now();
-        source.view.set(i + 1);
+        source.view.set(if options.unchanged { 0 } else { i + 1 });
         source.request_rebuild();
         prepare(&mut source, &mut text, &mut scene);
         if i >= options.warmup {
@@ -342,20 +376,21 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
             layouts += source.adapter.stats.layout_runs;
         }
     }
+    let mean_cpu_us = if cfg!(target_os = "linux") {
+        format!(
+            "{:.2}",
+            (thread_cpu_ns() - cpu_start) as f64 / options.updates as f64 / 1000.
+        )
+    } else {
+        "NA".to_owned()
+    };
     if options.cache_stats {
         surface.draw_scene(&scene, peniko::Color::WHITE).unwrap();
-    }
-    if !immediate {
-        assert!(
-            source.adapter.stats.scene_fragment_builds + source.adapter.stats.scene_fragment_reuses
-                > 0,
-            "reactive benchmark must exercise retained Scene fragments"
-        );
     }
     samples.sort_unstable();
     let n = options.updates as f64;
     println!(
-        "{},{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{},{}",
+        "{},{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{},{},{}",
         if immediate { "immediate" } else { "reactive" },
         samples[options.updates / 2] as f64 / 1000.,
         samples[(options.updates * 95 / 100).min(options.updates - 1)] as f64 / 1000.,
@@ -365,7 +400,8 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
         flattened as f64 / n,
         layouts as f64 / n,
         scene.commands.len(),
-        scene.flattened().commands.len()
+        scene.flattened().commands.len(),
+        mean_cpu_us
     );
     let result: Vec<_> = source
         .adapter
@@ -383,7 +419,14 @@ fn bench(immediate: bool, options: &Options) -> Vec<(String, [f32; 4])> {
         assert_eq!(result.len(), 500);
     }
     if options.downloads {
-        let expected = format!("{}%", (options.warmup + options.updates) % 100);
+        let expected = format!(
+            "{}%",
+            if options.unchanged {
+                0
+            } else {
+                (options.warmup + options.updates) % 100
+            }
+        );
         assert!(
             source
                 .adapter
@@ -454,6 +497,11 @@ fn main() -> Result<(), Error> {
             .with_writer(std::io::stderr)
             .init();
     }
+    if options.unchanged && !options.headless {
+        return Err(Error::Option {
+            message: "--unchanged requires --headless",
+        });
+    }
     if options.hz == 0 || options.hz > 240 || options.updates == 0 {
         return Err(Error::Option {
             message: "hz must be 1..240 and updates must be positive",
@@ -461,11 +509,13 @@ fn main() -> Result<(), Error> {
     }
     if options.headless {
         println!(
-            "model,p50_us,p95_us,mean_declare_us,mean_backend_us,visited,flattened,layout_runs,top_level_commands,expanded_commands"
+            "model,p50_us,p95_us,mean_declare_us,mean_backend_us,visited,flattened,layout_runs,top_level_commands,expanded_commands,mean_thread_cpu_us"
         );
         let a = bench(true, &options);
-        let b = bench(false, &options);
-        assert_eq!(a, b, "both models must produce identical text and geometry");
+        if !options.immediate {
+            let b = bench(false, &options);
+            assert_eq!(a, b, "both models must produce identical text and geometry");
+        }
         return Ok(());
     }
     let mut view = Texts::new(options.immediate, options.downloads);
