@@ -341,6 +341,11 @@ impl SceneDamageTracker {
                     }
                     bounds
                 }
+                PaintCommand::Fragment { scene, .. } if scene.has_nonlocal_effects() => {
+                    self.nonlocal = true;
+                    self.regions.add(DamageRegion::Full);
+                    DamageRegion::Full
+                }
                 PaintCommand::Shader { .. } => {
                     self.nonlocal = true;
                     self.regions.add(DamageRegion::Full);
@@ -392,7 +397,9 @@ impl SceneDamageTracker {
     }
 
     /// Do not let the outer damage clip cut through text or stroked AA geometry.
-    /// Plain fills keep their original damage; unknown AA bounds may reach Full.
+    /// Retained fragments are atomic here: expand to their complete bounds so
+    /// nested text/strokes are not cut by the outer damage clip. Plain fills
+    /// keep their original damage; unknown bounds may reach Full.
     fn expand_to_whole_command_bounds(&mut self, commands: &[crate::PaintCommand]) {
         use crate::PaintCommand;
         let mut index = 0;
@@ -403,6 +410,7 @@ impl SceneDamageTracker {
                 if !matches!(
                     command,
                     PaintCommand::Paragraph { .. }
+                        | PaintCommand::Fragment { .. }
                         | PaintCommand::Stroke { .. }
                         | PaintCommand::GlyphRun { .. }
                 ) {
@@ -524,6 +532,43 @@ mod tracker_tests {
         );
     }
     #[test]
+    fn nested_nonlocal_effects_invalidate_unchanged_frames_and_removal() {
+        let mut filtered = Scene::new();
+        filtered.push_layer(
+            peniko::BlendMode::default(),
+            1.,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 10., 10.),
+            Some(std::sync::Arc::new(
+                vello_common::filter_effects::Filter::from_function(
+                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                ),
+            )),
+            None,
+        );
+        filtered.pop_layer();
+        let mut inner = Scene::new();
+        inner.append_cached_scene(filtered, Affine::IDENTITY);
+        let mut outer = Scene::new();
+        outer.append_cached_scene(inner, Affine::IDENTITY);
+        assert!(outer.has_nonlocal_effects());
+        let mut tracker = SceneDamageTracker::default();
+        for _ in 0..3 {
+            assert_eq!(
+                tracker.update(&outer, 100, 100, |_| Some(Rect::new(0., 0., 10., 10.))),
+                DamageRegion::Full
+            );
+        }
+        let empty = Scene::new();
+        assert!(!empty.has_nonlocal_effects());
+        assert_eq!(tracker.update(&empty, 100, 100, bounds), DamageRegion::Full);
+        assert_eq!(
+            tracker.update(&empty, 100, 100, bounds),
+            DamageRegion::Empty
+        );
+    }
+
+    #[test]
     fn aa_commands_expand_partial_intersections_but_plain_fills_do_not() {
         let paragraph = PaintCommand::Paragraph {
             request: std::sync::Arc::new(
@@ -548,8 +593,10 @@ mod tracker_tests {
         );
         let stroke = stroked.commands[0].clone();
         for command in [paragraph, stroke] {
-            let mut tracker = SceneDamageTracker::default();
-            tracker.bounds = vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))];
+            let mut tracker = SceneDamageTracker {
+                bounds: vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))],
+                ..Default::default()
+            };
             tracker
                 .regions
                 .add(DamageRegion::Rect(Rect::new(10., 10., 20., 20.)));
@@ -561,8 +608,10 @@ mod tracker_tests {
         }
 
         let fill = scene(0.).commands[0].clone();
-        let mut tracker = SceneDamageTracker::default();
-        tracker.bounds = vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))];
+        let mut tracker = SceneDamageTracker {
+            bounds: vec![DamageRegion::Rect(Rect::new(0., 0., 60., 60.))],
+            ..Default::default()
+        };
         tracker
             .regions
             .add(DamageRegion::Rect(Rect::new(10., 10., 20., 20.)));

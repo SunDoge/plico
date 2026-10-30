@@ -26,16 +26,7 @@ impl PresentationHistory {
     fn record(&mut self, scene: &Scene, background: Color) {
         // External/time-dependent effects are never proven unchanged solely
         // by command equality, even if their retained handles are identical.
-        let stable = !scene.commands.iter().any(|c| {
-            matches!(
-                c,
-                plico_renderer::PaintCommand::Shader { .. }
-                    | plico_renderer::PaintCommand::PushLayer {
-                        filter: Some(_),
-                        ..
-                    }
-            )
-        });
+        let stable = !scene.has_nonlocal_effects();
         if !stable {
             self.previous = None;
         } else if let Some((previous, color)) = &mut self.previous {
@@ -809,6 +800,36 @@ mod tests {
             "expose/recreation must present again"
         );
     }
+    #[test]
+    fn unchanged_present_rejects_filters_inside_nested_fragments() {
+        use plico_renderer::PaintScene;
+        let mut filtered = Scene::new();
+        filtered.push_layer(
+            peniko::BlendMode::default(),
+            1.,
+            kurbo::Affine::IDENTITY,
+            &Rect::new(0., 0., 10., 10.),
+            Some(Arc::new(
+                vello_common::filter_effects::Filter::from_function(
+                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                ),
+            )),
+            None,
+        );
+        filtered.pop_layer();
+        let mut inner = Scene::new();
+        inner.append_cached_scene(filtered, kurbo::Affine::IDENTITY);
+        let mut outer = Scene::new();
+        outer.append_cached_scene(inner, kurbo::Affine::IDENTITY);
+        let mut history = PresentationHistory::default();
+        history.record(&Scene::new(), Color::WHITE);
+        for _ in 0..2 {
+            history.record(&outer, Color::WHITE);
+            assert!(!history.unchanged(&outer, Color::WHITE));
+        }
+        assert!(!history.unchanged(&Scene::new(), Color::WHITE));
+    }
+
     #[test]
     fn present_regions_round_outwards_and_clamp_to_surface() {
         let r =

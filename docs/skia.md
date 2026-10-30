@@ -268,7 +268,8 @@ Vello paint 上传桥接仍使用 `vello_common`，保留相关直接依赖。�
   之前跳过完全相同的帧；`PLICO_SKIA_PRESENT_SKIP=0` 禁用。Shader 和 filter 不
   被视为可证明不变。不是根据某个交换链 image 的 Empty damage 跳过显示：
   A→B→A 仍需呈现，尺寸/交换链重建、窗口恢复、显式 invalidation 也强制呈现。
-  历史 Scene 使用 `clone_from` 复用命令分配，避免每个动画帧重新分配一份快照。
+  历史 Scene 共享不可变的 COW 命令存储，不逐项深拷贝绘制命令。嵌套 Fragment
+  内的 shader、filter 和非默认 blend 同样按保守路径处理。
 - `PLICO_SKIA_DAMAGE=1 PLICO_SKIA_MULTI_RECT=1`：为每个交换链 image 独立保留
   最多八个不重叠脏矩形，合并相交/相接区域，超额时合并增加面积最少的一对。
   逐矩形设置非 AA 的整数 clip/scissor，局部清除并按原顺序回放相交命令。
@@ -277,9 +278,9 @@ Vello paint 上传桥接仍使用 `vello_common`，保留相关直接依赖。�
 多个矩形重放时不会将同一像素混合多次。背景变化、未知/非局部效果、首次
 绘制及失败恢复仍走全量；密集变化按实际脏区面积触发全量 cooldown。Tracker 还会把
 与 damage 部分相交的 Paragraph、GlyphRun、Stroke 扩张到完整命令 bounds，避免
-整数 clip 切开文字或 stroke 的 AA 光栅化；普通 Fill 不做这种扩张。该策略会增加
-覆盖率与光栅化成本，且不递归 Fragment 内部，详见 performance.md 的严格像素与
-成本对照。显式 `draw_scene_damaged` 绕过 tracker，调用者仍须提供安全 damage。
+整数 clip 切开文字或 stroke 的 AA 光栅化；普通 Fill 不做这种扩张。Fragment 作为
+原子边界扩张到完整 bounds，保护内部嵌套文字与描边，但不计算其内部的最小 damage。
+该策略会增加覆盖率与光栅化成本，详见 performance.md 的严格像素与成本对照。显式 `draw_scene_damaged` 绕过 tracker，调用者仍须提供安全 damage。
 核心 `DamageRegion` 的 Copy/单包围框 API 保持兼容；多矩形通过
 `SceneDamageTracker::damage_rects()` 读取。`last_damage()` 仍是保守包围框，
 实际覆盖与数量使用 `last_damage_coverage()` / `last_damage_rect_count()`。

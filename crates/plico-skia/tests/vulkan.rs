@@ -276,3 +276,59 @@ fn budget_and_trim_preserve_pixels_and_tracked_history() {
     gpu.draw_scene(&scene, Color::WHITE).unwrap();
     assert_eq!(gpu.read_pixels().unwrap(), expected);
 }
+
+#[test]
+#[ignore = "requires Vulkan; checks nested fragment AA with partial redraw and resize"]
+fn nested_text_fragment_damage_matches_full_gpu_pixels() {
+    use plico_renderer::{DamageRegion, PaintCommand, paragraph::ParagraphRequest, style::Paint};
+    use std::sync::Arc;
+    let request = Arc::new(
+        ParagraphRequest::from_paint(
+            &Paint {
+                text: Some("Settings S".into()),
+                font_size: 23.,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap(),
+    );
+    let mut text = Scene::new();
+    text.commands.push(PaintCommand::Paragraph {
+        request,
+        transform: Affine::translate((8.25, 8.5)),
+    });
+    let mut inner = Scene::new();
+    inner.append_cached_scene(text, Affine::translate((0.25, 0.5)));
+    let mut partial = SkiaGpuSurface::new(240, 100).unwrap();
+    let mut full = SkiaGpuSurface::new(240, 100).unwrap();
+    println!(
+        "nested fragment comparison device={}",
+        partial.device_name()
+    );
+    partial.set_multi_rect_damage(true);
+    let mut partial_frames = 0;
+    for frame in 0..60 {
+        if frame == 30 {
+            partial.resize(260, 110).unwrap();
+            full.resize(260, 110).unwrap();
+        }
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(frame * 3, 180, 210),
+            None,
+            &Rect::new(8. + f64::from(frame), 8., 14. + f64::from(frame), 25.),
+        );
+        scene.append_cached_scene(inner.clone(), Affine::translate((4.5, 4.25)));
+        let damage = partial.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+        partial_frames += usize::from(matches!(damage, DamageRegion::Rect(_)));
+        full.draw_scene(&scene, Color::WHITE).unwrap();
+        assert!(
+            partial.read_pixels().unwrap() == full.read_pixels().unwrap(),
+            "frame={frame} damage={damage:?}"
+        );
+    }
+    assert!(partial_frames > 50, "partial_frames={partial_frames}");
+}

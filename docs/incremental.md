@@ -49,7 +49,7 @@ Skia 的 opt-in tracked damage 不再预先把所有 `Fragment` 展开。Tracker
 
 这不是 Vello/Web 的原生 Fragment 缓存：它们仍沿既有展开/普通 painter 路径。Skia 普通窗口默认跳过完全相同的已显示 Scene（`PLICO_SKIA_PRESENT_SKIP=0` 可对照），局部绘制仍默认全量，只有 `PLICO_SKIA_DAMAGE=1` 等 opt-in 入口使用 tracked damage。2026-10-30 将 damage 外层裁剪显式改为设备整数 `clipIRect` 后，严格 rounded-stroke 回归仍有 2 个 AA 差异像素，因此取整或固定外扩 bounds 本身不是 pixel-perfect 修复。
 
-随后 Tracker 对与 damage 部分相交的顶层 Paragraph、GlyphRun、Stroke 迭代扩张到完整命令 bounds，避免 outer clip 切开 AA 光栅化。Immediate `damage_probe` 的严格 240 帧以及 routed/多面板重复输入矩阵均达到 0 个最终差异像素，同时保留部分 Partial 帧；但 typing 覆盖率和 raster 成本明显增加，具体数据见 performance.md。该扩张不递归 Fragment 内部，显式 `draw_scene_damaged` 也绕过 Tracker，所以局部 damage 继续 opt-in，不能宣称所有 Reactive 或手工 damage 输入都已修复。
+随后 Tracker 对与 damage 部分相交的顶层 Paragraph、GlyphRun、Stroke 迭代扩张到完整命令 bounds，避免 outer clip 切开 AA 光栅化。Immediate `damage_probe` 的严格 240 帧以及 routed/多面板重复输入矩阵均达到 0 个最终差异像素，同时保留部分 Partial 帧；但 typing 覆盖率和 raster 成本明显增加，具体数据见 performance.md。后续补上 Fragment 原子边界扩张：脏区穿过未变化 Fragment 时也纳入其完整 bounds，避免裁断嵌套文字或描边；CPU 单/多矩形和 Intel Vulkan 的嵌套文字像素对照通过。Fragment 内 shader/filter/非默认 blend 递归检测，持续要求全量重绘，移除效果后的首帧也全量恢复。显式 `draw_scene_damaged` 绕过 Tracker，调用者仍负责安全边界；局部 damage 继续 opt-in，不据此宣称任意手工 damage 输入均安全。
 
 新增像素 oracle 覆盖 Fragment 移动、内部颜色变化、删除、内部 clip、重复不变帧和旧/新 bounds；Reactive Settings 的真实 Fragment 也与全量 Skia redraw 比较。既有 paragraph、稀疏 damage 和交换链历史回归继续保留。
 
@@ -93,3 +93,19 @@ cargo run -p plico-desktop --example incremental
 `reports/incremental/report.json` 的历史实验使用模拟时钟比较 1000 个文本节点中的单个 opacity 动画和 width 动画。该示例刻意使用拥有所有权的快照接口；实际原生路径通过 `render_retained_frame` 直接消费保留节点。Scene 快照使用 COW 共享命令，修改被共享的快照时才复制，reset 不先复制旧内容。历史报告的具体数字应结合其对应版本阅读，不代表上述 Regions fragment 路径。
 
 更多缓存与输出路径实验见 [cache.md](cache.md)。Reactive 属性 API 支持 `.rx(state, callback)` 和 `.rx((a, b), callback)`，见 [Regions](regions.md#text-属性级绑定)。
+
+### 嵌套 Fragment 的 damage 边界收尾（2026-10-30）
+
+修复前，小色块的脏区穿过未变化的两层 Fragment 内的斜体文字/半透明描边时，
+CPU raster 在第 2 帧就与全量绘制不同。Tracker 现在把相交 Fragment 当作不可分割的
+绘制命令，迭代扩张到它的完整边界；不新增 Fragment 内部失效表或子树 diff。
+代价是重叠的大 Fragment 可能扩大脏区甚至回退全量，因此仍保持 opt-in。
+
+回归覆盖 120 帧、CPU 单/多矩形模式，均严格逐字节相等；另在 Intel Graphics (ARL)
+Vulkan 上验证了 60 帧、多矩形和 resize，与全量 GPU 绘制严格相等且仍保留部分重绘帧。
+当前 Immediate settings 的严格 240 帧探针仍为 0 个差异像素。
+
+相同 Scene 跳过提交和 damage 检测现在都递归识别 Fragment 内 shader/filter/非默认
+blend；这些效果不能仅凭命令相等判断为静止。测试覆盖持续效果与移除后首帧恢复。
+显式手工 damage、窗口系统呈现行为及其他 GPU 平台仍需要各自验证，不能将离屏像素
+对照当成所有平台的交换链验证。
