@@ -1,5 +1,5 @@
 //! Minimal native-widget proof, not a second gallery.
-use plico::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
+use plico::{Engine, Entity, FrameError, Kind, Theme, View, prelude::*};
 use plico_lvgl::{Adapter, Driver, Snapshot};
 use snafu::{OptionExt, ResultExt, Snafu};
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ struct Counter {
     disabled: bool,
     rows: Vec<u64>,
 }
-impl DeclareView for Counter {
+impl View for Counter {
     fn theme(&self) -> Theme {
         Theme::default()
     }

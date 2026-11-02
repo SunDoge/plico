@@ -1,12 +1,12 @@
 //! Native host zoom is separate from the renderer-free application state.
 use plico::prelude::*;
-use plico_desktop::{Source, View, WindowOptions, ZoomController, ZoomSource};
+use plico_desktop::{HostView, Source, WindowOptions, ZoomController, ZoomSource};
 struct Demo {
     zoom: ZoomController,
     count: u32,
     editor: plico::TextBuffer,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

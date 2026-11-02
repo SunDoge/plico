@@ -76,6 +76,7 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build -p plico-cli -p plico-desktop
 python3 scripts/check-hotreload.py
+python3 scripts/check-regions-window-reload.py
 python3 scripts/check-text-input-reload.py
 python3 scripts/check-modal-reload.py
 ```

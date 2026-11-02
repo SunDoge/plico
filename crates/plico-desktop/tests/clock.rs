@@ -1,5 +1,5 @@
 use plico::{Clock, FrameTime, UiContext, VirtualClock, component};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use std::time::Duration;
 #[derive(Default)]
@@ -7,7 +7,7 @@ struct Timed {
     seen: Vec<FrameTime>,
     count: u32,
 }
-impl View for Timed {
+impl HostView for Timed {
     #[component]
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.seen.push(ui.time());
@@ -60,7 +60,7 @@ fn injected_clock_drives_ui_pause_and_future_frames_without_sleep() {
 #[test]
 fn injected_clock_drives_host_layout_tweens_too() {
     struct BoxView(bool);
-    impl View for BoxView {
+    impl HostView for BoxView {
         fn show(&mut self, ui: &mut UiContext<'_>) {
             ui.text("Box")
                 .width(if self.0 { 300. } else { 100. })

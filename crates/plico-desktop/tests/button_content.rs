@@ -2,14 +2,14 @@
 #[path = "support/icons.rs"]
 mod icons;
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 #[derive(Default)]
 struct Demo {
     clicks: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

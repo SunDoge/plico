@@ -13,7 +13,7 @@ use fltk::{
     window::Window,
 };
 use plico::taffy_layout::style as layout_style;
-use plico::{Clock, DeclareView, Engine, Entity, FrameTime, Kind, Style, Theme};
+use plico::{Clock, Engine, Entity, FrameTime, Kind, Style, Theme, View};
 use snafu::{ResultExt, Snafu};
 use std::{
     collections::{HashMap, HashSet},
@@ -606,7 +606,7 @@ impl Adapter {
 }
 /// Event-driven host. Active application animations are sampled at most 60 Hz;
 /// once their ANIMATE request clears, the host returns to blocking native waits.
-pub fn run<V: DeclareView>(mut view: V, title: &str, width: i32, height: i32) -> Result<()> {
+pub fn run<V: View>(mut view: V, title: &str, width: i32, height: i32) -> Result<()> {
     let app = app::App::default().with_scheme(app::Scheme::Gtk);
     let mut window = Window::new(100, 100, width, height, title);
     let root = Group::new(0, 0, width, height, "");

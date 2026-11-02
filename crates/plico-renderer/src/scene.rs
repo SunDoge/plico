@@ -537,13 +537,23 @@ fn draw_outline_text(
 /// result to the glass panel. Foreground commands are recorded afterwards.
 /// This prototype trades replay work for a backend-neutral command stream;
 /// it does not claim a persistent blurred-texture cache.
-fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine, open_layers: usize) {
+fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let sigma = node.paint.backdrop_blur;
     if !sigma.is_finite() || sigma <= 0. || scene.commands.is_empty() {
         return;
     }
     let mut background = scene.clone();
-    // Complete the snapshot without closing the live scene's ancestor layers.
+    // Complete the snapshot without closing the live scene. Current-node
+    // layers are not the whole story: ancestor opacity and clips are still
+    // open in the command stream and must be balanced in the cloned replay.
+    let open_layers = scene.commands.iter().fold(0usize, |depth, command| {
+        use crate::PaintCommand;
+        match command {
+            PaintCommand::PushLayer { .. } | PaintCommand::PushClip { .. } => depth + 1,
+            PaintCommand::PopLayer => depth.saturating_sub(1),
+            _ => depth,
+        }
+    });
     for _ in 0..open_layers {
         background.pop_layer();
     }
@@ -901,7 +911,7 @@ fn encode_node(
     }
 
     if paints_node {
-        draw_backdrop(scene, n, *node_transform, layers.len());
+        draw_backdrop(scene, n, *node_transform);
         draw_node_box(scene, n, *node_transform);
     }
 
@@ -1183,6 +1193,8 @@ mod tests {
         unique_node_ids(&mut [&mut parent, &mut child]);
         child.parent_node_id = Some(parent.node_id);
         child.paint.backdrop_blur = 3.;
+        parent.paint.opacity = 0.9;
+        parent.own_clip = Some([0., 0., 100., 100.]);
         let nodes = vec![parent.clone(), child];
         let roots = HashSet::from([parent.node_id]);
         let mut cache = SceneCache::default();
@@ -1202,6 +1214,19 @@ mod tests {
         );
         assert_eq!(actual.commands, encoded(&nodes).commands);
         assert!(cache.entries.is_empty());
+        let mut depth = 0usize;
+        for command in &actual.commands {
+            match command {
+                crate::PaintCommand::PushLayer { .. } | crate::PaintCommand::PushClip { .. } => {
+                    depth += 1;
+                }
+                crate::PaintCommand::PopLayer => {
+                    depth = depth.checked_sub(1).expect("balanced backdrop replay");
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(depth, 0, "backdrop snapshot must close ancestor layers");
     }
 
     #[test]

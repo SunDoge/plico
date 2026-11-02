@@ -2,7 +2,7 @@
 //! Runs for 18 injected-clock seconds and closes itself. Compare launches with
 //! PLICO_SKIA_DAMAGE=0/1; measure after the initial font/window warmup.
 use plico::prelude::*;
-use plico_desktop::{HostAction, RenderBackend, Source, View, WindowCommand, WindowOptions};
+use plico_desktop::{HostAction, HostView, RenderBackend, Source, WindowCommand, WindowOptions};
 use std::time::Duration;
 
 #[derive(Default)]
@@ -11,7 +11,7 @@ struct Demo {
     close: bool,
     frames: u32,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn take_host_action(&mut self) -> Option<HostAction> {
         std::mem::take(&mut self.close).then_some(HostAction::Window(WindowCommand::Close))
     }

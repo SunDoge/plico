@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::{FrameSource, Scene, TextContext};
 use plico_runtime::{
     Source,
-    regions::{Checkpoint, OnClick, RegionApp, RegionProgram, Regions, State, WatchUi},
+    regions::{Checkpoint, OnClick, RegionApp, RegionProgram, RegionUi, Regions, State},
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -18,10 +18,10 @@ fn build(new_schema: bool, locals: Locals) -> (Regions, State<i32>, State<Vec<u6
         app.root(
             (count, rows, version, locals),
             |cx, (count, rows, version, locals)| {
-                cx.watch((count.handle(),), |cx, (count,)| {
+                cx.region((count.handle(),), |cx, (count,)| {
                     text!(cx, "Root {}", *count.read());
                 });
-                cx.watch_keyed(
+                cx.region_keyed(
                     1,
                     (rows.handle(), version.handle(), locals.handle()),
                     |cx, (rows, version, locals)| {
@@ -37,13 +37,13 @@ fn build(new_schema: bool, locals: Locals) -> (Regions, State<i32>, State<Vec<u6
                                         let changed = cx.local_persisted_state(2, || {
                                             String::from("new default")
                                         });
-                                        cx.watch((changed,), |cx, (changed,)| {
+                                        cx.region((changed,), |cx, (changed,)| {
                                             text(cx, &*changed.read());
                                         });
                                     } else {
                                         cx.local_persisted_state(2, || 42_i32);
                                     }
-                                    cx.watch((kept, transient), |cx, (kept, transient)| {
+                                    cx.region((kept, transient), |cx, (kept, transient)| {
                                         text!(cx, "Local {} / {}", *kept.read(), *transient.read());
                                     });
                                 },
@@ -171,7 +171,7 @@ impl RegionProgram for Program {
         Regions::new(|app| {
             let count = app.persisted_state(1, || 0_i32);
             app.root((count,), |cx, (count,)| {
-                cx.watch_keyed(1, (count.handle(),), |cx, (count,)| {
+                cx.region_keyed(1, (count.handle(),), |cx, (count,)| {
                     text!(cx, "Count {}", *count.read());
                     button(cx).key("increment").text("Increment").on_click(
                         (count.handle(),),

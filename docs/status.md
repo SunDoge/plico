@@ -3,20 +3,20 @@
 ## 当前主线
 
 plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续共用；
-新工作默认采用 Regions Reactive 状态驱动，已有 immediate `App::show` 仍受支持，
-并保留为迁移对照及经 profiling 确认的局部路径。backend-settings 已完整迁移并默认
-使用 Reactive；其他既有应用不因 API 常驻而自动改写。旧 crates/plico 响应式 Runtime、
+新工作、生成模板和 backend-settings 默认采用 Immediate `App::show`。Regions/Reactive
+机制、测试与示例保留，但暂不作为默认应用路径；未来有明确的大型局部更新需求时，
+可按区域定向启用，而不是恢复全局依赖收集。旧 crates/plico 响应式 Runtime、
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
-`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，watch 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度，非法属性、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的默认 `Settings` 使用完整 Reactive 三路页面、跨路由上层状态和局部动画 settle；`ImmediateSettings` 仅保留作语义/几何与性能对照。接入与限制见 [Regions](regions.md)。
+`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，region 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度；Button 支持背景、禁用和 selected，并可继续链接触发事件。一次性 focus/reveal 有显式 consume 桥接；单源 root-owned `derived` 按输出相等性抑制无关区域通知，checkpoint 后重新计算。非法属性、精确 dirty 分类、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的 `Settings` 保留完整 Reactive 三路页面、跨路由上层状态和局部动画 settle，用于语义/几何与性能对照；正常入口和生成模板使用 Immediate。接入与限制见 [Regions](regions.md)。
 
 ## 已实现
 
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - Reactive Region revision 贯通局部 replay、布局/flatten 与 Scene Fragment 失效；mount/unmount/reorder 可保留独立区域缓存，并有大范围结构变化的全量回退。逐帧全量 Scene oracle 和 seeded 差分覆盖该路径；root Taffy 求解仍保留，route/reverse 的结构性能回退如实记录在[增量执行](incremental.md)。
-- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia opt-in 局部 damage 原生消费 Fragment，Vello/Web 和全量 Skia redraw 保留展开路径。
+- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
 - Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
@@ -24,7 +24,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
 - Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
-- 虚拟列表、smooth scroll、宿主滚动和声明分离、条件帧调度。
+- [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；不引入空间索引或自动节点几何订阅。虚拟列表复用该计算，保留 smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
 - 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
 - [窗口内快捷键](shortcuts.md)：App/ServiceApp 完整组合键、显式作用域 action 表、冲突检查，以及静态/热重载一致的事件转发。
@@ -93,19 +93,21 @@ Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and 
 
 Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.
 
-## Optional damage tracking
+## Damage tracking
 
-Skia command-stream damage and per-image history, CPU culling and optional Vulkan
-incremental-present hints are implemented as opt-in experiments. Tracked partial
+Skia windows enable command-stream damage and per-image history by default;
+`PLICO_SKIA_DAMAGE=0` restores full drawing. Multi-rectangle damage and Vulkan
+incremental-present hints remain opt-in. Tracked partial
 redraws consume Reactive Scene Fragments natively and cull whole unchanged Regions;
 full redraws and Vello/Web retain the expanded replay path. Region-level damage is
-conservative rather than a minimal per-leaf rectangle. Normal windows use full
-drawing; enable with `PLICO_SKIA_DAMAGE=1`. Simple raster/GPU pixel oracles
-pass, but the real settings theme animation exposes four one-channel-step pixels
-near a dirty clip edge. A reduced raster probe reproduces this with a rounded
-stroke inside a translucent layer, even without command culling. The 240-frame
-settings probe permits explicitly bounded AA rounding (at most 16 pixels, one
-channel step), checks unchanged pixels outside damage exactly, and retains an
-optional strict mode; measured maximum is eight pixels with no growth at rest. Vello's preserved-target partial
+conservative rather than a minimal per-leaf rectangle. Normal windows skip an exactly
+unchanged presented Scene by default (`PLICO_SKIA_PRESENT_SKIP=0` disables this);
+the tracker expands partially intersected text, stroke and atomic Fragment commands
+to their complete bounds;
+the strict Immediate 240-frame settings probe and repeated-input raster matrices
+match full redraws exactly, at a measured coverage/raster cost. Nested Fragment AA
+also passes CPU and Intel Vulkan pixel comparisons including resize. Explicitly
+supplied damaged regions remain the caller's responsibility, and the
+reduced dirty-clip probe stays an ignored diagnostic. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).

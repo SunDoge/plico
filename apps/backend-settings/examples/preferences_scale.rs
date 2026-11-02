@@ -1,11 +1,11 @@
-//! Native form pipeline; --scene includes CPU Scene encoding. No window or GPU.
+//! Native form pipeline; optional Scene encoding and Skia CPU raster, no window/GPU.
 #[cfg(feature = "profiling")]
 mod support;
 use backend_settings::preferences_regions::scale::{
     FullRegionPanels, ImmediatePanels, region_panels,
 };
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::{
     hash::{Hash, Hasher},
     hint::black_box,
@@ -25,6 +25,12 @@ struct Options {
     /// Include backend-neutral Scene encoding in every measured frame.
     #[usage(long)]
     scene: bool,
+    /// Include Scene encoding and full Skia CPU rasterization (requires skia).
+    #[usage(long)]
+    raster: bool,
+    /// Track Scene damage and skip or clip Skia CPU rasterization (requires skia).
+    #[usage(long)]
+    tracked_raster: bool,
     /// Force full Scene encoding while retaining local Reactive replay.
     #[usage(long)]
     full_scene: bool,
@@ -89,11 +95,11 @@ impl Scenario {
         }
     }
 }
-fn prepare<V: View>(source: &mut Source<V>, text: &mut TextContext, height: u32) {
+fn prepare<V: HostView>(source: &mut Source<V>, text: &mut TextContext, height: u32) {
     source.experiment_prepare_without_scene(text, 900, height);
     assert!(source.last_error.is_none(), "{:?}", source.last_error);
 }
-fn ids<V: View>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
+fn ids<V: HostView>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
     let (role, label) = scenario.control();
     let tree = source.adapter.semantics(&source.engine, 0);
     let ids: Vec<_> = tree
@@ -106,7 +112,7 @@ fn ids<V: View>(source: &Source<V>, scenario: Scenario, k: usize) -> Vec<u64> {
     assert_eq!(ids.len(), k, "not enough accessible controls");
     ids
 }
-fn event<V: View>(source: &mut Source<V>, scenario: Scenario, targets: &[u64], index: usize) {
+fn event<V: HostView>(source: &mut Source<V>, scenario: Scenario, targets: &[u64], index: usize) {
     for &id in targets {
         if scenario == Scenario::Typing {
             assert!(source.handle_semantic_action(SemanticAction::Focus { target: id }));
@@ -136,8 +142,9 @@ fn event<V: View>(source: &mut Source<V>, scenario: Scenario, targets: &[u64], i
 struct Evidence {
     first: u64,
     last: u64,
+    pixels: Option<u64>,
 }
-fn fingerprint<V: View>(source: &Source<V>) -> u64 {
+fn fingerprint<V: HostView>(source: &Source<V>) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     let tree = source.adapter.semantics(&source.engine, 0);
     for node in tree.exposed_nodes().into_iter().filter(|n| {
@@ -165,7 +172,25 @@ fn fingerprint<V: View>(source: &Source<V>) -> u64 {
     }
     hash.finish()
 }
-fn bench<V: View>(
+#[cfg(feature = "skia")]
+fn tracked_pixel_delta(actual: &[u8], expected: &[u8]) -> (usize, u8) {
+    let differing = actual
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0)
+        .filter(|(a, b)| a != b)
+        .count();
+    let max_delta = actual
+        .iter()
+        .zip(expected)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    (differing, max_delta)
+}
+
+fn bench<V: HostView>(
     mode: &str,
     view: V,
     panels: usize,
@@ -180,6 +205,14 @@ fn bench<V: View>(
     source.set_reduced_motion(true);
     let mut text = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
+    #[cfg(feature = "skia")]
+    let mut raster = (options.raster || options.tracked_raster)
+        .then(|| plico_skia::SkiaSurface::new(900, height).unwrap());
+    #[cfg(not(feature = "skia"))]
+    assert!(
+        !options.raster && !options.tracked_raster,
+        "--raster and --tracked-raster require --features skia"
+    );
     prepare(&mut source, &mut text, height);
     let targets = ids(&source, scenario, k);
     #[cfg(feature = "profiling")]
@@ -195,6 +228,11 @@ fn bench<V: View>(
         (0_u128, 0_usize, 0_usize, 0_usize);
     let (mut fragment_builds, mut fragment_reuses, mut scene_nodes) = (0_usize, 0_usize, 0_usize);
     let (mut scene_full, mut scene_invalid) = (0_usize, 0_usize);
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let mut raster_us = 0_u128;
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let (mut damage_coverage, mut damage_empty, mut damage_partial, mut damage_full) =
+        (0_f64, 0_usize, 0_usize, 0_usize);
     for index in 0..options.warmup + options.iterations {
         let before = source.batch_stats().declaration_passes;
         #[cfg(feature = "profiling")]
@@ -202,7 +240,7 @@ fn bench<V: View>(
         let start = Instant::now();
         event(&mut source, scenario, &targets, index);
         let events = start.elapsed().as_nanos();
-        if options.scene {
+        if options.scene || options.raster || options.tracked_raster {
             let timing = source
                 .render_retained_frame(&mut scene, &mut text, (900, height), 1.)
                 .unwrap();
@@ -212,6 +250,29 @@ fn bench<V: View>(
             black_box(&scene.commands);
         } else {
             prepare(&mut source, &mut text, height);
+        }
+        #[cfg(feature = "skia")]
+        if let Some(surface) = &mut raster {
+            let start = Instant::now();
+            let damage = if options.tracked_raster {
+                surface
+                    .draw_scene_tracked(&scene, source.base_color())
+                    .unwrap()
+            } else {
+                surface.draw_scene(&scene, source.base_color()).unwrap();
+                plico_renderer::DamageRegion::Full
+            };
+            if index >= options.warmup {
+                raster_us += start.elapsed().as_nanos();
+                if options.tracked_raster {
+                    damage_coverage += damage.coverage(900, height);
+                    match damage {
+                        plico_renderer::DamageRegion::Empty => damage_empty += 1,
+                        plico_renderer::DamageRegion::Rect(_) => damage_partial += 1,
+                        plico_renderer::DamageRegion::Full => damage_full += 1,
+                    }
+                }
+            }
         }
         assert!(source.last_error.is_none(), "{:?}", source.last_error);
         let elapsed = start.elapsed().as_nanos();
@@ -254,8 +315,35 @@ fn bench<V: View>(
     }
     samples.sort_unstable();
     let n = options.iterations as f64;
+    #[cfg_attr(not(feature = "skia"), allow(unused_mut))]
+    let (mut tracked_pixel_differences, mut tracked_max_channel_delta) = (0_usize, 0_u8);
+    let pixels = {
+        #[cfg(feature = "skia")]
+        {
+            raster.as_mut().map(|surface| {
+                let mut pixels = surface.read_pixels().unwrap();
+                if options.tracked_raster {
+                    surface.draw_scene(&scene, source.base_color()).unwrap();
+                    let full = surface.read_pixels().unwrap();
+                    (tracked_pixel_differences, tracked_max_channel_delta) =
+                        tracked_pixel_delta(&pixels, &full);
+                    pixels = full;
+                }
+                let mut hash = std::collections::hash_map::DefaultHasher::new();
+                pixels.hash(&mut hash);
+                hash.finish()
+            })
+        }
+        #[cfg(not(feature = "skia"))]
+        {
+            None
+        }
+    };
+    let pixel_fingerprint = pixels
+        .map(|hash| format!("{hash:016x}"))
+        .unwrap_or_default();
     println!(
-        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.2},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}",
+        "{mode},{panels},{k},{:.5},{},{height},{},{},{:.0},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.2},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.2},{:.5},{:.1},{:.1},{:.1},{tracked_pixel_differences},{tracked_max_channel_delta},{pixel_fingerprint}",
         k as f64 / panels as f64,
         scenario.name(),
         samples[options.iterations / 2],
@@ -284,7 +372,12 @@ fn bench<V: View>(
         fragment_reuses as f64 / n,
         scene_nodes as f64 / n,
         scene_full as f64 / n,
-        scene_invalid as f64 / n
+        scene_invalid as f64 / n,
+        raster_us as f64 / n / 1000.,
+        damage_coverage / n,
+        damage_empty as f64 / n,
+        damage_partial as f64 / n,
+        damage_full as f64 / n,
     );
     #[cfg(feature = "profiling")]
     support::report(
@@ -298,11 +391,17 @@ fn bench<V: View>(
     Evidence {
         first: first.unwrap(),
         last: fingerprint(&source),
+        pixels,
     }
 }
 fn run(options: Options) -> Result<(), Error> {
     if options.iterations == 0 {
         return Err(invalid("iterations must be positive"));
+    }
+    if options.raster && options.tracked_raster {
+        return Err(invalid(
+            "--raster and --tracked-raster are mutually exclusive",
+        ));
     }
     options
         .warmup
@@ -325,7 +424,7 @@ fn run(options: Options) -> Result<(), Error> {
         .map(|v| Scenario::parse(v.trim()))
         .collect::<Result<_, _>>()?;
     println!(
-        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes,mean_selection_visits,mean_slider_visits,mean_shader_visits,mean_input_rebuilds,mean_input_reuses,mean_scroll_visits,mean_tooltip_visits,mean_scene_us,mean_scene_builds,mean_flatten_patches,mean_layout_cache_checks,mean_scene_fragment_builds,mean_scene_fragment_reuses,mean_scene_encoded_nodes,mean_scene_full_rebuilds,mean_scene_invalid_roots"
+        "mode,panels,target_panels,target_fraction,scenario,viewport_height,p50_total_ns,p95_total_ns,mean_event_ns,mean_declare_us,mean_sync_us,mean_backend_update_us,mean_flatten_visits,mean_layout_runs,mean_sync_visits,mean_declaration_passes,nodes,mean_selection_visits,mean_slider_visits,mean_shader_visits,mean_input_rebuilds,mean_input_reuses,mean_scroll_visits,mean_tooltip_visits,mean_scene_us,mean_scene_builds,mean_flatten_patches,mean_layout_cache_checks,mean_scene_fragment_builds,mean_scene_fragment_reuses,mean_scene_encoded_nodes,mean_scene_full_rebuilds,mean_scene_invalid_roots,mean_raster_us,mean_damage_coverage,empty_frame_fraction,partial_frame_fraction,full_frame_fraction,tracked_pixel_differences,tracked_max_channel_delta,pixel_fingerprint"
     );
     for panels in sizes {
         let height = if options.viewport_height > 0 {

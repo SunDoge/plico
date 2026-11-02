@@ -20,7 +20,21 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
                  Taffy / Parley /（plico-desktop 选择 Vello 或 Skia）
 ```
 
-core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、View、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
+三个根接口按受众和宿主能力分层，不要求简单组件实现 trait：
+
+- `plico::View` 是面向应用的最小 UI 接口，只包含 `show` 和 `theme`，可直接驱动
+  renderer-free Engine、NSH/LVGL 投影等后端；普通控件和组件继续使用 Rust 函数。
+- `plico_dev::App` 是面向应用的完整根接口，在同样的 `show`/`theme` 之上增加
+  Serde checkpoint、services、快捷键和 FrameTime；静态桌面入口与开发热重载复用它。
+- `plico_runtime::HostView` 面向后端与高级宿主，增加 Regions replay、scene cache、
+  host action、wake 和 reload 等能力。`Source<V>` 与
+  `plico_desktop::run_host_view_with_options` 接收这一接口。
+
+普通 `View` 由 `NativeView<V>` 适配到 `HostView`；
+`plico_desktop::run_view_with_options` 自动完成该包装，不要求序列化应用状态。
+`NativeApp<A>` 则保留 App 的开发能力并接入原生宿主。
+
+core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
 
 另有 [LVGL 后端实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
 布局、文字和绘制均交给 LVGL；点击以 Entity 回到普通声明。它验证 API 子集可跨后端，

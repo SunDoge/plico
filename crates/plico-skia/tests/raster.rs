@@ -44,8 +44,8 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
         Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_function(
-                vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+            vello_common::filter_effects::Filter::from_primitive(
+                vello_common::filter_effects::FilterPrimitive::Offset { dx: 1., dy: 1. },
             ),
         )),
         None,
@@ -53,7 +53,7 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "layer filter"
+            command: "layer filter primitive"
         })
     ));
     assert!(matches!(
@@ -74,6 +74,59 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         surface.render_scene(&unclosed, Color::WHITE),
         Err(Error::ClipStack)
     ));
+}
+
+#[test]
+fn gaussian_layer_filter_blurs_contents_and_respects_clip() {
+    let mut scene = Scene::new();
+    scene.push_layer(
+        peniko::BlendMode::default(),
+        1.,
+        Affine::IDENTITY,
+        &Rect::new(2., 2., 14., 14.),
+        Some(std::sync::Arc::new(
+            vello_common::filter_effects::Filter::from_function(
+                vello_common::filter_effects::FilterFunction::Blur { radius: 2. },
+            ),
+        )),
+        None,
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(255, 0, 0),
+        None,
+        &Rect::new(0., 0., 8., 16.),
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(0, 0, 255),
+        None,
+        &Rect::new(8., 0., 16., 16.),
+    );
+    scene.pop_layer();
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(0, 255, 0),
+        None,
+        &Rect::new(7., 7., 9., 9.),
+    );
+
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+    assert_eq!(pixel(&bytes, 1, 8), [255; 4], "clip must contain blur");
+    assert_eq!(
+        pixel(&bytes, 8, 8),
+        [0, 255, 0, 255],
+        "foreground stays sharp"
+    );
+    let mixed = pixel(&bytes, 7, 10);
+    assert!(
+        mixed[0] > 0 && mixed[2] > 0,
+        "expected blurred red/blue mixing: {mixed:?}"
+    );
 }
 
 #[test]
@@ -872,5 +925,68 @@ fn tracked_fragments_match_full_redraw_and_damage_only_old_new_region_bounds() {
             partial.draw_scene_tracked(&next, Color::WHITE).unwrap(),
             DamageRegion::Empty
         );
+    }
+}
+
+#[test]
+fn tracked_damage_crossing_unchanged_nested_text_fragment_matches_full_pixels() {
+    use plico_renderer::{PaintCommand, paragraph::ParagraphRequest, style::Paint};
+    use std::sync::Arc;
+    let request = Arc::new(
+        ParagraphRequest::from_paint(
+            &Paint {
+                text: Some("Settings, italic S".into()),
+                font_size: 23.,
+                font_italic: true,
+                ..Default::default()
+            },
+            Some(180.),
+        )
+        .unwrap(),
+    );
+    let mut text = Scene::new();
+    text.commands.push(PaintCommand::Paragraph {
+        request,
+        transform: Affine::translate((8.25, 8.5)),
+    });
+    text.stroke(
+        &kurbo::Stroke::new(1.5),
+        Affine::IDENTITY,
+        Color::from_rgba8(40, 90, 180, 160),
+        None,
+        &Rect::new(12.25, 5.5, 120.75, 42.25),
+    );
+    let mut nested = Scene::new();
+    nested.push_clip_layer(Affine::IDENTITY, &Rect::new(0., 0., 190., 60.));
+    nested.append_cached_scene(text, Affine::translate((0.25, 0.)));
+    nested.pop_layer();
+    for multi in [false, true] {
+        let mut tracked = SkiaSurface::new(220, 100).unwrap();
+        tracked.set_multi_rect_damage(multi);
+        let mut full = SkiaSurface::new(220, 100).unwrap();
+        for frame in 0..120 {
+            let mut scene = Scene::new();
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                Color::from_rgb8((frame * 2) as u8, 170, 220),
+                None,
+                &Rect::new(
+                    8. + f64::from(frame % 100),
+                    8.,
+                    14. + f64::from(frame % 100),
+                    25.,
+                ),
+            );
+            scene.append_cached_scene(nested.clone(), Affine::translate((4.5, 4.25)));
+            let damage = tracked.draw_scene_tracked(&scene, Color::WHITE).unwrap();
+            let actual = tracked.read_pixels().unwrap();
+            let expected = full.render_scene(&scene, Color::WHITE).unwrap();
+            let differences = actual.iter().zip(&expected).filter(|(a, b)| a != b).count();
+            assert_eq!(
+                differences, 0,
+                "frame={frame} multi={multi} damage={damage:?}"
+            );
+        }
     }
 }

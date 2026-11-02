@@ -1,7 +1,7 @@
 //! Contracts of `Engine::take_frame_delta` for incremental backends.
-use plico::{Changes, DeclareView, Engine, FrameDelta, prelude::*};
+use plico::{Changes, Engine, FrameDelta, View, prelude::*};
 
-fn settle(engine: &mut Engine, view: &mut impl DeclareView) -> FrameDelta {
+fn settle(engine: &mut Engine, view: &mut impl View) -> FrameDelta {
     engine.declare_until_settled(view).unwrap();
     engine.take_frame_delta()
 }
@@ -14,7 +14,7 @@ fn earlier_settle_pass_retains_exact_channels() {
         color: plico::Color,
         rebuild: bool,
     }
-    impl DeclareView for View {
+    impl plico::View for View {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }
@@ -72,7 +72,7 @@ fn earlier_settle_pass_retains_exact_channels() {
 #[test]
 fn property_patch_unions_different_fields_across_settle_passes() {
     struct View(u8);
-    impl DeclareView for View {
+    impl plico::View for View {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }
@@ -101,7 +101,7 @@ fn property_patch_unions_different_fields_across_settle_passes() {
 #[test]
 fn steady_state_yields_an_empty_delta() {
     struct Idle;
-    impl DeclareView for Idle {
+    impl View for Idle {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }
@@ -125,7 +125,7 @@ fn created_nodes_appear_with_all_channels_and_once_only() {
     struct Growing {
         extra: bool,
     }
-    impl DeclareView for Growing {
+    impl View for Growing {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }
@@ -165,7 +165,7 @@ fn style_and_text_updates_union_across_passes_and_removals_are_reported() {
         hide: bool,
         label: &'static str,
     }
-    impl DeclareView for Document {
+    impl View for Document {
         fn theme(&self) -> plico::Theme {
             plico::Theme::default()
         }

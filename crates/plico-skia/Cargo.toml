@@ -10,7 +10,7 @@ description = "Skia CPU and Vulkan consumers for the Plico command stream"
 default = []
 profiling = ["dep:tracing"]
 # Consumes the backend-neutral command stream with Skia raster surfaces.
-raster = ["dep:skia-safe", "dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:lru", "dep:resvg"]
+raster = ["dep:skia-safe", "dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:lru", "dep:resvg", "dep:vello-common"]
 # Ganesh Vulkan render targets; never falls back to CPU raster.
 vulkan = ["raster", "skia-safe/vulkan", "skia-safe/ganesh", "dep:ash"]
 window = ["vulkan", "dep:ash-window", "dep:raw-window-handle", "dep:winit"]
@@ -20,6 +20,7 @@ peniko = { workspace = true, optional = true }
 kurbo = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 plico-renderer = { path = "../plico-renderer", optional = true }
+vello-common = { workspace = true, optional = true }
 skia-safe = { version = "=0.153.3", optional = true, features = ["textlayout", "no-compile"] }
 snafu.workspace = true
 lru = { version = "0.19", optional = true }
@@ -30,7 +31,10 @@ raw-window-handle = { version = "0.6", optional = true }
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
-vello-common.workspace = true
+harfrust = "0.12"
+unicode-vo = "0.1"
+unicode-segmentation = "1.12"
+usage-rs.workspace = true
 plico.workspace = true
 plico-runtime = { path = "../plico-runtime" }
 taffy.workspace = true
@@ -52,3 +56,11 @@ required-features = ["raster"]
 [[example]]
 name = "text_motion"
 required-features = ["vulkan"]
+
+[[example]]
+name = "paragraph_replay"
+required-features = ["raster"]
+
+[[example]]
+name = "vertical_text"
+required-features = ["raster"]

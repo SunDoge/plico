@@ -1,6 +1,6 @@
 use backend_settings::preferences_regions::{ImmediatePreferences, RegionPreferences};
 use plico_renderer::{RenderBackend, WindowOptions};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 #[derive(usage_rs::Cli)]
 #[usage(about = "Same Preferences page through immediate or region API")]
 struct Options {
@@ -16,7 +16,7 @@ fn main() -> Result<(), plico_shell::Error> {
         run(RegionPreferences::default(), "Regions")
     }
 }
-fn run(view: impl View + 'static, model: &str) -> Result<(), plico_shell::Error> {
+fn run(view: impl HostView + 'static, model: &str) -> Result<(), plico_shell::Error> {
     plico_shell::run_window_with_options(
         Box::new(Source::new(view)),
         WindowOptions::new()

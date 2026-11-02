@@ -2,20 +2,20 @@
 //! The immediate version remains a correctness and performance baseline.
 pub mod scale;
 use crate::{ImmediateSettings, icons};
-use plico::{DeclareView, Theme, prelude::*};
+use plico::{Theme, View, prelude::*};
 use plico_runtime::{
-    View,
+    HostView,
     regions::{
-        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, Regions, WatchUi,
+        Access, BindState, OnChange, OnClick, Reactive, RegionApp, RegionProgram, RegionUi, Regions,
     },
 };
 
 /// Baseline: the existing Preferences function and ordinary application state.
 #[derive(Default)]
 pub struct ImmediatePreferences(pub ImmediateSettings);
-impl View for ImmediatePreferences {
+impl HostView for ImmediatePreferences {
     fn theme(&self) -> Theme {
-        DeclareView::theme(&self.0)
+        View::theme(&self.0)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         frame(cx, |cx| self.0.preferences(cx));
@@ -39,7 +39,7 @@ struct Saved {
 }
 
 /// Global theme/motion state belongs to the root. Profile state belongs to its
-/// component. The existing adapter supplies View and best-effort reload support.
+/// component. The existing adapter supplies HostView and best-effort reload support.
 pub type RegionPreferences = RegionApp<PreferencesProgram>;
 pub struct PreferencesProgram;
 impl RegionProgram for PreferencesProgram {
@@ -81,7 +81,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
         column(cx).padding(18).gap(14).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
             text(cx, "Profile / 工作区").font_size(18).weight(600);
             text(cx, "Workspace name");
-            cx.watch((name,), |cx, (name,)| {
+            cx.region((name,), |cx, (name,)| {
                 text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
                     .height(36.).bind(name.handle());
             });
@@ -89,11 +89,11 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 let current = name.read().text().unwrap_or_default();
                 node.text(format!("Current name: {current}"));
             });
-            cx.watch((notifications,), |cx, (notifications,)| {
+            cx.region((notifications,), |cx, (notifications,)| {
                 let mut value = *notifications.read();
                 checkbox(cx, "Enable notifications", &mut value).bind(notifications.handle());
             });
-            cx.watch((advanced,), |cx, (advanced,)| {
+            cx.region((advanced,), |cx, (advanced,)| {
                 column(cx).gap(14) + |cx| {
                     let mut value = *advanced.read();
                     checkbox(cx, "Show advanced options", &mut value).bind(advanced.handle());
@@ -110,7 +110,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 };
             });
         };
-        cx.watch((theme.handle(),), |cx, (theme,)| {
+        cx.region((theme.handle(),), |cx, (theme,)| {
             row(cx).gap(12).wrap(true) + |cx| {
                 let mut value = *theme.read() == Theme::dark();
                 checkbox(cx, "Dark theme", &mut value).on_change(
@@ -140,7 +140,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 node.text(saved.message.clone());
             }
         });
-        cx.watch((reduced.handle(),), |cx, (reduced,)| {
+        cx.region((reduced.handle(),), |cx, (reduced,)| {
             let mut value = *reduced.read();
             checkbox(cx, "Reduce motion", &mut value).bind(reduced.handle());
         });

@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{SurfaceSource, View, WindowOptions};
+use plico_desktop::{HostView, SurfaceSource, WindowOptions};
 use plico_video::Player;
 struct Demo {
     player: Player,
@@ -9,7 +9,7 @@ struct Demo {
     close: bool,
     limit: Option<f64>,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn poll_reload(&mut self) -> bool {
         let s = self.player.snapshot();
         let key = ((s.position * 10.) as u64, s.paused, s.error.is_some());

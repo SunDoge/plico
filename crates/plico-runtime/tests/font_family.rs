@@ -1,10 +1,10 @@
 use plico::prelude::*;
 use plico_renderer::{FrameSource, TextContext};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 struct Demo {
     family: FontFamily,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         text(cx, "let value = 42;").font_family(self.family);

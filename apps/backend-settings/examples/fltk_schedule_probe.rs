@@ -1,6 +1,6 @@
 //! Exercise the actual host wait loop, including a quiet interval after settling.
 use fltk_native::app;
-use plico::{DeclareView, Theme, UiContext, widgets::text};
+use plico::{Theme, UiContext, View, widgets::text};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 #[derive(Default)]
 struct Samples {
@@ -10,7 +10,7 @@ struct Samples {
 struct Timed {
     samples: Rc<RefCell<Samples>>,
 }
-impl DeclareView for Timed {
+impl View for Timed {
     fn theme(&self) -> Theme {
         Theme::default()
     }

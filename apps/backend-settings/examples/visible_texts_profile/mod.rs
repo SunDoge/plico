@@ -1,4 +1,5 @@
 //! Aggregate selected phase spans in memory; no per-node tracing or per-frame I/O.
+use super::thread_cpu_ns;
 use std::{collections::BTreeMap, sync::Mutex, time::Instant};
 use tracing_subscriber::{Layer, layer::Context, prelude::*, registry::LookupSpan};
 const NAMES: &[&str] = &[
@@ -25,24 +26,6 @@ struct Collector {
 }
 struct Timer(Instant, u128);
 
-fn thread_cpu_ns() -> u128 {
-    #[cfg(target_os = "linux")]
-    {
-        let mut time = std::mem::MaybeUninit::<libc::timespec>::uninit();
-        // SAFETY: clock_gettime initializes this correctly sized output on success.
-        assert_eq!(
-            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) },
-            0
-        );
-        // SAFETY: successful clock_gettime initialized the output.
-        let time = unsafe { time.assume_init() };
-        time.tv_sec as u128 * 1_000_000_000 + time.tv_nsec as u128
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        0
-    }
-}
 impl<S: tracing::Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Collector {
     fn on_record(&self, id: &tracing::Id, values: &tracing::span::Record<'_>, ctx: Context<'_, S>) {
         if self.start.elapsed().as_secs() < 2 || ctx.span(id).unwrap().name() != "frame" {

@@ -57,7 +57,7 @@ root or parent-owned State slot. Use an outlet to create the active page owner:
 
 ```rust
 use plico::{Router, prelude::*};
-use plico_runtime::regions::{Regions, WatchUi, Reactive, outlet};
+use plico_runtime::regions::{Regions, RegionUi, Reactive, outlet};
 
 #[derive(Clone, Copy, PartialEq, Eq, plico::Route)]
 enum Page { Counter, Settings }
@@ -111,8 +111,8 @@ incompatible page kinds; a shared key means the local state schema is compatible
 
 An outlet still has two real column boundaries: its controller and the active
 page component. Use `outlet_fill` when those boundaries must fill the parent's
-remaining flex space; page-local `cx.watch_fill(...)` provides the same layout
-behavior for a page-sized watch. Ordinary `outlet` and `watch` keep automatic
+remaining flex space; page-local `cx.region_fill(...)` provides the same layout
+behavior for a page-sized region. Ordinary `outlet` and `region` keep automatic
 sizes. Render functions can execute again on navigation notifications,
 input settling, resize, theme changes or a parent declaration. This version
 establishes state ownership and update boundaries; it does not promise a

@@ -36,9 +36,8 @@ fn run() -> Result<(), Error> {
         std::fs::create_dir_all(parent).context(IoSnafu)?;
     }
     let mut app = Launcher::default();
-    app.dark = !options.light;
-    app.query
-        .edit(plico::InputEdit::Insert(options.query.into()));
+    app.set_dark(!options.light);
+    app.edit_query(plico::InputEdit::Insert(options.query.into()));
     let clock = plico::VirtualClock::default();
     let mut source = Source::with_clock(app, clock);
     let mut tcx = TextContext::new();

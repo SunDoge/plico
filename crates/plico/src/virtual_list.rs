@@ -130,12 +130,9 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                         cx.engine.set_scroll_viewport(cx.parent, offset, height);
                     }
                 }
-                let start = ((offset / row_height).floor() as usize)
-                    .saturating_sub(overscan)
-                    .min(count);
-                let end = (((offset + height) / row_height).ceil() as usize)
-                    .saturating_add(overscan)
-                    .min(count);
+                let rendered = crate::VisibleRegion::from_rect([0., offset, 1., offset + height])
+                    .rows(count, row_height, overscan);
+                let (start, end) = (rendered.start, rendered.end);
                 column(cx)
                     .key("vlist-before")
                     .height(start as f32 * row_height)

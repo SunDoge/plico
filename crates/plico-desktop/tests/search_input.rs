@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
 #[derive(Default)]
 struct Form {
@@ -10,7 +10,7 @@ struct Form {
     fallback: usize,
     dialog: ModalState,
 }
-impl View for Form {
+impl HostView for Form {
     fn on_unhandled_key(&mut self, _: &plico_renderer::KeyEvent) -> bool {
         self.fallback += 1;
         true

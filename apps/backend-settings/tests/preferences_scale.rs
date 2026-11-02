@@ -4,8 +4,8 @@ use backend_settings::preferences_regions::scale::{
 use plico_renderer::{
     FrameSource, SemanticAction, SemanticRole, SemanticSnapshot, TextContext, UiEvent,
 };
-use plico_runtime::{Source, View};
-fn prepare<V: View>(s: &mut Source<V>, text: &mut TextContext, n: usize) {
+use plico_runtime::{HostView, Source};
+fn prepare<V: HostView>(s: &mut Source<V>, text: &mut TextContext, n: usize) {
     s.experiment_prepare_without_scene(text, 900, (n * 780) as u32);
     assert!(s.last_error.is_none(), "{:?}", s.last_error);
 }
@@ -16,7 +16,7 @@ fn targets(tree: &SemanticSnapshot, role: SemanticRole, label: &str) -> Vec<u64>
         .map(|n| n.id)
         .collect()
 }
-fn equal<A: View, B: View>(a: &Source<A>, b: &Source<B>) {
+fn equal<A: HostView, B: HostView>(a: &Source<A>, b: &Source<B>) {
     let leaves = |tree: SemanticSnapshot| {
         tree.exposed_nodes()
             .into_iter()
@@ -56,7 +56,7 @@ fn equal<A: View, B: View>(a: &Source<A>, b: &Source<B>) {
     }
     assert_eq!(a.engine.theme(), b.engine.theme());
 }
-fn click<V: View>(source: &mut Source<V>, role: SemanticRole, label: &str, k: usize) {
+fn click<V: HostView>(source: &mut Source<V>, role: SemanticRole, label: &str, k: usize) {
     let ids = targets(&source.adapter.semantics(&source.engine, 0), role, label);
     assert!(ids.len() >= k);
     for id in ids.into_iter().take(k) {

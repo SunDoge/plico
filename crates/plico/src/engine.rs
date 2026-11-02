@@ -2,12 +2,14 @@
 mod experiment;
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
 #[cfg(feature = "experiment-patch")]
-pub use experiment::{ExperimentContext, ExperimentTextStyle};
+pub use experiment::{ExperimentButtonStyle, ExperimentContext, ExperimentTextStyle};
 use std::{borrow::Cow, collections::HashMap};
 
-/// A view the engine can settle: theme and declarations, driven per pass.
-/// Implemented by application types on both the native and reload paths.
-pub trait DeclareView {
+/// Minimal application UI contract: a theme and immediate declarations.
+///
+/// Simple components remain ordinary Rust functions. Use `plico_dev::App` when
+/// the root also needs checkpoint, service, or development-host integration.
+pub trait View {
     fn theme(&self) -> crate::Theme;
     fn show(&mut self, ui: &mut crate::UiContext<'_>);
 }
@@ -742,7 +744,7 @@ impl Engine {
     /// another pass, at most eight times, aggregating dirty nodes and change
     /// flags across passes. Native and reload hosts both drive this; the
     /// semantics can no longer drift between them.
-    pub fn declare_until_settled(&mut self, view: &mut dyn DeclareView) -> Result<u8, FrameError> {
+    pub fn declare_until_settled(&mut self, view: &mut dyn View) -> Result<u8, FrameError> {
         self.settle_dirty.clear();
         self.settle_node_changes.clear();
         self.settle_changes = Changes::empty();

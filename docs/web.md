@@ -33,7 +33,7 @@ cargo clippy -p plico-web-host --features gallery --target wasm32-unknown-unknow
 
 ## 应用接入
 
-WebHost<V: View> 是可复用 Rust 宿主，不要求应用使用 gallery：
+WebHost<V: HostView> 是可复用 Rust 宿主，不要求应用使用 gallery：
 
 - new(canvas, view) 创建 Source、文字上下文、场景和持久 WebGL renderer。
 - load_font(bytes) 加载 TTF/OTF；浏览器无法枚举操作系统字体，必须显式提供字体。

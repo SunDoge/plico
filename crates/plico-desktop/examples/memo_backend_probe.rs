@@ -1,6 +1,6 @@
 //! Retained backend work with/without an application rebuild. CPU only.
 use plico::{Color, UiContext, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::{Duration, Instant};
 struct Demo {
@@ -8,7 +8,7 @@ struct Demo {
     calls: usize,
     animate: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
         cx.column().children(|cx| {

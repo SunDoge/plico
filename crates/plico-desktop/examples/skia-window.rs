@@ -1,13 +1,13 @@
 //! Shared Plico UI, layout, input and Winit shell; only the graphics consumer changes.
 use plico::prelude::*;
-use plico_desktop::{RenderBackend, Source, View, WindowOptions};
+use plico_desktop::{HostView, RenderBackend, Source, WindowOptions};
 
 #[derive(Default)]
 struct Counter {
     count: u32,
     close: bool,
 }
-impl View for Counter {
+impl HostView for Counter {
     fn on_unhandled_key(&mut self, key: &plico_desktop::KeyEvent) -> bool {
         if key.key == "Escape" {
             self.close = true;

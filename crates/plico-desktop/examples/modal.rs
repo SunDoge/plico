@@ -1,6 +1,6 @@
 //! Static native input inside a modal. No serializable input/credential state.
-use plico::prelude::*;
-use plico_desktop::{View, WindowOptions};
+use plico::{View, prelude::*};
+use plico_desktop::WindowOptions;
 #[derive(Default)]
 struct Demo {
     dialog: ModalState,
@@ -8,6 +8,10 @@ struct Demo {
     saved: String,
 }
 impl View for Demo {
+    fn theme(&self) -> Theme {
+        Theme::default()
+    }
+
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)

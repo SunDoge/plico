@@ -1,5 +1,5 @@
 use plico::{Theme, VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, PointerProperties,
     TextContext, UiEvent,
@@ -11,7 +11,7 @@ struct Buttons {
     visible: bool,
     theme: Theme,
 }
-impl View for Buttons {
+impl HostView for Buttons {
     fn theme(&self) -> Theme {
         self.theme
     }

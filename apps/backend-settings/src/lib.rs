@@ -5,7 +5,7 @@ mod icons;
 pub mod preferences_regions;
 mod reactive;
 use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
-use plico::{DeclareView, Router, TextBuffer, Theme, prelude::*};
+use plico::{Router, TextBuffer, Theme, View, prelude::*};
 pub use reactive::Settings;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico::Route)]
@@ -92,7 +92,7 @@ impl ImmediateSettings {
         self.animations.active()
     }
 }
-impl DeclareView for ImmediateSettings {
+impl View for ImmediateSettings {
     fn theme(&self) -> Theme {
         if self.dark {
             Theme::dark()
@@ -395,11 +395,11 @@ fn activity_row(
         text(cx, state).font_size(13).color(if heading { Color::Muted } else { Color::Accent });
     };
 }
-impl plico_runtime::View for ImmediateSettings {
+impl plico_runtime::HostView for ImmediateSettings {
     fn show(&mut self, cx: &mut UiContext) {
-        DeclareView::show(self, cx);
+        View::show(self, cx);
     }
     fn theme(&self) -> Theme {
-        DeclareView::theme(self)
+        View::theme(self)
     }
 }

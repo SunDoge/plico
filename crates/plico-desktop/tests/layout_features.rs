@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 use std::time::Duration;
 struct Demo {
@@ -15,7 +15,7 @@ fn cell(cx: &mut UiContext, label: &str) {
             text(cx, label);
         })
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         match self.case {

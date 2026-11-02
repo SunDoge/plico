@@ -1,7 +1,7 @@
 //! Native CPU pipeline, no window, Scene encoding or GPU. Run in release mode.
 use backend_settings::preferences_regions::{ImmediatePreferences, RegionPreferences};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::{hint::black_box, time::Instant};
 #[derive(usage_rs::Cli)]
 #[usage(about = "Compare the same settings interactions through both APIs (no GPU)")]
@@ -9,11 +9,11 @@ struct Options {
     #[usage(long, default = "2000")]
     iterations: usize,
 }
-fn prepare<V: View>(source: &mut Source<V>, text: &mut TextContext) {
+fn prepare<V: HostView>(source: &mut Source<V>, text: &mut TextContext) {
     source.experiment_prepare_without_scene(text, 900, 780);
     assert!(source.last_error.is_none(), "{:?}", source.last_error);
 }
-fn target<V: View>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
+fn target<V: HostView>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
     source
         .adapter
         .semantics(&source.engine, 0)
@@ -21,7 +21,7 @@ fn target<V: View>(source: &Source<V>, role: SemanticRole, label: &str) -> u64 {
         .unwrap()
         .id
 }
-fn bench<V: View + Default>(mode: &str, scenario: &str, iterations: usize) {
+fn bench<V: HostView + Default>(mode: &str, scenario: &str, iterations: usize) {
     let mut source = Source::new(V::default());
     source.set_reduced_motion(true);
     let mut text = TextContext::new();

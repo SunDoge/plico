@@ -1,11 +1,11 @@
 use plico::{Clock, VirtualClock};
 use plico_renderer::{FrameSource, Scene, TextContext, UiEvent, web::WebRenderer};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 /// Owns the layout, scene and WebGL renderer. The browser drives time and events.
-pub struct WebHost<V: View> {
+pub struct WebHost<V: HostView> {
     pub source: Source<V>,
     canvas: web_sys::HtmlCanvasElement,
     renderer: WebRenderer,
@@ -13,7 +13,7 @@ pub struct WebHost<V: View> {
     scene: Scene,
     clock: VirtualClock,
 }
-impl<V: View> WebHost<V> {
+impl<V: HostView> WebHost<V> {
     pub fn new(canvas: web_sys::HtmlCanvasElement, view: V) -> Result<Self, JsValue> {
         let renderer = WebRenderer::new(canvas.clone()).map_err(error)?;
         let clock = VirtualClock::default();

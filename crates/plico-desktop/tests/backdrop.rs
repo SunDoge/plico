@@ -1,11 +1,11 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, PaintCommand, Scene, TextContext};
 struct Demo {
     blur: f32,
     shift: f32,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)

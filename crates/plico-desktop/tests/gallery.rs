@@ -1,5 +1,5 @@
 use gallery::{Gallery, Page};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
     PointerPhase, SemanticAction, SemanticRole, SemanticToggleState, TextContext, UiEvent,
@@ -338,7 +338,7 @@ fn prepare_event_commits_new_geometry_before_next_pointer_event() {
 #[test]
 fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     struct Invalid(bool);
-    impl View for Invalid {
+    impl HostView for Invalid {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
             ui.text("first").key("a");
             if self.0 {

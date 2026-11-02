@@ -6,13 +6,12 @@ use crate::{
     color_icons, icons, progress_bar,
 };
 use plico::{
-    Changes, DeclareView, Engine, Entity, FrameError, FrameTime, Router, TextBuffer, Theme,
-    prelude::*,
+    Changes, Engine, Entity, FrameError, FrameTime, Router, TextBuffer, Theme, View, prelude::*,
 };
 use plico_runtime::{
-    View,
+    HostView,
     regions::{
-        Access, OnChange, OnClick, OnClickWith, Reactive, Regions, ReplayBatch, State, WatchUi,
+        Access, OnChange, OnClick, OnClickWith, Reactive, RegionUi, Regions, ReplayBatch, State,
         outlet_fill,
     },
 };
@@ -197,7 +196,7 @@ impl Settings {
         let now = cx.now();
         let width = cx.viewport_width();
         self.tick(now, width);
-        View::show(&mut self.regions, cx);
+        HostView::show(&mut self.regions, cx);
         if self.animation_requested(now, width) {
             cx.request_animation_frame();
         }
@@ -256,17 +255,17 @@ impl Settings {
         self.regions.access(self.states.animations).read().active()
     }
 }
-impl DeclareView for Settings {
+impl View for Settings {
     fn theme(&self) -> Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.show_with_tick(cx);
     }
 }
-impl View for Settings {
+impl HostView for Settings {
     fn theme(&self) -> Theme {
-        View::theme(&self.regions)
+        HostView::theme(&self.regions)
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.show_with_tick(cx);
@@ -350,10 +349,10 @@ fn root(cx: &mut UiContext, states: RootAccess<'_>) {
     let workspace = cx.local_state(Workspace::default);
     let editor = cx.local_state(Editor::default);
     row(cx).width_percent(100.).height_percent(100.).align(Align::Stretch).background(Color::Surface) + |cx| {
-        cx.watch((router.handle(), animations.handle(), compact.handle()), sidebar);
+        cx.region((router.handle(), animations.handle(), compact.handle()), sidebar);
         column(cx).width(0.).grow(1.).min_width(0.).padding(20).gap(18) + |cx| {
-            cx.watch((router.handle(), theme.handle()), toolbar);
-            cx.watch((router.handle(), inspector.handle()), heading);
+            cx.region((router.handle(), theme.handle()), toolbar);
+            cx.region((router.handle(), inspector.handle()), heading);
             outlet_fill(
                 cx,
                 router.handle(),
@@ -499,8 +498,8 @@ fn page(
     (animations, inspector, options, workspace, editor, theme): PageAccess<'_>,
 ) {
     match page {
-        Page::Overview => cx.watch_fill((animations.handle(), inspector.handle(), workspace.handle()), overview),
-        Page::Activity => cx.watch_fill((animations.handle(), workspace.handle()), activity),
+        Page::Overview => cx.region_fill((animations.handle(), inspector.handle(), workspace.handle()), overview),
+        Page::Activity => cx.region_fill((animations.handle(), workspace.handle()), activity),
         Page::Preferences => preferences(cx, (options, editor, theme)),
     }
 }
@@ -686,8 +685,8 @@ fn preferences(
     (options, editor, theme): (Access<'_, Options>, Access<'_, Editor>, Access<'_, Theme>),
 ) {
     column(cx).height(0.).grow(1.).scroll_y(true).gap(18) + |cx| {
-        cx.watch((editor.handle(), options.handle()), profile);
-        cx.watch((theme.handle(),), |cx, (theme,)| {
+        cx.region((editor.handle(), options.handle()), profile);
+        cx.region((theme.handle(),), |cx, (theme,)| {
             row(cx).gap(12).wrap(true) + |cx| {
                 let mut dark = *theme.read() == Theme::dark();
                 checkbox(cx, "Dark theme", &mut dark).on_change(
@@ -709,7 +708,7 @@ fn preferences(
                 }
             },
         );
-        cx.watch((options.handle(),), |cx, (options,)| {
+        cx.region((options.handle(),), |cx, (options,)| {
             let mut reduced = options.read().reduced_motion;
             checkbox(cx, "Reduce motion", &mut reduced).on_change(
                 (options.handle(),),

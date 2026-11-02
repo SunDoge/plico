@@ -66,7 +66,7 @@ the field is focused. Plain text is not intercepted. During IME composition or
 while a popup/modal owns input, the application fallback is suppressed.
 These are fallback shortcuts, not a capture-phase override of editor behavior.
 
-Static `NativeApp`, `impl_view_for_app!`, `ServiceView` and the reload host all
+Static `NativeApp`, `impl_host_view_for_app!`, `ServiceView` and the reload host all
 forward full events. The module request adds a serde-defaulted `key_events`
 array; legacy `keys` requests remain supported. Rebuild host and module together
 to use the new full-event hook. Typed service commands from a consumed shortcut

@@ -1,6 +1,6 @@
 //! CPU-only scroll declaration experiment. No window, GPU submission or sleeps.
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, Scene, TextContext, UiEvent, WheelDeltaMode,
     WheelEvent,
@@ -11,7 +11,7 @@ struct Demo {
     observe: bool,
     calls: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;

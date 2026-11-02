@@ -24,7 +24,7 @@ cargo run -p backend-settings --features egui -- --backend egui
 cargo test -p plico-egui --features widgets
 ```
 
-接到共享窗口时，用 `plico_egui::Source::new(view)` 包装普通 `plico_runtime::View`，
+接到共享窗口时，用 `plico_egui::Source::new(view)` 包装高级 `plico_runtime::HostView`，
 窗口选择 `RenderBackend::Egui`。该 Source 通过 native-widget 帧入口声明，
 不会进入 Scene 编码或 Parley 文字测量。其他后端的 Source 不受影响。
 

@@ -1,6 +1,6 @@
 //! Host-owned native content in one explicitly sized Plico layout slot.
 //! The widget is never serialized into a UI checkpoint.
-use super::{Source, View};
+use super::{HostView, Source};
 use plico::Engine;
 use plico_renderer::platform::effect::{EffectId, EffectPayload, EffectResult, EffectScope};
 use plico_renderer::{
@@ -18,7 +18,7 @@ use std::{
 ///
 /// The slot must have a size supplied by layout. Intrinsic measurement is not
 /// fed back to Taffy. Native content is inserted at its node's paint position.
-pub struct SurfaceSource<V: View, W: Widget> {
+pub struct SurfaceSource<V: HostView, W: Widget> {
     pub source: Source<V>,
     pub widget: W,
     slot: &'static str,
@@ -41,7 +41,7 @@ pub struct SurfaceSource<V: View, W: Widget> {
     next_effect: u32,
     on_event: Option<fn(&mut V, WidgetNodeEvent) -> bool>,
 }
-impl<V: View, W: Widget> SurfaceSource<V, W> {
+impl<V: HostView, W: Widget> SurfaceSource<V, W> {
     pub fn new(view: V, widget: W, slot: &'static str) -> Self {
         Self {
             source: Source::new(view),
@@ -149,14 +149,14 @@ impl<V: View, W: Widget> SurfaceSource<V, W> {
             && p.y < self.rect[3] as f64
     }
 }
-impl<V: View, W: Widget> Drop for SurfaceSource<V, W> {
+impl<V: HostView, W: Widget> Drop for SurfaceSource<V, W> {
     fn drop(&mut self) {
         if self.mounted {
             self.widget.unmount();
         }
     }
 }
-impl<V: View, W: Widget> FrameSource for SurfaceSource<V, W> {
+impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     fn set_device_scale(&mut self, scale: f64) {
         self.scale = scale;
         self.source.set_device_scale(scale);

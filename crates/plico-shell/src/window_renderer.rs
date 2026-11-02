@@ -227,18 +227,18 @@ impl WindowRenderer {
                     plico_skia::SkiaWindow::new(window, *transparent, device.as_deref())
                         .context(crate::error::SkiaSnafu)?;
                 renderer.resize(width, height);
-                let damage_tracking = matches!(
+                let damage_tracking = !matches!(
                     std::env::var("PLICO_SKIA_DAMAGE").as_deref(),
-                    Ok("1" | "true")
+                    Ok("0" | "false")
                 );
                 renderer.set_damage_tracking(damage_tracking);
                 let multi_rect_damage = matches!(
                     std::env::var("PLICO_SKIA_MULTI_RECT").as_deref(),
                     Ok("1" | "true")
                 );
-                let present_skip = matches!(
+                let present_skip = !matches!(
                     std::env::var("PLICO_SKIA_PRESENT_SKIP").as_deref(),
-                    Ok("1" | "true")
+                    Ok("0" | "false")
                 );
                 renderer.set_multi_rect_damage(multi_rect_damage);
                 renderer.set_present_skip(present_skip);

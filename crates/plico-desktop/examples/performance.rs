@@ -1,6 +1,6 @@
 //! Reproducible CPU/allocation probe. Run with --release; no window or GPU.
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -36,7 +36,7 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 struct Demo {
     extra: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         let _ = column(cx).children(|cx| {
             for i in 0..1000 {

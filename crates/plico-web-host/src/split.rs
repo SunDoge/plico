@@ -3,7 +3,7 @@ use js_sys::Function;
 use plico::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::{Frame, PROTOCOL_VERSION, Request};
 use plico_renderer::FrameSource;
-use plico_runtime::View;
+use plico_runtime::HostView;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -214,7 +214,7 @@ impl RemoteView {
             .retain(|(path, _)| active.contains(path));
     }
 }
-impl View for RemoteView {
+impl HostView for RemoteView {
     fn set_frame_time(&mut self, time: FrameTime) {
         self.time = time;
     }

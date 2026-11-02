@@ -1,6 +1,6 @@
 use kurbo::Shape;
 use plico::{Engine, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, PaintCommand, TextContext, layout::PlacedNode};
 use std::time::Duration;
 static ICON: SvgAsset = SvgAsset::new(
@@ -13,7 +13,7 @@ struct Demo {
     font: u16,
     checked: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).gap(8).children(|cx| {
@@ -171,7 +171,7 @@ fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
         checked: bool,
         long: bool,
     }
-    impl View for Tall {
+    impl HostView for Tall {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).gap(8).children(|cx| {
@@ -228,7 +228,7 @@ fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
 fn constrained_button_keeps_icon_size_and_one_line_label_and_accessible_name() {
     const LABEL: &str = "保存更改 — a long action label";
     struct Narrow;
-    impl View for Narrow {
+    impl HostView for Narrow {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             button(cx).text(LABEL).icon(&ICON).width(140.).height(40.);

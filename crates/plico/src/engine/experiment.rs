@@ -36,6 +36,28 @@ impl Default for ExperimentTextStyle {
         Style::default().into()
     }
 }
+/// Value-only button attributes available to explicit property bindings.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
+pub struct ExperimentButtonStyle {
+    pub background: Option<crate::Color>,
+    pub disabled: bool,
+    pub selected: Option<bool>,
+    pub opacity: f32,
+    pub styled_button: bool,
+}
+impl From<Style> for ExperimentButtonStyle {
+    fn from(style: Style) -> Self {
+        Self {
+            background: style.background,
+            disabled: style.disabled,
+            selected: style.selected,
+            opacity: style.opacity,
+            styled_button: style.styled_button,
+        }
+    }
+}
+
 impl UiContext<'_> {
     /// Apply values to an existing plain text leaf, preserving its identity.
     #[doc(hidden)]
@@ -73,6 +95,35 @@ impl UiContext<'_> {
             node.pending_changes |=
                 Changes::MEASURE | Changes::LAYOUT | Changes::PAINT | Changes::SEMANTICS;
             self.engine.stats.text_writes += 1;
+        }
+        let diff = style.diff(node.style);
+        node.pending_changes |= diff.changes;
+        node.pending_properties |= diff.properties;
+        node.style = style;
+    }
+    /// Apply button state to an existing control without redeclaring its children.
+    #[doc(hidden)]
+    pub fn experiment_button_properties(&mut self, attributes: ExperimentButtonStyle) {
+        let node = self
+            .engine
+            .nodes
+            .get_mut(self.parent)
+            .expect("missing property target");
+        if !matches!(node.kind, Kind::Button | Kind::ButtonBase) {
+            self.engine.error = Some(FrameError::InvalidRegion);
+            return;
+        }
+        let mut style = node.style;
+        style.background = attributes.background;
+        style.disabled = attributes.disabled || self.inherited.disabled;
+        style.selected = attributes.selected;
+        style.opacity = attributes.opacity;
+        if attributes.styled_button && style.disabled {
+            style.opacity *= 0.45;
+        }
+        if !style.valid() {
+            self.engine.error = Some(FrameError::InvalidStyle);
+            return;
         }
         let diff = style.diff(node.style);
         node.pending_changes |= diff.changes;
@@ -140,12 +191,31 @@ impl Engine {
         context: ExperimentContext,
         update: impl FnOnce(&mut UiContext<'_>),
     ) -> Result<FrameStats, FrameError> {
+        self.experiment_redeclare_leaf_properties(context, true, update)
+    }
+    /// Button-only counterpart to text property replay.
+    #[doc(hidden)]
+    pub fn experiment_redeclare_button_properties(
+        &mut self,
+        context: ExperimentContext,
+        update: impl FnOnce(&mut UiContext<'_>),
+    ) -> Result<FrameStats, FrameError> {
+        self.experiment_redeclare_leaf_properties(context, false, update)
+    }
+    fn experiment_redeclare_leaf_properties(
+        &mut self,
+        context: ExperimentContext,
+        text: bool,
+        update: impl FnOnce(&mut UiContext<'_>),
+    ) -> Result<FrameStats, FrameError> {
         let entity = context.parent;
-        if self
-            .nodes
-            .get(entity)
-            .is_none_or(|n| n.kind != Kind::Text || !n.spans.is_empty())
-        {
+        if self.nodes.get(entity).is_none_or(|n| {
+            if text {
+                n.kind != Kind::Text || !n.spans.is_empty()
+            } else {
+                !matches!(n.kind, Kind::Button | Kind::ButtonBase)
+            }
+        }) {
             return Err(FrameError::InvalidRegion);
         }
         self.stats = FrameStats::default();

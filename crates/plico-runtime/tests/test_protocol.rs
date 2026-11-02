@@ -1,6 +1,6 @@
 use plico::prelude::*;
 use plico_runtime::{
-    View,
+    HostView,
     testing::{Command, Driver, Error},
 };
 use std::time::Duration;
@@ -9,7 +9,7 @@ use std::time::Duration;
 struct Counter {
     count: u32,
 }
-impl View for Counter {
+impl HostView for Counter {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         text!(cx, "Count: {}", self.count);

@@ -1,7 +1,7 @@
 //! Compare full declarations and Sycamore-driven text patches through the same Plico Source.
 use plico::{Color, Entity, UiContext, VirtualClock};
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_runtime::{Source, View};
+use plico_runtime::{Source, HostView};
 use std::{
     cell::RefCell,
     hint::black_box,
@@ -26,7 +26,7 @@ struct Screen {
     values: Vec<bool>,
     work: Work,
 }
-impl View for Screen {
+impl HostView for Screen {
     fn show(&mut self, cx: &mut UiContext) {
         cx.column().key(999_999u64).children(|cx| {
             for (i, &on) in self.values.iter().enumerate() {

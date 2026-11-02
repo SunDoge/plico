@@ -1,12 +1,12 @@
 use plico::{Theme, UiContext};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
 
 struct Panel {
     theme: Theme,
     width: f32,
 }
-impl View for Panel {
+impl HostView for Panel {
     fn theme(&self) -> Theme {
         self.theme
     }
@@ -55,7 +55,7 @@ fn rich_text_color_animation_repaints_without_remeasurement() {
         color: Color,
         weight: u16,
     }
-    impl View for RichText {
+    impl HostView for RichText {
         fn show(&mut self, cx: &mut UiContext<'_>) {
             cx.text("Animated highlight").spans(&[TextSpan {
                 range: 0..8,

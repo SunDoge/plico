@@ -254,7 +254,7 @@ impl FrameSource for ZoomSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Source, View};
+    use crate::{HostView, Source};
     use plico::prelude::*;
     use plico_renderer::{
         KeyEvent, KeyLocation, Modifiers, Point, PointerButton, PointerEvent, PointerPhase,
@@ -265,7 +265,7 @@ mod tests {
         clicks: Arc<AtomicUsize>,
         buffer: plico::TextBuffer,
     }
-    impl View for Demo {
+    impl HostView for Demo {
         #[plico::component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).padding(20).gap(16).children(|cx| {

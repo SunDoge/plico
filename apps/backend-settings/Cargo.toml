@@ -73,3 +73,7 @@ required-features = ["skia"]
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 libc = "0.2"
+
+[[example]]
+name = "graph_declaration"
+required-features = ["skia"]

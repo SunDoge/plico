@@ -56,10 +56,10 @@ fn image_node_carries_lossless_asset_bytes() {
 
 #[test]
 fn embedded_image_reaches_offscreen_pixels() {
-    use plico_desktop::{Source, View};
+    use plico_desktop::{HostView, Source};
     use plico_renderer::TextContext;
     struct App;
-    impl View for App {
+    impl HostView for App {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).padding(30.).children(|cx| {

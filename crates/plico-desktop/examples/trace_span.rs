@@ -4,13 +4,13 @@
 //! point, drives some frames through a source with shaping work, then drops
 //! the guard — which is what flushes the trace JSON.
 use plico::{UiContext, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Duration;
 struct Demo {
     revision: u32,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         cx.column().children(|cx| {
             for i in 0..200 {

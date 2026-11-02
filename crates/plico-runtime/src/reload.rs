@@ -1,5 +1,5 @@
 //! UI-thread replay of an application module; the rendering host never restarts.
-use crate::View;
+use crate::HostView;
 use notify::Watcher;
 use plico::{Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::host::{Descriptor, Module};
@@ -491,7 +491,7 @@ impl<S: HostService> ReloadView<S> {
         self.texts.retain(|path, _| active.contains(path));
     }
 }
-impl<S: HostService> View for ReloadView<S> {
+impl<S: HostService> HostView for ReloadView<S> {
     fn on_unhandled_key(&mut self, key: &plico_renderer::KeyEvent) -> bool {
         let services = match serde_json::to_value(self.services.snapshot()) {
             Ok(value) => value,

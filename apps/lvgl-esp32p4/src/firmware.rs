@@ -1,4 +1,4 @@
-use plico::{DeclareView, Engine, Entity, FrameError, Kind, Theme, prelude::*};
+use plico::{Engine, Entity, FrameError, Kind, Theme, View, prelude::*};
 use plico_lvgl::{Adapter, Driver};
 use std::cell::RefCell;
 
@@ -31,7 +31,7 @@ struct Counter {
     time_ms: u32,
     paused: bool,
 }
-impl DeclareView for Counter {
+impl View for Counter {
     fn theme(&self) -> Theme {
         Theme::default()
     }

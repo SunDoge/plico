@@ -1,10 +1,10 @@
 //! Host-side declarations. egui controls enqueue IDs/values, never capture app state.
-use plico::{Clock, DeclareView, Engine, FrameTime, UiContext};
+use plico::{Clock, Engine, FrameTime, UiContext, View};
 use plico_renderer::{
     EventResponse, FrameSource, HostAction, Scene, TextContext, UiEvent, WakeCallback,
     layout::PlacedNode,
 };
-use plico_runtime::View;
+use plico_runtime::HostView;
 use std::time::Duration;
 
 pub struct Source<V> {
@@ -15,7 +15,7 @@ pub struct Source<V> {
     dirty: bool,
     deadline: Option<web_time::Instant>,
 }
-impl<V: View> Source<V> {
+impl<V: HostView> Source<V> {
     pub fn new(view: V) -> Self {
         Self::with_clock(view, plico::SystemClock::default())
     }
@@ -31,7 +31,7 @@ impl<V: View> Source<V> {
     }
 }
 struct Declaration<'a, V>(&'a mut V);
-impl<V: View> DeclareView for Declaration<'_, V> {
+impl<V: HostView> View for Declaration<'_, V> {
     fn show(&mut self, cx: &mut UiContext) {
         self.0.show(cx);
     }
@@ -39,7 +39,7 @@ impl<V: View> DeclareView for Declaration<'_, V> {
         self.0.theme()
     }
 }
-impl<V: View> FrameSource for Source<V> {
+impl<V: HostView> FrameSource for Source<V> {
     fn native_widget_frame(&mut self, size: [f32; 2]) -> Option<&mut Engine> {
         let now = self.clock.now();
         let time = FrameTime {

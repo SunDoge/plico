@@ -1,6 +1,6 @@
 //! Full scene encoding and cache-reuse costs. CPU only; no GPU or window.
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::{Duration, Instant};
 
@@ -32,7 +32,7 @@ struct App {
     flip: bool,
     calls: usize,
 }
-impl View for App {
+impl HostView for App {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

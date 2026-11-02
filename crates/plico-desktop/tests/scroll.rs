@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, SemanticAction, SemanticRole, TextContext,
     UiEvent, WheelDeltaMode, WheelEvent,
@@ -7,7 +7,7 @@ use plico_renderer::{
 struct Demo {
     count: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)
@@ -148,7 +148,7 @@ fn wheel_reflattens_without_taffy_and_keyboard_focus_reveals_clipped_items() {
 #[test]
 fn nested_ports_chain_remaining_wheel_delta_to_ancestors() {
     struct Nested;
-    impl View for Nested {
+    impl HostView for Nested {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)

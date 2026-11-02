@@ -1,6 +1,6 @@
 //! Sparse animation work counters with an injected clock; no window or sleeps.
 use plico::{UiContext, VirtualClock, component};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::{Duration, Instant};
 struct Demo {
@@ -9,7 +9,7 @@ struct Demo {
     layout: bool,
     calls: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;

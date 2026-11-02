@@ -1,6 +1,6 @@
 use kurbo::Shape;
 use plico::{UiContext, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, PaintCommand, SemanticAction, SemanticRole, TextContext};
 use std::time::Duration;
 #[derive(Default)]
@@ -8,7 +8,7 @@ struct Feedback {
     checked: bool,
     calls: usize,
 }
-impl View for Feedback {
+impl HostView for Feedback {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         ui.switch("Toggle", &mut self.checked);

@@ -61,6 +61,15 @@ fn frame(
     );
     Ok(())
 }
+fn has_label(source: &Source<ReloadView<service::TaskService>>, label: &str) -> bool {
+    source
+        .adapter
+        .semantics(&source.engine, 0)
+        .exposed_nodes()
+        .iter()
+        .any(|node| node.label.as_deref() == Some(label))
+}
+
 fn click(
     source: &mut Source<ReloadView<service::TaskService>>,
     tcx: &mut TextContext,
@@ -144,9 +153,10 @@ fn run() -> Result<()> {
             message: "revision did not activate"
         }
     );
+    source.request_rebuild();
     frame(&mut source, &mut tcx)?;
     snafu::ensure!(
-        source.view.state().decode::<serde_json::Value>().unwrap()["counter"] == 1,
+        has_label(&source, "View counter: 1"),
         VerifySnafu {
             message: "compatible reload lost UI state"
         }
@@ -175,12 +185,12 @@ fn run() -> Result<()> {
                 message: "schema revision did not activate"
             }
         );
+        source.request_rebuild();
         frame(&mut source, &mut tcx)?;
         snafu::ensure!(
-            source.view.snapshot().reset.is_some()
-                && source.view.state().decode::<serde_json::Value>().unwrap()["counter"] == 0,
+            has_label(&source, "View counter: 0"),
             VerifySnafu {
-                message: "incompatible UI did not reset"
+                message: "incompatible UI slot did not reset"
             }
         );
     }

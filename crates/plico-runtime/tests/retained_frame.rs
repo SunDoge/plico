@@ -1,10 +1,10 @@
 //! Native painting must not materialize a cloned placement snapshot.
 use plico::prelude::*;
 use plico_renderer::{FrameSource, TextContext};
-use plico_runtime::{Source, View};
+use plico_runtime::{HostView, Source};
 #[derive(Default)]
 struct Demo;
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         button(cx).text("Count").width(160.).height(40.);
     }

@@ -512,4 +512,4 @@ fn bar(ui: &mut UiContext, width: f32, height: f32, grow: f32, color: Color) {
 #[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
 plico_dev::export_app!(Gallery);
 #[cfg(feature = "desktop")]
-plico_desktop::impl_view_for_app!(Gallery);
+plico_desktop::impl_host_view_for_app!(Gallery);

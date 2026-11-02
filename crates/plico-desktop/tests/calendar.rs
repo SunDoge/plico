@@ -5,7 +5,7 @@
 //! September 28–30, trailing November 1–8 — dates ascend in tree order).
 use plico::prelude::*;
 use plico::{CalendarDate, CalendarState, WeekStart};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 fn date(year: u16, month: u8, day: u8) -> CalendarDate {
@@ -17,7 +17,7 @@ fn date(year: u16, month: u8, day: u8) -> CalendarDate {
 struct RangeCard {
     state: CalendarState,
 }
-impl View for RangeCard {
+impl HostView for RangeCard {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         calendar(cx, &mut self.state, WeekStart::Monday);
@@ -30,7 +30,7 @@ struct TwoCards {
     single: CalendarState,
     range: CalendarState,
 }
-impl View for TwoCards {
+impl HostView for TwoCards {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         row(cx).gap(24.).children(|cx| {
@@ -40,7 +40,7 @@ impl View for TwoCards {
     }
 }
 
-fn click<V: View>(s: &mut Source<V>, tcx: &mut TextContext, label: &str) {
+fn click<V: HostView>(s: &mut Source<V>, tcx: &mut TextContext, label: &str) {
     let id = s
         .adapter
         .semantics(&s.engine, 0)

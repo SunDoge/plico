@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Duration;
 static EFFECT: ShaderAsset = ShaderAsset::new(
@@ -27,7 +27,7 @@ impl Default for Demo {
         }
     }
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.shows += 1;
@@ -134,7 +134,7 @@ struct Uniforms { header: vec4<f32>, values: array<vec4<f32>,64> };
 "#,
     );
     struct Static;
-    impl View for Static {
+    impl HostView for Static {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             shader(cx, &MODULE)
@@ -184,7 +184,7 @@ fn theme_reveal_keeps_old_and_new_shader_uniforms_independent() {
     struct Themed {
         dark: bool,
     }
-    impl View for Themed {
+    impl HostView for Themed {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             shader(cx, &SOLID)

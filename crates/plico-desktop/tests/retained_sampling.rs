@@ -1,5 +1,5 @@
 use plico::{Theme, UiContext, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ struct Demo {
     logical_animation: bool,
     fade: bool,
 }
-impl View for Demo {
+impl HostView for Demo {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         plico::text!(ui, "Count {}", self.count)

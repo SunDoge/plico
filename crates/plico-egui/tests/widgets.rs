@@ -3,7 +3,7 @@ use egui::{Context, Pos2, RawInput, Rect, Vec2};
 use plico::{Engine, Entity, prelude::*};
 use plico_egui::{Adapter, Source};
 use plico_renderer::FrameSource;
-use plico_runtime::View;
+use plico_runtime::HostView;
 
 struct Demo {
     count: usize,
@@ -23,7 +23,7 @@ impl Default for Demo {
         }
     }
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)
@@ -212,7 +212,7 @@ fn secret_inputs_are_rejected_before_painting_instead_of_becoming_plaintext() {
 #[test]
 fn scrolling_is_owned_by_egui_and_reported_to_the_engine() {
     struct ScrollDemo;
-    impl View for ScrollDemo {
+    impl HostView for ScrollDemo {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx)

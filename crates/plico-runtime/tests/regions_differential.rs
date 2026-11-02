@@ -3,10 +3,10 @@ use plico::prelude::*;
 use plico::{Engine, Entity, FrameError, VirtualClock};
 use plico_renderer::{FrameSource, ImeEvent, SemanticAction, SemanticRole, TextContext, UiEvent};
 use plico_runtime::{
-    Source, View,
+    HostView, Source,
     regions::{
-        Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, Regions, State, StateSender,
-        WatchUi,
+        Access, BindState, OnClick, OnClickWith, OnSubmit, Reactive, RegionUi, Regions, State,
+        StateSender,
     },
 };
 use std::{
@@ -73,7 +73,7 @@ struct Driven {
     regions: Regions,
     full: bool,
 }
-impl View for Driven {
+impl HostView for Driven {
     fn theme(&self) -> Theme {
         self.regions.theme()
     }
@@ -184,11 +184,11 @@ fn root(
                     let dark = *theme.read() == Theme::dark();
                     theme.set(if dark { Theme::light() } else { Theme::dark() });
                 });
-            cx.watch((bindings.read().level,), |cx, (level,)| {
+            cx.region((bindings.read().level,), |cx, (level,)| {
                 let mut value = *level.read();
                 slider(cx, "Level", &mut value, 0. ..=100.).bind(level.handle());
             });
-            cx.watch(
+            cx.region(
                 (world.handle(), bindings.handle(), records.handle()),
                 branch,
             );
@@ -212,7 +212,7 @@ fn branch(
                 .font_size(world.font)
                 .color(Color::Literal(world.shade));
             if world.visible {
-                cx.watch_keyed(
+                cx.region_keyed(
                     50,
                     (if world.choose_b {
                         bindings.b
@@ -255,7 +255,7 @@ fn each_row(
             enabled,
         },
     );
-    cx.watch((count, draft, enabled, info, world.handle()), row_view);
+    cx.region((count, draft, enabled, info, world.handle()), row_view);
 }
 #[component]
 #[allow(clippy::type_complexity)] // Exercise heterogeneous explicit dependencies in one fixture.

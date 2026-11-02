@@ -1,7 +1,7 @@
 use kurbo::{Rect, Shape};
 use plico::prelude::*;
 use plico::{Entity, VirtualClock};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::layout::PlacedNode;
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, PaintCommand, SemanticAction,
@@ -16,7 +16,7 @@ struct Demo {
     gap: Option<u16>,
     actions: usize,
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).gap(8).children(|cx| {

@@ -3,7 +3,7 @@
 //! Clone timings are a separate warm-buffer lower-bound comparison, not a
 //! subtraction-based estimate of traversal cost. No GPU/present is measured.
 use plico::{VirtualClock, prelude::*};
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, GesturePhase, Modifiers, Point, Scene, TextContext, UiEvent, WheelDeltaMode,
     WheelEvent,
@@ -72,7 +72,7 @@ struct App {
     case: Case,
     flip: bool,
 }
-impl View for App {
+impl HostView for App {
     #[component]
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {

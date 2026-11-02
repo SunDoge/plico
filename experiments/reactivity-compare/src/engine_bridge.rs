@@ -2,7 +2,7 @@
 use crate::{RegionId, RegionItem, Runtime};
 use plico::{Color, Entity, ExperimentContext, FrameStats, Key, UiContext, VirtualClock};
 use plico_renderer::{FrameSource, Scene, TextContext};
-use plico_runtime::{Source, View};
+use plico_runtime::{Source, HostView};
 use slotmap::Key as _;
 use std::{
     collections::{HashMap, HashSet},
@@ -58,7 +58,7 @@ fn full(
         bindings.insert(id, Binding { context, children });
     });
 }
-impl View for BridgeView {
+impl HostView for BridgeView {
     fn show(&mut self, cx: &mut UiContext<'_>) {
         self.bindings.clear();
         cx.element(

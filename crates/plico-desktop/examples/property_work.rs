@@ -1,6 +1,6 @@
 //! Native backend CPU probe; no window, GPU submission or present.
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Instant;
 
@@ -16,7 +16,7 @@ struct App {
     flip: bool,
     change: Change,
 }
-impl View for App {
+impl HostView for App {
     fn theme(&self) -> plico::Theme {
         let mut theme = plico::Theme::default();
         if self.flip && matches!(self.change, Change::Theme) {

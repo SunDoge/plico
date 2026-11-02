@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_desktop::{Source, View};
+use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, SemanticRole,
     TextContext, UiEvent,
@@ -27,7 +27,7 @@ impl Default for Demo {
         }
     }
 }
-impl View for Demo {
+impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
@@ -133,7 +133,7 @@ fn transformed_children_obey_ancestor_clip_and_zero_scale_is_not_hittable() {
 struct SemanticOnly {
     selected: bool,
 }
-impl View for SemanticOnly {
+impl HostView for SemanticOnly {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         button_base(cx, "Choice")
@@ -192,7 +192,7 @@ struct CollapsedChild {
     x: f32,
     opacity: f32,
 }
-impl View for CollapsedChild {
+impl HostView for CollapsedChild {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx)
