@@ -17,3 +17,5 @@
 - 新的应用代码优先使用 UiContext 首参的独立控件函数（plico::widgets / prelude），自定义组件优先普通函数，不要求实现 Widget trait。两个 Widget trait 分界：plico::Widget（fn show）是应用可组合的 immediate 辅助 trait；plico_renderer::Widget（measure/paint/IME 平台契约）只允许框架 crate（editor、terminal 等）实现，应用可以宿主这类 widget（调用其 trait 方法、接收 WidgetNodeEvent），但不得自行实现或触碰其 MeasureContext/PaintContext 表面；scripts/check-widget-boundary.py 在 CI 中守卫此边界。布局优先使用 `+ |cx| { ... }`，原生 children 保留；动态格式化文字优先 text!(cx, ...)，已有字符串直接借用。异步任务留在宿主，通过服务快照和消息回到 UI，宿主服务不持有 UI 状态引用；Regions 的 UI 依赖由组件生命周期管理。
 
 - reports/ 下的截图、日志与性能报告是本地生成产物，不参与提交；提交可重建脚本、测试断言与文档结论，文档不依赖生成文件链接。
+
+- 开发使用静态编译重启与 JSON 场景预览（docs/preview.md）。桌面动态热重载、stabby ABI 与 cdylib 导出已移除，不重新引入。App 不强制序列化；预览状态采用应用定义的配置类型。WASM host/UI 拆分协议独立保留。

@@ -26,8 +26,6 @@ mod modal;
 mod popover;
 mod presentation;
 pub mod regions;
-#[cfg(feature = "hot-reload")]
-pub mod reload;
 mod scroll_motion;
 mod selection;
 mod services;
@@ -65,3 +63,11 @@ pub use zoom::{ZoomController, ZoomSource};
 
 /// Semantic command protocol and deterministic headless test driver.
 pub mod testing;
+
+/// Native blocking tasks and retained worker-local services.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod background;
+/// One-shot Future lifecycle and typed task services; executors remain host-owned.
+pub mod tasks {
+    pub use plico_dev::tasks::*;
+}

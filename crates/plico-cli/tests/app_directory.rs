@@ -16,12 +16,10 @@ fn fixture(default: &str) -> tempfile::TempDir {
 name='{name}'
 version='0.1.0'
 edition='2024'
-[lib]
-crate-type=['rlib','cdylib']
 [features]
 default=['desktop']
 desktop=[]
-hot-reload=[]
+extra=[]
 [package.metadata.plico]
 host='missing-host'
 "#
@@ -30,7 +28,7 @@ host='missing-host'
         .unwrap();
         fs::write(directory.join("src/lib.rs"), "pub fn value() {}\n").unwrap();
         fs::write(directory.join("src/main.rs"), r#"fn main() {
-println!("app={} desktop={} hot={} module={} args={:?}", env!("CARGO_PKG_NAME"), cfg!(feature="desktop"), cfg!(feature="hot-reload"), std::env::var_os("PLICO_DEV_MODULE").is_some(), std::env::args().skip(1).collect::<Vec<_>>());
+println!("app={} desktop={} extra={} args={:?}", env!("CARGO_PKG_NAME"), cfg!(feature="desktop"), cfg!(feature="extra"), std::env::args().skip(1).collect::<Vec<_>>());
 }"#).unwrap();
     }
     fs::create_dir_all(root.path().join("helper/src")).unwrap();
@@ -54,7 +52,6 @@ fn run_infers_directory_preserves_arguments_and_uses_normal_features() {
     let root = fixture("apps/two");
     let output = command(root.path())
         .args(["run", "apps/one", "--", "a b"])
-        .env("PLICO_DEV_MODULE", "stale descriptor")
         .output()
         .unwrap();
     assert!(
@@ -64,7 +61,7 @@ fn run_infers_directory_preserves_arguments_and_uses_normal_features() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("app=one desktop=true hot=false module=false"),
+        stdout.contains("app=one desktop=true extra=false"),
         "{stdout}"
     );
     assert!(stdout.contains("args=[\"a b\"]"));
@@ -78,9 +75,9 @@ fn run_infers_directory_preserves_arguments_and_uses_normal_features() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("app=one desktop=true hot=false"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("app=one desktop=true extra=false"));
     let output = command(root.path())
-        .args(["run", "--no-default-features", "--features", "hot-reload"])
+        .args(["run", "--no-default-features", "--features", "extra"])
         .output()
         .unwrap();
     assert!(
@@ -88,7 +85,7 @@ fn run_infers_directory_preserves_arguments_and_uses_normal_features() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("app=two desktop=false hot=true"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("app=two desktop=false extra=true"));
 }
 #[test]
 fn dev_uses_directory_or_workspace_default_instead_of_gallery() {
@@ -99,12 +96,15 @@ fn dev_uses_directory_or_workspace_default_instead_of_gallery() {
         if let Some(path) = path {
             cmd.arg(path);
         }
-        let output = cmd.output().unwrap();
-        assert!(!output.status.success());
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let output = cmd.arg("--no-watch").output().unwrap();
         assert!(
-            stderr.contains(&format!("missing-host was not found in package {selected}")),
-            "{stderr}"
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .contains(&format!("app={selected} desktop=true extra=false"))
         );
     }
 }
@@ -128,13 +128,8 @@ fn ambiguous_workspace_and_non_application_directory_are_actionable_errors() {
 }
 
 #[test]
-fn dev_enables_host_hot_reload_and_publishes_a_separate_module() {
+fn dev_runs_normal_binary_without_module_exports() {
     let root = fixture("apps/two");
-    let manifest = root.path().join("apps/one/Cargo.toml");
-    let source = fs::read_to_string(&manifest)
-        .unwrap()
-        .replace("host='missing-host'", "host='one'");
-    fs::write(manifest, source).unwrap();
     let output = command(root.path())
         .args(["dev", "apps/one", "--no-watch", "--", "payload"])
         .output()
@@ -146,13 +141,91 @@ fn dev_enables_host_hot_reload_and_publishes_a_separate_module() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("app=one desktop=true hot=true module=true"),
+        stdout.contains("app=one desktop=true extra=false"),
         "{stdout}"
     );
-    assert!(stdout.contains("args=[\"payload\"]"));
-    let report: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.path().join("target/plico-dev/one/build-report.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(report["package"], "one");
+    assert!(stdout.contains("payload"));
+}
+
+#[test]
+fn watch_keeps_old_process_on_build_failure_and_restarts_after_fix() {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+    let root = fixture("apps/one");
+    let record = root.path().join("process.txt");
+    let stop = root.path().join("stop");
+    let source = root.path().join("apps/one/src/main.rs");
+    let code = |value: &str| {
+        format!(
+            r#"fn main() {{
+        let args: Vec<_> = std::env::args().collect();
+        std::fs::write(&args[1], format!("{{}}:{value}", std::process::id())).unwrap();
+        while !std::path::Path::new(&args[2]).exists() {{ std::thread::sleep(std::time::Duration::from_millis(20)); }}
+    }}"#
+        )
+    };
+    fs::write(&source, code("before")).unwrap();
+    let log_path = root.path().join("dev.log");
+    let mut command = command(root.path());
+    command
+        .args(["dev", "apps/one", "--"])
+        .arg(&record)
+        .arg(&stop)
+        .stdout(std::process::Stdio::null())
+        .stderr(fs::File::create(&log_path).unwrap());
+    struct Cleanup {
+        child: std::process::Child,
+        stop: std::path::PathBuf,
+    }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::write(&self.stop, "stop");
+            for _ in 0..100 {
+                if self.child.try_wait().ok().flatten().is_some() {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+    let _cleanup = Cleanup {
+        child: command.spawn().unwrap(),
+        stop,
+    };
+    let wait = |condition: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !condition() {
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                fs::read_to_string(&log_path).unwrap_or_default()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    };
+    wait(&|| {
+        fs::read_to_string(&record)
+            .unwrap_or_default()
+            .ends_with(":before")
+    });
+    let before = fs::read_to_string(&record).unwrap();
+    fs::write(&source, "fn main() { syntax error }").unwrap();
+    wait(&|| {
+        fs::read_to_string(&log_path)
+            .unwrap_or_default()
+            .contains("build failed for one")
+    });
+    assert_eq!(fs::read_to_string(&record).unwrap(), before);
+    fs::write(&source, code("after")).unwrap();
+    wait(&|| {
+        fs::read_to_string(&record)
+            .unwrap_or_default()
+            .ends_with(":after")
+    });
+    let after = fs::read_to_string(&record).unwrap();
+    assert_ne!(before.split(':').next(), after.split(':').next());
 }

@@ -15,41 +15,6 @@ impl App for RichState {
     fn show(&mut self, _: &mut UiContext<'_>) {}
 }
 
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[test]
-fn non_json_state_survives_the_actual_dispatch_envelope() {
-    let original = RichState {
-        entries: BTreeMap::from([((3, 7), "value".into())]),
-        bytes: vec![0, 128, 255],
-        infinity: f64::INFINITY,
-        nan: f64::NAN,
-    };
-    assert!(serde_json::to_value(&original).is_err());
-    let state = StateSnapshot::encode(&original).unwrap();
-    // MessagePack bin8, length three, then the original bytes.
-    assert!(
-        state
-            .as_bytes()
-            .windows(5)
-            .any(|b| b == [0xc4, 3, 0, 128, 255])
-    );
-    let request = Request {
-        state,
-        ..Default::default()
-    };
-    let bytes = serde_json::to_vec(&request).unwrap();
-    let reply = plico_dev::dispatch::<RichState>(bytes.into_iter().collect());
-    assert_eq!(reply.status, 0);
-    let bytes: Vec<_> = reply.bytes.into_iter().collect();
-    let frame: plico_dev::Frame = serde_json::from_slice(&bytes).unwrap();
-    assert!(frame.reset.is_none());
-    let restored: RichState = frame.state.decode().unwrap();
-    assert_eq!(restored.entries, original.entries);
-    assert_eq!(restored.bytes, original.bytes);
-    assert_eq!(restored.infinity, f64::INFINITY);
-    assert!(restored.nan.is_nan());
-}
-
 #[test]
 fn named_fields_allow_reordering_additions_and_removal() {
     #[derive(Serialize)]

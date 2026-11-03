@@ -39,9 +39,6 @@ impl plico_runtime::regions::RegionProgram for Program {
             let task = app.state(TaskSnapshot::default);
             let commands = app.state(Vec::<TaskCommand>::new);
             app.service_state(task, commands);
-            #[cfg(feature = "schema-reset-fixture")]
-            let counter = app.persisted_state(1001, || 0_u64);
-            #[cfg(not(feature = "schema-reset-fixture"))]
             let counter = app.persisted_state(1, || 0_u64);
             app.root(
                 (task, commands, counter),
@@ -143,6 +140,3 @@ fn reload_notes(cx: &mut UiContext) {
         }
     });
 }
-
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-plico_dev::export_service_app!(Application);

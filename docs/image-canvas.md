@@ -31,6 +31,10 @@ column(cx).key("preview").grow(1.).min_height(100.).end();
 选择回报无需再同步整份叠层，否则会取消当前拖动。输入的无效、越界或重复 ID 叠层被忽略。
 
 新图调用 `set_document`，会清掉排队事件、选中框并适应窗口；`set_regions` 不改变缩放。
+同尺寸的处理预览使用 `replace_image`，保留平移、缩放、选中框和叠层；尺寸不匹配返回 false，
+需要换图时仍调用 `set_document`。`tool()` 可用于高亮当前工具。
+点击框或手柄但未拖动不会发出 `Edited`；选中状态仍通过 `Selected` 报告。
+视口尺寸变化会唤醒宿主，以便更新缩放百分比等依赖画布几何的界面。
 几何与交互状态不进入应用 checkpoint。控件无动画循环，外部状态更新通过 WakeCallback 通知宿主。
 `SurfaceSource` 现在允许非文本 surface 未处理的非 synthetic KeyDown 进入 View 的窗口快捷键回退；
 不转发局部 pointer 坐标，不改变文本编辑器/IME 的事件优先级。

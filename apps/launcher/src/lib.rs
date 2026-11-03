@@ -571,8 +571,8 @@ impl HostView for Launcher {
     fn set_wake_callback(&mut self, wake: plico_desktop::WakeCallback) {
         self.regions.set_wake_callback(wake);
     }
-    fn poll_reload(&mut self) -> bool {
-        self.regions.poll_reload()
+    fn poll_updates(&mut self) -> bool {
+        self.regions.poll_updates()
     }
     fn snapshot_changed(&self) -> bool {
         self.regions.snapshot_changed()

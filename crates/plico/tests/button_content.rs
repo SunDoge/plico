@@ -118,3 +118,17 @@ fn custom_content_retains_return_value_and_rejects_nested_controls() {
         .unwrap_err();
     assert!(matches!(error, FrameError::NestedControl));
 }
+
+#[test]
+fn ghost_buttons_have_explicit_hover_and_pressed_colors() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            button(cx).text("Quiet").ghost();
+        })
+        .unwrap();
+    let style = engine.node(root_child(&engine, 0)).unwrap().style;
+    assert_eq!(style.background, Some(Color::Surface));
+    assert_eq!(style.hover_background, Some(Color::ControlHover));
+    assert_eq!(style.pressed_background, Some(Color::ControlPressed));
+}

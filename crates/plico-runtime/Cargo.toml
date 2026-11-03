@@ -22,7 +22,6 @@ serde = { workspace = true, features = ["derive"] }
 plico-dev.workspace = true
 snafu.workspace = true
 tracing.workspace = true
-notify = { workspace = true, optional = true }
 
 [dev-dependencies]
 gallery = { path = "../../apps/gallery" }
@@ -34,5 +33,4 @@ plico-shell.workspace = true
 # Kept for the standalone declaration benchmark; Regions is always available.
 experiment-patch = []
 default = []
-hot-reload = ["plico-dev/host", "dep:notify"]
 profiling = ["plico-renderer/profiling"]

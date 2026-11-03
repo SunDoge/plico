@@ -15,7 +15,7 @@
 //! }
 //! Engine::default().frame_declarations(settings).unwrap();
 //! ```
-use crate::{Color, InnerResponse, Motion, Response, SvgAsset, UiContext, Widget};
+use crate::{InnerResponse, Motion, Response, SvgAsset, UiContext, Widget};
 use std::borrow::Cow;
 
 #[derive(Default, Clone, Copy)]
@@ -73,7 +73,7 @@ impl<'a> Button<'a> {
         let mut button = ui.button(self.label.as_ref()).disabled(self.disabled);
         match self.variant {
             Variant::Primary => button = button.primary(),
-            Variant::Ghost => button = button.background(Color::Surface),
+            Variant::Ghost => button = button.ghost(),
             Variant::Default => {}
         }
         if let Some(width) = self.width {
@@ -242,6 +242,17 @@ pub fn text_input<'u, 'e, 't>(
     buffer: &crate::TextBuffer,
 ) -> crate::Input<'u, 'e, 't> {
     cx.text_input(label, buffer)
+}
+
+/// Edit an ordinary string with persistent caret, selection, and IME state.
+/// Use [`text_input`] with a secret [`crate::TextBuffer`] for credentials.
+#[track_caller]
+pub fn text_input_string<'u, 'e, 't>(
+    cx: &'u mut crate::UiContext<'e>,
+    label: impl Into<Cow<'t, str>>,
+    value: &'t mut String,
+) -> crate::Input<'u, 'e, 't> {
+    cx.text_input_string(label, value)
 }
 
 /// A window-level modal portal. Its content closure executes immediately.

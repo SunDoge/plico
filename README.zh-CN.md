@@ -25,9 +25,8 @@ Plico 提供 immediate mode 的编写方式，底层保留节点、布局、文�
 - **局部状态不必全挂在 App 上。** 共享数据使用普通 struct，组件内可用 `cx.state`。
   具名的 `cx.persisted_state` 支持尽力恢复 checkpoint，也可显式导出 MessagePack
   字节用于存储。
-- **缩短开发反馈。** 普通 `main.rs` + `lib.rs` 项目、按目录运行的 CLI 和原生模块热重载。
-  宿主保留窗口与服务，兼容状态恢复，不兼容状态可以重置。异步工作由宿主任务承接，
-  不把运行中的 Future 放进可重载 UI 模块。
+- **可重复的开发预览。** 普通 Rust 程序自动编译重启；JSON 场景配置状态、操作与虚拟时间，直接生成离屏 PNG。桌面热重载已移除，App 不再被迫序列化。参见[场景预览](docs/preview.md)。
+
 - **为不同后端留出空间。** Vello 是桌面主线；可选 Skia、FLTK + Taffy、LVGL 和
   浏览器/WASM 路径验证同一套声明模型。LVGL 已在 ESP32-P4 / ESP-IDF 上验证。
 
@@ -93,7 +92,7 @@ CLI 支持按需生成应用自有的 SVG 图标集合，普通构建不依赖�
 
 Plico **不是细粒度响应式 runtime**。业务声明仍会执行视图代码并协调节点，
 整条链路不保证 O(变化量)。缓存与宿主动效在保留这一简单模型的同时减少重复工作。
-热重载是 best effort，不保证任意 Rust 状态无损迁移。各后端尚未完全对齐，
+开发重启会重建应用状态；持久化由应用正常管理。各后端尚未完全对齐，
 Bevy 和 `no_std` 尚未接入。
 
 桌面启用 Skia 时默认优先使用 Skia；可以启用 `plico-desktop/vello` 选择 Vello。

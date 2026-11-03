@@ -162,3 +162,16 @@ fn legacy_theme_deserializes_and_metrics_are_shared_by_built_in_widgets() {
     assert_eq!(style.min_height, Some(theme.metrics.control_height as f32));
     assert_eq!(style.background, Some(Color::Control));
 }
+
+#[test]
+fn standalone_ghost_button_matches_context_button_feedback() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|ui| {
+            Button::new("Quiet").ghost().show(ui);
+        })
+        .unwrap();
+    let style = engine.node(entity(&engine, "Quiet")).unwrap().style;
+    assert_eq!(style.hover_background, Some(Color::ControlHover));
+    assert_eq!(style.pressed_background, Some(Color::ControlPressed));
+}

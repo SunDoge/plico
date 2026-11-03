@@ -14,6 +14,14 @@ if text_input(cx, "Password", &password).response().submitted {
 }
 ```
 
+普通非秘密设置可以直接绑定 `String`，不必在应用状态里再保存一个 `TextBuffer`：
+
+```rust
+text_input_string(cx, "Model path", &mut self.model_path);
+```
+
+绑定在调用点保留光标、选区和 IME preedit；用户编辑在 `.response()` 或 Drop 时回写，禁用状态不会提交编辑。应用主动替换 `String` 会重置编辑器内容，但不会伪造一次用户 `changed`。秘密值仍必须使用 `TextBuffer::secret`，不要改用普通 `String`。
+
 `InputResponse` 的 changed / submitted 各消费一次；值变更与提交请求同帧稳定化，光标移动不算值变化。缓冲编辑版本进入 paint key，不进入布局 key。占位符改变、绑定切换和空编辑器都能更新 paint。
 
 缓冲使用共享的原生存储，不实现 Debug / Serialize。普通文本可以 text() 读取；secret 拒绝明文 String 读取、复制和剪切，presentation() 只返回按 grapheme 计数的圆点。take() 移出 Zeroizing<String> 并清空编辑状态；替换会释放并清零旧缓冲。接收方仍需管理 SDK 等第三方代码创建的明文副本，不能把这些措施当成任意内存副本均已清零的保证。

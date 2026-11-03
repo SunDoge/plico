@@ -216,14 +216,42 @@ impl<'e> UiContext<'e> {
         inner.style.radius = m.radius as f32;
         inner.style.border_width = 1.;
         inner.style.background = Some(Color::Panel);
+        inner.style.hover_background = Some(Color::Control);
+        inner.style.pressed_background = Some(Color::ControlHover);
+        inner.style.transition_ms = m.interaction_ms;
         inner.style.clip = true;
         Input {
             inner,
             buffer: buffer.clone(),
+            string: None,
             placeholder: Cow::Borrowed(""),
             autofocus: false,
             focus: false,
         }
+    }
+    /// Edit an ordinary string while retaining caret, selection, and IME state
+    /// at this call site. External replacements reset the editor without
+    /// reporting a synthetic user `changed` response. Secret values must use
+    /// [`Self::text_input`] with [`crate::TextBuffer::secret`] instead.
+    #[track_caller]
+    pub fn text_input_string<'u, 't>(
+        &'u mut self,
+        label: impl Into<Cow<'t, str>>,
+        value: &'t mut String,
+    ) -> Input<'u, 'e, 't> {
+        let state = self.state(|| StringBinding::new(value.as_str()));
+        let buffer = {
+            let mut binding = state.value.borrow_mut();
+            if binding.synced != *value {
+                binding.buffer.set(value.clone().into());
+                binding.synced.clone_from(value);
+                binding.external_sync = true;
+            }
+            binding.buffer.clone()
+        };
+        let mut input = self.text_input(label, &buffer);
+        input.string = Some((state, value));
+        input
     }
     #[inline(always)]
     pub fn text<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Text<'u, 'e, 't> {
@@ -393,6 +421,8 @@ impl<'e> UiContext<'e> {
         let checked = *value;
         let mut inner = self.leaf(kind, label.into());
         inner.style.checked = checked;
+        inner.style.hover_background = Some(Color::ControlHover);
+        inner.style.pressed_background = Some(Color::ControlPressed);
         inner.style.transition_ms = metrics.interaction_ms;
         inner.style.padding = metrics.space(2) as f32;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
@@ -1430,6 +1460,8 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     #[inline(always)]
     pub fn ghost(mut self) -> Self {
         self.inner.style.background = Some(Color::Surface);
+        self.inner.style.hover_background = Some(Color::ControlHover);
+        self.inner.style.pressed_background = Some(Color::ControlPressed);
         self.inner.style.border_width = 0.;
         self
     }
@@ -1722,10 +1754,28 @@ impl ButtonBase<'_, '_, '_> {
     }
 }
 
+struct StringBinding {
+    buffer: crate::TextBuffer,
+    synced: String,
+    external_sync: bool,
+}
+impl StringBinding {
+    fn new(value: &str) -> Self {
+        let buffer = crate::TextBuffer::new();
+        buffer.set(value.to_owned().into());
+        Self {
+            buffer,
+            synced: value.to_owned(),
+            external_sync: false,
+        }
+    }
+}
+
 /// A native editor binding; only its accessible label enters the display tree.
 pub struct Input<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
     buffer: crate::TextBuffer,
+    string: Option<(crate::LocalState<StringBinding>, &'t mut String)>,
     placeholder: Cow<'t, str>,
     autofocus: bool,
     focus: bool,
@@ -1828,6 +1878,22 @@ impl<'t> Input<'_, '_, 't> {
                     ui.engine.focus_request = Some(entity);
                 }
                 entry.insert((self.buffer.clone(), self.placeholder.to_string(), counters));
+            }
+        }
+        if let Some((state, target)) = &mut self.string {
+            let mut binding = state.value.borrow_mut();
+            if binding.external_sync {
+                response.changed = false;
+                binding.external_sync = false;
+            } else if response.changed {
+                if self.inner.style.disabled {
+                    self.buffer.set((**target).clone().into());
+                    binding.external_sync = true;
+                } else {
+                    let text = self.buffer.text().unwrap_or_default();
+                    **target = text.clone();
+                    binding.synced = text;
+                }
             }
         }
         if self.inner.style.disabled {
@@ -1972,11 +2038,14 @@ impl<'e> UiContext<'e> {
         value: &'t mut f64,
         range: std::ops::RangeInclusive<f64>,
     ) -> Slider<'u, 'e, 't> {
-        let height = self.theme().metrics.control_height as f32;
+        let metrics = self.theme().metrics;
+        let height = metrics.control_height as f32;
         let mut inner = self.leaf(Kind::Slider, label.into());
         inner.style.width = Some(240.);
         inner.style.height = Some(height);
         inner.style.min_height = Some(height);
+        inner.style.radius = metrics.radius as f32;
+        inner.style.hover_background = Some(Color::ControlHover);
         inner.style.transition_ms = Motion::Quick.duration_ms();
         let range = crate::NumericRange {
             min: *range.start(),

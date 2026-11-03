@@ -85,15 +85,20 @@ fn layout_style_and_hits_share_current_animated_geometry() {
     source.handle_event(pointer(PointerPhase::Up, 150.));
     source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(100));
     assert_eq!(source.view.clicks, 1);
-    source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(200));
+    // Allow both the layout transition and the click interaction to finish.
+    let settled = now
+        + Duration::from_millis(
+            100 + u64::from(source.engine.theme().metrics.interaction_ms).max(200),
+        );
+    source.build_frame_at(&mut tcx, 600, 300, settled);
     assert!(!source.has_anim());
     source.view.expanded = false;
     source.request_rebuild();
-    source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(200));
+    source.build_frame_at(&mut tcx, 600, 300, settled);
     assert!(source.has_anim());
     source.view.mounted = false;
     source.request_rebuild();
-    source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(250));
+    source.build_frame_at(&mut tcx, 600, 300, settled + Duration::from_millis(50));
     assert!(!source.has_anim());
 }
 #[test]

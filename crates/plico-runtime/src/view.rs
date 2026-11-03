@@ -6,7 +6,7 @@ use plico::{Engine, Entity, Theme};
 ///
 /// Most applications use this implicitly through their backend's `run_view`
 /// entry point. Implement [`HostView`] directly only when the application owns
-/// host capabilities such as services, hot reload, Regions, or native wakeups.
+/// host capabilities such as services, Regions, or native wakeups.
 pub struct NativeView<V>(pub V);
 
 impl<V: plico::View> HostView for NativeView<V> {
@@ -19,7 +19,7 @@ impl<V: plico::View> HostView for NativeView<V> {
     }
 }
 
-/// A statically linked application using the same App implementation as hot reload.
+/// A statically linked application using an ordinary App implementation.
 pub struct NativeApp<A>(pub A);
 /// Shared forwarding for both the wrapper and application's direct HostView implementation.
 #[doc(hidden)]
@@ -55,7 +55,7 @@ impl<A: plico_dev::App> HostView for NativeApp<A> {
 /// Advanced host contract for native windows and retained frame sources.
 ///
 /// Ordinary applications implement `plico::View` or `plico_dev::App` instead.
-/// `HostView` adds host actions, wakeups, reload, Regions, and cache metadata.
+/// `HostView` adds host actions, wakeups, Regions, and cache metadata.
 /// Consuming an event automatically requests a settling declaration.
 pub trait HostView {
     #[doc(hidden)]
@@ -80,7 +80,7 @@ pub trait HostView {
     }
     fn set_frame_time(&mut self, _time: plico::FrameTime) {}
     fn set_wake_callback(&mut self, _wake: plico_renderer::WakeCallback) {}
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         false
     }
     /// Whether the view's own data source changed since the last rendered

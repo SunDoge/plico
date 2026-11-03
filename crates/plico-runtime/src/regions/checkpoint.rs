@@ -272,7 +272,7 @@ impl<P: RegionServiceProgram> plico_dev::services::ServiceApp for RegionApp<P> {
         self.regions.set_wake_callback(wake);
     }
     fn poll_regions(&mut self) -> bool {
-        self.regions.poll_reload()
+        self.regions.poll_updates()
     }
     fn regions_changed(&self) -> bool {
         self.regions.snapshot_changed()
@@ -294,8 +294,8 @@ impl<P: RegionProgram> HostView for RegionApp<P> {
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.regions.set_wake_callback(wake);
     }
-    fn poll_reload(&mut self) -> bool {
-        self.regions.poll_reload()
+    fn poll_updates(&mut self) -> bool {
+        self.regions.poll_updates()
     }
     fn snapshot_changed(&self) -> bool {
         self.regions.snapshot_changed()

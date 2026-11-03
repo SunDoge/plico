@@ -3,7 +3,6 @@ name = "plico-desktop"
 version.workspace = true
 edition.workspace = true
 description = "Desktop window host and development CLI for the Plico runtime"
-default-run = "plico-desktop"
 
 [dependencies]
 plico-runtime = { path = "../plico-runtime" }
@@ -15,36 +14,29 @@ serde = { workspace = true, features = ["derive"] }
 snafu.workspace = true
 
 [dev-dependencies]
+usage-rs.workspace = true
+tempfile.workspace = true
 kurbo.workspace = true
 peniko.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { workspace = true }
-gallery = { path = "../../apps/gallery" }
+gallery = { path = "../../apps/gallery", default-features = false, features = ["host"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 plico-shell = { workspace = true, default-features = false }
-usage-rs = { workspace = true, optional = true }
+image = { workspace = true, optional = true, features = ["png"] }
+plico-skia = { path = "../plico-skia", optional = true, features = ["raster"] }
 
 [features]
-skia = ["plico-shell/skia"]
+skia = ["plico-shell/skia", "dep:plico-skia", "dep:image"]
 vello = ["plico-shell/vello"]
-default = ["hot-reload", "skia"]
-hot-reload = ["plico-runtime/hot-reload", "plico-dev/host", "dep:usage-rs"]
+default = ["skia"]
 profiling = [
     "plico-runtime/profiling",
     "plico-renderer/profiling",
     "plico-shell/profiling",
 ]
-
-[[bin]]
-name = "plico-desktop"
-path = "src/main.rs"
-required-features = ["hot-reload"]
-
-[[example]]
-name = "game2048-reload"
-required-features = ["hot-reload"]
 
 [[example]]
 name = "skia-window"

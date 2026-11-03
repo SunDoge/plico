@@ -103,26 +103,3 @@ fn incompatible_ui_resets_independently_of_host_snapshot_and_invalid_snapshot_fa
         .is_err()
     );
 }
-
-#[derive(Default, Serialize, Deserialize)]
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-struct FailingApp;
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-impl ServiceApp for FailingApp {
-    type Snapshot = Projection;
-    type Command = Command;
-    fn show(&mut self, _cx: &mut UiContext, services: &mut Services<Projection, Command>) {
-        services.send(Command::Start);
-        panic!("synthetic declaration failure");
-    }
-}
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[test]
-fn a_panicking_declaration_cannot_publish_its_outbox() {
-    let bytes = serde_json::to_vec(&Request::default()).unwrap();
-    let reply = plico_dev::services::dispatch::<FailingApp>(bytes.into_iter().collect());
-    assert_eq!(reply.status, 1);
-    let message = String::from_utf8(reply.bytes.into_iter().collect()).unwrap();
-    assert!(message.contains("panicked"));
-    assert!(!message.contains("Start"));
-}

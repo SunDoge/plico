@@ -3,6 +3,11 @@
 //! binary, and the Skia/Vello backend selection through plico-shell.
 pub use plico_runtime::*;
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+mod capture;
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+pub use capture::{Capture, CaptureError, CapturedFrame, capture};
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::Error as DesktopError;
 
@@ -27,7 +32,7 @@ pub fn run_view_with_options<V: plico::View + 'static>(
 }
 
 /// Launch a view that implements native host capabilities directly.
-/// Useful for services, hot reload, Regions, and application-owned wakeups.
+/// Useful for services, Regions, and application-owned wakeups.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_host_view_with_options<V: HostView + 'static>(
     view: V,
@@ -64,16 +69,9 @@ mod services_host {
     pub enum ServiceDesktopError {
         #[snafu(display("desktop host failed: {source}"))]
         Desktop { source: crate::DesktopError },
-        #[cfg(feature = "hot-reload")]
-        #[snafu(display("application module failed: {source}"))]
-        Module { source: plico_dev::host::Error },
-        #[cfg(not(feature = "hot-reload"))]
-        #[snafu(display("enable plico-desktop/hot-reload to run a development module"))]
-        HotReloadDisabled,
     }
 
-    /// Normal `main.rs` entry point. In plico dev the executable remains resident and
-    /// only the module is replaced; outside development this uses direct typed calls.
+    /// Launch an application and its typed host services.
     pub fn run_service_app_with_options<A, S>(
         app: A,
         services: S,
@@ -83,24 +81,14 @@ mod services_host {
         A: ServiceApp + 'static,
         S: HostService<Snapshot = A::Snapshot, Command = A::Command> + 'static,
     {
-        if let Some(descriptor) = std::env::var_os("PLICO_DEV_MODULE") {
-            #[cfg(feature = "hot-reload")]
-            {
-                let view =
-                    plico_runtime::reload::ReloadView::with_services(descriptor.into(), services)
-                        .map_err(|source| ServiceDesktopError::Module { source })?;
-                return crate::run_host_view_with_options(view, options)
-                    .map_err(|source| ServiceDesktopError::Desktop { source });
-            }
-            #[cfg(not(feature = "hot-reload"))]
-            {
-                let _ = descriptor;
-                return Err(ServiceDesktopError::HotReloadDisabled);
-            }
-        }
         crate::run_host_view_with_options(ServiceView::new(app, services), options)
             .map_err(|source| ServiceDesktopError::Desktop { source })
     }
 }
 #[cfg(not(target_arch = "wasm32"))]
 pub use services_host::{ServiceDesktopError, run_service_app_with_options};
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+mod preview;
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+pub use preview::{PreviewError, PreviewScenario, PreviewSource, PreviewStep, PreviewViewport};

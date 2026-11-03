@@ -132,6 +132,7 @@ pub struct Select<'u, 'e, 's, T: Clone + PartialEq> {
     max_height: f32,
     disabled: bool,
     motion: Motion,
+    search: Option<&'s crate::TextBuffer>,
 }
 pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
     cx: &'u mut UiContext<'e>,
@@ -152,6 +153,7 @@ pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
         max_height: 280.,
         disabled: false,
         motion: Motion::Quick,
+        search: None,
     }
 }
 impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
@@ -163,7 +165,7 @@ impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
         self
     }
 }
-impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
+impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
@@ -178,6 +180,12 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
     }
     pub fn motion(mut self, motion: Motion) -> Self {
         self.motion = motion;
+        self
+    }
+    /// Add a filter field inside the listbox. The caller retains the query.
+    /// Filtering preserves business keys and never changes the selected value.
+    pub fn searchable(mut self, query: &'s crate::TextBuffer) -> Self {
+        self.search = Some(query);
         self
     }
     pub fn response(mut self) -> SelectResponse {
@@ -201,6 +209,7 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
             .find(|option| option.value == *selected)
             .map_or(label, |option| option.label);
         let max_height = self.max_height;
+        let search = self.search;
         let mut changed = false;
         cx.popover(state, label)
             .display_text(shown)
@@ -211,7 +220,22 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
             .motion(motion)
             .role(WidgetRole::ListBox)
             .children(|cx| {
-                for option in options {
+                if let Some(query) = search {
+                    text_input(cx, "Search options", query)
+                        .placeholder("搜索…")
+                        .width_percent(100.);
+                }
+                let query = search
+                    .and_then(|buffer| buffer.text())
+                    .unwrap_or_default()
+                    .to_lowercase();
+                let mut shown_count = 0;
+                for option in options
+                    .iter()
+                    .filter(|option| option.label.to_lowercase().contains(&query))
+                    .take(80)
+                {
+                    shown_count += 1;
                     let on = option.value == *selected;
                     let m = cx.theme().metrics;
                     let response = button_base(cx, option.label)
@@ -228,6 +252,9 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
                         .align(Align::Center)
                         .radius(m.radius as f32)
                         .background(if on { Color::Selection } else { Color::Panel })
+                        .hover_background(Color::ControlHover)
+                        .pressed_background(Color::ControlPressed)
+                        .motion(motion)
                         .children(|cx| {
                             text(cx, option.label).grow(1.).ellipsis(true);
                             let side = cx.inherited.font_size.saturating_add(2) as f32;
@@ -247,6 +274,14 @@ impl<T: Clone + PartialEq> Select<'_, '_, '_, T> {
                         *selected = option.value.clone();
                         cx.close_popover();
                     }
+                }
+                if shown_count == 0 {
+                    text(cx, "没有匹配项").color(Color::Muted);
+                }
+                if options.len() > 80 {
+                    text(cx, "输入关键词筛选，最多显示 80 项")
+                        .font_size(13)
+                        .color(Color::Muted);
                 }
             });
         SelectResponse { changed }

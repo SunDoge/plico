@@ -53,7 +53,7 @@ impl std::fmt::Debug for Images {
 impl PartialEq for Images {
     /// Surface state and queue content, not allocation identity: a
     /// serialized state restored into a fresh host must compare equal to
-    /// the live one (the hot-reload and roundtrip snapshot contract).
+    /// the live one (the persisted snapshot contract).
     /// A poisoned queue compares unequal rather than panicking.
     fn eq(&self, other: &Self) -> bool {
         let Ok(a) = self.inner.lock() else {
@@ -282,7 +282,7 @@ impl plico_desktop::HostView for GalleryHost {
     fn on_unhandled_key(&mut self, key: &plico::KeyEvent) -> bool {
         plico_dev::App::on_key_event(&mut self.app, key)
     }
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         self.app.images.poll_requests();
         false
     }

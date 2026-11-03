@@ -61,7 +61,7 @@ enum Action {
         #[usage(long)]
         name: Option<String>,
     },
-    /// Build and hot-reload an application module in a resident rendering host.
+    /// Watch, rebuild, and restart a normal application executable.
     Dev {
         /// Application directory; defaults to the current working directory.
         path: Option<PathBuf>,
@@ -71,9 +71,6 @@ enum Action {
         /// Build once, without watching source files.
         #[usage(long)]
         no_watch: bool,
-        /// Run the resident host with JSON commands on stdin instead of opening a window.
-        #[usage(long)]
-        headless: bool,
         #[usage(double_dash = "required")]
         arguments: Vec<OsString>,
     },
@@ -92,6 +89,18 @@ enum Action {
         no_default_features: bool,
         #[usage(double_dash = "required")]
         arguments: Vec<OsString>,
+    },
+    /// Render an app-defined JSON scenario to PNG; optionally regenerate on edits.
+    Capture {
+        path: Option<PathBuf>,
+        #[usage(short = 'p', long)]
+        package: Option<String>,
+        #[usage(long)]
+        scenario: PathBuf,
+        #[usage(long)]
+        output: PathBuf,
+        #[usage(long)]
+        watch: bool,
     },
     /// Build a release application directory with resources and a Linux desktop entry.
     Bundle {
@@ -203,6 +212,9 @@ fn run() -> Result<u8> {
         }
         | Action::Bundle {
             path: Some(path), ..
+        }
+        | Action::Capture {
+            path: Some(path), ..
         } => base_directory.join(path),
         _ => base_directory.clone(),
     };
@@ -229,17 +241,42 @@ fn run() -> Result<u8> {
             path: _,
             package,
             no_watch,
-            headless,
             arguments,
         } => {
             return development::run(
                 &directory,
                 &manifest,
                 package.as_deref(),
-                &framework,
                 no_watch,
-                headless,
                 arguments,
+            );
+        }
+        Action::Capture {
+            package,
+            scenario,
+            output,
+            watch,
+            ..
+        } => {
+            let scenario = base_directory
+                .join(scenario)
+                .canonicalize()
+                .context(IoSnafu)?;
+            let output = base_directory.join(output);
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent).context(IoSnafu)?;
+            }
+            return development::run(
+                &directory,
+                &manifest,
+                package.as_deref(),
+                !watch,
+                vec![
+                    "--scenario".into(),
+                    scenario.into_os_string(),
+                    "--capture".into(),
+                    output.into_os_string(),
+                ],
             );
         }
         Action::Run {
@@ -355,7 +392,7 @@ mod tests {
         }
     }
     #[test]
-    fn dev_defaults_to_hot_reload() {
+    fn dev_defaults_to_rebuild_and_restart() {
         let c = parse(&["plico", "dev"]).unwrap();
         assert!(matches!(
             c.command,

@@ -1,3 +1,4 @@
+#![cfg(all(feature = "vello", not(feature = "skia")))]
 use plico::prelude::*;
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};

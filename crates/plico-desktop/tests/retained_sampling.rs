@@ -40,7 +40,7 @@ impl HostView for Demo {
             Theme::default()
         }
     }
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         if let Some(value) = self.incoming.take() {
             self.count = value;
             true

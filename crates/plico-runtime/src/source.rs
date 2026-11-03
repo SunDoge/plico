@@ -127,7 +127,7 @@ impl<V: HostView> Source<V> {
             declarations_pending: false,
         }
     }
-    /// Attach a resident font asset, shared by normal and hot-reload rendering.
+    /// Attach a resident font asset, shared across frames and captures.
     pub fn with_font(mut self, font: FontAsset) -> Self {
         self.fonts.push(font);
         self.pending = true;
@@ -688,7 +688,7 @@ impl<V: HostView> FrameSource for Source<V> {
         // another wake, even when it arrives after the drain's final read.
         self.wake_batch.pending.store(false, Ordering::Release);
         self.batch_stats.service_polls += 1;
-        let changed = self.view.poll_reload();
+        let changed = self.view.poll_updates();
         self.pending |= changed;
         changed
     }

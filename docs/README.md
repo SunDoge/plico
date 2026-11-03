@@ -45,7 +45,7 @@
 | [应用内毛玻璃](glass.md) | 背景高斯模糊、底色透明度、圆角裁剪与前缀重放边界 |
 | [主题转场](theme-transition.md) | 场景复用与 GPU 圆形裁剪 |
 | [宿主服务与可重载 UI](host-services.md) | 类型化快照/消息、常驻 worker、自定义 main 与恢复边界 |
-| [热重载协议 v2](hotreload-protocol.md) | 保留会话、checkpoint、输入回传、失败恢复与诊断边界 |
+| [场景预览](preview.md) | JSON 状态、模拟操作、虚拟时钟、离屏截图与自动编译重启 |
 | [动画、异步与热更新](lifecycle.md) | 模拟时钟实验的结论和未来迁移约束 |
 | [自动身份](identity.md) | component/view 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
