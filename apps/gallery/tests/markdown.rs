@@ -77,11 +77,20 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
     for _ in 0..4 {
         source.build_frame(&mut tcx, 900, 700);
     }
+    // The sidebar is independently scrollable too. Target the transcript's
+    // content parent, rather than whichever scroll port was declared first.
+    let content_parent = source
+        .adapter
+        .placed
+        .iter()
+        .find(|p| p.paint.text.as_deref() == Some("A reply that arrives at its own pace."))
+        .unwrap()
+        .parent_node_id;
     let viewport = source
         .adapter
         .placed
         .iter()
-        .find(|p| p.scroll.range[1] > 0.)
+        .find(|p| p.scroll.range[1] > 0. && p.parent_node_id == content_parent)
         .unwrap();
     let position = Point {
         x: f64::from(viewport.scroll.port[0] + 20.),

@@ -117,3 +117,7 @@ clear probe passes, while its normal window renderer remains unchanged. See
 ## 国际化
 
 `plico-i18n` 提供 Fluent 消息和裁剪后的 ICU4X 数字/日期数据；核心通过短期借用的 `localized` scope 继承语言。Gallery 可切换中英文，并包含国际化演示页。详见 [i18n](i18n.md)。系统语言探测和自动 RTL 布局尚未实现。
+
+## Wabou gallery 对照页
+
+现有 gallery 增加 Data table / Tree navigation：从本地 Wabou 迁移项目数据、筛选/排序/选择与树形展开/选择交互。使用普通 immediate 函数和组件级持久状态；中英文、窄窗口和键盘输入有离屏/语义协议验证。表头与滚动行共享 Grid 列定义。树形页是按钮组合示例，不是完整 ARIA Tree 控件。来源和许可证见 `apps/gallery/reference/README.md`。

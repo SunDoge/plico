@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "viewport": { "width": 1120, "height": 820, "scale": 1.0 },
+  "state": { "router": { "current": "DataTable" } },
+  "steps": [
+    { "command": { "action": "click", "role": "checkbox", "label": "Router" } },
+    { "command": { "action": "click", "role": "checkbox", "label": "Data table" } }
+  ],
+  "time_ms": 200
+}

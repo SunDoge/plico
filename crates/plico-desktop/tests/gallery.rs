@@ -415,6 +415,8 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             Page::Controls,
             Page::Motion,
             Page::Lists,
+            Page::DataTable,
+            Page::TreeView,
         ] {
             let mut s = Source::new(Gallery {
                 router: plico::Router::new(page),

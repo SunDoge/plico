@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "viewport": { "width": 1120, "height": 820, "scale": 1.0 },
+  "state": { "router": { "current": "TreeView" } },
+  "steps": [
+    { "command": { "action": "click", "role": "button", "label": "Expand apps" } },
+    { "command": { "action": "click", "role": "button", "label": "gallery" } },
+    { "command": { "action": "click", "role": "button", "label": "Background worker" } }
+  ],
+  "time_ms": 200
+}

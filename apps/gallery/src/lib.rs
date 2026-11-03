@@ -1,9 +1,12 @@
 mod calendar;
 mod color_icons;
+pub mod data_table;
 pub mod i18n;
 pub mod icons;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub mod images;
+pub mod tree_view;
+mod wabou_icons;
 use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
 mod components;
@@ -38,6 +41,10 @@ pub enum Page {
     Motion,
     #[route(label = "Lists", icon = color_icons::TEXT_BULLET_LIST_SQUARE)]
     Lists,
+    #[route(label = "Data table", icon = color_icons::TEXT_BULLET_LIST_SQUARE)]
+    DataTable,
+    #[route(label = "Tree navigation", icon = color_icons::HOME)]
+    TreeView,
     #[route(label = "2048", icon = color_icons::PUZZLE_PIECE)]
     Game2048,
     #[route(label = "Markdown chat", icon = color_icons::CHAT)]
@@ -157,10 +164,9 @@ impl Gallery {
                 };
                 text(ui, l.text("interface-lab", "INTERFACE LAB")).font_size(10).weight(600)
                     .color(Color::Muted);
-                column(ui).gap(6).padding(0) + |ui| {
+                column(ui).height(0.).grow(1.).scroll_y(true).gap(6).padding(0) + |ui| {
                     nav_menu(ui, &mut self.router);
                 };
-                column(ui).grow(1.).children(|_ui| {});
                 row(ui).gap(6).wrap(true) + |ui| {
                     for (language, label) in [
                         (i18n::Language::English, "English"),
@@ -195,6 +201,8 @@ impl Gallery {
                     Page::Controls => self.controls_page(ui),
                     Page::Motion => self.motion_page(ui),
                     Page::Lists => self.lists_page(ui),
+                    Page::DataTable => data_table::page(ui),
+                    Page::TreeView => tree_view::page(ui),
                     Page::Game2048 => self.game2048.show(ui),
                     Page::Markdown => self.markdown_chat.show(ui),
                     Page::Glass => self.glass.show(ui),
