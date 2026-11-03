@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/SunDoge/plico/compare/v0.1.11...v0.2.0) - 2026-11-03
+
+### Added
+
+- *(app)* make Immediate the default application path
+- *(cli)* make reactive regions the starter default
+- *(regions)* unify typed service hosting
+- *(runtime)* add incremental reactive backend updates
+- *(renderer)* add editable retained image canvas
+- *(regions)* add equality-checked derived state
+- *(regions)* bind button properties and one-shot actions
+
+### Fixed
+
+- *(skia)* support gaussian backdrop filters
+- *(skia)* preserve nested fragment damage correctness
+- *(skia)* keep AA commands whole in tracked damage
+- *(runtime)* harden incremental regions and backend invalidation
+- *(skia)* render synthetic glyphs and complex SVGs
+
+### Other
+
+- *(dev)* [**breaking**] replace desktop hot reload with scenario previews
+- *(core)* split user and host view contracts
+- *(skia)* remove redundant SVG projection path
+- *(runtime)* split adapter source and view modules
+- *(launcher)* migrate interactions to regions
+- *(regions)* format renamed imports
+- *(regions)* rename watch API to region
+- *(skia)* enable damage tracking by default
+- *(skia)* skip unchanged presents by default
+- *(skia)* prototype vertical CJK text compositing
+- *(skia)* align render probes and simplify scene history
+- *(skia)* paint translated paragraphs without matrix scopes
+
 ## [0.1.11](https://github.com/SunDoge/plico/compare/v0.1.10...v0.1.11) - 2026-10-29
 
 ### Added
