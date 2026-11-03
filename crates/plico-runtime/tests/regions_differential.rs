@@ -83,8 +83,8 @@ impl HostView for Driven {
     fn snapshot_changed(&self) -> bool {
         self.regions.snapshot_changed()
     }
-    fn poll_reload(&mut self) -> bool {
-        self.regions.poll_reload()
+    fn poll_updates(&mut self) -> bool {
+        self.regions.poll_updates()
     }
     fn replay_regions(
         &mut self,

@@ -61,11 +61,9 @@ plico-renderer = { path = "crates/plico-renderer" }
 plico-shell = { path = "crates/plico-shell", default-features = false }
 
 cargo_metadata = "0.23"
-libloading = "0.9"
 notify = "8.2"
 plico-dev = { path = "crates/plico-dev" }
 plico-runtime = { path = "crates/plico-runtime" }
-stabby = "72.1.16"
 tempfile = "3"
 usage-rs = "7.0.0"
 

@@ -39,6 +39,8 @@ fn configured_toggle_returns_final_value_consumes_once_and_respects_disabled() {
     assert!(response.changed() && response.checked() && response.enabled());
     assert!(value && engine.node(id).unwrap().style.checked);
     let style = engine.node(id).unwrap().style;
+    assert_eq!(style.hover_background, Some(Color::ControlHover));
+    assert_eq!(style.pressed_background, Some(Color::ControlPressed));
     assert_eq!(
         (style.gap, style.font_size, style.transition_ms),
         (10., 18, 240)

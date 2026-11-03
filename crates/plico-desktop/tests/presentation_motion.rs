@@ -94,7 +94,12 @@ fn host_motion_updates_nested_paint_hits_and_semantics_without_layout_or_declara
     s.handle_event(pointer(PointerPhase::Up, 170., 40.));
     s.build_frame(&mut tcx, 400, 200);
     assert_eq!(s.view.clicks, 1);
-    clock.advance(Duration::from_millis(120)).unwrap();
+    // The click also starts the theme's button interaction animation.
+    clock
+        .advance(Duration::from_millis(
+            u64::from(s.engine.theme().metrics.interaction_ms).max(120),
+        ))
+        .unwrap();
     s.build_frame(&mut tcx, 400, 200);
     assert!(!s.has_anim());
 }

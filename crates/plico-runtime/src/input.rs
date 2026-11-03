@@ -3,7 +3,7 @@ use super::*;
 use kurbo::{Affine, Rect};
 use parley::{Affinity, Cursor, Selection};
 use peniko::{BlendMode, Fill};
-use plico::InputEdit;
+use plico::{InputEdit, StandardShortcut};
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
 use zeroize::Zeroizing;
 
@@ -224,7 +224,10 @@ impl Adapter {
                 after_bytes,
             }) => buffer.edit(InputEdit::DeleteSurrounding(*before_bytes, *after_bytes)),
             UiEvent::Key(key) if key.phase == KeyPhase::Down => {
-                if buffer.is_composing() && !matches!(key.key.as_str(), "Tab" | "Escape") {
+                if buffer.is_composing()
+                    && !matches!(key.key.as_str(), "Tab" | "Escape")
+                    && !key.matches_standard_shortcut(StandardShortcut::Paste)
+                {
                     return Some(EventResponse {
                         text_input: Some(true),
                         ..EventResponse::IGNORED
@@ -250,7 +253,21 @@ impl Adapter {
                 let shift = key.modifiers.shift();
                 let command = key.modifiers.primary_shortcut();
                 response.consume_key_text = true;
-                match key.key.as_str() {
+                // Modifier-applied logical text may be a control character or
+                // differ under an input method/layout. Use the event's standard
+                // shortcut identity before matching ordinary navigation keys.
+                let editing_key = if key.matches_standard_shortcut(StandardShortcut::Paste) {
+                    "v"
+                } else if key.matches_standard_shortcut(StandardShortcut::Copy) {
+                    "c"
+                } else if key.matches_standard_shortcut(StandardShortcut::Cut) {
+                    "x"
+                } else if key.matches_standard_shortcut(StandardShortcut::SelectAll) {
+                    "a"
+                } else {
+                    key.key.as_str()
+                };
+                match editing_key {
                     "a" | "A" if command => buffer.edit(InputEdit::SelectAll),
                     "v" | "V" if command => response.clipboard = Some(ClipboardRequest::Read),
                     "c" | "C" if command => {
@@ -320,5 +337,50 @@ impl Adapter {
             completion: false,
             spellcheck: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+    #[test]
+    fn password_paste_uses_unmodified_key_even_with_ime_preedit() {
+        let mut engine = Engine::default();
+        let buffer = plico::TextBuffer::secret();
+        engine
+            .frame_declarations(|cx| {
+                plico::widgets::text_input(cx, "key", &buffer).key("key");
+            })
+            .unwrap();
+        let id = engine.find(engine.root(), "key").unwrap();
+        let mut adapter = Adapter {
+            focused: Some(id),
+            ..Default::default()
+        };
+        buffer.edit(InputEdit::Preedit(Zeroizing::new("候选".into())));
+        let mut event = UiEvent::Key(plico_renderer::KeyEvent {
+            phase: KeyPhase::Down,
+            key: "\u{16}".into(),
+            key_without_modifiers: "v".into(),
+            code: "KeyV".into(),
+            text: None,
+            text_with_all_modifiers: None,
+            location: plico_renderer::KeyLocation::Standard,
+            modifiers: if cfg!(target_os = "macos") {
+                plico::Modifiers::META
+            } else {
+                plico::Modifiers::CONTROL
+            },
+            repeat: false,
+            synthetic: false,
+        });
+        let response = adapter.input_event(&engine, &mut event).unwrap();
+        assert!(matches!(response.clipboard, Some(ClipboardRequest::Read)));
+        adapter
+            .input_event(&engine, &mut UiEvent::Paste("test-key".into()))
+            .unwrap();
+        assert_eq!(buffer.with_value(|v| v.to_owned()), "test-key");
+        assert!(!buffer.is_composing());
+        assert!(buffer.text().is_none());
     }
 }

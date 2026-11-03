@@ -29,10 +29,10 @@ API with retained nodes, layout, text, and rendering caches underneath.
 - **Local state when you need it.** Keep shared data in ordinary structs, or use
   `cx.state` for component-local state. Named `cx.persisted_state` slots support
   best-effort checkpoint restoration and explicit MessagePack storage export.
-- **A short development loop.** Ordinary `main.rs` + `lib.rs` projects, directory-based
-  CLI commands, and native module hot reload. The host keeps its window and services
-  alive; compatible state is restored, incompatible state can reset. Async work
-  stays in host tasks, outside the reloadable UI module.
+- **Repeatable previews.** Ordinary Rust executables, rebuild-and-restart development,
+  and JSON scenarios with scripted input and a virtual clock for offscreen PNGs.
+  App state needs no serialization unless the app chooses it for previews or storage.
+  Async work stays in ordinary host tasks. See [preview development](docs/preview.md).
 - **Room for different backends.** Skia is the default desktop renderer. Optional Vello,
   FLTK + Taffy, LVGL, and browser/WASM paths explore the same declaration model.
   LVGL has been tested on an ESP32-P4 with ESP-IDF.
@@ -104,8 +104,8 @@ See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
 Plico is **not** a fine-grained reactive runtime. A business declaration still
 executes view code and reconciles nodes; the entire pipeline is not O(changes).
 Caching and host-side animation reduce repeated work without changing that model.
-Hot reload is best effort, not arbitrary Rust state migration. Backends do not
-yet have feature parity; Bevy and `no_std` are not integrated.
+Native hot reload has been removed in favor of static rebuilds and scenario previews.
+Backends do not yet have feature parity; Bevy and `no_std` are not integrated.
 
 Desktop builds prefer Skia when it is enabled. Enable `plico-desktop/vello` to
 select Vello; use `default-features = false` with either `skia` or `vello` for a

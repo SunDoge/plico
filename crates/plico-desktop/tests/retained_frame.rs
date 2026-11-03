@@ -2,10 +2,20 @@ use gallery::{Gallery, Page};
 use plico_desktop::Source;
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 #[test]
-fn retained_and_snapshot_paths_render_identical_pixels_for_widgets_shader_and_theme_retarget() {
+fn retained_and_snapshot_paths_render_identical_pixels_for_widgets() {
+    check(Page::Controls);
+}
+
+#[cfg(all(feature = "vello", not(feature = "skia")))]
+#[test]
+fn retained_and_snapshot_paths_render_identical_pixels_for_shader_and_theme_retarget() {
+    check(Page::Motion);
+}
+
+fn check(page: Page) {
     let clock = plico::VirtualClock::default();
     let mut text = TextContext::new();
-    for page in [Page::Controls, Page::Motion] {
+    {
         let app = Gallery {
             router: plico::Router::new(page),
             ..Default::default()

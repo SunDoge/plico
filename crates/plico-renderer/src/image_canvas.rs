@@ -98,6 +98,30 @@ impl ImageCanvasState {
             s.events.clear();
         });
     }
+    /// Swap same-sized pixels (for example a processed preview), preserving
+    /// overlays, selection and viewport. Returns false for a size mismatch.
+    /// Cancels active gestures, like a document replacement.
+    pub fn replace_image(&self, image: Arc<RasterImage>) -> bool {
+        let wake = {
+            let mut s = self.0.lock().unwrap();
+            if s.image
+                .as_ref()
+                .is_none_or(|current| current.size() != image.size())
+            {
+                return false;
+            }
+            s.image = Some(image);
+            s.document += 1;
+            s.revision += 1;
+            s.wake.clone()
+        };
+        wake();
+        true
+    }
+    /// Current primary-pointer tool.
+    pub fn tool(&self) -> CanvasTool {
+        self.0.lock().unwrap().tool
+    }
     /// Replace overlays after a host-side edit/undo. Cancels an in-progress edit.
     pub fn set_regions(&self, regions: Vec<CanvasRegion>, selected: Option<u64>) {
         self.update(|s| {
@@ -287,6 +311,93 @@ mod tests {
         assert!(state.take_event().is_none());
     }
     #[test]
+    fn zoom_pan_and_viewport_resize_keep_rectangles_in_image_coordinates() {
+        let (state, mut widget) = fixture();
+        let region = CanvasRegion {
+            id: 7,
+            rect: [10., 20., 60., 80.],
+        };
+        state.set_regions(vec![region], Some(7));
+        state.zoom(1.5);
+        state.pan([12., -7.]);
+        let corners = {
+            let s = state.0.lock().unwrap();
+            let (scale, origin) = transform(&s);
+            assert_eq!(scale, 3.);
+            assert_eq!(s.regions[0], region);
+            let screen = |x, y| [origin[0] + x * scale, origin[1] + y * scale];
+            (screen(60., 80.), screen(70., 90.))
+        };
+        state.set_tool(CanvasTool::Select);
+        pointer(&mut widget, PointerPhase::Down, corners.0[0], corners.0[1]);
+        pointer(&mut widget, PointerPhase::Up, corners.1[0], corners.1[1]);
+        assert_eq!(state.take_event(), Some(CanvasEvent::Selected(Some(7))));
+        assert_eq!(
+            state.take_event(),
+            Some(CanvasEvent::Edited(CanvasRegion {
+                id: 7,
+                rect: [10., 20., 70., 90.]
+            }))
+        );
+        widget.layout_changed(WidgetGeometry {
+            content_size: [300., 600.],
+            device_scale: 1.25,
+            local_to_window: Affine::IDENTITY.as_coeffs(),
+            window_to_local: Affine::IDENTITY.as_coeffs(),
+        });
+        assert_eq!(state.scale(), 4.5);
+        assert_eq!(state.0.lock().unwrap().regions[0], region);
+    }
+    #[test]
+    fn preview_swap_preserves_view_and_selection_and_rejects_different_size() {
+        let (state, _) = fixture();
+        let region = CanvasRegion {
+            id: 7,
+            rect: [10., 20., 60., 80.],
+        };
+        state.set_regions(vec![region], Some(7));
+        state.zoom(2.);
+        state.pan([12., -7.]);
+        let before = transform(&state.0.lock().unwrap());
+        let image = Arc::new(RasterImage::from_rgba(image::RgbaImage::from_pixel(
+            100,
+            200,
+            image::Rgba([128; 4]),
+        )));
+        assert!(state.replace_image(image));
+        {
+            let s = state.0.lock().unwrap();
+            assert_eq!(transform(&s), before);
+            assert_eq!(s.selected, Some(7));
+            assert_eq!(s.regions, vec![region]);
+        }
+        let other = Arc::new(RasterImage::from_rgba(image::RgbaImage::from_pixel(
+            10,
+            20,
+            image::Rgba([128; 4]),
+        )));
+        assert!(!state.replace_image(other));
+        assert_eq!(transform(&state.0.lock().unwrap()), before);
+    }
+    #[test]
+    fn clicking_a_region_does_not_commit_a_geometry_change() {
+        let (state, mut widget) = fixture();
+        state.set_regions(
+            vec![CanvasRegion {
+                id: 7,
+                rect: [10., 20., 60., 80.],
+            }],
+            Some(7),
+        );
+        state.set_tool(CanvasTool::Select);
+        for point in [[70., 100.], [119., 159.]] {
+            pointer(&mut widget, PointerPhase::Down, point[0], point[1]);
+            pointer(&mut widget, PointerPhase::Up, point[0], point[1]);
+            assert_eq!(state.take_event(), Some(CanvasEvent::Selected(Some(7))));
+            assert!(state.take_event().is_none());
+        }
+    }
+    #[test]
     fn select_move_resize_and_escape() {
         let (state, mut widget) = fixture();
         let r = CanvasRegion {
@@ -390,7 +501,11 @@ impl Widget for ImageCanvas {
         let mut s = self.state.0.lock().unwrap();
         if s.size != geometry.content_size {
             s.size = geometry.content_size;
+            s.revision += 1;
             self.drag = None;
+            let wake = s.wake.clone();
+            drop(s);
+            wake();
         }
     }
     fn focus_changed(&mut self, focused: bool) -> WidgetChanges {
@@ -491,6 +606,12 @@ impl Widget for ImageCanvas {
                             } else if let Some(r) = hit {
                                 Operation::Move(r)
                             } else {
+                                // Empty-space selection still needs to wake the host
+                                // so its inspector and overlay reflect deselection.
+                                s.revision += 1;
+                                let wake = s.wake.clone();
+                                drop(s);
+                                wake();
                                 return WidgetEventResult::HANDLED;
                             }
                         };
@@ -515,12 +636,19 @@ impl Widget for ImageCanvas {
                         }
                         if p.phase == PointerPhase::Up {
                             if let Some(region) = Self::pending(&s, *drag) {
-                                let event = if matches!(drag.operation, Operation::Draw) {
-                                    CanvasEvent::Added(region.rect)
-                                } else {
-                                    CanvasEvent::Edited(region)
+                                let event = match drag.operation {
+                                    Operation::Draw => Some(CanvasEvent::Added(region.rect)),
+                                    Operation::Move(original) | Operation::Resize(original, _)
+                                        if drag.start != drag.current
+                                            && region.rect != original.rect =>
+                                    {
+                                        Some(CanvasEvent::Edited(region))
+                                    }
+                                    _ => None,
                                 };
-                                s.events.push_back(event);
+                                if let Some(event) = event {
+                                    s.events.push_back(event);
+                                }
                             }
                             self.drag = None;
                         }

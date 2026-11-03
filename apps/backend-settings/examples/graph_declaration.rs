@@ -247,7 +247,7 @@ impl View for Graph {
                 .as_ref()
                 .is_some_and(|(r, _)| r.snapshot_changed())
     }
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         let tick = self
             .feed
             .as_ref()

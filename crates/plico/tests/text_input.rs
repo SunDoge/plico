@@ -87,3 +87,119 @@ fn editor_replacement_and_placeholder_changes_invalidate_paint_without_layout() 
     let entity = engine.node(engine.root()).unwrap().children[0];
     assert!(engine.input(entity).unwrap().0.is_secret());
 }
+
+#[test]
+fn string_binding_writes_user_edits_and_preserves_editor_state() {
+    let mut engine = Engine::default();
+    let mut value = "hello".to_owned();
+    let mut response = InputResponse::default();
+    #[component]
+    fn form(cx: &mut UiContext, value: &mut String, response: &mut InputResponse) {
+        *response = text_input_string(cx, "Path", value).response();
+    }
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, &mut response))
+        .unwrap();
+    let entity = engine.node(engine.root()).unwrap().children[0];
+    let buffer = engine.input(entity).unwrap().0.clone();
+    buffer.edit(InputEdit::Home(false));
+    buffer.edit(InputEdit::Right(true));
+    buffer.edit(InputEdit::Preedit("拼".to_owned().into()));
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, &mut response))
+        .unwrap();
+    assert_eq!(value, "hello");
+    assert!(!response.changed);
+    assert!(buffer.is_composing());
+    assert_eq!(buffer.selection_bytes(), (1, 0));
+
+    buffer.edit(InputEdit::Insert("H".to_owned().into()));
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, &mut response))
+        .unwrap();
+    assert_eq!(value, "Hello");
+    assert!(response.changed);
+    assert!(!buffer.is_composing());
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, &mut response))
+        .unwrap();
+    assert_eq!(response, InputResponse::default());
+}
+
+#[test]
+fn string_binding_external_updates_do_not_look_like_user_edits() {
+    let mut engine = Engine::default();
+    let mut value = "initial".to_owned();
+    #[component]
+    fn form(cx: &mut UiContext, value: &mut String) -> InputResponse {
+        text_input_string(cx, "Path", value).response()
+    }
+    let frame = |engine: &mut Engine, value: &mut String| {
+        let mut response = InputResponse::default();
+        engine
+            .frame_declarations(|cx| response = form(cx, value))
+            .unwrap();
+        response
+    };
+    assert_eq!(frame(&mut engine, &mut value), InputResponse::default());
+    value = "external".into();
+    assert_eq!(frame(&mut engine, &mut value), InputResponse::default());
+    let entity = engine.node(engine.root()).unwrap().children[0];
+    assert_eq!(
+        engine.input(entity).unwrap().0.text().as_deref(),
+        Some("external")
+    );
+    assert_eq!(frame(&mut engine, &mut value), InputResponse::default());
+}
+
+#[test]
+fn string_binding_drop_commits_and_disabled_edits_are_discarded() {
+    let mut engine = Engine::default();
+    let mut value = "hello".to_owned();
+    #[component]
+    fn form(cx: &mut UiContext, value: &mut String, disabled: bool) {
+        column(cx).disabled(disabled).children(|cx| {
+            cx.text_input_string("Path", value);
+        });
+    }
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, false))
+        .unwrap();
+    let entity = engine.node(engine.root()).unwrap().children[0];
+    let input = engine.node(entity).unwrap().children[0];
+    let buffer = engine.input(input).unwrap().0.clone();
+    buffer.edit(InputEdit::End(false));
+    buffer.edit(InputEdit::Insert("!".to_owned().into()));
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, false))
+        .unwrap();
+    assert_eq!(value, "hello!");
+
+    buffer.edit(InputEdit::Insert("ignored".to_owned().into()));
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, true))
+        .unwrap();
+    assert_eq!(value, "hello!");
+    engine
+        .frame_declarations(|cx| form(cx, &mut value, false))
+        .unwrap();
+    assert_eq!(value, "hello!");
+    assert_eq!(buffer.text().as_deref(), Some("hello!"));
+}
+
+#[test]
+fn text_input_has_quiet_hover_and_pressed_feedback() {
+    let mut engine = Engine::default();
+    let buffer = TextBuffer::new();
+    engine
+        .frame_declarations(|cx| {
+            text_input(cx, "Name", &buffer);
+        })
+        .unwrap();
+    let input = engine.node(engine.root()).unwrap().children[0];
+    let style = engine.node(input).unwrap().style;
+    assert_eq!(style.background, Some(Color::Panel));
+    assert_eq!(style.hover_background, Some(Color::Control));
+    assert_eq!(style.pressed_background, Some(Color::ControlHover));
+    assert_eq!(style.transition_ms, engine.theme().metrics.interaction_ms);
+}

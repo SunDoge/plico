@@ -126,7 +126,6 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<()> {
             name,
             "--message-format=json-render-diagnostics",
         ])
-        .env_remove("PLICO_DEV_MODULE")
         .stderr(Stdio::inherit());
     if options.no_default_features {
         command.arg("--no-default-features");

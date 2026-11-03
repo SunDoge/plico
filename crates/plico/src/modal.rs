@@ -347,6 +347,7 @@ impl<'s> Popover<'_, '_, 's> {
                 .then_some(crate::WidgetRole::ComboBox),
             expanded: Some(self.modal.state.is_open()),
             disabled,
+            styled_button: self.trigger_text.is_some(),
             font_size: metrics.font_size,
             transition_ms: metrics.interaction_ms,
             padding_x: Some(metrics.spacing as f32 * 3.5),

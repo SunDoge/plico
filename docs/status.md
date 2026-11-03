@@ -1,3 +1,5 @@
+> 当前开发路径已迁移：桌面热重载、动态 ABI 与模块加载器已移除。使用 [JSON 场景预览与编译重启](preview.md)。下文旧实验中的热重载结论仅作历史记录。
+
 # 实现状态与边界
 
 ## 当前主线
@@ -26,7 +28,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 - Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
 - [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；不引入空间索引或自动节点几何订阅。虚拟列表复用该计算，保留 smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
-- 原生 main.rs + lib.rs、模块热重载、Serde 状态恢复/失败重置与宿主服务桥。
+- 普通 main.rs + lib.rs、静态编译重启、JSON 场景离屏截图与宿主服务桥。
 - [窗口内快捷键](shortcuts.md)：App/ServiceApp 完整组合键、显式作用域 action 表、冲突检查，以及静态/热重载一致的事件转发。
 - [可选系统全局热键](global-hotkeys.md)：plico-native 管理注册与状态，shell extension 负责唤醒和注销。X11 后台触发/冲突/释放已实测，Windows/macOS 通过交叉编译；Wayland portal 已接入并编译，但真实桌面授权与 activation token 聚焦尚未验收。
 - usage-rs CLI、plico fmt、应用目录选择与 dev/run 分离。
@@ -65,7 +67,7 @@ cargo check --workspace --all-targets
 cargo test --workspace --all-features --exclude plico-lvgl --exclude lvgl-esp32p4
 cargo run -p gallery
 cargo plico new /tmp/my-app
-cargo plico dev /tmp/my-app --headless --no-watch
+cargo plico dev /tmp/my-app --no-watch
 cargo plico icons check --output apps/gallery/src/icons.rs
 ```
 

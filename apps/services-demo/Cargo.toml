@@ -4,19 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-[package.metadata.plico]
-host = "services-demo"
-
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [features]
-abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
 desktop = ["dep:plico-desktop"]
-hot-reload = ["desktop", "plico-desktop/hot-reload"]
-# Verification only: use a new persisted slot key so that UI value resets.
-schema-reset-fixture = []
 
 [dependencies]
 plico.workspace = true
@@ -28,10 +21,6 @@ serde = { workspace = true, features = ["derive"] }
 [[bin]]
 name = "services-demo"
 required-features = ["desktop"]
-
-[[example]]
-name = "services-reload"
-required-features = ["hot-reload"]
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -45,10 +34,3 @@ plico-shell.workspace = true
 name = "services-capture"
 path = "examples/capture.rs"
 required-features = ["desktop"]
-
-# The export macro generates native ABI references to this crate.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-stabby = { workspace = true, optional = true }
-
-[package.metadata.cargo-machete]
-ignored = ["stabby"]

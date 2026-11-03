@@ -17,6 +17,9 @@ fn external_normalization_is_not_a_user_change_and_inherited_disabled_ignores_va
     assert!(!response.changed);
     let parent = engine.node(engine.root()).unwrap().children[0];
     let id = engine.node(parent).unwrap().children[0];
+    let style = engine.node(id).unwrap().style;
+    assert_eq!(style.hover_background, Some(Color::ControlHover));
+    assert_eq!(style.radius, engine.theme().metrics.radius as f32);
     engine.queue_value(id, 3.3);
     engine
         .frame_declarations(|cx| form(cx, &mut value, &mut response, true))

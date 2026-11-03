@@ -81,7 +81,7 @@ impl<S, C> Services<S, C> {
 }
 
 /// Reloadable UI with a typed host projection/message protocol. Only `Self` is restored.
-pub trait ServiceApp: Default + Serialize + DeserializeOwned {
+pub trait ServiceApp: Default {
     type Snapshot: Default + Serialize + DeserializeOwned;
     type Command: Serialize + DeserializeOwned;
     fn show(
@@ -147,12 +147,12 @@ impl<A: ServiceApp> Default for ServiceModule<A> {
         }
     }
 }
-impl<A: ServiceApp> Serialize for ServiceModule<A> {
+impl<A: ServiceApp + Serialize> Serialize for ServiceModule<A> {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         self.app.serialize(serializer)
     }
 }
-impl<'de, A: ServiceApp> Deserialize<'de> for ServiceModule<A> {
+impl<'de, A: ServiceApp + Deserialize<'de>> Deserialize<'de> for ServiceModule<A> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         Ok(Self {
             app: A::deserialize(deserializer)?,
@@ -160,7 +160,7 @@ impl<'de, A: ServiceApp> Deserialize<'de> for ServiceModule<A> {
         })
     }
 }
-impl<A: ServiceApp> App for ServiceModule<A> {
+impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
     fn set_services(&mut self, snapshot: serde_json::Value) -> Result<()> {
         let snapshot = if snapshot.is_null() {
             A::Snapshot::default()
@@ -193,26 +193,11 @@ impl<A: ServiceApp> App for ServiceModule<A> {
         self.app.on_key(key, &mut self.services)
     }
 }
-pub fn render<A: ServiceApp + 'static>(request: Request) -> Result<Frame> {
+pub fn render<A: ServiceApp + Serialize + DeserializeOwned + 'static>(
+    request: Request,
+) -> Result<Frame> {
     crate::render::<ServiceModule<A>>(request)
 }
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub fn dispatch<A: ServiceApp + 'static>(input: crate::stabby::vec::Vec<u8>) -> crate::Reply {
-    crate::dispatch_with(input, render::<A>)
-}
-
-/// Export one module entry point; all component internals remain ordinary Rust.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[macro_export]
-macro_rules! export_service_app {
-    ($app:ty) => {
-        #[$crate::stabby::export]
-        pub extern "C" fn plico_app_render(input: $crate::stabby::vec::Vec<u8>) -> $crate::Reply {
-            $crate::services::dispatch::<$app>(input)
-        }
-    };
-}
-
 impl<I, T, E> Services<crate::tasks::TaskStatus<T, E>, crate::tasks::TaskCommand<I>> {
     /// Access a host-owned task's status and send start/cancel/reset commands.
     pub fn task(&mut self) -> crate::tasks::TaskUi<'_, I, T, E> {

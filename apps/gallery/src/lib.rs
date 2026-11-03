@@ -1,7 +1,7 @@
 mod calendar;
 mod color_icons;
 pub mod icons;
-#[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub mod images;
 use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
@@ -77,7 +77,7 @@ impl PartialEq for SpringDemo {
 pub struct Gallery {
     #[serde(skip)]
     pub spring: SpringDemo,
-    #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
     #[serde(skip)]
     pub images: images::Images,
     pub game2048: game2048::Game,
@@ -177,11 +177,11 @@ impl App for Gallery {
 }
 
 impl Gallery {
-    #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
     fn images_page(&mut self, cx: &mut UiContext) {
         self.images.show(cx);
     }
-    #[cfg(not(all(feature = "desktop", not(target_arch = "wasm32"))))]
+    #[cfg(not(all(feature = "host", not(target_arch = "wasm32"))))]
     fn images_page(&mut self, cx: &mut UiContext) {
         text(
             cx,
@@ -509,7 +509,5 @@ fn bar(ui: &mut UiContext, width: f32, height: f32, grow: f32, color: Color) {
         .children(|_ui| {});
 }
 
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-plico_dev::export_app!(Gallery);
-#[cfg(feature = "desktop")]
+#[cfg(feature = "host")]
 plico_desktop::impl_host_view_for_app!(Gallery);

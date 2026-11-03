@@ -77,7 +77,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
         self.services.set_wake_callback(wake.clone());
         wake();
     }
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         let services = self.services.poll();
         let regions = self.app.poll_regions();
         services || regions
@@ -105,7 +105,7 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
             self.services.send(command);
         }
         // Enqueuing asynchronous work does not change the current snapshot.
-        // A fresh projection will wake us through poll_reload/revision. Keep
+        // A fresh projection will wake us through poll_updates/revision. Keep
         // eager settling for legacy unversioned or synchronously updated hosts.
         if sent
             && self

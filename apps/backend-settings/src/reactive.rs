@@ -305,8 +305,8 @@ impl HostView for Settings {
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.regions.set_wake_callback(wake);
     }
-    fn poll_reload(&mut self) -> bool {
-        self.regions.poll_reload()
+    fn poll_updates(&mut self) -> bool {
+        self.regions.poll_updates()
     }
     fn set_frame_time(&mut self, time: FrameTime) {
         self.frame_time = time;

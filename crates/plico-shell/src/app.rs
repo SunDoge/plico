@@ -375,9 +375,7 @@ impl App {
                     }
                 }
                 ClipboardRequest::Read => {
-                    let text = self
-                        .clipboard_mut()
-                        .and_then(|clipboard| clipboard.get_text().ok());
+                    let text = self.read_clipboard_text();
                     if let Some(text) = text.filter(|text| !text.is_empty()) {
                         let pasted = self.route_event(UiEvent::Paste(text));
                         response.handled |= pasted.handled;
@@ -595,11 +593,26 @@ impl App {
     /// Open the platform clipboard on first use, returning it when available.
     fn clipboard_mut(&mut self) -> Option<&mut arboard::Clipboard> {
         if self.clipboard.is_none() {
-            self.clipboard = arboard::Clipboard::new().ok();
+            self.clipboard = match arboard::Clipboard::new() {
+                Ok(clipboard) => Some(clipboard),
+                Err(error) => {
+                    tracing::warn!(%error,"cannot initialize system clipboard");
+                    None
+                }
+            };
         }
         self.clipboard.as_mut()
     }
 
+    fn read_clipboard_text(&mut self) -> Option<String> {
+        match self.clipboard_mut()?.get_text() {
+            Ok(text) => Some(text),
+            Err(error) => {
+                tracing::warn!(%error,"cannot read clipboard text; no clipboard content logged");
+                None
+            }
+        }
+    }
     /// Run a modal effect (dialog) future to completion on the event loop.
     fn push_modal_effect<F, T>(&mut self, id: crate::EffectId, op: crate::EffectOp, run: F)
     where
@@ -676,9 +689,7 @@ impl App {
             let op = request.payload.op();
             match request.payload {
                 crate::EffectPayload::ClipboardRead => {
-                    let text = self
-                        .clipboard_mut()
-                        .and_then(|clipboard| clipboard.get_text().ok());
+                    let text = self.read_clipboard_text();
                     self.source.complete_effect(crate::EffectCompletion {
                         id,
                         op,

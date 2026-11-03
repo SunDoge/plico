@@ -10,12 +10,12 @@ name = "plico"
 path = "src/main.rs"
 
 [dependencies]
-plico-dev.workspace = true
 usage-rs.workspace = true
 snafu.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 notify.workspace = true
+ctrlc = "3.5"
 cargo_metadata.workspace = true
 tempfile.workspace = true
 tree-sitter = "0.27.1"

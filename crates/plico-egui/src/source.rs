@@ -91,7 +91,7 @@ impl<V: HostView> FrameSource for Source<V> {
         self.dirty || self.engine.changes().contains(plico::Changes::ANIMATE)
     }
     fn poll_async(&mut self) -> bool {
-        let changed = self.view.poll_reload();
+        let changed = self.view.poll_updates();
         self.dirty |= changed;
         changed
     }

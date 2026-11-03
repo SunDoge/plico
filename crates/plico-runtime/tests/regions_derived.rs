@@ -198,7 +198,7 @@ fn async_completion_uses_the_same_equality_and_destroyed_mailbox_rules() {
             feedback: String::new(),
         })
         .unwrap();
-    assert!(source.view.poll_reload());
+    assert!(source.view.poll_updates());
     frame(&mut source, &mut text);
     assert!(contains(&source, "Selected 9"));
     let after = runs(&source);

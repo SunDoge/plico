@@ -1,20 +1,20 @@
 //! ID-driven native regions; components own their local state.
 //! Root arguments are captures; region and property arguments subscribe to changes.
 mod actions;
+mod checkpoint;
 mod properties;
-mod reload;
 mod routing;
 pub use actions::{FocusOnce, RevealOnce};
 pub use properties::{ButtonProperties, Reactive, TextProperties};
 pub use routing::{outlet, outlet_fill, outlet_keyed};
 mod tasks;
 use crate::HostView;
+pub use checkpoint::{
+    Checkpoint, CheckpointError, RegionApp, RegionProgram, RegionServiceProgram, RestoreStats,
+};
 use plico::{
     Button, Changes, Engine, Entity, ExperimentContext, FrameError, FrameStats, Key, Response,
     UiContext,
-};
-pub use reload::{
-    Checkpoint, CheckpointError, RegionApp, RegionProgram, RegionServiceProgram, RestoreStats,
 };
 use slotmap::{SlotMap, new_key_type};
 use std::{
@@ -38,7 +38,7 @@ struct Storage {
     slots: elsa::FrozenVec<Box<Slot>>,
     locals: RefCell<HashMap<u64, usize>>,
     path: Vec<plico::PathKey>,
-    restore: Rc<reload::Restore>,
+    restore: Rc<checkpoint::Restore>,
 }
 struct Component {
     parent: Option<ComponentId>,
@@ -149,7 +149,7 @@ impl<T: 'static> Selector<'_, T> {
 struct Slot {
     value: RefCell<Box<dyn Any>>,
     readers: RefCell<Vec<RegionId>>,
-    persistent: Option<reload::Codec>,
+    persistent: Option<checkpoint::Codec>,
     derived: Cell<bool>,
     dependents: RefCell<Vec<usize>>,
 }
@@ -836,7 +836,7 @@ impl RegionUi for UiContext<'_> {
         let output = output.borrow();
         let index = output
             .storage
-            .local(key, init, Some(reload::Codec::of::<T>(key)));
+            .local(key, init, Some(checkpoint::Codec::of::<T>(key)));
         State {
             owner: output.owner,
             component: output.component,
@@ -1545,7 +1545,7 @@ impl HostView for Regions {
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.mailbox.set_wake(wake);
     }
-    fn poll_reload(&mut self) -> bool {
+    fn poll_updates(&mut self) -> bool {
         self.mailbox.drain(self)
     }
     fn snapshot_changed(&self) -> bool {

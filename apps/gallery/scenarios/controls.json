@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "viewport": { "width": 1120, "height": 820, "scale": 1.0 },
+  "state": { "router": { "current": "Controls" }, "count": 4, "dark": false },
+  "steps": [
+    { "command": { "action": "click", "role": "button", "label": "Increment" } }
+  ],
+  "time_ms": 200
+}

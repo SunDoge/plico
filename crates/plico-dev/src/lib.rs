@@ -1,4 +1,4 @@
-//! Versioned JSON/C boundary with MessagePack state; no Rust ABI crosses it.
+//! Application, services, tasks, and value protocols for static and WASM hosts.
 use plico::{Engine, PathKey, Theme, UiContext, ViewNode};
 pub use plico::{
     KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, ShortcutMap, StandardShortcut,
@@ -13,8 +13,6 @@ pub use validation::validate_nodes;
 pub const PROTOCOL_VERSION: u32 = 3;
 mod snapshot;
 pub use snapshot::StateSnapshot;
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub use stabby;
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("invalid application tree: {message}"))]
@@ -146,9 +144,9 @@ impl<A: App> plico::View for AppView<'_, A> {
         App::show(self.0, ui)
     }
 }
-/// Application root with development checkpoints, services, and host events.
+/// Application root with ordinary Rust state and host events.
 /// Its `show` and `theme` methods are the ordinary application UI surface.
-pub trait App: Default + Serialize + DeserializeOwned {
+pub trait App: Default {
     #[doc(hidden)]
     fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
         Ok(())
@@ -180,7 +178,7 @@ struct Session<A> {
     engine: Engine,
 }
 
-pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
+pub fn render<A: App + Serialize + DeserializeOwned + 'static>(request: Request) -> Result<Frame> {
     snafu::ensure!(
         request.version == PROTOCOL_VERSION,
         ProtocolSnafu {
@@ -341,70 +339,3 @@ pub fn render<A: App + 'static>(request: Request) -> Result<Frame> {
     RETAINED.with(|slot| *slot.borrow_mut() = Some(session));
     Ok(frame)
 }
-/// Only this small transport type has a stable native layout. The JSON envelope carries opaque MessagePack state bytes.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[stabby::stabby]
-pub struct Reply {
-    pub status: u32,
-    pub bytes: stabby::vec::Vec<u8>,
-}
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub type RenderFn = extern "C" fn(stabby::vec::Vec<u8>) -> Reply;
-/// Reactive modules register a checked C callback carrying an opaque host token.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub type WakeFn = extern "C" fn(u64);
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub type SetWakeFn = extern "C" fn(u64, WakeFn) -> u32;
-/// A panic may not unwind through the exported function boundary.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-pub fn dispatch<A: App + 'static>(input: stabby::vec::Vec<u8>) -> Reply {
-    dispatch_with(input, render::<A>)
-}
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-fn dispatch_with(input: stabby::vec::Vec<u8>, render: fn(Request) -> Result<Frame>) -> Reply {
-    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let request = serde_json::from_slice(&input).context(JsonSnafu)?;
-        render(request)
-    })) {
-        Ok(result) => result,
-        Err(payload) => Err(Error::Panic {
-            message: panic_message(payload.as_ref()),
-        }),
-    };
-    let (status, bytes) = match result {
-        Ok(frame) => match serde_json::to_vec(&frame) {
-            Ok(bytes) => (0, bytes),
-            Err(e) => (1, e.to_string().into_bytes()),
-        },
-        Err(error) => (1, error.to_string().into_bytes()),
-    };
-    Reply {
-        status,
-        bytes: bytes.into_iter().collect(),
-    }
-}
-/// Applications also declare a direct stabby dependency for its export macro's ABI reports.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[macro_export]
-macro_rules! export_app {
-    ($app:ty) => {
-        #[$crate::stabby::export]
-        pub extern "C" fn plico_app_render(input: $crate::stabby::vec::Vec<u8>) -> $crate::Reply {
-            $crate::dispatch::<$app>(input)
-        }
-    };
-}
-/// Panic payload as a reportable message; keeps the developer-facing reason a
-/// module failed instead of discarding it at the boundary.
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_owned()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "unknown panic payload".into()
-    }
-}
-#[cfg(all(feature = "host", not(target_arch = "wasm32")))]
-pub mod host;

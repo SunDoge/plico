@@ -71,66 +71,6 @@ fn unstable_view_is_an_error() {
         Err(plico_dev::Error::DidNotSettle)
     ));
 }
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-struct Panics;
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-impl App for Panics {
-    fn show(&mut self, _: &mut UiContext<'_>) {
-        panic!("app failed")
-    }
-}
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[test]
-fn panic_is_contained_inside_module_boundary() {
-    let input = serde_json::to_vec(&Request::default()).unwrap();
-    let reply = plico_dev::dispatch::<Panics>(input.into_iter().collect());
-    let status = reply.status;
-    let output = reply.bytes.to_vec();
-    assert_ne!(status, 0);
-    assert!(String::from_utf8(output).unwrap().contains("panicked"));
-}
-
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[test]
-fn logical_frame_time_and_animation_requests_cross_the_application_protocol() {
-    #[derive(Default, serde::Serialize, serde::Deserialize)]
-    struct Timer;
-    impl App for Timer {
-        fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text(format!(
-                "{} / {}",
-                ui.now().as_millis(),
-                ui.delta().as_millis()
-            ));
-            if ui.now() < std::time::Duration::from_secs(1) {
-                ui.request_animation_frame();
-            }
-        }
-    }
-    let request = Request {
-        time: plico::FrameTime {
-            now: std::time::Duration::from_millis(100),
-            delta: std::time::Duration::from_millis(16),
-        },
-        ..Default::default()
-    };
-    let bytes = serde_json::to_vec(&request).unwrap();
-    let reply = plico_dev::dispatch::<Timer>(bytes.into_iter().collect());
-    assert_eq!(reply.status, 0);
-    let frame: plico_dev::Frame = serde_json::from_slice(&reply.bytes).unwrap();
-    assert_eq!(frame.nodes[0].text, "100 / 16");
-    assert!(frame.requests.contains(plico::Changes::ANIMATE));
-    let frame = render::<Timer>(Request {
-        time: plico::FrameTime {
-            now: std::time::Duration::from_secs(1),
-            delta: std::time::Duration::from_millis(16),
-        },
-        ..Default::default()
-    })
-    .unwrap();
-    assert!(!frame.requests.contains(plico::Changes::ANIMATE));
-}
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Themed {
@@ -383,29 +323,6 @@ fn stale_path_events_are_counted_in_the_frame() {
         1
     );
     assert_eq!(frame.unmatched_events, 1);
-}
-
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-struct Panicky;
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-impl App for Panicky {
-    fn show(&mut self, _ui: &mut UiContext<'_>) {
-        panic!("exploded during declaration");
-    }
-}
-
-#[cfg(all(feature = "abi", not(target_arch = "wasm32")))]
-#[test]
-fn panic_message_crosses_the_module_boundary() {
-    // The panic payload must stay diagnosable after catch_unwind.
-    let input: stabby::vec::Vec<u8> = serde_json::to_vec(&Request::default())
-        .unwrap()
-        .into_iter()
-        .collect();
-    let reply = plico_dev::dispatch::<Panicky>(input);
-    let message = String::from_utf8(reply.bytes.into_iter().collect()).unwrap();
-    assert!(message.contains("exploded during declaration"), "{message}");
 }
 
 #[test]

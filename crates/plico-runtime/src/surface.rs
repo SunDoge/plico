@@ -43,8 +43,16 @@ pub struct SurfaceSource<V: HostView, W: Widget> {
 }
 impl<V: HostView, W: Widget> SurfaceSource<V, W> {
     pub fn new(view: V, widget: W, slot: &'static str) -> Self {
+        Self::with_clock(view, widget, slot, plico::SystemClock::default())
+    }
+    pub fn with_clock(
+        view: V,
+        widget: W,
+        slot: &'static str,
+        clock: impl plico::Clock + 'static,
+    ) -> Self {
         Self {
-            source: Source::new(view),
+            source: Source::with_clock(view, clock),
             widget,
             slot,
             node: None,

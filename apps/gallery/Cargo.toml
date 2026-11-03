@@ -6,11 +6,12 @@ publish = false
 default-run = "gallery"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
+usage-rs.workspace = true
 snafu.workspace = true
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
 plico.workspace = true
 plico-motion.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
@@ -18,9 +19,11 @@ plico-dev.workspace = true
 serde = { workspace = true, features = ["derive"] }
 
 [features]
-abi = ["plico-dev/abi", "dep:stabby"]
 default = ["desktop"]
-desktop = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
+# Library-only host integration lets backend tests choose Vello without this
+# package's default Skia application feature winning Cargo feature unification.
+host = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
+desktop = ["host", "plico-desktop/skia"]
 profiling = ["plico-desktop/profiling"]
 
 [[bin]]
@@ -53,12 +56,7 @@ required-features = ["desktop"]
 name = "motion_probe"
 required-features = ["desktop"]
 
-# The export macro generates native ABI references to this crate.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-stabby = { workspace = true, optional = true }
 
-[package.metadata.cargo-machete]
-ignored = ["stabby"]
 
 [[example]]
 name = "code_editor"
