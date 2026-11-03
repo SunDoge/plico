@@ -49,7 +49,9 @@ impl View for Counter {
                 if button(cx).text("Reverse items").clicked() {
                     self.rows.reverse();
                 }
-                if button(cx).text(if self.disabled { "Enable increment" } else { "Disable increment" }).clicked() {
+                if button(cx).text(if self.disabled { "Enable increment" } else { "Disable increment" })
+                    .clicked()
+                {
                     self.disabled = !self.disabled;
                 }
             };
