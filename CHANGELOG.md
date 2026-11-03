@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/SunDoge/plico/compare/v0.1.11...v0.2.0) - 2026-11-03
+
+### Added
+
+- *(app)* make Immediate the default application path
+- *(cli)* make reactive regions the starter default
+- *(regions)* unify typed service hosting
+- *(runtime)* add incremental reactive backend updates
+- *(renderer)* add editable retained image canvas
+- *(regions)* add equality-checked derived state
+- *(regions)* bind button properties and one-shot actions
+
+### Fixed
+
+- *(skia)* support gaussian backdrop filters
+- *(skia)* preserve nested fragment damage correctness
+- *(skia)* keep AA commands whole in tracked damage
+- *(runtime)* harden incremental regions and backend invalidation
+- *(skia)* render synthetic glyphs and complex SVGs
+
+### Other
+
+- *(dev)* [**breaking**] replace desktop hot reload with scenario previews
+- *(core)* split user and host view contracts
+- *(skia)* remove redundant SVG projection path
+- *(runtime)* split adapter source and view modules
+- *(launcher)* migrate interactions to regions
+- *(regions)* format renamed imports
+- *(regions)* rename watch API to region
+- *(skia)* enable damage tracking by default
+- *(skia)* skip unchanged presents by default
+- *(skia)* prototype vertical CJK text compositing
+- *(skia)* align render probes and simplify scene history
+- *(skia)* paint translated paragraphs without matrix scopes
+
+## [0.1.11](https://github.com/SunDoge/plico/compare/v0.1.10...v0.1.11) - 2026-10-29
+
+### Added
+
+- *(regions)* make reactive settings the default model
+- *(regions)* mount keyed route pages through reactive outlets
+- *(regions)* expand reactive text styles and adopt settings bindings
+- *(regions)* bind text properties to explicit state dependencies
+- *(settings)* compare region and immediate preferences APIs
+- *(runtime)* restore region state with best-effort checkpoints
+- *(runtime)* route host task results to region state IDs
+- *(runtime)* own region local state by keyed components
+- *(runtime)* bind form controls and keyed lists to native regions
+- *(runtime)* add opt-in native regions with tuple callbacks
+- *(experiments)* validate ID-driven nested region replay
+
+### Fixed
+
+- *(regions)* align batched events and recover failed replays
+
+### Other
+
+- *(renderer)* reuse paint storage during full-tree flattening
+- *(runtime)* skip unrelated adapter work on local updates
+- *(runtime)* skip unrelated nodes during geometry alignment
+- *(regions)* avoid unchanged animation replays
+- *(ui)* share text style setters with reactive bindings
+
+## [0.1.10](https://github.com/SunDoge/plico/compare/v0.1.9...v0.1.10) - 2026-10-28
+
+### Added
+
+- *(render)* make Skia the default and split Vello backend
+
+### Other
+
+- separate plico core and desktop entry points
+
 ## [0.1.9](https://github.com/SunDoge/plico/compare/v0.1.8...v0.1.9) - 2026-10-28
 
 ### Added

@@ -492,7 +492,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "backend-settings"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "fltk",
  "libc",
@@ -1584,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "examples"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-desktop",
@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "gallery"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "directories",
  "image",
@@ -3319,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-desktop",
@@ -3553,7 +3553,7 @@ dependencies = [
 
 [[package]]
 name = "lvgl-esp32p4"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-lvgl",
@@ -4795,7 +4795,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plico"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.13.2",
  "plico-macros",
@@ -4813,7 +4813,7 @@ dependencies = [
 
 [[package]]
 name = "plico-cli"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "cargo_metadata",
  "ctrlc",
@@ -4831,7 +4831,7 @@ dependencies = [
 
 [[package]]
 name = "plico-desktop"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "gallery",
  "image",
@@ -4854,7 +4854,7 @@ dependencies = [
 
 [[package]]
 name = "plico-dev"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "rmp-serde",
@@ -4867,7 +4867,7 @@ dependencies = [
 
 [[package]]
 name = "plico-editor"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "floem-editor-core",
  "kurbo 0.13.1",
@@ -4879,7 +4879,7 @@ dependencies = [
 
 [[package]]
 name = "plico-egui"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -4903,7 +4903,7 @@ dependencies = [
 
 [[package]]
 name = "plico-fltk"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "fltk",
  "plico",
@@ -4913,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "plico-i18n"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "fluent-bundle",
  "icu_calendar",
@@ -4932,7 +4932,7 @@ dependencies = [
 
 [[package]]
 name = "plico-lvgl"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "cc",
  "lightvgl-sys",
@@ -4946,7 +4946,7 @@ dependencies = [
 
 [[package]]
 name = "plico-macros"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -4956,7 +4956,7 @@ dependencies = [
 
 [[package]]
 name = "plico-markdown"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "pulldown-cmark",
@@ -4967,7 +4967,7 @@ dependencies = [
 
 [[package]]
 name = "plico-motion"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4976,7 +4976,7 @@ dependencies = [
 
 [[package]]
 name = "plico-native"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "ashpd",
  "cairo-rs 0.22.9",
@@ -4997,7 +4997,7 @@ dependencies = [
 
 [[package]]
 name = "plico-nsh"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "nsh-core",
  "nsh-platform-linux",
@@ -5009,7 +5009,7 @@ dependencies = [
 
 [[package]]
 name = "plico-renderer"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -5041,7 +5041,7 @@ dependencies = [
 
 [[package]]
 name = "plico-runtime"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "elsa",
  "gallery",
@@ -5065,7 +5065,7 @@ dependencies = [
 
 [[package]]
 name = "plico-shell"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "accesskit 0.24.1",
  "accesskit_xplat",
@@ -5102,7 +5102,7 @@ dependencies = [
 
 [[package]]
 name = "plico-skia"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "ash",
  "ash-window",
@@ -5130,7 +5130,7 @@ dependencies = [
 
 [[package]]
 name = "plico-terminal"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "kurbo 0.13.1",
  "libc",
@@ -5148,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "plico-vello"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "glifo 0.4.0",
  "kurbo 0.13.1",
@@ -5169,7 +5169,7 @@ dependencies = [
 
 [[package]]
 name = "plico-video"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "libmpv2",
  "libmpv2-sys",
@@ -5181,7 +5181,7 @@ dependencies = [
 
 [[package]]
 name = "plico-web-host"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "gallery",
  "js-sys",
@@ -6051,7 +6051,7 @@ dependencies = [
 
 [[package]]
 name = "services-demo"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-desktop",
@@ -6638,7 +6638,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-desktop",
@@ -7705,7 +7705,7 @@ dependencies = [
 
 [[package]]
 name = "web-demo"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "plico",
  "plico-dev",
