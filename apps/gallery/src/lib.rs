@@ -22,7 +22,8 @@ use plico::widgets::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl");
+static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl")
+    .with_sksl(include_str!("../assets/shaders/aurora.sksl"));
 
 static LOGO: plico::SvgAsset = plico::svg_asset!("../assets/plico.svg");
 
@@ -569,7 +570,7 @@ fn shader_demo(ui: &mut UiContext) {
     let mut current_exposure = exposure.get();
     column(ui).padding(16).gap(10).radius(12.).background(Color::Panel) + |ui| {
         row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
-            text(ui, l.text("custom-wgsl", "Custom WGSL")).font_size(17).weight(650).grow(1.);
+            text(ui, l.text("custom-shader", "Custom shader")).font_size(17).weight(650).grow(1.);
             text(ui, l.text("exposure", "Exposure")).font_size(12).color(Color::Muted);
             plico::widgets::slider(ui, "Exposure", &mut current_exposure, -1.0..=1.0).step(0.05).width(120.);
             if button(ui).text(if paused.get() {

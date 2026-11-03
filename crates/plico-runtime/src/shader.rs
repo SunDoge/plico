@@ -73,6 +73,7 @@ impl Adapter {
             surface.sampled = now;
             if surface.authored != logical.text
                 || surface.params.module != params.module
+                || surface.params.sksl != params.sksl
                 || surface.source.is_none() && surface.error.is_none()
             {
                 let result = if params.module {
@@ -80,6 +81,10 @@ impl Adapter {
                 } else {
                     ShaderEffectSource::new(logical.text)
                 };
+                let result = result.and_then(|source| match &params.sksl {
+                    Some(sksl) => source.with_sksl(sksl),
+                    None => Ok(source),
+                });
                 match result {
                     Ok(source) => {
                         surface.source = Some(source);

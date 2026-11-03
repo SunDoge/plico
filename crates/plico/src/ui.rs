@@ -1962,6 +1962,7 @@ impl<'e> UiContext<'e> {
             inner,
             params: crate::ShaderParams {
                 module: asset.is_module(),
+                sksl: asset.sksl().map(str::to_owned),
                 ..Default::default()
             },
         }

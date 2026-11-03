@@ -83,3 +83,38 @@ fn capture_writes_png_and_rejects_invalid_dimensions() {
     assert_eq!((image.width(), image.height()), (120, 80));
     assert!(capture(&mut Settling::new()).size(0, 80).render().is_err());
 }
+
+#[test]
+fn motion_gallery_renders_animation_states_with_skia_and_sksl() {
+    use gallery::{Gallery, Page};
+    use plico_desktop::{NativeApp, PreviewScenario};
+    for (width, height) in [(640, 740), (1120, 820)] {
+        let render = |expanded| {
+            let scenario = PreviewScenario {
+                viewport: plico_desktop::PreviewViewport {
+                    width,
+                    height,
+                    scale: 1.,
+                },
+                state: Gallery {
+                    expanded,
+                    router: plico::Router::new(Page::Motion),
+                    ..Default::default()
+                },
+                time_ms: 500,
+                ..Default::default()
+            };
+            scenario
+                .render(NativeApp)
+                .expect("ordinary motion must render on Skia")
+        };
+        let compact = render(false);
+        let expanded = render(true);
+        assert_eq!((compact.width(), compact.height()), (width, height));
+        assert_ne!(
+            compact.rgba(),
+            expanded.rgba(),
+            "layout animation states must be visible"
+        );
+    }
+}

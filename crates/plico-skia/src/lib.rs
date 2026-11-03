@@ -7,6 +7,8 @@
 /// Failure to replay or export a scene.
 #[derive(Debug, snafu::Snafu)]
 pub enum Error {
+    #[snafu(display("SkSL effect failed: {message}"))]
+    Shader { message: String },
     #[snafu(display("unsupported Skia command or property: {command}"))]
     Unsupported { command: &'static str },
     #[snafu(display("invalid raster surface size: {width} x {height}"))]
