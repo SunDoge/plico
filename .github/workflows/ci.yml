@@ -46,6 +46,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@c8ff772090ab9d00f7f7bd7b388f3c3032282e3b # v2
         with:
           toolchain: stable
+          cache-key: workspace-v1
+          cache-workspace-crates: true
+          cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
           components: rustfmt,clippy
       - name: Check Rust and component formatting
@@ -78,6 +81,9 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-pc-windows-msvc
+          cache-key: workspace-v1
+          cache-workspace-crates: true
+          cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check Windows MSVC with Skia and Vello
         run: cargo check --locked --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features plico-desktop/skia,backend-settings/vello,plico-shell/global-hotkeys --all-targets
