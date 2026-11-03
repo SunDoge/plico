@@ -64,6 +64,7 @@
 | [代码编辑器](code-editor.md) | Floem 编辑核心、Parley 可见行、native surface 示例与接入边界 |
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
+| [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
 | [API、宏与格式化](authoring.md) | chain、component、LSP、rustfmt 与专用 formatter |
 | [实现状态与验证](status.md) | 已迁入代码、实验来源、测试、性能结论的适用范围 |
