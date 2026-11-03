@@ -4,21 +4,6 @@ use super::{button, column, grid, row, text};
 use crate::icons;
 use crate::{Align, CalendarDate, CalendarState, Color, Justify, UiContext, WeekStart};
 
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-
 /// Whether the user picked a day this frame. Month navigation mutates
 /// [`CalendarState::month`] directly and is not reported here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -85,10 +70,13 @@ pub fn calendar_content(
 
 fn header(cx: &mut UiContext, state: &mut CalendarState) {
     let month = state.month();
+    let heading = cx.localizer().month_year(month);
+    let previous = cx.tr("calendar-previous-month", "Previous month");
+    let next = cx.tr("calendar-next-month", "Next month");
     row(cx).align(Align::Center).children(|cx| {
         nav_button(
             cx,
-            "Previous month",
+            &previous,
             &icons::CHEVRON_LEFT,
             month.checked_add_months(-1),
             state,
@@ -98,18 +86,11 @@ fn header(cx: &mut UiContext, state: &mut CalendarState) {
             .align(Align::Center)
             .justify(Justify::Center)
             .children(|cx| {
-                crate::text!(
-                    cx,
-                    "{} {}",
-                    MONTHS[usize::from(month.month() - 1)],
-                    month.year()
-                )
-                .font_size(14)
-                .weight(600);
+                text(cx, heading.as_str()).font_size(14).weight(600);
             });
         nav_button(
             cx,
-            "Next month",
+            &next,
             &icons::CHEVRON_RIGHT,
             month.checked_add_months(1),
             state,
@@ -146,8 +127,7 @@ fn nav_button(
 }
 
 fn weekday_row(cx: &mut UiContext, week_start: WeekStart) {
-    const SUNDAY_FIRST: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-    let mut labels = SUNDAY_FIRST;
+    let mut labels = std::array::from_fn::<_, 7, _>(|day| cx.localizer().weekday(day));
     if week_start == WeekStart::Monday {
         labels.rotate_left(1);
     }

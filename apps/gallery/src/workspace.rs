@@ -52,19 +52,29 @@ impl Workspace {
     #[component]
     #[rustfmt::skip]
     pub fn show(&mut self, ui: &mut UiContext) {
+        let l = ui.localizer();
         let m = ui.theme().metrics;
         column(ui).gap(m.space(2)) + |ui| {
-            text(ui, "Project workspace").font_size(m.title_size).weight(700);
-            text(ui, "Choose a project, adjust its preferences, and save your changes.").font_size(m.label_size).color(Color::Muted);
+            text(ui, l.text("project-workspace", "Project workspace")).font_size(m.title_size).weight(700);
+            text(
+                ui,
+                l.text("choose-a-project-adjust-its-preferences-and-save-your-changes",
+                    "Choose a project, adjust its preferences, and save your changes."),
+            ).font_size(m.label_size).color(Color::Muted);
         };
-        panel(ui, "Projects").padding(m.space(4)) + |ui| {
+        panel(ui, &*l.text("projects", "Projects")).padding(m.space(4)) + |ui| {
             let active = self.projects.iter().filter(|p| !p.archived).count();
             if active == 0 {
                 column(ui).gap(m.space(3)).children(|ui| {
-                    text(ui, "No active projects").font_size(m.font_size).weight(600);
-                    text(ui, "Your projects are archived. Restore them to continue.").font_size(m.label_size)
-                        .color(Color::Muted);
-                    if icon_button(ui, "Restore projects", &crate::icons::ARCHIVE_RESTORE, true, false).clicked() {
+                    text(ui, l.text("no-active-projects", "No active projects")).font_size(m.font_size).weight(600);
+                    text(
+                        ui,
+                        l.text("your-projects-are-archived-restore-them-to-continue",
+                            "Your projects are archived. Restore them to continue."),
+                    ).font_size(m.label_size).color(Color::Muted);
+                    if icon_button(ui, &l.text("restore-projects", "Restore projects"),
+                        &crate::icons::ARCHIVE_RESTORE, true, false).clicked()
+                    {
                         for p in &mut self.projects {
                             p.archived = false;
                         }
@@ -86,25 +96,37 @@ impl Workspace {
         };
         if let Some(index) = self.projects.iter().position(|p| p.id == self.selected && !p.archived) {
             let project = &mut self.projects[index];
-            let archive = panel(ui, "Project preferences").children(|ui| {
+            let archive = panel(ui, &*l.text("project-preferences", "Project preferences")).children(|ui| {
                 row(ui).justify(Justify::SpaceBetween).gap(m.space(2)) + |ui| {
                     text(ui, project.name.as_str()).font_size(m.font_size).weight(650);
-                    text(ui,
-                        if project.draft != project.saved { "Unsaved changes" } else { "All changes saved" }).font_size(m.label_size)
+                    text(
+                        ui,
+                        if project.draft != project.saved {
+                            l.text("unsaved-changes", "Unsaved changes")
+                        } else {
+                            l.text("all-changes-saved", "All changes saved")
+                        },
+                    ).font_size(m.label_size)
                         .color(if project.draft != project.saved { Color::Accent } else { Color::Muted });
                 };
-                switch(ui, "Project notifications", &mut project.draft.notifications);
-                checkbox(ui, "Save automatically", &mut project.draft.autosave);
+                switch(ui, l.text("project-notifications", "Project notifications"),
+                    &mut project.draft.notifications);
+                checkbox(ui, l.text("save-automatically", "Save automatically"), &mut project.draft.autosave);
                 let dirty = project.draft != project.saved;
                 let mut archive = false;
                 row(ui).gap(m.space(2)).wrap(true) + |ui| {
-                    if icon_button(ui, "Save changes", &crate::icons::SAVE, dirty, true).clicked() {
+                    if icon_button(ui, &l.text("save-changes", "Save changes"), &crate::icons::SAVE, dirty,
+                        true).clicked()
+                    {
                         project.saved = project.draft;
                     }
-                    if icon_button(ui, "Reset changes", &crate::icons::ROTATE_CCW, dirty, false).clicked() {
+                    if icon_button(ui, &l.text("reset-changes", "Reset changes"), &crate::icons::ROTATE_CCW,
+                        dirty, false).clicked()
+                    {
                         project.draft = project.saved;
                     }
-                    archive = icon_button(ui, "Archive project", &crate::icons::ARCHIVE, true, false).clicked();
+                    archive = icon_button(ui, &l.text("archive-project", "Archive project"),
+                        &crate::icons::ARCHIVE, true, false).clicked();
                 };
                 archive
             }).inner;
@@ -113,6 +135,10 @@ impl Workspace {
                 self.selected = self.projects.iter().find(|p| !p.archived).map_or(0, |p| p.id);
             }
         }
-        text(ui, "Preferences and archived projects are kept for this session.").font_size(m.label_size).color(Color::Muted);
+        text(
+            ui,
+            l.text("preferences-and-archived-projects-are-kept-for-this-session",
+                "Preferences and archived projects are kept for this session."),
+        ).font_size(m.label_size).color(Color::Muted);
     }
 }

@@ -138,6 +138,7 @@ impl UiContext<'_> {
     ) {
         build(&mut UiContext {
             engine: &mut *self.engine,
+            localizer: self.localizer,
             parent: context.parent,
             scope: context.scope,
             inherited: context.inherited,
@@ -225,6 +226,7 @@ impl Engine {
         self.error = None;
         update(&mut UiContext {
             engine: self,
+            localizer: &crate::localization::ENGLISH,
             parent: entity,
             scope: context.scope,
             inherited: context.inherited,
@@ -319,6 +321,7 @@ impl Engine {
         self.experiment_active = true;
         view(&mut UiContext {
             engine: self,
+            localizer: &crate::localization::ENGLISH,
             parent,
             scope: context.scope,
             inherited: context.inherited,

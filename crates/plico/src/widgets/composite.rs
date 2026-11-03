@@ -160,7 +160,8 @@ pub fn nav_menu<Route: crate::Route + Copy + Eq>(
     let routes = router.targets();
     for &route in routes {
         cx.keyed(route.id(), |cx| {
-            if nav_item(cx, route.label(), router.show(route), route.icon()).clicked() {
+            let label = cx.tr(route.id(), route.label());
+            if nav_item(cx, &label, router.show(route), route.icon()).clicked() {
                 router.go(route);
             }
         });

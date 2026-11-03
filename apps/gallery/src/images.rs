@@ -132,6 +132,7 @@ impl Images {
     #[component]
     #[rustfmt::skip]
     pub fn show(&self, cx: &mut UiContext) {
+        let l = cx.localizer();
         if matches!(self.surface.status(), ImageLoadStatus::Idle) {
             self.request(Format::WebP, false);
         }
@@ -139,8 +140,9 @@ impl Images {
         let format = self.inner.lock().unwrap().format;
         let ready = matches!(status, ImageLoadStatus::Ready { .. });
         column(cx).gap(6) + |cx| {
-            text(cx, "Animated images").font_size(28).weight(700);
-            text(cx, "Real WebP and GIF, loaded from the network.").color(Color::Muted);
+            text(cx, l.text("animated-images", "Animated images")).font_size(28).weight(700);
+            text(cx,
+                l.text("real-webp-and-gif-loaded-from-the-network", "Real WebP and GIF, loaded from the network.")).color(Color::Muted);
         };
         row(cx).gap(8).wrap(true) + |cx| {
             for (kind, label) in [(Format::WebP, "WebP"), (Format::Gif, "GIF")] {
@@ -151,13 +153,16 @@ impl Images {
                 }
             }
             column(cx).grow(1.).children(|_| {});
-            if button(cx).text(if self.surface.paused() { "Play" } else { "Pause" }).disabled(!ready).clicked() {
+            if button(cx)
+                .text(if self.surface.paused() { l.text("play", "Play") } else { l.text("pause", "Pause") })
+                .disabled(!ready).clicked()
+            {
                 self.surface.set_paused(!self.surface.paused());
             }
-            if button(cx).text("Replay").disabled(!ready).clicked() {
+            if button(cx).text(l.text("replay", "Replay")).disabled(!ready).clicked() {
                 self.surface.restart();
             }
-            if button(cx).text("Reload from network").clicked() {
+            if button(cx).text(l.text("reload-from-network", "Reload from network")).clicked() {
                 self.request(format, true);
             }
         };
@@ -165,10 +170,10 @@ impl Images {
             .align(Align::Center).justify(Justify::Center)
             + |cx| match &status {
                 ImageLoadStatus::Loading => {
-                    text(cx, "Downloading and decoding…").color(Color::Muted);
+                    text(cx, l.text("downloading-and-decoding", "Downloading and decoding…")).color(Color::Muted);
                 }
                 ImageLoadStatus::Failed(error) => {
-                    text(cx, "Could not load the image").weight(600);
+                    text(cx, l.text("could-not-load-the-image", "Could not load the image")).weight(600);
                     text(cx, error).color(Color::Muted);
                 }
                 _ => {}
@@ -196,9 +201,8 @@ impl Images {
             _ => {}
         }
         text(cx, format.url()).font_size(12).color(Color::Muted);
-        text(
-            cx,
-            "Google WebP animation comparison sample · local disk cache · original aspect ratio",
+        text(cx, l
+            .text("google-webp-animation-comparison-sample-local-disk-cache-original-aspect-ratio", "Google WebP animation comparison sample · local disk cache · original aspect ratio"),
         ).font_size(12).color(Color::Muted);
     }
 }

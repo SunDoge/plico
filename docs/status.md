@@ -113,3 +113,7 @@ supplied damaged regions remain the caller's responsibility, and the
 reduced dirty-clip probe stays an ignored diagnostic. Vello's preserved-target partial
 clear probe passes, while its normal window renderer remains unchanged. See
 [measurements and limits](performance.md).
+
+## 国际化
+
+`plico-i18n` 提供 Fluent 消息和裁剪后的 ICU4X 数字/日期数据；核心通过短期借用的 `localized` scope 继承语言。Gallery 可切换中英文，并包含国际化演示页。详见 [i18n](i18n.md)。系统语言探测和自动 RTL 布局尚未实现。

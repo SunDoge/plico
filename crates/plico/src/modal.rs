@@ -181,6 +181,7 @@ impl<'s> Modal<'_, '_, 's> {
         let root = ui.engine.root;
         let mut portal = UiContext {
             engine: ui.engine,
+            localizer: ui.localizer,
             parent: root,
             scope,
             inherited: Style::default(),
@@ -238,11 +239,8 @@ impl<'s> Modal<'_, '_, 's> {
                                 .font_size(20)
                                 .weight(650)
                                 .grow(1.);
-                            if crate::widgets::button(cx)
-                                .text("Close dialog")
-                                .ghost()
-                                .clicked()
-                            {
+                            let close = cx.tr("dialog-close", "Close dialog");
+                            if crate::widgets::button(cx).text(close).ghost().clicked() {
                                 cx.close_modal();
                             }
                         });
