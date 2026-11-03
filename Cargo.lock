@@ -4717,7 +4717,7 @@ dependencies = [
 
 [[package]]
 name = "plico-nsh"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "nsh-core",
  "nsh-platform-linux",
