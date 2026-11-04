@@ -73,12 +73,6 @@ impl ImageCache {
                 reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
             });
         }
-        if quality == ImageQuality::High {
-            return Err(Error::Unsupported {
-                command: 0,
-                reason: "bicubic image sampling is not implemented".into(),
-            });
-        }
         let mut pixels = image.data.data()[..bytes].to_vec();
         for p in pixels.as_chunks_mut::<4>().0 {
             match image.format {

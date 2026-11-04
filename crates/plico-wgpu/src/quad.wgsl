@@ -81,6 +81,31 @@ fn shadow_coverage(p:vec2f,size:vec2f,radius:f32,sigma:f32)->f32 {
     }
     return clamp(sum*step*0.39894228/sigma,0.,1.);
 }
+// Mitchell-Netravali reconstruction with B=C=1/3. Source texels are
+// already premultiplied; clamp ringing back into valid premultiplied RGBA.
+fn cubic_weight(value:f32)->f32 {
+    let x=abs(value);
+    if x<1. {return (7.*x*x*x-12.*x*x+16./3.)/6.;}
+    if x<2. {return ((-7./3.*x+12.)*x*x-20.*x+32./3.)/6.;}
+    return 0.;
+}
+fn bicubic(uv:vec2f)->vec4f {
+    let size=vec2i(textureDimensions(glyph_atlas));
+    // Pad extension is constant beyond the reconstruction halo. Bounding UV
+    // before integer conversion also avoids overflow for extreme brush offsets.
+    let p=clamp(uv,vec2f(-2.),vec2f(3.))*vec2f(size)-0.5;
+    let base=vec2i(floor(p));
+    let fraction=fract(p);
+    var result=vec4f(0.);
+    for(var y=-1;y<=2;y++) {
+        for(var x=-1;x<=2;x++) {
+            let weight=cubic_weight(f32(x)-fraction.x)*cubic_weight(f32(y)-fraction.y);
+            result+=textureLoad(glyph_atlas,clamp(base+vec2i(x,y),vec2i(0),size-1),0)*weight;
+        }
+    }
+    let alpha=clamp(result.a,0.,1.);
+    return vec4f(clamp(result.rgb,vec3f(0.),vec3f(alpha)),alpha);
+}
 @fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
     let clip=input.clip;
@@ -101,7 +126,9 @@ fn shadow_coverage(p:vec2f,size:vec2f,radius:f32,sigma:f32)->f32 {
         return vec4f(input.color.rgb*alpha,alpha);
     }
     if input.config.z>=4. {
-        let pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);
+        var pixel:vec4f;
+        if input.clip_params.w>0.5 {pixel=bicubic(input.uv);}
+        else {pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);}
         return pixel*input.color.a*coverage(input.local,input.size,input.config.x)*clip_alpha;
     }
     if input.config.z>=2. {

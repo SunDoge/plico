@@ -822,3 +822,25 @@ English/CJK, ANSI colors, bold and italic. Resizing the window and the process-e
 indicator also displayed without renderer errors. This is fixture validation, not
 a terminal throughput, scroll smoothness, clipboard or real IME-session benchmark.
 The underlying whole-run raster fallback and its bounded caches remain unchanged.
+
+## High-quality image reconstruction
+
+`ImageQuality::High` now selects a 16-tap Mitchell-Netravali bicubic shader
+(B=C=1/3) instead of returning unsupported. Low/Medium retain nearest/bilinear
+sampling. Source RGBA/BGRA is premultiplied before filtering, and cubic ringing
+is clamped into valid premultiplied RGBA before opacity/coverage are applied.
+Pad extension clamps individual texel accesses. Extreme finite UV offsets are
+bounded beyond the reconstruction halo before integer conversion to avoid overflow.
+Sampling quality remains part of immutable image cache identity; moving an image
+does not reupload its pixels. Clip masks, rounded coverage and painter order share
+the existing image path.
+
+An independent f64 Mitchell reference checks all output pixels for magnification
+and modest reduction, within one 8-bit channel level. Tests also verify the result
+is distinct from bilinear, transparent RGB does not contaminate edges, partial
+motion/removal matches full rendering, immutable upload reuse, and large positive/
+negative UV pad extension. This is point reconstruction, not a mipmap/prefilter
+implementation: large minification, visual quality on representative photographs
+and GPU cost still need evaluation. Rotated/sheared or repeated image brushes
+remain separate unsupported cases. No overall quality/performance superiority over
+Skia or Vello is inferred from these numerical tests.

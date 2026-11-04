@@ -49,7 +49,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    rectangles from arbitrary flattened Bezier paths. Report unsupported operations.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering;
-   nearest/bilinear sampling, opacity and ordered texture batches are verified.
+   nearest/bilinear/Mitchell-bicubic sampling, opacity and ordered texture batches are verified.
    Solid and linear sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
    coverage masks, while rect clips keep the fast path. Image/nonlinear-gradient general paths,

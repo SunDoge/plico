@@ -326,14 +326,13 @@ impl Renderer {
                             continue;
                         }
                         if let Brush::Image(image) = paint {
-                            use peniko::{Extend, ImageQuality};
+                            use peniko::Extend;
                             if image.sampler.x_extend != Extend::Pad
                                 || image.sampler.y_extend != Extend::Pad
-                                || image.sampler.quality == ImageQuality::High
                             {
                                 return Err(unsupported(
                                     index,
-                                    "repeated/reflected or bicubic image sampling",
+                                    "repeated/reflected image sampling",
                                 ));
                             }
                             let [a, b, c, d, e, f] = transform.as_coeffs();

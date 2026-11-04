@@ -540,10 +540,13 @@ fn image_filtering_is_premultiplied_and_invalid_resources_are_rejected() {
     brush.sampler.quality = ImageQuality::High;
     let mut invalid = Scene::new();
     invalid.draw_image((&brush).into(), Affine::IDENTITY);
-    assert!(matches!(
-        renderer.prepare_scene(&invalid, [32, 16]),
-        Err(Error::Unsupported { .. })
-    ));
+    let cubic = renderer
+        .render_scene(&invalid, [32, 16], [0.; 4], false)
+        .unwrap();
+    assert!(
+        cubic.as_chunks::<4>().0.iter().all(|p| p[1] == 0),
+        "transparent green contaminated bicubic interpolation"
+    );
     brush.sampler.quality = ImageQuality::Medium;
     brush.image.width = 100;
     let mut invalid = Scene::new();

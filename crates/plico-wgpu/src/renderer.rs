@@ -1078,7 +1078,16 @@ impl Renderer {
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: image.uv,
                         gradient: [0.; 4],
-                        clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
+                        clip_params: [
+                            if q.clip_antialias { 1. } else { 0. },
+                            0.,
+                            0.,
+                            if image.quality == peniko::ImageQuality::High {
+                                1.
+                            } else {
+                                0.
+                            },
+                        ],
                     });
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
