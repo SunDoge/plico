@@ -921,12 +921,27 @@ impl Renderer {
                         config: [
                             q.radius,
                             q.border_width,
-                            if q.material { 1. } else { 0. },
+                            if q.shadow_sigma > 0. {
+                                5.
+                            } else if q.material {
+                                1.
+                            } else {
+                                0.
+                            },
                             q.parameter,
                         ],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: [0.; 4],
-                        gradient: q.gradient,
+                        gradient: if q.shadow_sigma > 0. {
+                            [
+                                4. * q.shadow_sigma,
+                                q.shadow_sigma,
+                                q.rect[2] - 8. * q.shadow_sigma,
+                                q.rect[3] - 8. * q.shadow_sigma,
+                            ]
+                        } else {
+                            q.gradient
+                        },
                         clip_params: [
                             if q.clip_antialias { 1. } else { 0. },
                             if q.gradient_premultiplied { 1. } else { 0. },

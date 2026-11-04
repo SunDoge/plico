@@ -514,3 +514,21 @@ fragments are now explicitly treated as already flattened, and unsupported neste
 WGSL commands are checked after flattening, before canvas mutation. The new native
 WGSL renderer is gated so browser builds do not call a blocking native compile
 path. Browser effect compilation remains unimplemented.
+
+## Gaussian box shadows
+
+Shared `BoxShadow` now uses the built-in quad pipeline. Rectangular coverage is
+computed with separable Gaussian CDFs; circular rounded corners use analytic
+horizontal integration and 32 vertical midpoint samples. The draw rectangle
+includes a four-sigma margin on each side, which also feeds damage bounds.
+Zero sigma uses ordinary rounded-rectangle coverage. Positive uniform scale and
+translation are supported; arbitrary affine shadows remain explicit errors.
+
+This path creates no intermediate blur texture or CPU shadow bitmap. It is an
+approximation, not a claim of matching Skia's blur kernel pixel for pixel. Tests
+compare sampled rounded corners against an 8192-sample f64 convolution oracle
+(at sigma 0.3/1/4/16 and radius 2/16/32), with a two-alpha-level tolerance. They
+also cover straight-edge/corner alpha, symmetry, zero sigma, fractional motion,
+clipping and removal. Partial redraw must exactly match this renderer's full
+redraw for every frame. Broad-shadow GPU cost and physical-display appearance
+still need measurement; general filter/blend layers remain unsupported.

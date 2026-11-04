@@ -53,7 +53,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    Solid general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
    coverage masks, while rect clips keep the fast path. Non-solid general paths,
-   filter/blend layers remain. Shared native WGSL effect surfaces now use the
+   filter/blend layers remain. Gaussian box shadows now use quad coverage with
+   four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the
    existing public shader widget with local damage and injected time; texture
    inputs/backdrop effects and typed uniforms still need explicit contracts. Isolated source-over
    opacity groups now use cropped GPU-only intermediates with bounded depth/bytes.

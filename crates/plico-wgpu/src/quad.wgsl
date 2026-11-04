@@ -51,6 +51,36 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
     }
     return clamp(0.5-distance_to_round_rect(p,size,radius),0.,1.);
 }
+// Normal CDF approximation (maximum absolute error below 8e-8).
+fn normal_cdf(x:f32)->f32 {
+    let a=abs(x);
+    let t=1./(1.+0.2316419*a);
+    let tail=0.39894228*exp(-0.5*a*a)*t*(0.31938153+t*(-0.35656378+t*(1.78147794+t*(-1.82125598+t*1.33027443))));
+    return select(tail,1.-tail,x>=0.);
+}
+// Integrate the horizontal Gaussian analytically, then use bounded midpoint
+// quadrature vertically. Restrict integration to four sigma around this pixel.
+fn shadow_coverage(p:vec2f,size:vec2f,radius:f32,sigma:f32)->f32 {
+    let r=clamp(radius,0.,min(size.x,size.y)*0.5);
+    if r<=0. || (p.y-4.*sigma>=r && p.y+4.*sigma<=size.y-r) {
+        return (normal_cdf((size.x-p.x)/sigma)-normal_cdf(-p.x/sigma))
+            *(normal_cdf((size.y-p.y)/sigma)-normal_cdf(-p.y/sigma));
+    }
+    let lo=max(0.,p.y-4.*sigma);
+    let hi=min(size.y,p.y+4.*sigma);
+    if hi<=lo {return 0.;}
+    let step=(hi-lo)/32.;
+    var sum=0.;
+    for(var i=0u;i<32u;i++) {
+        let y=lo+(f32(i)+0.5)*step;
+        let dy=max(abs(y-size.y*0.5)-(size.y*0.5-r),0.);
+        let inset=r-sqrt(max(r*r-dy*dy,0.));
+        let horizontal=normal_cdf((size.x-inset-p.x)/sigma)-normal_cdf((inset-p.x)/sigma);
+        let z=(y-p.y)/sigma;
+        sum+=horizontal*exp(-0.5*z*z);
+    }
+    return clamp(sum*step*0.39894228/sigma,0.,1.);
+}
 @fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
     let clip=input.clip;
@@ -65,6 +95,10 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
         if any(world<m.xy) || any(world>=m.xy+m.zw) {discard;}
         clip_alpha*=textureSampleLevel(clip_mask,clip_sampler,(world-m.xy)/m.zw,0.).a;
         if clip_alpha<=0. {discard;}
+    }
+    if input.config.z>=5. {
+        let alpha=input.color.a*shadow_coverage(input.local-vec2f(input.gradient.x),input.gradient.zw,input.config.x,input.gradient.y)*clip_alpha;
+        return vec4f(input.color.rgb*alpha,alpha);
     }
     if input.config.z>=4. {
         let pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);

@@ -66,6 +66,9 @@ pub struct Quad {
     /// x, y, width, height; negative positions are allowed.
     pub rect: [f32; 4],
     pub radius: f32,
+    /// Gaussian shadow sigma. Positive values blur the inset rounded rectangle
+    /// (the quad includes a four-sigma margin on every side).
+    pub shadow_sigma: f32,
     /// Uniform inside border width in physical pixels.
     pub border_width: f32,
     pub border_color: [f32; 4],
@@ -89,6 +92,7 @@ impl Quad {
         Self {
             rect,
             radius: 0.,
+            shadow_sigma: 0.,
             border_width: 0.,
             border_color: [0.; 4],
             colors: [color; 2],
@@ -105,6 +109,12 @@ impl Quad {
         let valid_color = |c: [f32; 4]| c.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v));
         if !valid_rect(self.rect)
             || self.clip.is_some_and(|r| !valid_rect(r))
+            || !self.shadow_sigma.is_finite()
+            || self.shadow_sigma < 0.
+            || (self.shadow_sigma > 0.
+                && (self.material
+                    || self.rect[2] < 8. * self.shadow_sigma
+                    || self.rect[3] < 8. * self.shadow_sigma))
             || !self.radius.is_finite()
             || self.radius < 0.
             || !self.border_width.is_finite()

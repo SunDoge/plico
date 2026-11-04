@@ -551,6 +551,32 @@ impl Renderer {
                             });
                         }
                     }
+                    PaintCommand::BoxShadow {
+                        transform,
+                        rect,
+                        brush,
+                        radius,
+                        std_dev,
+                    } => {
+                        if !std_dev.is_finite()
+                            || *std_dev < 0.
+                            || !radius.is_finite()
+                            || *radius < 0.
+                        {
+                            return Err(unsupported(index, "invalid shadow radius or sigma"));
+                        }
+                        let (scale, _) = uniform(*transform, index)?;
+                        let mut q = quad(
+                            rect.inflate(4. * std_dev, 4. * std_dev),
+                            *radius,
+                            *transform,
+                            clip,
+                            index,
+                        )?;
+                        q.shadow_sigma = (std_dev * scale) as f32;
+                        q.colors = [brush.components; 2];
+                        draws.push(PreparedDraw::Quad(q));
+                    }
                     PaintCommand::Shader { effect, transform } => {
                         let [w, h] = effect.logical_size();
                         let q = quad(
@@ -617,7 +643,6 @@ impl Renderer {
                                 "{} command",
                                 match command {
                                     PaintCommand::GlyphRun { .. } => "positioned glyph",
-                                    PaintCommand::BoxShadow { .. } => "shadow",
                                     PaintCommand::Fragment { .. } => "unflattened fragment",
                                     _ => "unknown",
                                 }
