@@ -35,6 +35,9 @@ struct Vertex {
     out.mask_rect=mask_rect;
     out.gradient=gradient;
     out.uv=uv.xy+local/rect.zw*uv.zw;
+    if config.z==4. && clip_params.y>0.5 {
+        out.uv=vec2f(uv.x*world.x+uv.z*world.y,uv.y*world.x+uv.w*world.y)+gradient.zw;
+    }
     out.border=border;out.config=config;out.clip=clip;
     return out;
 }

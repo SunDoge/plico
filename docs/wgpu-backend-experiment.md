@@ -866,3 +866,31 @@ including negative UVs and seams, within one 8-bit level. A shared-scene brush t
 checks independent repeated/mirrored axes against low-level image replay and
 resource reuse. General-path image brushes and rotated/sheared image geometry
 remain separate coverage gaps; this change does not claim those are implemented.
+
+## Affine images and image-filled paths
+
+Images now support finite nonsingular affine geometry/brush transforms, including
+rotation, shear and reflection. The common axis-aligned rectangular path retains
+its previous fast replay. Other fills rasterize only shape coverage through the
+bounded tiny-skia/path-mask caches, intersect the active parent mask, and sample
+the original immutable image with a GPU world-to-source affine UV map. The map is
+`normalize_image_size * inverse(shape_transform * brush_transform)`; changing a
+shape/transform does not resample or reupload the source image.
+
+The affine UV coefficients reuse existing instance attributes; no increase to the
+shared instance stride is needed. `ImageQuad` can optionally supply the same
+physical-world UV map, with coverage handled by its quad/active mask. Its constructor
+keeps the previous full-source defaults. All sampling qualities and independent
+extension modes remain available. Arbitrary image-filled paths preserve the fill
+rule, including even-odd holes. Coverage-mask scope is restored before subsequent
+draws, and output bounds participate in ordinary damage tracking.
+
+GPU tests check rotated/sheared/reflected image interior texels against inverse-
+transform CPU sampling, a circular path with an independently transformed repeated/
+reflected brush, even-odd holes, and fractional rotation/motion/removal against full
+rendering. A cropped opacity group checks world UVs remain correct with a nonzero
+frame origin and that later draws do not inherit the image's mask. Returning to
+ordinary replay verifies source upload reuse. Coverage is still a CPU raster
+fallback for these shapes; large rotating images and animation cost need profiling.
+Image strokes, projective transforms and large-minification prefiltering remain
+outside this implementation.

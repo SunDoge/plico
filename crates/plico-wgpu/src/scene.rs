@@ -268,6 +268,79 @@ impl Renderer {
             }
             let clip = *clips.last().unwrap();
             let first_draw = draws.len();
+            if let PaintCommand::Fill {
+                fill,
+                shape,
+                transform,
+                brush: Brush::Image(image),
+                brush_transform,
+            } = command
+            {
+                let axis = |t: Affine| {
+                    let [a, b, c, d, e, f] = t.as_coeffs();
+                    [a, b, c, d, e, f].iter().all(|v| v.is_finite())
+                        && a > 0.
+                        && d > 0.
+                        && b == 0.
+                        && c == 0.
+                };
+                let fast = geometry(shape, index).is_ok_and(|(_, radius)| {
+                    axis(*transform)
+                        && (radius == 0.
+                            || (transform.as_coeffs()[0] - transform.as_coeffs()[3]).abs() < 1e-9)
+                }) && axis(brush_transform.unwrap_or(Affine::IDENTITY));
+                if !fast {
+                    let source = *transform * brush_transform.unwrap_or(Affine::IDENTITY);
+                    let coefficients = source.as_coeffs();
+                    let det = source.determinant();
+                    if !coefficients.iter().all(|v| v.is_finite())
+                        || !det.is_finite()
+                        || det.abs() < 1e-12
+                        || image.image.width == 0
+                        || image.image.height == 0
+                    {
+                        return Err(unsupported(
+                            index,
+                            "invalid affine image transform or dimensions",
+                        ));
+                    }
+                    let uv = Affine::scale_non_uniform(
+                        1. / image.image.width as f64,
+                        1. / image.image.height as f64,
+                    ) * source.inverse();
+                    let parent = masks.last().unwrap().clone();
+                    let mask_command = PaintCommand::Fill {
+                        fill: *fill,
+                        shape: shape.clone(),
+                        transform: *transform,
+                        brush: peniko::Color::WHITE.into(),
+                        brush_transform: None,
+                    };
+                    if let Some((coverage, bounds)) = self.paths.raster(&mask_command)? {
+                        let mask = self.masks.intersect(coverage, bounds, parent.as_deref())?;
+                        let bounds = mask.bounds();
+                        let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
+                        ink[index] = Some(bounds);
+                        draws.push(PreparedDraw::SetMask(mask));
+                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                            quad: q,
+                            image: image.image.clone(),
+                            uv: [0., 0., 1., 1.],
+                            uv_transform: Some(uv.as_coeffs().map(|v| v as f32)),
+                            quality: image.sampler.quality,
+                            extend: [image.sampler.x_extend, image.sampler.y_extend],
+                            alpha: image.sampler.alpha,
+                        }));
+                        draws.push(match parent {
+                            Some(mask) => PreparedDraw::SetMask(mask),
+                            None => PreparedDraw::ResetMask,
+                        });
+                    } else {
+                        ink[index] = Some(Rect::ZERO);
+                    }
+                    continue;
+                }
+            }
             let fallback = match command {
                 PaintCommand::Fill {
                     shape,
@@ -303,6 +376,7 @@ impl Renderer {
                         quad: q,
                         image,
                         uv: [0., 0., 1., 1.],
+                        uv_transform: None,
                         quality: peniko::ImageQuality::Low,
                         extend: [peniko::Extend::Pad; 2],
                         alpha: 1.,
@@ -363,6 +437,7 @@ impl Renderer {
                             draws.push(PreparedDraw::Image(crate::image::ImageQuad {
                                 quad: q,
                                 image: image.image.clone(),
+                                uv_transform: None,
                                 quality: image.sampler.quality,
                                 extend: [image.sampler.x_extend, image.sampler.y_extend],
                                 alpha: image.sampler.alpha,
@@ -593,6 +668,7 @@ impl Renderer {
                                 quad: q,
                                 image,
                                 uv: [0., 0., 1., 1.],
+                                uv_transform: None,
                                 quality: peniko::ImageQuality::Low,
                                 extend: [peniko::Extend::Pad; 2],
                                 alpha: 1.,
@@ -654,6 +730,7 @@ impl Renderer {
                             quad: q,
                             image,
                             uv: [0., 0., 1., 1.],
+                            uv_transform: None,
                             quality: peniko::ImageQuality::Medium,
                             extend: [peniko::Extend::Pad; 2],
                             alpha: 1.,

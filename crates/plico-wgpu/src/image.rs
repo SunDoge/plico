@@ -8,6 +8,9 @@ pub struct ImageQuad {
     pub quad: Quad,
     pub image: ImageData,
     pub uv: [f32; 4],
+    /// Optional physical-world to normalized-source affine UV map.
+    /// Geometry coverage is supplied separately by the quad/active clip mask.
+    pub uv_transform: Option<[f32; 6]>,
     pub quality: ImageQuality,
     /// Source extension along the horizontal and vertical axes.
     pub extend: [Extend; 2],
@@ -21,6 +24,7 @@ impl ImageQuad {
             quad,
             image,
             uv: [0., 0., 1., 1.],
+            uv_transform: None,
             quality: ImageQuality::Medium,
             extend: [Extend::Pad; 2],
             alpha: 1.,

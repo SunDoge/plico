@@ -1052,6 +1052,9 @@ impl Renderer {
                     if !image.alpha.is_finite()
                         || !(0. ..=1.).contains(&image.alpha)
                         || !image.uv.iter().all(|v| v.is_finite())
+                        || image
+                            .uv_transform
+                            .is_some_and(|m| m.iter().any(|v| !v.is_finite()))
                     {
                         return Err(Error::InvalidInput {
                             reason: "invalid image alpha/UV".into(),
@@ -1078,18 +1081,25 @@ impl Renderer {
                         border: [0.; 4],
                         config: [q.radius, 0., 4., slot as f32],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
-                        uv: image.uv,
+                        uv: image
+                            .uv_transform
+                            .map_or(image.uv, |m| [m[0], m[1], m[2], m[3]]),
                         gradient: {
                             let mode = |v| match v {
                                 peniko::Extend::Pad => 0.,
                                 peniko::Extend::Repeat => 1.,
                                 peniko::Extend::Reflect => 2.,
                             };
-                            [mode(image.extend[0]), mode(image.extend[1]), 0., 0.]
+                            [
+                                mode(image.extend[0]),
+                                mode(image.extend[1]),
+                                image.uv_transform.map_or(0., |m| m[4]),
+                                image.uv_transform.map_or(0., |m| m[5]),
+                            ]
                         },
                         clip_params: [
                             if q.clip_antialias { 1. } else { 0. },
-                            0.,
+                            if image.uv_transform.is_some() { 1. } else { 0. },
                             0.,
                             if image.quality == peniko::ImageQuality::High {
                                 1.
