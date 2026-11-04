@@ -188,10 +188,13 @@ fn device_pipeline_rejection_is_reported_and_the_next_valid_effect_recovers() {
     use plico_renderer::{ShaderEffectId, ShaderEffectSource};
     let invalid = ShaderEffectSource::new_module(
         r#"
-    @vertex fn vs_main(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {
-        let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));return vec4f(p[i],0.,1.);
+    struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f };
+    @vertex fn vs_main(@builtin(vertex_index) i:u32)->VertexOutput {
+        let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+        return VertexOutput(vec4f(p[i],0.,1.),p[i]);
     }
-    @fragment fn fs_main()->@location(0) vec4u {return vec4u(1u);}
+    // Stage linkage is checked by the device; each entry point is valid WGSL.
+    @fragment fn fs_main(@location(0) uv:vec3f)->@location(0) vec4f {return vec4f(uv,1.);}
     "#,
     )
     .unwrap();
@@ -314,12 +317,17 @@ fn frame_preflight_skips_resources_and_shader_failure_recovers() {
     let baseline = renderer
         .render_scene(&good, [16, 16], [0.; 4], true)
         .unwrap();
-    let invalid = ShaderEffectSource::new_module(r#"
-        @vertex fn vs_main(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {
-            let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));return vec4f(p[i],0.,1.);
+    let invalid = ShaderEffectSource::new_module(
+        r#"
+        struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f };
+        @vertex fn vs_main(@builtin(vertex_index) i:u32)->VertexOutput {
+            let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+            return VertexOutput(vec4f(p[i],0.,1.),p[i]);
         }
-        @fragment fn fs_main()->@location(0) vec4u {return vec4u(1u);}
-    "#).unwrap();
+        @fragment fn fs_main(@location(0) uv:vec3f)->@location(0) vec4f {return vec4f(uv,1.);}
+    "#,
+    )
+    .unwrap();
     let mut text = TextContext::new();
     let id = ShaderEffectId::new();
     let bad = effect_scene(&mut text, invalid, id, &[]);

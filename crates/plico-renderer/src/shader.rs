@@ -177,7 +177,8 @@ impl ShaderEffectSource {
     /// and native animation time. Textures and additional bindings remain
     /// unsupported so resource ownership stays inside the renderer. Vertex
     /// entry points must generate geometry without `@location` vertex inputs;
-    /// the fullscreen pipeline does not supply vertex buffers.
+    /// the fullscreen pipeline does not supply vertex buffers. Fragment output
+    /// must be a single `@location(0) vec4<f32>`, optionally wrapped in a struct.
     pub fn new_module(source: &str) -> Result<Self, String> {
         if source.trim().is_empty() {
             return Err("shader source must not be empty".into());
@@ -249,6 +250,34 @@ impl ShaderEffectSource {
             }
             false
         }
+        fn is_rgba_output(
+            module: &naga::Module,
+            ty: naga::Handle<naga::Type>,
+            binding: Option<&naga::Binding>,
+        ) -> bool {
+            match (&module.types[ty].inner, binding) {
+                (
+                    naga::TypeInner::Vector {
+                        size: naga::VectorSize::Quad,
+                        scalar:
+                            naga::Scalar {
+                                kind: naga::ScalarKind::Float,
+                                width: 4,
+                            },
+                    },
+                    Some(naga::Binding::Location {
+                        location: 0,
+                        blend_src: None,
+                        ..
+                    }),
+                ) => true,
+                (naga::TypeInner::Struct { members, .. }, None) if members.len() == 1 => {
+                    let member = &members[0];
+                    is_rgba_output(module, member.ty, member.binding.as_ref())
+                }
+                _ => false,
+            }
+        }
         for entry in &module.entry_points {
             if entry.stage == naga::ShaderStage::Vertex
                 && entry.name == "vs_main"
@@ -258,6 +287,17 @@ impl ShaderEffectSource {
             {
                 return Err(
                     "custom shader vertex @location inputs are unsupported; use @builtin(vertex_index) without vertex buffers"
+                        .into(),
+                );
+            }
+            if entry.stage == naga::ShaderStage::Fragment
+                && entry.name == "fs_main"
+                && !entry.function.result.as_ref().is_some_and(|result| {
+                    is_rgba_output(&module, result.ty, result.binding.as_ref())
+                })
+            {
+                return Err(
+                    "custom shader fragment output must be one @location(0) vec4<f32>; additional color, depth, and sample-mask outputs are unsupported"
                         .into(),
                 );
             }
@@ -706,6 +746,23 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
             let error = ShaderEffectSource::new_module(&source).unwrap_err();
             assert!(error.contains("vertex @location inputs"), "{error}");
         }
+    }
+
+    #[test]
+    fn validates_fragment_output_against_the_single_rgba_target() {
+        let vertex = "@vertex fn vs_main() -> @builtin(position) vec4<f32> { return vec4(0.0); }";
+        for fragment in [
+            "@fragment fn fs_main() -> @location(1) vec4<f32> { return vec4(1.0); }",
+            "@fragment fn fs_main() -> @location(0) vec4<u32> { return vec4(1u); }",
+            "@fragment fn fs_main() -> @builtin(frag_depth) f32 { return 0.5; }",
+            "struct Output { @location(0) color: vec4<f32>, @location(1) other: vec4<f32> }; @fragment fn fs_main() -> Output { return Output(vec4(1.0), vec4(0.0)); }",
+        ] {
+            let error =
+                ShaderEffectSource::new_module(&format!("{vertex}\n{fragment}")).unwrap_err();
+            assert!(error.contains("fragment output must be"), "{error}");
+        }
+        let fragment = "struct Output { @location(0) color: vec4<f32> }; @fragment fn fs_main() -> Output { return Output(vec4(1.0)); }";
+        ShaderEffectSource::new_module(&format!("{vertex}\n{fragment}")).unwrap();
     }
 
     #[test]
