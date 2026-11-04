@@ -598,3 +598,25 @@ This resolves the unsupported-filter failure recorded in the previous gallery
 check. Physical-display quality, representative GPU timing and broad filter graphs
 remain replacement gates. WASM type checking passed; browser execution was not
 verified.
+
+## Pooled Gaussian workspaces
+
+Gaussian workspaces now live with their isolated-layer pool entry. Each retains
+two work textures, two parameter buffers, two compute bind groups and the output
+sampling binding. Matching-size entries from previous frames can reuse all of
+these; entries already used by a sibling or ancestor in the current frame remain
+ineligible. Parameter writes precede that layer's queue submission, so alternating
+sigma values cannot overwrite parameters for an earlier unsubmitted layer.
+
+The pool's resident-byte calculation includes all three RGBA textures (source,
+horizontal temporary and vertical output), and its existing 128 MiB/128-entry
+limits apply to this combined payload. Explicit GPU cache trimming and eventual
+layer removal release workspaces too. Counters expose cumulative filter workspace
+allocations/reuses in `LayerPoolStats` and the frame-resource trace.
+
+A 12-frame, three-sibling test alternates blur sigma while moving child content.
+It compares every pixel against a renderer whose layer pool is cleared each frame:
+3 workspace creations and 33 reuses versus 36 creations, with identical output.
+Trimming, recreation and complete layer removal also verify byte accounting. This
+measures allocation avoidance, not CPU/GPU frame time. Wide-kernel optimization,
+filter graphs and physical-display checks remain outstanding.

@@ -1,7 +1,12 @@
 //! Separable premultiplied Gaussian image filtering, entirely on the GPU.
-use wgpu::util::DeviceExt;
 pub(crate) struct Blur {
     pipeline: wgpu::ComputePipeline,
+}
+pub(crate) struct Workspace {
+    temporary: wgpu::Texture,
+    pub output: wgpu::Texture,
+    uniforms: [wgpu::Buffer; 2],
+    binds: [wgpu::BindGroup; 2],
 }
 impl Blur {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -20,18 +25,15 @@ impl Blur {
             }),
         }
     }
-    pub fn encode(
+    pub fn workspace(
         &self,
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::Texture,
         size: [u32; 2],
-        sigma: f32,
-        edge: plico_renderer::filter::BlurEdge,
-    ) -> wgpu::Texture {
+    ) -> Workspace {
         let allocate = || {
             device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Plico blur intermediate"),
+                label: Some("Plico pooled blur intermediate"),
                 size: wgpu::Extent3d {
                     width: size[0],
                     height: size[1],
@@ -47,17 +49,24 @@ impl Blur {
         };
         let temporary = allocate();
         let output = allocate();
-        for (axis, input, destination) in [(0, source, &temporary), (1, &temporary, &output)] {
-            let parameters = [sigma.to_bits(), axis, edge as u32, 0];
-            let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&parameters),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+        let uniforms = std::array::from_fn(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Plico pooled blur parameters"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
+        let binds = std::array::from_fn(|axis| {
+            let (input, destination) = if axis == 0 {
+                (source, &temporary)
+            } else {
+                (&temporary, &output)
+            };
             let input = input.create_view(&Default::default());
             let destination = destination.create_view(&Default::default());
-            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Plico pooled blur axis"),
                 layout: &self.pipeline.get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -70,18 +79,40 @@ impl Blur {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: uniform.as_entire_binding(),
+                        resource: uniforms[axis].as_entire_binding(),
                     },
                 ],
-            });
+            })
+        });
+        Workspace {
+            temporary,
+            output,
+            uniforms,
+            binds,
+        }
+    }
+    pub fn encode(
+        &self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        workspace: &Workspace,
+        sigma: f32,
+        edge: plico_renderer::filter::BlurEdge,
+    ) {
+        let size = workspace.temporary.size();
+        for axis in 0..2 {
+            queue.write_buffer(
+                &workspace.uniforms[axis],
+                0,
+                bytemuck::cast_slice(&[sigma.to_bits(), axis as u32, edge as u32, 0]),
+            );
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Plico Gaussian axis"),
                 timestamp_writes: None,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind, &[]);
-            pass.dispatch_workgroups(size[0].div_ceil(8), size[1].div_ceil(8), 1);
+            pass.set_bind_group(0, &workspace.binds[axis], &[]);
+            pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
         }
-        output
     }
 }

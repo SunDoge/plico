@@ -59,7 +59,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    existing public shader widget with local damage and injected time; texture
    inputs/backdrop effects and typed uniforms still need explicit contracts. Isolated source-over
    opacity groups now use cropped GPU-only intermediates with bounded depth/bytes.
-   Intermediate targets are pooled, and damage skips unaffected groups before
+   Intermediate targets and Gaussian workspaces are pooled with combined byte accounting, and damage skips unaffected groups before
    texture work. Allocation counts are verified; frame-time performance is pending. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS

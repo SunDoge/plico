@@ -26,6 +26,15 @@ struct Target {
 struct LayerTarget {
     target: Target,
     image: std::rc::Rc<crate::image::GpuImage>,
+    blur: Option<(crate::blur::Workspace, std::rc::Rc<crate::image::GpuImage>)>,
+}
+#[cfg(feature = "paint-scene")]
+impl LayerTarget {
+    fn bytes(&self) -> u64 {
+        u64::from(self.target.size[0])
+            * u64::from(self.target.size[1])
+            * if self.blur.is_some() { 12 } else { 4 }
+    }
 }
 /// Cumulative layer allocation work and currently retained pool payload.
 #[cfg(feature = "paint-scene")]
@@ -33,6 +42,10 @@ struct LayerTarget {
 pub struct LayerPoolStats {
     pub allocations: u64,
     pub reuses: u64,
+    /// Cumulative two-texture blur workspace creations.
+    pub filter_allocations: u64,
+    /// Cumulative blur workspace reuses.
+    pub filter_reuses: u64,
     pub entries: usize,
     pub retained_bytes: u64,
 }
@@ -146,6 +159,10 @@ pub struct Renderer {
     layer_allocations: u64,
     #[cfg(feature = "paint-scene")]
     layer_reuses: u64,
+    #[cfg(feature = "paint-scene")]
+    filter_allocations: u64,
+    #[cfg(feature = "paint-scene")]
+    filter_reuses: u64,
     #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
     effects: Option<plico_renderer::shader::ShaderRenderer>,
     #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
@@ -320,6 +337,10 @@ impl Renderer {
             layer_allocations: 0,
             #[cfg(feature = "paint-scene")]
             layer_reuses: 0,
+            #[cfg(feature = "paint-scene")]
+            filter_allocations: 0,
+            #[cfg(feature = "paint-scene")]
+            filter_reuses: 0,
             #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
             effects: None,
             #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
@@ -530,7 +551,7 @@ impl Renderer {
             let effect_stats = self.effect_cache_stats();
             tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,"wgpu frame resources");
         }
         result
     }
@@ -1311,12 +1332,13 @@ impl Renderer {
         let mut stats = LayerPoolStats {
             allocations: self.layer_allocations,
             reuses: self.layer_reuses,
+            filter_allocations: self.filter_allocations,
+            filter_reuses: self.filter_reuses,
             ..Default::default()
         };
         for entry in self.layer_pool.iter().flatten() {
             stats.entries += 1;
-            stats.retained_bytes +=
-                u64::from(entry.target.size[0]) * u64::from(entry.target.size[1]) * 4;
+            stats.retained_bytes += entry.bytes();
         }
         stats
     }
@@ -1342,8 +1364,7 @@ impl Renderer {
                 .or_else(|| self.layer_pool.iter().position(|entry| entry.is_some()));
             let Some(index) = candidate else { break };
             let entry = self.layer_pool[index].take().unwrap();
-            stats.retained_bytes -=
-                u64::from(entry.target.size[0]) * u64::from(entry.target.size[1]) * 4;
+            stats.retained_bytes -= entry.bytes();
             stats.entries -= 1;
         }
         while self.layer_pool.last().is_some_and(|entry| entry.is_none()) {
@@ -1402,7 +1423,9 @@ impl Renderer {
         self.layer_used[slot] = true;
         let saved = self.layer_pool[slot].take();
         let parent_target = self.target.take();
+        let mut workspace = None;
         let cached_image = if let Some(entry) = saved {
+            workspace = entry.blur;
             self.target = Some(entry.target);
             Some(entry.image)
         } else {
@@ -1429,19 +1452,25 @@ impl Renderer {
                 let pipeline = self
                     .blur
                     .get_or_insert_with(|| crate::blur::Blur::new(&self.device));
-                let output = pipeline.encode(
-                    &self.device,
-                    &mut encoder,
-                    &self.target.as_ref().unwrap().texture,
-                    size,
-                    blur.sigma,
-                    blur.edge,
-                );
-                crate::image::GpuImage::from_layer(
-                    &self.device,
-                    &self.atlas_texture.layout,
-                    &output,
-                )
+                if workspace.is_none() {
+                    let work = pipeline.workspace(
+                        &self.device,
+                        &self.target.as_ref().unwrap().texture,
+                        size,
+                    );
+                    let image = crate::image::GpuImage::from_layer(
+                        &self.device,
+                        &self.atlas_texture.layout,
+                        &work.output,
+                    );
+                    workspace = Some((work, image));
+                    self.filter_allocations += 1;
+                } else {
+                    self.filter_reuses += 1;
+                }
+                let (work, image) = workspace.as_ref().unwrap();
+                pipeline.encode(&self.queue, &mut encoder, work, blur.sigma, blur.edge);
+                image.clone()
             } else {
                 image
             };
@@ -1449,7 +1478,11 @@ impl Renderer {
             image
         });
         if let (Some(target), Some(image)) = (self.target.take(), resource) {
-            self.layer_pool[slot] = Some(LayerTarget { target, image });
+            self.layer_pool[slot] = Some(LayerTarget {
+                target,
+                image,
+                blur: workspace,
+            });
         }
         self.target = parent_target;
         self.frame_images = parent_images;

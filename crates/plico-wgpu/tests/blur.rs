@@ -113,3 +113,45 @@ fn filter_reads_outside_final_clip_but_composites_only_inside() {
     assert_eq!(alpha(15, 32), 0, "filtered output escaped final clip");
     assert_eq!(alpha(32, 32), 0);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn sibling_filter_workspaces_are_distinct_and_reused_across_frames() {
+    let mut pooled = pollster::block_on(Renderer::new()).unwrap();
+    let mut fresh = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..12 {
+        let mut s = Scene::new();
+        for sibling in 0..3 {
+            s.append_scene(
+                scene(
+                    (frame + sibling) as f64 * 0.25,
+                    if frame % 2 == 0 { 3. } else { 2.9 },
+                ),
+                Affine::translate((sibling as f64 * 64., 0.)),
+            );
+        }
+        fresh.trim_layer_pool();
+        let actual = pooled.render_scene(&s, [192, 64], [0.; 4], false).unwrap();
+        assert_eq!(
+            actual,
+            fresh.render_scene(&s, [192, 64], [0.; 4], false).unwrap(),
+            "frame {frame}"
+        );
+    }
+    let stats = pooled.layer_pool_stats();
+    assert_eq!(stats.filter_allocations, 3);
+    assert_eq!(stats.filter_reuses, 33);
+    assert_eq!(stats.entries, 3);
+    assert_eq!(stats.retained_bytes, 3 * 72 * 72 * 12);
+    assert_eq!(fresh.layer_pool_stats().filter_allocations, 36);
+    pooled.trim_layer_pool();
+    assert_eq!(pooled.layer_pool_stats().retained_bytes, 0);
+    pooled
+        .render_scene(&scene(0., 3.), [64, 64], [0.; 4], false)
+        .unwrap();
+    assert_eq!(pooled.layer_pool_stats().filter_allocations, 4);
+    pooled
+        .render_scene(&Scene::new(), [64, 64], [0.; 4], false)
+        .unwrap();
+    assert_eq!(pooled.layer_pool_stats().retained_bytes, 0);
+}
