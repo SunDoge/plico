@@ -12,16 +12,38 @@ use plico_renderer::{
     text::FontAsset,
 };
 use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
+const PARAGRAPH_BYTES: usize = 64 * 1024 * 1024;
+/// Accounted cache payload, not native-library allocation size or process RSS.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ParagraphCacheStats {
+    /// Native layouts owned by the cache (external retained references excluded).
+    pub layouts: usize,
+    /// Rust-owned glyph/source/request payload retained by these entries.
+    pub rust_payload_bytes: usize,
+    /// Registered application font/alias pairs.
+    pub fonts: usize,
+    /// Font bytes retained by registered assets, conservatively counted per alias.
+    pub font_bytes: usize,
+    /// Successful full-request cache hits.
+    pub hits: u64,
+    /// Layout requests requiring native shaping, including rejected requests.
+    pub misses: u64,
+    /// Entries evicted by count, bytes or replacement (explicit trim excluded).
+    pub evictions: u64,
+}
 pub(crate) struct Cache {
     context: LayoutContext,
     entries: lru::LruCache<(u64, u64), Rc<Paragraph>>,
     asset_error: Option<String>,
     fonts: Vec<FontAsset>,
+    stats: ParagraphCacheStats,
+    byte_limit: usize,
 }
 struct Paragraph {
     request: Arc<ParagraphRequest>,
     layout: Rc<GlyphLayout>,
     metrics: ParagraphMetrics,
+    payload_bytes: usize,
 }
 impl NativeParagraph for Paragraph {
     fn metrics(&self) -> ParagraphMetrics {
@@ -56,7 +78,13 @@ impl Cache {
             entries: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
             asset_error: None,
             fonts: Vec::new(),
+            stats: ParagraphCacheStats::default(),
+            byte_limit: PARAGRAPH_BYTES,
         })
+    }
+    fn clear_entries(&mut self) {
+        self.entries.clear();
+        self.stats.rust_payload_bytes = 0;
     }
     fn layout(
         &mut self,
@@ -64,6 +92,7 @@ impl Cache {
         scale: f64,
     ) -> std::result::Result<Rc<Paragraph>, ParagraphError> {
         if let Some(error) = &self.asset_error {
+            self.stats.misses += 1;
             return Err(rejected(error.clone()));
         }
         // Base tint is independent of coverage. Range colors remain in the key:
@@ -74,8 +103,10 @@ impl Cache {
         if let Some(p) = self.entries.get(&key)
             && *p.request == geometry
         {
+            self.stats.hits += 1;
             return Ok(p.clone());
         }
+        self.stats.misses += 1;
         if request.max_lines != 0 && (!request.ellipsis || request.text.contains('\n')) {
             return Err(rejected(format!(
                 "unsupported paragraph: runs={} spacing={} line_height={:?} max_lines={} ellipsis={} align={:?}",
@@ -144,7 +175,13 @@ impl Cache {
                 .map_err(|e| rejected(e.to_string()))?,
         );
         let lines = layout.line_metrics();
+        let payload_bytes = std::mem::size_of::<Paragraph>()
+            + layout.rust_payload_bytes()
+            + geometry.text.len()
+            + geometry.family.len()
+            + geometry.runs.len() * std::mem::size_of::<plico_renderer::text::TextRun>();
         let p = Rc::new(Paragraph {
+            payload_bytes,
             request: Arc::new(geometry),
             metrics: ParagraphMetrics {
                 width: layout.logical_size[0] as f32,
@@ -158,7 +195,23 @@ impl Cache {
             },
             layout,
         });
-        self.entries.put(key, p.clone());
+        if payload_bytes <= self.byte_limit {
+            while self.stats.rust_payload_bytes + payload_bytes > self.byte_limit
+                || self.entries.len() >= self.entries.cap().get()
+            {
+                if let Some((_, old)) = self.entries.pop_lru() {
+                    self.stats.rust_payload_bytes -= old.payload_bytes;
+                    self.stats.evictions += 1;
+                } else {
+                    break;
+                }
+            }
+            if let Some(old) = self.entries.put(key, p.clone()) {
+                self.stats.rust_payload_bytes -= old.payload_bytes;
+                self.stats.evictions += 1;
+            }
+            self.stats.rust_payload_bytes += payload_bytes;
+        }
         Ok(p)
     }
 }
@@ -195,13 +248,38 @@ impl ParagraphEngine for Engine {
             Ok(()) => cache.fonts.push(asset.clone()),
             Err(error) => cache.asset_error = Some(error.to_string()),
         }
-        cache.entries.clear();
+        cache.clear_entries();
     }
     fn clear(&mut self) {
-        self.cache.borrow_mut().entries.clear();
+        self.cache.borrow_mut().clear_entries();
     }
 }
 impl Renderer {
+    /// Inspect paragraph payload separately from the raster atlas and positioned glyphs.
+    pub fn paragraph_cache_stats(&self) -> ParagraphCacheStats {
+        self.paragraphs
+            .as_ref()
+            .map_or(ParagraphCacheStats::default(), |cache| {
+                let cache = cache.borrow();
+                ParagraphCacheStats {
+                    layouts: cache.entries.len(),
+                    fonts: cache.fonts.len(),
+                    font_bytes: cache.fonts.iter().map(|f| f.bytes().len()).sum(),
+                    ..cache.stats
+                }
+            })
+    }
+    /// Release derived native paragraph/atlas storage. Registered fonts and live
+    /// layout references remain valid; the next scene redraw repopulates glyphs.
+    pub fn trim_text_cache(&mut self) {
+        if let Some(cache) = &self.paragraphs {
+            cache.borrow_mut().clear_entries();
+        }
+        self.trim_native_atlas();
+        self.prepared_cache = None;
+        self.invalidate_scene_damage();
+    }
+
     fn paragraph_cache(&mut self) -> Result<Rc<RefCell<Cache>>> {
         if self.paragraphs.is_none() {
             self.paragraphs = Some(Rc::new(RefCell::new(
@@ -240,5 +318,49 @@ impl Renderer {
             .layout(request, scale)
             .map_err(|source| Error::Paragraph { source })?;
         Ok(p.layout.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn request(value: &str) -> Arc<ParagraphRequest> {
+        Arc::new(
+            ParagraphRequest::from_paint(
+                &plico_renderer::style::Paint {
+                    text: Some(value.into()),
+                    font_size: 16.,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap(),
+        )
+    }
+    #[test]
+    #[ignore = "requires system fonts"]
+    fn paragraph_payload_budget_evicts_without_invalidating_live_layouts() {
+        let mut cache = Cache::new().unwrap();
+        let first = cache.layout(request("AAA"), 1.).unwrap();
+        cache.byte_limit = first.payload_bytes * 2;
+        cache.layout(request("BBB"), 1.).unwrap();
+        cache.layout(request("CCC"), 1.).unwrap();
+        assert!(cache.entries.len() <= 2);
+        assert!(cache.stats.rust_payload_bytes <= cache.byte_limit);
+        assert!(cache.stats.evictions > 0);
+        assert!(first.caret_rect(1).is_some());
+        let hits = cache.stats.hits;
+        cache.layout(request("CCC"), 1.).unwrap();
+        assert_eq!(cache.stats.hits, hits + 1);
+        cache.clear_entries();
+        assert_eq!(cache.stats.rust_payload_bytes, 0);
+        assert!(first.caret_rect(1).is_some());
+        cache.byte_limit = 1;
+        let uncached = cache
+            .layout(request("Large uncached paragraph"), 1.)
+            .unwrap();
+        assert_eq!(cache.entries.len(), 0);
+        assert_eq!(cache.stats.rust_payload_bytes, 0);
+        assert!(uncached.metrics.width > 0.);
     }
 }

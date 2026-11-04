@@ -1314,6 +1314,23 @@ fn application_font_registered_before_or_after_provider_survives_dpi_changes() {
             let full = renderer.render_scene(&scene, size, [0.; 4], false).unwrap();
             let partial = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
             assert_eq!(partial, full);
+            let uploads = renderer.text_stats().uploaded_bytes;
+            assert!(renderer.paragraph_cache_stats().layouts > 0);
+            renderer.trim_text_cache();
+            assert_eq!(renderer.paragraph_cache_stats().layouts, 0);
+            assert_eq!(renderer.paragraph_cache_stats().rust_payload_bytes, 0);
+            assert_eq!(renderer.paragraph_cache_stats().fonts, 1);
+            assert_eq!(
+                renderer.paragraph_cache_stats().font_bytes,
+                asset.bytes().len()
+            );
+            assert_eq!(renderer.text_stats().cached_glyphs, 0);
+            assert_eq!(renderer.text_stats().atlas_cpu_bytes, 0);
+            assert_eq!(renderer.text_stats().atlas_gpu_bytes, 4);
+            assert!(paragraph.caret_rect(1).is_some());
+            let restored = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
+            assert_eq!(restored, full, "trim broke a retained scene/font");
+            assert!(renderer.text_stats().uploaded_bytes > uploads);
             assert!(partial.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
             assert!(text.take_native_paragraph_error().is_none());
         }

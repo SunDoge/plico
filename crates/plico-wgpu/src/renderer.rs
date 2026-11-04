@@ -586,6 +586,17 @@ impl Renderer {
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
                 layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
+        #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+        {
+            let stats = self.paragraph_cache_stats();
+            let atlas = self.text_stats();
+            tracing::trace!(target: "plico::perf", paragraphs=stats.layouts,
+                paragraph_rust_bytes=stats.rust_payload_bytes, paragraph_hits_total=stats.hits,
+                paragraph_misses_total=stats.misses, paragraph_evictions_total=stats.evictions,
+                application_fonts=stats.fonts, application_font_bytes=stats.font_bytes,
+                atlas_cpu_bytes=atlas.atlas_cpu_bytes, atlas_gpu_bytes=atlas.atlas_gpu_bytes,
+                glyph_upload_bytes_total=atlas.uploaded_bytes, "wgpu native text resources");
+        }
         result
     }
     #[tracing::instrument(name="plico_wgpu.encode_frame",skip_all,fields(width=size[0],height=size[1],draws=items.len()))]
@@ -1192,6 +1203,11 @@ impl Renderer {
             .unwrap()
             .layout(request)
             .context(crate::TextSnafu)
+    }
+    #[cfg(feature = "paint-scene")]
+    pub(crate) fn trim_native_atlas(&mut self) {
+        self.atlas = None;
+        self.atlas_texture.ensure_size(&self.device, 1);
     }
     pub fn text_stats(&self) -> crate::text::TextStats {
         let mut stats = self.text_stats;

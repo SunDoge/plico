@@ -196,11 +196,14 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
-    /// Release recyclable layer targets; final retained pixels remain valid.
+    /// Release derived layer, effect and native text caches. Final pixels remain
+    /// intact; text trimming forces the next frame to rebuild its atlas safely.
     pub fn trim_gpu_cache(&mut self) {
         self.renderer.trim_layer_pool();
         self.renderer.trim_effect_cache();
         self.renderer.trim_positioned_glyph_cache();
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        self.renderer.trim_text_cache();
     }
     pub fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_scene_damage();

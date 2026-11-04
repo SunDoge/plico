@@ -1040,3 +1040,28 @@ context isolation, rasterize after context destruction, and reject malformed
 font bytes. GPU tests register before/after provider installation, revisit
 1/1.25/2/1 DPI and compare full/damaged output. Registration does not apply to
 the separate positioned-glyph path, which already carries its font bytes.
+
+### Paragraph payload limits and explicit text trimming
+
+Native paragraph caching now has both a 512-entry limit and a 64 MiB accounted
+Rust-payload limit. Accounting includes owned glyph-vector/source capacities,
+request text/family/span payload and paragraph structs; shared request payload
+is conservatively counted for each entry. Oversized individual layouts remain
+usable but are not cached. This is not a total memory ceiling: Pango/Fontconfig
+opaque allocations, allocator/hash-table overhead, live references held by
+prepared scenes and consumers, and GPU resources are excluded.
+
+`Renderer::paragraph_cache_stats()` reports payload, hits/misses/evictions and
+registered font bytes separately from `text_stats()`'s raster atlas. The
+`plico::perf` trace includes both sets of counters. `trim_text_cache()` clears
+derived paragraphs and the CPU atlas, shrinks the GPU atlas to its 1-pixel dummy,
+and invalidates preparation/damage history so an unchanged scene still rebuilds
+correctly. Registered fonts and externally retained layouts stay valid. Window
+cache trimming now calls this alongside the existing layer/effect/positioned
+text cleanup. GPU work already submitted may retain old resources until completion.
+
+A native test exercises byte-budget eviction, uncached oversized layouts and
+live caret geometry after eviction. The application-font GPU test verifies
+post-trim pixel equivalence, preserved font registration, explicit atlas byte
+reduction and subsequent glyph uploads across DPI changes. These checks prove
+resource lifecycle behavior, not a measured process-RSS reduction.

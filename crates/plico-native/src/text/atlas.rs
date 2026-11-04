@@ -226,6 +226,11 @@ impl Atlas {
 }
 
 impl GlyphLayout {
+    /// Rust-owned source and glyph-vector capacity; excludes opaque Pango/font data.
+    pub fn rust_payload_bytes(&self) -> usize {
+        self.source.capacity() + self.glyphs.capacity() * std::mem::size_of::<Glyph>()
+    }
+
     /// Original UTF-8 text used by both glyph drawing and editing geometry.
     pub fn text(&self) -> &str {
         &self.source

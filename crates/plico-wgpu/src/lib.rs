@@ -18,6 +18,8 @@ pub mod image;
 pub mod mask;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 mod paragraph;
+#[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+pub use paragraph::ParagraphCacheStats;
 #[cfg(feature = "paint-scene")]
 mod path;
 #[cfg(feature = "paint-scene")]
