@@ -14,8 +14,9 @@ applications still encounter explicit unsupported-command errors.
 - Retain compatible Peniko color/brush/gradient descriptions where useful. Explicitly
   choose interpolation/blending rules rather than inheriting accidental defaults.
 - Reuse image decoding, SVG parsing and resource/service code. Investigate a mature
-  cached CPU raster fallback for uncommon path/SVG operations before writing a
-  complete GPU vector rasterizer. This fallback is a design option, not implemented.
+  cached CPU raster fallback for uncommon operations before writing a complete GPU
+  vector rasterizer. SVG now uses a bounded resvg raster cache; general shared
+  Bezier fill/stroke commands still need a fallback.
 - Use native text layout and glyph rasterization: Pango/Cairo currently works on
   Linux; DirectWrite and CoreText are still required. Do not approximate glyph
   coverage with the rectangle SDF shader. Existing editing/IME state remains outside
@@ -46,8 +47,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 2. **Shared paint bridge:** a supported subset is implemented; consume Plico's retained output with explicit supported
    operations. Preserve analytical box geometry rather than guessing rounded
    rectangles from arbitrary flattened Bezier paths. Report unsupported operations.
-3. **Resource coverage:** images, SVG/path fallback, clip scopes, opacity/layers and
-   shader material resources. Bound derived caches and track resource generations.
+3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
+   implemented. Image upload handles straight/premultiplied alpha before filtering;
+   nearest/bilinear sampling, opacity and ordered texture batches are verified.
+   General paths, complex clips, isolated opacity/layers and shared shader effects
+   remain. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers, and validate real text-input sessions.

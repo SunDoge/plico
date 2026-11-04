@@ -340,3 +340,222 @@ fn partial_replay_matches_full_for_transparency_text_motion_clips_and_resize() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn images_preserve_alpha_channels_painter_order_cache_and_damage() {
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    for (format, alpha_type, red) in [
+        (
+            ImageFormat::Rgba8,
+            ImageAlphaType::Alpha,
+            vec![200, 0, 0, 128],
+        ),
+        (
+            ImageFormat::Bgra8,
+            ImageAlphaType::Alpha,
+            vec![0, 0, 200, 128],
+        ),
+        (
+            ImageFormat::Rgba8,
+            ImageAlphaType::AlphaPremultiplied,
+            vec![100, 0, 0, 128],
+        ),
+    ] {
+        let mut pixels = red;
+        pixels.extend([0, 255, 0, 255]);
+        let image = ImageBrush::new(ImageData {
+            data: Blob::new(Arc::new(pixels)),
+            format,
+            alpha_type,
+            width: 2,
+            height: 1,
+        })
+        .with_quality(ImageQuality::Low);
+        let blue = ImageBrush::new(ImageData {
+            data: Blob::new(Arc::new(vec![0, 0, 255, 255])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::Alpha,
+            width: 1,
+            height: 1,
+        });
+        let mut previous_uploads = 0;
+        for frame in 0..3 {
+            let x = frame as f64 * 8.;
+            let mut scene = Scene::new();
+            scene.draw_image(
+                (&image).into(),
+                Affine::translate((x, 0.)) * Affine::scale_non_uniform(16., 24.),
+            );
+            scene.draw_image(
+                (&blue).into(),
+                Affine::translate((x + 4., 4.)) * Affine::scale(8.),
+            );
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                PaintColor::from_rgba8(0, 255, 0, 255),
+                None,
+                &Rect::new(x + 8., 8., x + 10., 10.),
+            );
+            let actual = renderer
+                .render_scene(&scene, [64, 32], [0.; 4], true)
+                .unwrap();
+            let expected = oracle
+                .render_scene(&scene, [64, 32], [0.; 4], false)
+                .unwrap();
+            assert_eq!(actual, expected);
+            let pixel = |px: usize, py: usize| &actual[(py * 64 + px) * 4..(py * 64 + px) * 4 + 4];
+            assert_eq!(pixel(x as usize + 2, 2), [100, 0, 0, 128]);
+            assert_eq!(pixel(x as usize + 6, 6), [0, 0, 255, 255]);
+            assert_eq!(pixel(x as usize + 9, 9), [0, 255, 0, 255]);
+            let (_, _, uploads, _) = renderer.image_cache_stats();
+            if frame > 0 {
+                assert_eq!(uploads, previous_uploads, "unchanged resources reuploaded");
+            }
+            previous_uploads = uploads;
+        }
+        let mut crop = Scene::new();
+        crop.fill(
+            Fill::NonZero,
+            Affine::scale_non_uniform(2., 1.),
+            &image,
+            Some(Affine::translate((-16., 0.)) * Affine::scale(16.)),
+            &Rect::new(0., 0., 16., 16.),
+        );
+        let pixels = renderer
+            .render_scene(&crop, [64, 32], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            &pixels[(5 * 64 + 12) * 4..(5 * 64 + 12) * 4 + 4],
+            [0, 255, 0, 255],
+            "brush crop or independent image scale was lost"
+        );
+        let (_, bytes, _, hits) = renderer.image_cache_stats();
+        assert!(bytes <= 128 * 1024 * 1024);
+        assert!(hits > 0);
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn svg_fallback_matches_resvg_and_reuses_raster_across_position_changes() {
+    use plico_renderer::{SvgDocument, svg::usvg};
+    let document = SvgDocument(Arc::new(usvg::Tree::from_str(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+        <defs><linearGradient id="g"><stop stop-color="#fc0"/><stop offset="1" stop-color="#08f"/></linearGradient>
+        <mask id="m"><rect width="32" height="32" fill="white"/><circle cx="16" cy="16" r="4" fill="black"/></mask></defs>
+        <circle cx="16" cy="16" r="14" fill="url(#g)" mask="url(#m)"/>
+        <path d="M6 16L12 22L26 8" stroke="#222" stroke-width="2" fill="none"/></svg>"##,
+        &usvg::Options::default()).unwrap()));
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for scale in [1., 1.25, 2.] {
+        let side = (32. * scale) as u32;
+        let mut scene = Scene::new();
+        scene.draw_svg(document.clone(), Affine::scale(scale));
+        let actual = renderer
+            .render_scene(&scene, [side, side], [0.; 4], false)
+            .unwrap();
+        let mut reference = resvg::tiny_skia::Pixmap::new(side, side).unwrap();
+        resvg::render(
+            &document.0,
+            resvg::tiny_skia::Transform::from_scale(scale as f32, scale as f32),
+            &mut reference.as_mut(),
+        );
+        assert_eq!(actual, reference.data(), "SVG mismatch at scale {scale}");
+        let uploads = renderer.image_cache_stats().2;
+        let mut moved = Scene::new();
+        moved.draw_svg(
+            document.clone(),
+            Affine::translate((2., 0.)) * Affine::scale(scale),
+        );
+        renderer
+            .render_scene(&moved, [side, side], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            renderer.image_cache_stats().2,
+            uploads,
+            "translation rerasterized SVG"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn image_cache_eviction_keeps_in_flight_painter_order_resources_alive() {
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut scene = Scene::new();
+    for x in 0..300_u32 {
+        let brush = ImageBrush::new(ImageData {
+            data: Blob::new(Arc::new(vec![(x % 251) as u8, 80, 200, 255])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::Alpha,
+            width: 1,
+            height: 1,
+        })
+        .with_quality(ImageQuality::Low);
+        scene.draw_image((&brush).into(), Affine::translate((x as f64, 0.)));
+    }
+    let actual = renderer
+        .render_scene(&scene, [300, 1], [0.; 4], true)
+        .unwrap();
+    for x in 0..300_usize {
+        assert_eq!(&actual[x * 4..x * 4 + 4], [(x % 251) as u8, 80, 200, 255]);
+    }
+    let (entries, bytes, uploads, _) = renderer.image_cache_stats();
+    assert_eq!((entries, bytes, uploads), (256, 1024, 300));
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn image_filtering_is_premultiplied_and_invalid_resources_are_rejected() {
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut brush = ImageBrush::new(ImageData {
+        data: Blob::new(Arc::new(vec![200, 0, 0, 128, 0, 255, 0, 0])),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: 2,
+        height: 1,
+    })
+    .with_alpha(0.5);
+    let mut scene = Scene::new();
+    scene.draw_image((&brush).into(), Affine::scale(16.));
+    let pixels = renderer
+        .render_scene(&scene, [32, 16], [0.; 4], false)
+        .unwrap();
+    let pixel = |x: usize| &pixels[(8 * 32 + x) * 4..(8 * 32 + x) * 4 + 4];
+    assert_eq!(pixel(2), [50, 0, 0, 64]);
+    assert_eq!(
+        pixel(15)[1],
+        0,
+        "transparent green contaminated interpolation"
+    );
+    assert!(pixel(15)[0].abs_diff(27) <= 1);
+    assert!(pixel(15)[3].abs_diff(34) <= 1);
+    brush.sampler.quality = ImageQuality::High;
+    let mut invalid = Scene::new();
+    invalid.draw_image((&brush).into(), Affine::IDENTITY);
+    assert!(matches!(
+        renderer.prepare_scene(&invalid, [32, 16]),
+        Err(Error::Unsupported { .. })
+    ));
+    brush.sampler.quality = ImageQuality::Medium;
+    brush.image.width = 100;
+    let mut invalid = Scene::new();
+    invalid.draw_image((&brush).into(), Affine::IDENTITY);
+    assert!(
+        renderer
+            .render_scene(&invalid, [32, 16], [0.; 4], true)
+            .is_err()
+    );
+    assert_eq!(
+        renderer
+            .render_scene(&scene, [32, 16], [0.; 4], true)
+            .unwrap(),
+        pixels
+    );
+}

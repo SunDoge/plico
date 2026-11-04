@@ -51,6 +51,12 @@ pub struct Renderer {
     pub(crate) scene_damage: plico_renderer::damage::SceneDamageTracker,
     #[cfg(feature = "paint-scene")]
     pub(crate) scene_background: Option<[f32; 4]>,
+    #[cfg(feature = "paint-scene")]
+    images: crate::image::ImageCache,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) svgs: crate::svg::SvgCache,
+    #[cfg(feature = "paint-scene")]
+    frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     atlas: Option<plico_native::text::atlas::Atlas>,
@@ -189,6 +195,12 @@ impl Renderer {
             scene_damage: Default::default(),
             #[cfg(feature = "paint-scene")]
             scene_background: None,
+            #[cfg(feature = "paint-scene")]
+            images: Default::default(),
+            #[cfg(feature = "paint-scene")]
+            svgs: Default::default(),
+            #[cfg(feature = "paint-scene")]
+            frame_images: Vec::new(),
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             atlas: None,
@@ -470,9 +482,30 @@ impl Renderer {
                         .expect("constructor installs pipeline"),
                 );
                 pass.set_bind_group(0, &self.bind, &[]);
-                pass.set_bind_group(1, &self.atlas_texture.bind, &[]);
                 pass.set_vertex_buffer(0, self.instances.slice(..));
-                pass.draw(0..6, 0..instances.len() as u32);
+                // Batch only adjacent textures: sorting would break painter order.
+                let mut first = 0;
+                while first < instances.len() {
+                    let key = |i: usize| {
+                        (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
+                    };
+                    let texture = key(first);
+                    #[cfg(not(feature = "paint-scene"))]
+                    let _ = texture;
+                    let mut end = first + 1;
+                    while end < instances.len() && key(end) == texture {
+                        end += 1;
+                    }
+                    #[cfg(feature = "paint-scene")]
+                    let bind = texture.map_or(&self.atlas_texture.bind, |slot| {
+                        &self.frame_images[slot].bind
+                    });
+                    #[cfg(not(feature = "paint-scene"))]
+                    let bind = &self.atlas_texture.bind;
+                    pass.set_bind_group(1, bind, &[]);
+                    pass.draw(0..6, first as u32..end as u32);
+                    first = end;
+                }
             }
         }
         Ok(encoder)
@@ -591,6 +624,8 @@ impl Renderer {
     fn encode_items(&mut self, items: &[crate::Draw<'_>], size: [u32; 2]) -> Result<Vec<Instance>> {
         let [width, height] = size;
         let mut instances = Vec::new();
+        #[cfg(feature = "paint-scene")]
+        self.frame_images.clear();
         for item in items {
             match item {
                 crate::Draw::Quad(q) => {
@@ -618,6 +653,42 @@ impl Renderer {
                             0.,
                             0.,
                         ],
+                    });
+                }
+                #[cfg(feature = "paint-scene")]
+                crate::Draw::Image(image) => {
+                    let q = &image.quad;
+                    q.validate()?;
+                    if !image.alpha.is_finite()
+                        || !(0. ..=1.).contains(&image.alpha)
+                        || !image.uv.iter().all(|v| v.is_finite())
+                    {
+                        return Err(Error::InvalidInput {
+                            reason: "invalid image alpha/UV".into(),
+                        });
+                    }
+                    if q.rect[2] <= 0. || q.rect[3] <= 0. {
+                        continue;
+                    }
+                    let resource = self.images.get(
+                        &self.device,
+                        &self.queue,
+                        &self.atlas_texture.layout,
+                        &image.image,
+                        image.quality,
+                    )?;
+                    let slot = self.frame_images.len();
+                    self.frame_images.push(resource);
+                    instances.push(Instance {
+                        rect: q.rect,
+                        color: [0., 0., 0., image.alpha],
+                        color2: [0.; 4],
+                        border: [0.; 4],
+                        config: [q.radius, 0., 4., slot as f32],
+                        clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
+                        uv: image.uv,
+                        gradient: [0.; 4],
+                        clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                     });
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -852,6 +923,14 @@ impl Renderer {
     /// Present a frame submitted on this renderer's queue.
     pub fn present(&self, frame: wgpu::SurfaceTexture) {
         self.queue.present(frame);
+    }
+}
+
+#[cfg(feature = "paint-scene")]
+impl Renderer {
+    /// Cached entries, resident texture bytes, uploads and hits (excluding glyphs).
+    pub fn image_cache_stats(&self) -> (usize, usize, u64, u64) {
+        self.images.stats()
     }
 }
 

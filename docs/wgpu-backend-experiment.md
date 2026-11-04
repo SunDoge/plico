@@ -299,3 +299,39 @@ This does not establish physical-monitor, Wayland or cross-platform correctness.
 Full instance preparation still precedes damage filtering. This first stage
 reduces rasterized area and removes unaffected submitted instances, but CPU
 savings must be measured separately before any performance claim.
+
+
+### Images and SVG resources
+
+The shared Scene bridge now accepts image brushes on analytical boxes. Image
+textures are independent of the glyph atlas. RGBA8/BGRA8 and straight or
+premultiplied alpha are normalized to premultiplied RGBA before filtering; the
+shader applies brush opacity and shape/clip coverage. Nearest and bilinear are
+implemented. Bicubic, repeated/reflected sampling, rotation/shear and elliptical
+image corners return explicit errors. Positive independent X/Y scaling is allowed
+for rectangular image geometry and axis-aligned brush transforms support cropping.
+Adjacent instances sharing a texture are batched; texture sorting is forbidden
+because it would change transparency/painter order.
+
+The upload cache holds at most 256 entries and 128 MiB of texture pixel payload;
+individual images above 128 MiB or GPU dimension limits are rejected. This is a
+cache budget, not a peak process-memory guarantee: original immutable pixel blobs,
+current-frame references, GPU allocations still in flight and allocator overhead
+are additional. Current-frame references keep an image alive if LRU eviction
+happens before its ordered draw is encoded. `image_cache_stats` exposes entries,
+texture bytes, uploads and hits. Unchanged images do not reupload in the tested
+working sets.
+
+SVG commands consume the existing usvg tree directly through resvg 0.48.1, with
+embedded raster-image support. The cache retains tree identity and effective
+raster dimensions, is capped at 128 entries/64 MiB of raster pixels, and does not
+rerasterize merely because an icon moves. The produced premultiplied image uses
+the same GPU image path. SVG currently requires positive uniform scale plus
+translation. General shared Bezier path commands remain unsupported.
+
+GPU tests verify channels/alpha, overlapping images and shapes, premultiplied
+bilinear filtering, failed-resource recovery, cache eviction with 300 images and
+full-versus-damaged image frames. An SVG containing a gradient, mask and stroked
+path matches direct resvg pixels at 1/1.25/2x. `scene_counter` now exercises ordinary
+Plico Image and SVG declarations at four DPI scales, along with native text.
+Generated captures remain under ignored `reports/wgpu-scene/`.

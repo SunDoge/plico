@@ -56,6 +56,10 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
         clip_alpha=coverage(world-clip.xy,clip.zw,0.);
         if clip_alpha<=0. { discard; }
     } else if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
+    if input.config.z>=4. {
+        let pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);
+        return pixel*input.color.a*coverage(input.local,input.size,input.config.x)*clip_alpha;
+    }
     if input.config.z>=2. {
         let glyph=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);
         if input.config.z>=3. {return glyph*input.color.a*clip_alpha;}

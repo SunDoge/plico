@@ -10,12 +10,13 @@ description = "Experimental instanced-quad wgpu renderer for Plico"
 default = ["system-text", "paint-scene"]
 system-text = ["dep:plico-native"]
 window = ["paint-scene", "dep:winit", "dep:raw-window-handle"]
-paint-scene = ["dep:plico-renderer", "dep:kurbo", "dep:peniko"]
+paint-scene = ["dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:resvg"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
 
 [dependencies]
+resvg = { version = "0.48.1", default-features = false, features = ["raster-images"], optional = true }
 winit = {workspace=true,optional=true}
 raw-window-handle = {version="0.6",optional=true}
 plico-renderer = {workspace=true,optional=true}

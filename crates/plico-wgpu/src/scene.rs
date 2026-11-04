@@ -13,6 +13,7 @@ pub struct PreparedScene {
 }
 enum PreparedDraw {
     Quad(Quad),
+    Image(crate::image::ImageQuad),
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text {
         layout: std::rc::Rc<crate::text::GlyphLayout>,
@@ -24,7 +25,7 @@ enum PreparedDraw {
 impl PreparedDraw {
     fn ink_bounds(&self) -> Rect {
         match self {
-            Self::Quad(q) => {
+            Self::Quad(q) | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
                 let [x, y, w, h] = q.rect;
                 Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
             }
@@ -69,6 +70,7 @@ impl PreparedScene {
             .iter()
             .map(|draw| match draw {
                 PreparedDraw::Quad(q) => Draw::Quad(q),
+                PreparedDraw::Image(image) => Draw::Image(image),
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 PreparedDraw::Text {
                     layout,
@@ -216,16 +218,76 @@ impl Renderer {
                     shape,
                     fill: _,
                 } => {
-                    if brush_transform.is_some_and(|t| t != Affine::IDENTITY) {
+                    if !matches!(paint, Brush::Image(_))
+                        && brush_transform.is_some_and(|t| t != Affine::IDENTITY)
+                    {
                         return Err(unsupported(index, "brush transform"));
                     }
                     let (rect, radius) = geometry(shape, index)?;
                     if rect.width() <= 0. || rect.height() <= 0. {
                         continue;
                     }
-                    let mut q = quad(rect, radius, *transform, clip, index)?;
-                    brush(&mut q, paint, rect, index)?;
-                    draws.push(PreparedDraw::Quad(q));
+                    if let Brush::Image(image) = paint {
+                        use peniko::{Extend, ImageQuality};
+                        if image.sampler.x_extend != Extend::Pad
+                            || image.sampler.y_extend != Extend::Pad
+                            || image.sampler.quality == ImageQuality::High
+                        {
+                            return Err(unsupported(
+                                index,
+                                "repeated/reflected or bicubic image sampling",
+                            ));
+                        }
+                        let [a, b, c, d, e, f] = transform.as_coeffs();
+                        if ![a, b, c, d, e, f].iter().all(|v| v.is_finite())
+                            || a <= 0.
+                            || d <= 0.
+                            || b != 0.
+                            || c != 0.
+                            || (radius > 0. && (a - d).abs() > 1e-9)
+                        {
+                            return Err(unsupported(
+                                index,
+                                "rotated/sheared image or elliptical image corners",
+                            ));
+                        }
+                        let mut q = quad(rect, radius, Affine::IDENTITY, clip, index)?;
+                        q.rect = [
+                            (rect.x0 * a + e) as f32,
+                            (rect.y0 * d + f) as f32,
+                            (rect.width() * a) as f32,
+                            (rect.height() * d) as f32,
+                        ];
+                        q.radius = (radius * a) as f32;
+                        let [sx, by, cx, sy, tx, ty] =
+                            brush_transform.unwrap_or(Affine::IDENTITY).as_coeffs();
+                        if ![sx, by, cx, sy, tx, ty].iter().all(|v| v.is_finite())
+                            || sx <= 0.
+                            || sy <= 0.
+                            || by != 0.
+                            || cx != 0.
+                        {
+                            return Err(unsupported(index, "rotated/sheared image brush"));
+                        }
+                        let iw = image.image.width as f64 * sx;
+                        let ih = image.image.height as f64 * sy;
+                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                            quad: q,
+                            image: image.image.clone(),
+                            quality: image.sampler.quality,
+                            alpha: image.sampler.alpha,
+                            uv: [
+                                ((rect.x0 - tx) / iw) as f32,
+                                ((rect.y0 - ty) / ih) as f32,
+                                (rect.width() / iw) as f32,
+                                (rect.height() / ih) as f32,
+                            ],
+                        }));
+                    } else {
+                        let mut q = quad(rect, radius, *transform, clip, index)?;
+                        brush(&mut q, paint, rect, index)?;
+                        draws.push(PreparedDraw::Quad(q));
+                    }
                 }
                 PaintCommand::Stroke {
                     style,
@@ -274,6 +336,28 @@ impl Renderer {
                     }
                     clips.pop();
                 }
+                PaintCommand::Svg {
+                    document,
+                    transform,
+                } => {
+                    let (scale, [tx, ty]) = uniform(*transform, index)?;
+                    let image = self.svgs.raster(document, scale)?;
+                    let size = document.0.size();
+                    let q = quad(
+                        Rect::new(0., 0., size.width() as f64, size.height() as f64),
+                        0.,
+                        Affine::new([scale, 0., 0., scale, tx, ty]),
+                        clip,
+                        index,
+                    )?;
+                    draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                        quad: q,
+                        image,
+                        uv: [0., 0., 1., 1.],
+                        quality: peniko::ImageQuality::Medium,
+                        alpha: 1.,
+                    }));
+                }
                 PaintCommand::Paragraph { request, transform } => {
                     #[cfg(all(target_os = "linux", feature = "system-text"))]
                     {
@@ -305,7 +389,6 @@ impl Renderer {
                             match command {
                                 PaintCommand::GlyphRun { .. } => "positioned glyph",
                                 PaintCommand::BoxShadow { .. } => "shadow",
-                                PaintCommand::Svg { .. } => "SVG",
                                 PaintCommand::Shader { .. } => "shader",
                                 PaintCommand::PushLayer { .. } => "isolated layer",
                                 PaintCommand::Fragment { .. } => "unflattened fragment",

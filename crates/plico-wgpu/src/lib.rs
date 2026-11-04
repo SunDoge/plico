@@ -8,10 +8,14 @@ mod renderer;
 mod window;
 #[cfg(feature = "window")]
 pub use window::WgpuWindow;
+#[cfg(feature = "paint-scene")]
+pub mod image;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 mod paragraph;
 #[cfg(feature = "paint-scene")]
 pub mod scene;
+#[cfg(feature = "paint-scene")]
+mod svg;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 pub mod text;
 mod texture;
@@ -121,6 +125,8 @@ pub const MATERIAL_INTERFACE: &str = include_str!("material_interface.wgsl");
 #[derive(Clone, Copy)]
 pub enum Draw<'a> {
     Quad(&'a Quad),
+    #[cfg(feature = "paint-scene")]
+    Image(&'a image::ImageQuad),
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text(text::TextRun<'a>),
 }
