@@ -19,7 +19,7 @@ applications still encounter explicit unsupported-command errors.
   Bezier fill/stroke commands use a bounded tiny-skia raster cache.
 - Use native text layout and glyph rasterization: Pango/Cairo currently works on
   Linux; DirectWrite basic paragraphs now connect to shared geometry and corrected
-  run-image painting, but are cross-compiled only and lack rich-text/color-font
+  run-image painting, including bounded style/color ranges and outline color glyph layers, but are cross-compiled only and still lack full color-font
   parity. CoreText is still required. Do not approximate glyph
   coverage with the rectangle SDF shader. Existing editing/IME state remains outside
   the renderer; its geometry must come from the layout actually drawn.
@@ -72,7 +72,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    events, accessibility and input handling. Implement native Windows and macOS
    text providers. A DirectWrite layout/editing and raw grayscale-run foundation now cross-compiles,
    with a Microsoft Terminal-compatible CPU coverage/colorization port;
-   wgpu integration and Windows runtime/visual validation remain. Externally positioned solid glyph runs now use a native memory-font raster
+   wgpu integration is implemented; Windows runtime/visual validation remains. Externally positioned solid glyph runs now use a native memory-font raster
    fallback, and the real editor fixture displays and accepts input. Normalized variable coordinates are supported by immutable native font instances;
    per-glyph affine matrices cover synthetic skew. Emboldening/stroke coverage and
    terminal throughput/scroll/IME stress validation remain. The terminal fixture now
@@ -92,8 +92,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    animation apps before changing defaults or removing the Vello implementation.
 
 WGSL is a material/coverage implementation tool, not the application's state or
-layout language. Runtime shader edits already refresh headless captures without
-Rust compilation. Further material capabilities need explicit texture/backdrop
+layout language. The existing public shader widget accepts embedded WGSL assets and explicit
+parameter/time updates. Source file edits require rebuilding the application. Further material capabilities need explicit texture/backdrop
 ownership and invalidation, not hidden access to the scene.
 
 ## Damage and allocation contracts
@@ -129,3 +129,13 @@ located in this branch, so its result cannot be attributed to compiler eliminati
 Measure allocation count/bytes and stage timings first; compare buffer reuse and
 an arena only for genuinely frame-local owned data. Do not retain arena references
 in scenes, glyph caches or asynchronous GPU work.
+
+## Shared shader validation regression
+
+After tightening the WGSL vertex-input and fragment-output contracts, the local
+Linux regression passed 134 `plico-renderer` library tests, 82 `plico-wgpu` tests
+(including the explicit GPU tests, excluding two manual profiling cases), and
+four desktop/Vello shader tests. The desktop suite requires
+`--no-default-features --features vello`; with the default Skia feature that test
+file is cfg-disabled and reports zero tests. These results cover the shared
+validation change, not Windows runtime quality or renderer replacement readiness.
