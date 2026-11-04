@@ -185,3 +185,12 @@ The complete local wgpu regression passed 89 tests (two manual profiles excluded
 plus Clippy and Windows/WASM checks. New GPU tests cover odd-sized large
 minification, hidden transparent-white colors, premultiplied output, nearest
 semantics and shared-source memory accounting.
+
+The follow-up GPU test
+`mipmapped_affine_brushes_cross_extension_seams_and_match_partial_redraw`
+adds eight scenes combining Medium/High, rotating/scaling brush transforms,
+negative source coordinates, Repeat/Reflect/Pad and a circular clip. Checkerboard
+interior channels stay within one byte of 128, including extension seams, and
+damage output matches full replay pixel-for-pixel. The test asserts that a
+non-full damage frame actually occurred. This fixture validates the existing
+isotropic policy; it does not remove the anisotropic quality limitation above.

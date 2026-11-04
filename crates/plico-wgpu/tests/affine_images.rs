@@ -319,3 +319,77 @@ fn moving_dashed_image_strokes_restore_parent_masks_and_match_full_redraw() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn mipmapped_affine_brushes_cross_extension_seams_and_match_partial_redraw() {
+    let image = ImageData {
+        data: Blob::new(Arc::new(
+            (0..193)
+                .flat_map(|y| {
+                    (0..257).flat_map(move |x| {
+                        let value = if (x + y) % 2 == 0 { 0u8 } else { 255 };
+                        [value, value, value, 255]
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )),
+        width: 257,
+        height: 193,
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+    };
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let mut partial_frames = 0;
+    for quality in [ImageQuality::Medium, ImageQuality::High] {
+        for (frame, extend) in [Extend::Repeat, Extend::Reflect, Extend::Pad, Extend::Repeat]
+            .into_iter()
+            .enumerate()
+        {
+            let mut brush = ImageBrush::new(image.clone());
+            brush.sampler.quality = quality;
+            brush.sampler.x_extend = extend;
+            brush.sampler.y_extend = Extend::Reflect;
+            let mut scene = Scene::new();
+            scene.push_clip_layer(Affine::IDENTITY, &Circle::new((64., 48.), 40.));
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &brush,
+                Some(
+                    Affine::translate((-9. + frame as f64 * 0.37, -11.))
+                        * Affine::rotate(0.15 + frame as f64 * 0.13)
+                        * Affine::scale(1. / (12. + frame as f64)),
+                ),
+                &Rect::new(0., 0., 128., 96.),
+            );
+            scene.pop_layer();
+            let actual = partial
+                .render_scene(&scene, [128, 96], [0.; 4], true)
+                .unwrap();
+            if partial.scene_damage_coverage([128, 96]) < 1. {
+                partial_frames += 1;
+            }
+            let expected = full
+                .render_scene(&scene, [128, 96], [0.; 4], false)
+                .unwrap();
+            assert_eq!(actual, expected, "damage: {quality:?} {extend:?} {frame}");
+            for y in 0..96 {
+                for x in 0..128 {
+                    if (x as f64 + 0.5 - 64.).hypot(y as f64 + 0.5 - 48.) < 36. {
+                        let pixel = &actual[(y * 128 + x) * 4..(y * 128 + x) * 4 + 4];
+                        for &channel in &pixel[..3] {
+                            assert!(
+                                channel.abs_diff(128) <= 1,
+                                "mip/seam artifact at {x},{y}: {pixel:?}, {quality:?} {extend:?}"
+                            );
+                        }
+                        assert_eq!(pixel[3], 255);
+                    }
+                }
+            }
+        }
+    }
+    assert!(partial_frames > 0, "fixture only exercised full redraw");
+}
