@@ -35,6 +35,19 @@ identifiers are not rewritten. The renderer supplies:
 - `.z`: injected effect time in seconds; `.w`: device scale.
 - `plico.values`: 64 float4 vectors, containing up to 256 scalar parameters.
 
+Scalar parameter `i` maps to `plico.values[i / 4][i % 4]`; parameters are
+packed consecutively, independently of Rust struct layout. Unspecified lanes
+are zero on every update, including when an existing surface receives a shorter
+parameter list. The geometry/time/scale header occupies a separate first float4
+and cannot be overwritten by `.values(...)`. This function interface differs
+from complete modules, whose authored buffer starts at offset zero and whose
+first three floats are overwritten with width, height and time.
+
+Do not upload an arbitrary Rust struct as these parameters: Rust layout and
+WGSL uniform alignment are different contracts. Until a typed parameter API is
+provided, explicitly flatten fields into scalar values and document their order
+beside the WGSL declaration.
+
 Effect surfaces output **premultiplied RGBA**, matching the shared texture/SkSL
 compositing contract. For translucent color, return `vec4f(rgb * alpha, alpha)`.
 This differs from the standalone quad-material function, whose wrapper accepts

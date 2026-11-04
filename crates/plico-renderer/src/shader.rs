@@ -569,6 +569,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn effect_parameters_preserve_header_and_clear_unused_lanes() {
+        let source = ShaderEffectSource::new(
+            "fn plico_effect(uv: vec2f) -> vec4f { return vec4f(plico.values[63]); }",
+        )
+        .unwrap();
+        let values: Vec<f32> = (0..PARAMETER_COUNT).map(|i| i as f32 + 0.25).collect();
+        let mut effect = ShaderEffect {
+            id: ShaderEffectId::new(),
+            source,
+            time: 3.5,
+            values: values.clone().into(),
+            physical_size: [640, 360],
+            logical_size: [320.0, 180.0],
+            device_scale: 2.0,
+        };
+        let uniforms = effect_uniforms(&effect);
+        assert_eq!(&uniforms[..4], &[640., 360., 3.5, 2.]);
+        assert_eq!(&uniforms[4..], values.as_slice());
+
+        // Reusing a surface with fewer parameters must not expose old values.
+        effect.values = Arc::from([0.75]);
+        let uniforms = effect_uniforms(&effect);
+        assert_eq!(uniforms[4], 0.75);
+        assert!(uniforms[5..].iter().all(|value| *value == 0.));
+        assert_eq!(&uniforms[..4], &[640., 360., 3.5, 2.]);
+    }
+
+    #[test]
     fn validates_the_public_effect_function_contract() {
         ShaderEffectSource::new(
             "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv, 0.0, 1.0); }",
