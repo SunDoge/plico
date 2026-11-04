@@ -172,7 +172,14 @@ and raster geometry use that layout; tests cover two-line baseline spacing,
 relative/absolute height equivalence and invalid inputs. Per-span line height
 is not implemented. These Windows tests have only been cross-compiled here.
 Rich spans, letter spacing, truncation and application fonts
-are explicitly rejected. Color-font faces remain unsupported by rasterization.
+are explicitly rejected. Actual color glyph layers remain unsupported by
+rasterization. A color-capable face alone no longer rejects a monochrome run:
+the service uses
+[TranslateColorGlyphRun](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_2/nf-dwrite_2-idwritefactory2-translatecolorglyphrun)
+and permits grayscale fallback only for its documented `DWRITE_E_NOCOLOR`
+result. Other native errors propagate. The Segoe UI Emoji numeric/color-glyph
+fixture is Windows-only and has only been cross-compiled here; it explicitly
+skips on systems without that optional family.
 The bridge infers the first paragraph's base direction using unicode-bidi's
 Unicode P2/P3 implementation, including isolate handling and an LTR default for
 neutral text. This scan does not allocate a dependency graph or duplicate native

@@ -4,7 +4,7 @@ use snafu::ResultExt;
 use std::{cell::RefCell, ffi::c_void, ops::Range, rc::Rc};
 use windows::{
     Win32::{
-        Foundation::{E_FAIL, E_INVALIDARG, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER},
+        Foundation::{DWRITE_E_NOCOLOR, E_FAIL, E_INVALIDARG, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER},
         Graphics::DirectWrite::*,
     },
     core::{BOOL, IUnknown, Interface, Ref, implement},
@@ -185,15 +185,32 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
             .as_ref()
             .ok_or_else(|| native_error(E_INVALIDARG))?;
         let face2: IDWriteFontFace2 = face.cast()?;
-        // SAFETY: typed COM font interface remains borrowed from the live run.
-        if unsafe { face2.IsColorFont() }.as_bool() {
-            return Err(native_error(E_NOTIMPL));
-        }
         let transform = DWRITE_MATRIX {
             m11: self.scale,
             m22: self.scale,
             ..Default::default()
         };
+        // A color-capable face can also contain ordinary monochrome glyphs.
+        // Only the documented NOCOLOR result permits the original run to use
+        // this grayscale path; real color layers remain explicitly unsupported.
+        // SAFETY: native run arrays and description remain live for this call.
+        if unsafe { face2.IsColorFont() }.as_bool() {
+            match unsafe {
+                self.factory.TranslateColorGlyphRun(
+                    x,
+                    y,
+                    run,
+                    Some(description),
+                    measuring,
+                    Some(&transform),
+                    0,
+                )
+            } {
+                Ok(_) => return Err(native_error(E_NOTIMPL)),
+                Err(error) if error.code() == DWRITE_E_NOCOLOR => {}
+                Err(error) => return Err(error),
+            }
+        }
         let mut rendering = DWRITE_RENDERING_MODE_DEFAULT;
         let mut grid = DWRITE_GRID_FIT_MODE_DEFAULT;
         // SAFETY: typed live font/parameter interfaces and writable enum outputs.
@@ -308,7 +325,8 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
 impl Paragraph {
     /// Rasterize this exact native layout into ordered raw grayscale masks.
     /// Scale is physical pixels per DIP; phase is a [0,1) physical-pixel offset.
-    /// Color fonts, decorations and inline objects currently return Unsupported.
+    /// Actual color glyph layers, decorations and inline objects return Unsupported.
+    /// Monochrome runs from color-capable faces can use the grayscale path.
     /// No partial mask list is returned on native failure. Coverage correction and
     /// foreground compositing remain the consumer's responsibility.
     pub fn rasterize(&self, scale: f32, phase: [f32; 2]) -> Result<Rasterized> {
@@ -380,6 +398,25 @@ impl Paragraph {
 mod tests {
     use super::*;
     use crate::windows_text::{Context, Request};
+    #[test]
+    fn color_capable_family_keeps_monochrome_runs_usable() {
+        let context = Context::new().unwrap();
+        let Some(family) = context.resolve_family(&["Segoe UI Emoji"]).unwrap() else {
+            eprintln!("Segoe UI Emoji is not installed; color-face fixture skipped");
+            return;
+        };
+        let mut request = Request::new("123");
+        request.family = &family;
+        let paragraph = context.layout(&request).unwrap();
+        let raster = paragraph.rasterize(1., [0., 0.]).unwrap();
+        assert!(!raster.masks.is_empty());
+        request.text = "😀";
+        let emoji = context.layout(&request).unwrap();
+        assert!(matches!(
+            emoji.rasterize(1., [0., 0.]),
+            Err(Error::Unsupported { .. })
+        ));
+    }
     #[test]
     fn retained_layout_raster_is_repeatable_bounded_and_scale_specific() {
         let paragraph = {
