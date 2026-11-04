@@ -58,7 +58,7 @@ impl PathCache {
         };
         let gradient = match brush {
             Brush::Solid(_) => None,
-            Brush::Gradient(g) => Some(LinearPaint::new(g)?),
+            Brush::Gradient(g) => Some(GradientPaint::new(g)?),
             _ => return Err(unsupported("image general path brush")),
         };
         let color = match brush {
@@ -157,8 +157,26 @@ impl PathCache {
             for v in brush_matrix.as_coeffs() {
                 v.to_bits().hash(&mut hash);
             }
-            for v in [g.start.x, g.start.y, g.direction.x, g.direction.y] {
-                v.to_bits().hash(&mut hash);
+            std::mem::discriminant(&g.kind).hash(&mut hash);
+            match g.kind {
+                peniko::GradientKind::Linear(line) => {
+                    for v in [line.start.x, line.start.y, line.end.x, line.end.y] {
+                        v.to_bits().hash(&mut hash);
+                    }
+                }
+                peniko::GradientKind::Radial(radial) => {
+                    for v in [
+                        radial.start_center.x,
+                        radial.start_center.y,
+                        radial.end_center.x,
+                        radial.end_center.y,
+                        f64::from(radial.start_radius),
+                        f64::from(radial.end_radius),
+                    ] {
+                        v.to_bits().hash(&mut hash);
+                    }
+                }
+                _ => unreachable!(),
             }
             std::mem::discriminant(&g.extend).hash(&mut hash);
             g.premultiplied.hash(&mut hash);
@@ -313,30 +331,51 @@ impl PathCache {
 
 // Coverage and color are evaluated separately so both straight and premultiplied
 // interpolation retain the shared brush contract, including transparent stops.
-struct LinearPaint {
-    start: kurbo::Point,
-    direction: kurbo::Vec2,
+struct GradientPaint {
+    kind: peniko::GradientKind,
     stops: Vec<(f32, [f32; 4])>,
     extend: peniko::Extend,
     premultiplied: bool,
 }
-impl LinearPaint {
+impl GradientPaint {
     fn new(g: &peniko::Gradient) -> Result<Self> {
-        let peniko::GradientKind::Linear(line) = g.kind else {
-            return Err(unsupported("nonlinear general path gradient"));
-        };
         if g.interpolation_cs != peniko::color::ColorSpaceTag::Srgb {
             return Err(unsupported(
                 "general path gradient requires sRGB interpolation",
             ));
         }
-        let direction = line.end - line.start;
-        if ![line.start.x, line.start.y, direction.x, direction.y]
-            .iter()
-            .all(|v| v.is_finite())
-            || direction.hypot2() <= 1e-12
-        {
-            return Err(invalid("invalid gradient endpoints"));
+        match g.kind {
+            peniko::GradientKind::Linear(line) => {
+                let direction = line.end - line.start;
+                if ![line.start.x, line.start.y, direction.x, direction.y]
+                    .iter()
+                    .all(|v| v.is_finite())
+                    || !direction.hypot2().is_finite()
+                    || direction.hypot2() <= 1e-12
+                {
+                    return Err(invalid("invalid gradient endpoints"));
+                }
+            }
+            peniko::GradientKind::Radial(radial) => {
+                if ![
+                    radial.start_center.x,
+                    radial.start_center.y,
+                    radial.end_center.x,
+                    radial.end_center.y,
+                    f64::from(radial.start_radius),
+                    f64::from(radial.end_radius),
+                ]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() <= 1e7)
+                    || radial.start_radius < 0.
+                    || radial.end_radius < 0.
+                    || (radial.start_center == radial.end_center
+                        && radial.start_radius == radial.end_radius)
+                {
+                    return Err(invalid("invalid or degenerate radial gradient"));
+                }
+            }
+            _ => return Err(unsupported("sweep path gradient")),
         }
         let stops: Vec<_> = g
             .stops
@@ -359,8 +398,7 @@ impl LinearPaint {
             return Err(invalid("invalid gradient stops"));
         }
         Ok(Self {
-            start: line.start,
-            direction,
+            kind: g.kind,
             stops,
             extend: g.extend,
             premultiplied: g.interpolation_alpha_space
@@ -368,12 +406,27 @@ impl LinearPaint {
         })
     }
     fn sample(&self, point: kurbo::Point) -> [f32; 4] {
-        let t = ((point - self.start).dot(self.direction) / self.direction.hypot2()) as f32;
+        let t = match self.kind {
+            peniko::GradientKind::Linear(line) => {
+                let direction = line.end - line.start;
+                (point - line.start).dot(direction) / direction.hypot2()
+            }
+            peniko::GradientKind::Radial(radial) => {
+                let Some(t) = radial_position(radial, point) else {
+                    return [0.; 4];
+                };
+                t
+            }
+            _ => unreachable!(),
+        };
+        if !t.is_finite() {
+            return [0.; 4];
+        }
         let t = match self.extend {
             peniko::Extend::Pad => t.clamp(0., 1.),
             peniko::Extend::Repeat => t.rem_euclid(1.),
             peniko::Extend::Reflect => 1. - (t.rem_euclid(2.) - 1.).abs(),
-        };
+        } as f32;
         let upper = self.stops.partition_point(|s| s.0 <= t);
         let (a, b, u) = if upper == 0 {
             (self.stops[0].1, self.stops[0].1, 0.)
@@ -399,6 +452,39 @@ impl LinearPaint {
     }
 }
 
+// A point lies on the interpolated circle when |q-t*d|²=(r0+t*dr)².
+// The last valid circle (largest t with nonnegative radius) supplies the color;
+// points outside the cone are transparent, regardless of the extension mode.
+fn radial_position(radial: peniko::RadialGradientPosition, point: kurbo::Point) -> Option<f64> {
+    let d = radial.end_center - radial.start_center;
+    let q = point - radial.start_center;
+    let r0 = f64::from(radial.start_radius);
+    let dr = f64::from(radial.end_radius) - r0;
+    let a = d.hypot2() - dr * dr;
+    let b = -2. * (q.dot(d) + r0 * dr);
+    let c = q.hypot2() - r0 * r0;
+    let valid = |t: f64| t.is_finite() && r0 + dr * t >= 0.;
+    if a == 0. {
+        let t = -c / b;
+        return valid(t).then_some(t);
+    }
+    let discriminant = b * b - 4. * a * c;
+    if discriminant < 0. {
+        return None;
+    }
+    // Stable quadratic evaluation avoids subtracting nearly equal roots.
+    let root = -0.5 * (b + discriminant.sqrt().copysign(b));
+    let roots = if root == 0. {
+        [-b / (2. * a); 2]
+    } else {
+        [root / a, c / root]
+    };
+    roots
+        .into_iter()
+        .filter(|t| valid(*t))
+        .max_by(f64::total_cmp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,13 +495,13 @@ mod tests {
             Color::from_rgba8(255, 0, 0, 0),
             Color::from_rgba8(0, 0, 255, 255),
         ]);
-        let premult = LinearPaint::new(
+        let premult = GradientPaint::new(
             &base
                 .clone()
                 .with_interpolation_alpha_space(InterpolationAlphaSpace::Premultiplied),
         )
         .unwrap();
-        let straight = LinearPaint::new(
+        let straight = GradientPaint::new(
             &base
                 .clone()
                 .with_interpolation_alpha_space(InterpolationAlphaSpace::Unpremultiplied),
@@ -425,14 +511,14 @@ mod tests {
         assert_eq!(straight.sample((5., 0.).into()), [0.25, 0., 0.25, 0.5]);
         let mut repeated = base.clone();
         repeated.extend = peniko::Extend::Repeat;
-        let repeated = LinearPaint::new(&repeated).unwrap();
+        let repeated = GradientPaint::new(&repeated).unwrap();
         assert_eq!(
             repeated.sample((-5., 0.).into()),
             repeated.sample((5., 0.).into())
         );
         let mut reflected = base;
         reflected.extend = peniko::Extend::Reflect;
-        let reflected = LinearPaint::new(&reflected).unwrap();
+        let reflected = GradientPaint::new(&reflected).unwrap();
         assert_eq!(
             reflected.sample((15., 0.).into()),
             reflected.sample((5., 0.).into())
@@ -446,7 +532,7 @@ mod tests {
             (0.5, Color::BLACK),
             (1., Color::WHITE),
         ]);
-        let paint = LinearPaint::new(&gradient).unwrap();
+        let paint = GradientPaint::new(&gradient).unwrap();
         assert_eq!(paint.sample((2.5, 0.).into()), [0.5, 0.5, 0.5, 1.]);
         assert_eq!(paint.sample((5., 0.).into()), [0., 0., 0., 1.]);
         assert_eq!(paint.sample((7.5, 0.).into()), [0.5, 0.5, 0.5, 1.]);
@@ -483,5 +569,70 @@ mod tests {
         let (third, _) = cache.raster(&changed).unwrap().unwrap();
         assert_ne!(first.data.id(), third.data.id());
         assert_eq!(cache.entries.len(), 2);
+    }
+    #[test]
+    fn two_circle_radial_sampling_matches_tiny_skia_across_topologies_and_extend() {
+        let cases = [
+            ((32., 32.), 0., (32., 32.), 20.),
+            ((32., 32.), 24., (32., 32.), 5.),
+            ((12., 32.), 4., (44., 32.), 12.),
+            ((12., 32.), 10., (44., 32.), 10.),
+            ((44., 32.), 12., (12., 32.), 4.),
+            ((30., 32.), 2., (32., 32.), 24.),
+            ((12., 32.), 0., (32., 32.), 20.),
+        ];
+        for (c0, r0, c1, r1) in cases {
+            for (extend, mode) in [
+                (peniko::Extend::Pad, sk::SpreadMode::Pad),
+                (peniko::Extend::Repeat, sk::SpreadMode::Repeat),
+                (peniko::Extend::Reflect, sk::SpreadMode::Reflect),
+            ] {
+                let gradient = Gradient::new_two_point_radial(c0, r0, c1, r1)
+                    .with_stops([Color::BLACK, Color::WHITE])
+                    .with_extend(extend);
+                let ours = GradientPaint::new(&gradient).unwrap();
+                let shader = sk::RadialGradient::new(
+                    sk::Point::from_xy(c0.0 as f32, c0.1 as f32),
+                    r0,
+                    sk::Point::from_xy(c1.0 as f32, c1.1 as f32),
+                    r1,
+                    vec![
+                        sk::GradientStop::new(0., sk::Color::BLACK),
+                        sk::GradientStop::new(1., sk::Color::WHITE),
+                    ],
+                    mode,
+                    sk::Transform::identity(),
+                )
+                .unwrap();
+                let paint = sk::Paint {
+                    shader,
+                    anti_alias: false,
+                    force_hq_pipeline: true,
+                    ..Default::default()
+                };
+                let mut image = sk::Pixmap::new(64, 64).unwrap();
+                image.fill_rect(
+                    sk::Rect::from_xywh(0., 0., 64., 64.).unwrap(),
+                    &paint,
+                    sk::Transform::identity(),
+                    None,
+                );
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let actual = ours
+                            .sample(kurbo::Point::new(x as f64 + 0.5, y as f64 + 0.5))
+                            .map(|v| (v * 255.).round() as u8);
+                        let expected = &image.data()[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
+                        assert!(
+                            actual
+                                .iter()
+                                .zip(expected)
+                                .all(|(a, b)| a.abs_diff(*b) <= 2),
+                            "radial {c0:?}/{r0}->{c1:?}/{r1} {extend:?} at {x},{y}: {actual:?} != {expected:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

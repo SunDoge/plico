@@ -162,3 +162,46 @@ fn gradient_stroke_and_rounded_rectangle_use_the_same_brush_space_as_paths() {
         assert!(actual.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn radial_alpha_brush_transform_and_damage_match_reference() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let gradient = Gradient::new_radial((32., 24.), 20.).with_stops([
+        Color::from_rgba8(255, 0, 0, 0),
+        Color::from_rgba8(0, 0, 255, 200),
+    ]);
+    let brush_transform = Affine::translate((3., 1.)) * Affine::scale_non_uniform(1.1, 0.8);
+    for frame in 0..6 {
+        let transform = Affine::translate((frame as f64 * 0.25, 0.));
+        let mut scene = Scene::new();
+        if frame < 5 {
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                &gradient,
+                Some(brush_transform),
+                &Rect::new(0., 0., 72., 48.),
+            );
+        }
+        let actual = partial
+            .render_scene(&scene, [80, 56], [0.; 4], true)
+            .unwrap();
+        let expected = full.render_scene(&scene, [80, 56], [0.; 4], false).unwrap();
+        assert_eq!(actual, expected, "radial damage frame={frame}");
+        if frame == 0 {
+            let inverse = (transform * brush_transform).inverse();
+            for y in 2..46 {
+                for x in 2..70 {
+                    let p = inverse * kurbo::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                    let alpha = (((p - kurbo::Point::new(32., 24.)).hypot() / 20.).min(1.) * 200.)
+                        .round() as u8;
+                    let pixel = &actual[(y * 80 + x) * 4..(y * 80 + x) * 4 + 4];
+                    assert_eq!(&pixel[..2], &[0, 0]);
+                    assert!(pixel[2].abs_diff(alpha) <= 1 && pixel[3].abs_diff(alpha) <= 1);
+                }
+            }
+        }
+    }
+}

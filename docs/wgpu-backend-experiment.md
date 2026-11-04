@@ -1085,3 +1085,24 @@ brush against independently computed source coordinates, then verifies fractiona
 movement/removal damage against full redraw. Another checks primitive/path parity
 for rounded fills and strokes with reflected gradients. Nonlinear gradients and
 non-sRGB interpolation remain unsupported.
+
+### Two-circle radial gradient fallback
+
+The cached general-path gradient evaluator now supports Peniko's two-circle
+radial positions as well as linear positions. It solves the interpolated-circle
+equation in f64, selects the largest parameter whose radius is nonnegative, and
+returns transparent coverage where the cone has no solution. Stable quadratic
+roots handle concentric, shrinking, offset and equal-radius circles; the exact
+linear-equation case handles tangent cones. Pad/repeat/reflect extension is
+applied before converting the bounded parameter to f32. Existing stop/alpha
+interpolation and affine brush transforms apply unchanged.
+
+Seven circle configurations across all three extension modes are checked against
+tiny-skia's independent radial shader at every pixel of a 64x64 image (maximum
+allowed channel difference 2/255). GPU tests separately verify transparent-stop
+premultiplication and transformed concentric coordinates analytically, then
+compare movement/removal damage with full redraw. Identical circles, negative
+radii and nonfinite/excessive radial coordinates are rejected explicitly rather
+than relying on backend-dependent degenerate-gradient behavior. Sweep gradients
+and non-sRGB interpolation remain unsupported. This is a bounded CPU raster
+fallback, not a new GPU radial shader.

@@ -90,7 +90,7 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
     bad.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &peniko::Gradient::new_radial((20., 20.), 8.)
+        &peniko::Gradient::new_sweep((20., 20.), 0., std::f32::consts::TAU)
             .with_stops([PaintColor::BLACK, PaintColor::WHITE]),
         None,
         &Circle::new((20., 20.), 8.),
