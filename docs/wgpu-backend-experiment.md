@@ -1202,3 +1202,21 @@ failure still returns `Shader`; subsequent valid scenes and a corrected shader
 recover with the expected pixels. The test distinguishes invalid-frame preflight
 from later pipeline failure recovery; it does not claim arbitrary GPU/device-loss
 errors leave every intermediate target intact.
+
+### Animated image surface through the gallery host
+
+The gallery wgpu suite now also covers the Images page through its actual
+`SurfaceSource<GalleryHost, ImageSurface>` stack, using an in-memory generated
+two-frame GIF instead of network IO. Both the app and image player use a virtual
+clock. At 1/1.25/2 scale the fixture checks visible red/blue playback, pause/resume,
+removal on route changes, and full/damaged pixel equality throughout. Sixteen
+additional samples after both frames are warm produce no new image texture
+uploads. A paused steady frame reports zero damage and no animation deadline;
+hiding the surface also removes its deadline and old image pixels.
+
+The same fixture rejects an obsolete async completion ticket, displays a load
+failure without retaining the prior picture, and verifies a successful retry
+restarts playback. All source and native paragraph errors fail the test. It
+exercises decoded-resource hosting and renderer lifecycle, not animated WebP
+codec conformance, network behavior, physical-display image quality or process
+RSS. Existing decoder tests and optional network fixtures remain separate.
