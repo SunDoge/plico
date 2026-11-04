@@ -26,6 +26,12 @@ mod paragraph;
 mod windows_paragraph;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 pub use paragraph::ParagraphCacheStats;
+#[cfg(all(
+    feature = "paint-scene",
+    target_os = "windows",
+    feature = "system-text"
+))]
+pub use windows_paragraph::WindowsTextCacheStats;
 #[cfg(feature = "paint-scene")]
 mod path;
 #[cfg(feature = "paint-scene")]

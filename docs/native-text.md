@@ -151,6 +151,16 @@ allocations, externally retained entries and the shared GPU image cache. No
 memory/performance claim follows from these limits alone. On Windows, run the
 bridge tests with `cargo test -p plico-wgpu --lib windows_paragraph::tests`.
 
+Each raster entry retains color-independent raw coverage and only its latest
+corrected RGBA tint. Changing base text color reuses native coverage rather than
+calling DirectWrite rasterization again; returning to an older tint recolorizes
+the coverage instead of retaining every animation color. The raster byte budget
+includes both R8 coverage and RGBA output. Live prepared scenes can still retain
+previous images until released. `Renderer::windows_text_cache_stats` exposes
+native rasterization and CPU colorization counts separately from layout/image
+cache payloads; counters survive explicit cache trimming. These counters and
+the recoloring identity tests are cross-compiled, not Windows runtime evidence.
+
 DirectWrite metrics expose `min_content_width` and `max_content_width` separately
 from the final constrained content width. The service measures hard lines with
 wrapping disabled, queries DirectWrite's minimum width, and then applies the

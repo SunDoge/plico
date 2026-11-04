@@ -1,6 +1,6 @@
 //! DirectWrite geometry shared by retained measurement and subsequent painting.
 use crate::{Error, Renderer, Result};
-use plico_native::windows_text::{Alignment, Context, Paragraph as Layout, Request};
+use plico_native::windows_text::{Alignment, Context, Paragraph as Layout, Rasterized, Request};
 use plico_renderer::{
     TextContext,
     paragraph::{
@@ -14,11 +14,30 @@ use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
 type RunImages = Vec<(peniko::ImageData, [i32; 2])>;
 struct Raster {
     paragraph: Rc<Paragraph>,
+    coverage: Rc<Rasterized>,
+    color: [u8; 4],
     images: Rc<RunImages>,
     bytes: usize,
 }
 
 const BYTE_LIMIT: usize = 64 * 1024 * 1024;
+/// Windows text cache accounting. Excludes COM allocations, shared GPU image
+/// textures and externally retained layouts/images; this is not process RSS.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WindowsTextCacheStats {
+    /// Cached native layouts.
+    pub layouts: usize,
+    /// Accounted Rust layout payload.
+    pub layout_bytes: usize,
+    /// Cached coverage/image pairs, one current tint per geometry/phase.
+    pub rasters: usize,
+    /// Accounted raw coverage, RGBA and conservatively retained layout payload.
+    pub raster_bytes: usize,
+    /// Successful native coverage generation calls since provider creation.
+    pub rasterizations: u64,
+    /// Successful CPU correction/tint calls since provider creation.
+    pub colorizations: u64,
+}
 fn rejected(message: impl Into<String>) -> ParagraphError {
     ParagraphError {
         message: message.into(),
@@ -71,8 +90,10 @@ pub(crate) struct Cache {
     entries: lru::LruCache<(u64, u64), Rc<Paragraph>>,
     bytes: usize,
     font_error: bool,
-    rasters: lru::LruCache<(u64, u64, u32, u64), Raster>,
+    rasters: lru::LruCache<(u64, u64, u64), Raster>,
     raster_bytes: usize,
+    rasterizations: u64,
+    colorizations: u64,
 }
 impl Cache {
     fn new() -> std::result::Result<Self, ParagraphError> {
@@ -83,6 +104,8 @@ impl Cache {
             font_error: false,
             rasters: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
             raster_bytes: 0,
+            rasterizations: 0,
+            colorizations: 0,
         })
     }
     fn clear(&mut self) {
@@ -101,22 +124,38 @@ impl Cache {
         let key = (
             paragraph.request.fingerprint(),
             scale.to_bits(),
-            u32::from_le_bytes(request.color),
             phase.to_bits(),
         );
         if let Some(raster) = self.rasters.get(&key)
             && Rc::ptr_eq(&raster.paragraph, &paragraph)
+            && raster.color == request.color
         {
             return Ok(raster.images.clone());
         }
-        let coverage = paragraph
-            .layout
-            .rasterize(scale as f32, [phase as f32, 0.])
-            .map_err(|e| rejected(e.to_string()))?;
+        let coverage = match self.rasters.get(&key) {
+            Some(raster) if Rc::ptr_eq(&raster.paragraph, &paragraph) => raster.coverage.clone(),
+            _ => {
+                let coverage = paragraph
+                    .layout
+                    .rasterize(scale as f32, [phase as f32, 0.])
+                    .map_err(|e| rejected(e.to_string()))?;
+                self.rasterizations += 1;
+                Rc::new(coverage)
+            }
+        };
         let masks = coverage
             .colorize(request.color.map(|v| v as f32 / 255.), false)
             .map_err(|e| rejected(e.to_string()))?;
-        let mut bytes = paragraph.bytes;
+        self.colorizations += 1;
+        let mut bytes = paragraph.bytes
+            + std::mem::size_of::<Rasterized>()
+            + coverage.masks.capacity()
+                * std::mem::size_of::<plico_native::windows_text::GlyphMask>()
+            + coverage
+                .masks
+                .iter()
+                .map(|m| m.coverage.capacity())
+                .sum::<usize>();
         let images: RunImages = masks
             .into_iter()
             .map(|m| {
@@ -139,6 +178,8 @@ impl Cache {
                 key,
                 Raster {
                     paragraph,
+                    coverage,
+                    color: request.color,
                     images: images.clone(),
                     bytes,
                 },
@@ -289,6 +330,22 @@ impl ParagraphEngine for Engine {
     }
 }
 impl Renderer {
+    /// Inspect DirectWrite coverage work independently of recoloring and uploads.
+    pub fn windows_text_cache_stats(&self) -> WindowsTextCacheStats {
+        self.windows_paragraphs
+            .as_ref()
+            .map_or_else(WindowsTextCacheStats::default, |cache| {
+                let cache = cache.borrow();
+                WindowsTextCacheStats {
+                    layouts: cache.entries.len(),
+                    layout_bytes: cache.bytes,
+                    rasters: cache.rasters.len(),
+                    raster_bytes: cache.raster_bytes,
+                    rasterizations: cache.rasterizations,
+                    colorizations: cache.colorizations,
+                }
+            })
+    }
     pub(crate) fn windows_paragraph_images(
         &mut self,
         request: Arc<ParagraphRequest>,
@@ -404,10 +461,21 @@ mod tests {
         let request = request();
         let images = cache.raster(request.clone(), 1., 0.25).unwrap();
         assert!(!images.is_empty());
+        assert_eq!((cache.rasterizations, cache.colorizations), (1, 1));
         assert!(Rc::ptr_eq(
             &images,
             &cache.raster(request.clone(), 1., 0.25).unwrap()
         ));
+        assert_eq!((cache.rasterizations, cache.colorizations), (1, 1));
+        let mut recolored = (*request).clone();
+        recolored.color = [255, 0, 0, 255];
+        let red = cache.raster(Arc::new(recolored), 1., 0.25).unwrap();
+        assert_eq!((cache.rasterizations, cache.colorizations), (1, 2));
+        assert!(!Rc::ptr_eq(&images, &red));
+        assert_eq!(cache.rasters.len(), 1);
+        assert_eq!(red[0].0.width, images[0].0.width);
+        assert_eq!(red[0].0.height, images[0].0.height);
+        assert_ne!(red[0].0.data.data(), images[0].0.data.data());
         assert!(!Rc::ptr_eq(
             &images,
             &cache.raster(request.clone(), 1., 0.5).unwrap()
