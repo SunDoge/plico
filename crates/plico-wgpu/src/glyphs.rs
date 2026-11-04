@@ -14,6 +14,7 @@ struct Key {
     font: u64,
     index: u32,
     size: f64,
+    coordinates: Vec<i16>,
     hint: bool,
     color: [f32; 4],
     glyphs: Vec<Glyph>,
@@ -25,7 +26,7 @@ struct Raster {
     bytes: usize,
 }
 pub(crate) struct GlyphCache {
-    fonts: lru::LruCache<(u64, u32), (Font, usize)>,
+    fonts: lru::LruCache<(u64, u32, Vec<i16>), (Font, usize)>,
     rasters: lru::LruCache<u64, Raster>,
     font_bytes: usize,
     sources: std::collections::HashMap<u64, (usize, usize)>,
@@ -75,6 +76,17 @@ impl GlyphCache {
         else {
             return Err(unsupported("expected positioned glyphs"));
         };
+        if normalized_coords.len() > 64
+            || normalized_coords
+                .iter()
+                .any(|v| !(-16384..=16384).contains(v))
+        {
+            return Err(Error::InvalidInput {
+                reason:
+                    "positioned glyph coordinates require at most 64 normalized axes in [-1, 1]"
+                        .into(),
+            });
+        }
         if glyphs.len() > 100_000 || font.data.len() > 1024 * 1024 * 1024 {
             return Err(Error::InvalidInput {
                 reason: format!(
@@ -84,14 +96,11 @@ impl GlyphCache {
                 ),
             });
         }
-        if normalized_coords.iter().any(|v| *v != 0)
-            || *embolden != kurbo::Vec2::ZERO
+        if *embolden != kurbo::Vec2::ZERO
             || glyph_transform.is_some_and(|t| t != kurbo::Affine::IDENTITY)
             || !matches!(style, peniko::Style::Fill(_))
         {
-            return Err(unsupported(
-                "positioned glyph variations, synthesis or stroke",
-            ));
+            return Err(unsupported("positioned glyph synthesis or stroke"));
         }
         let peniko::Brush::Solid(color) = brush else {
             return Err(unsupported("non-solid positioned glyph brush"));
@@ -107,6 +116,7 @@ impl GlyphCache {
             font: font.data.id(),
             index: font.index,
             size: *font_size as f64 * scale,
+            coordinates: normalized_coords.clone(),
             hint: *hint,
             color,
             glyphs: glyphs
@@ -123,6 +133,7 @@ impl GlyphCache {
         key.index.hash(&mut hash);
         key.size.to_bits().hash(&mut hash);
         key.hint.hash(&mut hash);
+        key.coordinates.hash(&mut hash);
         for v in key.color {
             v.to_bits().hash(&mut hash);
         }
@@ -148,11 +159,15 @@ impl GlyphCache {
                 bounds(raster.origin, &raster.image),
             )));
         }
-        let font_id = (font.data.id(), font.index);
+        let font_id = (font.data.id(), font.index, normalized_coords.clone());
         if !self.fonts.contains(&font_id) {
             let bytes = font.data.len();
-            let native = Font::from_shared(std::rc::Rc::new(font.data.clone()), font.index)
-                .map_err(|source| Error::Text { source })?;
+            let native = Font::from_shared_variations(
+                std::rc::Rc::new(font.data.clone()),
+                font.index,
+                normalized_coords,
+            )
+            .map_err(|source| Error::Text { source })?;
             let added = if self.sources.contains_key(&font_id.0) {
                 0
             } else {
@@ -161,7 +176,7 @@ impl GlyphCache {
             while self.font_bytes + added > 1024 * 1024 * 1024
                 || self.fonts.len() == self.fonts.cap().get()
             {
-                let Some(((source, _), _)) = self.fonts.pop_lru() else {
+                let Some(((source, _, _), _)) = self.fonts.pop_lru() else {
                     break;
                 };
                 let info = self.sources.get_mut(&source).unwrap();
@@ -176,7 +191,7 @@ impl GlyphCache {
                 (0, bytes)
             });
             source.0 += 1;
-            self.fonts.put(font_id, (native, bytes));
+            self.fonts.put(font_id.clone(), (native, bytes));
         }
         let Some(bitmap) = self
             .fonts
@@ -188,7 +203,9 @@ impl GlyphCache {
         else {
             return Ok(None);
         };
-        let bytes = bitmap.rgba.len() + key.glyphs.len() * std::mem::size_of::<Glyph>();
+        let bytes = bitmap.rgba.len()
+            + key.glyphs.len() * std::mem::size_of::<Glyph>()
+            + key.coordinates.len() * std::mem::size_of::<i16>();
         while self.pixel_bytes + bytes > 64 * 1024 * 1024
             || self.rasters.len() == self.rasters.cap().get()
         {

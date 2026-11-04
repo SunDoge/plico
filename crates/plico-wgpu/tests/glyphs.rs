@@ -57,3 +57,75 @@ fn external_shaped_runs_use_native_raster_and_reuse_integer_motion() {
             .unwrap()
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter, Fontconfig and a variable font"]
+fn variable_weight_changes_pixels_without_poisoning_prior_instances() {
+    use std::sync::Arc;
+    let list = std::process::Command::new("fc-list")
+        .args([":variable=true", "-f", "%{family}\n"])
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    let families = std::str::from_utf8(&list.stdout).unwrap();
+    let family: Arc<str> = families
+        .lines()
+        .next()
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap()
+        .into();
+    let mut text = TextContext::new();
+    let mut build = |weight: f32| {
+        let layout = plico_renderer::text::layout_text_styled_with_spacing(
+            &mut text,
+            Arc::from("S"),
+            36.,
+            weight,
+            false,
+            0.,
+            None,
+            plico_renderer::style::TextAlign::Start,
+            [0, 0, 0, 255],
+            Arc::from([]),
+            Some(&family),
+            None,
+        );
+        (*text.glyph_scene(&layout)).clone()
+    };
+    let low = build(100.);
+    let high = build(900.);
+    assert!(high.commands.iter().any(|c|matches!(c,PaintCommand::GlyphRun {normalized_coords,..} if normalized_coords.iter().any(|v|*v!=0))));
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let a = renderer
+        .render_scene(&low, [128, 64], [0.; 4], false)
+        .unwrap();
+    let source_bytes = renderer.positioned_glyph_cache_stats().1;
+    let b = renderer
+        .render_scene(&high, [128, 64], [0.; 4], false)
+        .unwrap();
+    let mass = |pixels: &[u8]| {
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| p[3] as u64)
+            .sum::<u64>()
+    };
+    assert!(mass(&b) > mass(&a) * 12 / 10, "variable weight was ignored");
+    assert_eq!(
+        a,
+        renderer
+            .render_scene(&low, [128, 64], [0.; 4], false)
+            .unwrap()
+    );
+    let (faces, _, rasters, _) = renderer.positioned_glyph_cache_stats();
+    assert_eq!(
+        renderer.positioned_glyph_cache_stats().1,
+        source_bytes,
+        "variation instances duplicated source accounting"
+    );
+    assert_eq!(faces, 2);
+    assert_eq!(rasters, 2);
+}

@@ -756,3 +756,25 @@ An Xvfb X11 window displayed its English/CJK sample and syntax highlighting, and
 keyboard insertion updated the code and caret. This verifies this editor fixture;
 it does not establish terminal compatibility, real IME sessions, variable-font
 coverage or physical-display scrolling quality.
+
+## Positioned variable-font instances
+
+Positioned glyph replay now preserves normalized OpenType F2Dot14 coordinates.
+The native bridge converts them to FreeType's 16.16 blend coordinates before
+creating the Cairo font face. Faces are immutable after Cairo receives them;
+changing a run's weight creates/reuses a distinct face instance instead of mutating
+a face referenced by Cairo's scaled-font caches. Coordinates participate in both
+font-instance and raster keys. Unique font source byte accounting is shared across
+instances; the 32-face cache limit still includes every instance.
+
+Requests are limited to 64 axes with values in [-1, 1]. The conversion follows
+FreeType's [normalized blend-coordinate API](https://freetype.org/freetype2/docs/reference/ft2-multiple_masters.html#ft_set_var_blend_coordinates),
+not design-unit weight values. Synthetic styles and stroked glyphs remain explicit
+unsupported operations. This does not add automatic font fallback or reshape runs.
+
+Native tests raster thin/heavy instances of an installed variable font, then reraster
+the thin face after heavy rendering to detect mutation/cache contamination. GPU
+tests use Parley-generated weight 100/900 runs, verify changed alpha coverage,
+restore the original pixels, and check separate instances/rasters without duplicate
+source-byte accounting. These establish the tested TrueType variable-font path;
+other variable formats and all installed font combinations are not claimed verified.

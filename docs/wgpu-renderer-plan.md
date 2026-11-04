@@ -64,8 +64,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers. Externally positioned solid glyph runs now use a native memory-font raster
-   fallback, and the real editor fixture displays and accepts input. Variation/synthesis
-   coverage and terminal adoption remain. Single-line native input, selection and IME event geometry
+   fallback, and the real editor fixture displays and accepts input. Normalized variable coordinates are supported by immutable native font instances;
+   synthetic style coverage and terminal adoption remain. Single-line native input, selection and IME event geometry
    are wired; Xvfb keyboard editing is verified, actual input-method sessions remain.
 5. **Damage:** retain a color target, calculate changed/removed old+new bounds,
    expand for AA/filter reach, and repaint all contributors intersecting dirty

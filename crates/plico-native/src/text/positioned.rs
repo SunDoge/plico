@@ -35,8 +35,8 @@ pub struct Bitmap {
     pub rgba: Vec<u8>,
 }
 /// Thread-confined native face owning its in-memory font data. Collection face
-/// indices are explicit. Variable coordinates and synthetic styles are not part
-/// of this initial interface; callers must not silently discard those settings.
+/// indices and normalized variable coordinates are explicit. Synthetic styles
+/// are not part of this interface and must not be silently discarded.
 pub struct Font {
     face: cairo::FontFace,
     native: cairo::freetype::Face<SharedBytes>,
@@ -50,6 +50,19 @@ impl Font {
     /// Retain a shared font allocation or mapping without copying its contents.
     /// Collection sources are limited to 1 GiB; raster output remains 64 MiB.
     pub fn from_shared(bytes: Rc<dyn AsRef<[u8]>>, index: u32) -> Result<Self> {
+        Self::from_shared_variations(bytes, index, &[])
+    }
+    /// Open an immutable face instance using normalized OpenType F2Dot14
+    /// coordinates, in axis order. Coordinates are applied before Cairo owns
+    /// the face; existing cached instances are never mutated.
+    pub fn from_shared_variations(
+        bytes: Rc<dyn AsRef<[u8]>>,
+        index: u32,
+        coordinates: &[i16],
+    ) -> Result<Self> {
+        if coordinates.len() > 64 || coordinates.iter().any(|v| !(-16384..=16384).contains(v)) {
+            return Err(Error::InvalidRequest);
+        }
         let length = bytes.as_ref().as_ref().len();
         if length == 0 || length > 1024 * 1024 * 1024 {
             return Err(Error::InvalidRequest);
@@ -61,6 +74,31 @@ impl Font {
                 isize::try_from(index).map_err(|_| Error::InvalidRequest)?,
             )
             .context(super::FreeTypeSnafu)?;
+        if !coordinates.is_empty()
+            && (coordinates.iter().any(|v| *v != 0)
+                || native.raw().face_flags & cairo::freetype::ffi::FT_FACE_FLAG_MULTIPLE_MASTERS
+                    != 0)
+        {
+            let values: Vec<cairo::freetype::ffi::FT_Fixed> = coordinates
+                .iter()
+                .map(|v| cairo::freetype::ffi::FT_Fixed::from(*v) * 4)
+                .collect();
+            // SAFETY: the face is uniquely configured before being handed to
+            // Cairo, values remain alive through this synchronous call, and
+            // count matches the initialized 16.16 buffer length.
+            let error = unsafe {
+                cairo::freetype::ffi::FT_Set_Var_Blend_Coordinates(
+                    native.raw_mut() as cairo::freetype::ffi::FT_Face,
+                    values.len() as u32,
+                    values.as_ptr(),
+                )
+            };
+            if error != 0 {
+                return Err(Error::FreeType {
+                    source: cairo::freetype::Error::from(error),
+                });
+            }
+        }
         // SAFETY: FreeType opened this live face. The user-data owner below
         // retains a cloned Face (and shared bytes/library) for Cairo's entire
         // face lifetime, including references held by Cairo's own caches.
@@ -233,5 +271,81 @@ mod tests {
         );
         assert!(font.raster(&[], 18., true, [1.; 4]).unwrap().is_none());
         assert!(Font::from_bytes(vec![0; 32], 0).is_err());
+    }
+    #[test]
+    #[ignore = "requires Fontconfig and a variable font with a weight axis"]
+    fn variable_instances_are_distinct_and_cannot_mutate_cached_faces() {
+        let files = std::process::Command::new("fc-list")
+            .args([":variable=true", "-f", "%{file}\n"])
+            .output()
+            .unwrap();
+        assert!(files.status.success());
+        let paths = std::str::from_utf8(&files.stdout).unwrap();
+        let path = paths.lines().next().expect("no variable font installed");
+        let bytes: Rc<dyn AsRef<[u8]>> = Rc::new(std::fs::read(path).unwrap());
+        let base = Font::from_shared(bytes.clone(), 0).unwrap();
+        let mut info = std::ptr::null_mut();
+        // SAFETY: valid retained FT_Face; FreeType initializes the allocated
+        // descriptor, which is freed after copying the bounded axis metadata.
+        assert_eq!(
+            unsafe {
+                cairo::freetype::ffi::FT_Get_MM_Var(
+                    base.native.raw() as *const _ as cairo::freetype::ffi::FT_Face,
+                    &mut info,
+                )
+            },
+            0
+        );
+        let (count, weight) = unsafe {
+            let count = (*info).num_axis as usize;
+            assert!(count > 0 && count <= 64);
+            let axes = std::slice::from_raw_parts((*info).axis, count);
+            (
+                count,
+                axes.iter()
+                    .position(|a| a.tag as u32 == u32::from_be_bytes(*b"wght"))
+                    .expect("variable font has no weight axis"),
+            )
+        };
+        // SAFETY: descriptor belongs to this face's live library, and is no
+        // longer accessed after this call.
+        unsafe {
+            cairo::freetype::ffi::FT_Done_MM_Var(base._library.raw(), info);
+        }
+        let mut low = vec![0; count];
+        low[weight] = -16384;
+        let mut high = vec![0; count];
+        high[weight] = 16384;
+        let thin = Font::from_shared_variations(bytes.clone(), 0, &low).unwrap();
+        let heavy = Font::from_shared_variations(bytes.clone(), 0, &high).unwrap();
+        let id = base.native.get_char_index('S' as usize).unwrap();
+        let glyphs = [Glyph { id, x: 2., y: 40. }];
+        let a = thin
+            .raster(&glyphs, 36., false, [0., 0., 0., 1.])
+            .unwrap()
+            .unwrap();
+        let b = heavy
+            .raster(&glyphs, 36., false, [0., 0., 0., 1.])
+            .unwrap()
+            .unwrap();
+        let mass = |b: &Bitmap| {
+            b.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| p[3] as u64)
+                .sum::<u64>()
+        };
+        assert!(
+            mass(&b) > mass(&a) * 12 / 10,
+            "normalized weight was ignored"
+        );
+        let again = thin
+            .raster(&glyphs, 36., false, [0., 0., 0., 1.])
+            .unwrap()
+            .unwrap();
+        assert_eq!(a.origin, again.origin);
+        assert_eq!(a.rgba, again.rgba);
+        assert!(Font::from_shared_variations(bytes, 0, &[i16::MAX]).is_err());
     }
 }
