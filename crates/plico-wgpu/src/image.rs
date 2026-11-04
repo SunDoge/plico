@@ -366,7 +366,60 @@ fn area_reduce(source: &[u8], size: [u32; 2], target: [u32; 2]) -> Vec<u8> {
     }
 }
 
+// A mip step covers at most three source pixels per axis, including 3 -> 1.
+struct AreaWeights {
+    taps: [(usize, u64); 3],
+    len: usize,
+}
+fn axis_weights(source: u32, target: u32, stride: usize) -> Vec<AreaWeights> {
+    (0..target)
+        .map(|position| {
+            let start = position * source;
+            let end = (position + 1) * source;
+            let first = start / target;
+            let last = end.div_ceil(target);
+            let mut weights = AreaWeights {
+                taps: [(0, 0); 3],
+                len: (last - first) as usize,
+            };
+            for (slot, index) in (first..last).enumerate() {
+                let weight = ((index + 1) * target).min(end) - (index * target).max(start);
+                weights.taps[slot] = (index as usize * stride, u64::from(weight));
+            }
+            weights
+        })
+        .collect()
+}
 fn area_reduce_weighted(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8> {
+    let horizontal = axis_weights(sw, dw, 4);
+    let vertical = axis_weights(sh, dh, sw as usize * 4);
+    let denominator = u64::from(sw) * u64::from(sh);
+    let mut output = vec![0; dw as usize * dh as usize * 4];
+    for (row, destination) in vertical
+        .iter()
+        .zip(output.chunks_exact_mut(dw as usize * 4))
+    {
+        for (column, pixel) in horizontal.iter().zip(destination.as_chunks_mut::<4>().0) {
+            let mut sums = [0u64; 4];
+            for &(y, wy) in &row.taps[..row.len] {
+                for &(x, wx) in &column.taps[..column.len] {
+                    let weight = wx * wy;
+                    let offset = x + y;
+                    for channel in 0..4 {
+                        sums[channel] += u64::from(source[offset + channel]) * weight;
+                    }
+                }
+            }
+            for channel in 0..4 {
+                pixel[channel] = ((sums[channel] + denominator / 2) / denominator) as u8;
+            }
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+fn area_reduce_reference(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8> {
     let mut output = vec![0; dw as usize * dh as usize * 4];
     let denominator = u64::from(sw) * u64::from(sh);
     for y in 0..dh {
@@ -394,7 +447,7 @@ fn area_reduce_weighted(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -
 
 #[cfg(test)]
 mod mip_tests {
-    use super::{area_reduce, area_reduce_weighted};
+    use super::{area_reduce, area_reduce_reference};
     #[test]
     fn odd_area_reduction_preserves_edges_and_premultiplied_alpha() {
         let source = [vec![0; 8], vec![255; 4]].concat();
@@ -412,7 +465,7 @@ mod mip_tests {
             let mut current = size;
             while current != [1, 1] {
                 let next = [(current[0] / 2).max(1), (current[1] / 2).max(1)];
-                let expected = area_reduce_weighted(&pixels, current, next);
+                let expected = area_reduce_reference(&pixels, current, next);
                 pixels = area_reduce(&pixels, current, next);
                 assert_eq!(pixels, expected, "{current:?} -> {next:?}");
                 current = next;
@@ -421,38 +474,56 @@ mod mip_tests {
     }
 
     #[test]
+    fn precomputed_weights_match_reference_for_small_odd_and_degenerate_sizes() {
+        for width in 1..34 {
+            for height in 1..18 {
+                let pixels: Vec<u8> = (0..width * height * 4)
+                    .map(|i| ((i * 73 + i / 7) % 256) as u8)
+                    .collect();
+                let target = [(width / 2).max(1), (height / 2).max(1)];
+                assert_eq!(
+                    area_reduce(&pixels, [width, height], target),
+                    area_reduce_reference(&pixels, [width, height], target),
+                    "{width}x{height}"
+                );
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "manual CPU profile; run with --ignored --nocapture"]
     fn profile_mip_area_cost() {
         use std::{hint::black_box, time::Instant};
-        let size = [4096, 3072];
-        let source: Vec<u8> = (0..size[0] * size[1] * 4)
-            .map(|i| (i % 251) as u8)
-            .collect();
-        for (name, reduce) in [
-            (
-                "weighted",
-                area_reduce_weighted as fn(&[u8], [u32; 2], [u32; 2]) -> Vec<u8>,
-            ),
-            ("even-fast", area_reduce),
-        ] {
-            let mut samples = Vec::new();
-            for _ in 0..7 {
-                let start = Instant::now();
-                let mut pixels = reduce(black_box(&source), size, [2048, 1536]);
-                let mut current = [2048, 1536];
-                while current != [1, 1] {
-                    let next = [(current[0] / 2).max(1), (current[1] / 2).max(1)];
-                    pixels = reduce(black_box(&pixels), current, next);
-                    current = next;
+        for size in [[4096, 3072], [4095, 3071]] {
+            let source: Vec<u8> = (0..size[0] * size[1] * 4)
+                .map(|i| (i % 251) as u8)
+                .collect();
+            for (name, reduce) in [
+                (
+                    "weighted",
+                    area_reduce_reference as fn(&[u8], [u32; 2], [u32; 2]) -> Vec<u8>,
+                ),
+                ("optimized", area_reduce),
+            ] {
+                let mut samples = Vec::new();
+                for _ in 0..7 {
+                    let start = Instant::now();
+                    let mut current = [size[0] / 2, size[1] / 2];
+                    let mut pixels = reduce(black_box(&source), size, current);
+                    while current != [1, 1] {
+                        let next = [(current[0] / 2).max(1), (current[1] / 2).max(1)];
+                        pixels = reduce(black_box(&pixels), current, next);
+                        current = next;
+                    }
+                    black_box(pixels);
+                    samples.push(start.elapsed());
                 }
-                black_box(pixels);
-                samples.push(start.elapsed());
+                samples.sort();
+                eprintln!(
+                    "{name}: {size:?} complete mip chain median={:?}, range={:?}..{:?}",
+                    samples[3], samples[0], samples[6]
+                );
             }
-            samples.sort();
-            eprintln!(
-                "{name}: 4096x3072 complete mip chain median={:?}, range={:?}..{:?}",
-                samples[3], samples[0], samples[6]
-            );
         }
     }
 }

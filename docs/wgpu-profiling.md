@@ -131,3 +131,17 @@ renderer frame-time result or release benchmark. First generation remains
 synchronous; especially large odd-sized input may still cause upload-time jank.
 The profile is ignored by default and has no wall-time pass threshold.
 Fifteen image/affine GPU regressions and all-target Clippy passed after the change.
+
+Odd mip reductions now precompute each destination axis's source offsets and
+integer overlap weights. A mip step touches at most three pixels per axis;
+plans occupy O(width + height) temporary memory and retain the same single final
+rounding. A separate test-only per-pixel reference remains, checked against 561
+small dimension pairs and multiple complete chains, including one-pixel axes.
+
+The same manual profile now measures both 4096×3072 and 4095×3071. In a follow-up
+seven-sample dev run on the same CPU, the odd complete-chain reference median was
+143.812 ms (143.521–144.625), optimized 78.402 ms (78.022–78.648). Even dimensions
+remained 7.035 ms. This confirms a useful reduction, but 78 ms synchronous work
+is still a visible first-upload risk. GPU generation or background preparation
+requires further work; this optimization is not the final upload pipeline.
+Fifteen image/affine GPU regressions, Clippy and the WASM check passed.
