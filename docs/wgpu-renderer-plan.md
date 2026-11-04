@@ -219,3 +219,26 @@ fallback/reference path, not compute-enabled mip generation. No end-to-end uploa
 speedup is claimed without measuring the new path. DEBUG `wgpu.generate_mips`
 records mip encoding/submission CPU duration and dimensions/level count; it
 excludes lazy pipeline construction and does not measure GPU completion.
+
+## Real gallery image-window acceptance
+
+After GPU mip/upload changes, the actual gallery window was built with:
+
+```sh
+cargo run --locked -p gallery --no-default-features --features wgpu
+```
+
+Local Linux/X11 Xvfb, Intel ARL/Mesa Vulkan, damage enabled: Workspace displayed
+native text, icons and controls; Images displayed the 300×225, 100-frame WebP and
+GIF sample through the shared hosted image surface. Two GIF playback screenshots
+400 ms apart differed by 52567 pixels; after Pause, two screenshots 500 ms apart
+were identical. The network-origin sample may use its existing disk cache; this
+run does not prove a fresh download. Resize from 1120×820 to 760×780 and four
+Ctrl-minus steps preserved image aspect and layout without an observed stale
+frame. WM_DELETE_WINDOW closed with exit code 0. Generated screenshots/logs remain
+local, not checked into the repository.
+
+This exercises real host input, animated-image decode/cache/playback, hosted paint,
+application zoom and window submission together. It does not prove pixel-perfect
+image quality, physical-monitor DPI transitions, frame pacing or power use under
+a real compositor. Xvfb still reports missing DRI3.
