@@ -2,6 +2,7 @@
 //! Contexts and layouts stay on their creating UI thread. GPU raster integration
 //! is separate; this module supplies editing geometry and raw grayscale run masks.
 mod color;
+mod fonts;
 mod raster;
 pub use crate::text_direction::paragraph_is_rtl;
 use crate::text_indices::TextIndices;
@@ -71,7 +72,7 @@ pub struct StyleSpan {
 pub struct Request<'a> {
     /// Original UTF-8 contents.
     pub text: &'a str,
-    /// One installed system font family (not a CSS preference list).
+    /// One system or registered private font family/alias (not a CSS list).
     pub family: &'a str,
     /// Logical font size.
     pub size: f32,
@@ -147,10 +148,13 @@ pub struct Metrics {
     /// First/last absolute line baselines.
     pub baselines: [Option<f32>; 2],
 }
-/// An isolated system font/layout factory, without process-global mutation.
+/// An isolated font/layout factory and collection, without process-global mutation.
 pub struct Context {
     factory: IDWriteFactory2,
     fonts: IDWriteFontCollection,
+    font_set: Option<IDWriteFontSet>,
+    aliases: std::collections::HashMap<String, String>,
+    font_registry: Rc<fonts::Registry>,
     locale: HSTRING,
     _thread: PhantomData<Rc<()>>,
 }
@@ -166,6 +170,7 @@ pub struct Paragraph {
     visible_units: Option<u32>,
     visible_end: usize,
     clip_end_trailing: bool,
+    _font_registry: Rc<fonts::Registry>,
     // Retain the factory explicitly; it drops after the layout/font references.
     _factory: IDWriteFactory2,
     _thread: PhantomData<Rc<()>>,
@@ -191,11 +196,14 @@ impl Context {
         Ok(Self {
             factory,
             fonts,
+            font_set: None,
+            aliases: std::collections::HashMap::new(),
+            font_registry: Rc::new(fonts::Registry::default()),
             locale,
             _thread: PhantomData,
         })
     }
-    /// Resolve an ordered list of family names against this context's system
+    /// Resolve an ordered list of family names against this context's current
     /// collection. Names are already parsed, without CSS quotes or separators.
     /// Generic families map to Windows defaults. `None` means no candidate was
     /// installed; the caller decides its fallback rather than silently choosing.
@@ -209,6 +217,10 @@ impl Context {
             if candidate.is_empty() || candidate.len() > 4096 || candidate.contains('\0') {
                 return Err(Error::InvalidRequest);
             }
+            let candidate = self
+                .aliases
+                .get(&candidate.to_lowercase())
+                .map_or(candidate, String::as_str);
             let family = if candidate.eq_ignore_ascii_case("sans-serif")
                 || candidate.eq_ignore_ascii_case("system-ui")
             {
@@ -285,7 +297,10 @@ impl Context {
             })
             .collect::<Result<Vec<_>>>()?;
         let utf16: Vec<u16> = request.text.encode_utf16().collect();
-        let family = HSTRING::from(request.family);
+        let family = self
+            .resolve_family(&[request.family])?
+            .ok_or(Error::InvalidRequest)?;
+        let family = HSTRING::from(family);
         // SAFETY: DirectWrite copies text and format properties before the local
         // UTF-16/family buffers drop. The layout owns its COM/font references.
         let layout = unsafe {
@@ -537,6 +552,7 @@ impl Context {
             visible_units,
             visible_end,
             clip_end_trailing,
+            _font_registry: self.font_registry.clone(),
             _factory: self.factory.clone(),
             _thread: PhantomData,
         };

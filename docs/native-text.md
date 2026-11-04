@@ -157,7 +157,7 @@ Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
 family and an explicit paragraph base direction; CSS family lists,
-application fonts and multiline ellipsis are not implemented in this service yet.
+multiline ellipsis and per-range line heights are not implemented in this service yet.
 Raw grayscale glyph-run rasterization is available, with the limits below.
 The experimental plico-wgpu Windows provider now connects ordinary paragraph
 measurement/editing to the same native layout used for corrected run images.
@@ -241,7 +241,7 @@ trailing edge except for empty final lines. Tests compare visible mask bytes to
 the full layout and cover blank lines and hidden selection; they cross-compile
 only here. Full shaping still occurs on a cache miss, so this is not text
 virtualization.
-Per-range line height, multiline ellipsis and application fonts
+Per-range line height and multiline ellipsis
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers
@@ -307,13 +307,47 @@ the available width preserves both intrinsic widths; these tests have only been
 cross-compiled here, not executed on Windows.
 
 `Context::resolve_family` accepts an ordered slice of already parsed family
-names and checks the context's retained system font collection. It maps
+names and checks the context's retained current font collection. It maps
 `sans-serif`/`system-ui` to Segoe UI, `serif` to Times New Roman, and `monospace`
 to Consolas, subject to installation. It returns `None` if no candidate exists,
 leaving the host's final fallback policy explicit. This is primary-family
 selection, not CSS parsing or a per-character fallback chain. Layout uses the
 same system collection that resolution queried. Its Windows tests likewise
 cross-compile here but have not executed on Windows.
+
+### Windows private application fonts
+
+`Context::register_font(bytes, alias)` and the shared `FontAsset` registration
+hook now support private memory fonts on Windows 10 build 14393 or newer.
+This uses
+[DirectWrite's memory font loader](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwriteinmemoryfontfileloader-createinmemoryfontfilereference)
+with a null owner object, requesting a native copy at registration. No borrowed
+Rust buffer, system installation or temporary font file is retained. Files are
+analyzed before committing a new collection, and system fallback families remain
+available. Aliases are context-local, case-folded lookup names for the file's
+native family; an aliased file must contain exactly one family. This is name
+selection in a combined collection, not font metadata rewriting or a guarantee
+that an installed face with identical native metadata is distinguishable.
+
+Each attempted file has its own registered loader guard. Failed candidates drop
+their native objects before unregistering that loader, without replacing the
+active collection. Successful collection snapshots share guards through `Rc`;
+paragraphs keep their snapshot until their native layout drops, so destroying
+or updating the context cannot unregister a live paragraph's font files.
+Snapshots conservatively retain all font loaders in their collection, not just
+the primary family. The service caps successful registrations at 64 files and
+128 MiB of copied file payload per context; this excludes COM object/collection
+overhead. Existing FontAsset source bytes remain separately shared, so native
+copying has a memory cost. No total-RSS bound or zero-copy claim is made.
+
+The wgpu provider deduplicates identical asset/family registrations and clears
+derived layout/raster caches after registration. Explicit cache trimming retains
+registered fonts. `windows_text_cache_stats` reports registered files and native
+font-copy payload separately. Tests cover private aliases, context isolation,
+old layouts surviving context replacement/drop, invalid-candidate rollback and
+deduplication/trim. These Windows-only tests have been cross-compiled, not run
+on Windows here. Older Windows may use basic system text but returns an explicit
+unsupported error when memory font registration is requested.
 
 ### DirectWrite raw run coverage
 

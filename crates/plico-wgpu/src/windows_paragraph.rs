@@ -27,6 +27,11 @@ const BYTE_LIMIT: usize = 64 * 1024 * 1024;
 /// textures and externally retained layouts/images; this is not process RSS.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WindowsTextCacheStats {
+    /// Successful application font-file registrations, counted per alias.
+    pub font_files: usize,
+    /// Font-file bytes copied into DirectWrite, excluding native object overhead.
+    /// Source FontAssets remain shared separately with TextContext.
+    pub font_copy_bytes: usize,
     /// Cached native layouts.
     pub layouts: usize,
     /// Accounted Rust layout payload.
@@ -91,7 +96,8 @@ pub(crate) struct Cache {
     context: Context,
     entries: lru::LruCache<(u64, u64), Rc<Paragraph>>,
     bytes: usize,
-    font_error: bool,
+    font_error: Option<String>,
+    fonts: Vec<FontAsset>,
     rasters: lru::LruCache<(u64, u64, u64), Raster>,
     raster_bytes: usize,
     rasterizations: u64,
@@ -103,7 +109,8 @@ impl Cache {
             context: Context::new().map_err(|e| rejected(e.to_string()))?,
             entries: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
             bytes: 0,
-            font_error: false,
+            font_error: None,
+            fonts: Vec::new(),
             rasters: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
             raster_bytes: 0,
             rasterizations: 0,
@@ -215,10 +222,8 @@ impl Cache {
         request: Arc<ParagraphRequest>,
         scale: f64,
     ) -> std::result::Result<Rc<Paragraph>, ParagraphError> {
-        if self.font_error {
-            return Err(rejected(
-                "DirectWrite application font registration is not implemented",
-            ));
+        if let Some(error) = &self.font_error {
+            return Err(rejected(error.clone()));
         }
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(rejected("invalid DirectWrite device scale"));
@@ -262,13 +267,24 @@ impl Cache {
             ));
         }
         let candidates: Vec<_> = request.family.split(',').map(str::trim).collect();
-        let family = self
-            .context
-            .resolve_family(&candidates)
-            .map_err(|e| rejected(e.to_string()))?
-            .ok_or_else(|| rejected("no requested DirectWrite font family is installed"))?;
+        let mut family = None;
+        for candidate in candidates {
+            if self
+                .context
+                .resolve_family(&[candidate])
+                .map_err(|e| rejected(e.to_string()))?
+                .is_some()
+            {
+                // Keep the authored name: layout resolves its alias once. A
+                // canonical name could itself also be another private alias.
+                family = Some(candidate);
+                break;
+            }
+        }
+        let family =
+            family.ok_or_else(|| rejected("no requested DirectWrite font family is installed"))?;
         let mut native = Request::new(&request.text);
-        native.family = &family;
+        native.family = family;
         native.size = request.font_size;
         native.weight = request.font_weight as u16;
         native.italic = request.italic;
@@ -372,9 +388,19 @@ impl ParagraphEngine for Engine {
             .layout(request, self.scale)
             .map(|p| p as Rc<dyn NativeParagraph>)
     }
-    fn register_font(&mut self, _asset: &FontAsset) {
+    fn register_font(&mut self, asset: &FontAsset) {
         let mut cache = self.cache.borrow_mut();
-        cache.font_error = true;
+        if cache
+            .fonts
+            .iter()
+            .any(|f| f.family() == asset.family() && f.bytes() == asset.bytes())
+        {
+            return;
+        }
+        match cache.context.register_font(asset.bytes(), asset.family()) {
+            Ok(()) => cache.fonts.push(asset.clone()),
+            Err(error) => cache.font_error = Some(error.to_string()),
+        }
         cache.clear();
     }
     fn clear(&mut self) {
@@ -389,6 +415,8 @@ impl Renderer {
             .map_or_else(WindowsTextCacheStats::default, |cache| {
                 let cache = cache.borrow();
                 WindowsTextCacheStats {
+                    font_files: cache.fonts.len(),
+                    font_copy_bytes: cache.fonts.iter().map(|f| f.bytes().len()).sum(),
                     layouts: cache.entries.len(),
                     layout_bytes: cache.bytes,
                     rasters: cache.rasters.len(),
@@ -457,6 +485,35 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn app_font_registration_is_deduplicated_and_survives_cache_trim() {
+        let cache = Rc::new(RefCell::new(Cache::new().unwrap()));
+        let mut engine = Engine {
+            cache: cache.clone(),
+            scale: 1.,
+        };
+        let asset = FontAsset::from_static(include_bytes!(
+            "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+        ))
+        .with_family("Plico Windows Asset");
+        engine.register_font(&asset);
+        engine.register_font(&asset.clone());
+        assert_eq!(cache.borrow().fonts.len(), 1);
+        let mut declaration = (*request()).clone();
+        declaration.family = "Plico Windows Asset".into();
+        let first = engine.layout(Arc::new(declaration.clone())).unwrap();
+        assert!(first.metrics().width > 0.);
+        engine.clear();
+        assert_eq!(cache.borrow().fonts.len(), 1);
+        assert!(first.caret_rect(2).is_some());
+        assert!(
+            !cache
+                .borrow_mut()
+                .raster(Arc::new(declaration), 1., 0.)
+                .unwrap()
+                .is_empty()
+        );
+    }
     #[test]
     #[ignore = "requires a Windows GPU adapter and installed system fonts"]
     fn offscreen_paragraphs_do_not_generate_native_coverage() {
