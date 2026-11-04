@@ -72,6 +72,8 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
         #[cfg(feature = "paint-scene")]
         crate::Draw::Layer(layer) => quad(&layer.quad),
         #[cfg(feature = "paint-scene")]
+        crate::Draw::Effect(_, q) => quad(q),
+        #[cfg(feature = "paint-scene")]
         crate::Draw::SetMask(_) | crate::Draw::ResetMask => true,
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         crate::Draw::Text(run) => run.layout.glyphs.iter().any(|glyph| {
@@ -142,6 +144,12 @@ pub struct Renderer {
     layer_allocations: u64,
     #[cfg(feature = "paint-scene")]
     layer_reuses: u64,
+    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    effects: Option<plico_renderer::shader::ShaderRenderer>,
+    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    frame_effect_draws: usize,
+    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    frame_effect_bytes: u64,
     #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
@@ -308,6 +316,12 @@ impl Renderer {
             layer_allocations: 0,
             #[cfg(feature = "paint-scene")]
             layer_reuses: 0,
+            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            effects: None,
+            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            frame_effect_draws: 0,
+            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            frame_effect_bytes: 0,
             #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
             atlas_texture,
@@ -485,7 +499,19 @@ impl Renderer {
             && self.target.as_ref().is_some_and(|t| t.size == size);
         #[cfg(feature = "paint-scene")]
         let counters = (self.layer_allocations, self.layer_reuses);
+        #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+        if !unchanged {
+            self.prepare_effect_frame(items)?;
+        }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+        if !unchanged {
+            if result.is_err() {
+                self.effects = None;
+            } else if let Some(effects) = &mut self.effects {
+                effects.finish_frame();
+            }
+        }
         #[cfg(feature = "paint-scene")]
         if self.layer_depth == 0 && (!unchanged || result.is_err()) {
             self.trim_idle_layers(
@@ -497,9 +523,10 @@ impl Renderer {
         #[cfg(feature = "paint-scene")]
         {
             let stats = self.layer_pool_stats();
+            let effect_stats = self.effect_cache_stats();
             tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,"wgpu frame resources");
         }
         result
     }
@@ -907,6 +934,37 @@ impl Renderer {
                             0.,
                         ],
                     });
+                }
+                #[cfg(feature = "paint-scene")]
+                crate::Draw::Effect(effect, q) => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        q.validate()?;
+                        let resource = self.render_effect(effect)?;
+                        let slot = self.frame_images.len();
+                        self.frame_images.push(resource);
+                        instances.push(Instance {
+                            mask_rect: [0.; 4],
+                            rect: q.rect,
+                            color: [0., 0., 0., 1.],
+                            color2: [0.; 4],
+                            border: [0.; 4],
+                            config: [0., 0., 4., slot as f32],
+                            clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
+                            uv: [0., 0., 1., 1.],
+                            gradient: [0.; 4],
+                            clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
+                        });
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (effect, q);
+                        return Err(Error::Unsupported {
+                            command: 0,
+                            reason: "WGSL surface compilation currently requires the native host"
+                                .into(),
+                        });
+                    }
                 }
                 #[cfg(feature = "paint-scene")]
                 crate::Draw::Layer(layer) => {
@@ -1352,6 +1410,118 @@ impl Renderer {
         self.frame_images = parent_images;
         self.layer_depth -= 1;
         result
+    }
+}
+
+#[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
+    for draw in items {
+        match draw {
+            crate::Draw::Effect(effect, _) => visit(effect),
+            crate::Draw::Layer(layer) => visit_effects(&layer.scene.draws(), visit),
+            _ => {}
+        }
+    }
+}
+#[cfg(feature = "paint-scene")]
+impl Renderer {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn prepare_effect_frame(&mut self, items: &[crate::Draw<'_>]) -> Result<()> {
+        self.frame_effect_draws = 0;
+        self.frame_effect_bytes = 0;
+        if let Some(effects) = &mut self.effects {
+            effects.begin_frame();
+        }
+        // Ordinary applications without WGSL surfaces do not traverse another
+        // copy of the draw graph just to maintain an unused effect cache.
+        if self
+            .effects
+            .as_ref()
+            .is_none_or(|effects| effects.resource_stats().0 == 0)
+        {
+            return Ok(());
+        }
+        let mut bytes = 0_u64;
+        let mut count = 0;
+        let mut invalid = false;
+        let limit = self.device.limits().max_texture_dimension_2d;
+        visit_effects(items, &mut |effect| {
+            let [w, h] = effect.physical_size();
+            bytes = bytes.saturating_add(u64::from(w) * u64::from(h) * 4);
+            count += 1;
+            invalid |= w == 0 || h == 0 || u32::from(w) > limit || u32::from(h) > limit;
+            if let Some(effects) = &mut self.effects {
+                effects.retain_effect(effect);
+            }
+        });
+        if invalid || count > 256 || bytes > 128 * 1024 * 1024 {
+            return Err(Error::InvalidInput {
+                reason: "WGSL surfaces exceed GPU dimensions, 256 draws or 128 MiB".into(),
+            });
+        }
+        Ok(())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_effect(
+        &mut self,
+        effect: &plico_renderer::ShaderEffect,
+    ) -> Result<std::rc::Rc<crate::image::GpuImage>> {
+        let [w, h] = effect.physical_size();
+        self.frame_effect_draws += 1;
+        self.frame_effect_bytes = self
+            .frame_effect_bytes
+            .saturating_add(u64::from(w) * u64::from(h) * 4);
+        let limit = self.device.limits().max_texture_dimension_2d;
+        if w == 0
+            || h == 0
+            || u32::from(w) > limit
+            || u32::from(h) > limit
+            || self.frame_effect_draws > 256
+            || self.frame_effect_bytes > 128 * 1024 * 1024
+        {
+            return Err(Error::InvalidInput {
+                reason: "WGSL surfaces exceed GPU dimensions, 256 draws or 128 MiB".into(),
+            });
+        }
+        let effects = self.effects.get_or_insert_with(|| {
+            let mut effects = plico_renderer::shader::ShaderRenderer::new(&self.device);
+            effects.begin_frame();
+            effects
+        });
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let view = effects.render_view(effect, &self.device, &self.queue, &mut encoder);
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            return Err(Error::Shader {
+                message: error.to_string(),
+            });
+        }
+        self.queue.submit([encoder.finish()]);
+        Ok(crate::image::GpuImage::from_view(
+            &self.device,
+            &self.atlas_texture.layout,
+            &view,
+        ))
+    }
+    /// Live effect targets, pixel payload and cached pipelines.
+    pub fn effect_cache_stats(&self) -> (usize, u64, usize) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.effects
+                .as_ref()
+                .map_or((0, 0, 0), |effects| effects.resource_stats())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            (0, 0, 0)
+        }
+    }
+    /// Discard derived effect resources while preserving final retained pixels.
+    pub fn trim_effect_cache(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.effects = None;
+        }
     }
 }
 

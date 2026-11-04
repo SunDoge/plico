@@ -1,19 +1,21 @@
 //! The normal Plico shell and immediate API, with the experimental wgpu backend.
 //! Runtime text, shape, clip and input dispatch are shared with other backends.
 use plico::prelude::*;
+static PROGRESS: plico::ShaderAsset = plico::shader_asset!("assets/progress.wgsl");
 #[derive(Default)]
 struct Counter {
     count: i32,
     reported: Option<i32>,
     input: String,
     reported_input: Option<String>,
+    animated: bool,
 }
 impl plico::View for Counter {
     fn theme(&self) -> Theme {
         Theme::light()
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
-        content(cx, &mut self.count, &mut self.input);
+        content(cx, &mut self.count, &mut self.input, &mut self.animated);
         if self.reported_input.as_ref() != Some(&self.input) {
             println!("input={:?}", self.input);
             self.reported_input = Some(self.input.clone());
@@ -26,7 +28,7 @@ impl plico::View for Counter {
 }
 #[component]
 #[rustfmt::skip]
-fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String) {
+fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String, animated: &mut bool) {
     column(cx).width_percent(100.).height_percent(100.).padding(32).gap(18).background(Color::Surface) + |cx| {
         text(cx, "Plico / wgpu").font_size(26).weight(600);
         text(cx, "Shared window host, layout and input dispatch").font_size(14).color(Color::Muted);
@@ -44,7 +46,14 @@ fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String) {
                 if button(cx).text("Reset").ghost().clicked() {
                     *count = 0;
                 }
+                if button(cx).text(if *animated { "Pause effect" } else { "Animate effect" }).ghost()
+                    .clicked()
+                {
+                    *animated = !*animated;
+                }
             };
+            shader(cx, &PROGRESS).width(380.).height(12.).radius(6.)
+                .values(&[count.rem_euclid(11) as f32 / 10.]).animated(*animated);
         };
     };
 }

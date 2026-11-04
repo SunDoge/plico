@@ -133,7 +133,9 @@ Optional shared-scene damage replay (`PLICO_WGPU_DAMAGE=1`) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
 window exercise pass. Performance and physical-display verification remain pending.
 Shared images use cached independent textures, nearest/bilinear premultiplied-alpha
-sampling and ordered batches; SVG uses a cached resvg fallback. It is not yet a
+sampling and ordered batches; SVG uses a cached resvg fallback. Shared native WGSL
+effect surfaces use the public shader widget, injected time and bounded local
+damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
 full paint-scene backend: solid general paths now use cached tiny-skia coverage,
 and nested nonrectangular clip masks preserve native text drawing. Non-solid
 path brushes, filter/blend layers and Windows text remain unfinished. Isolated

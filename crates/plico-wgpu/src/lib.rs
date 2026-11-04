@@ -135,6 +135,8 @@ pub enum Draw<'a> {
     Image(&'a image::ImageQuad),
     #[cfg(feature = "paint-scene")]
     Layer(&'a scene::PreparedLayer),
+    #[cfg(feature = "paint-scene")]
+    Effect(&'a plico_renderer::ShaderEffect, &'a Quad),
     /// Replace the active coverage mask; masks do not themselves paint pixels.
     #[cfg(feature = "paint-scene")]
     SetMask(&'a mask::CoverageMask),

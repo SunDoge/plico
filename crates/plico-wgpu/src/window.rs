@@ -199,6 +199,7 @@ impl WgpuWindow {
     /// Release recyclable layer targets; final retained pixels remain valid.
     pub fn trim_gpu_cache(&mut self) {
         self.renderer.trim_layer_pool();
+        self.renderer.trim_effect_cache();
     }
     pub fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_scene_damage();

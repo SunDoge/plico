@@ -284,8 +284,9 @@ impl SceneDamageTracker {
     /// `ink` returns physical-pixel ink bounds *after* the command transform.
     /// Return `None` for unknown bounds. The tracker adds a one-pixel guard
     /// around bounds for raster edge coverage and intersects enclosing clips.
-    /// Filters and custom shaders force full damage because they may depend on
-    /// pixels outside their own output or on time not reflected in commands.
+    /// Filters force full damage. ShaderEffect surfaces have sealed uniform-only
+    /// inputs (including time) and a bounded output; an ink consumer can provide
+    /// that output rectangle. Unknown bounds still fall back conservatively.
     pub fn update(
         &mut self,
         scene: &crate::Scene,
@@ -354,11 +355,6 @@ impl SceneDamageTracker {
                     bounds
                 }
                 PaintCommand::Fragment { scene, .. } if scene.has_nonlocal_effects() => {
-                    self.nonlocal = true;
-                    self.regions.add(DamageRegion::Full);
-                    DamageRegion::Full
-                }
-                PaintCommand::Shader { .. } => {
                     self.nonlocal = true;
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full

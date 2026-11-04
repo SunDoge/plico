@@ -21,6 +21,7 @@ pub struct PreparedLayer {
 enum PreparedDraw {
     Quad(Quad),
     Layer(PreparedLayer),
+    Effect(plico_renderer::ShaderEffect, Quad),
     Image(crate::image::ImageQuad),
     SetMask(std::rc::Rc<crate::mask::CoverageMask>),
     ResetMask,
@@ -42,7 +43,9 @@ impl PreparedDraw {
                 (layer.quad.rect[0] + layer.quad.rect[2]) as f64,
                 (layer.quad.rect[1] + layer.quad.rect[3]) as f64,
             ),
-            Self::Quad(q) | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
+            Self::Effect(_, q)
+            | Self::Quad(q)
+            | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
                 let [x, y, w, h] = q.rect;
                 Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
             }
@@ -88,6 +91,7 @@ impl PreparedScene {
             .map(|draw| match draw {
                 PreparedDraw::Quad(q) => Draw::Quad(q),
                 PreparedDraw::Layer(layer) => Draw::Layer(layer),
+                PreparedDraw::Effect(effect, q) => Draw::Effect(effect, q),
                 PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
                 PreparedDraw::ResetMask => Draw::ResetMask,
                 PreparedDraw::Image(image) => Draw::Image(image),
@@ -547,6 +551,17 @@ impl Renderer {
                             });
                         }
                     }
+                    PaintCommand::Shader { effect, transform } => {
+                        let [w, h] = effect.logical_size();
+                        let q = quad(
+                            Rect::new(0., 0., w as f64, h as f64),
+                            0.,
+                            *transform,
+                            clip,
+                            index,
+                        )?;
+                        draws.push(PreparedDraw::Effect(effect.clone(), q));
+                    }
                     PaintCommand::Svg {
                         document,
                         transform,
@@ -603,7 +618,6 @@ impl Renderer {
                                 match command {
                                     PaintCommand::GlyphRun { .. } => "positioned glyph",
                                     PaintCommand::BoxShadow { .. } => "shadow",
-                                    PaintCommand::Shader { .. } => "shader",
                                     PaintCommand::Fragment { .. } => "unflattened fragment",
                                     _ => "unknown",
                                 }

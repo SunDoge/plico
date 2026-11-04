@@ -89,9 +89,10 @@ impl Default for ShaderEffectId {
 
 /// A validated WGSL function compiled under Wabou's stable shader prelude.
 ///
-/// Source must define `fn wabou_effect(uv: vec2<f32>) -> vec4<f32>`. It can
-/// read `wabou.resolution_time_scale` and the 256 scalar values packed in
-/// `wabou.values`. Extra bind groups are deliberately rejected so renderer
+/// New source defines `fn plico_effect(uv: vec2<f32>) -> vec4<f32>` and reads
+/// `plico.resolution_time_scale` and the 256 scalar values in `plico.values`.
+/// The legacy `wabou_effect`/`wabou` spelling remains supported. Surface outputs
+/// use premultiplied RGBA, matching the shared texture/SkSL compositing contract. Extra bind groups are deliberately rejected so renderer
 /// resource ownership remains explicit.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ShaderEffectInterface {
@@ -126,10 +127,32 @@ impl ShaderEffectSource {
                 "shader source exceeds the {MAX_SOURCE_BYTES}-byte limit"
             ));
         }
-        Self::validated(
-            format!("{SHADER_PREFIX}\n{source}\n{SHADER_SUFFIX}"),
+        // Prefer Plico names for new effects; validate the legacy interface as
+        // a fallback without rewriting authored identifiers or comments.
+        let prefix = SHADER_PREFIX
+            .replace("Wabou", "Plico")
+            .replace("wabou", "plico");
+        let suffix = SHADER_SUFFIX
+            .replace("Wabou", "Plico")
+            .replace("wabou", "plico");
+        let modern = Self::validated(
+            format!("{prefix}\n{source}\n{suffix}"),
             ShaderEffectInterface::WabouEffect,
-        )
+        );
+        match modern {
+            Ok(source) => Ok(source),
+            Err(modern_error) => Self::validated(
+                format!("{SHADER_PREFIX}\n{source}\n{SHADER_SUFFIX}"),
+                ShaderEffectInterface::WabouEffect,
+            )
+            .map_err(|legacy_error| {
+                if source.contains("plico_effect") {
+                    modern_error
+                } else {
+                    legacy_error
+                }
+            }),
+        }
     }
 
     /// Validate a complete single-pass WGSL module.
@@ -343,6 +366,18 @@ impl ShaderRenderer {
         }
     }
 
+    /// Live output targets, output pixel payload and cached pipelines.
+    pub fn resource_stats(&self) -> (usize, u64, usize) {
+        let mut count = 0;
+        let mut bytes = 0;
+        for targets in self.targets.values() {
+            for target in targets {
+                count += 1;
+                bytes += u64::from(target.size[0]) * u64::from(target.size[1]) * 4;
+            }
+        }
+        (count, bytes, self.pipelines.len())
+    }
     pub fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1).max(1);
     }
@@ -363,6 +398,40 @@ impl ShaderRenderer {
         encoder: &mut CommandEncoder,
         bindings: &mut vello_gpu::TextureBindings,
     ) -> TextureId {
+        let (id, view) = self.render_target(effect, device, queue, encoder);
+        bindings.insert(id, view);
+        id
+    }
+
+    /// Render to a native wgpu view without a Vello texture-binding adapter.
+    pub fn render_view(
+        &mut self,
+        effect: &ShaderEffect,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) -> TextureView {
+        self.render_target(effect, device, queue, encoder).1
+    }
+
+    /// Keep an unchanged surface alive when a damage consumer skips its draw.
+    pub fn retain_effect(&mut self, effect: &ShaderEffect) {
+        if let Some(targets) = self.targets.get_mut(&effect.id) {
+            for target in targets {
+                if target.effect.as_ref() == Some(effect) {
+                    target.used_in_frame = self.frame;
+                }
+            }
+        }
+    }
+
+    fn render_target(
+        &mut self,
+        effect: &ShaderEffect,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) -> (TextureId, TextureView) {
         // A retained scene snapshot may contain several versions of one surface
         // (for example before/after a theme reveal). Distinct versions in the
         // same submission must never share a texture or uniform buffer.
@@ -393,8 +462,7 @@ impl ShaderRenderer {
         }
         target.used_in_frame = self.frame;
         if target.effect.as_ref() == Some(effect) {
-            bindings.insert(target.texture_id, target.view.clone());
-            return target.texture_id;
+            return (target.texture_id, target.view.clone());
         }
         let pipeline = Self::pipeline(&mut self.pipelines, &self.layout, device, &effect.source);
         let uniforms = effect_uniforms(effect);
@@ -423,9 +491,7 @@ impl ShaderRenderer {
         }
 
         target.effect = Some(effect.clone());
-        let texture_id = target.texture_id;
-        bindings.insert(texture_id, target.view.clone());
-        texture_id
+        (target.texture_id, target.view.clone())
     }
 
     fn pipeline(

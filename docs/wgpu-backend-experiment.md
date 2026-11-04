@@ -489,3 +489,28 @@ Unchanged snapshot/readback frames retain the warmed pool. Tests cover resize,
 shrinking content, distinct live nested/sibling targets, explicit trim with valid
 retained final pixels, and eventual layer removal. Layer-specific tests now live
 in `tests/layers.rs`.
+
+
+### Shared WGSL surfaces
+
+The native bridge now consumes shared `ShaderEffect` using the existing renderer
+GPU-resource helper's neutral `render_view` entry point. No Vello scene draw or
+texture-binding adapter is used by this consumer. New authored functions can use
+`plico_effect`/`plico`; legacy shader assets remain valid. See
+[effect contracts and limits](wgsl-effects.md) for premultiplied output, scalar
+parameters, clock scheduling, cache budgets and current platform boundaries.
+
+GPU tests cover virtual time, pause, value changes, DPI, invalid-source retention,
+shader removal, local versus full damage, distinct versions of one surface ID,
+transparent output, damage-skipped target retention, explicit cache trimming and
+recreation, nested mask/opacity composition and recovery from a module
+whose color output is incompatible with the GPU target. An Xvfb window exercise
+confirmed a file-authored progress surface changes with a Rust counter and that
+Animate/Pause changes the time-driven output. This is functionality verification,
+not a frame-time or power comparison with Skia/Vello.
+
+WASM checking additionally exposed a WebGL replay exhaustiveness issue: retained
+fragments are now explicitly treated as already flattened, and unsupported nested
+WGSL commands are checked after flattening, before canvas mutation. The new native
+WGSL renderer is gated so browser builds do not call a blocking native compile
+path. Browser effect compilation remains unimplemented.

@@ -1,0 +1,85 @@
+# WGSL effect surfaces
+
+The experimental native `plico-desktop/wgpu` backend now consumes the shared
+`ShaderEffect` paint command. Applications use the existing Plico widget API;
+GPU objects stay in the renderer.
+
+```rust
+static PROGRESS: plico::ShaderAsset = plico::shader_asset!("assets/progress.wgsl");
+
+// Inside an ordinary component:
+shader(cx, &PROGRESS)
+    .width(380.)
+    .height(12.)
+    .radius(6.)
+    .values(&[progress])
+    .animated(running);
+```
+
+```wgsl
+// assets/progress.wgsl
+fn plico_effect(uv: vec2f) -> vec4f {
+    let progress = clamp(plico.values[0].x, 0., 1.);
+    let time = plico.resolution_time_scale.z;
+    let pulse = 0.92 + 0.08 * sin(time * 3.);
+    let background = vec3f(0.90, 0.92, 0.96);
+    let accent = vec3f(0.15, 0.33, 0.89) * pulse;
+    return vec4f(mix(background, accent, step(uv.x, progress)), 1.);
+}
+```
+
+The existing `wabou_effect` / `wabou` spelling remains supported. Authored shader
+identifiers are not rewritten. The renderer supplies:
+
+- `plico.resolution_time_scale.xy`: physical output width/height.
+- `.z`: injected effect time in seconds; `.w`: device scale.
+- `plico.values`: 64 float4 vectors, containing up to 256 scalar parameters.
+
+Effect surfaces output **premultiplied RGBA**, matching the shared texture/SkSL
+compositing contract. For translucent color, return `vec4f(rgb * alpha, alpha)`.
+This differs from the standalone quad-material function, whose wrapper accepts
+straight RGBA. The new shared effect bridge does not silently convert either ABI.
+
+`.animated(true)` explicitly requests clock-driven updates. Time does not require
+another execution of application `show`. `.paused(true)` stops that effect;
+virtual clocks and reduced motion use the existing runtime scheduling. A shader
+reading time without opting into animation remains static. Syntax/validation
+errors retain the previous valid source through the runtime diagnostics. Device
+pipeline errors are caught and returned; a failed frame is not presented, and a
+subsequent valid source can recover. Shader file watching is not added by this
+bridge: `shader_asset!` embeds source at Rust compile time.
+
+## Damage and resources
+
+This interface permits only a uniform binding, not arbitrary textures, storage or
+backdrop reads. Its output is constrained to a standalone texture rectangle, and
+all changing inputs, including time, appear in `ShaderEffect`. The wgpu bridge
+therefore supplies local ink bounds to damage tracking. An unchanged static effect
+can skip rendering/presentation. Unknown bounds in other consumers still fall
+back conservatively. Expanding effects or backdrop effects will need an explicit
+resource/damage contract before extending this interface.
+
+Native effect outputs and pipelines reuse the shared renderer resource helper,
+through a wgpu-view interface rather than Vello scene or texture-binding replay.
+The native bridge limits a frame to 256 effect draws and 128 MiB of declared output
+pixel payload, in addition to device dimension limits. Pipelines use the shared
+16-entry LRU. Removed output surfaces are released; cached pipelines may remain.
+Multiple versions of the same effect ID within a snapshot use distinct output
+textures/uniform buffers. `effect_cache_stats` and frame-resource tracing expose
+live output count, pixel payload and cached pipeline count. These are not total
+GPU memory or frame-time measurements.
+
+Effects participate in ordinary clips and isolated opacity groups. The shared
+X11 window demo has an independent WGSL progress file and Animate/Pause buttons:
+
+```sh
+PLICO_WGPU_DAMAGE=1 cargo run -p plico-desktop --no-default-features \
+  --features wgpu --example wgpu-window
+```
+
+Skia requires an explicitly supplied SkSL variant via `ShaderAsset::with_sksl`;
+WGSL is not translated automatically. This new native bridge does not implement
+browser-side effect compilation; WASM type checking passes, but attempting such a
+surface in that path returns an explicit unsupported error. Typed uniform
+structures, texture inputs, resource file watching and backdrop/filter graphs are
+future work, not current capabilities.

@@ -184,19 +184,25 @@ impl GpuImage {
         layout: &wgpu::BindGroupLayout,
         texture: &wgpu::Texture,
     ) -> Rc<Self> {
+        Self::from_view(device, layout, &texture.create_view(&Default::default()))
+    }
+    pub(crate) fn from_view(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        view: &wgpu::TextureView,
+    ) -> Rc<Self> {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        let view = texture.create_view(&Default::default());
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Plico isolated layer"),
             layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
+                    resource: wgpu::BindingResource::TextureView(view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
