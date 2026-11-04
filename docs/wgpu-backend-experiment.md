@@ -549,3 +549,25 @@ interpolation, image path brushes and nonidentity brush transforms remain explic
 errors. Analytical box gradients retain their existing narrower GPU fast path.
 Unit tests cover alpha modes, duplicate stops, extension and cache reuse. GPU tests
 cover transparent output plus fractional motion/removal against full redraw.
+
+## Real gallery host check
+
+The existing gallery can select the experimental renderer without pulling in its
+default Skia feature:
+
+```sh
+cargo run --locked -p gallery --no-default-features --features wgpu
+```
+
+`gallery`'s binary now requires the backend-neutral `host` feature; the default
+`desktop` feature still selects Skia. Its existing `--capture`/`--scenario` preview
+path currently requires `desktop`, and a wgpu-only build returns an explicit
+message for these options rather than silently capturing through another backend.
+
+A local Xvfb X11 window with `PLICO_WGPU_DAMAGE=1` displayed Workspace, Motion
+(including the existing animated WGSL asset), Controls, its Quick settings popover,
+and scrolled Controls including avatars and Japanese ruby. This verifies shared
+application composition and event dispatch, not physical-monitor scroll smoothness
+or power consumption. Glass fails explicitly with `layer blend mode/filter`;
+there is no silent rendering fallback. General filtered layers remain a required
+replacement gate. Generated screenshots stay in ignored `reports/`.

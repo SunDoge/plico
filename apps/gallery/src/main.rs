@@ -8,6 +8,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         capture: Option<std::path::PathBuf>,
     }
     let options = Options::parse();
+    #[cfg(not(feature = "desktop"))]
+    if options.capture.is_some() || options.scenario.is_some() {
+        return Err(
+            "scenario capture currently requires the gallery desktop (Skia) feature".into(),
+        );
+    }
+    #[cfg(feature = "desktop")]
     if let Some(output) = options.capture {
         let scenario = if let Some(path) = options.scenario {
             plico_desktop::PreviewScenario::<gallery::Gallery>::load(path)?

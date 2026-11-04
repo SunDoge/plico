@@ -25,12 +25,13 @@ default = ["desktop"]
 # package's default Skia application feature winning Cargo feature unification.
 host = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
 desktop = ["host", "plico-desktop/skia"]
+wgpu = ["host", "plico-desktop/wgpu"]
 profiling = ["plico-desktop/profiling"]
 
 [[bin]]
 name = "gallery"
 path = "src/main.rs"
-required-features = ["desktop"]
+required-features = ["host"]
 
 [[example]]
 name = "probe"
