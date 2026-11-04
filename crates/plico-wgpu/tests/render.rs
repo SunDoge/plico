@@ -193,3 +193,70 @@ fn text_is_ordered_dpi_aware_culled_and_upload_stable() {
     assert_eq!(renderer.text_stats().cached_glyphs, warm.cached_glyphs);
     assert_eq!(renderer.text_stats().uploaded_bytes, warm.uploaded_bytes);
 }
+
+/// Integer physical-pixel scrolls must translate coverage, not reshape or
+/// change glyph weight, even when layout was built at a fractional DPI.
+#[cfg(all(target_os = "linux", feature = "system-text"))]
+#[test]
+#[ignore = "requires system fonts and a working wgpu adapter"]
+fn native_text_scroll_preserves_pixels_and_atlas_at_fractional_dpi() {
+    use plico_wgpu::{
+        Draw,
+        text::{TextRequest, TextRun},
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let size = [400, 160];
+    for scale in [1., 1.25, 1.5, 2.] {
+        let mut request = TextRequest::new("Sss 中文 日本語");
+        request.family = "Noto Sans, Noto Sans CJK SC, sans-serif";
+        request.size = 14.;
+        request.scale = scale;
+        let layout = renderer.layout_text(&request).unwrap();
+        assert_eq!(layout.missing_glyphs, 0);
+        let origin = [32.25, 48.];
+        let baseline = renderer
+            .render_items(
+                &[Draw::Text(TextRun::new(&layout, origin, [0., 0., 0., 1.]))],
+                size,
+                [1.; 4],
+                0.,
+            )
+            .unwrap();
+        assert!(
+            baseline
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] < 100)
+        );
+        let warm = renderer.text_stats();
+        for [dx, dy] in [[7, 9], [-40, -31], [0, 17], [0, 0]] {
+            let image = renderer
+                .render_items(
+                    &[Draw::Text(TextRun::new(
+                        &layout,
+                        [origin[0] + f64::from(dx), origin[1] + f64::from(dy)],
+                        [0., 0., 0., 1.],
+                    ))],
+                    size,
+                    [1.; 4],
+                    0.,
+                )
+                .unwrap();
+            for y in 0..size[1] as i32 {
+                for x in 0..size[0] as i32 {
+                    let (sx, sy) = (x - dx, y - dy);
+                    if sx >= 0 && sy >= 0 && sx < size[0] as i32 && sy < size[1] as i32 {
+                        assert_eq!(
+                            pixel(&image, size, x as u32, y as u32),
+                            pixel(&baseline, size, sx as u32, sy as u32),
+                            "scale={scale}, scroll=({dx},{dy}), pixel=({x},{y})",
+                        );
+                    }
+                }
+            }
+            assert_eq!(renderer.text_stats().cached_glyphs, warm.cached_glyphs);
+            assert_eq!(renderer.text_stats().uploaded_bytes, warm.uploaded_bytes);
+        }
+    }
+}

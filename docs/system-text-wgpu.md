@@ -99,3 +99,18 @@ filters, clip/layer handling, damage tracking, a window renderer, editable caret
 selection / IME integration, font reload, dynamic atlas eviction, or DirectWrite /
 CoreText implementations. A full renderer would still need those contracts.
 Keep Skia as the working application backend while evaluating this route.
+
+### 分数 DPI 下的整数滚动回归
+
+Linux 系统文字的 GPU 测试
+`native_text_scroll_preserves_pixels_and_atlas_at_fractional_dpi`
+在 1、1.25、1.5、2 倍 scale 下布局 Latin / 中文 / 日本語，随后正向、反向
+平移整数物理像素，包括进入负坐标与返回原位。重叠区域逐像素比较原图平移结果，
+并检查 glyph 数量和累计上传字节保持不变；本机 GPU 验证通过。
+
+```sh
+cargo test --locked -p plico-wgpu --test render native_text_scroll -- --include-ignored
+```
+
+该测试证明整数物理平移不改变覆盖率或重新上传字形，不证明连续亚像素滚动的
+视觉平滑度，也不覆盖 Windows、真实显示器切换或 IME。
