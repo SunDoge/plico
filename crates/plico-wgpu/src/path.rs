@@ -1,4 +1,4 @@
-//! Bounded CPU coverage fallback for uncommon solid paths; text stays native.
+//! Bounded CPU coverage fallback for uncommon paths; text stays native.
 use crate::{Error, Result};
 use kurbo::{Affine, PathEl, Rect, Shape};
 use peniko::{Blob, Brush, Fill, ImageAlphaType, ImageData, ImageFormat};
@@ -56,8 +56,14 @@ impl PathCache {
             } => (shape, *transform, brush, brush_transform, Some(style)),
             _ => return Err(unsupported("path fallback command")),
         };
-        let Brush::Solid(color) = brush else {
-            return Err(unsupported("non-solid general path brush"));
+        let gradient = match brush {
+            Brush::Solid(_) => None,
+            Brush::Gradient(g) => Some(LinearPaint::new(g)?),
+            _ => return Err(unsupported("image general path brush")),
+        };
+        let color = match brush {
+            Brush::Solid(c) => *c,
+            _ => peniko::Color::WHITE,
         };
         if brush_transform.is_some_and(|t| t != Affine::IDENTITY) {
             return Err(unsupported("transformed general path brush"));
@@ -138,6 +144,19 @@ impl PathCache {
         let local = Affine::new([a, b, c, d, e - bounds.x0, f - bounds.y0]);
         for v in local.as_coeffs() {
             v.to_bits().hash(&mut hash);
+        }
+        if let Some(g) = &gradient {
+            for v in [g.start.x, g.start.y, g.direction.x, g.direction.y] {
+                v.to_bits().hash(&mut hash);
+            }
+            std::mem::discriminant(&g.extend).hash(&mut hash);
+            g.premultiplied.hash(&mut hash);
+            for (offset, color) in &g.stops {
+                offset.to_bits().hash(&mut hash);
+                for v in color {
+                    v.to_bits().hash(&mut hash);
+                }
+            }
         }
         for v in color.components {
             v.to_bits().hash(&mut hash);
@@ -222,6 +241,31 @@ impl PathCache {
             };
             pixmap.fill_path(&path, &paint, rule, transform, None);
         }
+        if let Some(gradient) = &gradient {
+            let inverse = local.inverse();
+            for (i, pixel) in pixmap
+                .data_mut()
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                let coverage = pixel[3] as f32 / 255.;
+                if coverage == 0. {
+                    continue;
+                }
+                let point = inverse
+                    * kurbo::Point::new(
+                        (i % width as usize) as f64 + 0.5,
+                        (i / width as usize) as f64 + 0.5,
+                    );
+                let color = gradient.sample(point);
+                for channel in 0..4 {
+                    pixel[channel] =
+                        (color[channel] * coverage * 255.).round().clamp(0., 255.) as u8;
+                }
+            }
+        }
         let bytes = pixmap.data().len();
         let image = ImageData {
             data: Blob::new(Arc::new(pixmap.take())),
@@ -250,5 +294,180 @@ impl PathCache {
         }
         self.bytes += bytes;
         Ok(Some((image, bounds)))
+    }
+}
+
+// Coverage and color are evaluated separately so both straight and premultiplied
+// interpolation retain the shared brush contract, including transparent stops.
+struct LinearPaint {
+    start: kurbo::Point,
+    direction: kurbo::Vec2,
+    stops: Vec<(f32, [f32; 4])>,
+    extend: peniko::Extend,
+    premultiplied: bool,
+}
+impl LinearPaint {
+    fn new(g: &peniko::Gradient) -> Result<Self> {
+        let peniko::GradientKind::Linear(line) = g.kind else {
+            return Err(unsupported("nonlinear general path gradient"));
+        };
+        if g.interpolation_cs != peniko::color::ColorSpaceTag::Srgb {
+            return Err(unsupported(
+                "general path gradient requires sRGB interpolation",
+            ));
+        }
+        let direction = line.end - line.start;
+        if ![line.start.x, line.start.y, direction.x, direction.y]
+            .iter()
+            .all(|v| v.is_finite())
+            || direction.hypot2() <= 1e-12
+        {
+            return Err(invalid("invalid gradient endpoints"));
+        }
+        let stops: Vec<_> = g
+            .stops
+            .iter()
+            .map(|s| {
+                (
+                    s.offset,
+                    s.color.to_alpha_color::<peniko::color::Srgb>().components,
+                )
+            })
+            .collect();
+        if stops.is_empty()
+            || stops.windows(2).any(|s| s[0].0 > s[1].0)
+            || stops.iter().any(|(offset, c)| {
+                !offset.is_finite()
+                    || !(0. ..=1.).contains(offset)
+                    || c.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
+            })
+        {
+            return Err(invalid("invalid gradient stops"));
+        }
+        Ok(Self {
+            start: line.start,
+            direction,
+            stops,
+            extend: g.extend,
+            premultiplied: g.interpolation_alpha_space
+                == peniko::InterpolationAlphaSpace::Premultiplied,
+        })
+    }
+    fn sample(&self, point: kurbo::Point) -> [f32; 4] {
+        let t = ((point - self.start).dot(self.direction) / self.direction.hypot2()) as f32;
+        let t = match self.extend {
+            peniko::Extend::Pad => t.clamp(0., 1.),
+            peniko::Extend::Repeat => t.rem_euclid(1.),
+            peniko::Extend::Reflect => 1. - (t.rem_euclid(2.) - 1.).abs(),
+        };
+        let upper = self.stops.partition_point(|s| s.0 <= t);
+        let (a, b, u) = if upper == 0 {
+            (self.stops[0].1, self.stops[0].1, 0.)
+        } else if upper == self.stops.len() {
+            let c = self.stops[upper - 1].1;
+            (c, c, 0.)
+        } else {
+            let (x, a) = self.stops[upper - 1];
+            let (y, b) = self.stops[upper];
+            (a, b, (t - x) / (y - x))
+        };
+        let alpha = a[3] + (b[3] - a[3]) * u;
+        let mut out = [0.; 4];
+        for i in 0..3 {
+            out[i] = if self.premultiplied {
+                a[i] * a[3] * (1. - u) + b[i] * b[3] * u
+            } else {
+                (a[i] + (b[i] - a[i]) * u) * alpha
+            };
+        }
+        out[3] = alpha;
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peniko::{Color, Gradient, InterpolationAlphaSpace};
+    #[test]
+    fn linear_path_gradient_preserves_alpha_interpolation_and_extend() {
+        let base = Gradient::new_linear((0., 0.), (10., 0.)).with_stops([
+            Color::from_rgba8(255, 0, 0, 0),
+            Color::from_rgba8(0, 0, 255, 255),
+        ]);
+        let premult = LinearPaint::new(
+            &base
+                .clone()
+                .with_interpolation_alpha_space(InterpolationAlphaSpace::Premultiplied),
+        )
+        .unwrap();
+        let straight = LinearPaint::new(
+            &base
+                .clone()
+                .with_interpolation_alpha_space(InterpolationAlphaSpace::Unpremultiplied),
+        )
+        .unwrap();
+        assert_eq!(premult.sample((5., 0.).into()), [0., 0., 0.5, 0.5]);
+        assert_eq!(straight.sample((5., 0.).into()), [0.25, 0., 0.25, 0.5]);
+        let mut repeated = base.clone();
+        repeated.extend = peniko::Extend::Repeat;
+        let repeated = LinearPaint::new(&repeated).unwrap();
+        assert_eq!(
+            repeated.sample((-5., 0.).into()),
+            repeated.sample((5., 0.).into())
+        );
+        let mut reflected = base;
+        reflected.extend = peniko::Extend::Reflect;
+        let reflected = LinearPaint::new(&reflected).unwrap();
+        assert_eq!(
+            reflected.sample((15., 0.).into()),
+            reflected.sample((5., 0.).into())
+        );
+    }
+    #[test]
+    fn multiple_and_duplicate_stops_preserve_hard_transitions() {
+        let gradient = Gradient::new_linear((0., 0.), (10., 0.)).with_stops([
+            (0., Color::BLACK),
+            (0.5, Color::WHITE),
+            (0.5, Color::BLACK),
+            (1., Color::WHITE),
+        ]);
+        let paint = LinearPaint::new(&gradient).unwrap();
+        assert_eq!(paint.sample((2.5, 0.).into()), [0.5, 0.5, 0.5, 1.]);
+        assert_eq!(paint.sample((5., 0.).into()), [0., 0., 0., 1.]);
+        assert_eq!(paint.sample((7.5, 0.).into()), [0.5, 0.5, 0.5, 1.]);
+    }
+    #[test]
+    fn gradient_path_cache_reuses_integer_motion_but_not_changed_stops() {
+        use kurbo::Shape;
+        let mut cache = PathCache::default();
+        let gradient =
+            Gradient::new_linear((0., 0.), (16., 0.)).with_stops([Color::BLACK, Color::WHITE]);
+        let mut scene = plico_renderer::Scene::new();
+        use plico_renderer::PaintScene;
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &gradient,
+            None,
+            &Rect::new(0., 0., 16., 16.).to_path(0.1),
+        );
+        let command = &scene.commands[0];
+        let (first, _) = cache.raster(command).unwrap().unwrap();
+        let mut moved = command.clone();
+        if let PaintCommand::Fill { transform, .. } = &mut moved {
+            *transform = Affine::translate((10., 20.));
+        }
+        let (second, _) = cache.raster(&moved).unwrap().unwrap();
+        assert_eq!(first.data.id(), second.data.id());
+        let mut changed = command.clone();
+        if let PaintCommand::Fill { brush, .. } = &mut changed {
+            *brush = Gradient::new_linear((0., 0.), (16., 0.))
+                .with_stops([Color::WHITE, Color::BLACK])
+                .into();
+        }
+        let (third, _) = cache.raster(&changed).unwrap().unwrap();
+        assert_ne!(first.data.id(), third.data.id());
+        assert_eq!(cache.entries.len(), 2);
     }
 }

@@ -50,9 +50,9 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering;
    nearest/bilinear sampling, opacity and ordered texture batches are verified.
-   Solid general paths have a tiny-skia fallback with even-odd fill, curves,
+   Solid and linear sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
-   coverage masks, while rect clips keep the fast path. Non-solid general paths,
+   coverage masks, while rect clips keep the fast path. Image/nonlinear-gradient general paths,
    filter/blend layers remain. Gaussian box shadows now use quad coverage with
    four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the
    existing public shader widget with local damage and injected time; texture

@@ -532,3 +532,20 @@ also cover straight-edge/corner alpha, symmetry, zero sigma, fractional motion,
 clipping and removal. Partial redraw must exactly match this renderer's full
 redraw for every frame. Broad-shadow GPU cost and physical-display appearance
 still need measurement; general filter/blend layers remain unsupported.
+
+## Linear gradients on general paths
+
+The bounded tiny-skia path fallback now evaluates linear sRGB brushes after
+rasterizing coverage. Multiple/duplicate stops, Pad/Repeat/Reflect extension and
+straight/premultiplied alpha interpolation are supported. Output is premultiplied
+RGBA; transparent stops retain the selected interpolation semantics. The cache
+key includes brush coordinates, stops, extension and alpha mode, with full command
+equality as a collision guard. Integer translation reuses the normalized raster;
+fractional motion and changed stops generate distinct cached results.
+
+This remains a CPU raster fallback, not a new GPU path tessellator. Pixel-center
+color sampling is multiplied by path coverage. Nonlinear gradients, non-sRGB
+interpolation, image path brushes and nonidentity brush transforms remain explicit
+errors. Analytical box gradients retain their existing narrower GPU fast path.
+Unit tests cover alpha modes, duplicate stops, extension and cache reuse. GPU tests
+cover transparent output plus fractional motion/removal against full redraw.
