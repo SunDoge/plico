@@ -19,3 +19,9 @@ is required at build or runtime. The following local code was read as reference:
 
 Pango, Cairo and gtk-rs are linked dependencies under their respective licenses;
 these attribution notes do not relicense them.
+- cairo-rs 0.22.9, MIT, `src/font/font_face.rs` (`create_from_ft`):
+  the positioned-font bridge follows its FreeType reference/user-data ownership
+  pattern, generalized to a shared font-byte owner so font collections are not
+  copied. The native wrapper is narrowly unsafe at Cairo's FFI face constructor;
+  the cloned FreeType face and shared byte owner remain attached to Cairo user
+  data. Copyright/license notices are retained in `licenses/cairo-rs-MIT.txt`.

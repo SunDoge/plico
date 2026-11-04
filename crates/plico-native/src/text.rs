@@ -4,6 +4,7 @@
 //! creating thread; returned bitmaps contain no platform objects and can be sent
 //! to the UI. Grayscale AA works on transparent surfaces without LCD fringes.
 pub mod atlas;
+pub mod positioned;
 
 use cairo::{Antialias, Context, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use lru::LruCache;
@@ -70,6 +71,12 @@ pub struct TextBitmap {
 /// Errors are explicit; a caller may fall back to its ordinary text backend.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// FreeType rejected a font resource or face index.
+    #[snafu(display("Native font loading failed: {source}"))]
+    FreeType {
+        /// Native FreeType error.
+        source: cairo::freetype::Error,
+    },
     /// The bounded glyph atlas has no room for another glyph.
     #[snafu(display("System glyph atlas is full"))]
     AtlasFull,
