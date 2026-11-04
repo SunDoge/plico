@@ -425,6 +425,14 @@ impl WindowRenderer {
         }
     }
     pub(crate) fn trim_gpu_cache(&mut self) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.trim_gpu_cache();
+        }
         #[cfg(feature = "skia")]
         if let Self::Skia {
             active: Some(renderer),

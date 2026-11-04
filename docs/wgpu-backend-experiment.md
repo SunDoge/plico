@@ -438,9 +438,8 @@ limited to 16 isolated levels and 128 MiB of requested intermediate color-pixel
 payload per frame. `layer_frame_bytes` exposes that payload; it is not total GPU
 memory and excludes driver overhead, the persistent target and in-flight frames.
 A phase-preservation fixture requests 81*56*4 = 18,144 bytes for its clipped group.
-Zero-opacity and empty groups skip GPU allocation. Intermediates are currently
-created for changed frames rather than pooled; animation throughput and allocation
-cost have not been benchmarked.
+Zero-opacity and empty groups skip GPU allocation. Intermediates now use the
+bounded texture pool described below; animation throughput still needs measurement.
 
 Before a graph containing layers submits children, it reserves the whole graph's
 conservatively visible glyph working set. Otherwise a child could recycle the atlas after its
@@ -457,3 +456,36 @@ preparing a child. The shared `scene_counter` card now uses opacity to exercise
 this path through ordinary Plico declarations at four DPI scales. The shared X11
 window card also uses group opacity; keyboard input and a mouse counter update
 were verified under Xvfb with damage enabled.
+
+
+### Recyclable layer targets and early damage selection
+
+Layer textures and their sampling view/sampler bindings now persist in a reusable pool. A matching
+size can reuse a target from an earlier frame, but never one already used in the
+current frame: its parent may still need to sample it. Every reused texture is
+cleared before drawing; this is resource reuse, not cached layer content. The
+pool retains at most 128 targets and 128 MiB of pixel payload after each frame.
+Idle sizes may remain for later frames until eviction or explicit trim. A scene
+without any layers releases the pool, and the shared shell's GPU-cache trim hook
+now releases these intermediates without invalidating the final color target.
+Driver allocation overhead and resources from queued frames are outside the pool
+payload metric.
+
+`layer_pool_stats` exposes cumulative texture creations/reuses plus retained
+entries/bytes. Tracing now records per-frame creations/reuses, pool payload and
+per-layer encoding spans, including shared Scene frames. The 24-frame validation
+with three layers and one size change creates 72 targets when explicitly trimming
+before each reference frame, versus 4 creations and 68 reuses with the pool. Every
+frame is pixel-identical to that reference. This proves fewer resource creations;
+it is not a CPU/GPU frame-time or power measurement. Command encoders, attachment
+views and some temporary draw/instance vectors are still constructed per frame;
+this is not a zero-allocation claim.
+
+Damage selection now also culls unneeded draws before text/texture preparation,
+while preserving clip/mask scope markers. The existing glyph-instance filter
+remains as a second stage. Updating only one of two separated opacity groups
+renders/reuses one intermediate instead of both, and matches a fresh full render.
+Unchanged snapshot/readback frames retain the warmed pool. Tests cover resize,
+shrinking content, distinct live nested/sibling targets, explicit trim with valid
+retained final pixels, and eventual layer removal. Layer-specific tests now live
+in `tests/layers.rs`.

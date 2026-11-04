@@ -54,7 +54,9 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    rotation and dashed strokes. Nested nonrectangular clips now use cached
    coverage masks, while rect clips keep the fast path. Non-solid general paths,
    filter/blend layers and shared shader effects remain. Isolated source-over
-   opacity groups now use cropped GPU-only intermediates with bounded depth/bytes. Bound derived caches and track resource generations.
+   opacity groups now use cropped GPU-only intermediates with bounded depth/bytes.
+   Intermediate targets are pooled, and damage skips unaffected groups before
+   texture work. Allocation counts are verified; frame-time performance is pending. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers. Single-line native input, selection and IME event geometry

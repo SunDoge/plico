@@ -22,6 +22,74 @@ struct Target {
     size: [u32; 2],
     pitch: u32,
 }
+#[cfg(feature = "paint-scene")]
+struct LayerTarget {
+    target: Target,
+    image: std::rc::Rc<crate::image::GpuImage>,
+}
+/// Cumulative layer allocation work and currently retained pool payload.
+#[cfg(feature = "paint-scene")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LayerPoolStats {
+    pub allocations: u64,
+    pub reuses: u64,
+    pub entries: usize,
+    pub retained_bytes: u64,
+}
+// Preserve scope markers while culling expensive child layers before encoding.
+// The later instance filter remains useful for glyph-level pruning.
+fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
+    let intersects = |rect: [f64; 4], clip: Option<[f32; 4]>| {
+        let [mut x0, mut y0, mut x1, mut y1] = rect;
+        if let Some([x, y, w, h]) = clip {
+            x0 = x0.max(x as f64 - 1.);
+            y0 = y0.max(y as f64 - 1.);
+            x1 = x1.min((x + w) as f64 + 1.);
+            y1 = y1.min((y + h) as f64 + 1.);
+        }
+        x1 > x0
+            && y1 > y0
+            && regions.iter().any(|&[x, y, w, h]| {
+                x0 < ((x + w) as f64) && x1 > x as f64 && y0 < ((y + h) as f64) && y1 > y as f64
+            })
+    };
+    let quad = |q: &Quad| {
+        let [x, y, w, h] = q.rect;
+        intersects(
+            [
+                x as f64 - 1.,
+                y as f64 - 1.,
+                (x + w) as f64 + 1.,
+                (y + h) as f64 + 1.,
+            ],
+            q.clip,
+        )
+    };
+    match draw {
+        crate::Draw::Quad(q) => quad(q),
+        #[cfg(feature = "paint-scene")]
+        crate::Draw::Image(image) => quad(&image.quad),
+        #[cfg(feature = "paint-scene")]
+        crate::Draw::Layer(layer) => quad(&layer.quad),
+        #[cfg(feature = "paint-scene")]
+        crate::Draw::SetMask(_) | crate::Draw::ResetMask => true,
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        crate::Draw::Text(run) => run.layout.glyphs.iter().any(|glyph| {
+            let [x, y, w, h] = glyph.ink_bounds;
+            w > 0.
+                && h > 0.
+                && intersects(
+                    [
+                        run.origin[0] + glyph.x + x - 4.,
+                        run.origin[1] + glyph.y + y - 4.,
+                        run.origin[0] + glyph.x + x + w + 4.,
+                        run.origin[1] + glyph.y + y + h + 4.,
+                    ],
+                    run.clip,
+                )
+        }),
+    }
+}
 /// Owns an independent wgpu device, a persistent render target and instance buffer.
 /// CPU readback is for experiments; it is not the future window submission path.
 pub struct Renderer {
@@ -66,6 +134,14 @@ pub struct Renderer {
     layer_depth: u8,
     #[cfg(feature = "paint-scene")]
     frame_layer_bytes: u64,
+    #[cfg(feature = "paint-scene")]
+    layer_pool: Vec<Option<LayerTarget>>,
+    #[cfg(feature = "paint-scene")]
+    layer_used: Vec<bool>,
+    #[cfg(feature = "paint-scene")]
+    layer_allocations: u64,
+    #[cfg(feature = "paint-scene")]
+    layer_reuses: u64,
     #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
@@ -225,6 +301,14 @@ impl Renderer {
             #[cfg(feature = "paint-scene")]
             frame_layer_bytes: 0,
             #[cfg(feature = "paint-scene")]
+            layer_pool: Vec::new(),
+            #[cfg(feature = "paint-scene")]
+            layer_used: Vec::new(),
+            #[cfg(feature = "paint-scene")]
+            layer_allocations: 0,
+            #[cfg(feature = "paint-scene")]
+            layer_reuses: 0,
+            #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -376,7 +460,6 @@ impl Renderer {
         let items: Vec<_> = quads.iter().map(crate::Draw::Quad).collect();
         self.render_items(&items, size, background, time)
     }
-    #[tracing::instrument(name="plico_wgpu.encode_frame",skip_all,fields(width=size[0],height=size[1],draws=items.len()))]
     fn encode_frame(
         &mut self,
         items: &[crate::Draw<'_>],
@@ -397,8 +480,30 @@ impl Renderer {
         time: f32,
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
-        self.encode_frame_at(items, size, background, time, regions, [0.; 2])
+        #[cfg(feature = "paint-scene")]
+        let unchanged = regions.is_some_and(|r| r.is_empty())
+            && self.target.as_ref().is_some_and(|t| t.size == size);
+        #[cfg(feature = "paint-scene")]
+        let counters = (self.layer_allocations, self.layer_reuses);
+        let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        #[cfg(feature = "paint-scene")]
+        if self.layer_depth == 0 && (!unchanged || result.is_err()) {
+            self.trim_idle_layers(
+                items
+                    .iter()
+                    .any(|item| matches!(item, crate::Draw::Layer(_))),
+            );
+        }
+        #[cfg(feature = "paint-scene")]
+        {
+            let stats = self.layer_pool_stats();
+            tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
+                layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,"wgpu frame resources");
+        }
+        result
     }
+    #[tracing::instrument(name="plico_wgpu.encode_frame",skip_all,fields(width=size[0],height=size[1],draws=items.len()))]
     fn encode_frame_at(
         &mut self,
         items: &[crate::Draw<'_>],
@@ -411,6 +516,8 @@ impl Renderer {
         #[cfg(feature = "paint-scene")]
         if self.layer_depth == 0 {
             self.frame_layer_bytes = 0;
+            self.layer_used.clear();
+            self.layer_used.resize(self.layer_pool.len(), false);
         }
         let limit = self.device.limits();
         let [width, height] = size;
@@ -432,6 +539,17 @@ impl Renderer {
         }
         // If the persistent target was recreated, partial preservation is impossible.
         let regions = regions.filter(|_| self.target.as_ref().is_some_and(|t| t.size == size));
+        let selected;
+        let items = if let Some(regions) = regions.filter(|regions| !regions.is_empty()) {
+            selected = items
+                .iter()
+                .copied()
+                .filter(|draw| draw_intersects(draw, regions))
+                .collect::<Vec<_>>();
+            selected.as_slice()
+        } else {
+            items
+        };
         let mut instances = if regions.is_some_and(|r| r.is_empty()) {
             Vec::new()
         } else {
@@ -1112,12 +1230,61 @@ impl Renderer {
     pub fn layer_frame_bytes(&self) -> u64 {
         self.frame_layer_bytes
     }
+    pub fn layer_pool_stats(&self) -> LayerPoolStats {
+        let mut stats = LayerPoolStats {
+            allocations: self.layer_allocations,
+            reuses: self.layer_reuses,
+            ..Default::default()
+        };
+        for entry in self.layer_pool.iter().flatten() {
+            stats.entries += 1;
+            stats.retained_bytes +=
+                u64::from(entry.target.size[0]) * u64::from(entry.target.size[1]) * 4;
+        }
+        stats
+    }
+    /// Release idle intermediate targets without invalidating retained final pixels.
+    pub fn trim_layer_pool(&mut self) {
+        self.layer_pool.clear();
+        self.layer_used.clear();
+        self.frame_images.clear();
+    }
+    fn trim_idle_layers(&mut self, keep: bool) {
+        if !keep {
+            self.layer_pool.clear();
+            self.layer_used.clear();
+            return;
+        }
+        let mut stats = self.layer_pool_stats();
+        while stats.retained_bytes > 128 * 1024 * 1024 || stats.entries > 128 {
+            let candidate = self
+                .layer_pool
+                .iter()
+                .enumerate()
+                .position(|(index, entry)| entry.is_some() && !self.layer_used[index])
+                .or_else(|| self.layer_pool.iter().position(|entry| entry.is_some()));
+            let Some(index) = candidate else { break };
+            let entry = self.layer_pool[index].take().unwrap();
+            stats.retained_bytes -=
+                u64::from(entry.target.size[0]) * u64::from(entry.target.size[1]) * 4;
+            stats.entries -= 1;
+        }
+        while self.layer_pool.last().is_some_and(|entry| entry.is_none()) {
+            self.layer_pool.pop();
+        }
+    }
     fn render_layer(
         &mut self,
         layer: &crate::scene::PreparedLayer,
     ) -> Result<std::rc::Rc<crate::image::GpuImage>> {
         let [x, y, width, height] = layer.quad.rect;
         let size = [width as u32, height as u32];
+        let _span = tracing::trace_span!(
+            "plico_wgpu.isolated_layer",
+            width = size[0],
+            height = size[1]
+        )
+        .entered();
         let bytes = u64::from(size[0]) * u64::from(size[1]) * 4;
         if self.layer_depth >= 16 || self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
             return Err(Error::InvalidInput {
@@ -1126,19 +1293,61 @@ impl Renderer {
         }
         self.frame_layer_bytes += bytes;
         self.layer_depth += 1;
+        // A texture used earlier in this frame may still be sampled by its
+        // parent. Only entries from prior frames are eligible for reuse.
+        let slot = self
+            .layer_pool
+            .iter()
+            .enumerate()
+            .position(|(index, entry)| {
+                !self.layer_used[index]
+                    && entry
+                        .as_ref()
+                        .is_some_and(|entry| entry.target.size == size)
+            })
+            .or_else(|| {
+                self.layer_pool
+                    .iter()
+                    .enumerate()
+                    .position(|(index, entry)| !self.layer_used[index] && entry.is_none())
+            })
+            .unwrap_or_else(|| {
+                self.layer_pool.push(None);
+                self.layer_used.push(false);
+                self.layer_pool.len() - 1
+            });
+        self.layer_used[slot] = true;
+        let saved = self.layer_pool[slot].take();
         let parent_target = self.target.take();
+        let cached_image = if let Some(entry) = saved {
+            self.target = Some(entry.target);
+            Some(entry.image)
+        } else {
+            None
+        };
         let parent_images = std::mem::take(&mut self.frame_images);
         let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
-        // Bindings keep the child texture alive after its temporary Target drops.
+        let mut resource = cached_image;
         let result = encoded.map(|encoder| {
-            let image = crate::image::GpuImage::from_layer(
-                &self.device,
-                &self.atlas_texture.layout,
-                &self.target.as_ref().expect("encoded layer target").texture,
-            );
+            let image = if let Some(image) = &resource {
+                self.layer_reuses += 1;
+                image.clone()
+            } else {
+                self.layer_allocations += 1;
+                let image = crate::image::GpuImage::from_layer(
+                    &self.device,
+                    &self.atlas_texture.layout,
+                    &self.target.as_ref().expect("encoded layer target").texture,
+                );
+                resource = Some(image.clone());
+                image
+            };
             self.queue.submit([encoder.finish()]);
             image
         });
+        if let (Some(target), Some(image)) = (self.target.take(), resource) {
+            self.layer_pool[slot] = Some(LayerTarget { target, image });
+        }
         self.target = parent_target;
         self.frame_images = parent_images;
         self.layer_depth -= 1;

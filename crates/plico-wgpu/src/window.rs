@@ -196,6 +196,10 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
+    /// Release recyclable layer targets; final retained pixels remain valid.
+    pub fn trim_gpu_cache(&mut self) {
+        self.renderer.trim_layer_pool();
+    }
     pub fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_scene_damage();
     }

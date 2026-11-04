@@ -23,6 +23,8 @@ mod svg;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 pub mod text;
 mod texture;
+#[cfg(feature = "paint-scene")]
+pub use renderer::LayerPoolStats;
 pub use renderer::Renderer;
 
 use snafu::Snafu;
