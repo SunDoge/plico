@@ -1999,6 +1999,8 @@ dependencies = [
  "plico-motion",
  "plico-renderer",
  "plico-shell",
+ "plico-wgpu",
+ "pollster 1.0.1",
  "serde",
  "serde_json",
  "snafu",

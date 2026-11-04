@@ -390,6 +390,21 @@ impl Adapter {
         self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
         self.anchor_motion_dirty = false;
         self.geometry_dirty = std::mem::take(&mut self.font_dirty);
+        if self.geometry_dirty {
+            // Font/provider/DPI changes can alter advances without changing
+            // Paint. Invalidate Taffy's leaf measurement cache explicitly;
+            // merely running layout again can reuse stale min/max-content sizes.
+            for node in self.nodes.values() {
+                if self
+                    .tree
+                    .get_node_context(node.id)
+                    .is_some_and(|paint| paint.text.is_some())
+                {
+                    self.tree.mark_dirty(node.id).unwrap();
+                    self.stats.text_measure_invalidations += 1;
+                }
+            }
+        }
         self.paint_dirty.clear();
         self.geometry_roots.clear();
         self.topology_roots.clear();

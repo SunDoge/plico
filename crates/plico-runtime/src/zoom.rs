@@ -110,6 +110,19 @@ impl FrameSource for ZoomSource {
         self.inner
             .render_retained_frame(scene, text, self.viewport(size), scale * self.zoom)
     }
+    fn build_and_paint(
+        &mut self,
+        scene: &mut Scene,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> (usize, f64, f64) {
+        self.sync();
+        let (width, height) = self.viewport((width, height));
+        self.inner
+            .build_and_paint(scene, text, width, height, scale * self.zoom)
+    }
     fn base_color(&self) -> peniko::Color {
         self.inner.base_color()
     }

@@ -135,6 +135,12 @@ pub trait ParagraphEngine {
     fn supports_editing(&self) -> bool {
         false
     }
+    /// Update the physical raster scale before layout, including application zoom.
+    /// Return true only when geometry-dependent caches must be invalidated.
+    /// Scale-independent providers keep the default implementation.
+    fn set_device_scale(&mut self, _scale: f64) -> bool {
+        false
+    }
     /// Stable diagnostic name.
     fn name(&self) -> &'static str;
     /// Shape, lay out and cache a complete declaration.

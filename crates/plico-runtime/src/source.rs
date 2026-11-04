@@ -730,6 +730,7 @@ impl<V: HostView> FrameSource for Source<V> {
         size: (u32, u32),
         scale: f64,
     ) -> Option<(usize, f64, f64)> {
+        tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         if let Some(now) = self.clock_instant() {
             self.prepare_frame_at(tcx, size.0, size.1, now, false);
@@ -757,6 +758,7 @@ impl<V: HostView> FrameSource for Source<V> {
         // Same frame pipeline as build_frame_at, but the scene is encoded
         // straight from the adapter's retained state: the per-node placed
         // list is never materialized for the host.
+        tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         if let Some(now) = self.clock_instant() {
             self.prepare_frame_at(tcx, width, height, now, true);

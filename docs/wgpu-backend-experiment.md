@@ -1123,3 +1123,39 @@ movement/removal damage against full redraw. Shared gradients now cover linear,
 radial and sweep kinds in sRGB through existing fast paths or bounded CPU fallback;
 non-sRGB interpolation and backend-dependent degenerate cases remain outside this
 implementation. The unsupported-command atomicity test now uses Oklab interpolation.
+
+### Real gallery coverage and application zoom correction
+
+The gallery's opt-in `wgpu` integration test now renders its twelve non-network
+pages in English and Chinese at four virtual-clock samples (96 frames), comparing
+damage replay pixel-for-pixel with an independent full renderer. Native paragraph
+errors and unintended Parley measurement fallback fail the test. The Images page
+is excluded because it initiates network IO and embeds a host image surface.
+Run locally with:
+
+```sh
+cargo test --locked -p gallery --no-default-features --features wgpu --test wgpu -- --ignored
+```
+
+A real Xvfb/X11 gallery window, with damage enabled, exposed a bug absent from
+single-scale fixtures: Ctrl+Plus produced spurious wrapping/ellipsis in sidebar
+labels. There were two causes. Native measurement used the OS scale while paint
+used OS scale times application zoom; then Taffy retained old text measurements
+even after text-provider cache generation changed. For example, a rounded width
+of 55 from the old scale could not hold the new native 55.2-wide word and wrapped.
+
+Paragraph providers can now report scale-dependent geometry changes. Frame
+construction synchronizes native measurement with the actual paint scale, and
+ZoomSource forwards its combined scale through both retained and ordinary build
+paths, including SurfaceSource. Font/provider invalidation explicitly dirties
+Taffy's text leaf measurements rather than merely rerunning cached layout.
+Scale-independent providers retain their default behavior. Stable-scale frames
+leave text cache generation unchanged.
+
+A second gallery test uses the same ZoomSource/SurfaceSource wrapper stack as the
+actual binary. It visits 100/125/150/200/100%, checks the logo stays on one line
+using independently configured native paint geometry, verifies full/damaged
+pixels, and checks warm-frame cache stability. A rebuilt real window was inspected
+at 125%: sidebar labels/logo and controls no longer wrap unexpectedly. This is
+application-zoom/X11 verification, not a physical cross-monitor DPI or real IME
+session. Generated screenshots remain local under reports/.

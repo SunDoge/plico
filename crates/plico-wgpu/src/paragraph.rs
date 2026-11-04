@@ -220,6 +220,13 @@ struct Engine {
     scale: f64,
 }
 impl ParagraphEngine for Engine {
+    fn set_device_scale(&mut self, scale: f64) -> bool {
+        if self.scale == scale || !scale.is_finite() || scale <= 0. || scale > 8. {
+            return false;
+        }
+        self.scale = scale;
+        true
+    }
     fn supports_editing(&self) -> bool {
         true
     }

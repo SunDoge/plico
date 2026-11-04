@@ -358,6 +358,23 @@ impl TextContext {
             .as_ref()
             .is_some_and(|engine| engine.supports_editing())
     }
+    /// Synchronize native measurement with the scale used for scene painting.
+    /// Scale-dependent hinting can alter logical advances; invalidate layout
+    /// caches only when the provider reports a change.
+    pub fn set_native_paragraph_scale(&mut self, scale: f64) -> bool {
+        if !scale.is_finite() || scale <= 0. {
+            return false;
+        }
+        let changed = self
+            .native
+            .as_mut()
+            .is_some_and(|engine| engine.set_device_scale(scale));
+        if changed {
+            self.clear_caches();
+            self.paragraph_revision = self.paragraph_revision.wrapping_add(1);
+        }
+        changed
+    }
     /// Lay out an ordinary text request with the selected host engine.
     pub fn native_paragraph(
         &mut self,
