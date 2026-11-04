@@ -1924,7 +1924,11 @@ mod tests {
         eprintln!("adapter: {:?}", renderer.adapter_info());
         for size in [[4096, 3072], [4095, 3071]] {
             let pixels = vec![128u8; size[0] as usize * size[1] as usize * 4];
-            for cpu in [true, false] {
+            for (mode, cpu, mipmaps) in [
+                ("base-only", false, false),
+                ("cpu-mips", true, true),
+                ("gpu-mips", false, true),
+            ] {
                 renderer.trim_image_cache();
                 // Reset the test override and pipeline outside the measured interval.
                 renderer.images = Default::default();
@@ -1955,7 +1959,7 @@ mod tests {
                             crate::image::ImageSampling {
                                 quality: peniko::ImageQuality::High,
                                 extend: [peniko::Extend::Pad; 2],
-                                mipmaps: true,
+                                mipmaps,
                             },
                         )
                         .unwrap();
@@ -1971,7 +1975,7 @@ mod tests {
                     std::hint::black_box(image);
                     if index == 0 {
                         eprintln!(
-                            "{size:?} cpu_mips={cpu} first: cpu={cpu_time:?}, subsequent_wait={gpu_wait:?}"
+                            "{size:?} mode={mode} first: cpu={cpu_time:?}, subsequent_wait={gpu_wait:?}"
                         );
                     } else {
                         samples.push((cpu_time, gpu_wait));
@@ -1981,7 +1985,7 @@ mod tests {
                 let mut waits: Vec<_> = samples.iter().map(|sample| sample.1).collect();
                 waits.sort();
                 eprintln!(
-                    "{size:?} cpu_mips={cpu} warm n=6: cpu_upper_median={:?}, wait_upper_median={:?}",
+                    "{size:?} mode={mode} warm n=6: cpu_upper_median={:?}, wait_upper_median={:?}",
                     samples[3].0, waits[3]
                 );
             }

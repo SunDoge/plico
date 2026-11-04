@@ -198,3 +198,24 @@ API boundary, not GPU shader execution duration or proof of a driver defect.
 Staging, driver work and synchronization inside that boundary remain unresolved.
 Do not sum nested span times or separate medians. No upload-speedup claim follows
 from adding instrumentation.
+
+### Base-level upload control
+
+The manual upload profile now includes `base-only`, `cpu-mips`, and `gpu-mips`
+under the same source/queue timing protocol. A subsequent dev run on Intel/Mesa
+reported CPU upper medians (six post-first samples):
+
+| Source | Base only | CPU mips | GPU mips |
+|---|---:|---:|---:|
+| 4096×3072 | 33.100 ms | 42.366 ms | 33.483 ms |
+| 4095×3071 | 31.474 ms | 112.442 ms | 33.885 ms |
+
+Base-only excludes both mip compute and its pipeline, so the long CPU upload
+interval does not require mip generation. GPU mips eliminate most odd-size CPU
+prefilter cost in this experiment, while the remaining large-image staging/submit
+cost needs separate investigation. Base-only and mip modes have different resident
+texture payloads and LRU behavior; these small sample differences are not an
+isolated marginal GPU-mip cost. Subsequent waits also differ and are reported by
+the harness. An explicit staging-buffer comparison is a reasonable next control;
+these results alone do not justify changing render scheduling or blaming the GPU
+shader. No production behavior changed in this diagnostic extension.
