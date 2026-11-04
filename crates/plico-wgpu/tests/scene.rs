@@ -1460,3 +1460,56 @@ fn fractional_text_damage_matches_full_replay_at_phase_and_clip_boundaries() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn raster_trim_releases_local_snapshots_and_rebuilds_identical_pixels() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let svg = plico_renderer::svg::SvgImage::parse(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#2590cc"/></svg>"##,
+    ).unwrap();
+    let mut scene = Scene::new();
+    scene.push_clip_layer(Affine::IDENTITY, &Circle::new((25., 25.), 22.));
+    scene.push_clip_layer(Affine::IDENTITY, &Circle::new((30., 25.), 20.));
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        PaintColor::from_rgb8(220, 30, 60),
+        None,
+        &Circle::new((26., 26.), 18.),
+    );
+    scene.draw_svg(svg.document().clone(), Affine::translate((12., 12.)));
+    scene.pop_layer();
+    scene.pop_layer();
+    let original = renderer
+        .render_scene(&scene, [64, 64], [1.; 4], true)
+        .unwrap();
+    assert!(
+        renderer
+            .raster_cache_stats()
+            .iter()
+            .all(|&(entries, bytes)| entries > 0 && bytes > 0)
+    );
+    let prepared = renderer.scene_prepare_stats().0;
+    renderer.trim_raster_cache();
+    renderer.trim_image_cache();
+    assert_eq!(renderer.raster_cache_stats(), [(0, 0); 3]);
+    let actual = renderer
+        .render_scene(&scene, [64, 64], [1.; 4], true)
+        .unwrap();
+    assert_eq!(actual, original);
+    assert_eq!(renderer.scene_prepare_stats().0, prepared + 1);
+    assert!(
+        renderer
+            .raster_cache_stats()
+            .iter()
+            .all(|&(entries, bytes)| entries > 0 && bytes > 0)
+    );
+    renderer.invalidate_scene_damage();
+    assert_eq!(
+        renderer
+            .render_scene(&scene, [64, 64], [1.; 4], true)
+            .unwrap(),
+        original
+    );
+}

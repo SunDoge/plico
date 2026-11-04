@@ -213,9 +213,10 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
-    /// Release derived image, layer, effect and native text caches. Final pixels remain
+    /// Release derived raster, image, layer, effect and native text caches. Final pixels remain
     /// intact; text trimming forces the next frame to rebuild its atlas safely.
     pub fn trim_gpu_cache(&mut self) {
+        self.renderer.trim_raster_cache();
         self.renderer.trim_image_cache();
         self.renderer.trim_layer_pool();
         self.renderer.trim_effect_cache();

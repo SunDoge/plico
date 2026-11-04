@@ -79,3 +79,11 @@ GPU 像素测试覆盖稳定目标的内容更新、目标尺寸变化，以及 
 GPU 测试验证 trim 后静态画面无需重传，随后图片移动会重新上传并与全量重绘一致。
 统计归零表示 renderer 已释放引用，驱动仍可能为在途提交暂留资源，不能等同于 RSS
 立即下降。
+
+`Renderer::raster_cache_stats()` 另提供 path/SVG/clip-mask 三组 CPU 缓存的
+`(entries, payload_bytes)`。`trim_raster_cache()` 清理这些缓存并丢弃 renderer
+本地 prepared snapshot，避免后者继续持有相同光栅数据；窗口 trim 已接入。
+外部调用方仍持有的 prepared snapshot 和应用源资源不在此释放范围。
+嵌套圆形裁剪＋路径＋SVG 的 GPU 测试验证三类缓存归零、后续重新准备，以及
+强制完整绘制后的像素一致性。trim 可能将光栅工作推迟到下一次 scene preparation，
+因此它是内存回收入口，不应每帧调用。

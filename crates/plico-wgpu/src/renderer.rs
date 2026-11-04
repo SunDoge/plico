@@ -1480,6 +1480,19 @@ impl Renderer {
 
 #[cfg(feature = "paint-scene")]
 impl Renderer {
+    /// CPU raster cache entries and payload bytes, in path/SVG/clip-mask order.
+    /// Excludes scene-owned source assets and externally retained prepared scenes.
+    pub fn raster_cache_stats(&self) -> [(usize, usize); 3] {
+        [self.paths.stats(), self.svgs.stats(), self.masks.stats()]
+    }
+    /// Release CPU path/SVG/clip rasters and the local prepared-scene snapshot.
+    /// Retained final pixels remain valid; subsequent changes rebuild derived data.
+    pub fn trim_raster_cache(&mut self) {
+        self.prepared_cache = None;
+        self.paths = Default::default();
+        self.svgs = Default::default();
+        self.masks = Default::default();
+    }
     /// Release immutable-image GPU textures and bindings, preserving cumulative
     /// counters and retained final pixels. Source images remain owned by the scene.
     pub fn trim_image_cache(&mut self) {

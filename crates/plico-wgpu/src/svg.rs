@@ -21,6 +21,9 @@ impl Default for SvgCache {
     }
 }
 impl SvgCache {
+    pub fn stats(&self) -> (usize, usize) {
+        (self.entries.len(), self.bytes)
+    }
     pub fn raster(&mut self, document: &SvgDocument, scale: f64) -> Result<ImageData> {
         let size = document.0.size();
         let width = (size.width() as f64 * scale).ceil();

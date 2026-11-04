@@ -31,6 +31,9 @@ impl Default for MaskCache {
     }
 }
 impl MaskCache {
+    pub fn stats(&self) -> (usize, usize) {
+        (self.entries.len(), self.bytes)
+    }
     pub fn intersect(
         &mut self,
         image: ImageData,

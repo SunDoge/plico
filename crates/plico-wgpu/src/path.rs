@@ -38,6 +38,9 @@ fn unsupported(reason: &str) -> Error {
     }
 }
 impl PathCache {
+    pub fn stats(&self) -> (usize, usize) {
+        (self.entries.len(), self.bytes)
+    }
     pub fn raster(&mut self, command: &PaintCommand) -> Result<Option<(ImageData, Rect)>> {
         let (shape, transform, brush, brush_transform, stroke) = match command {
             PaintCommand::Fill {
