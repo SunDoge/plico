@@ -7,21 +7,31 @@ publish = false
 description = "Experimental instanced-quad wgpu renderer for Plico"
 
 [features]
-default = ["system-text"]
+default = ["system-text", "paint-scene"]
 system-text = ["dep:plico-native"]
+window = ["paint-scene", "dep:winit", "dep:raw-window-handle"]
+paint-scene = ["dep:plico-renderer", "dep:kurbo", "dep:peniko"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
 
 [dependencies]
+winit = {workspace=true,optional=true}
+raw-window-handle = {version="0.6",optional=true}
+plico-renderer = {workspace=true,optional=true}
+kurbo = {workspace=true,optional=true}
+peniko = {workspace=true,optional=true}
 wgpu.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 naga.workspace = true
 snafu.workspace = true
 tracing.workspace = true
 pollster = "1.0"
+lru = "0.19.0"
 
 [dev-dependencies]
+plico.workspace = true
+plico-runtime.workspace = true
 winit.workspace = true
 raw-window-handle = "0.6"
 plico-renderer.workspace = true

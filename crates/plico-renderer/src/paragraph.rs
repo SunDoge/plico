@@ -116,12 +116,22 @@ pub trait NativeParagraph {
     /// Selection rectangles for a UTF-8 byte range.
     fn selection_rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]>;
 }
+/// Native text providers report rejected declarations instead of inventing metrics.
+#[derive(Clone, Debug, snafu::Snafu)]
+#[snafu(display("native paragraph rejected: {message}"))]
+pub struct ParagraphError {
+    /// Backend explanation, without logging document contents.
+    pub message: String,
+}
 /// Installed by a host; renderer-neutral crates do not depend on Skia.
 pub trait ParagraphEngine {
     /// Stable diagnostic name.
     fn name(&self) -> &'static str;
     /// Shape, lay out and cache a complete declaration.
-    fn layout(&mut self, request: Arc<ParagraphRequest>) -> Rc<dyn NativeParagraph>;
+    fn layout(
+        &mut self,
+        request: Arc<ParagraphRequest>,
+    ) -> Result<Rc<dyn NativeParagraph>, ParagraphError>;
     /// Register an application font before layout.
     fn register_font(&mut self, asset: &FontAsset);
     /// Release derived paragraph caches.

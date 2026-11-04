@@ -31,6 +31,7 @@ plico-skia = { path = "../plico-skia", optional = true, features = ["raster"] }
 [features]
 skia = ["plico-shell/skia", "dep:plico-skia", "dep:image"]
 vello = ["plico-shell/vello"]
+wgpu = ["plico-shell/wgpu"]
 default = ["skia"]
 profiling = [
     "plico-runtime/profiling",
@@ -49,3 +50,7 @@ required-features = ["skia"]
 [[example]]
 name = "flatten_profile"
 required-features = ["profiling"]
+
+[[example]]
+name="wgpu-window"
+required-features=["wgpu"]

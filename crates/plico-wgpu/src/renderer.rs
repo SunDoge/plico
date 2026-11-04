@@ -12,6 +12,8 @@ struct Instance {
     config: [f32; 4],
     clip: [f32; 4],
     uv: [f32; 4],
+    gradient: [f32; 4],
+    clip_params: [f32; 4],
 }
 struct Target {
     texture: wgpu::Texture,
@@ -31,11 +33,24 @@ pub struct Renderer {
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
     pipeline: Option<wgpu::RenderPipeline>,
+    clear_pipeline: wgpu::RenderPipeline,
     source: String,
     target: Option<Target>,
     instances: wgpu::Buffer,
     capacity: usize,
     compilations: usize,
+    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) prepared_cache: Option<([u32; 2], std::rc::Rc<crate::scene::PreparedScene>)>,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) scene_preparations: u64,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) scene_cache_hits: u64,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) scene_damage: plico_renderer::damage::SceneDamageTracker,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) scene_background: Option<[f32; 4]>,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     atlas: Option<plico_native::text::atlas::Atlas>,
@@ -47,9 +62,7 @@ impl Renderer {
         // Share the backend instance across default renderers. Besides avoiding
         // repeated backend discovery, this serializes Vulkan-loader startup.
         static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
-        let instance = INSTANCE.get_or_init(|| {
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env())
-        });
+        let instance = INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()));
         Self::new_compatible(instance, None).await
     }
     /// Select an adapter compatible with the window surface before allocating resources.
@@ -87,10 +100,44 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(16),
+                    min_binding_size: wgpu::BufferSize::new(32),
                 },
                 count: None,
             }],
+        });
+        let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Plico damaged region replacement"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("clear.wgsl").into()),
+        });
+        let clear_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&group)],
+            immediate_size: 0,
+        });
+        let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Plico replace background"),
+            layout: Some(&clear_layout),
+            vertex: wgpu::VertexState {
+                module: &clear_shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &clear_shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
         });
         let atlas_texture = crate::texture::AtlasTexture::new(&device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -100,7 +147,7 @@ impl Renderer {
         });
         let frame = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad frame"),
-            size: 16,
+            size: 32,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -124,11 +171,24 @@ impl Renderer {
             frame,
             bind,
             pipeline: None,
+            clear_pipeline,
             source: String::new(),
             target: None,
             instances,
             capacity,
             compilations: 0,
+            #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+            paragraphs: None,
+            #[cfg(feature = "paint-scene")]
+            prepared_cache: None,
+            #[cfg(feature = "paint-scene")]
+            scene_preparations: 0,
+            #[cfg(feature = "paint-scene")]
+            scene_cache_hits: 0,
+            #[cfg(feature = "paint-scene")]
+            scene_damage: Default::default(),
+            #[cfg(feature = "paint-scene")]
+            scene_background: None,
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             atlas: None,
@@ -189,7 +249,7 @@ impl Renderer {
                 label: Some("Plico quad material"),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
-        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4];
+        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4];
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -287,6 +347,19 @@ impl Renderer {
         background: [f32; 4],
         time: f32,
     ) -> Result<wgpu::CommandEncoder> {
+        #[cfg(feature = "paint-scene")]
+        self.scene_damage.invalidate();
+        self.encode_frame_regions(items, size, background, time, None)
+    }
+
+    pub(crate) fn encode_frame_regions(
+        &mut self,
+        items: &[crate::Draw<'_>],
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+        regions: Option<&[[u32; 4]]>,
+    ) -> Result<wgpu::CommandEncoder> {
         let limit = self.device.limits();
         let [width, height] = size;
         let pitch = u64::from(width).saturating_mul(4).div_ceil(256) * 256;
@@ -305,7 +378,24 @@ impl Renderer {
                 reason: "frame exceeds GPU limits or contains invalid size/time/color".into(),
             });
         }
-        let instances = self.prepare_instances(items, size)?;
+        // If the persistent target was recreated, partial preservation is impossible.
+        let regions = regions.filter(|_| self.target.as_ref().is_some_and(|t| t.size == size));
+        let mut instances = if regions.is_some_and(|r| r.is_empty()) {
+            Vec::new()
+        } else {
+            self.prepare_instances(items, size)?
+        };
+        if let Some(regions) = regions {
+            instances.retain(|instance| {
+                let [x, y, w, h] = instance.rect;
+                regions.iter().any(|&[rx, ry, rw, rh]| {
+                    x - 1. < (rx + rw) as f32
+                        && x + w + 1. > rx as f32
+                        && y - 1. < (ry + rh) as f32
+                        && y + h + 1. > ry as f32
+                })
+            });
+        }
         tracing::trace!(instances = instances.len(), "prepared ordered instances");
         if instances.len() > 1_000_000
             || (instances.len().max(1).next_power_of_two() * std::mem::size_of::<Instance>()) as u64
@@ -326,7 +416,16 @@ impl Renderer {
         self.queue.write_buffer(
             &self.frame,
             0,
-            bytemuck::cast_slice(&[width as f32, height as f32, time, 1.]),
+            bytemuck::cast_slice(&[
+                width as f32,
+                height as f32,
+                time,
+                1.,
+                background[0] * background[3],
+                background[1] * background[3],
+                background[2] * background[3],
+                background[3],
+            ]),
         );
         self.target(size);
         let target = self.target.as_ref().expect("target just created");
@@ -340,26 +439,41 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(background[0] * background[3]),
-                            g: f64::from(background[1] * background[3]),
-                            b: f64::from(background[2] * background[3]),
-                            a: f64::from(background[3]),
-                        }),
+                        load: if regions.is_some() {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(wgpu::Color {
+                                r: f64::from(background[0] * background[3]),
+                                g: f64::from(background[1] * background[3]),
+                                b: f64::from(background[2] * background[3]),
+                                a: f64::from(background[3]),
+                            })
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(
-                self.pipeline
-                    .as_ref()
-                    .expect("constructor installs pipeline"),
-            );
-            pass.set_bind_group(0, &self.bind, &[]);
-            pass.set_bind_group(1, &self.atlas_texture.bind, &[]);
-            pass.set_vertex_buffer(0, self.instances.slice(..));
-            pass.draw(0..6, 0..instances.len() as u32);
+            let full = [[0, 0, width, height]];
+            for &[x, y, w, h] in regions.unwrap_or(&full) {
+                pass.set_scissor_rect(x, y, w, h);
+                if regions.is_some() {
+                    // Replacement, not source-over: transparent backgrounds must
+                    // erase old pixels before replaying overlapping contributors.
+                    pass.set_pipeline(&self.clear_pipeline);
+                    pass.set_bind_group(0, &self.bind, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+                pass.set_pipeline(
+                    self.pipeline
+                        .as_ref()
+                        .expect("constructor installs pipeline"),
+                );
+                pass.set_bind_group(0, &self.bind, &[]);
+                pass.set_bind_group(1, &self.atlas_texture.bind, &[]);
+                pass.set_vertex_buffer(0, self.instances.slice(..));
+                pass.draw(0..6, 0..instances.len() as u32);
+            }
         }
         Ok(encoder)
     }
@@ -371,7 +485,14 @@ impl Renderer {
         background: [f32; 4],
         time: f32,
     ) -> Result<Vec<u8>> {
-        let mut encoder = self.encode_frame(items, size, background, time)?;
+        let encoder = self.encode_frame(items, size, background, time)?;
+        self.read_frame(encoder, size)
+    }
+    pub(crate) fn read_frame(
+        &mut self,
+        mut encoder: wgpu::CommandEncoder,
+        size: [u32; 2],
+    ) -> Result<Vec<u8>> {
         let [width, height] = size;
         let target = self.target.as_mut().expect("encode_frame created target");
         let readback = target.readback.get_or_insert_with(|| {
@@ -490,6 +611,13 @@ impl Renderer {
                         ],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: [0.; 4],
+                        gradient: q.gradient,
+                        clip_params: [
+                            if q.clip_antialias { 1. } else { 0. },
+                            if q.gradient_premultiplied { 1. } else { 0. },
+                            0.,
+                            0.,
+                        ],
                     });
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -602,6 +730,8 @@ impl Renderer {
                 border: [0.; 4],
                 config: [0., 0., if entry.colored { 3. } else { 2. }, 0.],
                 clip,
+                gradient: [0.; 4],
+                clip_params: [if run.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                 uv: [
                     ax as f32 / side,
                     ay as f32 / side,
@@ -680,7 +810,26 @@ impl Renderer {
                 reason: "unsupported present target format".into(),
             });
         }
-        let mut encoder = self.encode_frame(items, size, background, time)?;
+        let encoder = self.encode_frame(items, size, background, time)?;
+        self.submit_to_view(encoder, destination, format)
+    }
+    pub(crate) fn submit_to_view(
+        &mut self,
+        mut encoder: wgpu::CommandEncoder,
+        destination: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> Result<()> {
+        if !matches!(
+            format,
+            wgpu::TextureFormat::Rgba8Unorm
+                | wgpu::TextureFormat::Rgba8UnormSrgb
+                | wgpu::TextureFormat::Bgra8Unorm
+                | wgpu::TextureFormat::Bgra8UnormSrgb
+        ) {
+            return Err(Error::InvalidInput {
+                reason: "unsupported present target format".into(),
+            });
+        }
         if self.blitter.as_ref().is_none_or(|b| b.format != format) {
             self.blitter = Some(crate::blit::Blitter::new(&self.device, format));
         }
@@ -709,6 +858,50 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn scene_present_skip_requires_valid_retained_target() {
+        use plico_renderer::Scene;
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 32,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let scene = Scene::new();
+        let draw = |renderer: &mut Renderer, background| {
+            renderer
+                .render_scene_to_view(
+                    &scene,
+                    [32, 32],
+                    background,
+                    true,
+                    &view,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                )
+                .unwrap()
+        };
+        assert!(draw(&mut renderer, [0.; 4]));
+        assert!(!draw(&mut renderer, [0.; 4]));
+        renderer.invalidate_scene_damage();
+        assert!(draw(&mut renderer, [0.; 4]));
+        assert!(draw(&mut renderer, [1.; 4]));
+        renderer.render_items(&[], [32, 32], [0.; 4], 0.).unwrap();
+        assert!(draw(&mut renderer, [1.; 4]));
+        assert!(!draw(&mut renderer, [1.; 4]));
+    }
+
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn gpu_present_preserves_encoded_pixels_on_unorm_and_srgb_targets() {

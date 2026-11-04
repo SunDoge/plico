@@ -4,6 +4,14 @@
 //! implementation. It deliberately has no Vello dependency in its rendering path.
 mod blit;
 mod renderer;
+#[cfg(feature = "window")]
+mod window;
+#[cfg(feature = "window")]
+pub use window::WgpuWindow;
+#[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+mod paragraph;
+#[cfg(feature = "paint-scene")]
+pub mod scene;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 pub mod text;
 mod texture;
@@ -14,6 +22,15 @@ use snafu::Snafu;
 /// Errors are returned rather than silently omitting unsupported/invalid input.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("window surface failed: {message}"))]
+    Surface { message: String },
+    #[cfg(feature = "paint-scene")]
+    #[snafu(display("paragraph preparation failed: {source}"))]
+    Paragraph {
+        source: plico_renderer::paragraph::ParagraphError,
+    },
+    #[snafu(display("unsupported paint command {command}: {reason}"))]
+    Unsupported { command: usize, reason: String },
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     #[snafu(display("system glyph processing failed: {source}"))]
     Text { source: plico_native::text::Error },
@@ -44,8 +61,14 @@ pub struct Quad {
     pub border_color: [f32; 4],
     /// Top and bottom gradient colors; equal colors produce a solid fill.
     pub colors: [[f32; 4]; 2],
+    /// Gradient start/end in normalized rectangle coordinates.
+    pub gradient: [f32; 4],
+    /// Interpolate colors premultiplied (CSS); false preserves Canvas-style straight interpolation.
+    pub gradient_premultiplied: bool,
     /// Optional hard clip: x, y, width, height.
     pub clip: Option<[f32; 4]>,
+    /// Apply pixel-area coverage at fractional clip edges instead of a hard scissor.
+    pub clip_antialias: bool,
     /// Use the installed WGSL material instead of the built-in vertical gradient.
     pub material: bool,
     /// Scalar passed to the installed material (e.g. progress).
@@ -59,7 +82,10 @@ impl Quad {
             border_width: 0.,
             border_color: [0.; 4],
             colors: [color; 2],
+            gradient: [0., 0., 0., 1.],
+            gradient_premultiplied: false,
             clip: None,
+            clip_antialias: false,
             material: false,
             parameter: 0.,
         }
@@ -73,6 +99,7 @@ impl Quad {
             || self.radius < 0.
             || !self.border_width.is_finite()
             || self.border_width < 0.
+            || !self.gradient.iter().all(|v| v.is_finite())
             || !self.parameter.is_finite()
             || !self.colors.into_iter().all(valid_color)
             || !valid_color(self.border_color)
@@ -96,4 +123,13 @@ pub enum Draw<'a> {
     Quad(&'a Quad),
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text(text::TextRun<'a>),
+}
+
+// Prefer native primary APIs. Creating an unused EGL backend in a headless,
+// multithreaded process can bind a thread-owned context and fail with BadAccess.
+// WGPU_BACKEND still permits an explicit legacy-GL override for experiments.
+pub(crate) fn instance_descriptor() -> wgpu::InstanceDescriptor {
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = wgpu::Backends::PRIMARY;
+    descriptor.with_env()
 }

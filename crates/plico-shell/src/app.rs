@@ -312,12 +312,20 @@ impl App {
     /// Build one frame into `shell.scene` from the source. Returns
     /// `(node_count, build_frame_ms, scene_ms)` so the caller can fold the
     /// timings (plus its own present timing) into the EMA perf stats.
-    fn build(shell: &mut Shell, source: &mut dyn FrameSource, parent: u64) -> (usize, f64, f64) {
+    fn build(
+        shell: &mut Shell,
+        source: &mut dyn FrameSource,
+        parent: u64,
+    ) -> crate::Result<(usize, f64, f64)> {
+        shell.renderer.configure_text(&mut shell.tcx)?;
         let (w, h) = shell.logical_size();
         let scale = shell.scale_factor();
         source.set_device_scale(scale);
         if let Some(timings) = shell.renderer.build_native(source, [w, h], scale) {
-            return timings;
+            return match shell.tcx.take_native_paragraph_error() {
+                None => Ok(timings),
+                Some(message) => Err(crate::Error::Renderer { message }),
+            };
         }
         let retained = {
             #[cfg(feature = "profiling")]
@@ -329,7 +337,10 @@ impl App {
             source.render_retained_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
         };
         if let Some(timings) = retained {
-            return timings;
+            return match shell.tcx.take_native_paragraph_error() {
+                None => Ok(timings),
+                Some(message) => Err(crate::Error::Renderer { message }),
+            };
         }
         let (node_count, build_frame_ms, scene_ms) = {
             #[cfg(feature = "profiling")]
@@ -340,7 +351,10 @@ impl App {
             phase.attribute("parent", parent);
             source.build_and_paint(&mut shell.scene, &mut shell.tcx, w, h, scale)
         };
-        (node_count, build_frame_ms, scene_ms)
+        if let Some(message) = shell.tcx.take_native_paragraph_error() {
+            return Err(crate::Error::Renderer { message });
+        }
+        Ok((node_count, build_frame_ms, scene_ms))
     }
 
     fn route_event(&mut self, event: UiEvent) -> EventResponse {
@@ -879,7 +893,17 @@ impl App {
             self.source.handle_semantic_action(action);
         }
         let (node_count, build_frame_ms, scene_ms) =
-            Self::build(shell, self.source.as_mut(), frame_measurement.id());
+            match Self::build(shell, self.source.as_mut(), frame_measurement.id()) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    crate::telemetry::report_error("frame construction rejected", &error);
+                    if let Some(request) = self.source.take_screenshot_request() {
+                        self.source
+                            .complete_screenshot(&request.path, Err(error.to_string()));
+                    }
+                    return;
+                }
+            };
         let base_color = self.source.base_color();
         self.update_ime_state();
         // Immediate views may produce actions while consuming events during build.
@@ -905,16 +929,14 @@ impl App {
         let base_color = shell.prepare_window_frame(base_color);
         if let Some(mut request) = self.source.take_screenshot_request() {
             let (width, height) = shell.size();
-            let result = crate::renderer::render_to_png_file(
-                &shell.scene,
-                width,
-                height,
-                base_color,
-                &mut request.file,
-                &request.path,
-            )
-            .map(|_| request.path.clone())
-            .map_err(|error| error.to_string());
+            let result = shell
+                .renderer
+                .capture(&shell.scene, width, height, base_color)
+                .and_then(|image| {
+                    crate::renderer::write_png_file(&image, &mut request.file, &request.path)
+                })
+                .map(|_| request.path.clone())
+                .map_err(|error| error.to_string());
             drop(request.file);
             self.source.complete_screenshot(&request.path, result);
         }
@@ -1608,17 +1630,14 @@ impl ExtensionContext<'_> {
         let base_color = app.source.base_color();
         let shell = app
             .state
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "native window has no render surface".to_owned())?;
         let (width, height) = shell.size();
-        crate::renderer::render_to_png(
-            &shell.scene,
-            width,
-            height,
-            base_color,
-            &path.to_string_lossy(),
-        )
-        .map_err(|error| error.to_string())
+        shell
+            .renderer
+            .capture(&shell.scene, width, height, base_color)
+            .and_then(|image| crate::renderer::save_png(&image, &path.to_string_lossy()))
+            .map_err(|error| error.to_string())
     }
 
     /// Return the latest logical and physical metrics for a visible window.

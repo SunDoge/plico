@@ -145,3 +145,78 @@ fn glyph_layout_geometry_preserves_utf8_utf16_and_dpi_boundaries() {
         assert!(layout.ime_candidate_rect(end, Some(2..end)).is_none());
     }
 }
+
+#[test]
+fn native_layout_options_align_space_and_ellipsize_at_the_target_scale() {
+    use plico_native::text::atlas::{Alignment, LayoutContext, LayoutOptions};
+    let context = LayoutContext::new().unwrap();
+    for scale in [1., 1.25, 2.] {
+        let mut request = TextRequest::new("Small aligned text");
+        request.size = 16.;
+        request.scale = scale;
+        request.width = Some(240.);
+        let start = context.layout(&request).unwrap();
+        let center = context
+            .layout_styled(
+                &request,
+                LayoutOptions {
+                    alignment: Alignment::Center,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(center.glyphs[0].x > start.glyphs[0].x + 20. * scale);
+        let spaced = context
+            .layout_styled(
+                &request,
+                LayoutOptions {
+                    letter_spacing: 2.,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(spaced.intrinsic_widths()[1] > start.intrinsic_widths()[1] + 10.);
+        request.text = "one\ntwo";
+        let tall = context
+            .layout_styled(
+                &request,
+                LayoutOptions {
+                    line_height: Some(32.),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            (tall.logical_size[1] - 64.).abs() < 1.1,
+            "line height at {scale}: {:?}",
+            tall.logical_size
+        );
+        request.text = "A long label that needs truncation";
+        request.width = Some(60.);
+        let ellipsis = context
+            .layout_styled(
+                &request,
+                LayoutOptions {
+                    ellipsis: true,
+                    max_lines: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(ellipsis.line_metrics().len(), 1);
+        assert!(ellipsis.intrinsic_widths()[1] > ellipsis.logical_size[0]);
+        request.width = Some(0.);
+        assert!(context.layout(&request).is_ok());
+        assert!(
+            context
+                .layout_styled(
+                    &request,
+                    LayoutOptions {
+                        letter_spacing: f64::NAN,
+                        ..Default::default()
+                    }
+                )
+                .is_err()
+        );
+    }
+}

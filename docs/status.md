@@ -128,6 +128,9 @@ clear probe passes, while its normal window renderer remains unchanged. See
 inside borders, hard rectangular clips and runtime-loaded WGSL materials. The
 headless example compares identical quad inputs against Vello at four scales.
 It also supports Linux Pango/Cairo text, ordered shape/text draws, bounded glyph
-cache recycling and a GPU-only winit window demo. It is not yet a full paint-scene
-or integrated desktop backend; Windows text and actual editor/IME bridging remain
-unfinished. See [experiment and verification](wgpu-backend-experiment.md).
+cache recycling and a GPU-only winit window demo. It supports analytical shared paint and an optional `plico-desktop/wgpu` host path.
+Optional shared-scene damage replay (`PLICO_WGPU_DAMAGE=1`) preserves its color
+target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
+window exercise pass. Performance and physical-display verification remain pending.
+It is not yet a full paint-scene backend: images/SVG, general paths, complex clips,
+Windows text and actual editor/IME bridging remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).

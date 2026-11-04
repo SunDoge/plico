@@ -503,6 +503,15 @@ mod contracts {
     }
 }
 
+/// Preserve renderer diagnostics even when an application installs no subscriber.
+pub(crate) fn report_error(context: &'static str, error: &impl std::fmt::Display) {
+    if tracing::dispatcher::has_been_set() {
+        tracing::error!(%error,context);
+    } else {
+        eprintln!("{context}: {error}");
+    }
+}
+
 #[cfg(all(test, feature = "profiling"))]
 mod tracing_setup {
     use super::*;

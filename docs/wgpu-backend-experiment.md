@@ -4,13 +4,14 @@
 rectangles with circular rounded corners, vertical two-color gradients, uniform
 inside borders, hard rectangular clips and painter-order alpha compositing.
 These are supplied as typed `Quad` primitives. System text and a real-window demo
-were added in the milestone below. It is **not yet an integrated Plico desktop renderer
-or an implementation of the full `plico_renderer::Scene` contract**.
+were added in the milestone below. The shared-paint/desktop milestone below integrates a supported subset;
+it is **not yet an implementation of the full `plico_renderer::Scene` contract**.
 
 Base dependencies are wgpu, Naga, bytemuck, Snafu, tracing and pollster.
-Linux system text additionally uses the optional `plico-native` Pango/Cairo provider. Neither Vello nor
-Plico's existing renderer is on its normal rendering dependency path. Vello and
-`plico-renderer` are development dependencies for the comparison example only.
+Linux system text additionally uses the optional `plico-native` Pango/Cairo provider
+(Pango >= 1.50). The independent quad core does not invoke Vello. The default `paint-scene` bridge
+now depends on `plico-renderer` and its legacy transitive dependencies; see below.
+The Vello window consumer itself remains a comparison-only development dependency.
 The [system text experiment](system-text-wgpu.md) supplied the atlas now reused by
 the optional text provider.
 
@@ -156,8 +157,8 @@ Window rendering uses `new_for_surface` to choose a compatible adapter and
 wait on the CPU. Readback buffers are allocated lazily only for screenshot calls.
 A pixel-exact fullscreen copy handles RGBA/BGRA and UNORM/sRGB surface formats;
 GPU tests verify that format changes do not accidentally change encoded text/color
-values. The implementation retains a full offscreen color target and redraws it;
-damage is not enabled yet.
+values. The raw draw API fully redraws its retained offscreen color target; the
+shared Scene path now has optional damage replay (see below).
 
 The atlas has fixed 16 MiB CPU and 16 MiB GPU storage. Only new glyph rectangles
 are uploaded. Empty/off-clip glyphs are culled before rasterization. If storage
@@ -206,3 +207,95 @@ Linux builds with `system-text` require Pango/Cairo development libraries; minim
 quad-only builds may disable default features. Windows/CoreText text providers,
 full Plico scene replay, actual editor/IME integration, images and damage remain
 unfinished. The renderer cannot yet replace Vello for arbitrary Plico apps.
+
+## Shared paint and desktop host milestone
+
+The `paint-scene` feature (default) now consumes the real shared `Scene` stream.
+Supported commands are analytical rectangle/rounded-rectangle fills and solid
+strokes, sRGB two-stop linear gradients, nested rectangular clips, retained
+fragments and ordinary native paragraphs. Positive uniform scale and translation
+are supported. Fractional clip edges use pixel-area AA. Gradients preserve
+Peniko's premultiplied versus straight interpolation choice, including alpha fades.
+
+The recorder retains a `PaintShape`: exact source Kurbo primitives plus the
+unchanged compatible Bezier path. Skia/Vello still receive that path; wgpu never
+tries to identify a rectangle by heuristically decoding arbitrary curves.
+
+Native paragraphs use one bounded cache for measurement, selection/hit testing
+and drawing, with DPI in the key and color excluded from geometry. Alignment,
+ellipsis, absolute/multiplier line height and character spacing use Pango APIs.
+Rich spans, application font registration and non-ellipsized line clamps remain
+unsupported. The measurement context does not allocate a second glyph atlas.
+
+```sh
+cargo run --locked -p plico-wgpu --example scene_counter
+cargo run --locked -p plico-desktop --no-default-features --features wgpu --example wgpu-window
+```
+
+`scene_counter` generates real `plico::View` / `#[component]` / Taffy counter
+snapshots through shared paint at 1/1.25/1.5/2×, with zero Parley layout cache
+entries. The desktop example uses the normal shell, not a second event loop. In
+an Xvfb/X11 run, clicking Increment changed 0 → 1, then Tab + Space activated Reset
+and returned to 0. Existing host input, accessibility and IME routing are reused;
+an actual editable/IME session is still not verified on this backend.
+
+`plico-shell/wgpu`, `plico-desktop/wgpu` and `RenderBackend::Wgpu` expose the new
+choice. Skia remains preferred for Auto when compiled. No scene-based screenshots
+are silently sent through Vello. Window capture dispatch now uses the active window backend and its paragraph
+cache. A wgpu window screenshot is not rerouted through a compiled Skia/Vello
+backend. Generic headless rendering can also select wgpu when Skia is absent;
+callers must configure native text before declaring the scene.
+
+Unknown paths/SVG/images, nonuniform rounded corners, rounded clips, arbitrary
+transforms, layers/opacity and effect commands still return an indexed error. No
+partially supported frame is submitted. Native provider rejection is retained in
+`TextContext::take_native_paragraph_error`; the shell rejects that frame before
+presentation. Diagnostics remain visible on stderr without a tracing subscriber.
+Changing native provider/DPI invalidates runtime text geometry, not only pixels.
+
+Shared API changes: `PaintCommand` paths now use `PaintShape` (`BezPath.into()` is
+available; mutation explicitly discards analytical metadata). `ParagraphEngine::layout`
+returns `Result<_, ParagraphError>`. Existing Skia providers return their ordinary
+paragraph through `Ok`. Layout callers no longer unwrap provider failures.
+
+The `paint-scene` bridge depends on `plico-renderer`, whose legacy dependencies
+still pull Vello-related crates into the build. The new rendering path does not
+invoke Vello, but completely removing those transitive build dependencies remains
+a separate cleanup task. `--no-default-features` retains the independent quad core.
+
+Damage is part of the preserved-target design and should reuse the shared tracker:
+changes/removals cover old and new bounds; redraw every intersecting contributor
+in painter order; preserve a full-render pixel oracle. No partial redraw is enabled
+yet in this milestone. It must not cache speculative UI closures or assume that
+stable IDs alone identify which state changed.
+
+The default new backend selects wgpu's primary APIs (Vulkan/Metal/DX12/WebGPU),
+respecting `WGPU_BACKEND` for explicit overrides. This avoids initializing an
+unused thread-owned EGL context during concurrent headless rendering; a reproduced
+EGL `BadAccess` disappeared with primary-only discovery. Legacy GL is not a tested
+fallback path. Existing Skia/Vello initialization policy is unchanged.
+
+
+### Optional retained-target damage replay
+
+The shared host accepts `PLICO_WGPU_DAMAGE=1` for the wgpu renderer. The default
+remains full redraw while broader applications and platform behavior are checked.
+`Renderer::render_scene` and `render_scene_to_view` share the same optional damage
+path. It uses a persistent RGBA target, disjoint physical damage rectangles,
+replacement (not source-over) background clear and ordered contributor replay.
+The final window copy is still full-surface; this does not implement platform
+incremental present. Identical scenes can skip drawing/presentation. The shared
+HUD receives damage coverage and present-skipped status.
+
+Local GPU verification compares every pixel over 12 changing frames with full
+redraw: translucent overlap, fractional text movement, glyph changes, removal,
+clip changes, background changes and resize. The test also replaces the target
+through the raw rendering API and verifies invalidation/recovery after rejected
+input. Tests explicitly assert partial coverage and zero unchanged coverage, so
+passing by accidentally drawing every frame fully is excluded. The shared X11
+window was exercised under Xvfb with mouse increment, keyboard reset and resize.
+This does not establish physical-monitor, Wayland or cross-platform correctness.
+
+Full instance preparation still precedes damage filtering. This first stage
+reduces rasterized area and removes unaffected submitted instances, but CPU
+savings must be measured separately before any performance claim.

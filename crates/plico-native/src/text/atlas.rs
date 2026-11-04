@@ -50,7 +50,7 @@ pub struct GlyphLayout {
 /// Fixed-budget atlas. The caller may recycle storage at a frame boundary.
 /// Four horizontal raster phases; vertical raster origins are pixel-aligned.
 pub struct Atlas {
-    context: pango::Context,
+    shaper: LayoutContext,
     entries: HashMap<(pango::Font, u32, u8), Entry>,
     /// Premultiplied RGBA8 atlas storage.
     pub pixels: Vec<u8>,
@@ -65,15 +65,9 @@ pub struct Atlas {
 impl Atlas {
     /// Create a private system-font context with grayscale AA and medium hinting.
     pub fn new() -> Result<Self> {
-        let context = pangocairo::FontMap::new().create_context();
-        let mut options = FontOptions::new().map_err(|source| super::Error::Cairo { source })?;
-        options.set_antialias(Antialias::Gray);
-        options.set_hint_style(HintStyle::Medium);
-        options.set_hint_metrics(HintMetrics::On);
-        pangocairo::functions::context_set_font_options(&context, Some(&options));
-        pangocairo::functions::context_set_resolution(&context, 96.);
+        let shaper = LayoutContext::new()?;
         Ok(Self {
-            context,
+            shaper,
             entries: HashMap::new(),
             pixels: vec![0; (ATLAS_SIZE * ATLAS_SIZE * 4) as usize],
             cursor: [2, 2],
@@ -91,70 +85,9 @@ impl Atlas {
         request.weight = weight;
         Ok(self.layout(&request)?.glyphs)
     }
-    /// Shape once and retain this owned layout between frames. Color does not affect shaping.
+    /// Shape once; retaining the layout does not retain a second atlas allocation.
     pub fn layout(&self, request: &super::TextRequest<'_>) -> Result<GlyphLayout> {
-        super::validate(request)?;
-        let layout = pango::Layout::new(&self.context);
-        let mut description = pango::FontDescription::new();
-        description.set_family(request.family);
-        description.set_absolute_size(request.size * request.scale * UNIT);
-        // Pango accepts the full validated numeric OpenType weight range.
-        use pango::glib::translate::from_glib;
-        description.set_weight(unsafe { from_glib(i32::from(request.weight)) });
-        description.set_style(if request.italic {
-            pango::Style::Italic
-        } else {
-            pango::Style::Normal
-        });
-        layout.set_font_description(Some(&description));
-        layout.set_text(request.text);
-        layout.set_wrap(pango::WrapMode::WordChar);
-        if let Some(width) = request.width {
-            layout.set_width((width * request.scale * UNIT).round() as i32);
-        }
-        let mut iter = layout.iter();
-        let mut glyphs = Vec::new();
-        loop {
-            if let Some(run) = iter.run_readonly() {
-                let (_, logical) = iter.run_extents();
-                let baseline = iter.baseline() as f64 / UNIT;
-                let font = run.item().analysis().font();
-                let mut x = logical.x() as f64 / UNIT;
-                for info in run.glyph_string().glyph_info() {
-                    let g = info.geometry();
-                    let (ink, _) = font.glyph_extents(info.glyph());
-                    glyphs.push(Glyph {
-                        font: font.clone(),
-                        id: info.glyph(),
-                        ink_bounds: [
-                            ink.x() as f64 / UNIT,
-                            ink.y() as f64 / UNIT,
-                            ink.width() as f64 / UNIT,
-                            ink.height() as f64 / UNIT,
-                        ],
-                        x: x + g.x_offset() as f64 / UNIT,
-                        y: baseline + g.y_offset() as f64 / UNIT,
-                    });
-                    x += g.width() as f64 / UNIT;
-                }
-            }
-            if !iter.next_run() {
-                break;
-            }
-        }
-        let (width, height) = layout.size();
-        Ok(GlyphLayout {
-            native: layout.clone(),
-            source: request.text.into(),
-            glyphs,
-            logical_size: [
-                width as f64 / UNIT / request.scale,
-                height as f64 / UNIT / request.scale,
-            ],
-            baseline: layout.baseline() as f64 / UNIT / request.scale,
-            missing_glyphs: layout.unknown_glyphs_count() as u32,
-            scale: request.scale,
-        })
+        self.shaper.layout(request)
     }
     /// Regions changed since the previous upload; each rectangle occurs only on a cache miss.
     pub fn take_dirty(&mut self) -> Vec<[u32; 4]> {
@@ -402,4 +335,194 @@ impl GlyphLayout {
         };
         self.caret_rect(anchor)
     }
+}
+
+/// Native font/layout service without bitmap atlas allocation. Reuse it for
+/// measurement and retain its layouts for drawing and editing geometry.
+pub struct LayoutContext {
+    context: pango::Context,
+}
+impl LayoutContext {
+    /// Create an isolated system-font context with the same raster policy as Atlas.
+    pub fn new() -> Result<Self> {
+        let context = pangocairo::FontMap::new().create_context();
+        let mut options = FontOptions::new().map_err(|source| super::Error::Cairo { source })?;
+        options.set_antialias(Antialias::Gray);
+        options.set_hint_style(HintStyle::Medium);
+        options.set_hint_metrics(HintMetrics::On);
+        pangocairo::functions::context_set_font_options(&context, Some(&options));
+        pangocairo::functions::context_set_resolution(&context, 96.);
+        Ok(Self { context })
+    }
+    /// Shape once using the default start alignment and no line truncation.
+    pub fn layout(&self, request: &super::TextRequest<'_>) -> Result<GlyphLayout> {
+        self.layout_styled(request, LayoutOptions::default())
+    }
+    /// Shape with native alignment and optional single-paragraph line truncation.
+    pub fn layout_styled(
+        &self,
+        request: &super::TextRequest<'_>,
+        options: LayoutOptions,
+    ) -> Result<GlyphLayout> {
+        let mut validation = request.clone();
+        if validation.width == Some(0.) {
+            validation.width = None;
+        }
+        super::validate(&validation)?;
+        let layout = pango::Layout::new(&self.context);
+        let mut description = pango::FontDescription::new();
+        description.set_family(request.family);
+        description.set_absolute_size(request.size * request.scale * UNIT);
+        // Pango accepts the full validated numeric OpenType weight range.
+        use pango::glib::translate::from_glib;
+        description.set_weight(unsafe { from_glib(i32::from(request.weight)) });
+        description.set_style(if request.italic {
+            pango::Style::Italic
+        } else {
+            pango::Style::Normal
+        });
+        layout.set_font_description(Some(&description));
+        layout.set_text(request.text);
+        layout.set_wrap(pango::WrapMode::WordChar);
+        layout.set_alignment(match options.alignment {
+            Alignment::Start => pango::Alignment::Left,
+            Alignment::Center => pango::Alignment::Center,
+            Alignment::End => pango::Alignment::Right,
+            Alignment::Justify => pango::Alignment::Left,
+        });
+        layout.set_justify(matches!(options.alignment, Alignment::Justify));
+        if !options.letter_spacing.is_finite()
+            || options.letter_spacing.abs() > 16384.
+            || options
+                .line_height
+                .is_some_and(|v| !v.is_finite() || v <= 0. || v > 16384.)
+        {
+            return Err(super::Error::InvalidRequest);
+        }
+        let attrs = pango::AttrList::new();
+        if options.letter_spacing != 0. {
+            attrs.insert(pango::AttrInt::new_letter_spacing(
+                (options.letter_spacing * request.scale * UNIT).round() as i32,
+            ));
+        }
+        if let Some(height) = options.line_height {
+            attrs.insert(pango::AttrInt::new_line_height_absolute(
+                (height * request.scale * UNIT).round() as i32,
+            ));
+        }
+        layout.set_attributes(Some(&attrs));
+        if options.ellipsis {
+            layout.set_ellipsize(pango::EllipsizeMode::End);
+            layout.set_height(-(options.max_lines.max(1).min(i32::MAX as usize) as i32));
+        }
+        if let Some(width) = request.width {
+            layout.set_width((width * request.scale * UNIT).round() as i32);
+        }
+        let mut iter = layout.iter();
+        let mut glyphs = Vec::new();
+        loop {
+            if let Some(run) = iter.run_readonly() {
+                let (_, logical) = iter.run_extents();
+                let baseline = iter.baseline() as f64 / UNIT;
+                let font = run.item().analysis().font();
+                let mut x = logical.x() as f64 / UNIT;
+                for info in run.glyph_string().glyph_info() {
+                    let g = info.geometry();
+                    let (ink, _) = font.glyph_extents(info.glyph());
+                    glyphs.push(Glyph {
+                        font: font.clone(),
+                        id: info.glyph(),
+                        ink_bounds: [
+                            ink.x() as f64 / UNIT,
+                            ink.y() as f64 / UNIT,
+                            ink.width() as f64 / UNIT,
+                            ink.height() as f64 / UNIT,
+                        ],
+                        x: x + g.x_offset() as f64 / UNIT,
+                        y: baseline + g.y_offset() as f64 / UNIT,
+                    });
+                    x += g.width() as f64 / UNIT;
+                }
+            }
+            if !iter.next_run() {
+                break;
+            }
+        }
+        let (width, height) = layout.size();
+        Ok(GlyphLayout {
+            native: layout.clone(),
+            source: request.text.into(),
+            glyphs,
+            logical_size: [
+                width as f64 / UNIT / request.scale,
+                height as f64 / UNIT / request.scale,
+            ],
+            baseline: layout.baseline() as f64 / UNIT / request.scale,
+            missing_glyphs: layout.unknown_glyphs_count() as u32,
+            scale: request.scale,
+        })
+    }
+}
+impl GlyphLayout {
+    /// Logical line rectangles and baseline: x, y, width, height, baseline.
+    pub fn line_metrics(&self) -> Vec<[f64; 5]> {
+        let mut iter = self.native.iter();
+        let mut lines = Vec::new();
+        loop {
+            let (_, r) = iter.line_extents();
+            lines.push([
+                r.x() as f64 / UNIT / self.scale,
+                r.y() as f64 / UNIT / self.scale,
+                r.width() as f64 / UNIT / self.scale,
+                r.height() as f64 / UNIT / self.scale,
+                iter.baseline() as f64 / UNIT / self.scale,
+            ]);
+            if !iter.next_line() {
+                break;
+            }
+        }
+        lines
+    }
+    /// Word-wrap minimum and unwrapped maximum intrinsic widths, in logical pixels.
+    pub fn intrinsic_widths(&self) -> [f64; 2] {
+        let minimum = self.native.copy();
+        minimum.set_ellipsize(pango::EllipsizeMode::None);
+        minimum.set_wrap(pango::WrapMode::Word);
+        minimum.set_width(0);
+        let maximum = self.native.copy();
+        maximum.set_ellipsize(pango::EllipsizeMode::None);
+        maximum.set_width(-1);
+        [
+            minimum.size().0 as f64 / UNIT / self.scale,
+            maximum.size().0 as f64 / UNIT / self.scale,
+        ]
+    }
+}
+
+/// Logical paragraph alignment, honoring Pango's automatic base direction.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum Alignment {
+    /// Start of the paragraph's writing direction.
+    #[default]
+    Start,
+    /// Center within the supplied layout width.
+    Center,
+    /// End of the paragraph's writing direction.
+    End,
+    /// Distribute spacing to justify wrapped lines, excluding the final line.
+    Justify,
+}
+/// Native paragraph presentation options beyond the basic glyph request.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LayoutOptions {
+    /// Alignment inside the available width.
+    pub alignment: Alignment,
+    /// Ellipsize the final visible line; currently one native paragraph.
+    pub ellipsis: bool,
+    /// Maximum visible lines when ellipsis is enabled; zero means one line.
+    pub max_lines: usize,
+    /// Extra logical pixels between characters.
+    pub letter_spacing: f64,
+    /// Absolute logical line-box height. None uses native font metrics.
+    pub line_height: Option<f64>,
 }

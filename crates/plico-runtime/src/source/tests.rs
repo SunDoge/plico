@@ -89,9 +89,11 @@ fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
     let nodes = s.build_frame(&mut tcx, 920, 780);
     assert!(!s.declarations_reused);
     assert_eq!(s.view.gallery.count, 1);
+    let expected = gallery::i18n::count_message(s.view.gallery.language, "clicked-count", 1);
     assert!(
         nodes
             .iter()
-            .any(|n| n.paint.text.as_deref() == Some("Clicked 1 times"))
+            .any(|n| n.paint.text.as_deref() == Some(expected.as_str())),
+        "updated caption missing: expected {expected:?}"
     );
 }

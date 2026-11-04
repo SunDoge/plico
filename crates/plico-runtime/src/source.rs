@@ -64,6 +64,7 @@ pub struct Source<V: HostView> {
     revision: u64,
     semantics_enabled: bool,
     pending: bool,
+    text_generation: Option<usize>,
     viewport: Option<(u32, u32)>,
     transition: transition::ThemeTransition,
     declarations_reused: bool,
@@ -105,6 +106,7 @@ impl<V: HostView> Source<V> {
             revision: 0,
             semantics_enabled: false,
             pending: false,
+            text_generation: None,
             viewport: None,
             transition: Default::default(),
             declarations_reused: false,
@@ -330,6 +332,10 @@ impl<V: HostView> Source<V> {
         for font in &self.fonts {
             fonts_changed |= tcx.register_font(font);
         }
+        fonts_changed |= self
+            .text_generation
+            .is_some_and(|generation| generation != tcx.cache_generation());
+        self.text_generation = Some(tcx.cache_generation());
         if fonts_changed {
             self.adapter.font_dirty = true;
             self.pending = true;

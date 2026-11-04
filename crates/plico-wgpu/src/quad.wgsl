@@ -14,11 +14,13 @@ struct Vertex {
     @location(5) @interpolate(flat) config: vec4f,
     @location(6) @interpolate(flat) clip: vec4f,
     @location(7) uv:vec2f,
+    @location(8) @interpolate(flat) gradient:vec4f,
+    @location(9) @interpolate(flat) clip_params:vec4f,
 }
 @vertex fn vs_main(@builtin(vertex_index) index: u32,
     @location(0) rect: vec4f, @location(1) color: vec4f,
     @location(2) color2: vec4f, @location(3) border: vec4f,
-    @location(4) config: vec4f, @location(5) clip: vec4f, @location(6) uv:vec4f) -> Vertex {
+    @location(4) config: vec4f, @location(5) clip: vec4f, @location(6) uv:vec4f, @location(7) gradient:vec4f, @location(8) clip_params:vec4f) -> Vertex {
     let corners=array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1),vec2f(0,1),vec2f(1,0),vec2f(1,1));
     // Include the 1px antialiasing fringe, rather than clipping it at the quad.
     let local=corners[index]*(rect.zw+2.)-1.;
@@ -26,6 +28,8 @@ struct Vertex {
     var out: Vertex;
     out.position=vec4f(world/frame.size_time_scale.xy*vec2f(2,-2)+vec2f(-1,1),0,1);
     out.local=local;out.size=rect.zw;out.color=color;out.color2=color2;
+    out.clip_params=clip_params;
+    out.gradient=gradient;
     out.uv=uv.xy+local/rect.zw*uv.zw;
     out.border=border;out.config=config;out.clip=clip;
     return out;
@@ -47,11 +51,15 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
     let world=input.position.xy;
     let clip=input.clip;
     // Clip rectangle is a hard scissor equivalent, in physical pixels.
-    if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
+    var clip_alpha=1.;
+    if input.clip_params.x>0.5 {
+        clip_alpha=coverage(world-clip.xy,clip.zw,0.);
+        if clip_alpha<=0. { discard; }
+    } else if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
     if input.config.z>=2. {
         let glyph=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);
-        if input.config.z>=3. {return glyph*input.color.a;}
-        return vec4f(input.color.rgb*glyph.a*input.color.a,glyph.a*input.color.a);
+        if input.config.z>=3. {return glyph*input.color.a*clip_alpha;}
+        return vec4f(input.color.rgb*glyph.a*input.color.a,glyph.a*input.color.a)*clip_alpha;
     }
     let outer=coverage(input.local,input.size,input.config.x);
     let width=min(input.config.y,min(input.size.x,input.size.y)*0.5);
@@ -62,12 +70,21 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
     }
     let border_coverage=max(outer-inner,0.);
     let uv=input.local/input.size;
-    var fill=mix(input.color,input.color2,clamp(uv.y,0.,1.));
+    let start=input.gradient.xy*input.size;
+    let direction=(input.gradient.zw-input.gradient.xy)*input.size;
+    let t=clamp(dot(input.local-start,direction)/max(dot(direction,direction),0.000001),0.,1.);
+    var fill=mix(input.color,input.color2,t);
+    if input.clip_params.y>0.5 {
+        let a=vec4f(input.color.rgb*input.color.a,input.color.a);
+        let b=vec4f(input.color2.rgb*input.color2.a,input.color2.a);
+        let premultiplied=mix(a,b,t);
+        fill=vec4f(premultiplied.rgb/max(premultiplied.a,0.000001),premultiplied.a);
+    }
     if input.config.z>0.5 {
         fill=plico_material(Material(uv,input.size,input.color,input.color2,frame.size_time_scale.z,input.config.w));
     }
     let fill_coverage=select(outer,inner,width>0.);
     let alpha=fill.a*fill_coverage;
     let border_alpha=input.border.a*border_coverage;
-    return vec4f(fill.rgb*alpha+input.border.rgb*border_alpha,alpha+border_alpha);
+    return vec4f(fill.rgb*alpha+input.border.rgb*border_alpha,alpha+border_alpha)*clip_alpha;
 }

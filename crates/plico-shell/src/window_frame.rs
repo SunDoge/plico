@@ -1,5 +1,5 @@
 //! Native client-area clipping, independent of platform window decorations.
-use kurbo::{Affine, Rect, Shape};
+use kurbo::{Affine, Rect};
 use peniko::Color;
 use plico_renderer::{PaintCommand, Scene};
 
@@ -17,7 +17,7 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
         0,
         PaintCommand::PushClip {
             transform: Affine::IDENTITY,
-            clip: clip.to_path(0.1),
+            clip: plico_renderer::PaintShape::record(&clip, 0.1),
         },
     );
     if base != Color::TRANSPARENT {
@@ -28,7 +28,10 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
                 transform: Affine::IDENTITY,
                 brush: base.into(),
                 brush_transform: None,
-                shape: Rect::new(0., 0., size[0] as f64, size[1] as f64).to_path(0.1),
+                shape: plico_renderer::PaintShape::record(
+                    &Rect::new(0., 0., size[0] as f64, size[1] as f64),
+                    0.1,
+                ),
             },
         );
     }

@@ -25,11 +25,12 @@ use plico_renderer::platform::WindowBackground;
 pub struct Shell {
     /// Platform window handle.
     pub window: Arc<dyn Window>,
-    /// Direct Vello GPU renderer for this window.
+    /// Selected graphics consumer for this window.
     pub(crate) renderer: WindowRenderer,
     /// Current physical render size.
     surface_size: [u32; 2],
     corner_radius: u32,
+    presentation_error: Option<String>,
     /// Reused backend-neutral application scene for the current frame.
     pub scene: Scene,
     /// Shared text shaping and retained glyph resources.
@@ -39,7 +40,7 @@ pub struct Shell {
 }
 
 impl Shell {
-    /// Create the window + Vello GPU backend + a fresh
+    /// Create the window, selected graphics backend and a fresh
     /// [`TextContext`]. Returns a typed error when any window/GPU step fails.
     pub fn create(
         event_loop: &dyn ActiveEventLoop,
@@ -116,7 +117,7 @@ impl Shell {
         } else {
             TextContext::new()
         };
-        renderer.configure_text(&mut tcx);
+        renderer.configure_text(&mut tcx)?;
         tracing::info!(
             text_backend = if options.renderer == crate::RenderBackend::Egui {
                 "egui"
@@ -131,6 +132,7 @@ impl Shell {
         Ok(Shell {
             window,
             corner_radius: options.corner_radius,
+            presentation_error: None,
             renderer,
             surface_size: [surface_width, surface_height],
             scene: Scene::new(),
@@ -236,9 +238,16 @@ impl Shell {
             self.surface_size[1],
             base_color,
         ) {
-            Ok(presented) => presented,
+            Ok(presented) => {
+                self.presentation_error = None;
+                presented
+            }
             Err(error) => {
-                tracing::error!(%error, "window presentation failed");
+                let message = error.to_string();
+                if self.presentation_error.as_deref() != Some(message.as_str()) {
+                    crate::telemetry::report_error("window presentation failed", &error);
+                    self.presentation_error = Some(message);
+                }
                 false
             }
         }

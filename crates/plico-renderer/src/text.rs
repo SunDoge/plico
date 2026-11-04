@@ -180,6 +180,7 @@ pub struct TextContext {
     #[cfg(feature = "profiling")]
     profile: TextProfile,
     native: Option<Box<dyn crate::paragraph::ParagraphEngine>>,
+    native_error: Option<String>,
     font_assets: Vec<FontAsset>,
     paragraph_revision: u64,
     cache_generation: usize,
@@ -306,6 +307,7 @@ impl TextContext {
                 }
             },
             native: None,
+            native_error: None,
             font_assets: Vec::new(),
             paragraph_revision: 0,
             cache_generation: next_cache_generation(),
@@ -355,9 +357,24 @@ impl TextContext {
         &mut self,
         request: Arc<crate::paragraph::ParagraphRequest>,
     ) -> Option<std::rc::Rc<dyn crate::paragraph::NativeParagraph>> {
-        Some(self.native.as_mut()?.layout(request))
+        match self.native.as_mut()?.layout(request) {
+            Ok(paragraph) => Some(paragraph),
+            Err(error) => {
+                tracing::warn!(%error,"native paragraph layout failed; host must handle fallback paint");
+                self.native_error = Some(error.to_string());
+                None
+            }
+        }
     }
 
+    /// Last native provider rejection, consumed by the host before submitting a frame.
+    pub fn take_native_paragraph_error(&mut self) -> Option<String> {
+        self.native_error.take()
+    }
+    /// Application font data already registered with this context.
+    pub fn registered_font_assets(&self) -> &[FontAsset] {
+        &self.font_assets
+    }
     /// Stable diagnostic name for the platform outline fallback policy.
     pub fn outline_fallback_name(&self) -> &'static str {
         // Fontique recommends geometric emboldening whenever a fallback face
@@ -448,6 +465,7 @@ impl TextContext {
     /// Release derived text layouts and encoded glyph scenes while retaining
     /// the discovered and application-provided font collection.
     pub fn clear_caches(&mut self) {
+        self.native_error = None;
         self.cache_generation = next_cache_generation();
         #[cfg(feature = "profiling")]
         {

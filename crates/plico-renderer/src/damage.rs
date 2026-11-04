@@ -293,6 +293,18 @@ impl SceneDamageTracker {
         height: u32,
         mut ink: impl FnMut(&crate::PaintCommand) -> Option<Rect>,
     ) -> DamageRegion {
+        self.update_indexed(scene, width, height, |_, command| ink(command))
+    }
+
+    /// Like [`Self::update`], with the command index for consumers retaining
+    /// native ink bounds alongside a prepared command stream.
+    pub fn update_indexed(
+        &mut self,
+        scene: &crate::Scene,
+        width: u32,
+        height: u32,
+        mut ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+    ) -> DamageRegion {
         use crate::PaintCommand;
         use kurbo::Shape;
         use peniko::BlendMode;
@@ -357,7 +369,7 @@ impl SceneDamageTracker {
                 {
                     self.bounds[index]
                 }
-                _ => match ink(command) {
+                _ => match ink(index, command) {
                     Some(r) if finite(r) => {
                         let r = r.inflate(1., 1.);
                         clip_region(Some(clip.map_or(r, |outer| r.intersect(outer))))

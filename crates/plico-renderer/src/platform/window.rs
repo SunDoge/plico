@@ -50,6 +50,8 @@ pub enum RenderBackend {
     /// Prefer Skia, falling back to another compiled renderer.
     #[default]
     Auto,
+    /// Experimental independent wgpu consumer; requires the shell's `wgpu` feature.
+    Wgpu,
     /// Vello GPU consumer.
     Vello,
     /// Default Skia Vulkan consumer; requires the shell's `skia` feature.
