@@ -3,7 +3,7 @@
 //! is separate; this module supplies editing geometry and raw grayscale run masks.
 mod raster;
 use crate::text_indices::TextIndices;
-pub use raster::{GlyphMask, Rasterized};
+pub use raster::{ColorMask, GlyphMask, Rasterized};
 use snafu::{ResultExt, Snafu};
 use std::{marker::PhantomData, ops::Range, rc::Rc};
 use windows::{
@@ -14,6 +14,12 @@ use windows::{
 /// DirectWrite/native input failures remain observable to the host.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Invalid correction parameters or foreground color.
+    #[snafu(display("DirectWrite coverage correction failed: {source}"))]
+    Correction {
+        /// Validated correction error.
+        source: crate::directwrite_correction::InvalidCorrection,
+    },
     /// A raster operation requires coverage not implemented by this prototype.
     #[snafu(display("Unsupported DirectWrite raster operation: {reason}"))]
     Unsupported {

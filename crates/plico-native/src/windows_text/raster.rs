@@ -22,6 +22,18 @@ pub struct GlyphMask {
     /// Raw grayscale coverage, tightly packed; native gamma is not applied.
     pub coverage: Vec<u8>,
 }
+/// Corrected premultiplied sRGB RGBA8 for one run; no native resources retained.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorMask {
+    /// Original source UTF-16 range.
+    pub utf16_range: Range<u32>,
+    /// Physical top-left offset from the paragraph origin.
+    pub origin: [i32; 2],
+    /// Physical bitmap width/height.
+    pub size: [u32; 2],
+    /// Corrected, tightly packed premultiplied sRGB pixels.
+    pub rgba: Vec<u8>,
+}
 /// Monochrome run masks and native parameters for a future compositor.
 pub struct Rasterized {
     /// Ordered native glyph-run masks; no borrowed COM/font pointers.
@@ -30,6 +42,62 @@ pub struct Rasterized {
     pub gamma: f32,
     /// Native grayscale enhanced contrast, not a synthetic font weight.
     pub grayscale_contrast: f32,
+}
+impl Rasterized {
+    /// Correct and tint raw masks without reshaping/rasterizing. Color/opacity
+    /// changes can reuse the same coverage. `thin_font` explicitly selects the
+    /// legacy-family policy; automatic per-resolved-font detection is not provided.
+    /// Output is bounded to 64 MiB, independently of the retained raw coverage.
+    pub fn colorize(&self, foreground: [f32; 4], thin_font: bool) -> Result<Vec<ColorMask>> {
+        let correction = crate::directwrite_correction::GrayscaleCorrection::new(
+            self.gamma,
+            self.grayscale_contrast,
+        )
+        .context(super::CorrectionSnafu)?
+        .prepare(foreground, thin_font)
+        .context(super::CorrectionSnafu)?;
+        if self.masks.len() > 4096 {
+            return Err(Error::InvalidRequest);
+        }
+        let mut total = 0usize;
+        for mask in &self.masks {
+            let pixels = (mask.size[0] as usize)
+                .checked_mul(mask.size[1] as usize)
+                .ok_or(Error::InvalidRequest)?;
+            if mask.size.iter().any(|v| *v > 16384)
+                || pixels != mask.coverage.len()
+                || mask.utf16_range.start > mask.utf16_range.end
+            {
+                return Err(Error::InvalidRequest);
+            }
+            total = total
+                .checked_add(pixels.checked_mul(4).ok_or(Error::InvalidRequest)?)
+                .filter(|v| *v <= MAX_BYTES)
+                .ok_or(Error::InvalidRequest)?;
+        }
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(self.masks.len())
+            .map_err(|_| Error::InvalidRequest)?;
+        for mask in &self.masks {
+            if mask.coverage.is_empty() {
+                continue;
+            }
+            let mut rgba = Vec::new();
+            rgba.try_reserve_exact(mask.coverage.len() * 4)
+                .map_err(|_| Error::InvalidRequest)?;
+            for coverage in &mask.coverage {
+                rgba.extend_from_slice(&correction.blend_u8(*coverage));
+            }
+            result.push(ColorMask {
+                utf16_range: mask.utf16_range.clone(),
+                origin: mask.origin,
+                size: mask.size,
+                rgba,
+            });
+        }
+        Ok(result)
+    }
 }
 #[derive(Default)]
 struct Output {
@@ -324,6 +392,28 @@ mod tests {
             let repeat = paragraph.rasterize(scale, [0., 0.]).unwrap();
             assert!(!first.masks.is_empty());
             assert_eq!(first.masks, repeat.masks);
+            let corrected = first.colorize([0.1, 0.3, 0.8, 0.5], false).unwrap();
+            assert_eq!(
+                corrected,
+                first.colorize([0.1, 0.3, 0.8, 0.5], false).unwrap()
+            );
+            for mask in corrected {
+                assert_eq!(
+                    mask.rgba.len(),
+                    mask.size[0] as usize * mask.size[1] as usize * 4
+                );
+                assert!(
+                    mask.rgba
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|p| p[3] <= 128 && p[..3].iter().all(|c| *c <= p[3]))
+                );
+            }
+            assert_eq!(
+                first.masks, repeat.masks,
+                "colorization changed raw coverage"
+            );
             let left = first.masks.iter().map(|m| m.origin[0]).min().unwrap();
             let right = first
                 .masks
@@ -420,5 +510,32 @@ mod tests {
         let result = unsafe { renderer.query(&iid, &mut object) };
         assert!(result.is_err());
         assert!(object.is_null());
+    }
+    #[test]
+    fn public_mask_colorization_validates_geometry_before_allocating_output() {
+        let malformed = Rasterized {
+            gamma: 1.8,
+            grayscale_contrast: 1.,
+            masks: vec![GlyphMask {
+                utf16_range: 0..1,
+                origin: [0; 2],
+                size: [2, 2],
+                coverage: vec![255],
+            }],
+        };
+        assert!(matches!(
+            malformed.colorize([1.; 4], false),
+            Err(Error::InvalidRequest)
+        ));
+        let empty = Rasterized {
+            gamma: 1.8,
+            grayscale_contrast: 1.,
+            masks: Vec::new(),
+        };
+        assert!(empty.colorize([1.; 4], false).unwrap().is_empty());
+        assert!(matches!(
+            empty.colorize([f32::NAN; 4], false),
+            Err(Error::Correction { .. })
+        ));
     }
 }

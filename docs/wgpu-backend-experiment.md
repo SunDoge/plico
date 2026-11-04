@@ -1287,3 +1287,19 @@ GNU cross-check and MSVC Clippy include new native raster tests; Linux index tes
 and the existing Linux wgpu build still pass. These are compile/compatibility
 checks. Windows runtime/visual tests, corrected compositing, color glyphs and the
 actual wgpu bridge are still required before Windows host adoption.
+
+### DirectWrite grayscale correction and bounded RGBA output
+
+The native Windows prototype now colorizes raw run masks without reshaping or
+rasterizing again, using a portable Rust port of Microsoft Terminal's licensed
+gamma/contrast equations. Premultiplication, corrected sample monotonicity,
+opacity and input validation run in portable tests; independent pinned C++/HLSL
+reference samples agree within one channel unit. The original source, optional
+oracle and MIT notices are recorded in the native crate.
+
+Windows colorization validates public mask geometry and total RGBA output before
+allocation, preserves raw coverage and emits ordered physical run bitmaps with
+source ranges. GNU cross-check/MSVC Clippy include Windows-only API tests; the
+portable tests run on Linux. Per-run legacy thin-font detection, color glyphs,
+actual wgpu/native-window integration and Windows visual/IME/DPI validation are
+still pending. This is not yet evidence that the Windows wgpu renderer works.

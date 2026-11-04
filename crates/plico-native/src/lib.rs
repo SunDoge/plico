@@ -22,3 +22,7 @@ mod text_indices;
 /// DirectWrite layout and UTF-8 editing geometry (experimental Windows service).
 #[cfg(all(target_os = "windows", feature = "windows-text"))]
 pub mod windows_text;
+
+/// Microsoft Terminal-compatible grayscale coverage correction (experimental).
+#[cfg(feature = "windows-text")]
+pub mod directwrite_correction;

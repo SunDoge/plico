@@ -69,7 +69,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers. A DirectWrite layout/editing and raw grayscale-run foundation now cross-compiles,
-   but native coverage correction and wgpu integration remain. Externally positioned solid glyph runs now use a native memory-font raster
+   with a Microsoft Terminal-compatible CPU coverage/colorization port;
+   wgpu integration and Windows runtime/visual validation remain. Externally positioned solid glyph runs now use a native memory-font raster
    fallback, and the real editor fixture displays and accepts input. Normalized variable coordinates are supported by immutable native font instances;
    per-glyph affine matrices cover synthetic skew. Emboldening/stroke coverage and
    terminal throughput/scroll/IME stress validation remain. The terminal fixture now

@@ -124,8 +124,8 @@ API tests compile but have **not run on Windows**. Run them on Windows with:
 cargo test --locked -p plico-native --no-default-features --features windows-text --lib
 ```
 
-Before renderer adoption, finish corrected glyph compositing and connect the
-same layout to shared measurement/paint, then verify actual Windows fonts,
+Before renderer adoption, connect corrected glyph output and the same layout to
+shared measurement/paint, then verify actual Windows fonts,
 DPI transitions, IME and window output. Cross-compilation proves none of those
 runtime/visual properties.
 
@@ -152,10 +152,47 @@ does not advertise `IAgileObject`; the layout and factory remain UI-thread bound
 
 Coverage is **raw**, not final composited alpha. `Rasterized` includes the native
 gamma and grayscale contrast values for future foreground-dependent correction;
-these are not a simple `pow(alpha, gamma)` contract. Gamma/contrast compositing,
-color glyphs, caching/atlas upload and the wgpu bridge remain unimplemented.
+these are not a simple `pow(alpha, gamma)` contract. CPU correction/colorization
+is now available as described below. Color glyphs, caching/atlas upload and the
+wgpu bridge remain unimplemented.
 
 Windows raster API tests compile for GNU/MSVC and cover repeatability, phase and
 scale, source ranges, empty content, invalid inputs and non-agile COM identity.
 They have not run on Windows here; no Windows rendered-quality result follows
 from these checks.
+
+### Corrected grayscale colorization
+
+The portable `directwrite_correction` module (behind `windows-text`, also testable
+on Linux) ports Microsoft Terminal's MIT-licensed gamma table and grayscale
+blend equations at commit `1283c0f5b99a2961673249fa77c6b986efb5086c`. It prepares
+foreground-dependent contrast and intensity once per color, then corrects R8
+coverage without allocation in the pixel loop. It does not expand outlines or
+change font weight. Source attribution and license are retained in the crate.
+
+`Rasterized::colorize(straight_srgb, thin_font)` turns ordered raw masks into
+`ColorMask`s containing premultiplied sRGB RGBA8 and unchanged physical bounds/
+source ranges. It retains raw coverage so tint/opacity changes do not require
+Native layout or rasterization again. Geometry and total 64 MiB RGBA output are
+validated before output allocation; allocation/native failures return no partial
+result. Automatic canonical thin-family detection is not implemented: the flag
+explicitly selects the upstream legacy-font contrast policy for the whole batch.
+A future provider must resolve that policy per font run where necessary.
+
+Portable Rust tests cover the upstream gamma ratios, known colored outputs,
+monotonicity, endpoints, opacity, valid premultiplication and invalid inputs. The
+optional standalone C++ oracle at
+`crates/plico-native/tests/assets/directwrite-correction-reference.cpp` uses the
+original pinned C++/HLSL functions with small portable vector wrappers. Its sample
+outputs agree with the Rust port within 1/255. Cargo/CI does not compile C++ or
+fetch upstream sources; the numeric assertions are checked in. Regenerate them
+manually from the repository root with:
+
+```sh
+c++ -std=c++17 -O2 crates/plico-native/tests/assets/directwrite-correction-reference.cpp -o /tmp/dwrite-reference
+/tmp/dwrite-reference
+```
+
+This verifies the coverage math against the published implementation, not native
+Windows coverage quality, per-monitor settings or actual GPU/window parity. The
+Windows-only colorization and COM tests cross-compile but have not run here.
