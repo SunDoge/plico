@@ -935,6 +935,7 @@ impl Renderer {
                         &self.atlas_texture.layout,
                         &mask.image,
                         peniko::ImageQuality::Low,
+                        [peniko::Extend::Pad; 2],
                     )?;
                     let slot = self.frame_images.len();
                     self.frame_images.push(image);
@@ -1065,6 +1066,7 @@ impl Renderer {
                         &self.atlas_texture.layout,
                         &image.image,
                         image.quality,
+                        image.extend,
                     )?;
                     let slot = self.frame_images.len();
                     self.frame_images.push(resource);
@@ -1077,7 +1079,14 @@ impl Renderer {
                         config: [q.radius, 0., 4., slot as f32],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: image.uv,
-                        gradient: [0.; 4],
+                        gradient: {
+                            let mode = |v| match v {
+                                peniko::Extend::Pad => 0.,
+                                peniko::Extend::Repeat => 1.,
+                                peniko::Extend::Reflect => 2.,
+                            };
+                            [mode(image.extend[0]), mode(image.extend[1]), 0., 0.]
+                        },
                         clip_params: [
                             if q.clip_antialias { 1. } else { 0. },
                             0.,

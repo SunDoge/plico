@@ -1,6 +1,6 @@
 //! Immutable image resources, separate from the glyph atlas and bounded by bytes.
 use crate::{Error, Quad, Result};
-use peniko::{ImageAlphaType, ImageData, ImageFormat, ImageQuality};
+use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality};
 use std::{num::NonZeroUsize, rc::Rc};
 
 /// A physical-pixel textured quad. UVs are normalized source coordinates.
@@ -9,7 +9,23 @@ pub struct ImageQuad {
     pub image: ImageData,
     pub uv: [f32; 4],
     pub quality: ImageQuality,
+    /// Source extension along the horizontal and vertical axes.
+    pub extend: [Extend; 2],
     pub alpha: f32,
+}
+impl ImageQuad {
+    /// Construct a full-source image with bilinear sampling, pad extension and
+    /// full opacity. Fields can be adjusted for explicit low-level replay.
+    pub fn new(quad: Quad, image: ImageData) -> Self {
+        Self {
+            quad,
+            image,
+            uv: [0., 0., 1., 1.],
+            quality: ImageQuality::Medium,
+            extend: [Extend::Pad; 2],
+            alpha: 1.,
+        }
+    }
 }
 type Key = (u64, u32, u32, u8, u8);
 pub(crate) struct GpuImage {
@@ -42,6 +58,7 @@ impl ImageCache {
         layout: &wgpu::BindGroupLayout,
         image: &ImageData,
         quality: ImageQuality,
+        extend: [Extend; 2],
     ) -> Result<Rc<GpuImage>> {
         // Sampler is part of identity; changing sampling never uploads every frame.
         let key = (
@@ -49,7 +66,7 @@ impl ImageCache {
             image.width,
             image.height,
             image.format as u8 | ((image.alpha_type as u8) << 4),
-            quality as u8,
+            quality as u8 | ((extend[0] as u8) << 2) | ((extend[1] as u8) << 4),
         );
         if let Some(entry) = self.entries.get(&key) {
             self.hits += 1;
@@ -129,7 +146,14 @@ impl ImageCache {
         } else {
             wgpu::FilterMode::Linear
         };
+        let address = |mode| match mode {
+            Extend::Pad => wgpu::AddressMode::ClampToEdge,
+            Extend::Repeat => wgpu::AddressMode::Repeat,
+            Extend::Reflect => wgpu::AddressMode::MirrorRepeat,
+        };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: address(extend[0]),
+            address_mode_v: address(extend[1]),
             mag_filter: filter,
             min_filter: filter,
             ..Default::default()

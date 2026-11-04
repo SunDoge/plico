@@ -151,6 +151,7 @@ fn cubic_pad_extension_handles_large_finite_uvs() {
             image: image.clone(),
             uv: [u, 0., 0., 1.],
             quality: ImageQuality::High,
+            extend: [peniko::Extend::Pad; 2],
             alpha: 1.,
         };
         let actual = renderer
@@ -158,4 +159,151 @@ fn cubic_pad_extension_handles_large_finite_uvs() {
             .unwrap();
         assert!(actual.as_chunks::<4>().0.iter().all(|p| *p == expected));
     }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn image_extension_modes_match_cpu_sampling_across_negative_uvs_and_seams() {
+    use peniko::Extend;
+    use plico_wgpu::{Draw, Quad, image::ImageQuad};
+    let pixels: Vec<u8> = (0..12)
+        .flat_map(|i| {
+            [
+                ((i * 73) % 256) as u8,
+                ((i * 117 + 31) % 256) as u8,
+                ((i * 43 + 19) % 256) as u8,
+                255,
+            ]
+        })
+        .collect();
+    let image = ImageData {
+        data: Blob::new(Arc::new(pixels.clone())),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: 4,
+        height: 3,
+    };
+    let coordinate = |v: i32, n: i32, mode: Extend| -> usize {
+        (match mode {
+            Extend::Pad => v.clamp(0, n - 1),
+            Extend::Repeat => v.rem_euclid(n),
+            Extend::Reflect => {
+                let p = v.rem_euclid(2 * n);
+                p.min(2 * n - 1 - p)
+            }
+        }) as usize
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for xmode in [Extend::Pad, Extend::Repeat, Extend::Reflect] {
+        for ymode in [Extend::Pad, Extend::Repeat, Extend::Reflect] {
+            for quality in [ImageQuality::Low, ImageQuality::Medium, ImageQuality::High] {
+                let quad = ImageQuad {
+                    quad: Quad::new([0., 0., 19., 13.], [1.; 4]),
+                    image: image.clone(),
+                    uv: [-0.7, -0.35, 3.4, 2.2],
+                    quality,
+                    extend: [xmode, ymode],
+                    alpha: 1.,
+                };
+                let actual = renderer
+                    .render_items(&[Draw::Image(&quad)], [19, 13], [0.; 4], 0.)
+                    .unwrap();
+                for y in 0..13 {
+                    for x in 0..19 {
+                        let px = (-0.7 + (x as f64 + 0.5) / 19. * 3.4) * 4. - 0.5;
+                        let py = (-0.35 + (y as f64 + 0.5) / 13. * 2.2) * 3. - 0.5;
+                        let mut result = [0.; 4];
+                        if quality == ImageQuality::Low {
+                            let sx = coordinate((px + 0.5).floor() as i32, 4, xmode);
+                            let sy = coordinate((py + 0.5).floor() as i32, 3, ymode);
+                            for c in 0..4 {
+                                result[c] = pixels[(sy * 4 + sx) * 4 + c] as f64;
+                            }
+                        } else {
+                            let range = if quality == ImageQuality::High {
+                                -1..=2
+                            } else {
+                                0..=1
+                            };
+                            for dy in range.clone() {
+                                for dx in range.clone() {
+                                    let sx = coordinate(px.floor() as i32 + dx, 4, xmode);
+                                    let sy = coordinate(py.floor() as i32 + dy, 3, ymode);
+                                    let weight = |delta: f64| {
+                                        if quality == ImageQuality::High {
+                                            mitchell(delta)
+                                        } else {
+                                            (1. - delta.abs()).max(0.)
+                                        }
+                                    };
+                                    let w = weight(px - (px.floor() + dx as f64))
+                                        * weight(py - (py.floor() + dy as f64));
+                                    for c in 0..4 {
+                                        result[c] += pixels[(sy * 4 + sx) * 4 + c] as f64 * w;
+                                    }
+                                }
+                            }
+                        }
+                        for c in 0..4 {
+                            let expected = result[c].round().clamp(0., 255.) as u8;
+                            let a = actual[(y * 19 + x) * 4 + c];
+                            assert!(
+                                a.abs_diff(expected) <= 1,
+                                "{xmode:?}/{ymode:?} {quality:?} at {x},{y} channel {c}: {a}/{expected}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        renderer.image_cache_stats().2,
+        27,
+        "sampler modes were not part of resource identity"
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn shared_image_brush_preserves_independent_extend_axes() {
+    use kurbo::Rect;
+    use peniko::{Extend, Fill};
+    use plico_wgpu::{Draw, Quad, image::ImageQuad};
+    let image = ImageData {
+        data: Blob::new(Arc::new(vec![
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ])),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: 2,
+        height: 2,
+    };
+    let mut brush = ImageBrush::new(image.clone());
+    brush.sampler.x_extend = Extend::Repeat;
+    brush.sampler.y_extend = Extend::Reflect;
+    brush.sampler.quality = ImageQuality::High;
+    let mut scene = Scene::new();
+    scene.fill(
+        Fill::NonZero,
+        Affine::translate((4., 3.)),
+        &brush,
+        None,
+        &Rect::new(0., 0., 20., 12.),
+    );
+    let mut quad = ImageQuad::new(Quad::new([4., 3., 20., 12.], [1.; 4]), image);
+    quad.uv = [0., 0., 10., 6.];
+    quad.extend = [Extend::Repeat, Extend::Reflect];
+    quad.quality = ImageQuality::High;
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let expected = renderer
+        .render_items(&[Draw::Image(&quad)], [32, 24], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(
+        expected,
+        renderer
+            .render_scene(&scene, [32, 24], [0.; 4], false)
+            .unwrap()
+    );
+    assert_eq!(renderer.image_cache_stats().2, 1);
 }

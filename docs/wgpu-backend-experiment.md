@@ -844,3 +844,25 @@ implementation: large minification, visual quality on representative photographs
 and GPU cost still need evaluation. Rotated/sheared or repeated image brushes
 remain separate unsupported cases. No overall quality/performance superiority over
 Skia or Vello is inferred from these numerical tests.
+
+## Independent image extension axes
+
+Shared rectangular `ImageBrush` replay and low-level `ImageQuad` now support
+Pad/Repeat/Reflect independently on X and Y. Nearest/bilinear use explicit hardware
+address modes; bicubic applies the corresponding extension to every source texel
+in its reconstruction footprint. UV reduction handles negative coordinates and
+cross-period sampling; large finite coordinates are reduced/bounded before integer
+indexing. Source premultiplication and valid-RGBA output clamping are unchanged.
+
+Sampling quality plus both extension axes are included in resource identity. The
+current cache owns an image/sampler pair per combination, so changing modes can
+create another bounded texture entry; this is not sampler-only deduplication.
+`ImageQuad::new` supplies full-source UV, bilinear, pad and opacity-one defaults.
+Layers/effect outputs, native positioned-text bitmaps, SVG and path fallbacks keep
+pad sampling and their existing behavior.
+
+A 27-combination CPU oracle checks three qualities and all X/Y extension pairs,
+including negative UVs and seams, within one 8-bit level. A shared-scene brush test
+checks independent repeated/mirrored axes against low-level image replay and
+resource reuse. General-path image brushes and rotated/sheared image geometry
+remain separate coverage gaps; this change does not claim those are implemented.

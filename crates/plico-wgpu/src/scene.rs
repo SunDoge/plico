@@ -304,6 +304,7 @@ impl Renderer {
                         image,
                         uv: [0., 0., 1., 1.],
                         quality: peniko::ImageQuality::Low,
+                        extend: [peniko::Extend::Pad; 2],
                         alpha: 1.,
                     }));
                 }
@@ -326,15 +327,6 @@ impl Renderer {
                             continue;
                         }
                         if let Brush::Image(image) = paint {
-                            use peniko::Extend;
-                            if image.sampler.x_extend != Extend::Pad
-                                || image.sampler.y_extend != Extend::Pad
-                            {
-                                return Err(unsupported(
-                                    index,
-                                    "repeated/reflected image sampling",
-                                ));
-                            }
                             let [a, b, c, d, e, f] = transform.as_coeffs();
                             if ![a, b, c, d, e, f].iter().all(|v| v.is_finite())
                                 || a <= 0.
@@ -372,6 +364,7 @@ impl Renderer {
                                 quad: q,
                                 image: image.image.clone(),
                                 quality: image.sampler.quality,
+                                extend: [image.sampler.x_extend, image.sampler.y_extend],
                                 alpha: image.sampler.alpha,
                                 uv: [
                                     ((rect.x0 - tx) / iw) as f32,
@@ -601,6 +594,7 @@ impl Renderer {
                                 image,
                                 uv: [0., 0., 1., 1.],
                                 quality: peniko::ImageQuality::Low,
+                                extend: [peniko::Extend::Pad; 2],
                                 alpha: 1.,
                             }));
                         }
@@ -661,6 +655,7 @@ impl Renderer {
                             image,
                             uv: [0., 0., 1., 1.],
                             quality: peniko::ImageQuality::Medium,
+                            extend: [peniko::Extend::Pad; 2],
                             alpha: 1.,
                         }));
                     }

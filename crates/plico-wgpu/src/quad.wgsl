@@ -89,7 +89,18 @@ fn cubic_weight(value:f32)->f32 {
     if x<2. {return ((-7./3.*x+12.)*x*x-20.*x+32./3.)/6.;}
     return 0.;
 }
-fn bicubic(uv:vec2f)->vec4f {
+fn image_coordinate(x:i32,size:i32,mode:f32)->i32 {
+    if mode<0.5 {return clamp(x,0,size-1);}
+    if mode<1.5 {return ((x%size)+size)%size;}
+    let p=((x%(2*size))+2*size)%(2*size);
+    return min(p,2*size-1-p);
+}
+fn image_uv_axis(value:f32,mode:f32)->f32 {
+    if mode<0.5 {return clamp(value,-2.,3.);}
+    if mode<1.5 {return fract(value);}
+    return 1.-abs(2.*fract(value*0.5)-1.);
+}
+fn bicubic(uv:vec2f,extend:vec2f)->vec4f {
     let size=vec2i(textureDimensions(glyph_atlas));
     // Pad extension is constant beyond the reconstruction halo. Bounding UV
     // before integer conversion also avoids overflow for extreme brush offsets.
@@ -100,7 +111,7 @@ fn bicubic(uv:vec2f)->vec4f {
     for(var y=-1;y<=2;y++) {
         for(var x=-1;x<=2;x++) {
             let weight=cubic_weight(f32(x)-fraction.x)*cubic_weight(f32(y)-fraction.y);
-            result+=textureLoad(glyph_atlas,clamp(base+vec2i(x,y),vec2i(0),size-1),0)*weight;
+            result+=textureLoad(glyph_atlas,vec2i(image_coordinate(base.x+x,size.x,extend.x),image_coordinate(base.y+y,size.y,extend.y)),0)*weight;
         }
     }
     let alpha=clamp(result.a,0.,1.);
@@ -126,9 +137,11 @@ fn bicubic(uv:vec2f)->vec4f {
         return vec4f(input.color.rgb*alpha,alpha);
     }
     if input.config.z>=4. {
+        let extend=input.gradient.xy;
+        let uv=vec2f(image_uv_axis(input.uv.x,extend.x),image_uv_axis(input.uv.y,extend.y));
         var pixel:vec4f;
-        if input.clip_params.w>0.5 {pixel=bicubic(input.uv);}
-        else {pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);}
+        if input.clip_params.w>0.5 {pixel=bicubic(uv,extend);}
+        else {pixel=textureSampleLevel(glyph_atlas,glyph_sampler,uv,0.);}
         return pixel*input.color.a*coverage(input.local,input.size,input.config.x)*clip_alpha;
     }
     if input.config.z>=2. {
