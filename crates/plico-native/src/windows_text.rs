@@ -100,6 +100,7 @@ pub struct Metrics {
 /// An isolated system font/layout factory, without process-global mutation.
 pub struct Context {
     factory: IDWriteFactory2,
+    fonts: IDWriteFontCollection,
     locale: HSTRING,
     _thread: PhantomData<Rc<()>>,
 }
@@ -126,13 +127,55 @@ impl Context {
             HSTRING::from("en-US")
         };
         // SAFETY: the typed result acquires the factory COM reference.
-        let factory =
+        let factory: IDWriteFactory2 =
             unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED) }.context(NativeSnafu)?;
+        let mut fonts = None;
+        // SAFETY: the factory returns an owned COM reference into valid storage.
+        unsafe { factory.GetSystemFontCollection(&mut fonts, false) }.context(NativeSnafu)?;
+        let fonts = fonts.ok_or(Error::InvalidRequest)?;
         Ok(Self {
             factory,
+            fonts,
             locale,
             _thread: PhantomData,
         })
+    }
+    /// Resolve an ordered list of family names against this context's system
+    /// collection. Names are already parsed, without CSS quotes or separators.
+    /// Generic families map to Windows defaults. `None` means no candidate was
+    /// installed; the caller decides its fallback rather than silently choosing.
+    /// This selects the primary family, not per-character fallback coverage.
+    pub fn resolve_family(&self, candidates: &[&str]) -> Result<Option<String>> {
+        if candidates.len() > 128 {
+            return Err(Error::InvalidRequest);
+        }
+        for candidate in candidates {
+            let candidate = candidate.trim();
+            if candidate.is_empty() || candidate.len() > 4096 || candidate.contains('\0') {
+                return Err(Error::InvalidRequest);
+            }
+            let family = if candidate.eq_ignore_ascii_case("sans-serif")
+                || candidate.eq_ignore_ascii_case("system-ui")
+            {
+                "Segoe UI"
+            } else if candidate.eq_ignore_ascii_case("serif") {
+                "Times New Roman"
+            } else if candidate.eq_ignore_ascii_case("monospace") {
+                "Consolas"
+            } else {
+                candidate
+            };
+            let name = HSTRING::from(family);
+            let mut index = 0;
+            let mut exists = BOOL::default();
+            // SAFETY: UTF-16 name and output pointers live through the call.
+            unsafe { self.fonts.FindFamilyName(&name, &mut index, &mut exists) }
+                .context(NativeSnafu)?;
+            if exists.as_bool() {
+                return Ok(Some(family.to_owned()));
+            }
+        }
+        Ok(None)
     }
     /// Shape and retain one bounded paragraph. No system clock is read.
     pub fn layout(&self, request: &Request<'_>) -> Result<Paragraph> {
@@ -159,7 +202,7 @@ impl Context {
                 .factory
                 .CreateTextFormat(
                     &family,
-                    None::<&IDWriteFontCollection>,
+                    &self.fonts,
                     DWRITE_FONT_WEIGHT(i32::from(request.weight)),
                     if request.italic {
                         DWRITE_FONT_STYLE_ITALIC
@@ -372,6 +415,28 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn family_resolution_checks_candidates_in_order() {
+        let context = Context::new().unwrap();
+        let missing = "Plico deliberately absent family 7D39B617";
+        assert_eq!(context.resolve_family(&[missing]).unwrap(), None);
+        let generic = context.resolve_family(&["system-ui"]).unwrap();
+        assert_eq!(
+            context.resolve_family(&[missing, "system-ui"]).unwrap(),
+            generic
+        );
+        if let Some(family) = generic {
+            assert_eq!(family, "Segoe UI");
+            assert_eq!(
+                context.resolve_family(&[&family, missing]).unwrap(),
+                Some(family)
+            );
+        }
+        assert!(context.resolve_family(&["bad\0family"]).is_err());
+        assert!(context.resolve_family(&[""]).is_err());
+        assert!(context.resolve_family(&["serif"; 129]).is_err());
+        assert_eq!(context.resolve_family(&[]).unwrap(), None);
+    }
     #[test]
     fn native_layout_keeps_geometry_and_utf8_offsets_after_factory_drop() {
         for content in [

@@ -137,6 +137,15 @@ their maximum content width as their minimum. Windows tests check that changing
 the available width preserves both intrinsic widths; these tests have only been
 cross-compiled here, not executed on Windows.
 
+`Context::resolve_family` accepts an ordered slice of already parsed family
+names and checks the context's retained system font collection. It maps
+`sans-serif`/`system-ui` to Segoe UI, `serif` to Times New Roman, and `monospace`
+to Consolas, subject to installation. It returns `None` if no candidate exists,
+leaving the host's final fallback policy explicit. This is primary-family
+selection, not CSS parsing or a per-character fallback chain. Layout uses the
+same system collection that resolution queried. Its Windows tests likewise
+cross-compile here but have not executed on Windows.
+
 ### DirectWrite raw run coverage
 
 `Paragraph::rasterize(scale, phase)` now invokes `IDWriteTextLayout::Draw` with a
