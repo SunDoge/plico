@@ -18,6 +18,8 @@ pub mod hotkeys;
 pub mod capture;
 
 #[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
+mod text_direction;
+#[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
 mod text_indices;
 /// DirectWrite layout and UTF-8 editing geometry (experimental Windows service).
 #[cfg(all(target_os = "windows", feature = "windows-text"))]

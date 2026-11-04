@@ -2,6 +2,7 @@
 //! Contexts and layouts stay on their creating UI thread. GPU raster integration
 //! is separate; this module supplies editing geometry and raw grayscale run masks.
 mod raster;
+pub use crate::text_direction::paragraph_is_rtl;
 use crate::text_indices::TextIndices;
 pub use raster::{ColorMask, GlyphMask, Rasterized};
 use snafu::{ResultExt, Snafu};

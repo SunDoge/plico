@@ -4852,6 +4852,7 @@ dependencies = [
  "snafu",
  "tempfile",
  "tokio",
+ "unicode-bidi",
  "wgpu",
  "windows",
  "windows-core",

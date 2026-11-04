@@ -146,8 +146,13 @@ relative/absolute height equivalence and invalid inputs. Per-span line height
 is not implemented. These Windows tests have only been cross-compiled here.
 Rich spans, letter spacing, truncation and application fonts
 are explicitly rejected. Color-font faces remain unsupported by rasterization.
-Automatic paragraph base-direction selection is not connected yet. Therefore
-this is not Windows gallery feature parity or a validated default renderer.
+The bridge infers the first paragraph's base direction using unicode-bidi's
+Unicode P2/P3 implementation, including isolate handling and an LTR default for
+neutral text. This scan does not allocate a dependency graph or duplicate native
+shaping. Independent base directions for multiple hard paragraphs within one
+layout are not implemented. Portable direction tests run on Linux; the native
+RTL editing/raster positioning test is cross-compiled only. This is not Windows
+gallery feature parity or a validated default renderer.
 
 Run images use four horizontal phases with vertically snapped baselines;
 integer translations reuse images. Layout and raster caches each have a

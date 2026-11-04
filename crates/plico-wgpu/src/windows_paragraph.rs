@@ -252,6 +252,7 @@ impl Cache {
         native.size = request.font_size;
         native.weight = request.font_weight as u16;
         native.italic = request.italic;
+        native.rtl = plico_native::windows_text::paragraph_is_rtl(&request.text);
         native.line_height = request.line_height.map(|(value, relative)| {
             if relative {
                 value * request.font_size
@@ -460,6 +461,22 @@ mod tests {
         let images = cache.raster(declaration, 1., 0.).unwrap();
         assert!(!images.is_empty());
         assert!(images[0].1[0] as f32 >= end.caret_rect(0).unwrap()[0] - 2.);
+    }
+    #[test]
+    fn rtl_base_direction_reaches_native_editing_and_paint_geometry() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "مرحبا".into();
+        declaration.width = Some(240.);
+        let declaration = Arc::new(declaration);
+        let paragraph = cache.layout(declaration.clone(), 1.).unwrap();
+        let first = paragraph.caret_rect(0).unwrap();
+        let end = paragraph.caret_rect(declaration.text.len()).unwrap();
+        assert!(first[0] > end[0]);
+        assert!(end[0] > 120.);
+        let images = cache.raster(declaration, 1., 0.).unwrap();
+        assert!(!images.is_empty());
+        assert!(images.iter().all(|(_, origin)| origin[0] > 100));
     }
     #[test]
     fn relative_and_absolute_line_heights_produce_the_same_geometry() {
