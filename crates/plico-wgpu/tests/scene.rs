@@ -91,7 +91,8 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
         Fill::NonZero,
         Affine::IDENTITY,
         &peniko::Gradient::new_sweep((20., 20.), 0., std::f32::consts::TAU)
-            .with_stops([PaintColor::BLACK, PaintColor::WHITE]),
+            .with_stops([PaintColor::BLACK, PaintColor::WHITE])
+            .with_interpolation_cs(peniko::color::ColorSpaceTag::Oklab),
         None,
         &Circle::new((20., 20.), 8.),
     );

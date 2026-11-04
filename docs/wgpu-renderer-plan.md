@@ -55,9 +55,9 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    opacity and ordered texture batches are verified. Pass-local binding interning
    now merges adjacent repeated images without sorting; encoded batch counters are exposed. Affine images and image-filled
    paths now combine cached shape coverage with GPU world-to-source sampling.
-   Solid, linear and radial sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
+   Solid, linear, radial and sweep sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
-   coverage masks, while rect clips keep the fast path. Image strokes/sweep-gradient general paths,
+   coverage masks, while rect clips keep the fast path. Image strokes/non-sRGB gradient interpolation,
    general filter graphs/non-default blend layers remain. Single Gaussian filtered
    layers now use two GPU passes, and the real gallery Glass page renders. Gaussian box shadows now use quad coverage with
    four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the

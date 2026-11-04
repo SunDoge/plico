@@ -205,3 +205,61 @@ fn radial_alpha_brush_transform_and_damage_match_reference() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn sweep_transformed_alpha_pixels_and_partial_updates_match_full() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let brush_transform = Affine::translate((4., 2.)) * Affine::rotate(0.2);
+    for frame in 0..8 {
+        let gradient = Gradient::new_sweep(
+            (28., 24.),
+            if frame % 2 == 0 {
+                0.
+            } else {
+                std::f32::consts::TAU
+            },
+            if frame % 2 == 0 {
+                std::f32::consts::TAU
+            } else {
+                0.
+            },
+        )
+        .with_stops([
+            Color::from_rgba8(255, 0, 0, 0),
+            Color::from_rgba8(0, 0, 255, 200),
+        ]);
+        let mut scene = Scene::new();
+        let transform = Affine::translate((frame as f64 * 0.25, 0.));
+        if frame < 7 {
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                &gradient,
+                Some(brush_transform),
+                &Rect::new(0., 0., 64., 48.),
+            );
+        }
+        let actual = partial
+            .render_scene(&scene, [80, 56], [0.; 4], true)
+            .unwrap();
+        let expected = full.render_scene(&scene, [80, 56], [0.; 4], false).unwrap();
+        assert_eq!(actual, expected, "sweep frame={frame}");
+        if frame == 0 {
+            let inverse = (transform * brush_transform).inverse();
+            for y in 2..46 {
+                for x in 2..62 {
+                    let p = inverse * kurbo::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                    let angle = (p.y - 24.)
+                        .atan2(p.x - 28.)
+                        .rem_euclid(std::f64::consts::TAU);
+                    let alpha = (angle / f64::from(std::f32::consts::TAU) * 200.).round() as u8;
+                    let pixel = &actual[(y * 80 + x) * 4..(y * 80 + x) * 4 + 4];
+                    assert_eq!(&pixel[..2], &[0, 0]);
+                    assert!(pixel[2].abs_diff(alpha) <= 1 && pixel[3].abs_diff(alpha) <= 1);
+                }
+            }
+        }
+    }
+}

@@ -176,7 +176,16 @@ impl PathCache {
                         v.to_bits().hash(&mut hash);
                     }
                 }
-                _ => unreachable!(),
+                peniko::GradientKind::Sweep(sweep) => {
+                    for v in [
+                        sweep.center.x,
+                        sweep.center.y,
+                        f64::from(sweep.start_angle),
+                        f64::from(sweep.end_angle),
+                    ] {
+                        v.to_bits().hash(&mut hash);
+                    }
+                }
             }
             std::mem::discriminant(&g.extend).hash(&mut hash);
             g.premultiplied.hash(&mut hash);
@@ -375,7 +384,20 @@ impl GradientPaint {
                     return Err(invalid("invalid or degenerate radial gradient"));
                 }
             }
-            _ => return Err(unsupported("sweep path gradient")),
+            peniko::GradientKind::Sweep(sweep) => {
+                if ![
+                    sweep.center.x,
+                    sweep.center.y,
+                    f64::from(sweep.start_angle),
+                    f64::from(sweep.end_angle),
+                ]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() <= 1e7)
+                    || sweep.start_angle == sweep.end_angle
+                {
+                    return Err(invalid("invalid or degenerate sweep gradient"));
+                }
+            }
         }
         let stops: Vec<_> = g
             .stops
@@ -417,7 +439,12 @@ impl GradientPaint {
                 };
                 t
             }
-            _ => unreachable!(),
+            peniko::GradientKind::Sweep(sweep) => {
+                let p = point - sweep.center;
+                let angle = p.y.atan2(p.x).rem_euclid(std::f64::consts::TAU);
+                (angle - f64::from(sweep.start_angle))
+                    / (f64::from(sweep.end_angle) - f64::from(sweep.start_angle))
+            }
         };
         if !t.is_finite() {
             return [0.; 4];
@@ -634,5 +661,91 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn sweep_cardinals_direction_extension_and_cache_identity() {
+        let gradient = Gradient::new_sweep((8., 8.), 0., std::f32::consts::TAU)
+            .with_stops([Color::BLACK, Color::WHITE]);
+        let paint = GradientPaint::new(&gradient).unwrap();
+        for (point, expected) in [
+            ((12., 8.), 0.),
+            ((8., 12.), 0.25),
+            ((4., 8.), 0.5),
+            ((8., 4.), 0.75),
+            ((8., 8.), 0.),
+        ] {
+            let actual = paint.sample(point.into());
+            assert!((actual[0] - expected).abs() < 1e-6);
+            assert_eq!(actual[3], 1.);
+        }
+        let reversed = Gradient::new_sweep((8., 8.), std::f32::consts::TAU, 0.)
+            .with_stops([Color::BLACK, Color::WHITE]);
+        assert!(
+            (GradientPaint::new(&reversed)
+                .unwrap()
+                .sample((8., 12.).into())[0]
+                - 0.75)
+                .abs()
+                < 1e-6
+        );
+        for (extend, expected) in [
+            (peniko::Extend::Pad, 1.),
+            (peniko::Extend::Repeat, 0.5),
+            (peniko::Extend::Reflect, 0.5),
+        ] {
+            let short = Gradient::new_sweep((8., 8.), 0., std::f32::consts::FRAC_PI_2)
+                .with_stops([Color::BLACK, Color::WHITE])
+                .with_extend(extend);
+            assert!(
+                (GradientPaint::new(&short).unwrap().sample((4., 12.).into())[0] - expected).abs()
+                    < 1e-6
+            );
+        }
+        use plico_renderer::PaintScene;
+        let mut scene = plico_renderer::Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &gradient,
+            None,
+            &Rect::new(0., 0., 16., 16.),
+        );
+        let mut cache = PathCache::default();
+        let (first, _) = cache.raster(&scene.commands[0]).unwrap().unwrap();
+        let mut moved = scene.commands[0].clone();
+        if let PaintCommand::Fill { transform, .. } = &mut moved {
+            *transform = Affine::translate((20., 10.));
+        }
+        let (second, _) = cache.raster(&moved).unwrap().unwrap();
+        assert_eq!(first.data.id(), second.data.id());
+        if let PaintCommand::Fill { brush, .. } = &mut moved {
+            *brush = reversed.into();
+        }
+        let (third, _) = cache.raster(&moved).unwrap().unwrap();
+        assert_ne!(first.data.id(), third.data.id());
+        assert_ne!(first.data.data(), third.data.data());
+        if let PaintCommand::Fill { brush, .. } = &mut moved {
+            *brush = Gradient::new_sweep((10., 10.), std::f32::consts::TAU, 0.)
+                .with_stops([Color::BLACK, Color::WHITE])
+                .into();
+        }
+        let (center_changed, _) = cache.raster(&moved).unwrap().unwrap();
+        assert_ne!(third.data.id(), center_changed.data.id());
+        assert_ne!(third.data.data(), center_changed.data.data());
+        if let PaintCommand::Fill {
+            brush_transform, ..
+        } = &mut moved
+        {
+            *brush_transform = Some(Affine::translate((1., 0.)));
+        }
+        let (brush_changed, _) = cache.raster(&moved).unwrap().unwrap();
+        assert_ne!(center_changed.data.id(), brush_changed.data.id());
+        assert_ne!(center_changed.data.data(), brush_changed.data.data());
+        assert!(
+            GradientPaint::new(
+                &Gradient::new_sweep((0., 0.), 1., 1.).with_stops([Color::BLACK, Color::WHITE])
+            )
+            .is_err()
+        );
     }
 }

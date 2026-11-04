@@ -1106,3 +1106,20 @@ radii and nonfinite/excessive radial coordinates are rejected explicitly rather
 than relying on backend-dependent degenerate-gradient behavior. Sweep gradients
 and non-sRGB interpolation remain unsupported. This is a bounded CPU raster
 fallback, not a new GPU radial shader.
+
+### Sweep gradient fallback and cache identity
+
+The same sRGB path evaluator now supports Peniko sweep positions. The angle is
+clockwise from positive X in the Y-down coordinate system, canonicalized to
+[0, 2π); the center uses angle zero. The parameter is `(angle-start)/(end-start)`
+before pad/repeat/reflect extension. Reversed and partial sweeps use that same
+contract. Nonfinite/excessive coordinates and equal start/end angles are rejected.
+
+Unit fixtures verify known cardinal colors, reversal, partial-sweep extension,
+center behavior, integer-motion cache reuse, and cache invalidation for angle,
+center and independent brush-transform changes. A GPU fixture checks transformed
+premultiplied-alpha colors and alternating sweep directions, including fractional
+movement/removal damage against full redraw. Shared gradients now cover linear,
+radial and sweep kinds in sRGB through existing fast paths or bounded CPU fallback;
+non-sRGB interpolation and backend-dependent degenerate cases remain outside this
+implementation. The unsupported-command atomicity test now uses Oklab interpolation.
