@@ -2,6 +2,7 @@
 #![warn(missing_docs)]
 pub mod animated_image;
 pub mod damage;
+pub mod filter;
 pub use damage::DamageRegion;
 pub mod image;
 pub mod layout;

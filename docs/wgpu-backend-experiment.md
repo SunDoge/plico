@@ -571,3 +571,30 @@ application composition and event dispatch, not physical-monitor scroll smoothne
 or power consumption. Glass fails explicitly with `layer blend mode/filter`;
 there is no silent rendering fallback. General filtered layers remain a required
 replacement gate. Generated screenshots stay in ignored `reports/`.
+
+## Gaussian filtered layers and Glass
+
+Single-operation Gaussian filters now use two GPU compute passes over premultiplied
+RGBA. Shared filter interpretation exposes a small backend-neutral Gaussian/edge
+sampling descriptor; arbitrary graph operations still fail explicitly. Sigma is
+scaled by the positive uniform layer transform and limited to 64 physical pixels.
+The source intermediate extends four sigma beyond the final layer clip, so source
+pixels outside that clip can contribute before final masking/alpha. Transparent,
+clamp, repeat and mirror sampling are encoded explicitly. Zero sigma bypasses the
+filter passes. This uses discrete four-sigma kernels and RGBA8 intermediates; it is
+not a promise of pixel identity with Skia/Vello blur implementations.
+
+Filtered layers conservatively trigger full damage. The existing depth/frame-byte
+budget includes the source plus two filter intermediates. Filter pipeline creation
+is cached; the two work textures and uniform buffers are currently allocated per
+filtered draw. Target pooling and faster wide kernels remain performance work.
+No CPU readback is introduced into window presentation.
+
+GPU tests cover premultiplied color, group alpha, zero sigma, sigma rejection,
+motion/removal against full rendering, and source contribution across the final
+clip boundary. The existing gallery Glass page now displays in an Xvfb X11 wgpu
+window, including moving background, blurred glass and crisp foreground controls.
+This resolves the unsupported-filter failure recorded in the previous gallery
+check. Physical-display quality, representative GPU timing and broad filter graphs
+remain replacement gates. WASM type checking passed; browser execution was not
+verified.

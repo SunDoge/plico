@@ -135,6 +135,8 @@ pub struct Renderer {
     #[cfg(feature = "paint-scene")]
     layer_depth: u8,
     #[cfg(feature = "paint-scene")]
+    blur: Option<crate::blur::Blur>,
+    #[cfg(feature = "paint-scene")]
     frame_layer_bytes: u64,
     #[cfg(feature = "paint-scene")]
     layer_pool: Vec<Option<LayerTarget>>,
@@ -306,6 +308,8 @@ impl Renderer {
             scene_prepare_depth: 0,
             #[cfg(feature = "paint-scene")]
             layer_depth: 0,
+            #[cfg(feature = "paint-scene")]
+            blur: None,
             #[cfg(feature = "paint-scene")]
             frame_layer_bytes: 0,
             #[cfg(feature = "paint-scene")]
@@ -1358,7 +1362,13 @@ impl Renderer {
             height = size[1]
         )
         .entered();
-        let bytes = u64::from(size[0]) * u64::from(size[1]) * 4;
+        let bytes = u64::from(size[0])
+            * u64::from(size[1])
+            * if layer.blur.is_some_and(|b| b.sigma > 0.) {
+                12
+            } else {
+                4
+            };
         if self.layer_depth >= 16 || self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
             return Err(Error::InvalidInput {
                 reason: "isolated layers exceed depth 16 or 128 MiB frame budget".into(),
@@ -1401,7 +1411,7 @@ impl Renderer {
         let parent_images = std::mem::take(&mut self.frame_images);
         let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
         let mut resource = cached_image;
-        let result = encoded.map(|encoder| {
+        let result = encoded.map(|mut encoder| {
             let image = if let Some(image) = &resource {
                 self.layer_reuses += 1;
                 image.clone()
@@ -1413,6 +1423,26 @@ impl Renderer {
                     &self.target.as_ref().expect("encoded layer target").texture,
                 );
                 resource = Some(image.clone());
+                image
+            };
+            let image = if let Some(blur) = layer.blur.filter(|b| b.sigma > 0.) {
+                let pipeline = self
+                    .blur
+                    .get_or_insert_with(|| crate::blur::Blur::new(&self.device));
+                let output = pipeline.encode(
+                    &self.device,
+                    &mut encoder,
+                    &self.target.as_ref().unwrap().texture,
+                    size,
+                    blur.sigma,
+                    blur.edge,
+                );
+                crate::image::GpuImage::from_layer(
+                    &self.device,
+                    &self.atlas_texture.layout,
+                    &output,
+                )
+            } else {
                 image
             };
             self.queue.submit([encoder.finish()]);

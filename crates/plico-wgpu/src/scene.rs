@@ -17,6 +17,7 @@ pub struct PreparedLayer {
     pub(crate) scene: std::rc::Rc<PreparedScene>,
     pub(crate) quad: Quad,
     pub(crate) alpha: f32,
+    pub(crate) blur: Option<plico_renderer::filter::GaussianBlur>,
 }
 enum PreparedDraw {
     Quad(Quad),
@@ -407,9 +408,25 @@ impl Renderer {
                         clip: shape,
                         filter,
                     } => {
-                        if *blend != peniko::BlendMode::default() || filter.is_some() {
+                        if *blend != peniko::BlendMode::default() {
                             return Err(unsupported(index, "layer blend mode/filter"));
                         }
+                        let blur = filter
+                            .as_ref()
+                            .map(|filter| {
+                                let mut blur =
+                                    plico_renderer::filter::GaussianBlur::from_filter(filter)
+                                        .ok_or_else(|| unsupported(index, "layer filter graph"))?;
+                                blur.sigma *= uniform(*transform, index)?.0 as f32;
+                                if !blur.sigma.is_finite() || blur.sigma > 64. {
+                                    return Err(unsupported(
+                                        index,
+                                        "blur sigma exceeds 64 physical pixels",
+                                    ));
+                                }
+                                Ok(blur)
+                            })
+                            .transpose()?;
                         if !alpha.is_finite() || !(0. ..=1.).contains(alpha) {
                             return Err(unsupported(index, "invalid layer alpha"));
                         }
@@ -472,12 +489,13 @@ impl Renderer {
                         if let Some(mask) = &composite_mask {
                             draws.push(PreparedDraw::SetMask(mask.clone()));
                         }
+                        let reach = blur.map_or(0., |b| (4. * b.sigma as f64).ceil());
                         let q = quad(
                             Rect::new(
-                                layer_clip.x0.floor(),
-                                layer_clip.y0.floor(),
-                                layer_clip.x1.ceil(),
-                                layer_clip.y1.ceil(),
+                                layer_clip.x0.floor() - reach,
+                                layer_clip.y0.floor() - reach,
+                                layer_clip.x1.ceil() + reach,
+                                layer_clip.y1.ceil() + reach,
                             ),
                             0.,
                             Affine::IDENTITY,
@@ -488,6 +506,7 @@ impl Renderer {
                             scene: child,
                             quad: q,
                             alpha: *alpha,
+                            blur,
                         }));
                         draws.push(match parent {
                             Some(mask) => PreparedDraw::SetMask(mask),

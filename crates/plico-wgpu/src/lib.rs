@@ -3,6 +3,8 @@
 //! This is an offscreen backend prototype, not a complete `plico_renderer::Scene`
 //! implementation. It deliberately has no Vello dependency in its rendering path.
 mod blit;
+#[cfg(feature = "paint-scene")]
+mod blur;
 mod renderer;
 #[cfg(feature = "window")]
 mod window;
