@@ -18,6 +18,7 @@ struct Instance {
 }
 struct Target {
     texture: wgpu::Texture,
+    view: wgpu::TextureView,
     readback: Option<wgpu::Buffer>,
     size: [u32; 2],
     pitch: u32,
@@ -504,6 +505,13 @@ impl Renderer {
         if self.target.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
+        #[cfg(feature = "paint-scene")]
+        let root = self.layer_depth == 0;
+        #[cfg(not(feature = "paint-scene"))]
+        let root = true;
+        if root && let Some(blitter) = &mut self.blitter {
+            blitter.clear_source();
+        }
         let [width, height] = size;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Plico quad offscreen target"),
@@ -522,8 +530,10 @@ impl Renderer {
             view_formats: &[],
         });
         let pitch = (width * 4).div_ceil(256) * 256;
+        let view = texture.create_view(&Default::default());
         self.target = Some(Target {
             texture,
+            view,
             readback: None,
             size,
             pitch,
@@ -743,7 +753,7 @@ impl Renderer {
         );
         self.target(size);
         let target = self.target.as_ref().expect("target just created");
-        let view = target.texture.create_view(&Default::default());
+        let view = &target.view;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         self.batch_stats.instances += instances.len() as u64;
         self.batch_stats.passes += 1;
@@ -751,7 +761,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Plico quad draw"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -1451,16 +1461,11 @@ impl Renderer {
         if self.blitter.as_ref().is_none_or(|b| b.format != format) {
             self.blitter = Some(crate::blit::Blitter::new(&self.device, format));
         }
-        let view = self
-            .target
-            .as_ref()
-            .unwrap()
-            .texture
-            .create_view(&Default::default());
+        let view = &self.target.as_ref().unwrap().view;
         self.blitter
-            .as_ref()
+            .as_mut()
             .unwrap()
-            .encode(&self.device, &mut encoder, &view, destination);
+            .encode(&self.device, &mut encoder, view, destination);
         self.queue.submit([encoder.finish()]);
         Ok(())
     }
@@ -1846,19 +1851,31 @@ mod tests {
         let mut q = Quad::new([2.25, 3.5, 24., 23.], [0.15, 0.35, 0.65, 0.7]);
         q.radius = 5.;
         q.colors[1] = [0.65, 0.2, 0.1, 0.3];
-        let size = [32, 32];
-        let expected = renderer.render(&[q], size, [0.; 4], 0.).unwrap();
-        for format in [
-            wgpu::TextureFormat::Rgba8Unorm,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureFormat::Bgra8Unorm,
-            wgpu::TextureFormat::Bgra8UnormSrgb,
-        ] {
+        let mut previous: Option<([u32; 2], wgpu::TextureView)> = None;
+        for (index, (size, format)) in [
+            ([32, 32], wgpu::TextureFormat::Rgba8Unorm),
+            ([32, 32], wgpu::TextureFormat::Rgba8Unorm),
+            ([64, 48], wgpu::TextureFormat::Rgba8Unorm),
+            ([32, 32], wgpu::TextureFormat::Rgba8UnormSrgb),
+            ([32, 32], wgpu::TextureFormat::Bgra8Unorm),
+            ([32, 32], wgpu::TextureFormat::Bgra8UnormSrgb),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // Changed content catches a stale binding after target replacement.
+            q.colors[0][0] = 0.1 + index as f32 * 0.1;
+            let expected = renderer.render(&[q], size, [0.; 4], 0.).unwrap();
+            let source = renderer.target.as_ref().unwrap().view.clone();
+            if let Some((old_size, old_view)) = &previous {
+                assert_eq!(*old_size == size, *old_view == source);
+            }
+            previous = Some((size, source));
             let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("present oracle"),
                 size: wgpu::Extent3d {
-                    width: 32,
-                    height: 32,
+                    width: size[0],
+                    height: size[1],
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -1880,7 +1897,7 @@ mod tests {
                 .unwrap();
             let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: 256 * 32,
+                size: 256 * u64::from(size[1]),
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             });
@@ -1897,12 +1914,12 @@ mod tests {
                     layout: wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(256),
-                        rows_per_image: Some(32),
+                        rows_per_image: Some(size[1]),
                     },
                 },
                 wgpu::Extent3d {
-                    width: 32,
-                    height: 32,
+                    width: size[0],
+                    height: size[1],
                     depth_or_array_layers: 1,
                 },
             );
@@ -1918,7 +1935,12 @@ mod tests {
             rx.recv().unwrap().unwrap();
             let data = buffer.slice(..).get_mapped_range().unwrap();
             for (y, row) in data.as_chunks::<256>().0.iter().enumerate() {
-                for (x, pixel) in row[..128].as_chunks::<4>().0.iter().enumerate() {
+                for (x, pixel) in row[..size[0] as usize * 4]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .enumerate()
+                {
                     let mut actual: [u8; 4] = *pixel;
                     if matches!(
                         format,
@@ -1928,7 +1950,7 @@ mod tests {
                     }
                     for c in 0..4 {
                         assert!(
-                            actual[c].abs_diff(expected[(y * 32 + x) * 4 + c]) <= 1,
+                            actual[c].abs_diff(expected[(y * size[0] as usize + x) * 4 + c]) <= 1,
                             "{format:?} pixel {x},{y} differs: {actual:?}"
                         );
                     }

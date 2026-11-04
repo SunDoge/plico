@@ -2,6 +2,7 @@ pub(crate) struct Blitter {
     pub format: wgpu::TextureFormat,
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    source: Option<(wgpu::TextureView, wgpu::BindGroup)>,
 }
 impl Blitter {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
@@ -63,23 +64,31 @@ impl Blitter {
             format,
             layout,
             pipeline,
+            source: None,
         }
     }
+    pub fn clear_source(&mut self) {
+        self.source = None;
+    }
     pub fn encode(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::TextureView,
         destination: &wgpu::TextureView,
     ) {
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(source),
-            }],
-        });
+        if self.source.as_ref().is_none_or(|(view, _)| view != source) {
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                }],
+            });
+            // One source only: replacing a target releases the old view/binding.
+            self.source = Some((source.clone(), bind));
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Plico window composite"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -94,7 +103,7 @@ impl Blitter {
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind, &[]);
+        pass.set_bind_group(0, &self.source.as_ref().unwrap().1, &[]);
         pass.draw(0..3, 0..1);
     }
 }

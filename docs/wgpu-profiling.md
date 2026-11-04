@@ -59,3 +59,15 @@ Linux/X11、Xvfb、NVIDIA RTX 5080/Vulkan，1100×820 设置页，启用 damage�
 Xvfb 没有真实显示器的 VSync/合成器条件。不同阶段调用数及样本窗口可能不同，
 中位数也不能相加当作整帧中位数。完整 `present.cpu` 的 p50 为 2162 µs，明显
 包含上表编码/提交之外的窗口工作，需要单独继续定位。
+
+## 已移除的重复资源创建
+
+Retained render target 现在持有自己的 texture view，稳定尺寸的绘制不会每帧
+重新创建它。最终 blit 只缓存一个源 view/bind group；源身份变化时替换，根目标
+resize 时释放旧绑定，输出格式变化时重建 blitter。缓存不持有窗口 swapchain
+的 destination view，因此不会跨帧复用已取得的窗口图像。
+
+GPU 像素测试覆盖稳定目标的内容更新、目标尺寸变化，以及 RGBA/BGRA 和 sRGB
+切换；view 身份断言还检查了同尺寸复用、resize 后替换。这消除了明确的逐帧
+资源创建，但尚未通过稳定的 release 前后采样量化 CPU 收益，不能套用上表
+旧样本宣称加速比例。
