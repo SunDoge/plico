@@ -93,6 +93,9 @@ pub struct Request<'a> {
     /// Additional logical spacing after each native character in reading order.
     /// Negative values tighten spacing; native advances are clamped at zero.
     pub letter_spacing: f32,
+    /// Native character trimming with an ellipsis for a bounded no-wrap line.
+    /// Intrinsic-width requests remain untrimmed.
+    pub ellipsis: bool,
 }
 impl<'a> Request<'a> {
     /// Default Segoe UI paragraph at 14 DIPs.
@@ -109,6 +112,7 @@ impl<'a> Request<'a> {
             alignment: Alignment::Start,
             line_height: None,
             letter_spacing: 0.,
+            ellipsis: false,
         }
     }
 }
@@ -121,6 +125,8 @@ pub struct Line {
     pub baseline: f32,
     /// Native source length, including trailing whitespace/newlines.
     pub utf16_len: u32,
+    /// Native line was trimmed to its available width.
+    pub trimmed: bool,
 }
 /// Logical metrics from the exact retained DirectWrite layout.
 #[derive(Clone, Copy, Debug)]
@@ -152,6 +158,7 @@ pub struct Paragraph {
     metrics: Metrics,
     lines: Vec<Line>,
     ink: [f32; 4],
+    ellipsis: Option<IDWriteInlineObject>,
     // Retain the factory explicitly; it drops after the layout/font references.
     _factory: IDWriteFactory2,
     _thread: PhantomData<Rc<()>>,
@@ -235,6 +242,7 @@ impl Context {
             || !(1..=1000).contains(&request.weight)
             || !request.letter_spacing.is_finite()
             || request.letter_spacing.abs() > 4096.
+            || (request.ellipsis && request.wrap)
             || request
                 .line_height
                 .is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e7)
@@ -353,6 +361,7 @@ impl Context {
             .context(NativeSnafu)?;
         }
         let mut native = DWRITE_TEXT_METRICS::default();
+        let mut ellipsis = None;
         let max_content_width;
         let min_content_width;
         // SAFETY: output storage is initialized and valid for each native call.
@@ -380,6 +389,22 @@ impl Context {
             layout
                 .SetMaxWidth(request.width.unwrap_or(max_content_width.ceil().max(1.)))
                 .context(NativeSnafu)?;
+            if request.ellipsis && request.width.is_some() {
+                let sign = self
+                    .factory
+                    .CreateEllipsisTrimmingSign(&layout)
+                    .context(NativeSnafu)?;
+                layout
+                    .SetTrimming(
+                        &DWRITE_TRIMMING {
+                            granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                            ..Default::default()
+                        },
+                        &sign,
+                    )
+                    .context(NativeSnafu)?;
+                ellipsis = Some(sign);
+            }
             layout
                 .SetTextAlignment(match request.alignment {
                     Alignment::Start => DWRITE_TEXT_ALIGNMENT_LEADING,
@@ -449,6 +474,7 @@ impl Context {
                 height: l.height,
                 baseline: l.baseline,
                 utf16_len: l.length,
+                trimmed: l.isTrimmed.as_bool(),
             })
             .collect();
         let last_top: f32 = lines
@@ -473,6 +499,7 @@ impl Context {
             metrics,
             lines,
             ink,
+            ellipsis,
             _factory: self.factory.clone(),
             _thread: PhantomData,
         })
@@ -587,6 +614,42 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_ellipsis_preserves_source_and_draws_its_own_glyph_run() {
+        let context = Context::new().unwrap();
+        for rtl in [false, true] {
+            let mut request = Request::new("A long label with enough words to require truncation");
+            request.wrap = false;
+            request.rtl = rtl;
+            request.ellipsis = true;
+            let intrinsic = context.layout(&request).unwrap();
+            request.width = Some(100.);
+            let trimmed = context.layout(&request).unwrap();
+            assert_eq!(trimmed.lines().len(), 1);
+            assert!(trimmed.lines()[0].trimmed);
+            assert_eq!(
+                trimmed.metrics().max_content_width,
+                intrinsic.metrics().max_content_width
+            );
+            assert_eq!(
+                trimmed.utf16_from_byte(request.text.len()),
+                Some(request.text.len() as u32)
+            );
+            let raster = trimmed.rasterize(1., [0., 0.]).unwrap();
+            assert!(
+                raster.masks.iter().any(
+                    |m| m.utf16_range == (request.text.len() as u32..request.text.len() as u32)
+                )
+            );
+            for x in [0., 30., 99.] {
+                assert!(
+                    request
+                        .text
+                        .is_char_boundary(trimmed.hit_test(x, 8.).unwrap())
+                );
+            }
+        }
+    }
     #[test]
     fn range_colors_survive_context_drop_and_later_inheritance_reset() {
         let paragraph = {

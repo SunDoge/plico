@@ -157,7 +157,7 @@ Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
 family and an explicit paragraph base direction; CSS family lists,
-application fonts and clipping/ellipsis are not implemented in this service yet.
+application fonts and clip-only line limits are not implemented in this service yet.
 Raw grayscale glyph-run rasterization is available, with the limits below.
 The experimental plico-wgpu Windows provider now connects ordinary paragraph
 measurement/editing to the same native layout used for corrected run images.
@@ -220,7 +220,16 @@ copying a separately shaped prefix. Tests cover non-ASCII range conversion,
 overlap order, changed metrics and invalid ranges; they cross-compile only here.
 Tests also cover colors after context drop, inheritance reset, opacity and
 corrected image output. All Windows-specific tests are cross-compiled only here.
-Per-range line height, truncation and application fonts
+Single-line ellipsis uses native character trimming and a factory-created
+ellipsis sign. The collector accepts only that retained inline object's COM
+identity, guards recursive inline reentry, and synchronously rasterizes its
+native glyph callback (whose source description may be absent). Ellipsis masks
+use the empty source range at the original text end; ordinary text retains its
+original UTF-8/UTF-16 mapping. The shared adapter accepts no-wrap ellipsis or
+`max_lines == 1` ellipsis without hard newlines. Intrinsic requests remain
+untrimmed. Tests cover LTR/RTL trimmed lines, unchanged intrinsic widths,
+preserved offsets and the ellipsis's glyph output; they cross-compile only here.
+Per-range line height, multiline truncation, clip-only limits and application fonts
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers
@@ -311,7 +320,7 @@ in physical pixels; glyph positioning stays in logical DIPs until native raster.
 
 Output is limited to 4096 nonempty runs, 100,000 glyphs, 16,384 pixels per mask
 axis and 64 MiB total coverage. Native failure returns an error, never a partial
-mask list. Color fonts, underline/strikethrough and inline objects are explicitly
+mask list. Unsupported color formats, underline/strikethrough and non-ellipsis inline objects are explicitly
 unsupported in this prototype. The renderer owns thread-local callback state and
 does not advertise `IAgileObject`; the layout and factory remain UI-thread bound.
 

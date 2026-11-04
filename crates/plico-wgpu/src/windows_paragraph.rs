@@ -223,8 +223,14 @@ impl Cache {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(rejected("invalid DirectWrite device scale"));
         }
-        if request.max_lines != 0 || request.ellipsis {
-            return Err(rejected("DirectWrite truncation is not implemented"));
+        if request.max_lines > 1
+            || (request.max_lines == 1
+                && (!request.ellipsis || request.text.contains(['\n', '\r'])))
+            || (request.ellipsis && request.wrap && request.max_lines != 1)
+        {
+            return Err(rejected(
+                "DirectWrite multiline truncation and clip-only line limits are not implemented",
+            ));
         }
         if request.runs.len() > 4096 {
             return Err(rejected("too many DirectWrite style spans"));
@@ -281,7 +287,8 @@ impl Cache {
             TextAlign::End => Alignment::End,
             TextAlign::Justify => Alignment::Justify,
         };
-        native.wrap = request.wrap;
+        native.wrap = request.wrap && request.max_lines != 1;
+        native.ellipsis = request.ellipsis;
         native.width = request.width.filter(|w| *w != f32::INFINITY);
         let spans = request
             .runs
@@ -610,6 +617,27 @@ mod tests {
         run.line_height = Some((2., true));
         declaration.runs = Arc::from([run]);
         assert!(cache.layout(Arc::new(declaration), 1.).is_err());
+    }
+    #[test]
+    fn single_line_ellipsis_updates_native_geometry_and_paint() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "A sufficiently long label to truncate".into();
+        declaration.max_lines = 1;
+        declaration.ellipsis = true;
+        declaration.width = Some(100.);
+        let declaration = Arc::new(declaration);
+        let paragraph = cache.layout(declaration.clone(), 1.).unwrap();
+        assert!(paragraph.layout.lines()[0].trimmed);
+        assert!(
+            !cache
+                .raster(declaration.clone(), 1., 0.)
+                .unwrap()
+                .is_empty()
+        );
+        let mut invalid = (*declaration).clone();
+        invalid.max_lines = 2;
+        assert!(cache.layout(Arc::new(invalid), 1.).is_err());
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {

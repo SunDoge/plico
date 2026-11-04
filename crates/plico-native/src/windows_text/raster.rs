@@ -1,13 +1,18 @@
 //! Capture the retained layout's native glyph runs; no reshaping or bitmap scaling.
 use super::{Error, Paragraph, Result};
 use snafu::ResultExt;
-use std::{cell::RefCell, ffi::c_void, ops::Range, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+    ops::Range,
+    rc::Rc,
+};
 use windows::{
     Win32::{
         Foundation::{DWRITE_E_NOCOLOR, E_FAIL, E_INVALIDARG, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER},
         Graphics::DirectWrite::*,
     },
-    core::{BOOL, IUnknown, Interface, Ref, implement},
+    core::{BOOL, IUnknown, IUnknownImpl, Interface, Ref, implement},
 };
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 /// Raw single-channel native coverage for one resolved glyph run.
@@ -137,6 +142,8 @@ struct Collector {
     scale: f32,
     phase: [f32; 2],
     units: u32,
+    ellipsis: Option<IDWriteInlineObject>,
+    in_ellipsis: Cell<bool>,
     output: Rc<RefCell<Output>>,
 }
 fn native_error(code: windows::core::HRESULT) -> windows::core::Error {
@@ -182,12 +189,21 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
         effect: Ref<IUnknown>,
     ) -> windows::core::Result<()> {
         let foreground = super::color::read(effect)?;
-        if run.is_null() || description.is_null() {
+        if run.is_null() {
             return Err(native_error(E_POINTER));
         }
-        // SAFETY: the native Draw callback borrows both structures for this call.
-        // All analysis and pixel copying complete before their pointers expire.
-        let (run, description) = unsafe { (&*run, &*description) };
+        let ellipsis_description = DWRITE_GLYPH_RUN_DESCRIPTION {
+            textPosition: self.units,
+            ..Default::default()
+        };
+        let description = if self.in_ellipsis.get() {
+            &ellipsis_description
+        } else {
+            // SAFETY: native callback description lives through this call.
+            unsafe { description.as_ref() }.ok_or_else(|| native_error(E_POINTER))?
+        };
+        // SAFETY: native run and all arrays live through this synchronous call.
+        let run = unsafe { &*run };
         if run.glyphCount == 0 {
             return Ok(());
         }
@@ -298,14 +314,45 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
     fn DrawInlineObject(
         &self,
         _context: *const c_void,
-        _x: f32,
-        _y: f32,
-        _object: Ref<IDWriteInlineObject>,
-        _sideways: BOOL,
-        _rtl: BOOL,
-        _effect: Ref<IUnknown>,
+        x: f32,
+        y: f32,
+        object: Ref<IDWriteInlineObject>,
+        sideways: BOOL,
+        rtl: BOOL,
+        effect: Ref<IUnknown>,
     ) -> windows::core::Result<()> {
-        Err(native_error(E_NOTIMPL))
+        let object = object.ok()?;
+        let allowed = self
+            .ellipsis
+            .as_ref()
+            .ok_or_else(|| native_error(E_NOTIMPL))?;
+        if object.cast::<IUnknown>()? != allowed.cast::<IUnknown>()? {
+            return Err(native_error(E_NOTIMPL));
+        }
+        if self.in_ellipsis.replace(true) {
+            return Err(native_error(E_FAIL));
+        }
+        struct Guard<'a>(&'a Cell<bool>);
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                self.0.set(false);
+            }
+        }
+        let _guard = Guard(&self.in_ellipsis);
+        let renderer: IDWriteTextRenderer = self.to_interface();
+        // SAFETY: only our factory-created ellipsis may reenter the renderer;
+        // callbacks synchronously copy glyph pixels and no RefCell borrow is held.
+        unsafe {
+            object.Draw(
+                None,
+                &renderer,
+                x,
+                y,
+                sideways.as_bool(),
+                rtl.as_bool(),
+                effect.as_ref(),
+            )
+        }
     }
 }
 impl Collector {
@@ -427,7 +474,8 @@ impl Paragraph {
     /// Rasterize this exact native layout into ordered raw grayscale masks.
     /// Scale is physical pixels per DIP; phase is a [0,1) physical-pixel offset.
     /// DirectWrite outline color layers preserve their palette and painter order.
-    /// Decorations and inline objects return Unsupported; bitmap/SVG color glyph
+    /// The retained native ellipsis object is replayed synchronously. Other
+    /// inline objects and decorations return Unsupported; bitmap/SVG color glyph
     /// formats are not implemented by this outline-layer interface.
     /// No partial mask list is returned on native failure. Coverage correction and
     /// foreground compositing remain the consumer's responsibility.
@@ -467,6 +515,8 @@ impl Paragraph {
             scale,
             phase,
             units: self.source.encode_utf16().count() as u32,
+            ellipsis: self.ellipsis.clone(),
+            in_ellipsis: Cell::new(false),
             output: output.clone(),
         }
         .into();
@@ -477,7 +527,7 @@ impl Paragraph {
         if let Err(error) = result {
             if error.code() == E_NOTIMPL {
                 return Err(Error::Unsupported {
-                    reason: "color glyphs, decorations or inline objects",
+                    reason: "glyph raster format, decoration or non-ellipsis inline object",
                 });
             }
             return Err(Error::Native { source: error });
@@ -692,6 +742,8 @@ mod tests {
             scale: 1.,
             phase: [0.; 2],
             units: 0,
+            ellipsis: None,
+            in_ellipsis: Cell::new(false),
             output: Rc::new(RefCell::new(Output::default())),
         }
         .into();
