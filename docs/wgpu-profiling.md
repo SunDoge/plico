@@ -219,3 +219,27 @@ isolated marginal GPU-mip cost. Subsequent waits also differ and are reported by
 the harness. An explicit staging-buffer comparison is a reasonable next control;
 these results alone do not justify changing render scheduling or blaming the GPU
 shader. No production behavior changed in this diagnostic extension.
+
+### Explicit staging buffer control
+
+```sh
+cargo test --locked -p plico-wgpu --lib profile_explicit_staging -- --ignored --nocapture
+```
+
+This separate manual experiment compares `queue.write_texture` with a newly
+allocated mapped-at-creation COPY_SRC buffer plus `copy_buffer_to_texture`.
+Both time texture allocation, source-data copying and submission; odd row sizes
+are padded to 256 bytes on the explicit path. First/middle/last texels are copied
+back and checked exactly. Source creation and the tiny oracle buffer allocation
+are outside timing. The post-submit interval includes GPU completion/map callback,
+not just transfer GPU time. No production upload policy is changed.
+
+On a follow-up Intel/Mesa dev run, upper medians of each trial's paired CPU+wait
+total were 38.974 / 38.450 ms for write_texture (even/odd dimensions), versus
+46.727 / 46.324 ms for explicit staging. These totals are computed per sample
+before sorting, not by adding independently computed medians. Another run showed
+no consistent CPU-only benefit either. The simple explicit-buffer replacement
+therefore has no demonstrated benefit here and is not adopted. Reused upload
+pools, other drivers, release profiles and real app concurrency are not evaluated
+by this experiment. The diagnostic remains ignored by default, with no timing
+threshold; Clippy passed.

@@ -1904,6 +1904,165 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "manual GPU staging comparison; run with --ignored --nocapture"]
+    fn profile_explicit_staging_against_queue_write_texture() {
+        use std::time::Instant;
+        let renderer = pollster::block_on(Renderer::new()).unwrap();
+        eprintln!("adapter: {:?}", renderer.adapter_info());
+        for [width, height] in [[4096u32, 3072u32], [4095, 3071]] {
+            let source: Vec<u8> = (0..width as usize * height as usize * 4)
+                .map(|i| (i % 251) as u8)
+                .collect();
+            for mapped in [false, true] {
+                let mut samples = Vec::new();
+                for index in 0..7 {
+                    let oracle = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: None,
+                        size: 768,
+                        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                        mapped_at_creation: false,
+                    });
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    let start = Instant::now();
+                    let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("upload staging comparison"),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    let mut encoder = renderer.device.create_command_encoder(&Default::default());
+                    let destination = wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    };
+                    if mapped {
+                        let pitch = (width * 4).div_ceil(256) * 256;
+                        let upload = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("explicit staging comparison"),
+                            size: u64::from(pitch) * u64::from(height),
+                            usage: wgpu::BufferUsages::COPY_SRC,
+                            mapped_at_creation: true,
+                        });
+                        {
+                            let mut data = upload.slice(..).get_mapped_range_mut().unwrap();
+                            for (row, input) in source.chunks_exact(width as usize * 4).enumerate()
+                            {
+                                let start = row * pitch as usize;
+                                data.slice(start..start + input.len())
+                                    .copy_from_slice(input);
+                            }
+                        }
+                        upload.unmap();
+                        encoder.copy_buffer_to_texture(
+                            wgpu::TexelCopyBufferInfo {
+                                buffer: &upload,
+                                layout: wgpu::TexelCopyBufferLayout {
+                                    offset: 0,
+                                    bytes_per_row: Some(pitch),
+                                    rows_per_image: None,
+                                },
+                            },
+                            destination,
+                            texture.size(),
+                        );
+                    } else {
+                        renderer.queue.write_texture(
+                            destination,
+                            &source,
+                            wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(width * 4),
+                                rows_per_image: None,
+                            },
+                            texture.size(),
+                        );
+                    }
+                    let points = [[0, 0], [width / 2, height / 2], [width - 1, height - 1]];
+                    for (slot, [x, y]) in points.into_iter().enumerate() {
+                        encoder.copy_texture_to_buffer(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d { x, y, z: 0 },
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::TexelCopyBufferInfo {
+                                buffer: &oracle,
+                                layout: wgpu::TexelCopyBufferLayout {
+                                    offset: slot as u64 * 256,
+                                    bytes_per_row: Some(256),
+                                    rows_per_image: None,
+                                },
+                            },
+                            wgpu::Extent3d {
+                                width: 1,
+                                height: 1,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
+                    renderer.queue.submit([encoder.finish()]);
+                    let cpu = start.elapsed();
+                    let start = Instant::now();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    oracle
+                        .slice(..)
+                        .map_async(wgpu::MapMode::Read, move |result| {
+                            tx.send(result).unwrap();
+                        });
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    rx.recv().unwrap().unwrap();
+                    let wait = start.elapsed();
+                    let actual = oracle.slice(..).get_mapped_range().unwrap();
+                    for (slot, [x, y]) in points.into_iter().enumerate() {
+                        let offset = (y as usize * width as usize + x as usize) * 4;
+                        assert_eq!(
+                            &actual[slot * 256..slot * 256 + 4],
+                            &source[offset..offset + 4]
+                        );
+                    }
+                    if index == 0 {
+                        eprintln!(
+                            "{width}x{height} mapped={mapped} first: cpu={cpu:?}, wait={wait:?}"
+                        );
+                    } else {
+                        samples.push((cpu, wait));
+                    }
+                }
+                samples.sort_by_key(|sample| sample.0);
+                let mut waits: Vec<_> = samples.iter().map(|sample| sample.1).collect();
+                waits.sort();
+                let mut totals: Vec<_> = samples.iter().map(|sample| sample.0 + sample.1).collect();
+                totals.sort();
+                eprintln!(
+                    "{width}x{height} mapped={mapped} paired_total_upper_median={:?}",
+                    totals[3]
+                );
+                eprintln!(
+                    "{width}x{height} mapped={mapped} warm n=6: cpu_upper_median={:?}, wait_upper_median={:?}",
+                    samples[3].0, waits[3]
+                );
+            }
+        }
+    }
+
     #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "manual GPU upload profile; run with --ignored --nocapture"]
