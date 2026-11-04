@@ -616,6 +616,10 @@ impl Renderer {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        // Encoded commands retain their own GPU references. The pass-local
+        // interning table must not keep evicted textures alive until another frame.
+        #[cfg(feature = "paint-scene")]
+        self.clear_frame_images();
         #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
         if !unchanged {
             if result.is_err() {
@@ -1819,6 +1823,53 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
+        use crate::{Draw, image::ImageQuad};
+        use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+        use std::sync::Arc;
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let image = ImageQuad::new(
+            Quad::new([0., 0., 8., 8.], [1.; 4]),
+            ImageData {
+                data: Blob::new(Arc::new(vec![255u8, 0, 0, 255])),
+                width: 1,
+                height: 1,
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::AlphaPremultiplied,
+            },
+        );
+        let pixels = renderer
+            .render_items(&[Draw::Image(&image)], [16, 16], [0.; 4], 0.)
+            .unwrap();
+        assert_eq!(&pixels[..4], &[255, 0, 0, 255]);
+        assert!(renderer.frame_images.is_empty());
+        assert!(renderer.frame_image_slots.is_empty());
+        // A second upload fails after the first image has entered the pass table.
+        let mut truncated = ImageQuad::new(image.quad, image.image.clone());
+        truncated.image.width = 2;
+        assert!(
+            renderer
+                .encode_frame(
+                    &[Draw::Image(&image), Draw::Image(&truncated)],
+                    [16, 16],
+                    [0.; 4],
+                    0.,
+                )
+                .is_err()
+        );
+        assert!(renderer.frame_images.is_empty());
+        assert!(renderer.frame_image_slots.is_empty());
+        assert_eq!(
+            renderer
+                .render_items(&[Draw::Image(&image)], [16, 16], [0.; 4], 0.)
+                .unwrap(),
+            pixels
+        );
+    }
+
     #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
