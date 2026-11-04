@@ -54,3 +54,7 @@ required-features = ["profiling"]
 [[example]]
 name="wgpu-window"
 required-features=["wgpu"]
+
+[[example]]
+name = "wgpu-text"
+required-features = ["wgpu"]

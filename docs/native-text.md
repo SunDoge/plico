@@ -98,6 +98,33 @@ own Pango layout. See the [wgpu window/text milestone](wgpu-backend-experiment.m
 
 ## Windows DirectWrite foundation (experimental)
 
+### Shared window acceptance fixture
+
+```sh
+cargo run --locked -p plico-desktop --no-default-features --features wgpu --example wgpu-text
+```
+
+This fixture uses ordinary Plico components and the shared desktop host. It has
+Latin/CJK/Arabic/Hebrew samples, 120 scrollable rows, a native editing field,
+font-size switching and a one-row update. It deliberately avoids shaders,
+emoji, custom fonts and rich spans so their separate support gaps do not prevent
+testing basic Windows text. It is not a replacement for testing those features.
+
+On Windows, verify typing and IME composition, selection/caret placement, scroll
+clipping, resizing and moving between monitors with different scaling settings.
+Repeat with `PLICO_WGPU_DAMAGE=1` in the environment to compare damage replay.
+Record OS, GPU, scale settings and screenshots when reporting a failure.
+The example builds/runs on Linux; Windows full-desktop cross-check in this Linux
+environment currently stops in ring's C build because MinGW GCC is absent.
+The narrower Windows renderer/service cross-checks do not prove that executable
+build or Windows window behavior.
+
+Local Linux/X11 acceptance used an actual wgpu window under Xvfb with the NVIDIA
+Vulkan adapter: initial/scroll/resize screenshots were inspected, font-size
+switching worked, and ASCII typing plus Ctrl+A selection was verified visually
+with damage enabled. Generated screenshots remain ignored local reports. This
+does not validate real IME, physical monitor transitions or Windows behavior.
+
 `plico-native/windows-text` exposes `plico_native::windows_text::{Context, Request,
 Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
