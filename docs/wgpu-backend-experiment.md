@@ -778,3 +778,20 @@ tests use Parley-generated weight 100/900 runs, verify changed alpha coverage,
 restore the original pixels, and check separate instances/rasters without duplicate
 source-byte accounting. These establish the tested TrueType variable-font path;
 other variable formats and all installed font combinations are not claimed verified.
+
+## Per-glyph affine synthesis
+
+Positioned runs now support an affine matrix on each glyph outline independently
+of baseline placement. The bridge sets Cairo's font matrix, leaving supplied glyph
+positions untouched. The run's uniform scale applies to outline size and glyph-local
+translation; it does not shear the line or inter-glyph offsets. Matrix coefficients
+participate in raster identity, and singular/nonfinite matrices fail explicitly.
+Geometric emboldening and stroked/non-solid glyph brushes are still unsupported.
+
+A native pixel oracle draws two glyphs on different baselines by translating to
+each origin, applying its outline transform and drawing at zero. The run-font-matrix
+implementation matches that reference within one alpha level, including skew and
+translation. GPU replay tests change skew/translation, restore the original run,
+and remove it; partial redraw matches full redraw and original cache results remain
+unchanged. These verify this synthesis path without claiming all affine/font/hinting
+combinations or changing the application's shaping and selection geometry.

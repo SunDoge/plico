@@ -35,8 +35,8 @@ pub struct Bitmap {
     pub rgba: Vec<u8>,
 }
 /// Thread-confined native face owning its in-memory font data. Collection face
-/// indices and normalized variable coordinates are explicit. Synthetic styles
-/// are not part of this interface and must not be silently discarded.
+/// indices and normalized variable coordinates are explicit. Per-glyph matrices
+/// support synthetic skew; geometric emboldening is not implemented.
 pub struct Font {
     face: cairo::FontFace,
     native: cairo::freetype::Face<SharedBytes>,
@@ -128,6 +128,23 @@ impl Font {
         hint: bool,
         color: [f32; 4],
     ) -> Result<Option<Bitmap>> {
+        self.raster_transformed(glyphs, size, hint, color, [1., 0., 0., 1., 0., 0.])
+    }
+    /// Apply an affine transform to each glyph outline independently of its
+    /// baseline position. Translation terms are physical pixels. This supports
+    /// synthetic skew without shearing line spacing or glyph placement.
+    pub fn raster_transformed(
+        &self,
+        glyphs: &[Glyph],
+        size: f64,
+        hint: bool,
+        color: [f32; 4],
+        matrix: [f64; 6],
+    ) -> Result<Option<Bitmap>> {
+        let [a, b, c, d, _, _] = matrix;
+        if !matrix.iter().all(|v| v.is_finite()) || (a * d - b * c).abs() < 1e-12 {
+            return Err(Error::InvalidRequest);
+        }
         if !size.is_finite()
             || size <= 0.
             || size > 4096.
@@ -154,7 +171,7 @@ impl Font {
             .collect();
         let surface = ImageSurface::create(Format::ARgb32, 1, 1).context(super::CairoSnafu)?;
         let context = Context::new(&surface).context(super::CairoSnafu)?;
-        self.configure(&context, size, hint)?;
+        self.configure(&context, size, hint, matrix)?;
         let extents = context.glyph_extents(&glyphs).context(super::CairoSnafu)?;
         if extents.width() <= 0. || extents.height() <= 0. {
             return Ok(None);
@@ -170,7 +187,7 @@ impl Font {
             ImageSurface::create(Format::ARgb32, w as i32, h as i32).context(super::CairoSnafu)?;
         {
             let context = Context::new(&surface).context(super::CairoSnafu)?;
-            self.configure(&context, size, hint)?;
+            self.configure(&context, size, hint, matrix)?;
             context.translate(-x, -y);
             context.set_source_rgba(
                 color[0] as f64,
@@ -203,7 +220,7 @@ impl Font {
             rgba,
         }))
     }
-    fn configure(&self, context: &Context, size: f64, hint: bool) -> Result<()> {
+    fn configure(&self, context: &Context, size: f64, hint: bool, matrix: [f64; 6]) -> Result<()> {
         let mut options = FontOptions::new().context(super::CairoSnafu)?;
         options.set_antialias(Antialias::Gray);
         options.set_hint_metrics(HintMetrics::Off);
@@ -214,7 +231,15 @@ impl Font {
         });
         context.set_font_options(&options);
         context.set_font_face(&self.face);
-        context.set_font_size(size);
+        let [a, b, c, d, e, f] = matrix;
+        context.set_font_matrix(cairo::Matrix::new(
+            a * size,
+            b * size,
+            c * size,
+            d * size,
+            e,
+            f,
+        ));
         Ok(())
     }
 }
@@ -347,5 +372,75 @@ mod tests {
         assert_eq!(a.origin, again.origin);
         assert_eq!(a.rgba, again.rgba);
         assert!(Font::from_shared_variations(bytes, 0, &[i16::MAX]).is_err());
+    }
+    #[test]
+    #[ignore = "requires Fontconfig and a system sans-serif font"]
+    fn outline_transform_matches_individually_transformed_glyphs() {
+        let path = std::process::Command::new("fc-match")
+            .args(["-f", "%{file}", "sans-serif"])
+            .output()
+            .unwrap();
+        assert!(path.status.success());
+        let font = Font::from_bytes(
+            std::fs::read(std::str::from_utf8(&path.stdout).unwrap()).unwrap(),
+            0,
+        )
+        .unwrap();
+        let id = font.native.get_char_index('A' as usize).unwrap();
+        let glyphs = [Glyph { id, x: 20., y: 40. }, Glyph { id, x: 65., y: 65. }];
+        let matrix = [1., 0., 0.25, 1., 2., -3.];
+        let bitmap = font
+            .raster_transformed(&glyphs, 24., false, [1.; 4], matrix)
+            .unwrap()
+            .unwrap();
+        let mut surface = ImageSurface::create(Format::ARgb32, 128, 96).unwrap();
+        {
+            let context = Context::new(&surface).unwrap();
+            font.configure(&context, 24., false, [1., 0., 0., 1., 0., 0.])
+                .unwrap();
+            context.set_source_rgba(1., 1., 1., 1.);
+            for glyph in glyphs {
+                context.save().unwrap();
+                context.translate(glyph.x, glyph.y);
+                context.transform(cairo::Matrix::new(
+                    matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5],
+                ));
+                context
+                    .show_glyphs(&[cairo::Glyph::new(glyph.id.into(), 0., 0.)])
+                    .unwrap();
+                context.restore().unwrap();
+            }
+        }
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let data = surface.data().unwrap();
+        for y in 0..96 {
+            for x in 0..128 {
+                let expected = (u32::from_ne_bytes(
+                    data[y * stride + x * 4..y * stride + x * 4 + 4]
+                        .try_into()
+                        .unwrap(),
+                ) >> 24) as u8;
+                let bx = x as i32 - bitmap.origin[0];
+                let by = y as i32 - bitmap.origin[1];
+                let actual = if bx >= 0
+                    && by >= 0
+                    && bx < bitmap.size[0] as i32
+                    && by < bitmap.size[1] as i32
+                {
+                    bitmap.rgba[(by as usize * bitmap.size[0] as usize + bx as usize) * 4 + 3]
+                } else {
+                    0
+                };
+                assert!(
+                    actual.abs_diff(expected) <= 1,
+                    "at {x},{y}: {actual}/{expected}"
+                );
+            }
+        }
+        assert!(
+            font.raster_transformed(&glyphs, 24., false, [1.; 4], [0.; 6])
+                .is_err()
+        );
     }
 }

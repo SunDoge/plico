@@ -129,3 +129,53 @@ fn variable_weight_changes_pixels_without_poisoning_prior_instances() {
     assert_eq!(faces, 2);
     assert_eq!(rasters, 2);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn per_glyph_skew_updates_cache_and_damage_without_moving_layout() {
+    let mut text = TextContext::new();
+    let layout = plico_renderer::text::layout_text(&mut text, "A A", 24.);
+    let base = text.glyph_scene(&layout);
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let transforms = [
+        None,
+        Some(Affine::skew(0.3, 0.)),
+        Some(Affine::translate((2., -3.)) * Affine::skew(0.3, 0.)),
+        None,
+    ];
+    let mut first = Vec::new();
+    for (step, transform) in transforms.into_iter().enumerate() {
+        let mut scene = (*base).clone();
+        for command in scene.commands.iter_mut() {
+            if let PaintCommand::GlyphRun {
+                glyph_transform, ..
+            } = command
+            {
+                *glyph_transform = transform;
+            }
+        }
+        let actual = partial
+            .render_scene(&scene, [160, 64], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            actual,
+            full.render_scene(&scene, [160, 64], [0.; 4], false)
+                .unwrap()
+        );
+        if step == 0 {
+            first = actual;
+        } else if step == 3 {
+            assert_eq!(first, actual);
+        } else {
+            assert_ne!(first, actual, "glyph transform was ignored");
+        }
+    }
+    assert_eq!(partial.positioned_glyph_cache_stats().2, 3);
+    assert_eq!(
+        partial
+            .render_scene(&Scene::new(), [160, 64], [0.; 4], true)
+            .unwrap(),
+        vec![0; 160 * 64 * 4]
+    );
+}

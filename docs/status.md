@@ -131,14 +131,19 @@ It also supports Linux Pango/Cairo text, ordered shape/text draws, bounded glyph
 cache recycling and a GPU-only winit window demo. It supports analytical shared paint and an optional `plico-desktop/wgpu` host path.
 Optional shared-scene damage replay (`PLICO_WGPU_DAMAGE=1`) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
-window exercise pass. Performance and physical-display verification remain pending.
+window exercise pass. Representative performance and physical-display verification remain pending.
 Shared images use cached independent textures, nearest/bilinear premultiplied-alpha
 sampling and ordered batches; SVG uses a cached resvg fallback. Shared native WGSL
 effect surfaces use the public shader widget, injected time and bounded local
 damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
-full paint-scene backend: solid general paths now use cached tiny-skia coverage,
-and nested nonrectangular clip masks preserve native text drawing. Non-solid
-path brushes, filter/blend layers and Windows text remain unfinished. Isolated
-source-over opacity groups use cropped GPU-only intermediate textures. Single-line
+full paint-scene backend: solid/linear-sRGB-gradient paths use a bounded tiny-skia
+fallback, and nested clip masks preserve native text drawing. Gaussian box shadows
+and Gaussian filtered layers are implemented, with pooled GPU workspaces; general
+filter graphs, non-default blends, image/nonlinear-gradient path brushes and
+Windows/macOS text remain unfinished. Isolated source-over groups use cropped
+GPU intermediates. Externally positioned glyph runs use shared memory-font
+Cairo/FreeType rasterization, including normalized variable coordinates and
+per-glyph affine matrices; the editor fixture displays and accepts input.
+Geometric emboldening, stroke and non-solid glyph brushes remain unsupported. Single-line
 editing uses Pango caret/selection geometry; actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).

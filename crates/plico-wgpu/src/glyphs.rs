@@ -15,6 +15,7 @@ struct Key {
     index: u32,
     size: f64,
     coordinates: Vec<i16>,
+    glyph_transform: [f64; 6],
     hint: bool,
     color: [f32; 4],
     glyphs: Vec<Glyph>,
@@ -96,11 +97,8 @@ impl GlyphCache {
                 ),
             });
         }
-        if *embolden != kurbo::Vec2::ZERO
-            || glyph_transform.is_some_and(|t| t != kurbo::Affine::IDENTITY)
-            || !matches!(style, peniko::Style::Fill(_))
-        {
-            return Err(unsupported("positioned glyph synthesis or stroke"));
+        if *embolden != kurbo::Vec2::ZERO || !matches!(style, peniko::Style::Fill(_)) {
+            return Err(unsupported("positioned glyph emboldening or stroke"));
         }
         let peniko::Brush::Solid(color) = brush else {
             return Err(unsupported("non-solid positioned glyph brush"));
@@ -117,6 +115,12 @@ impl GlyphCache {
             index: font.index,
             size: *font_size as f64 * scale,
             coordinates: normalized_coords.clone(),
+            glyph_transform: {
+                let [a, b, c, d, e, f] = glyph_transform
+                    .unwrap_or(kurbo::Affine::IDENTITY)
+                    .as_coeffs();
+                [a, b, c, d, e * scale, f * scale]
+            },
             hint: *hint,
             color,
             glyphs: glyphs
@@ -134,6 +138,9 @@ impl GlyphCache {
         key.size.to_bits().hash(&mut hash);
         key.hint.hash(&mut hash);
         key.coordinates.hash(&mut hash);
+        for v in key.glyph_transform {
+            v.to_bits().hash(&mut hash);
+        }
         for v in key.color {
             v.to_bits().hash(&mut hash);
         }
@@ -198,7 +205,13 @@ impl GlyphCache {
             .get(&font_id)
             .unwrap()
             .0
-            .raster(&key.glyphs, key.size, key.hint, key.color)
+            .raster_transformed(
+                &key.glyphs,
+                key.size,
+                key.hint,
+                key.color,
+                key.glyph_transform,
+            )
             .map_err(|source| Error::Text { source })?
         else {
             return Ok(None);
