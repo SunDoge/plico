@@ -332,7 +332,41 @@ impl GpuImage {
 
 /// Exact area weights for each reduction, including odd dimensions. Inputs are
 /// premultiplied encoded RGBA; identical weights preserve RGB <= alpha.
-fn area_reduce(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8> {
+fn area_reduce(source: &[u8], size: [u32; 2], target: [u32; 2]) -> Vec<u8> {
+    let [sw, sh] = size;
+    let [dw, dh] = target;
+    if sw == dw * 2 && sh == dh * 2 {
+        let stride = sw as usize * 4;
+        let mut output = vec![0; dw as usize * dh as usize * 4];
+        for (rows, destination) in source
+            .chunks_exact(stride * 2)
+            .zip(output.chunks_exact_mut(dw as usize * 4))
+        {
+            let (top, bottom) = rows.split_at(stride);
+            for ((a, b), pixel) in top
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .zip(bottom.as_chunks::<8>().0)
+                .zip(destination.as_chunks_mut::<4>().0)
+            {
+                for channel in 0..4 {
+                    pixel[channel] = ((u16::from(a[channel])
+                        + u16::from(a[channel + 4])
+                        + u16::from(b[channel])
+                        + u16::from(b[channel + 4])
+                        + 2)
+                        / 4) as u8;
+                }
+            }
+        }
+        output
+    } else {
+        area_reduce_weighted(source, size, target)
+    }
+}
+
+fn area_reduce_weighted(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8> {
     let mut output = vec![0; dw as usize * dh as usize * 4];
     let denominator = u64::from(sw) * u64::from(sh);
     for y in 0..dh {
@@ -360,7 +394,7 @@ fn area_reduce(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8>
 
 #[cfg(test)]
 mod mip_tests {
-    use super::area_reduce;
+    use super::{area_reduce, area_reduce_weighted};
     #[test]
     fn odd_area_reduction_preserves_edges_and_premultiplied_alpha() {
         let source = [vec![0; 8], vec![255; 4]].concat();
@@ -368,5 +402,57 @@ mod mip_tests {
         let pixels = [vec![100, 20, 0, 100], vec![0; 4]].concat();
         assert_eq!(area_reduce(&pixels, [2, 1], [1, 1]), [50, 10, 0, 50]);
         assert_eq!(area_reduce(&[128; 5 * 3 * 4], [5, 3], [2, 1]), [128; 8]);
+    }
+    #[test]
+    fn even_reduction_matches_exact_area_weights_across_complete_chains() {
+        for size in [[64, 64], [128, 96], [257, 193], [2, 128], [128, 2]] {
+            let mut pixels: Vec<u8> = (0..size[0] * size[1] * 4)
+                .map(|i| ((i * 73 + i / 7) % 256) as u8)
+                .collect();
+            let mut current = size;
+            while current != [1, 1] {
+                let next = [(current[0] / 2).max(1), (current[1] / 2).max(1)];
+                let expected = area_reduce_weighted(&pixels, current, next);
+                pixels = area_reduce(&pixels, current, next);
+                assert_eq!(pixels, expected, "{current:?} -> {next:?}");
+                current = next;
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile; run with --ignored --nocapture"]
+    fn profile_mip_area_cost() {
+        use std::{hint::black_box, time::Instant};
+        let size = [4096, 3072];
+        let source: Vec<u8> = (0..size[0] * size[1] * 4)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        for (name, reduce) in [
+            (
+                "weighted",
+                area_reduce_weighted as fn(&[u8], [u32; 2], [u32; 2]) -> Vec<u8>,
+            ),
+            ("even-fast", area_reduce),
+        ] {
+            let mut samples = Vec::new();
+            for _ in 0..7 {
+                let start = Instant::now();
+                let mut pixels = reduce(black_box(&source), size, [2048, 1536]);
+                let mut current = [2048, 1536];
+                while current != [1, 1] {
+                    let next = [(current[0] / 2).max(1), (current[1] / 2).max(1)];
+                    pixels = reduce(black_box(&pixels), current, next);
+                    current = next;
+                }
+                black_box(pixels);
+                samples.push(start.elapsed());
+            }
+            samples.sort();
+            eprintln!(
+                "{name}: 4096x3072 complete mip chain median={:?}, range={:?}..{:?}",
+                samples[3], samples[0], samples[6]
+            );
+        }
     }
 }

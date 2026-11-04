@@ -111,3 +111,23 @@ Xvfb 报告缺少 DRI3，不能据此评价真实合成器下的延迟、帧率�
 TRACE 资源事件新增 `target_color_bytes`、`readback_buffer_bytes`，以及
 `path_raster_bytes`、`svg_raster_bytes`、`clip_raster_bytes`；所有统计仍在 TRACE
 启用检查内，默认不计算或输出。这些值不包含 swapchain、驱动开销或在途资源。
+
+## CPU mip generation
+
+A specialized even 2×2 reduction now replaces general area-weight arithmetic for
+that case. Both use the same rounding; complete-chain byte comparisons cover
+square, rectangular, odd-start and one-axis-terminal dimensions. Odd reductions
+retain exact area weights.
+
+```sh
+cargo test --locked -p plico-wgpu --lib profile_mip_area_cost -- --ignored --nocapture
+```
+
+Local Intel Core Ultra 9 285K, dev opt-level=1, 4096×3072 RGBA, seven samples:
+general weighted complete-chain median 90.309 ms (89.874–97.782), specialized
+median 7.535 ms (7.132–8.140). This isolated test includes output allocations but
+excludes source creation, decode, conversion, GPU upload and waits. It is not a
+renderer frame-time result or release benchmark. First generation remains
+synchronous; especially large odd-sized input may still cause upload-time jank.
+The profile is ignored by default and has no wall-time pass threshold.
+Fifteen image/affine GPU regressions and all-target Clippy passed after the change.
