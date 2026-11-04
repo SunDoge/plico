@@ -950,3 +950,35 @@ fixture verifies every pixel even after source eviction, expects 256 cached sour
 and 512 bindings, and verifies reimport evicts all policies together with correct
 counters. This establishes upload/payload avoidance, not a frame-time or process
 memory multiplier for applications that use only one policy.
+
+## Pass-local image binding interning and ordered batching
+
+Source/binding caching alone did not make adjacent repeated images batch: each draw
+previously appended the same binding to a different temporary slot, and the batch
+key compared slot numbers. A pass-local registry now gives the same strongly owned
+`GpuImage` binding one slot. Registry identity is an Rc allocation address used
+only while its current/saved pass-owner vector keeps the resource alive; it is not
+a raw dereference, application ID or cross-frame identity. Nested isolated layers
+save/restore the map with its owner vector. Normal root encoding clears both and
+reuses their capacities.
+
+Only adjacent instances with matching image and mask bindings merge. There is no
+sorting: red/blue/red remains three draws, while repeated same-binding instances
+still blend independently in one instanced draw. Different mask rectangles can
+share a batch because their rectangles are instance data; changing the mask binding
+or disabling masking splits it. Effect views that create distinct bindings are not
+claimed to share image slots merely because their effect IDs match.
+
+`FrameBatchStats` exposes encoded scene instances, instanced draw calls, color
+passes and explicit damage clears, including child layers. These are recorded in
+resource traces. They exclude blur/effect passes, load-op clears, readback and
+presentation blits; failed encoding may leave partial attempt counts. Window skips
+that never encode leave previous stats unchanged.
+
+GPU tests verify 100 adjacent image instances use one scene draw, preserve
+transparent red/blue/red order and repeated-alpha blending, handle same-texture
+masks with different rectangles and binding transitions, and cannot confuse child
+slots with parent bindings across frames or pool trimming. This demonstrates draw
+submission avoidance, not an application FPS/CPU improvement measurement. Unique-
+binding workloads additionally pay registry lookup cost and need representative
+profiling before broader performance claims.

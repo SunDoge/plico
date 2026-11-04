@@ -29,7 +29,7 @@ pub mod text;
 mod texture;
 #[cfg(feature = "paint-scene")]
 pub use renderer::LayerPoolStats;
-pub use renderer::Renderer;
+pub use renderer::{FrameBatchStats, Renderer};
 
 use snafu::Snafu;
 

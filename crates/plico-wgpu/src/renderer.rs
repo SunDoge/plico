@@ -49,6 +49,19 @@ pub struct LayerPoolStats {
     pub entries: usize,
     pub retained_bytes: u64,
 }
+/// Work encoded by the most recent root scene attempt, including child layers.
+/// Counts exclude effect/blur pipelines, target readback and presentation blits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameBatchStats {
+    /// Instances prepared across scene color passes, before scissor replays.
+    pub instances: u64,
+    /// Instanced scene draw calls (each damage scissor replay counts).
+    pub draw_calls: u64,
+    /// Scene color render passes, including isolated layers.
+    pub passes: u64,
+    /// Explicit partial-damage replacement clears (not load-op clears).
+    pub clears: u64,
+}
 // Preserve scope markers while culling expensive child layers before encoding.
 // The later instance filter remains useful for glyph-level pruning.
 fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
@@ -173,6 +186,9 @@ pub struct Renderer {
     frame_effect_bytes: u64,
     #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
+    #[cfg(feature = "paint-scene")]
+    frame_image_slots: std::collections::HashMap<usize, usize>,
+    batch_stats: FrameBatchStats,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     atlas: Option<plico_native::text::atlas::Atlas>,
@@ -359,6 +375,9 @@ impl Renderer {
             frame_effect_bytes: 0,
             #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
+            #[cfg(feature = "paint-scene")]
+            frame_image_slots: Default::default(),
+            batch_stats: Default::default(),
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             atlas: None,
@@ -529,6 +548,7 @@ impl Renderer {
         time: f32,
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
+        self.batch_stats = FrameBatchStats::default();
         #[cfg(feature = "paint-scene")]
         let unchanged = regions.is_some_and(|r| r.is_empty())
             && self.target.as_ref().is_some_and(|t| t.size == size);
@@ -564,7 +584,7 @@ impl Renderer {
             let image_bindings = self.image_binding_stats();
             tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         result
     }
@@ -670,6 +690,8 @@ impl Renderer {
         let target = self.target.as_ref().expect("target just created");
         let view = target.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.batch_stats.instances += instances.len() as u64;
+        self.batch_stats.passes += 1;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Plico quad draw"),
@@ -702,6 +724,7 @@ impl Renderer {
                     pass.set_pipeline(&self.clear_pipeline);
                     pass.set_bind_group(0, &self.bind, &[]);
                     pass.draw(0..3, 0..1);
+                    self.batch_stats.clears += 1;
                 }
                 pass.set_pipeline(
                     self.pipeline
@@ -743,6 +766,7 @@ impl Renderer {
                     let mask = &self.atlas_texture.bind;
                     pass.set_bind_group(2, mask, &[]);
                     pass.draw(0..6, first as u32..end as u32);
+                    self.batch_stats.draw_calls += 1;
                     first = end;
                 }
             }
@@ -907,11 +931,36 @@ impl Renderer {
         }
         Ok(())
     }
+    /// Statistics for the last encoding attempt; skipped window presentation
+    /// without encoding leaves the previous statistics intact.
+    pub fn batch_stats(&self) -> FrameBatchStats {
+        self.batch_stats
+    }
+    #[cfg(feature = "paint-scene")]
+    fn clear_frame_images(&mut self) {
+        self.frame_image_slots.clear();
+        self.frame_images.clear();
+    }
+    #[cfg(feature = "paint-scene")]
+    fn intern_frame_image(&mut self, image: std::rc::Rc<crate::image::GpuImage>) -> usize {
+        // Pointer identity is local to this pass, and every registered resource
+        // is strongly owned by this pass's current/saved frame_images. The
+        // map and owners are saved/restored together for nested layers.
+        // No pointer is dereferenced or retained as a cross-frame resource ID.
+        let identity = std::rc::Rc::as_ptr(&image) as usize;
+        if let Some(slot) = self.frame_image_slots.get(&identity) {
+            return *slot;
+        }
+        let slot = self.frame_images.len();
+        self.frame_images.push(image);
+        self.frame_image_slots.insert(identity, slot);
+        slot
+    }
     fn encode_items(&mut self, items: &[crate::Draw<'_>], size: [u32; 2]) -> Result<Vec<Instance>> {
         let [width, height] = size;
         let mut instances = Vec::new();
         #[cfg(feature = "paint-scene")]
-        self.frame_images.clear();
+        self.clear_frame_images();
         #[cfg(feature = "paint-scene")]
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
@@ -939,8 +988,7 @@ impl Renderer {
                         peniko::ImageQuality::Low,
                         [peniko::Extend::Pad; 2],
                     )?;
-                    let slot = self.frame_images.len();
-                    self.frame_images.push(image);
+                    let slot = self.intern_frame_image(image);
                     active_mask = Some((slot, mask.rect));
                 }
                 #[cfg(feature = "paint-scene")]
@@ -995,8 +1043,7 @@ impl Renderer {
                     {
                         q.validate()?;
                         let resource = self.render_effect(effect)?;
-                        let slot = self.frame_images.len();
-                        self.frame_images.push(resource);
+                        let slot = self.intern_frame_image(resource);
                         instances.push(Instance {
                             mask_rect: [0.; 4],
                             rect: q.rect,
@@ -1031,8 +1078,7 @@ impl Renderer {
                         continue;
                     }
                     let resource = self.render_layer(layer)?;
-                    let slot = self.frame_images.len();
-                    self.frame_images.push(resource);
+                    let slot = self.intern_frame_image(resource);
                     let q = &layer.quad;
                     instances.push(Instance {
                         mask_rect: [0.; 4],
@@ -1073,8 +1119,7 @@ impl Renderer {
                         image.quality,
                         image.extend,
                     )?;
-                    let slot = self.frame_images.len();
-                    self.frame_images.push(resource);
+                    let slot = self.intern_frame_image(resource);
                     instances.push(Instance {
                         mask_rect: [0.; 4],
                         rect: q.rect,
@@ -1393,7 +1438,7 @@ impl Renderer {
     pub fn trim_layer_pool(&mut self) {
         self.layer_pool.clear();
         self.layer_used.clear();
-        self.frame_images.clear();
+        self.clear_frame_images();
     }
     fn trim_idle_layers(&mut self, keep: bool) {
         if !keep {
@@ -1479,6 +1524,7 @@ impl Renderer {
             None
         };
         let parent_images = std::mem::take(&mut self.frame_images);
+        let parent_slots = std::mem::take(&mut self.frame_image_slots);
         let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
         let mut resource = cached_image;
         let result = encoded.map(|mut encoder| {
@@ -1533,6 +1579,7 @@ impl Renderer {
         }
         self.target = parent_target;
         self.frame_images = parent_images;
+        self.frame_image_slots = parent_slots;
         self.layer_depth -= 1;
         result
     }

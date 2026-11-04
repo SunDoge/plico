@@ -51,7 +51,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;
    nearest/bilinear/Mitchell-bicubic sampling, independent pad/repeat/reflect axes,
-   opacity and ordered texture batches are verified. Affine images and image-filled
+   opacity and ordered texture batches are verified. Pass-local binding interning
+   now merges adjacent repeated images without sorting; encoded batch counters are exposed. Affine images and image-filled
    paths now combine cached shape coverage with GPU world-to-source sampling.
    Solid and linear sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
