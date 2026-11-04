@@ -142,6 +142,7 @@ struct Collector {
     scale: f32,
     phase: [f32; 2],
     units: u32,
+    visible_units: Option<u32>,
     ellipsis: Option<IDWriteInlineObject>,
     in_ellipsis: Cell<bool>,
     output: Rc<RefCell<Output>>,
@@ -221,6 +222,14 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
             .checked_add(description.stringLength)
             .filter(|n| *n <= self.units)
             .ok_or_else(|| native_error(E_INVALIDARG))?;
+        if let Some(limit) = self.visible_units {
+            if description.textPosition >= limit {
+                return Ok(());
+            }
+            if end > limit {
+                return Err(native_error(E_NOTIMPL));
+            }
+        }
         let face = run
             .fontFace
             .as_ref()
@@ -515,6 +524,7 @@ impl Paragraph {
             scale,
             phase,
             units: self.source.encode_utf16().count() as u32,
+            visible_units: self.visible_units,
             ellipsis: self.ellipsis.clone(),
             in_ellipsis: Cell::new(false),
             output: output.clone(),
@@ -527,7 +537,7 @@ impl Paragraph {
         if let Err(error) = result {
             if error.code() == E_NOTIMPL {
                 return Err(Error::Unsupported {
-                    reason: "glyph raster format, decoration or non-ellipsis inline object",
+                    reason: "glyph raster format, decoration, inline object or cross-line clip boundary",
                 });
             }
             return Err(Error::Native { source: error });
@@ -742,6 +752,7 @@ mod tests {
             scale: 1.,
             phase: [0.; 2],
             units: 0,
+            visible_units: None,
             ellipsis: None,
             in_ellipsis: Cell::new(false),
             output: Rc::new(RefCell::new(Output::default())),

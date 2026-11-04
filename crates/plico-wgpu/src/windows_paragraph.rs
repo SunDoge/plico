@@ -223,13 +223,13 @@ impl Cache {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(rejected("invalid DirectWrite device scale"));
         }
-        if request.max_lines > 1
-            || (request.max_lines == 1
-                && (!request.ellipsis || request.text.contains(['\n', '\r'])))
-            || (request.ellipsis && request.wrap && request.max_lines != 1)
+        if request.ellipsis
+            && (request.max_lines > 1
+                || (request.max_lines == 1 && request.text.contains(['\n', '\r']))
+                || (request.wrap && request.max_lines != 1))
         {
             return Err(rejected(
-                "DirectWrite multiline truncation and clip-only line limits are not implemented",
+                "DirectWrite multiline ellipsis is not implemented",
             ));
         }
         if request.runs.len() > 4096 {
@@ -287,7 +287,12 @@ impl Cache {
             TextAlign::End => Alignment::End,
             TextAlign::Justify => Alignment::Justify,
         };
-        native.wrap = request.wrap && request.max_lines != 1;
+        native.wrap = request.wrap && !(request.ellipsis && request.max_lines == 1);
+        native.max_lines = if request.ellipsis {
+            0
+        } else {
+            request.max_lines
+        };
         native.ellipsis = request.ellipsis;
         native.width = request.width.filter(|w| *w != f32::INFINITY);
         let spans = request
@@ -638,6 +643,18 @@ mod tests {
         let mut invalid = (*declaration).clone();
         invalid.max_lines = 2;
         assert!(cache.layout(Arc::new(invalid), 1.).is_err());
+    }
+    #[test]
+    fn clip_only_limits_retain_native_source_and_only_draw_visible_lines() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "First\nSecond\nHidden".into();
+        declaration.max_lines = 2;
+        let declaration = Arc::new(declaration);
+        let paragraph = cache.layout(declaration.clone(), 1.).unwrap();
+        assert_eq!(paragraph.layout.lines().len(), 2);
+        assert!(paragraph.caret_rect(declaration.text.len()).is_none());
+        assert!(!cache.raster(declaration, 1., 0.).unwrap().is_empty());
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {

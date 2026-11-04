@@ -157,7 +157,7 @@ Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
 family and an explicit paragraph base direction; CSS family lists,
-application fonts and clip-only line limits are not implemented in this service yet.
+application fonts and multiline ellipsis are not implemented in this service yet.
 Raw grayscale glyph-run rasterization is available, with the limits below.
 The experimental plico-wgpu Windows provider now connects ordinary paragraph
 measurement/editing to the same native layout used for corrected run images.
@@ -229,7 +229,19 @@ original UTF-8/UTF-16 mapping. The shared adapter accepts no-wrap ellipsis or
 `max_lines == 1` ellipsis without hard newlines. Intrinsic requests remain
 untrimmed. Tests cover LTR/RTL trimmed lines, unchanged intrinsic widths,
 preserved offsets and the ellipsis's glyph output; they cross-compile only here.
-Per-range line height, multiline truncation, clip-only limits and application fonts
+Clip-only `max_lines` retains the complete native layout and filters raster
+callbacks by the visible lines' original UTF-16 ranges. It never reshapes a
+shortened prefix. A run crossing the line boundary is explicitly rejected rather
+than partially drawing wrong glyphs. Visible height/baselines and line-fragment
+width are reported separately from full-text intrinsic widths. Hit tests clamp
+to the visible endpoint, hidden carets return no geometry through the shared
+interface, and selection is restricted to visible text. Native newline lengths
+preserve blank-line endpoints; clipped-end carets use the previous cluster's
+trailing edge except for empty final lines. Tests compare visible mask bytes to
+the full layout and cover blank lines and hidden selection; they cross-compile
+only here. Full shaping still occurs on a cache miss, so this is not text
+virtualization.
+Per-range line height, multiline ellipsis and application fonts
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers

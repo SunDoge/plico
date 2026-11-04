@@ -96,6 +96,9 @@ pub struct Request<'a> {
     /// Native character trimming with an ellipsis for a bounded no-wrap line.
     /// Intrinsic-width requests remain untrimmed.
     pub ellipsis: bool,
+    /// Visible line limit without reshaping; zero means unlimited. Cannot be
+    /// combined with ellipsis in this service interface.
+    pub max_lines: usize,
 }
 impl<'a> Request<'a> {
     /// Default Segoe UI paragraph at 14 DIPs.
@@ -113,6 +116,7 @@ impl<'a> Request<'a> {
             line_height: None,
             letter_spacing: 0.,
             ellipsis: false,
+            max_lines: 0,
         }
     }
 }
@@ -159,6 +163,9 @@ pub struct Paragraph {
     lines: Vec<Line>,
     ink: [f32; 4],
     ellipsis: Option<IDWriteInlineObject>,
+    visible_units: Option<u32>,
+    visible_end: usize,
+    clip_end_trailing: bool,
     // Retain the factory explicitly; it drops after the layout/font references.
     _factory: IDWriteFactory2,
     _thread: PhantomData<Rc<()>>,
@@ -242,7 +249,7 @@ impl Context {
             || !(1..=1000).contains(&request.weight)
             || !request.letter_spacing.is_finite()
             || request.letter_spacing.abs() > 4096.
-            || (request.ellipsis && request.wrap)
+            || (request.ellipsis && (request.wrap || request.max_lines != 0))
             || request
                 .line_height
                 .is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e7)
@@ -467,9 +474,32 @@ impl Context {
         if !ink.iter().all(|v| v.is_finite() && v.abs() <= 1e9) {
             return Err(Error::InvalidRequest);
         }
+        let clipped = request.max_lines != 0 && count as usize > request.max_lines;
+        let visible_units = clipped.then(|| {
+            raw.iter()
+                .take(request.max_lines)
+                .map(|l| l.length)
+                .sum::<u32>()
+        });
+        let visible_end = if let Some(units) = visible_units {
+            let line = &raw[request.max_lines - 1];
+            indices
+                .byte(units - line.newlineLength)
+                .ok_or(Error::InvalidRequest)?
+        } else {
+            request.text.len()
+        };
+        let clip_end_trailing = clipped && {
+            let line = &raw[request.max_lines - 1];
+            line.length > line.newlineLength
+        };
         let lines: Vec<_> = raw
             .into_iter()
-            .take(count as usize)
+            .take(if clipped {
+                request.max_lines
+            } else {
+                count as usize
+            })
             .map(|l| Line {
                 height: l.height,
                 baseline: l.baseline,
@@ -486,13 +516,17 @@ impl Context {
             min_content_width,
             max_content_width,
             width: native.widthIncludingTrailingWhitespace,
-            height: native.height,
+            height: if clipped {
+                lines.iter().map(|l| l.height).sum()
+            } else {
+                native.height
+            },
             baselines: [
                 lines.first().map(|l| l.baseline),
                 lines.last().map(|l| last_top + l.baseline),
             ],
         };
-        Ok(Paragraph {
+        let mut paragraph = Paragraph {
             layout,
             source: request.text.into(),
             indices,
@@ -500,14 +534,32 @@ impl Context {
             lines,
             ink,
             ellipsis,
+            visible_units,
+            visible_end,
+            clip_end_trailing,
             _factory: self.factory.clone(),
             _thread: PhantomData,
-        })
+        };
+        if clipped {
+            // Native hit-test ranges preserve bidi fragments and actual line
+            // positions; union fragments per line without including alignment.
+            let rects = paragraph.selection_rects(0..visible_end)?;
+            let mut rows = std::collections::HashMap::<u32, (f32, f32)>::new();
+            for [x, y, width, _] in rects {
+                let row = rows.entry(y.to_bits()).or_insert((x, x));
+                row.0 = row.0.min(x);
+                row.1 = row.1.max(x + width);
+            }
+            paragraph.metrics.width = rows.values().map(|(a, b)| b - a).fold(0., f32::max);
+        }
+        Ok(paragraph)
     }
 }
 impl Paragraph {
-    /// Unhinted visible bounds [x0,y0,x1,y1] in logical DIPs, including native
-    /// alignment and glyph overhang. Add a conservative margin before culling:
+    /// Unhinted layout bounds [x0,y0,x1,y1] in logical DIPs, including native
+    /// alignment and glyph overhang. Line-limited layouts conservatively retain
+    /// full-layout bounds here; actual raster masks contain visible lines only.
+    /// Add a conservative margin before culling:
     /// native grid fitting and physical pixel snapping can change final bounds.
     pub fn ink_bounds(&self) -> [f32; 4] {
         self.ink
@@ -546,21 +598,35 @@ impl Paragraph {
             .textPosition
             .checked_add(if trailing.as_bool() { hit.length } else { 0 })
             .ok_or(Error::InvalidRequest)?;
-        self.indices.byte(position).ok_or(Error::InvalidRequest)
+        self.indices
+            .byte(position)
+            .map(|b| b.min(self.visible_end))
+            .ok_or(Error::InvalidRequest)
     }
     /// One-physical-pixel caret [x,y,width,height] at a valid UTF-8 boundary.
     pub fn caret_rect(&self, byte: usize, scale: f32) -> Result<[f32; 4]> {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(Error::InvalidRequest);
         }
-        let position = self.indices.utf16(byte).ok_or(Error::InvalidRequest)?;
+        let mut position = self.indices.utf16(byte).ok_or(Error::InvalidRequest)?;
+        if byte > self.visible_end {
+            return Err(Error::InvalidRequest);
+        }
+        let trailing = self.clip_end_trailing && byte == self.visible_end && byte != 0;
+        if trailing {
+            let previous = self.source[..byte]
+                .chars()
+                .next_back()
+                .ok_or(Error::InvalidRequest)?;
+            position -= previous.len_utf16() as u32;
+        }
         let mut x = 0.;
         let mut y = 0.;
         let mut hit = DWRITE_HIT_TEST_METRICS::default();
         // SAFETY: source position was checked against this layout's original text.
         unsafe {
             self.layout
-                .HitTestTextPosition(position, false, &mut x, &mut y, &mut hit)
+                .HitTestTextPosition(position, trailing, &mut x, &mut y, &mut hit)
         }
         .context(NativeSnafu)?;
         Ok([x, y, 1. / scale, hit.height])
@@ -570,11 +636,18 @@ impl Paragraph {
         if range.start > range.end || range.end > self.source.len() {
             return Err(Error::InvalidRequest);
         }
-        let start = self
-            .indices
+        self.indices
             .utf16(range.start)
             .ok_or(Error::InvalidRequest)?;
-        let end = self.indices.utf16(range.end).ok_or(Error::InvalidRequest)?;
+        self.indices.utf16(range.end).ok_or(Error::InvalidRequest)?;
+        let start = self
+            .indices
+            .utf16(range.start.min(self.visible_end))
+            .ok_or(Error::InvalidRequest)?;
+        let end = self
+            .indices
+            .utf16(range.end.min(self.visible_end))
+            .ok_or(Error::InvalidRequest)?;
         if start == end {
             return Ok(Vec::new());
         }
@@ -614,6 +687,61 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn clipped_lines_reuse_full_shaping_and_bound_editing_to_visible_source() {
+        let context = Context::new().unwrap();
+        let mut request =
+            Request::new("ffi alpha beta gamma delta epsilon\nsecond line\nthird line");
+        request.width = Some(80.);
+        let full = context.layout(&request).unwrap();
+        request.max_lines = 2;
+        let clipped = context.layout(&request).unwrap();
+        assert_eq!(clipped.lines().len(), 2);
+        assert!(clipped.metrics().height < full.metrics().height);
+        assert_eq!(
+            clipped.metrics().max_content_width,
+            full.metrics().max_content_width
+        );
+        let limit = clipped.visible_units.unwrap();
+        let expected: Vec<_> = full
+            .rasterize(1., [0., 0.])
+            .unwrap()
+            .masks
+            .into_iter()
+            .filter(|m| m.utf16_range.start < limit)
+            .collect();
+        assert_eq!(clipped.rasterize(1., [0., 0.]).unwrap().masks, expected);
+        let end = clipped.visible_end;
+        assert!(clipped.caret_rect(end, 1.).unwrap()[1] < clipped.metrics().height);
+        assert!(clipped.caret_rect(end + 1, 1.).is_err());
+        assert_eq!(clipped.hit_test(1000., 1000.).unwrap(), end);
+        assert!(
+            clipped
+                .selection_rects(end..request.text.len())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            clipped
+                .selection_rects(0..request.text.len())
+                .unwrap()
+                .iter()
+                .all(|r| r[1] < clipped.metrics().height)
+        );
+
+        let mut request = Request::new("\n\nHidden");
+        request.max_lines = 2;
+        let blanks = context.layout(&request).unwrap();
+        assert_eq!(blanks.visible_end, 1);
+        assert!(blanks.caret_rect(1, 1.).unwrap()[1] >= blanks.lines()[0].height - 0.01);
+        assert!(blanks.rasterize(1., [0., 0.]).unwrap().masks.is_empty());
+
+        let mut request = Request::new("x\nMMMMMMMMMMMM");
+        let full = context.layout(&request).unwrap();
+        request.max_lines = 1;
+        let clipped = context.layout(&request).unwrap();
+        assert!(clipped.metrics().width < full.metrics().width);
+    }
     #[test]
     fn native_ellipsis_preserves_source_and_draws_its_own_glyph_run() {
         let context = Context::new().unwrap();
