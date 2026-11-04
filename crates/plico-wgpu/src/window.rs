@@ -137,17 +137,26 @@ impl WgpuWindow {
             return Ok(false);
         }
         self.resize(size.width, size.height);
-        // Validate before touching the surface. The following submit reuses this snapshot.
-        self.renderer
-            .prepare_scene(scene, [size.width, size.height])?;
+        let plan = self.renderer.plan_scene_frame(
+            scene,
+            [size.width, size.height],
+            background.components,
+            self.damage_enabled,
+        )?;
+        if plan.unchanged() {
+            self.present_skipped = true;
+            return Ok(true);
+        }
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             wgpu::CurrentSurfaceTexture::Outdated => {
+                self.renderer.invalidate_scene_damage();
                 self.renderer.configure_surface(&self.surface, &self.config);
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Lost => {
+                self.renderer.invalidate_scene_damage();
                 self.surface = self
                     .instance
                     .create_surface(SharedWindow(self.window.clone()))
@@ -158,26 +167,21 @@ impl WgpuWindow {
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                self.renderer.invalidate_scene_damage();
                 return Ok(false);
             }
             other => {
+                self.renderer.invalidate_scene_damage();
                 return Err(Error::Surface {
                     message: format!("acquire failed: {other:?}"),
                 });
             }
         };
-        let drawn = self.renderer.render_scene_to_view(
-            scene,
-            [size.width, size.height],
-            background.components,
-            self.damage_enabled,
+        self.renderer.submit_scene_plan(
+            plan,
             &frame.texture.create_view(&Default::default()),
             self.config.format,
         )?;
-        if !drawn {
-            self.present_skipped = true;
-            return Ok(true);
-        }
         self.window.pre_present_notify();
         self.renderer.present(frame);
         Ok(true)

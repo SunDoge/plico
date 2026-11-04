@@ -515,6 +515,17 @@ impl Renderer {
     }
 }
 
+pub(crate) struct SceneFramePlan {
+    prepared: std::rc::Rc<PreparedScene>,
+    size: [u32; 2],
+    background: [f32; 4],
+    regions: Option<Vec<[u32; 4]>>,
+}
+impl SceneFramePlan {
+    pub(crate) fn unchanged(&self) -> bool {
+        self.regions.as_ref().is_some_and(|r| r.is_empty())
+    }
+}
 impl Renderer {
     fn scene_regions(
         &mut self,
@@ -562,18 +573,51 @@ impl Renderer {
         destination: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> Result<bool> {
-        let prepared = self.prepare_scene(scene, size)?;
-        let regions = self.scene_regions(&prepared, size, background, damage);
-        if regions.as_ref().is_some_and(|r| r.is_empty()) {
+        let plan = self.plan_scene_frame(scene, size, background, damage)?;
+        if plan.unchanged() {
             return Ok(false);
         }
+        self.submit_scene_plan(plan, destination, format)
+            .map(|()| true)
+    }
+
+    /// Planning advances damage history. A window that fails acquisition must
+    /// invalidate it; do not acquire/drop a swapchain image just to skip a frame.
+    pub(crate) fn plan_scene_frame(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+        background: [f32; 4],
+        damage: bool,
+    ) -> Result<SceneFramePlan> {
+        let prepared = self.prepare_scene(scene, size)?;
+        let regions = self.scene_regions(&prepared, size, background, damage);
+        Ok(SceneFramePlan {
+            prepared,
+            size,
+            background,
+            regions,
+        })
+    }
+    pub(crate) fn submit_scene_plan(
+        &mut self,
+        plan: SceneFramePlan,
+        destination: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> Result<()> {
         let result = self
-            .encode_frame_regions(&prepared.draws(), size, background, 0., regions.as_deref())
+            .encode_frame_regions(
+                &plan.prepared.draws(),
+                plan.size,
+                plan.background,
+                0.,
+                plan.regions.as_deref(),
+            )
             .and_then(|encoder| self.submit_to_view(encoder, destination, format));
         if result.is_err() {
             self.scene_damage.invalidate();
         }
-        result.map(|()| true)
+        result
     }
 
     /// Forget retained presentation after target loss, external replacement or resource changes.
