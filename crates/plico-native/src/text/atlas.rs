@@ -1,7 +1,7 @@
 //! System-shaped glyphs and a fixed-budget, phase-quantized raster atlas.
 use cairo::{Antialias, Context, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use pango::prelude::*;
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 /// Fixed atlas side in physical texels.
 pub const ATLAS_SIZE: u32 = 2048;
@@ -22,6 +22,8 @@ pub struct Glyph {
     pub y: f64,
     /// Physical ink x/y/width/height relative to the glyph baseline origin.
     pub ink_bounds: [f64; 4],
+    // Drop after the native font.
+    _fonts: Rc<RefCell<super::fonts::Fonts>>,
 }
 #[derive(Clone, Copy)]
 /// Raster resource and placement relative to a glyph origin.
@@ -48,6 +50,8 @@ pub struct GlyphLayout {
     pub missing_glyphs: u32,
     /// Device scale used for shaping and rasterization.
     pub scale: f64,
+    // Drop after the native layout and its glyphs, including empty paragraphs.
+    _fonts: Rc<RefCell<super::fonts::Fonts>>,
 }
 /// Fixed-budget atlas. The caller may recycle storage at a frame boundary.
 /// Four horizontal raster phases; vertical raster origins are pixel-aligned.
@@ -343,18 +347,38 @@ impl GlyphLayout {
 /// measurement and retain its layouts for drawing and editing geometry.
 pub struct LayoutContext {
     context: pango::Context,
+    fonts: Rc<RefCell<super::fonts::Fonts>>,
 }
 impl LayoutContext {
     /// Create an isolated system-font context with the same raster policy as Atlas.
     pub fn new() -> Result<Self> {
-        let context = pangocairo::FontMap::new().create_context();
+        let map = pangocairo::FontMap::for_font_type(cairo::FontType::FontTypeFt).ok_or(
+            super::Error::FontCollection {
+                reason: "FreeType Pango font map unavailable",
+            },
+        )?;
+        let context = map.create_context();
         let mut options = FontOptions::new().map_err(|source| super::Error::Cairo { source })?;
         options.set_antialias(Antialias::Gray);
         options.set_hint_style(HintStyle::Medium);
         options.set_hint_metrics(HintMetrics::On);
         pangocairo::functions::context_set_font_options(&context, Some(&options));
         pangocairo::functions::context_set_resolution(&context, 96.);
-        Ok(Self { context })
+        Ok(Self {
+            context,
+            fonts: Rc::new(RefCell::new(super::fonts::Fonts::new())),
+        })
+    }
+    /// Register an in-memory application font in this context only.
+    /// Existing layouts/glyphs keep the backing font alive when this context drops.
+    pub fn register_font(&mut self, bytes: &[u8], alias: Option<&str>) -> Result<()> {
+        let map = self
+            .context
+            .font_map()
+            .ok_or(super::Error::InvalidRequest)?;
+        self.fonts.borrow_mut().add(&map, bytes, alias)?;
+        self.context.changed();
+        Ok(())
     }
     /// Shape once using the default start alignment and no line truncation.
     pub fn layout(&self, request: &super::TextRequest<'_>) -> Result<GlyphLayout> {
@@ -534,6 +558,7 @@ impl LayoutContext {
                     let g = info.geometry();
                     let (ink, _) = font.glyph_extents(info.glyph());
                     glyphs.push(Glyph {
+                        _fonts: self.fonts.clone(),
                         foreground: resolved
                             .get(resolved.partition_point(|s| s.range.end <= byte))
                             .filter(|s| s.range.contains(&byte))
@@ -558,6 +583,7 @@ impl LayoutContext {
         }
         let (width, height) = layout.size();
         Ok(GlyphLayout {
+            _fonts: self.fonts.clone(),
             native: layout.clone(),
             source: request.text.into(),
             glyphs,
@@ -716,5 +742,75 @@ mod rich_tests {
                 .layout_rich(&request, LayoutOptions::default(), &[invalid])
                 .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+    const FONT: &[u8] =
+        include_bytes!("../../../../backend/examples/web-preview/public/DejaVuSans.ttf");
+    #[test]
+    #[ignore = "requires system fonts"]
+    fn private_memory_font_alias_isolated_and_survives_context_drop() {
+        let mut request = crate::text::TextRequest::new("WiABC");
+        request.family = "Plico Private Native Font Test";
+        request.size = 20.;
+        let unrelated = LayoutContext::new().unwrap();
+        let before = unrelated.layout(&request).unwrap();
+        // Observe the actual resolved file, rather than relying on a family-name
+        // match that might also succeed through system fallback.
+        #[link(name = "pangoft2-1.0")]
+        unsafe extern "C" {
+            fn pango_fc_font_get_pattern(
+                font: *mut std::ffi::c_void,
+            ) -> *mut fontconfig_sys::FcPattern;
+        }
+        let layout = {
+            let mut context = LayoutContext::new().unwrap();
+            context.register_font(FONT, Some(request.family)).unwrap();
+            let layout = context.layout(&request).unwrap();
+            use pango::glib::translate::ToGlibPtr;
+            // SAFETY: this context explicitly creates FreeType Pango fonts; the
+            // borrowed pattern and its file string are valid while the font lives.
+            unsafe {
+                let font: *mut pango::ffi::PangoFont = layout.glyphs[0].font.to_glib_none().0;
+                let pattern = pango_fc_font_get_pattern(font.cast());
+                let mut path = std::ptr::null_mut();
+                assert_eq!(
+                    fontconfig_sys::FcPatternGetString(pattern, c"file".as_ptr(), 0, &mut path),
+                    fontconfig_sys::FcResultMatch
+                );
+                assert!(
+                    std::ffi::CStr::from_ptr(path.cast())
+                        .to_bytes()
+                        .starts_with(b"/proc/self/fd/")
+                );
+            }
+            assert!(
+                layout.glyphs.iter().all(|g| g
+                    .font
+                    .describe()
+                    .family()
+                    .unwrap()
+                    .contains("DejaVu"))
+            );
+            layout
+        };
+        let after = unrelated.layout(&request).unwrap();
+        assert_eq!(before.logical_size, after.logical_size);
+        assert_eq!(
+            before.glyphs[0].font.describe(),
+            after.glyphs[0].font.describe()
+        );
+        let mut atlas = Atlas::new().unwrap();
+        assert!(
+            layout
+                .glyphs
+                .iter()
+                .any(|g| atlas.get(g, 0).unwrap().rect[2] > 0)
+        );
+        let mut invalid = LayoutContext::new().unwrap();
+        assert!(invalid.register_font(&[0, 1, 2, 3], None).is_err());
     }
 }

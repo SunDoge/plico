@@ -1268,3 +1268,54 @@ fn rich_paragraph_colors_typography_and_damage_share_native_geometry() {
         assert!(text.take_native_paragraph_error().is_some());
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn application_font_registered_before_or_after_provider_survives_dpi_changes() {
+    use plico_renderer::text::FontAsset;
+    let asset = FontAsset::from_static(include_bytes!(
+        "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+    ))
+    .with_family("Plico Wgpu Private Fixture");
+    let paint = Paint {
+        text: Some("Private font Wi 中文".into()),
+        font_family: Some("Plico Wgpu Private Fixture".into()),
+        font_size: 20.,
+        ..Paint::default()
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut first_metrics = None;
+    for before in [true, false] {
+        let mut text = TextContext::new();
+        if before {
+            assert!(text.register_font(&asset));
+        }
+        renderer.configure_text(&mut text, 1.).unwrap();
+        if !before {
+            assert!(text.register_font(&asset));
+        }
+        for scale in [1., 1.25, 2., 1.] {
+            renderer.configure_text(&mut text, scale).unwrap();
+            let request = Arc::new(text.paragraph_request(&paint, None).unwrap());
+            let paragraph = text.native_paragraph(request.clone()).unwrap();
+            if scale == 1. {
+                let width = paragraph.metrics().width;
+                if let Some(first) = first_metrics {
+                    assert_eq!(width, first);
+                }
+                first_metrics = Some(width);
+            }
+            let mut scene = Scene::new();
+            scene.commands.push(PaintCommand::Paragraph {
+                request,
+                transform: Affine::scale(scale) * Affine::translate((8., 8.)),
+            });
+            let size = [(300. * scale) as u32, (80. * scale) as u32];
+            let full = renderer.render_scene(&scene, size, [0.; 4], false).unwrap();
+            let partial = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
+            assert_eq!(partial, full);
+            assert!(partial.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
+            assert!(text.take_native_paragraph_error().is_none());
+        }
+    }
+}

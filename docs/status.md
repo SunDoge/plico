@@ -148,7 +148,8 @@ Cairo/FreeType rasterization, including normalized variable coordinates and
 per-glyph/run affine matrices; editor and ANSI terminal fixtures display, with
 editor insertion and terminal resize locally verified.
 Geometric emboldening, stroke and non-solid glyph brushes remain unsupported. Single-line
-editing uses Pango caret/selection geometry. Native paragraphs support UTF-8
+editing uses Pango caret/selection geometry. Native paragraphs support
+private application fonts and family aliases, and UTF-8
 range overrides for size, weight, italic, line height and RGBA color, including
 overlapping ranges with later-style precedence; actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).

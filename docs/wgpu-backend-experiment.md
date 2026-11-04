@@ -1015,3 +1015,28 @@ and glyph uploads unchanged. Range colors remain in the paragraph cache key to
 preserve native itemization boundaries; unlike base tint changes, changing a
 range color may create another native layout. Native overlap tests compare with
 explicit disjoint ranges and reject invalid UTF-8 byte boundaries.
+
+### Private application font collections
+
+Linux native paragraphs now accept existing `FontAsset` registrations, including
+private family aliases. Each native layout context lazily creates its own
+Fontconfig configuration with system fallback fonts; it does not change the
+process-global configuration. Font bytes are written to anonymous temporary
+files and registered through `/proc/self/fd`, so this implementation requires
+Linux procfs and writable temporary storage. This is an in-memory resource API,
+not a claim that Fontconfig consumes the original Rust slice without backing I/O.
+The collection is limited to 64 registrations and 128 MiB of font-file bytes.
+
+Layouts and glyphs retain the collection and its files through rasterization,
+including after their creating context drops. The renderer deduplicates repeated
+asset/alias registrations across provider/DPI reconfiguration. Registration
+failures remain observable as native paragraph errors; they do not silently
+substitute another font. The small PangoFc FFI bridge uses an explicitly selected
+FreeType font map and owned Fontconfig bindings. Ownership follows the upstream
+[PangoFc set_config contract](https://docs.gtk.org/PangoFc/method.FontMap.set_config.html).
+
+Native tests inspect the actual resolved file path, verify private aliases and
+context isolation, rasterize after context destruction, and reject malformed
+font bytes. GPU tests register before/after provider installation, revisit
+1/1.25/2/1 DPI and compare full/damaged output. Registration does not apply to
+the separate positioned-glyph path, which already carries its font bytes.

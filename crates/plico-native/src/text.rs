@@ -4,6 +4,7 @@
 //! creating thread; returned bitmaps contain no platform objects and can be sent
 //! to the UI. Grayscale AA works on transparent surfaces without LCD fringes.
 pub mod atlas;
+mod fonts;
 pub mod positioned;
 
 use cairo::{Antialias, Context, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
@@ -71,6 +72,18 @@ pub struct TextBitmap {
 /// Errors are explicit; a caller may fall back to its ordinary text backend.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Creating private backing storage for an application font failed.
+    #[snafu(display("Application font storage failed: {source}"))]
+    FontIo {
+        /// Operating-system error.
+        source: std::io::Error,
+    },
+    /// Fontconfig rejected a private font collection operation.
+    #[snafu(display("Private font collection rejected: {reason}"))]
+    FontCollection {
+        /// Failure category, without font contents.
+        reason: &'static str,
+    },
     /// FreeType rejected a font resource or face index.
     #[snafu(display("Native font loading failed: {source}"))]
     FreeType {

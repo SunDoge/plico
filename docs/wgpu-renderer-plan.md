@@ -42,7 +42,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 
 1. **Text foundation:** ordered text/quads, per-DPI glyphs, bounded atlas, no
    warmed-frame texture upload, native editing geometry and GPU-only window
-   presentation. Linux prototype implemented and locally verified; physical
+   presentation. Linux prototype implemented and locally verified, including private application
+   font assets/aliases and native rich-text ranges; physical
    cross-monitor DPI and actual IME sessions are not verified.
 2. **Shared paint bridge:** a supported subset is implemented; consume Plico's retained output with explicit supported
    operations. Preserve analytical box geometry rather than guessing rounded

@@ -15,7 +15,8 @@ use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
 pub(crate) struct Cache {
     context: LayoutContext,
     entries: lru::LruCache<(u64, u64), Rc<Paragraph>>,
-    asset_error: bool,
+    asset_error: Option<String>,
+    fonts: Vec<FontAsset>,
 }
 struct Paragraph {
     request: Arc<ParagraphRequest>,
@@ -53,7 +54,8 @@ impl Cache {
         Ok(Self {
             context: LayoutContext::new().map_err(|e| rejected(e.to_string()))?,
             entries: lru::LruCache::new(NonZeroUsize::new(512).unwrap()),
-            asset_error: false,
+            asset_error: None,
+            fonts: Vec::new(),
         })
     }
     fn layout(
@@ -61,10 +63,8 @@ impl Cache {
         request: Arc<ParagraphRequest>,
         scale: f64,
     ) -> std::result::Result<Rc<Paragraph>, ParagraphError> {
-        if self.asset_error {
-            return Err(rejected(
-                "application-font registration is not implemented by the Pango provider",
-            ));
+        if let Some(error) = &self.asset_error {
+            return Err(rejected(error.clone()));
         }
         // Base tint is independent of coverage. Range colors remain in the key:
         // native itemization must preserve their shaping/ligature boundaries.
@@ -182,9 +182,19 @@ impl ParagraphEngine for Engine {
             .layout(request, self.scale)
             .map(|p| p as Rc<dyn NativeParagraph>)
     }
-    fn register_font(&mut self, _: &FontAsset) {
+    fn register_font(&mut self, asset: &FontAsset) {
         let mut cache = self.cache.borrow_mut();
-        cache.asset_error = true;
+        if cache
+            .fonts
+            .iter()
+            .any(|font| font.family() == asset.family() && font.bytes() == asset.bytes())
+        {
+            return;
+        }
+        match cache.context.register_font(asset.bytes(), asset.family()) {
+            Ok(()) => cache.fonts.push(asset.clone()),
+            Err(error) => cache.asset_error = Some(error.to_string()),
+        }
         cache.entries.clear();
     }
     fn clear(&mut self) {
@@ -206,12 +216,6 @@ impl Renderer {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(Error::InvalidInput {
                 reason: "invalid system text device scale".into(),
-            });
-        }
-        if !text.registered_font_assets().is_empty() {
-            return Err(Error::Unsupported {
-                command: 0,
-                reason: "application font registration not implemented".into(),
             });
         }
         #[cfg(feature = "paint-scene")]

@@ -4848,8 +4848,10 @@ dependencies = [
  "pollster 1.0.1",
  "serde_json",
  "snafu",
+ "tempfile",
  "tokio",
  "wgpu",
+ "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
