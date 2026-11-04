@@ -410,3 +410,72 @@ fn trimming_image_gpu_cache_preserves_pixels_and_reuploads_on_next_change() {
     assert_eq!(renderer.image_cache_stats().2, warm.2 + 1);
     assert_eq!(renderer.image_cache_stats().0, 1);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn large_minification_prefilters_odd_images_without_transparent_color_bleed() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for transparent in [false, true] {
+        let source = ImageData {
+            data: Blob::new(Arc::new(
+                (0..193)
+                    .flat_map(|y| {
+                        (0..257).flat_map(move |x| {
+                            if (x + y) % 2 == 0 {
+                                if transparent {
+                                    [255u8, 255, 255, 0]
+                                } else {
+                                    [0, 0, 0, 255]
+                                }
+                            } else {
+                                [255, 0, 0, 255]
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            width: 257,
+            height: 193,
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::Alpha,
+        };
+        let before = renderer.image_cache_stats();
+        for quality in [ImageQuality::Low, ImageQuality::Medium, ImageQuality::High] {
+            let mut brush = ImageBrush::new(source.clone());
+            brush.sampler.quality = quality;
+            for [w, h] in [[17, 13], [8, 6]] {
+                let mut scene = Scene::new();
+                scene.draw_image(
+                    (&brush).into(),
+                    Affine::scale_non_uniform(w as f64 / 257., h as f64 / 193.),
+                );
+                let actual = renderer
+                    .render_scene(&scene, [w, h], [0.; 4], false)
+                    .unwrap();
+                for pixel in actual.as_chunks::<4>().0 {
+                    assert_eq!(pixel[1], 0, "transparent white leaked green at {quality:?}");
+                    assert_eq!(pixel[2], 0, "transparent white leaked blue at {quality:?}");
+                    if quality != ImageQuality::Low {
+                        assert!(pixel[0].abs_diff(128) <= 1, "unfiltered red: {pixel:?}");
+                        assert!(
+                            pixel[3].abs_diff(if transparent { 128 } else { 255 }) <= 1,
+                            "unfiltered alpha: {pixel:?}"
+                        );
+                    } else {
+                        assert!(
+                            pixel[0] == 0 || pixel[0] == 255,
+                            "Low lost nearest semantics"
+                        );
+                    }
+                }
+            }
+        }
+        let after = renderer.image_cache_stats();
+        assert_eq!(
+            after.2,
+            before.2 + 1,
+            "quality/size changes duplicated source upload"
+        );
+        assert_eq!(after.1 - before.1, 263936, "mip payload was not accounted");
+    }
+}

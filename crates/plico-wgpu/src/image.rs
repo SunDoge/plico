@@ -31,6 +31,11 @@ impl ImageQuad {
         }
     }
 }
+pub(crate) struct ImageSampling {
+    pub quality: ImageQuality,
+    pub extend: [Extend; 2],
+    pub mipmaps: bool,
+}
 type Key = (u64, u32, u32, u8);
 pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
@@ -71,15 +76,19 @@ impl ImageCache {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         image: &ImageData,
-        quality: ImageQuality,
-        extend: [Extend; 2],
+        sampling: ImageSampling,
     ) -> Result<Rc<GpuImage>> {
+        let ImageSampling {
+            quality,
+            extend,
+            mipmaps,
+        } = sampling;
         // Pixel identity excludes sampler policy. Bindings share one source texture.
         let key = (
             image.data.id(),
             image.width,
             image.height,
-            image.format as u8 | ((image.alpha_type as u8) << 4),
+            image.format as u8 | ((image.alpha_type as u8) << 4) | (u8::from(mipmaps) << 7),
         );
         if let Some(entry) = self.entries.get_mut(&key) {
             self.hits += 1;
@@ -124,6 +133,22 @@ impl ImageCache {
                 }
             }
         }
+        // Small glyph/run images and coverage masks do not need a mip chain.
+        // Keep the full allocation within the same per-source/cache budget.
+        let mut sizes = vec![[image.width, image.height]];
+        let mut texture_bytes = bytes;
+        if mipmaps && image.width.min(image.height) >= 64 {
+            let mut size = [image.width, image.height];
+            while size != [1, 1] {
+                size = [(size[0] / 2).max(1), (size[1] / 2).max(1)];
+                texture_bytes += size[0] as usize * size[1] as usize * 4;
+                sizes.push(size);
+            }
+            if texture_bytes > 128 * 1024 * 1024 {
+                sizes.truncate(1);
+                texture_bytes = bytes;
+            }
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Plico immutable image"),
             size: wgpu::Extent3d {
@@ -131,32 +156,40 @@ impl ImageCache {
                 height: image.height,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: sizes.len() as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &pixels,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(image.width * 4),
-                rows_per_image: Some(image.height),
-            },
-            wgpu::Extent3d {
-                width: image.width,
-                height: image.height,
-                depth_or_array_layers: 1,
-            },
-        );
+        let mut previous_size = sizes[0];
+        for (level, &[width, height]) in sizes.iter().enumerate() {
+            if level > 0 {
+                pixels = area_reduce(&pixels, previous_size, [width, height]);
+            }
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &pixels,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * 4),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            previous_size = [width, height];
+        }
+        let bytes = texture_bytes;
         while self.bytes + bytes > 128 * 1024 * 1024
             || self.entries.len() == self.entries.cap().get()
         {
@@ -226,6 +259,7 @@ impl TextureEntry {
             address_mode_v: address(extend[1]),
             mag_filter: filter,
             min_filter: filter,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let view = self.texture.create_view(&Default::default());
@@ -293,5 +327,46 @@ impl GpuImage {
             bind,
             _source: None,
         })
+    }
+}
+
+/// Exact area weights for each reduction, including odd dimensions. Inputs are
+/// premultiplied encoded RGBA; identical weights preserve RGB <= alpha.
+fn area_reduce(source: &[u8], [sw, sh]: [u32; 2], [dw, dh]: [u32; 2]) -> Vec<u8> {
+    let mut output = vec![0; dw as usize * dh as usize * 4];
+    let denominator = u64::from(sw) * u64::from(sh);
+    for y in 0..dh {
+        for x in 0..dw {
+            let mut sums = [0u64; 4];
+            for sy in y * sh / dh..((y + 1) * sh).div_ceil(dh) {
+                let wy = ((sy + 1) * dh).min((y + 1) * sh) - (sy * dh).max(y * sh);
+                for sx in x * sw / dw..((x + 1) * sw).div_ceil(dw) {
+                    let wx = ((sx + 1) * dw).min((x + 1) * sw) - (sx * dw).max(x * sw);
+                    let weight = u64::from(wx) * u64::from(wy);
+                    let offset = (sy as usize * sw as usize + sx as usize) * 4;
+                    for channel in 0..4 {
+                        sums[channel] += u64::from(source[offset + channel]) * weight;
+                    }
+                }
+            }
+            let offset = (y as usize * dw as usize + x as usize) * 4;
+            for channel in 0..4 {
+                output[offset + channel] = ((sums[channel] + denominator / 2) / denominator) as u8;
+            }
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+mod mip_tests {
+    use super::area_reduce;
+    #[test]
+    fn odd_area_reduction_preserves_edges_and_premultiplied_alpha() {
+        let source = [vec![0; 8], vec![255; 4]].concat();
+        assert_eq!(area_reduce(&source, [3, 1], [1, 1]), [85; 4]);
+        let pixels = [vec![100, 20, 0, 100], vec![0; 4]].concat();
+        assert_eq!(area_reduce(&pixels, [2, 1], [1, 1]), [50, 10, 0, 50]);
+        assert_eq!(area_reduce(&[128; 5 * 3 * 4], [5, 3], [2, 1]), [128; 8]);
     }
 }

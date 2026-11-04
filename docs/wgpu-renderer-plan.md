@@ -155,4 +155,33 @@ large-ratio minification. Mip/area prefiltering needs a separate implementation:
 account for mip payload in the existing byte budget, preserve premultiplied alpha,
 cover odd dimensions and affine derivatives, and avoid generating mips for text
 coverage or every animated offscreen target. Preserve nearest-neighbor semantics
-for Low and existing magnification behavior. No mip support is claimed yet.
+for Low and existing magnification behavior. This was the pre-mip baseline; the following section records the implemented path and its limits.
+
+### Initial mip implementation
+
+The immutable-image cache now uploads an area-prefiltered mip chain for sources
+at least 64 pixels in both dimensions. Odd dimensions use exact integer area
+weights per reduction. Straight RGBA/BGRA conversion and premultiplication happen
+before prefiltering, preventing transparent RGB from bleeding into thumbnails.
+Mip payload is included in the 128 MiB source/cache budget; a source whose full
+chain exceeds that budget retains level zero only. Clip masks opt out explicitly;
+small glyph/run images and animated layer/effect targets retain their existing
+single-level path. Quality variants still share the same source allocation.
+
+Medium uses trilinear mip sampling; High reconstructs adjacent mip levels with
+Mitchell and blends them. Low samples level zero with nearest filtering. LOD uses
+unfolded UV derivatives before clip/discard and repeat/reflect folding, including
+affine source mappings. Magnification remains at level zero. This is isotropic,
+not anisotropic filtering: extreme skew/one-axis compression can overblur. Mips
+average encoded premultiplied channels, not linear-light color. First upload adds
+CPU prefilter work and roughly one-third texture memory for ordinary 2D sources;
+no upload-time or power improvement is claimed.
+
+On the same Intel/Mesa diagnostic, 8×6 Medium/High RMSE fell from 41.574/37.427 to
+0.497; 17×13 was 0.529. Low stayed unchanged. Texture payload rose from 198404 to
+263936 bytes with one shared upload. These checkerboard results establish alias
+suppression for this fixture, not universal superiority over another renderer.
+The complete local wgpu regression passed 89 tests (two manual profiles excluded),
+plus Clippy and Windows/WASM checks. New GPU tests cover odd-sized large
+minification, hidden transparent-white colors, premultiplied output, nearest
+semantics and shared-source memory accounting.

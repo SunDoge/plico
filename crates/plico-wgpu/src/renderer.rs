@@ -1079,8 +1079,11 @@ impl Renderer {
                         &self.queue,
                         &self.atlas_texture.layout,
                         &mask.image,
-                        peniko::ImageQuality::Low,
-                        [peniko::Extend::Pad; 2],
+                        crate::image::ImageSampling {
+                            quality: peniko::ImageQuality::Low,
+                            extend: [peniko::Extend::Pad; 2],
+                            mipmaps: false,
+                        },
                     )?;
                     let slot = self.intern_frame_image(image);
                     active_mask = Some((slot, mask.rect));
@@ -1210,8 +1213,11 @@ impl Renderer {
                         &self.queue,
                         &self.atlas_texture.layout,
                         &image.image,
-                        image.quality,
-                        image.extend,
+                        crate::image::ImageSampling {
+                            quality: image.quality,
+                            extend: image.extend,
+                            mipmaps: true,
+                        },
                     )?;
                     let slot = self.intern_frame_image(resource);
                     instances.push(Instance {
@@ -1244,6 +1250,8 @@ impl Renderer {
                             0.,
                             if image.quality == peniko::ImageQuality::High {
                                 1.
+                            } else if image.quality == peniko::ImageQuality::Low {
+                                -1.
                             } else {
                                 0.
                             },

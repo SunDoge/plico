@@ -103,8 +103,8 @@ fn image_uv_axis(value:f32,mode:f32)->f32 {
     if mode<1.5 {return fract(value);}
     return 1.-abs(2.*fract(value*0.5)-1.);
 }
-fn bicubic(uv:vec2f,extend:vec2f)->vec4f {
-    let size=vec2i(textureDimensions(glyph_atlas));
+fn bicubic(uv:vec2f,extend:vec2f,level:i32)->vec4f {
+    let size=vec2i(textureDimensions(glyph_atlas,level));
     // Pad extension is constant beyond the reconstruction halo. Bounding UV
     // before integer conversion also avoids overflow for extreme brush offsets.
     let p=clamp(uv,vec2f(-2.),vec2f(3.))*vec2f(size)-0.5;
@@ -114,13 +114,18 @@ fn bicubic(uv:vec2f,extend:vec2f)->vec4f {
     for(var y=-1;y<=2;y++) {
         for(var x=-1;x<=2;x++) {
             let weight=cubic_weight(f32(x)-fraction.x)*cubic_weight(f32(y)-fraction.y);
-            result+=textureLoad(glyph_atlas,vec2i(image_coordinate(base.x+x,size.x,extend.x),image_coordinate(base.y+y,size.y,extend.y)),0)*weight;
+            result+=textureLoad(glyph_atlas,vec2i(image_coordinate(base.x+x,size.x,extend.x),image_coordinate(base.y+y,size.y,extend.y)),level)*weight;
         }
     }
     let alpha=clamp(result.a,0.,1.);
     return vec4f(clamp(result.rgb,vec3f(0.),vec3f(alpha)),alpha);
 }
 @fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+    // Derivatives precede clipping/discard and extension folding. This avoids
+    // false LOD spikes at repeat seams and supports affine source mappings.
+    let source_size=vec2f(textureDimensions(glyph_atlas,0));
+    let footprint=max(length(dpdx(input.uv)*source_size),length(dpdy(input.uv)*source_size));
+    let lod=clamp(log2(max(footprint,1.)),0.,f32(textureNumLevels(glyph_atlas)-1u));
     let world=input.position.xy+frame.origin.xy;
     let clip=input.clip;
     // Clip rectangle is a hard scissor equivalent, in physical pixels.
@@ -143,8 +148,16 @@ fn bicubic(uv:vec2f,extend:vec2f)->vec4f {
         let extend=input.gradient.xy;
         let uv=vec2f(image_uv_axis(input.uv.x,extend.x),image_uv_axis(input.uv.y,extend.y));
         var pixel:vec4f;
-        if input.clip_params.w>0.5 {pixel=bicubic(uv,extend);}
-        else {pixel=textureSampleLevel(glyph_atlas,glyph_sampler,uv,0.);}
+        if input.clip_params.w>0.5 {
+            let lower=i32(floor(lod));
+            let upper=min(lower+1,i32(textureNumLevels(glyph_atlas))-1);
+            pixel=bicubic(uv,extend,lower);
+            if upper!=lower && fract(lod)>0.0001 {
+                pixel=mix(pixel,bicubic(uv,extend,upper),fract(lod));
+            }
+        } else {
+            pixel=textureSampleLevel(glyph_atlas,glyph_sampler,uv,select(lod,0.,input.clip_params.w< -0.5));
+        }
         return pixel*input.color.a*coverage(input.local,input.size,input.config.x)*clip_alpha;
     }
     if input.config.z>=2. {
