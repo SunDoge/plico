@@ -179,3 +179,74 @@ fn per_glyph_skew_updates_cache_and_damage_without_moving_layout() {
         vec![0; 160 * 64 * 4]
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn affine_runs_match_transformed_positions_and_outline_matrices() {
+    let mut text = TextContext::new();
+    let layout = plico_renderer::text::layout_text(&mut text, "A B", 24.);
+    let base = text.glyph_scene(&layout);
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let mut reference = pollster::block_on(Renderer::new()).unwrap();
+    for run in [
+        Affine::translate((12., 10.)) * Affine::skew(-0.18, 0.),
+        Affine::translate((20., 8.)) * Affine::scale_non_uniform(1.2, 0.8),
+        Affine::translate((30., 16.)) * Affine::rotate(0.2),
+        Affine::translate((90., 16.)) * Affine::scale_non_uniform(-1., 1.),
+    ] {
+        let mut scene = (*base).clone();
+        for command in scene.commands.iter_mut() {
+            if let PaintCommand::GlyphRun {
+                transform,
+                glyph_transform,
+                ..
+            } = command
+            {
+                *transform = run * *transform;
+                *glyph_transform = Some(Affine::translate((2., -3.)) * Affine::skew(0.2, 0.));
+            }
+        }
+        let mut expanded = scene.clone();
+        for command in expanded.commands.iter_mut() {
+            if let PaintCommand::GlyphRun {
+                transform,
+                glyph_transform,
+                glyphs,
+                ..
+            } = command
+            {
+                let [a, b, c, d, _, _] = transform.as_coeffs();
+                for glyph in glyphs {
+                    let point = *transform * kurbo::Point::new(glyph.x as f64, glyph.y as f64);
+                    glyph.x = point.x as f32;
+                    glyph.y = point.y as f32;
+                }
+                *glyph_transform = Some(
+                    Affine::new([a, b, c, d, 0., 0.]) * glyph_transform.unwrap_or(Affine::IDENTITY),
+                );
+                *transform = Affine::IDENTITY;
+            }
+        }
+        let actual = partial
+            .render_scene(&scene, [160, 96], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            actual,
+            full.render_scene(&scene, [160, 96], [0.; 4], false)
+                .unwrap()
+        );
+        let expected = reference
+            .render_scene(&expanded, [160, 96], [0.; 4], false)
+            .unwrap();
+        for (i, (a, b)) in actual.iter().zip(&expected).enumerate() {
+            assert!(a.abs_diff(*b) <= 1, "run={run:?} byte={i}: {a}/{b}");
+        }
+    }
+    assert_eq!(
+        partial
+            .render_scene(&Scene::new(), [160, 96], [0.; 4], true)
+            .unwrap(),
+        vec![0; 160 * 96 * 4]
+    );
+}

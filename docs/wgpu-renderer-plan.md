@@ -66,7 +66,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    text providers. Externally positioned solid glyph runs now use a native memory-font raster
    fallback, and the real editor fixture displays and accepts input. Normalized variable coordinates are supported by immutable native font instances;
    per-glyph affine matrices cover synthetic skew. Emboldening/stroke coverage and
-   terminal adoption remain. Single-line native input, selection and IME event geometry
+   terminal throughput/scroll/IME stress validation remain. The terminal fixture now
+   displays ANSI styles and CJK in the wgpu window, including resize. Single-line native input, selection and IME event geometry
    are wired; Xvfb keyboard editing is verified, actual input-method sessions remain.
 5. **Damage:** retain a color target, calculate changed/removed old+new bounds,
    expand for AA/filter reach, and repaint all contributors intersecting dirty

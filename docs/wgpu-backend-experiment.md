@@ -795,3 +795,30 @@ translation. GPU replay tests change skew/translation, restore the original run,
 and remove it; partial redraw matches full redraw and original cache results remain
 unchanged. These verify this synthesis path without claiming all affine/font/hinting
 combinations or changing the application's shaping and selection geometry.
+
+## Terminal adoption and run-level affine text
+
+The terminal app now offers an opt-in wgpu feature while keeping Skia as default:
+
+```sh
+cargo run --locked -p terminal --no-default-features --features wgpu
+```
+
+An actual PTY fixture initially failed on italic cells: terminal replay applies
+skew to the whole glyph run, rather than storing it only in `glyph_transform`.
+Positioned replay now handles a finite nonsingular affine run transform by
+transforming the supplied glyph origins and composing the run's linear matrix
+with each glyph outline matrix before native rasterization. It never stretches
+or rotates an already rasterized text bitmap. A positive normalization factor
+keeps the existing uniform-scale path and integer-motion cache reuse intact.
+
+GPU tests compare skew, nonuniform scaling, rotation and reflection with manually
+transformed positions/outline matrices. They also require partial redraw to match
+full redraw through transform changes and removal. This extends positioned glyph
+coverage; it does not relax the separate ordinary-paragraph/shape transform limits.
+
+A local Xvfb X11 terminal window with damage enabled displayed PTY output containing
+English/CJK, ANSI colors, bold and italic. Resizing the window and the process-exit
+indicator also displayed without renderer errors. This is fixture validation, not
+a terminal throughput, scroll smoothness, clipboard or real IME-session benchmark.
+The underlying whole-run raster fallback and its bounded caches remain unchanged.

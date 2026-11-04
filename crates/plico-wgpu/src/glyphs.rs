@@ -106,7 +106,18 @@ impl GlyphCache {
         if !brush_alpha.is_finite() || !(0. ..=1.).contains(brush_alpha) {
             return Err(unsupported("invalid glyph brush alpha"));
         }
-        let (scale, [x, y]) = crate::scene::uniform(*transform, 0)?;
+        let [a, b, c, d, x, y] = transform.as_coeffs();
+        let determinant = a * d - b * c;
+        if ![a, b, c, d, x, y, determinant]
+            .iter()
+            .all(|v| v.is_finite())
+            || determinant.abs() < 1e-12
+        {
+            return Err(Error::InvalidInput {
+                reason: "positioned glyph run has a nonfinite or singular transform".into(),
+            });
+        }
+        let scale = a.hypot(b);
         let shift = [x.floor(), y.floor()];
         let mut color = color.components;
         color[3] *= brush_alpha;
@@ -116,10 +127,11 @@ impl GlyphCache {
             size: *font_size as f64 * scale,
             coordinates: normalized_coords.clone(),
             glyph_transform: {
-                let [a, b, c, d, e, f] = glyph_transform
-                    .unwrap_or(kurbo::Affine::IDENTITY)
-                    .as_coeffs();
-                [a, b, c, d, e * scale, f * scale]
+                let combined =
+                    kurbo::Affine::new([a / scale, b / scale, c / scale, d / scale, 0., 0.])
+                        * glyph_transform.unwrap_or(kurbo::Affine::IDENTITY);
+                let [ga, gb, gc, gd, ge, gf] = combined.as_coeffs();
+                [ga, gb, gc, gd, ge * scale, gf * scale]
             },
             hint: *hint,
             color,
@@ -127,8 +139,8 @@ impl GlyphCache {
                 .iter()
                 .map(|g| Glyph {
                     id: g.id,
-                    x: g.x as f64 * scale + x - shift[0],
-                    y: g.y as f64 * scale + y - shift[1],
+                    x: a * g.x as f64 + c * g.y as f64 + x - shift[0],
+                    y: b * g.x as f64 + d * g.y as f64 + y - shift[1],
                 })
                 .collect(),
         };

@@ -143,7 +143,8 @@ filter graphs, non-default blends, image/nonlinear-gradient path brushes and
 Windows/macOS text remain unfinished. Isolated source-over groups use cropped
 GPU intermediates. Externally positioned glyph runs use shared memory-font
 Cairo/FreeType rasterization, including normalized variable coordinates and
-per-glyph affine matrices; the editor fixture displays and accepts input.
+per-glyph/run affine matrices; editor and ANSI terminal fixtures display, with
+editor insertion and terminal resize locally verified.
 Geometric emboldening, stroke and non-solid glyph brushes remain unsupported. Single-line
 editing uses Pango caret/selection geometry; actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).
