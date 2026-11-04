@@ -93,3 +93,13 @@ GPU 测试验证 trim 后静态画面无需重传，随后图片移动会重新�
 LRU 已淘汰的纹理被上一帧临时表继续持有。缓存自身仍按正常策略复用资源。
 GPU 测试覆盖成功提交、第二张图片上传失败及随后恢复，并验证帧表为空；嵌套
 layer/effect/batching 的 17 项 GPU 回归通过。未据此宣称 RSS 降幅。
+
+### 资源回收改动后的窗口回归
+
+Linux/X11、Xvfb、NVIDIA Vulkan，`wgpu-window`、1.25× scale、damage 开启：
+实际点击计数、输入 `Cache regression`、启停 WGSL 动画，并将窗口从 775×600
+调至 1000×760 再恢复。检查截图时状态保持，未观察到拉伸或旧像素残留。
+正常 `WM_DELETE_WINDOW` 关闭另行确认 exit code 0。此场景未主动触发 trim，
+trim 的正确性由前述 GPU 测试覆盖；不将窗口截图当作内存回收的证据。
+Xvfb 报告缺少 DRI3，不能据此评价真实合成器下的延迟、帧率或功耗。
+生成截图与日志留在本地 reports/ 或临时目录，不进入仓库。
