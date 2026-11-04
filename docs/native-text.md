@@ -133,8 +133,12 @@ DPI transitions, IME and window output. Cross-compilation proves none of those
 runtime/visual properties.
 
 The wgpu bridge supports unquoted comma-separated system family names, basic
-weight/italic/wrapping and UTF-8 editing geometry. Rich spans, custom line height,
-letter spacing, alignment other than Start, truncation and application fonts
+weight/italic/wrapping, Start/Center/End/Justify alignment and UTF-8 editing
+geometry. Alignment is set on the retained DirectWrite layout after intrinsic
+measurement, so caret/selection geometry and raster positions agree. Native
+tests check centered/trailing caret and selection shifts, unchanged intrinsic
+widths and wrapped justification; they are cross-compiled only here.
+Rich spans, custom line height, letter spacing, truncation and application fonts
 are explicitly rejected. Color-font faces remain unsupported by rasterization.
 Automatic paragraph base-direction selection is not connected yet. Therefore
 this is not Windows gallery feature parity or a validated default renderer.

@@ -38,6 +38,19 @@ pub enum Error {
 }
 /// Result returned by the Windows text service.
 pub type Result<T> = std::result::Result<T, Error>;
+/// Alignment relative to the paragraph's reading direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Alignment {
+    /// Leading edge (left for LTR, right for RTL).
+    #[default]
+    Start,
+    /// Center within the available width.
+    Center,
+    /// Trailing edge.
+    End,
+    /// Expand eligible lines to fill the available width.
+    Justify,
+}
 /// Basic system-font paragraph. Sizes and widths are logical DIPs.
 pub struct Request<'a> {
     /// Original UTF-8 contents.
@@ -56,6 +69,8 @@ pub struct Request<'a> {
     pub wrap: bool,
     /// Explicit paragraph base direction; character bidi still uses DirectWrite.
     pub rtl: bool,
+    /// Alignment performed by the retained native layout, including hit testing.
+    pub alignment: Alignment,
 }
 impl<'a> Request<'a> {
     /// Default Segoe UI paragraph at 14 DIPs.
@@ -69,6 +84,7 @@ impl<'a> Request<'a> {
             width: None,
             wrap: true,
             rtl: false,
+            alignment: Alignment::Start,
         }
     }
 }
@@ -256,6 +272,14 @@ impl Context {
             layout
                 .SetMaxWidth(request.width.unwrap_or(max_content_width.ceil().max(1.)))
                 .context(NativeSnafu)?;
+            layout
+                .SetTextAlignment(match request.alignment {
+                    Alignment::Start => DWRITE_TEXT_ALIGNMENT_LEADING,
+                    Alignment::Center => DWRITE_TEXT_ALIGNMENT_CENTER,
+                    Alignment::End => DWRITE_TEXT_ALIGNMENT_TRAILING,
+                    Alignment::Justify => DWRITE_TEXT_ALIGNMENT_JUSTIFIED,
+                })
+                .context(NativeSnafu)?;
             layout.GetMetrics(&mut native).context(NativeSnafu)?;
         }
         if ![
@@ -415,6 +439,55 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn alignment_moves_native_editing_geometry_without_changing_intrinsics() {
+        let context = Context::new().unwrap();
+        let mut request = Request::new("Hello");
+        request.width = Some(240.);
+        let start = context.layout(&request).unwrap();
+        let first = start.caret_rect(0, 1.).unwrap();
+        let selected = start.selection_rects(0..5).unwrap();
+        let metrics = start.metrics();
+        for (alignment, fraction) in [(Alignment::Center, 0.5), (Alignment::End, 1.)] {
+            request.alignment = alignment;
+            let aligned = context.layout(&request).unwrap();
+            let caret = aligned.caret_rect(0, 1.).unwrap();
+            let shift = (240. - metrics.width) * fraction;
+            assert!((caret[0] - first[0] - shift).abs() < 0.01);
+            assert_eq!(
+                aligned.metrics().min_content_width,
+                metrics.min_content_width
+            );
+            assert_eq!(
+                aligned.metrics().max_content_width,
+                metrics.max_content_width
+            );
+            assert_eq!(
+                aligned
+                    .hit_test(caret[0], caret[1] + caret[3] * 0.5)
+                    .unwrap(),
+                0
+            );
+            let selection = aligned.selection_rects(0..5).unwrap();
+            assert_eq!(selection.len(), selected.len());
+            for (rect, original) in selection.iter().zip(&selected) {
+                assert!((rect[0] - original[0] - shift).abs() < 0.01);
+                assert_eq!(rect[2], original[2]);
+            }
+        }
+        request.alignment = Alignment::Justify;
+        request.text = "A paragraph with enough words to fill several lines for justification.";
+        request.width = Some(100.);
+        let justified = context.layout(&request).unwrap();
+        assert!(justified.lines().len() > 1);
+        assert!(
+            justified
+                .selection_rects(0..request.text.len())
+                .unwrap()
+                .len()
+                > 1
+        );
+    }
     #[test]
     fn family_resolution_checks_candidates_in_order() {
         let context = Context::new().unwrap();

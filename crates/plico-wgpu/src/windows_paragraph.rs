@@ -1,6 +1,6 @@
 //! DirectWrite geometry shared by retained measurement and subsequent painting.
 use crate::{Error, Renderer, Result};
-use plico_native::windows_text::{Context, Paragraph as Layout, Request};
+use plico_native::windows_text::{Alignment, Context, Paragraph as Layout, Request};
 use plico_renderer::{
     TextContext,
     paragraph::{
@@ -173,12 +173,11 @@ impl Cache {
         if !request.runs.is_empty()
             || request.letter_spacing != 0.
             || request.line_height.is_some()
-            || request.align != TextAlign::Start
             || request.max_lines != 0
             || request.ellipsis
         {
             return Err(rejected(
-                "DirectWrite rich spans, spacing, alignment and truncation are not implemented",
+                "DirectWrite rich spans, spacing and truncation are not implemented",
             ));
         }
         if !request.font_weight.is_finite() || !(1. ..=1000.).contains(&request.font_weight) {
@@ -213,6 +212,12 @@ impl Cache {
         native.size = request.font_size;
         native.weight = request.font_weight as u16;
         native.italic = request.italic;
+        native.alignment = match request.align {
+            TextAlign::Start => Alignment::Start,
+            TextAlign::Center => Alignment::Center,
+            TextAlign::End => Alignment::End,
+            TextAlign::Justify => Alignment::Justify,
+        };
         native.wrap = request.wrap;
         native.width = request.width.filter(|w| *w != f32::INFINITY);
         let layout = self
@@ -377,6 +382,21 @@ mod tests {
         cache.clear();
         assert_eq!(cache.bytes, 0);
         assert!(first.caret_rect(2).is_some());
+    }
+    #[test]
+    fn alignment_is_part_of_the_shared_geometry_and_raster_request() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.width = Some(240.);
+        let start = cache.layout(Arc::new(declaration.clone()), 1.).unwrap();
+        declaration.align = TextAlign::End;
+        let declaration = Arc::new(declaration);
+        let end = cache.layout(declaration.clone(), 1.).unwrap();
+        assert!(!Rc::ptr_eq(&start, &end));
+        assert!(end.caret_rect(0).unwrap()[0] > start.caret_rect(0).unwrap()[0]);
+        let images = cache.raster(declaration, 1., 0.).unwrap();
+        assert!(!images.is_empty());
+        assert!(images[0].1[0] as f32 >= end.caret_rect(0).unwrap()[0] - 2.);
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {
