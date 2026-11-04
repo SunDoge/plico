@@ -155,3 +155,65 @@ fn sibling_filter_workspaces_are_distinct_and_reused_across_frames() {
         .unwrap();
     assert_eq!(pooled.layer_pool_stats().retained_bytes, 0);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn viewport_cropping_happens_after_filter_sampling() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let sources = [
+        Rect::new(-20., -20., 0., 52.),
+        Rect::new(32., -20., 52., 52.),
+        Rect::new(-20., -20., 52., 0.),
+        Rect::new(-20., 32., 52., 52.),
+    ];
+    for (edge, source) in sources.iter().enumerate() {
+        for nested in [false, true] {
+            let mut scene = Scene::new();
+            scene.push_layer(
+                BlendMode::default(),
+                1.,
+                Affine::IDENTITY,
+                &Rect::new(0., 0., 32., 32.),
+                Some(Arc::new(
+                    GaussianBlur {
+                        sigma: 3.,
+                        edge: BlurEdge::Transparent,
+                    }
+                    .into_filter(),
+                )),
+                None,
+            );
+            if nested {
+                scene.push_layer(
+                    BlendMode::default(),
+                    0.75,
+                    Affine::IDENTITY,
+                    &Rect::new(-32., -32., 64., 64.),
+                    None,
+                    None,
+                );
+            }
+            scene.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, source);
+            if nested {
+                scene.pop_layer();
+            }
+            scene.pop_layer();
+            let mut large = Scene::new();
+            large.append_scene(scene.clone(), Affine::translate((32., 32.)));
+            let expected = renderer
+                .render_scene(&large, [96, 96], [0.; 4], false)
+                .unwrap();
+            let actual = renderer
+                .render_scene(&scene, [32, 32], [0.; 4], false)
+                .unwrap();
+            assert!(actual.iter().any(|v| *v > 60), "empty filtered output");
+            for y in 0..32 {
+                assert_eq!(
+                    &actual[y * 32 * 4..(y + 1) * 32 * 4],
+                    &expected[((y + 32) * 96 + 32) * 4..((y + 32) * 96 + 64) * 4],
+                    "edge={edge} nested={nested} row={y}: source pixels outside viewport were lost"
+                );
+            }
+        }
+    }
+}

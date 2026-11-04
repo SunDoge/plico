@@ -9,6 +9,7 @@ pub struct PreparedScene {
     draws: Vec<PreparedDraw>,
     source: Scene,
     flattened: Scene,
+    root_clip: Rect,
     ink: Vec<Option<Rect>>,
 }
 /// An isolated source-over group. Children are drawn into a transparent GPU
@@ -220,11 +221,23 @@ impl Renderer {
         scene: &Scene,
         size: [u32; 2],
     ) -> Result<std::rc::Rc<PreparedScene>> {
+        self.prepare_scene_with_clip(
+            scene,
+            size,
+            Rect::new(0., 0., size[0] as f64, size[1] as f64),
+        )
+    }
+    fn prepare_scene_with_clip(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+        root_clip: Rect,
+    ) -> Result<std::rc::Rc<PreparedScene>> {
         if self.scene_prepare_depth > 16 {
             return Err(unsupported(0, "layer preparation depth exceeds 16"));
         }
         self.scene_prepare_depth += 1;
-        let result = self.prepare_scene_inner(scene, size);
+        let result = self.prepare_scene_inner(scene, size, root_clip);
         self.scene_prepare_depth -= 1;
         result
     }
@@ -232,9 +245,11 @@ impl Renderer {
         &mut self,
         scene: &Scene,
         size: [u32; 2],
+        root_clip: Rect,
     ) -> Result<std::rc::Rc<PreparedScene>> {
         if let Some((cached_size, cached)) = &self.prepared_cache
             && *cached_size == size
+            && cached.root_clip == root_clip
             && cached.source.shares_commands_with(scene)
         {
             self.scene_cache_hits += 1;
@@ -242,7 +257,7 @@ impl Renderer {
         }
         let source = scene.clone();
         let scene = scene.flattened();
-        let mut clips = vec![Rect::new(0., 0., size[0] as f64, size[1] as f64)];
+        let mut clips = vec![root_clip];
         let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
         let mut ink = vec![None; scene.commands.len()];
@@ -454,14 +469,18 @@ impl Renderer {
                         child
                             .commands
                             .extend(scene.commands[index + 1..end].iter().cloned());
-                        let child =
-                            self.prepare_scene(&child, size)
-                                .map_err(|error| match error {
-                                    Error::Unsupported { command, reason } => {
-                                        unsupported(index + 1 + command, reason)
-                                    }
-                                    other => other,
-                                })?;
+                        // The viewport is an output clip, not a limit on source
+                        // samples needed by a filter. Carry its halo through
+                        // nested groups and include it in prepared-cache identity.
+                        let reach = blur.map_or(0., |b| (4. * b.sigma as f64).ceil());
+                        let child = self
+                            .prepare_scene_with_clip(&child, size, root_clip.inflate(reach, reach))
+                            .map_err(|error| match error {
+                                Error::Unsupported { command, reason } => {
+                                    unsupported(index + 1 + command, reason)
+                                }
+                                other => other,
+                            })?;
                         let parent = masks.last().unwrap().clone();
                         let mut layer_clip = clip;
                         let mut composite_mask = parent.clone();
@@ -489,7 +508,6 @@ impl Renderer {
                         if let Some(mask) = &composite_mask {
                             draws.push(PreparedDraw::SetMask(mask.clone()));
                         }
-                        let reach = blur.map_or(0., |b| (4. * b.sigma as f64).ceil());
                         let q = quad(
                             Rect::new(
                                 layer_clip.x0.floor() - reach,
@@ -683,6 +701,7 @@ impl Renderer {
             draws,
             source,
             flattened: scene,
+            root_clip,
             ink,
         });
         self.scene_preparations += 1;

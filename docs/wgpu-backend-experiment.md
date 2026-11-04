@@ -697,3 +697,23 @@ scheme on this device, not shared-memory algorithms in general. The measurement
 does not identify whether occupancy, shared-memory accesses, barriers or another
 hardware/compiler interaction caused the regression. Further work should test
 filtering/sampling alternatives with the same pixel oracle and timestamp protocol.
+
+## Filter source halo at viewport edges
+
+A regression fixture exposed premature viewport clipping: a white rectangle wholly
+outside a small viewport contributed no blur inside it, while rendering the same
+scene on a translated larger canvas and cropping produced the expected tail.
+Layer texture padding alone was insufficient because prepared child draws had
+already discarded the source samples.
+
+Preparation now distinguishes the output viewport from the source region required
+by a filter. The four-sigma halo is carried through nested layer preparation;
+final clipping/masking still happens at composition. Prepared-scene cache identity
+includes this source root clip, so a snapshot prepared for one sampling region
+cannot be reused with another region's clipping.
+
+The formerly failing test now compares all pixels against large-canvas/crop
+references for left/right/top/bottom source rectangles, both directly inside a
+filter and inside an additional opacity group. This verifies viewport-edge source
+contributions without weakening the final output clip. Filter frames still use
+conservative full damage; this change does not claim incremental-filter redraw.
