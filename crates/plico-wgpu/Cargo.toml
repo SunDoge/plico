@@ -15,6 +15,9 @@ paint-scene = ["dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:resvg"]
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+plico-native = { path = "../plico-native", default-features = false, features = ["windows-text"], optional = true }
+
 [dependencies]
 resvg = { version = "0.48.1", default-features = false, features = ["raster-images"], optional = true }
 winit = {workspace=true,optional=true}

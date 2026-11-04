@@ -138,6 +138,13 @@ pub struct Renderer {
     compilations: usize,
     #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
+    #[cfg(all(
+        feature = "paint-scene",
+        target_os = "windows",
+        feature = "system-text"
+    ))]
+    pub(crate) windows_paragraphs:
+        Option<std::rc::Rc<std::cell::RefCell<crate::windows_paragraph::Cache>>>,
     #[cfg(feature = "paint-scene")]
     pub(crate) prepared_cache: Option<([u32; 2], std::rc::Rc<crate::scene::PreparedScene>)>,
     #[cfg(feature = "paint-scene")]
@@ -327,6 +334,12 @@ impl Renderer {
             compilations: 0,
             #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
             paragraphs: None,
+            #[cfg(all(
+                feature = "paint-scene",
+                target_os = "windows",
+                feature = "system-text"
+            ))]
+            windows_paragraphs: None,
             #[cfg(feature = "paint-scene")]
             prepared_cache: None,
             #[cfg(feature = "paint-scene")]

@@ -104,8 +104,12 @@ user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
 family and an explicit paragraph base direction; CSS family lists, rich spans,
 application fonts and clipping/ellipsis are not implemented in this service yet.
-Raw grayscale glyph-run rasterization is available, with the limits below. It is not connected to plico-wgpu, whose Windows native text
-path still returns an unsupported-platform error.
+Raw grayscale glyph-run rasterization is available, with the limits below.
+The experimental plico-wgpu Windows provider now connects ordinary paragraph
+measurement/editing to the same native layout used for corrected run images.
+The window installs this provider at the current scale; native geometry remains
+in logical DIPs. Images use the shared premultiplied image compositor, clips,
+opacity layers and damage pipeline. This bridge has only been cross-compiled.
 
 Contexts/layouts are confined to their creating thread. A paragraph retains its
 native layout and factory references; it does not borrow the request's text or
@@ -124,10 +128,24 @@ API tests compile but have **not run on Windows**. Run them on Windows with:
 cargo test --locked -p plico-native --no-default-features --features windows-text --lib
 ```
 
-Before renderer adoption, connect corrected glyph output and the same layout to
-shared measurement/paint, then verify actual Windows fonts,
+Before renderer adoption, verify actual Windows fonts,
 DPI transitions, IME and window output. Cross-compilation proves none of those
 runtime/visual properties.
+
+The wgpu bridge supports unquoted comma-separated system family names, basic
+weight/italic/wrapping and UTF-8 editing geometry. Rich spans, custom line height,
+letter spacing, alignment other than Start, truncation and application fonts
+are explicitly rejected. Color-font faces remain unsupported by rasterization.
+Automatic paragraph base-direction selection is not connected yet. Therefore
+this is not Windows gallery feature parity or a validated default renderer.
+
+Run images use four horizontal phases with vertically snapped baselines;
+integer translations reuse images. Layout and raster caches each have a
+512-entry / 64 MiB accounted Rust-payload limit (raster accounting conservatively
+includes its retained paragraph). These are separate budgets and exclude COM
+allocations, externally retained entries and the shared GPU image cache. No
+memory/performance claim follows from these limits alone. On Windows, run the
+bridge tests with `cargo test -p plico-wgpu --lib windows_paragraph::tests`.
 
 DirectWrite metrics expose `min_content_width` and `max_content_width` separately
 from the final constrained content width. The service measures hard lines with

@@ -887,7 +887,44 @@ impl Renderer {
                             });
                             draws.push(PreparedDraw::Text(payloads.text.len() - 1));
                         }
-                        #[cfg(not(all(target_os = "linux", feature = "system-text")))]
+                        #[cfg(all(target_os = "windows", feature = "system-text"))]
+                        {
+                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            // Four horizontal phases, snapped vertical baselines.
+                            // Integer movement never creates a new raster entry.
+                            let snapped_x = (x * 4.).round() / 4.;
+                            let base_x = snapped_x.floor();
+                            let images = self.windows_paragraph_images(
+                                request.clone(),
+                                scale,
+                                snapped_x - base_x,
+                            )?;
+                            let mut bounds: Option<Rect> = None;
+                            for (image, origin) in images.iter() {
+                                let left = base_x + f64::from(origin[0]);
+                                let top = y.round() + f64::from(origin[1]);
+                                let rect = Rect::new(
+                                    left,
+                                    top,
+                                    left + f64::from(image.width),
+                                    top + f64::from(image.height),
+                                );
+                                bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
+                                if rect.intersect(clip).is_zero_area() {
+                                    continue;
+                                }
+                                let q = quad(rect, 0., Affine::IDENTITY, clip, index)?;
+                                draws.push(image_draw(
+                                    &mut payloads,
+                                    crate::image::ImageQuad::new(q, image.clone()),
+                                ));
+                            }
+                            ink[index] = Some(bounds.unwrap_or(Rect::ZERO));
+                        }
+                        #[cfg(not(all(
+                            any(target_os = "linux", target_os = "windows"),
+                            feature = "system-text"
+                        )))]
                         {
                             let _ = (request, transform);
                             return Err(unsupported(
@@ -913,7 +950,9 @@ impl Renderer {
             }
             // Bounds come from the native geometry actually submitted, not a
             // second paragraph engine with potentially different metrics.
-            if let Some(draw) = draws.get(first_draw) {
+            if ink[index].is_none()
+                && let Some(draw) = draws.get(first_draw)
+            {
                 ink[index] = Some(draw.ink_bounds(&payloads));
             }
         }

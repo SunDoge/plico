@@ -27,7 +27,10 @@ pub struct WgpuWindow {
     config: wgpu::SurfaceConfiguration,
     damage_enabled: bool,
     present_skipped: bool,
-    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    #[cfg(all(
+        any(target_os = "linux", target_os = "windows"),
+        feature = "system-text"
+    ))]
     text_scale: Option<u64>,
 }
 impl WgpuWindow {
@@ -92,24 +95,38 @@ impl WgpuWindow {
                 Ok("1") | Ok("true")
             ),
             present_skipped: false,
-            #[cfg(all(target_os = "linux", feature = "system-text"))]
+            #[cfg(all(
+                any(target_os = "linux", target_os = "windows"),
+                feature = "system-text"
+            ))]
             text_scale: None,
         })
     }
     /// Reinstall the native measure provider only when device scale/context changes.
     pub fn configure_text(&mut self, text: &mut TextContext) -> Result<()> {
-        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        #[cfg(all(
+            any(target_os = "linux", target_os = "windows"),
+            feature = "system-text"
+        ))]
         {
             let scale = self.window.scale_factor();
             if self.text_scale != Some(scale.to_bits())
-                || text.raster_backend_name() != "pango-wgpu"
+                || text.raster_backend_name()
+                    != if cfg!(target_os = "windows") {
+                        "directwrite-wgpu"
+                    } else {
+                        "pango-wgpu"
+                    }
             {
                 self.renderer.configure_text(text, scale)?;
                 self.text_scale = Some(scale.to_bits());
             }
             Ok(())
         }
-        #[cfg(not(all(target_os = "linux", feature = "system-text")))]
+        #[cfg(not(all(
+            any(target_os = "linux", target_os = "windows"),
+            feature = "system-text"
+        )))]
         {
             let _ = text;
             Err(Error::Unsupported {
@@ -202,7 +219,10 @@ impl WgpuWindow {
         self.renderer.trim_layer_pool();
         self.renderer.trim_effect_cache();
         self.renderer.trim_positioned_glyph_cache();
-        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        #[cfg(all(
+            any(target_os = "linux", target_os = "windows"),
+            feature = "system-text"
+        ))]
         self.renderer.trim_text_cache();
     }
     pub fn invalidate_presentation(&mut self) {

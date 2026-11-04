@@ -18,7 +18,9 @@ applications still encounter explicit unsupported-command errors.
   vector rasterizer. SVG now uses a bounded resvg raster cache; uncommon solid
   Bezier fill/stroke commands use a bounded tiny-skia raster cache.
 - Use native text layout and glyph rasterization: Pango/Cairo currently works on
-  Linux; DirectWrite and CoreText are still required. Do not approximate glyph
+  Linux; DirectWrite basic paragraphs now connect to shared geometry and corrected
+  run-image painting, but are cross-compiled only and lack rich-text/color-font
+  parity. CoreText is still required. Do not approximate glyph
   coverage with the rectangle SDF shader. Existing editing/IME state remains outside
   the renderer; its geometry must come from the layout actually drawn.
 - Reuse tests, virtual time, screenshot previews and damage concepts. Avoid taking
