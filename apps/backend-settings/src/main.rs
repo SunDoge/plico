@@ -2,6 +2,7 @@
 #[cfg(any(
     feature = "fltk",
     feature = "vello",
+    feature = "wgpu",
     feature = "skia",
     feature = "egui"
 ))]
@@ -11,25 +12,28 @@ use snafu::Snafu;
 #[derive(usage_rs::Cli)]
 #[usage(
     bin = "backend-settings",
-    about = "Shared settings UI for Vello, Skia, egui and FLTK"
+    about = "Shared settings UI for Vello, Skia, wgpu, egui and FLTK"
 )]
 struct Options {
-    /// Renderer to use; defaults to the first enabled backend: vello, skia, fltk.
+    /// Renderer to use; defaults to the first enabled: vello, skia, wgpu, egui, fltk.
     #[usage(long)]
     backend: Option<String>,
 }
 
 #[derive(Debug, Snafu)]
 enum Error {
-    #[snafu(display("enable a backend with --features vello, skia or fltk"))]
+    #[snafu(display("enable a backend with --features vello, skia, wgpu, egui or fltk"))]
     NoBackend,
     #[snafu(display(
-        "backend {backend:?} is unavailable; enable its Cargo feature (choose vello, skia or fltk)"
+        "backend {backend:?} is unavailable; enable its Cargo feature (choose vello, skia, wgpu, egui or fltk)"
     ))]
     Backend { backend: String },
     #[cfg(feature = "vello")]
     #[snafu(display("Vello window failed: {source}"))]
     Vello { source: plico_desktop::DesktopError },
+    #[cfg(feature = "wgpu")]
+    #[snafu(display("wgpu window failed: {source}"))]
+    Wgpu { source: plico_desktop::DesktopError },
     #[cfg(feature = "skia")]
     #[snafu(display("Skia window failed: {source}"))]
     Skia { source: plico_shell::Error },
@@ -60,6 +64,7 @@ fn run() -> Result<(), Error> {
             [
                 (cfg!(feature = "vello"), "vello"),
                 (cfg!(feature = "skia"), "skia"),
+                (cfg!(feature = "wgpu"), "wgpu"),
                 (cfg!(feature = "egui"), "egui"),
                 (cfg!(feature = "fltk"), "fltk"),
             ]
@@ -77,6 +82,23 @@ fn run() -> Result<(), Error> {
                 .renderer(plico_renderer::RenderBackend::Vello),
         )
         .context(VelloSnafu),
+        #[cfg(feature = "wgpu")]
+        "wgpu" => {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| "info".into()),
+                )
+                .try_init();
+            plico_desktop::run_source_with_options(
+                plico_desktop::Source::new(backend_settings::ImmediateSettings::default()),
+                plico_desktop::WindowOptions::new()
+                    .title("Plico settings — wgpu")
+                    .initial_inner_size(1100, 820)
+                    .renderer(plico_renderer::RenderBackend::Wgpu),
+            )
+            .context(WgpuSnafu)
+        }
         #[cfg(feature = "skia")]
         "skia" => {
             tracing_subscriber::fmt()

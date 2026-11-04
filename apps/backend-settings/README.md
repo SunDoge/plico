@@ -4,18 +4,20 @@
 cargo run -p backend-settings --features fltk
 cargo run -p backend-settings --features vello
 cargo run -p backend-settings --features skia
+cargo run -p backend-settings --features wgpu
+cargo run -p backend-settings --features egui
 ```
 
 One `src/main.rs` runs all backends. A single enabled backend starts directly;
-with multiple features, select one explicitly (default order: Vello, Skia, FLTK):
+with multiple features, select one explicitly (default order: Vello, Skia, wgpu, egui, FLTK):
 
 ```sh
 cargo run -p backend-settings --features vello,skia -- --backend skia
 ```
 
-All backends run the same Regions Reactive `Settings` view and state. The former
-implementation remains available as `ImmediateSettings` for differential tests
-and CPU comparisons:
+The main application runs the same `ImmediateSettings` view and state on all
+backends. The Regions variant remains available as `Settings` for differential
+tests and CPU comparisons:
 
 - Overview: responsive metric Grid, project list and animated Details split pane.
 - Activity: keyed, reversible scrolling rows with an aligned fixed header.
@@ -25,6 +27,17 @@ Try Collapse, Details, Run preview/Stop, navigation and Back/Forward. Animations
 use injected time and finite plico-motion tweens; the host sleeps after settling.
 Preferences and Activity state belong to the owner above the route outlet, so
 they remain intact when another route unmounts the active page.
+
+The experimental wgpu path uses system text and the shared desktop host without
+requiring the Skia or Vello GPU renderer. On Linux/X11 it was exercised in a real
+window with damage enabled: all three routes, SVG icons, the Details pane, profile
+editing/saving across navigation, advanced controls, theme switching and sidebar
+collapse, plus scrolled/reversed keyed rows, were checked visually. This is functional acceptance, not a frame-time
+or power measurement; Windows window output and real IME still need validation.
+
+```sh
+PLICO_WGPU_DAMAGE=1 cargo run --locked -p backend-settings --features wgpu
+```
 
 Complete routed-application CPU profiling (navigation, forms, list reorder,
 theme, idle and animation; no window or GPU):
