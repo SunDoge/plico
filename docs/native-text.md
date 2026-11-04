@@ -125,6 +125,24 @@ switching worked, and ASCII typing plus Ctrl+A selection was verified visually
 with damage enabled. Generated screenshots remain ignored local reports. This
 does not validate real IME, physical monitor transitions or Windows behavior.
 
+The same window was also run at forced X11 initial scales 1.25, 1.5 and 2.0 with
+damage enabled. Winit logs confirmed each actual scale. ASCII typing/selection
+and wheel scrolling were exercised at scale-adjusted physical input coordinates;
+initial and scrolled screenshots were inspected at native pixel resolution.
+No stretched bitmap text, CJK baseline displacement or stale scroll-clip pixels
+were observed in these samples. This is a visual acceptance result, not a
+frame-pacing, power or cross-monitor transition measurement. Reproduce a scale
+on Linux/X11 with:
+
+```sh
+WINIT_X11_SCALE_FACTOR=1.25 PLICO_WGPU_DAMAGE=1 cargo run --locked \
+  -p plico-desktop --no-default-features --features wgpu --example wgpu-text
+```
+
+Use 1.5 or 2 for the other runs. On Xvfb, wait for the window to become visible
+and explicitly focus it before synthesizing keyboard input; merely finding its
+title can precede mapping and give a false input failure.
+
 `plico-native/windows-text` exposes `plico_native::windows_text::{Context, Request,
 Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
