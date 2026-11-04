@@ -2765,6 +2765,7 @@ pub fn run_window_with_options(
     // PLICO_TRACE_FILE, stderr otherwise); the guard flushes on drop, which
     // is why it lives for the whole event loop.
     let _tracing = crate::telemetry::init_tracing();
+    let _telemetry_export = crate::telemetry::ExportOnDrop;
     let event_loop: EventLoop = EventLoop::new().context(crate::error::CreateEventLoopSnafu)?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
@@ -2812,6 +2813,8 @@ pub fn run_windows_with_factory_and_extensions(
     if windows.is_empty() {
         return Ok(RunOutcome::Exit);
     }
+    let _tracing = crate::telemetry::init_tracing();
+    let _telemetry_export = crate::telemetry::ExportOnDrop;
     let event_loop: EventLoop = EventLoop::new().context(crate::error::CreateEventLoopSnafu)?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
