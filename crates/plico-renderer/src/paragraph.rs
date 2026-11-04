@@ -113,6 +113,11 @@ pub trait NativeParagraph {
     fn metrics(&self) -> ParagraphMetrics;
     /// UTF-8 insertion boundary nearest a local point.
     fn hit_test(&self, x: f32, y: f32) -> usize;
+    /// Logical caret bounds [x0,y0,x1,y1] at a UTF-8 insertion boundary.
+    /// Providers without editing geometry may return None.
+    fn caret_rect(&self, _byte: usize) -> Option<[f32; 4]> {
+        None
+    }
     /// Selection rectangles for a UTF-8 byte range.
     fn selection_rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]>;
 }
@@ -125,6 +130,11 @@ pub struct ParagraphError {
 }
 /// Installed by a host; renderer-neutral crates do not depend on Skia.
 pub trait ParagraphEngine {
+    /// Opt into native single-line editing. Returned paragraphs must provide
+    /// caret geometry at every valid UTF-8 insertion boundary.
+    fn supports_editing(&self) -> bool {
+        false
+    }
     /// Stable diagnostic name.
     fn name(&self) -> &'static str;
     /// Shape, lay out and cache a complete declaration.
@@ -175,6 +185,17 @@ impl ParagraphLayout {
         match self {
             Self::Native(p) => p.hit_test(x, y),
             Self::Parley(p) => parley::Cursor::from_point(p, x, y).index(),
+        }
+    }
+    /// Caret bounds from the selected provider, in logical coordinates.
+    pub fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
+        match self {
+            Self::Native(p) => p.caret_rect(byte),
+            Self::Parley(p) => {
+                let r = parley::Cursor::from_byte_index(p, byte, parley::Affinity::Downstream)
+                    .geometry(p, 1.);
+                Some([r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
+            }
         }
     }
     /// Selection rectangles in paragraph coordinates.

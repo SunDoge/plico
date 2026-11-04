@@ -29,6 +29,11 @@ impl NativeParagraph for Paragraph {
     fn hit_test(&self, x: f32, y: f32) -> usize {
         self.layout.hit_test(x as f64, y as f64).unwrap_or(0)
     }
+    fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
+        self.layout
+            .caret_rect(byte)
+            .map(|[x, y, w, h]| [x as f32, y as f32, (x + w) as f32, (y + h) as f32])
+    }
     fn selection_rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]> {
         self.layout
             .selection_rects(range)
@@ -145,6 +150,9 @@ struct Engine {
     scale: f64,
 }
 impl ParagraphEngine for Engine {
+    fn supports_editing(&self) -> bool {
+        true
+    }
     fn name(&self) -> &'static str {
         "pango-wgpu"
     }

@@ -89,7 +89,7 @@ FLTK 共享工作台现包含 Router 前进/后退、响应式 Grid、固定表�
 
 ## Optional native text
 
-Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). Ordinary widget/editor integration, desktop font settings, CoreText and DirectWrite are not implemented.
+Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). The experimental wgpu host now uses native ordinary text and single-line editing geometry. Desktop font settings, CoreText and DirectWrite are not implemented.
 
 ## Widget input capabilities
 
@@ -136,5 +136,6 @@ Shared images use cached independent textures, nearest/bilinear premultiplied-al
 sampling and ordered batches; SVG uses a cached resvg fallback. It is not yet a
 full paint-scene backend: solid general paths now use cached tiny-skia coverage,
 and nested nonrectangular clip masks preserve native text drawing. Non-solid
-path brushes, isolated layers, Windows text and actual editor/IME bridging
-remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).
+path brushes, isolated layers and Windows text remain unfinished. Single-line
+editing uses Pango caret/selection geometry; actual input-method candidate-window
+sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).

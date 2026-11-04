@@ -352,6 +352,12 @@ impl TextContext {
     pub fn has_native_paragraphs(&self) -> bool {
         self.native.is_some()
     }
+    /// Whether the native provider also supplies caret geometry for editors.
+    pub fn has_native_editing(&self) -> bool {
+        self.native
+            .as_ref()
+            .is_some_and(|engine| engine.supports_editing())
+    }
     /// Lay out an ordinary text request with the selected host engine.
     pub fn native_paragraph(
         &mut self,

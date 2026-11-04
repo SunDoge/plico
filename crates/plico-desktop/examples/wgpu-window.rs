@@ -5,13 +5,19 @@ use plico::prelude::*;
 struct Counter {
     count: i32,
     reported: Option<i32>,
+    input: String,
+    reported_input: Option<String>,
 }
 impl plico::View for Counter {
     fn theme(&self) -> Theme {
         Theme::light()
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
-        content(cx, &mut self.count);
+        content(cx, &mut self.count, &mut self.input);
+        if self.reported_input.as_ref() != Some(&self.input) {
+            println!("input={:?}", self.input);
+            self.reported_input = Some(self.input.clone());
+        }
         if self.reported != Some(self.count) {
             println!("count={}", self.count);
             self.reported = Some(self.count);
@@ -20,7 +26,7 @@ impl plico::View for Counter {
 }
 #[component]
 #[rustfmt::skip]
-fn content(cx: &mut UiContext<'_>, count: &mut i32) {
+fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String) {
     column(cx).width_percent(100.).height_percent(100.).padding(32).gap(18).background(Color::Surface) + |cx| {
         text(cx, "Plico / wgpu").font_size(26).weight(600);
         text(cx, "Shared window host, layout and input dispatch").font_size(14).color(Color::Muted);
@@ -28,6 +34,7 @@ fn content(cx: &mut UiContext<'_>, count: &mut i32) {
             text(cx, "A normal Plico component").font_size(18).weight(600);
             text!(cx, "Count: {}", count).font_size(32);
             text(cx, "中文与日本語の文字 · café · 👩‍💻").font_size(14);
+            text_input_string(cx, "Native input", value).placeholder("Type here · 中文 · 日本語");
             row(cx).gap(10) + |cx| {
                 if button(cx).text("Increment").primary().clicked() {
                     *count += 1;
@@ -45,7 +52,7 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
         plico_desktop::WindowOptions::new()
             .title("Plico — wgpu shared host")
             .renderer(plico_desktop::RenderBackend::Wgpu)
-            .initial_inner_size(620, 410)
-            .min_inner_size(520, 370),
+            .initial_inner_size(620, 480)
+            .min_inner_size(520, 450),
     )
 }

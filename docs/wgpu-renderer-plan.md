@@ -56,7 +56,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    isolated opacity/layers and shared shader effects remain. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
-   text providers, and validate real text-input sessions.
+   text providers. Single-line native input, selection and IME event geometry
+   are wired; Xvfb keyboard editing is verified, actual input-method sessions remain.
 5. **Damage:** retain a color target, calculate changed/removed old+new bounds,
    expand for AA/filter reach, and repaint all contributors intersecting dirty
    regions in painter order. Keep a full-redraw reference and pixel-equivalence

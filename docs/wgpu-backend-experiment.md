@@ -389,3 +389,32 @@ Damaged replay and full replay must be pixel-identical. Against tiny-skia's
 integer source-over oracle, coverage alpha is checked within one channel level
 and RGB within two levels: the GPU performs floating-point compositing into an
 8-bit UNORM target, whereas the CPU oracle rounds integer color products.
+
+
+### Native single-line editing and window presentation recovery
+
+The shared single-line input used to generate Parley GlyphRun commands regardless
+of the selected paragraph provider. It now uses the optional
+`ParagraphEngine::supports_editing` contract and `NativeParagraph::caret_rect`,
+sharing native hit tests, selections, metrics and paragraph drawing. Providers
+that do not opt in retain the existing Parley path without building a redundant
+native layout. Clipping is a clip-only scope, not an unnecessary isolated layer.
+The Pango caret width is one physical pixel at the selected device scale.
+Password presentation is shaped only as bullets; raw credential text does not
+enter paragraph requests or the glyph cache.
+
+Tests exercise the retained host path at 1/1.25/2x: UTF-8 CJK/emoji/combining/RTL
+paste, selection/copy, IME preedit versus committed content and commit, physical
+caret width, full-versus-damage pixel equality, and zero Parley cache entries.
+The ordinary/password/clipboard compatibility test in plico-desktop also passes.
+The shared X11 demo now includes an ordinary text input. Real Xvfb keyboard input
+and selection deletion were verified with optional damage enabled. This is not
+verification of an IBus/Fcitx candidate popup or physical-monitor DPI changes.
+
+That real window test exposed stale presentation when a surface image was acquired
+and then dropped for an unchanged frame. The window now prepares a scene plan and
+skips unchanged frames *before* acquisition. Every failed acquisition invalidates
+advanced damage history, requiring a full subsequent frame. GPU target contents
+still live in the independent retained texture. Repeated keyboard edits displayed
+correctly after this change; the pure offscreen tests alone did not expose the
+swapchain behavior.

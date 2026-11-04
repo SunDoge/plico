@@ -882,3 +882,172 @@ fn disjoint_clip_masks_are_empty_and_pop_restores_the_parent() {
         [0, 0, 0, 0]
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() {
+    use plico_renderer::{
+        ImeEvent, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole, UiEvent,
+    };
+    #[derive(Default)]
+    struct Form {
+        value: String,
+    }
+    impl plico::View for Form {
+        fn theme(&self) -> Theme {
+            Theme::light()
+        }
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            text_input_string(cx, "Native input", &mut self.value);
+        }
+    }
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for scale in [1., 1.25, 2.] {
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale).unwrap();
+        let mut source =
+            Source::with_clock(NativeView(Form::default()), plico::VirtualClock::default());
+        let mut scene = Scene::new();
+        source.prepare_for_event(&mut text);
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .unwrap();
+        let size = [(320. * scale) as u32, (100. * scale) as u32];
+        renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        let id = source
+            .adapter
+            .semantics(&source.engine, 0)
+            .node_by_role(SemanticRole::TextInput, "Native input", None)
+            .unwrap()
+            .id;
+        assert!(source.handle_semantic_action(SemanticAction::Focus { target: id }));
+        let value = "你好🙂 e\u{301} العربية";
+        assert!(source.handle_event(UiEvent::Paste(value.into())).handled);
+        source.prepare_for_event(&mut text);
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .unwrap();
+        let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+        oracle
+            .configure_text(&mut TextContext::new(), scale)
+            .unwrap();
+        let expected = oracle.render_scene(&scene, size, [1.; 4], false).unwrap();
+        let actual = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        assert_eq!(actual, expected, "input damage left stale pixels");
+        assert_eq!(source.view.0.value, value);
+        assert!(scene.flattened().commands.iter().any(|c|matches!(c,PaintCommand::Paragraph { request,.. } if request.text.as_ref()==value)),"committed input not painted");
+        assert!(text.take_native_paragraph_error().is_none());
+        assert_eq!(text.cache_entries(), (0, 0), "input fell back to Parley");
+        assert!(
+            !scene
+                .flattened()
+                .commands
+                .iter()
+                .any(|c| matches!(c, PaintCommand::GlyphRun { .. }))
+        );
+        let ime = source.ime_state().unwrap();
+        assert_eq!(ime.surrounding_cursor, value.len());
+        assert!((ime.cursor_area[2] - ime.cursor_area[0] - 1. / scale).abs() < 0.001);
+        let size = [(320. * scale) as u32, (100. * scale) as u32];
+        renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        source.handle_event(UiEvent::Ime(ImeEvent::Preedit {
+            text: "にほん".into(),
+            cursor: None,
+        }));
+        source.prepare_for_event(&mut text);
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .unwrap();
+        assert_eq!(source.view.0.value, value, "preedit became committed text");
+        assert!(scene.flattened().commands.iter().any(
+            |c| matches!(c,PaintCommand::Paragraph {request,..} if request.text.ends_with("にほん"))
+        ));
+        renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        source.handle_event(UiEvent::Ime(ImeEvent::Commit("日本".into())));
+        source.prepare_for_event(&mut text);
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .unwrap();
+        assert_eq!(source.view.0.value, format!("{value}日本"));
+        let key = |value: &str| {
+            UiEvent::Key(KeyEvent {
+                phase: KeyPhase::Down,
+                key: value.into(),
+                code: value.into(),
+                key_without_modifiers: value.into(),
+                text: None,
+                text_with_all_modifiers: None,
+                location: KeyLocation::Standard,
+                modifiers: Modifiers::CONTROL,
+                repeat: false,
+                synthetic: false,
+            })
+        };
+        source.handle_event(key("a"));
+        source.prepare_for_event(&mut text);
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .unwrap();
+        renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        assert!(
+            matches!(source.handle_event(key("c")).clipboard,Some(plico_renderer::ClipboardRequest::Write(text)) if text==format!("{value}日本"))
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn native_password_input_shapes_only_masked_presentation() {
+    use plico_renderer::{SemanticAction, SemanticRole, UiEvent};
+    struct Form {
+        buffer: TextBuffer,
+    }
+    impl plico::View for Form {
+        fn theme(&self) -> Theme {
+            Theme::light()
+        }
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            text_input(cx, "Password", &self.buffer);
+        }
+    }
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut source = Source::with_clock(
+        NativeView(Form {
+            buffer: TextBuffer::secret(),
+        }),
+        plico::VirtualClock::default(),
+    );
+    let mut scene = Scene::new();
+    source.build_and_paint(&mut scene, &mut text, 320, 100, 1.);
+    let id = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::TextInput, "Password", None)
+        .unwrap()
+        .id;
+    source.handle_semantic_action(SemanticAction::Focus { target: id });
+    source.handle_event(UiEvent::Paste("private🙂value".into()));
+    source.build_and_paint(&mut scene, &mut text, 320, 100, 1.);
+    let flat = scene.flattened();
+    let paragraphs: Vec<_> = flat
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            PaintCommand::Paragraph { request, .. } => Some(request),
+            _ => None,
+        })
+        .collect();
+    assert!(!paragraphs.is_empty());
+    assert!(
+        paragraphs
+            .iter()
+            .all(|request| request.text.chars().all(|c| c == '•'))
+    );
+    assert_eq!(source.ime_state().unwrap().surrounding_text, "");
+    assert_eq!(text.cache_entries(), (0, 0));
+    renderer
+        .render_scene(&scene, [320, 100], [1.; 4], true)
+        .unwrap();
+}
