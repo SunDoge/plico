@@ -152,5 +152,7 @@ Geometric emboldening, stroke and non-solid glyph brushes remain unsupported. Si
 editing uses Pango caret/selection geometry. Native paragraphs support
 private application fonts and family aliases, and UTF-8
 range overrides for size, weight, italic, line height and RGBA color, including
-overlapping ranges with later-style precedence; actual input-method candidate-window
+overlapping ranges with later-style precedence. Non-ellipsized line limits preserve
+the original shaped prefix and constrain editing geometry; cross-paragraph ellipsis
+remains unsupported. Actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).

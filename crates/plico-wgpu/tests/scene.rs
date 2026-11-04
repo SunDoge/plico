@@ -122,9 +122,9 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
     let request = Arc::new(
         ParagraphRequest::from_paint(
             &Paint {
-                text: Some("unsupported".into()),
+                text: Some("unsupported\nparagraph ellipsis".into()),
                 text_max_lines: 1,
-                text_clip_lines: true,
+                text_clip_lines: false,
                 ..Default::default()
             },
             None,
@@ -1333,6 +1333,67 @@ fn application_font_registered_before_or_after_provider_survives_dpi_changes() {
             assert_eq!(restored, full, "trim broke a retained scene/font");
             assert!(renderer.text_stats().uploaded_bytes > uploads);
             assert!(partial.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
+            assert!(text.take_native_paragraph_error().is_none());
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn clipped_native_lines_keep_full_layout_pixels_and_damage_when_limit_changes() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    let paint = Paint {
+        text: Some("First paragraph with wrapping words 日本語.\n\nSecond paragraph with more content and 中文文字.\nThird paragraph.".into()),
+        font_size: 18., ..Paint::default()
+    };
+    let base = ParagraphRequest::from_paint(&paint, Some(130.)).unwrap();
+    for scale in [1., 1.25, 2.] {
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale).unwrap();
+        let size = [(240. * scale) as u32, (260. * scale) as u32];
+        let transform = Affine::scale(scale) * Affine::translate((8., 8.));
+        let mut complete = Scene::new();
+        complete.commands.push(PaintCommand::Paragraph {
+            request: Arc::new(base.clone()),
+            transform,
+        });
+        let complete_pixels = oracle
+            .render_scene(&complete, size, [0.; 4], false)
+            .unwrap();
+        for limit in [1, 2, 3, 1, 0, 2] {
+            let mut request = base.clone();
+            request.max_lines = limit;
+            request.ellipsis = false;
+            let paragraph = text.native_paragraph(Arc::new(request.clone())).unwrap();
+            let height = paragraph.metrics().height;
+            let mut scene = Scene::new();
+            scene.commands.push(PaintCommand::Paragraph {
+                request: Arc::new(request),
+                transform,
+            });
+            let expected = oracle.render_scene(&scene, size, [0.; 4], false).unwrap();
+            let actual = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
+            assert_eq!(
+                actual, expected,
+                "line-limit damage: scale={scale}, limit={limit}"
+            );
+            let stride = size[0] as usize * 4;
+            let prefix_rows =
+                (((8. + f64::from(height)) * scale).floor() as usize).min(size[1] as usize);
+            assert_eq!(
+                &actual[..prefix_rows * stride],
+                &complete_pixels[..prefix_rows * stride],
+                "visible lines were reshaped"
+            );
+            if limit > 0 {
+                let hidden_rows =
+                    (((8. + f64::from(height)) * scale).ceil() as usize + 4).min(size[1] as usize);
+                assert!(
+                    actual[hidden_rows * stride..].iter().all(|v| *v == 0),
+                    "hidden lines painted"
+                );
+            }
             assert!(text.take_native_paragraph_error().is_none());
         }
     }

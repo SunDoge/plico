@@ -38,6 +38,7 @@ pub struct Entry {
 /// Positions are physical pixels; metrics are logical pixels from the same layout.
 #[derive(Clone, Debug)]
 pub struct GlyphLayout {
+    clip: Option<LineClip>,
     native: pango::Layout,
     source: String,
     /// Font-resolved glyph positions.
@@ -52,6 +53,12 @@ pub struct GlyphLayout {
     pub scale: f64,
     // Drop after the native layout and its glyphs, including empty paragraphs.
     _fonts: Rc<RefCell<super::fonts::Fonts>>,
+}
+#[derive(Clone, Debug)]
+struct LineClip {
+    end: usize,
+    lines: usize,
+    caret: [f64; 4],
 }
 /// Fixed-budget atlas. The caller may recycle storage at a frame boundary.
 /// Four horizontal raster phases; vertical raster origins are pixel-aligned.
@@ -259,6 +266,14 @@ impl GlyphLayout {
         if !self.source.is_char_boundary(byte) {
             return None;
         }
+        if let Some(clip) = &self.clip {
+            if byte > clip.end {
+                return None;
+            }
+            if byte == clip.end {
+                return Some(clip.caret);
+            }
+        }
         let (strong, _) = self.native.cursor_pos(byte as i32);
         Some([
             strong.x() as f64 / UNIT / self.scale,
@@ -278,13 +293,12 @@ impl GlyphLayout {
         );
         let index = index.max(0) as usize;
         let rest = self.source.get(index..)?;
-        Some(
-            index
-                + rest
-                    .char_indices()
-                    .nth(trailing.max(0) as usize)
-                    .map_or(rest.len(), |(i, _)| i),
-        )
+        let byte = index
+            + rest
+                .char_indices()
+                .nth(trailing.max(0) as usize)
+                .map_or(rest.len(), |(i, _)| i);
+        Some(self.clip.as_ref().map_or(byte, |clip| byte.min(clip.end)))
     }
     /// Native bidi-aware selection fragments in logical coordinates. Input uses
     /// UTF-8 bytes; platform adapters convert UTF-16 only at their boundary.
@@ -300,6 +314,9 @@ impl GlyphLayout {
         loop {
             if let Some(line) = iter.line_readonly() {
                 let start = line.start_index() as usize;
+                if self.clip.as_ref().is_some_and(|clip| start >= clip.end) {
+                    break;
+                }
                 let end = start + line.length() as usize;
                 if range.start < end && range.end > start {
                     let (_, bounds) = iter.line_extents();
@@ -389,7 +406,7 @@ impl LayoutContext {
     pub fn layout(&self, request: &super::TextRequest<'_>) -> Result<GlyphLayout> {
         self.layout_styled(request, LayoutOptions::default())
     }
-    /// Shape with native alignment and optional single-paragraph line truncation.
+    /// Shape with native alignment, ellipsis and visible-line clipping.
     pub fn layout_styled(
         &self,
         request: &super::TextRequest<'_>,
@@ -549,9 +566,37 @@ impl LayoutContext {
         if let Some(width) = request.width {
             layout.set_width((width * request.scale * UNIT).round() as i32);
         }
+        let mut clip = if !options.ellipsis && options.max_lines > 0 {
+            i32::try_from(options.max_lines)
+                .ok()
+                .and_then(|n| layout.line_readonly(n))
+                .map(|line| LineClip {
+                    end: line.start_index() as usize,
+                    lines: options.max_lines,
+                    caret: [0.; 4],
+                })
+        } else {
+            None
+        };
+        let mut clipped_size = [0_f64; 2];
         let mut iter = layout.iter();
         let mut glyphs = Vec::new();
         loop {
+            if let Some(clip) = &mut clip {
+                let line = iter.line_readonly().unwrap();
+                if line.start_index() as usize >= clip.end {
+                    break;
+                }
+                let (_, bounds) = iter.line_extents();
+                clipped_size[0] = clipped_size[0].max(bounds.width() as f64 / UNIT / request.scale);
+                clipped_size[1] = (bounds.y() + bounds.height()) as f64 / UNIT / request.scale;
+                clip.caret = [
+                    line.index_to_x(clip.end as i32, false) as f64 / UNIT / request.scale,
+                    bounds.y() as f64 / UNIT / request.scale,
+                    1. / request.scale,
+                    bounds.height() as f64 / UNIT / request.scale,
+                ];
+            }
             if let Some(run) = iter.run_readonly() {
                 let (_, logical) = iter.run_extents();
                 let baseline = iter.baseline() as f64 / UNIT;
@@ -587,15 +632,21 @@ impl LayoutContext {
             }
         }
         let (width, height) = layout.size();
+        let logical_size = if clip.is_some() {
+            clipped_size
+        } else {
+            [
+                width as f64 / UNIT / request.scale,
+                height as f64 / UNIT / request.scale,
+            ]
+        };
         Ok(GlyphLayout {
+            clip,
             _fonts: self.fonts.clone(),
             native: layout.clone(),
             source: request.text.into(),
             glyphs,
-            logical_size: [
-                width as f64 / UNIT / request.scale,
-                height as f64 / UNIT / request.scale,
-            ],
+            logical_size,
             baseline: layout.baseline() as f64 / UNIT / request.scale,
             missing_glyphs: layout.unknown_glyphs_count() as u32,
             scale: request.scale,
@@ -616,7 +667,12 @@ impl GlyphLayout {
                 r.height() as f64 / UNIT / self.scale,
                 iter.baseline() as f64 / UNIT / self.scale,
             ]);
-            if !iter.next_line() {
+            if self
+                .clip
+                .as_ref()
+                .is_some_and(|clip| lines.len() >= clip.lines)
+                || !iter.next_line()
+            {
                 break;
             }
         }
@@ -658,7 +714,7 @@ pub struct LayoutOptions {
     pub alignment: Alignment,
     /// Ellipsize the final visible line; currently one native paragraph.
     pub ellipsis: bool,
-    /// Maximum visible lines when ellipsis is enabled; zero means one line.
+    /// Maximum visible lines; zero is unlimited without ellipsis and one with it.
     pub max_lines: usize,
     /// Extra logical pixels between characters.
     pub letter_spacing: f64,
@@ -817,5 +873,87 @@ mod font_tests {
         );
         let mut invalid = LayoutContext::new().unwrap();
         assert!(invalid.register_font(&[0, 1, 2, 3], None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod line_clip_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires system fonts"]
+    fn line_clipping_preserves_shaped_prefix_and_bounds_editing_geometry() {
+        let context = LayoutContext::new().unwrap();
+        for content in [
+            "\nsecond line after an empty first line 日本語",
+            "alpha beta gamma delta epsilon zeta eta theta",
+            "first\n\nthird 日本語\nfourth",
+            "مرحبا بالعالم هذا نص طويل لاختبار الأسطر",
+        ] {
+            for scale in [1., 1.25, 2.] {
+                let mut request = crate::text::TextRequest::new(content);
+                request.width = Some(110.);
+                request.size = 16.;
+                request.scale = scale;
+                let full = context.layout(&request).unwrap();
+                let lines = full.line_metrics();
+                assert!(lines.len() > 1);
+                for limit in [1, 2, 99] {
+                    let clipped = context
+                        .layout_styled(
+                            &request,
+                            LayoutOptions {
+                                max_lines: limit,
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap();
+                    assert_eq!(clipped.line_metrics(), lines[..limit.min(lines.len())]);
+                    for (a, b) in clipped.glyphs.iter().zip(&full.glyphs) {
+                        assert_eq!((a.id, a.x, a.y, &a.font), (b.id, b.x, b.y, &b.font));
+                    }
+                    if let Some(clip) = &clipped.clip {
+                        let last = clipped.line_metrics().last().copied().unwrap();
+                        assert_eq!(clipped.logical_size[1], last[1] + last[3]);
+                        let caret = clipped.caret_rect(clip.end).unwrap();
+                        assert!(caret[1] < clipped.logical_size[1]);
+                        assert_eq!(clipped.hit_test(0., 1e6), Some(clip.end));
+                        assert!(
+                            clipped
+                                .selection_rects(0..content.len())
+                                .unwrap()
+                                .iter()
+                                .all(|r| r[1] + r[3] <= clipped.logical_size[1] + 0.001)
+                        );
+                        for offset in content
+                            .char_indices()
+                            .map(|(i, _)| i)
+                            .filter(|i| *i > clip.end)
+                        {
+                            assert!(clipped.caret_rect(offset).is_none());
+                        }
+                        let expected_count = {
+                            let mut iter = full.native.iter();
+                            let mut count = 0;
+                            loop {
+                                if iter.line_readonly().unwrap().start_index() as usize >= clip.end
+                                {
+                                    break;
+                                }
+                                if let Some(run) = iter.run_readonly() {
+                                    count += run.glyph_string().glyph_info().len();
+                                }
+                                if !iter.next_run() {
+                                    break;
+                                }
+                            }
+                            count
+                        };
+                        assert_eq!(clipped.glyphs.len(), expected_count);
+                    } else {
+                        assert_eq!(clipped.glyphs.len(), full.glyphs.len());
+                    }
+                }
+            }
+        }
     }
 }

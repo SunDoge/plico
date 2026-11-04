@@ -1159,3 +1159,27 @@ pixels, and checks warm-frame cache stability. A rebuilt real window was inspect
 at 125%: sidebar labels/logo and controls no longer wrap unexpectedly. This is
 application-zoom/X11 verification, not a physical cross-monitor DPI or real IME
 session. Generated screenshots remain local under reports/.
+
+### Non-ellipsized visible-line limits
+
+Native paragraphs now accept `max_lines` without ellipsis, including hard
+paragraph breaks and empty lines. Pango's native height control is not used for
+this mode: its documented behavior requires ellipsization and negative heights
+limit lines per paragraph. Instead the provider retains the complete native
+layout, emits only its first N lines' glyphs, and reports visible line metrics.
+It does not truncate/re-shape a UTF-8 prefix, which could alter bidi, ligatures,
+justification and wrapping at the boundary. A zero limit remains unlimited.
+
+Hidden lines are excluded from painting, selection rectangles and caret queries;
+hit tests below the visible content stop at its source boundary, whose caret
+anchors to the final visible line. Original source UTF-8/UTF-16 conversions remain
+valid. Intrinsic measurement and native shaping still cover the original text:
+this is display clipping, not a substitute for list/text virtualization or a
+claim of sublinear shaping cost. Cross-paragraph ellipsis remains rejected.
+
+Native tests cover wrapping English, Japanese/Chinese, Arabic, hard breaks and
+empty first/interior lines at 1/1.25/2 scale, comparing exact glyph positions and
+visible metrics with the complete layout. GPU tests change line limits across
+frames, compare full/damaged rendering, compare visible pixels with complete
+layout output, and assert hidden lines do not paint. The old unsupported-paragraph
+fixture now specifically tests cross-paragraph ellipsis.

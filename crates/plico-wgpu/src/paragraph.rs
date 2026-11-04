@@ -107,7 +107,7 @@ impl Cache {
             return Ok(p.clone());
         }
         self.stats.misses += 1;
-        if request.max_lines != 0 && (!request.ellipsis || request.text.contains('\n')) {
+        if request.max_lines != 0 && request.ellipsis && request.text.contains('\n') {
             return Err(rejected(format!(
                 "unsupported paragraph: runs={} spacing={} line_height={:?} max_lines={} ellipsis={} align={:?}",
                 request.runs.len(),
