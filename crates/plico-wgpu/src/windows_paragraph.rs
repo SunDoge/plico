@@ -221,13 +221,9 @@ impl Cache {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(rejected("invalid DirectWrite device scale"));
         }
-        if !request.runs.is_empty()
-            || request.letter_spacing != 0.
-            || request.max_lines != 0
-            || request.ellipsis
-        {
+        if !request.runs.is_empty() || request.max_lines != 0 || request.ellipsis {
             return Err(rejected(
-                "DirectWrite rich spans, spacing and truncation are not implemented",
+                "DirectWrite rich spans and truncation are not implemented",
             ));
         }
         if !request.font_weight.is_finite() || !(1. ..=1000.).contains(&request.font_weight) {
@@ -262,6 +258,7 @@ impl Cache {
         native.size = request.font_size;
         native.weight = request.font_weight as u16;
         native.italic = request.italic;
+        native.letter_spacing = request.letter_spacing;
         native.rtl = plico_native::windows_text::paragraph_is_rtl(&request.text);
         native.line_height = request.line_height.map(|(value, relative)| {
             if relative {
@@ -533,6 +530,20 @@ mod tests {
         assert_eq!(relative.metrics().baselines, absolute.metrics().baselines);
         assert_eq!(relative.metrics().first_line_height, 32.);
         assert_eq!(relative.caret_rect(6), absolute.caret_rect(6));
+    }
+    #[test]
+    fn character_spacing_is_forwarded_to_shared_geometry_and_rasterization() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "MMMM".into();
+        let natural = cache.layout(Arc::new(declaration.clone()), 1.).unwrap();
+        declaration.letter_spacing = 3.;
+        let declaration = Arc::new(declaration);
+        let spaced = cache.layout(declaration.clone(), 1.).unwrap();
+        assert!(spaced.metrics().width > natural.metrics().width);
+        assert!(!Rc::ptr_eq(&natural, &spaced));
+        assert!(spaced.caret_rect(2).unwrap()[0] > natural.caret_rect(2).unwrap()[0]);
+        assert!(!cache.raster(declaration, 1., 0.).unwrap().is_empty());
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {

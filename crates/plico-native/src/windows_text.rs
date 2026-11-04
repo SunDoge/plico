@@ -9,7 +9,7 @@ use snafu::{ResultExt, Snafu};
 use std::{marker::PhantomData, ops::Range, rc::Rc};
 use windows::{
     Win32::{Globalization::GetUserDefaultLocaleName, Graphics::DirectWrite::*},
-    core::{BOOL, HSTRING},
+    core::{BOOL, HSTRING, Interface},
 };
 
 /// DirectWrite/native input failures remain observable to the host.
@@ -75,6 +75,9 @@ pub struct Request<'a> {
     /// Uniform logical line-box height. Extra leading is split around the
     /// first natural line's baseline; glyph outlines are never scaled.
     pub line_height: Option<f32>,
+    /// Additional logical spacing after each native character in reading order.
+    /// Negative values tighten spacing; native advances are clamped at zero.
+    pub letter_spacing: f32,
 }
 impl<'a> Request<'a> {
     /// Default Segoe UI paragraph at 14 DIPs.
@@ -90,6 +93,7 @@ impl<'a> Request<'a> {
             rtl: false,
             alignment: Alignment::Start,
             line_height: None,
+            letter_spacing: 0.,
         }
     }
 }
@@ -209,6 +213,8 @@ impl Context {
             || request.size <= 0.
             || request.size > 4096.
             || !(1..=1000).contains(&request.weight)
+            || !request.letter_spacing.is_finite()
+            || request.letter_spacing.abs() > 4096.
             || request
                 .line_height
                 .is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e7)
@@ -253,6 +259,23 @@ impl Context {
                 .CreateTextLayout(&utf16, &format, 16_777_216., 16_777_216.)
                 .context(NativeSnafu)?
         };
+        if request.letter_spacing != 0. && !utf16.is_empty() {
+            let spaced: IDWriteTextLayout1 = layout.cast().context(NativeSnafu)?;
+            // SAFETY: the full UTF-16 range is bounded by the validated source;
+            // native layout applies spacing before intrinsic measurement.
+            unsafe {
+                spaced.SetCharacterSpacing(
+                    0.,
+                    request.letter_spacing,
+                    0.,
+                    DWRITE_TEXT_RANGE {
+                        startPosition: 0,
+                        length: utf16.len() as u32,
+                    },
+                )
+            }
+            .context(NativeSnafu)?;
+        }
         let mut native = DWRITE_TEXT_METRICS::default();
         let max_content_width;
         let min_content_width;
@@ -488,6 +511,33 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn character_spacing_changes_intrinsics_and_caret_advances_together() {
+        let context = Context::new().unwrap();
+        let mut request = Request::new("MMMM");
+        let natural = context.layout(&request).unwrap();
+        let natural_caret = natural.caret_rect(2, 1.).unwrap()[0];
+        request.letter_spacing = 3.;
+        let spaced = context.layout(&request).unwrap();
+        assert!(spaced.metrics().max_content_width > natural.metrics().max_content_width);
+        assert!((spaced.caret_rect(2, 1.).unwrap()[0] - natural_caret - 6.).abs() < 0.01);
+        let intrinsic = spaced.metrics().max_content_width;
+        request.width = Some(20.);
+        let wrapped = context.layout(&request).unwrap();
+        assert!(wrapped.lines().len() > 1);
+        assert_eq!(wrapped.metrics().max_content_width, intrinsic);
+        request.width = None;
+        request.letter_spacing = -1.;
+        let tight = context.layout(&request).unwrap();
+        assert!(tight.metrics().max_content_width < natural.metrics().max_content_width);
+        for invalid in [f32::NAN, f32::INFINITY, 4097., -4097.] {
+            request.letter_spacing = invalid;
+            assert!(matches!(
+                context.layout(&request),
+                Err(Error::InvalidRequest)
+            ));
+        }
+    }
     #[test]
     fn overhang_estimate_conservatively_contains_native_run_masks() {
         let context = Context::new().unwrap();

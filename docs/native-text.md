@@ -171,7 +171,15 @@ sets native uniform spacing, preserving glyph sizes. All native caret/selection
 and raster geometry use that layout; tests cover two-line baseline spacing,
 relative/absolute height equivalence and invalid inputs. Per-span line height
 is not implemented. These Windows tests have only been cross-compiled here.
-Rich spans, letter spacing, truncation and application fonts
+Uniform character spacing uses
+[SetCharacterSpacing](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwritetextlayout1-setcharacterspacing)
+before intrinsic measurement: zero leading spacing, authored trailing spacing
+in reading order, and zero minimum advance. Finite values within ±4096 DIPs are
+accepted, including negative spacing. This is DirectWrite's native character
+spacing behavior, not a promise of pixel-identical spacing with Pango or Skia.
+Tests cover changed intrinsic widths, caret advances, wrapping and invalid input;
+they have only been cross-compiled here.
+Rich spans, truncation and application fonts
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers
