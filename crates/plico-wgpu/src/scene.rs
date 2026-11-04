@@ -401,23 +401,37 @@ impl Renderer {
                 PaintCommand::Fill {
                     shape,
                     transform,
-                    brush,
+                    brush: paint,
+                    brush_transform,
                     ..
                 } => {
                     geometry(shape, index).is_err()
-                        || (!matches!(brush, Brush::Image(_))
+                        || (!matches!(paint, Brush::Image(_))
                             && uniform(*transform, index).is_err())
+                        || (matches!(paint, Brush::Gradient(_))
+                            && (brush_transform.is_some_and(|t| t != Affine::IDENTITY)
+                                || geometry(shape, index).is_ok_and(|(rect, _)| {
+                                    brush(
+                                        &mut Quad::new([0., 0., 1., 1.], [0.; 4]),
+                                        paint,
+                                        rect,
+                                        index,
+                                    )
+                                    .is_err()
+                                })))
                 }
                 PaintCommand::Stroke {
                     shape,
                     transform,
                     style,
+                    brush,
                     ..
                 } => {
                     geometry(shape, index).is_err()
                         || uniform(*transform, index).is_err()
                         || !style.dash_pattern.is_empty()
                         || style.join == kurbo::Join::Bevel
+                        || matches!(brush, Brush::Gradient(_))
                 }
                 _ => false,
             };

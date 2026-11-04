@@ -1065,3 +1065,23 @@ live caret geometry after eviction. The application-font GPU test verifies
 post-trim pixel equivalence, preserved font registration, explicit atlas byte
 reduction and subsequent glyph uploads across DPI changes. These checks prove
 resource lifecycle behavior, not a measured process-RSS reduction.
+
+### Transformed linear brushes on primitive geometry
+
+Linear sRGB gradients now accept independent affine brush transforms in the
+cached path fallback. Pixel centers are mapped by the inverse of
+`shape_transform * brush_transform`; shape coverage remains independent of the
+brush. Nonfinite/singular brush transforms fail explicitly. Brush transforms
+participate in cache identity along with the existing full-command equality check.
+
+Primitive rectangles/rounded rectangles now route multi-stop or repeated/reflected
+linear gradients through this fallback rather than rejecting them. Gradient
+strokes also use it. The existing two-endpoint, pad-extended untransformed quad
+fast path is preserved. This extends shared-command coverage without changing
+application APIs or claiming GPU-native gradient evaluation for the fallback.
+
+A GPU test checks every interior pixel of a rotated/scaled/translated multi-stop
+brush against independently computed source coordinates, then verifies fractional
+movement/removal damage against full redraw. Another checks primitive/path parity
+for rounded fills and strokes with reflected gradients. Nonlinear gradients and
+non-sRGB interpolation remain unsupported.

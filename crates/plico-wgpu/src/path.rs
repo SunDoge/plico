@@ -65,8 +65,16 @@ impl PathCache {
             Brush::Solid(c) => *c,
             _ => peniko::Color::WHITE,
         };
-        if brush_transform.is_some_and(|t| t != Affine::IDENTITY) {
+        let brush_matrix = brush_transform.unwrap_or(Affine::IDENTITY);
+        if brush_matrix != Affine::IDENTITY && gradient.is_none() {
             return Err(unsupported("transformed general path brush"));
+        }
+        if gradient.is_some()
+            && (!brush_matrix.as_coeffs().iter().all(|v| v.is_finite())
+                || !brush_matrix.determinant().is_finite()
+                || brush_matrix.determinant().abs() < 1e-12)
+        {
+            return Err(invalid("nonfinite or singular gradient brush transform"));
         }
         let [a, b, c, d, e, f] = transform.as_coeffs();
         if ![a, b, c, d, e, f].iter().all(|v| v.is_finite()) || (a * d - b * c).abs() < 1e-12 {
@@ -146,6 +154,9 @@ impl PathCache {
             v.to_bits().hash(&mut hash);
         }
         if let Some(g) = &gradient {
+            for v in brush_matrix.as_coeffs() {
+                v.to_bits().hash(&mut hash);
+            }
             for v in [g.start.x, g.start.y, g.direction.x, g.direction.y] {
                 v.to_bits().hash(&mut hash);
             }
@@ -242,7 +253,10 @@ impl PathCache {
             pixmap.fill_path(&path, &paint, rule, transform, None);
         }
         if let Some(gradient) = &gradient {
-            let inverse = local.inverse();
+            let inverse = (local * brush_matrix).inverse();
+            if !inverse.as_coeffs().iter().all(|v| v.is_finite()) {
+                return Err(invalid("gradient brush inverse exceeds precision limit"));
+            }
             for (i, pixel) in pixmap
                 .data_mut()
                 .as_chunks_mut::<4>()
