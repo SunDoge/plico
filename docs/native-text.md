@@ -172,13 +172,23 @@ and raster geometry use that layout; tests cover two-line baseline spacing,
 relative/absolute height equivalence and invalid inputs. Per-span line height
 is not implemented. These Windows tests have only been cross-compiled here.
 Rich spans, letter spacing, truncation and application fonts
-are explicitly rejected. Actual color glyph layers remain unsupported by
-rasterization. A color-capable face alone no longer rejects a monochrome run:
+are explicitly rejected. DirectWrite outline color layers are now enumerated and
+rasterized in native painter order. Each raw mask retains an optional straight
+palette RGBA; foreground layers use the authored text color, while palette layers
+retain their own RGB and multiply palette alpha by authored opacity. Layer runs
+are copied before advancing the native enumerator, under the existing run/glyph/
+byte limits. Their source range conservatively identifies the enclosing original
+run, since native layer descriptions may be absent. Bitmap/SVG color formats and
+newer paint graphs are not implemented by this outline-layer interface; this is
+not general color-font parity.
+
+A color-capable face alone does not reject a monochrome run:
 the service uses
 [TranslateColorGlyphRun](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_2/nf-dwrite_2-idwritefactory2-translatecolorglyphrun)
 and permits grayscale fallback only for its documented `DWRITE_E_NOCOLOR`
-result. Other native errors propagate. The Segoe UI Emoji numeric/color-glyph
-fixture is Windows-only and has only been cross-compiled here; it explicitly
+result. Other native errors propagate. The Segoe UI Emoji numeric/color-layer
+fixture and palette/opacity tests are Windows-only and have only been
+cross-compiled here; the installed-font fixture explicitly
 skips on systems without that optional family.
 The bridge infers the first paragraph's base direction using unicode-bidi's
 Unicode P2/P3 implementation, including isolate handling and an LTR default for

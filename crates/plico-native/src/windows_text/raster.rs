@@ -21,6 +21,8 @@ pub struct GlyphMask {
     pub size: [u32; 2],
     /// Raw grayscale coverage, tightly packed; native gamma is not applied.
     pub coverage: Vec<u8>,
+    /// Straight palette RGBA for a color layer; None uses the authored foreground.
+    pub palette: Option<[f32; 4]>,
 }
 /// Corrected premultiplied sRGB RGBA8 for one run; no native resources retained.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,9 +55,10 @@ impl Rasterized {
             self.gamma,
             self.grayscale_contrast,
         )
-        .context(super::CorrectionSnafu)?
-        .prepare(foreground, thin_font)
         .context(super::CorrectionSnafu)?;
+        let foreground_correction = correction
+            .prepare(foreground, thin_font)
+            .context(super::CorrectionSnafu)?;
         if self.masks.len() > 4096 {
             return Err(Error::InvalidRequest);
         }
@@ -67,6 +70,9 @@ impl Rasterized {
             if mask.size.iter().any(|v| *v > 16384)
                 || pixels != mask.coverage.len()
                 || mask.utf16_range.start > mask.utf16_range.end
+                || mask
+                    .palette
+                    .is_some_and(|c| !c.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v)))
             {
                 return Err(Error::InvalidRequest);
             }
@@ -83,11 +89,19 @@ impl Rasterized {
             if mask.coverage.is_empty() {
                 continue;
             }
+            let prepared = if let Some(mut color) = mask.palette {
+                color[3] *= foreground[3];
+                correction
+                    .prepare(color, false)
+                    .context(super::CorrectionSnafu)?
+            } else {
+                foreground_correction
+            };
             let mut rgba = Vec::new();
             rgba.try_reserve_exact(mask.coverage.len() * 4)
                 .map_err(|_| Error::InvalidRequest)?;
             for coverage in &mask.coverage {
-                rgba.extend_from_slice(&correction.blend_u8(*coverage));
+                rgba.extend_from_slice(&prepared.blend_u8(*coverage));
             }
             result.push(ColorMask {
                 utf16_range: mask.utf16_range.clone(),
@@ -192,7 +206,7 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
         };
         // A color-capable face can also contain ordinary monochrome glyphs.
         // Only the documented NOCOLOR result permits the original run to use
-        // this grayscale path; real color layers remain explicitly unsupported.
+        // this grayscale path. Otherwise preserve the enumerated layer order.
         // SAFETY: native run arrays and description remain live for this call.
         if unsafe { face2.IsColorFont() }.as_bool() {
             match unsafe {
@@ -206,11 +220,107 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
                     0,
                 )
             } {
-                Ok(_) => return Err(native_error(E_NOTIMPL)),
+                Ok(layers) => {
+                    let mut count = 0;
+                    // SAFETY: the enumerator owns each layer until MoveNext;
+                    // capture_run copies coverage before advancing it.
+                    while unsafe { layers.MoveNext() }?.as_bool() {
+                        count += 1;
+                        if count > 4096 {
+                            return Err(native_error(E_INVALIDARG));
+                        }
+                        let pointer = unsafe { layers.GetCurrentRun() }?;
+                        let layer =
+                            unsafe { pointer.as_ref() }.ok_or_else(|| native_error(E_POINTER))?;
+                        let c = layer.runColor;
+                        let palette =
+                            if layer.paletteIndex == u16::MAX || [c.r, c.g, c.b, c.a] == [0.; 4] {
+                                None
+                            } else {
+                                Some([c.r, c.g, c.b, c.a])
+                            };
+                        self.capture_run(
+                            &layer.glyphRun,
+                            [layer.baselineOriginX, layer.baselineOriginY],
+                            measuring,
+                            description.textPosition..end,
+                            palette,
+                        )?;
+                    }
+                    return Ok(());
+                }
                 Err(error) if error.code() == DWRITE_E_NOCOLOR => {}
                 Err(error) => return Err(error),
             }
         }
+        self.capture_run(run, [x, y], measuring, description.textPosition..end, None)
+    }
+
+    fn DrawUnderline(
+        &self,
+        _context: *const c_void,
+        _x: f32,
+        _y: f32,
+        _underline: *const DWRITE_UNDERLINE,
+        _effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        Err(native_error(E_NOTIMPL))
+    }
+    fn DrawStrikethrough(
+        &self,
+        _context: *const c_void,
+        _x: f32,
+        _y: f32,
+        _strike: *const DWRITE_STRIKETHROUGH,
+        _effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        Err(native_error(E_NOTIMPL))
+    }
+    fn DrawInlineObject(
+        &self,
+        _context: *const c_void,
+        _x: f32,
+        _y: f32,
+        _object: Ref<IDWriteInlineObject>,
+        _sideways: BOOL,
+        _rtl: BOOL,
+        _effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        Err(native_error(E_NOTIMPL))
+    }
+}
+impl Collector {
+    fn capture_run(
+        &self,
+        run: &DWRITE_GLYPH_RUN,
+        origin: [f32; 2],
+        measuring: DWRITE_MEASURING_MODE,
+        source_range: Range<u32>,
+        palette: Option<[f32; 4]>,
+    ) -> windows::core::Result<()> {
+        let [x, y] = origin;
+        if run.glyphCount == 0 {
+            return Ok(());
+        }
+        if run.glyphCount > 100_000
+            || run.glyphIndices.is_null()
+            || !run.fontEmSize.is_finite()
+            || run.fontEmSize <= 0.
+            || !x.is_finite()
+            || !y.is_finite()
+        {
+            return Err(native_error(E_INVALIDARG));
+        }
+        let face = run
+            .fontFace
+            .as_ref()
+            .ok_or_else(|| native_error(E_INVALIDARG))?;
+        let face2: IDWriteFontFace2 = face.cast()?;
+        let transform = DWRITE_MATRIX {
+            m11: self.scale,
+            m22: self.scale,
+            ..Default::default()
+        };
         let mut rendering = DWRITE_RENDERING_MODE_DEFAULT;
         let mut grid = DWRITE_GRID_FIT_MODE_DEFAULT;
         // SAFETY: typed live font/parameter interfaces and writable enum outputs.
@@ -282,51 +392,22 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
         output.bytes += bytes;
         output.glyphs += run.glyphCount as usize;
         output.masks.push(GlyphMask {
-            utf16_range: description.textPosition..end,
+            utf16_range: source_range,
             origin: [bounds.left, bounds.top],
             size: [width as u32, height as u32],
             coverage,
+            palette,
         });
         Ok(())
     }
-    fn DrawUnderline(
-        &self,
-        _context: *const c_void,
-        _x: f32,
-        _y: f32,
-        _underline: *const DWRITE_UNDERLINE,
-        _effect: Ref<IUnknown>,
-    ) -> windows::core::Result<()> {
-        Err(native_error(E_NOTIMPL))
-    }
-    fn DrawStrikethrough(
-        &self,
-        _context: *const c_void,
-        _x: f32,
-        _y: f32,
-        _strike: *const DWRITE_STRIKETHROUGH,
-        _effect: Ref<IUnknown>,
-    ) -> windows::core::Result<()> {
-        Err(native_error(E_NOTIMPL))
-    }
-    fn DrawInlineObject(
-        &self,
-        _context: *const c_void,
-        _x: f32,
-        _y: f32,
-        _object: Ref<IDWriteInlineObject>,
-        _sideways: BOOL,
-        _rtl: BOOL,
-        _effect: Ref<IUnknown>,
-    ) -> windows::core::Result<()> {
-        Err(native_error(E_NOTIMPL))
-    }
 }
+
 impl Paragraph {
     /// Rasterize this exact native layout into ordered raw grayscale masks.
     /// Scale is physical pixels per DIP; phase is a [0,1) physical-pixel offset.
-    /// Actual color glyph layers, decorations and inline objects return Unsupported.
-    /// Monochrome runs from color-capable faces can use the grayscale path.
+    /// DirectWrite outline color layers preserve their palette and painter order.
+    /// Decorations and inline objects return Unsupported; bitmap/SVG color glyph
+    /// formats are not implemented by this outline-layer interface.
     /// No partial mask list is returned on native failure. Coverage correction and
     /// foreground compositing remain the consumer's responsibility.
     pub fn rasterize(&self, scale: f32, phase: [f32; 2]) -> Result<Rasterized> {
@@ -399,6 +480,49 @@ mod tests {
     use super::*;
     use crate::windows_text::{Context, Request};
     #[test]
+    fn palette_layers_preserve_color_order_and_apply_authored_opacity() {
+        let mut raster = Rasterized {
+            gamma: 1.,
+            grayscale_contrast: 0.,
+            masks: vec![
+                GlyphMask {
+                    utf16_range: 0..1,
+                    origin: [3, 4],
+                    size: [1, 1],
+                    coverage: vec![255],
+                    palette: Some([1., 0., 0., 0.5]),
+                },
+                GlyphMask {
+                    utf16_range: 0..1,
+                    origin: [5, 6],
+                    size: [1, 1],
+                    coverage: vec![255],
+                    palette: None,
+                },
+            ],
+        };
+        let green = raster.colorize([0., 1., 0., 0.5], false).unwrap();
+        assert_eq!(green[0].origin, [3, 4]);
+        assert_eq!(green[1].origin, [5, 6]);
+        assert_eq!(green[0].rgba, [64, 0, 0, 64]);
+        assert_eq!(green[1].rgba, [0, 128, 0, 128]);
+        let blue = raster.colorize([0., 0., 1., 0.5], false).unwrap();
+        assert_eq!(green[0], blue[0]);
+        assert_ne!(green[1], blue[1]);
+        assert!(
+            raster
+                .colorize([0.; 4], false)
+                .unwrap()
+                .iter()
+                .all(|m| m.rgba.iter().all(|v| *v == 0))
+        );
+        raster.masks[0].palette = Some([f32::NAN; 4]);
+        assert!(matches!(
+            raster.colorize([1.; 4], false),
+            Err(Error::InvalidRequest)
+        ));
+    }
+    #[test]
     fn color_capable_family_keeps_monochrome_runs_usable() {
         let context = Context::new().unwrap();
         let Some(family) = context.resolve_family(&["Segoe UI Emoji"]).unwrap() else {
@@ -412,10 +536,16 @@ mod tests {
         assert!(!raster.masks.is_empty());
         request.text = "😀";
         let emoji = context.layout(&request).unwrap();
-        assert!(matches!(
-            emoji.rasterize(1., [0., 0.]),
-            Err(Error::Unsupported { .. })
-        ));
+        let color = emoji.rasterize(1., [0., 0.]).unwrap();
+        assert!(color.masks.iter().any(|mask| mask.palette.is_some()));
+        let [left, top, right, bottom] = emoji.ink_bounds();
+        for mask in &color.masks {
+            assert!(mask.origin[0] as f32 >= left - 4.);
+            assert!(mask.origin[1] as f32 >= top - 4.);
+            assert!(mask.origin[0] as f32 + mask.size[0] as f32 <= right + 4.);
+            assert!(mask.origin[1] as f32 + mask.size[1] as f32 <= bottom + 4.);
+        }
+        assert!(!color.colorize([0., 0., 0., 1.], false).unwrap().is_empty());
     }
     #[test]
     fn retained_layout_raster_is_repeatable_bounded_and_scale_specific() {
@@ -558,6 +688,7 @@ mod tests {
                 origin: [0; 2],
                 size: [2, 2],
                 coverage: vec![255],
+                palette: None,
             }],
         };
         assert!(matches!(
