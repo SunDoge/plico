@@ -7,6 +7,7 @@ use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 /// Retained prepared draws. Font layouts remain owned until the frame is discarded.
 pub struct PreparedScene {
     draws: Vec<PreparedDraw>,
+    payloads: Payloads,
     source: Scene,
     flattened: Scene,
     root_clip: Rect,
@@ -20,57 +21,91 @@ pub struct PreparedLayer {
     pub(crate) alpha: f32,
     pub(crate) blur: Option<plico_renderer::filter::GaussianBlur>,
 }
+#[derive(Default)]
+struct Payloads {
+    quads: Vec<Quad>,
+    layers: Vec<PreparedLayer>,
+    effects: Vec<(plico_renderer::ShaderEffect, Quad)>,
+    images: Vec<crate::image::ImageQuad>,
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    text: Vec<PreparedText>,
+}
+#[cfg(all(target_os = "linux", feature = "system-text"))]
+struct PreparedText {
+    layout: std::rc::Rc<crate::text::GlyphLayout>,
+    origin: [f64; 2],
+    color: [f32; 4],
+    clip: [f32; 4],
+}
 enum PreparedDraw {
-    Quad(Quad),
-    Layer(PreparedLayer),
-    Effect(plico_renderer::ShaderEffect, Quad),
-    Image(crate::image::ImageQuad),
+    Quad(usize),
+    Layer(usize),
+    Effect(usize),
+    Image(usize),
     SetMask(std::rc::Rc<crate::mask::CoverageMask>),
     ResetMask,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
-    Text {
-        layout: std::rc::Rc<crate::text::GlyphLayout>,
-        origin: [f64; 2],
-        color: [f32; 4],
-        clip: [f32; 4],
-    },
+    Text(usize),
+}
+fn stash<T>(table: &mut Vec<T>, value: T) -> usize {
+    let index = table.len();
+    table.push(value);
+    index
+}
+fn image_draw(payloads: &mut Payloads, image: crate::image::ImageQuad) -> PreparedDraw {
+    PreparedDraw::Image(stash(&mut payloads.images, image))
+}
+fn layer_draw(payloads: &mut Payloads, layer: PreparedLayer) -> PreparedDraw {
+    PreparedDraw::Layer(stash(&mut payloads.layers, layer))
 }
 impl PreparedDraw {
-    fn ink_bounds(&self) -> Rect {
+    fn ink_bounds(&self, payloads: &Payloads) -> Rect {
+        let bounds = |q: &Quad| {
+            let [x, y, w, h] = q.rect;
+            Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
+        };
         match self {
             Self::SetMask(_) | Self::ResetMask => Rect::ZERO,
-            Self::Layer(layer) => Rect::new(
-                layer.quad.rect[0] as f64,
-                layer.quad.rect[1] as f64,
-                (layer.quad.rect[0] + layer.quad.rect[2]) as f64,
-                (layer.quad.rect[1] + layer.quad.rect[3]) as f64,
-            ),
-            Self::Effect(_, q)
-            | Self::Quad(q)
-            | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
-                let [x, y, w, h] = q.rect;
-                Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
-            }
+            Self::Quad(i) => bounds(&payloads.quads[*i]),
+            Self::Layer(i) => bounds(&payloads.layers[*i].quad),
+            Self::Effect(i) => bounds(&payloads.effects[*i].1),
+            Self::Image(i) => bounds(&payloads.images[*i].quad),
             #[cfg(all(target_os = "linux", feature = "system-text"))]
-            Self::Text { layout, origin, .. } => layout
-                .glyphs
-                .iter()
-                .filter_map(|glyph| {
-                    let [x, y, w, h] = glyph.ink_bounds;
-                    (w > 0. && h > 0.).then(|| {
-                        Rect::new(
-                            origin[0] + glyph.x + x,
-                            origin[1] + glyph.y + y,
-                            origin[0] + glyph.x + x + w,
-                            origin[1] + glyph.y + y + h,
-                        )
-                        .inflate(4., 4.)
+            Self::Text(i) => {
+                let text = &payloads.text[*i];
+                text.layout
+                    .glyphs
+                    .iter()
+                    .filter_map(|glyph| {
+                        let [x, y, w, h] = glyph.ink_bounds;
+                        (w > 0. && h > 0.).then(|| {
+                            Rect::new(
+                                text.origin[0] + glyph.x + x,
+                                text.origin[1] + glyph.y + y,
+                                text.origin[0] + glyph.x + x + w,
+                                text.origin[1] + glyph.y + y + h,
+                            )
+                            .inflate(4., 4.)
+                        })
                     })
-                })
-                .reduce(|a, b| a.union(b))
-                .unwrap_or(Rect::ZERO),
+                    .reduce(|a, b| a.union(b))
+                    .unwrap_or(Rect::ZERO)
+            }
         }
     }
+}
+/// CPU vector storage owned by this prepared scene, excluding nested scenes,
+/// command snapshots, shared font/image/shader backing resources and GPU/driver allocations.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PreparedStorageStats {
+    /// Painter-order entry count.
+    pub draws: usize,
+    /// Allocated capacity of the painter-order stream in bytes.
+    pub order_bytes: usize,
+    /// Allocated capacity of typed payload tables in bytes.
+    pub payload_bytes: usize,
+    /// Allocated capacity of per-command ink bounds in bytes.
+    pub ink_bytes: usize,
 }
 impl PreparedScene {
     /// Estimate damage using this exact flattened stream and native ink geometry.
@@ -87,25 +122,42 @@ impl PreparedScene {
         })
     }
 
+    /// CPU vector capacities for this scene only; not process RSS.
+    pub fn storage_stats(&self) -> PreparedStorageStats {
+        use std::mem::size_of;
+        let data = &self.payloads;
+        let bytes = data.quads.capacity() * size_of::<Quad>()
+            + data.layers.capacity() * size_of::<PreparedLayer>()
+            + data.effects.capacity() * size_of::<(plico_renderer::ShaderEffect, Quad)>()
+            + data.images.capacity() * size_of::<crate::image::ImageQuad>();
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        let bytes = bytes + data.text.capacity() * size_of::<PreparedText>();
+        PreparedStorageStats {
+            draws: self.draws.len(),
+            order_bytes: self.draws.capacity() * size_of::<PreparedDraw>(),
+            payload_bytes: bytes,
+            ink_bytes: self.ink.capacity() * size_of::<Option<Rect>>(),
+        }
+    }
     pub fn draws(&self) -> Vec<Draw<'_>> {
+        let data = &self.payloads;
         self.draws
             .iter()
             .map(|draw| match draw {
-                PreparedDraw::Quad(q) => Draw::Quad(q),
-                PreparedDraw::Layer(layer) => Draw::Layer(layer),
-                PreparedDraw::Effect(effect, q) => Draw::Effect(effect, q),
+                PreparedDraw::Quad(i) => Draw::Quad(&data.quads[*i]),
+                PreparedDraw::Layer(i) => Draw::Layer(&data.layers[*i]),
+                PreparedDraw::Effect(i) => {
+                    let (effect, q) = &data.effects[*i];
+                    Draw::Effect(effect, q)
+                }
+                PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
                 PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
                 PreparedDraw::ResetMask => Draw::ResetMask,
-                PreparedDraw::Image(image) => Draw::Image(image),
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
-                PreparedDraw::Text {
-                    layout,
-                    origin,
-                    color,
-                    clip,
-                } => {
-                    let mut run = crate::text::TextRun::new(layout, *origin, *color);
-                    run.clip = Some(*clip);
+                PreparedDraw::Text(i) => {
+                    let text = &data.text[*i];
+                    let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
+                    run.clip = Some(text.clip);
                     run.clip_antialias = true;
                     Draw::Text(run)
                 }
@@ -260,6 +312,7 @@ impl Renderer {
         let mut clips = vec![root_clip];
         let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
+        let mut payloads = Payloads::default();
         let mut ink = vec![None; scene.commands.len()];
         let mut skip_until = 0;
         for (index, command) in scene.commands.iter().enumerate() {
@@ -322,15 +375,18 @@ impl Renderer {
                         let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
                         ink[index] = Some(bounds);
                         draws.push(PreparedDraw::SetMask(mask));
-                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                            quad: q,
-                            image: image.image.clone(),
-                            uv: [0., 0., 1., 1.],
-                            uv_transform: Some(uv.as_coeffs().map(|v| v as f32)),
-                            quality: image.sampler.quality,
-                            extend: [image.sampler.x_extend, image.sampler.y_extend],
-                            alpha: image.sampler.alpha,
-                        }));
+                        draws.push(image_draw(
+                            &mut payloads,
+                            crate::image::ImageQuad {
+                                quad: q,
+                                image: image.image.clone(),
+                                uv: [0., 0., 1., 1.],
+                                uv_transform: Some(uv.as_coeffs().map(|v| v as f32)),
+                                quality: image.sampler.quality,
+                                extend: [image.sampler.x_extend, image.sampler.y_extend],
+                                alpha: image.sampler.alpha,
+                            },
+                        ));
                         draws.push(match parent {
                             Some(mask) => PreparedDraw::SetMask(mask),
                             None => PreparedDraw::ResetMask,
@@ -372,15 +428,18 @@ impl Renderer {
                 })?;
                 if let Some((image, bounds)) = raster {
                     let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
-                    draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                        quad: q,
-                        image,
-                        uv: [0., 0., 1., 1.],
-                        uv_transform: None,
-                        quality: peniko::ImageQuality::Low,
-                        extend: [peniko::Extend::Pad; 2],
-                        alpha: 1.,
-                    }));
+                    draws.push(image_draw(
+                        &mut payloads,
+                        crate::image::ImageQuad {
+                            quad: q,
+                            image,
+                            uv: [0., 0., 1., 1.],
+                            uv_transform: None,
+                            quality: peniko::ImageQuality::Low,
+                            extend: [peniko::Extend::Pad; 2],
+                            alpha: 1.,
+                        },
+                    ));
                 }
             } else {
                 match command {
@@ -434,24 +493,27 @@ impl Renderer {
                             }
                             let iw = image.image.width as f64 * sx;
                             let ih = image.image.height as f64 * sy;
-                            draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                                quad: q,
-                                image: image.image.clone(),
-                                uv_transform: None,
-                                quality: image.sampler.quality,
-                                extend: [image.sampler.x_extend, image.sampler.y_extend],
-                                alpha: image.sampler.alpha,
-                                uv: [
-                                    ((rect.x0 - tx) / iw) as f32,
-                                    ((rect.y0 - ty) / ih) as f32,
-                                    (rect.width() / iw) as f32,
-                                    (rect.height() / ih) as f32,
-                                ],
-                            }));
+                            draws.push(image_draw(
+                                &mut payloads,
+                                crate::image::ImageQuad {
+                                    quad: q,
+                                    image: image.image.clone(),
+                                    uv_transform: None,
+                                    quality: image.sampler.quality,
+                                    extend: [image.sampler.x_extend, image.sampler.y_extend],
+                                    alpha: image.sampler.alpha,
+                                    uv: [
+                                        ((rect.x0 - tx) / iw) as f32,
+                                        ((rect.y0 - ty) / ih) as f32,
+                                        (rect.width() / iw) as f32,
+                                        (rect.height() / ih) as f32,
+                                    ],
+                                },
+                            ));
                         } else {
                             let mut q = quad(rect, radius, *transform, clip, index)?;
                             brush(&mut q, paint, rect, index)?;
-                            draws.push(PreparedDraw::Quad(q));
+                            draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                         }
                     }
                     PaintCommand::Stroke {
@@ -481,7 +543,7 @@ impl Renderer {
                         let mut q = quad(rect.inset(half), outer_radius, *transform, clip, index)?;
                         q.border_width = (style.width * uniform(*transform, index)?.0) as f32;
                         q.border_color = color.components;
-                        draws.push(PreparedDraw::Quad(q));
+                        draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                     }
                     PaintCommand::PushLayer {
                         blend,
@@ -587,12 +649,15 @@ impl Renderer {
                             layer_clip,
                             index,
                         )?;
-                        draws.push(PreparedDraw::Layer(PreparedLayer {
-                            scene: child,
-                            quad: q,
-                            alpha: *alpha,
-                            blur,
-                        }));
+                        draws.push(layer_draw(
+                            &mut payloads,
+                            PreparedLayer {
+                                scene: child,
+                                quad: q,
+                                alpha: *alpha,
+                                blur,
+                            },
+                        ));
                         draws.push(match parent {
                             Some(mask) => PreparedDraw::SetMask(mask),
                             None => PreparedDraw::ResetMask,
@@ -664,15 +729,18 @@ impl Renderer {
                             })?
                         {
                             let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
-                            draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                                quad: q,
-                                image,
-                                uv: [0., 0., 1., 1.],
-                                uv_transform: None,
-                                quality: peniko::ImageQuality::Low,
-                                extend: [peniko::Extend::Pad; 2],
-                                alpha: 1.,
-                            }));
+                            draws.push(image_draw(
+                                &mut payloads,
+                                crate::image::ImageQuad {
+                                    quad: q,
+                                    image,
+                                    uv: [0., 0., 1., 1.],
+                                    uv_transform: None,
+                                    quality: peniko::ImageQuality::Low,
+                                    extend: [peniko::Extend::Pad; 2],
+                                    alpha: 1.,
+                                },
+                            ));
                         }
                     }
                     PaintCommand::BoxShadow {
@@ -699,7 +767,7 @@ impl Renderer {
                         )?;
                         q.shadow_sigma = (std_dev * scale) as f32;
                         q.colors = [brush.components; 2];
-                        draws.push(PreparedDraw::Quad(q));
+                        draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                     }
                     PaintCommand::Shader { effect, transform } => {
                         let [w, h] = effect.logical_size();
@@ -710,7 +778,10 @@ impl Renderer {
                             clip,
                             index,
                         )?;
-                        draws.push(PreparedDraw::Effect(effect.clone(), q));
+                        draws.push(PreparedDraw::Effect(stash(
+                            &mut payloads.effects,
+                            (effect.clone(), q),
+                        )));
                     }
                     PaintCommand::Svg {
                         document,
@@ -726,22 +797,25 @@ impl Renderer {
                             clip,
                             index,
                         )?;
-                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                            quad: q,
-                            image,
-                            uv: [0., 0., 1., 1.],
-                            uv_transform: None,
-                            quality: peniko::ImageQuality::Medium,
-                            extend: [peniko::Extend::Pad; 2],
-                            alpha: 1.,
-                        }));
+                        draws.push(image_draw(
+                            &mut payloads,
+                            crate::image::ImageQuad {
+                                quad: q,
+                                image,
+                                uv: [0., 0., 1., 1.],
+                                uv_transform: None,
+                                quality: peniko::ImageQuality::Medium,
+                                extend: [peniko::Extend::Pad; 2],
+                                alpha: 1.,
+                            },
+                        ));
                     }
                     PaintCommand::Paragraph { request, transform } => {
                         #[cfg(all(target_os = "linux", feature = "system-text"))]
                         {
                             let (scale, origin) = uniform(*transform, index)?;
                             let layout = self.paragraph_layout(request.clone(), scale)?;
-                            draws.push(PreparedDraw::Text {
+                            payloads.text.push(PreparedText {
                                 layout,
                                 origin,
                                 color: request.color.map(|c| c as f32 / 255.),
@@ -752,6 +826,7 @@ impl Renderer {
                                     clip.height() as f32,
                                 ],
                             });
+                            draws.push(PreparedDraw::Text(payloads.text.len() - 1));
                         }
                         #[cfg(not(all(target_os = "linux", feature = "system-text")))]
                         {
@@ -780,7 +855,7 @@ impl Renderer {
             // Bounds come from the native geometry actually submitted, not a
             // second paragraph engine with potentially different metrics.
             if let Some(draw) = draws.get(first_draw) {
-                ink[index] = Some(draw.ink_bounds());
+                ink[index] = Some(draw.ink_bounds(&payloads));
             }
         }
         if clips.len() != 1 {
@@ -788,11 +863,14 @@ impl Renderer {
         }
         let prepared = std::rc::Rc::new(PreparedScene {
             draws,
+            payloads,
             source,
             flattened: scene,
             root_clip,
             ink,
         });
+        let storage = prepared.storage_stats();
+        tracing::trace!(target:"plico::perf",draws=storage.draws,order_bytes=storage.order_bytes,payload_bytes=storage.payload_bytes,ink_bytes=storage.ink_bytes,"wgpu prepared scene storage");
         self.scene_preparations += 1;
         self.prepared_cache = Some((size, prepared.clone()));
         Ok(prepared)
@@ -937,5 +1015,71 @@ impl Renderer {
             self.scene_damage.invalidate();
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod storage_profile {
+    use super::*;
+    #[test]
+    #[ignore = "manual CPU storage/materialization experiment"]
+    fn prepared_scene_storage_and_materialization() {
+        use std::{hint::black_box, mem::size_of, sync::Arc, time::Instant};
+        let image = peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(vec![255; 4])),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+            width: 1,
+            height: 1,
+        };
+        let mut draws = Vec::new();
+        let mut payloads = Payloads::default();
+        for i in 0..10_000 {
+            let quad = Quad::new([(i % 100) as f32, (i / 100) as f32, 1., 1.], [1.; 4]);
+            if i % 10 == 0 {
+                draws.push(image_draw(
+                    &mut payloads,
+                    crate::image::ImageQuad::new(quad, image.clone()),
+                ));
+            } else {
+                draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, quad)));
+            }
+        }
+        let prepared = PreparedScene {
+            draws,
+            payloads,
+            source: Scene::new(),
+            flattened: Scene::new(),
+            root_clip: Rect::new(0., 0., 100., 100.),
+            ink: Vec::new(),
+        };
+        eprintln!(
+            "prepared layout: order={} quad={} image={} layer={} effect={}",
+            size_of::<PreparedDraw>(),
+            size_of::<Quad>(),
+            size_of::<crate::image::ImageQuad>(),
+            size_of::<PreparedLayer>(),
+            size_of::<(plico_renderer::ShaderEffect, Quad)>()
+        );
+        eprintln!(
+            "prepared payload capacity bytes={}",
+            prepared.storage_stats().order_bytes + prepared.storage_stats().payload_bytes
+        );
+        for _ in 0..32 {
+            black_box(prepared.draws());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..32 {
+            let start = Instant::now();
+            for _ in 0..32 {
+                black_box(prepared.draws());
+            }
+            samples.push(start.elapsed().as_secs_f64() * 1e6 / 32.);
+        }
+        samples.sort_by(f64::total_cmp);
+        eprintln!(
+            "10000-draw materialization us p50={:.3} p95={:.3}",
+            samples[16], samples[30]
+        );
     }
 }

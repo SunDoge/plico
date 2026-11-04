@@ -894,3 +894,33 @@ ordinary replay verifies source upload reuse. Coverage is still a CPU raster
 fallback for these shapes; large rotating images and animation cost need profiling.
 Image strokes, projective transforms and large-minification prefiltering remain
 outside this implementation.
+
+## Compact prepared painter-order storage
+
+Prepared painter order now stores typed-table indices instead of the largest
+inline draw payload. Quad, text, image, effect and isolated-layer values live in
+separate contiguous vectors owned by the immutable prepared scene. Scope/mask
+markers stay in painter order. Indices are private to that scene; returned draw
+references borrow its payload vectors, with no per-node box or raw pointer.
+This does not change stable application IDs or introduce cross-frame node handles.
+
+`PreparedScene::storage_stats` and the `wgpu prepared scene storage` trace expose
+order, typed-payload and ink-vector capacity bytes. These exclude command snapshots,
+shared backing resources, nested scene allocations and GPU/driver memory; they are
+not process RSS. The shared GPU instance format is unchanged.
+
+Manual reproduction (ignored by default):
+
+```sh
+cargo test --locked -p plico-wgpu --lib prepared_scene_storage_and_materialization -- --ignored --nocapture
+```
+
+On this 64-bit build the order entry shrank from 216 to 16 bytes. For the same
+10,000-item fixture (90% quads, 10% images), order+payload vector capacity fell from
+3,538,944 to 2,449,408 bytes, about 31%. Draw-reference materialization p50 was about
+14.3 microseconds both before and after; tail variation was visible, so no CPU or
+whole-frame speedup is claimed. The profile excludes scene construction and GPU
+work. Image-only scenes can use more capacity because they add a small order index
+to unchanged image payloads, and additional vector headers have a per-scene cost.
+The change targets mixed GUI scenes, not universal memory reduction. Existing GPU
+pixel-oracle tests continue to cover painter order, masks, text, filters and damage.
