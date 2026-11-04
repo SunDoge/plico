@@ -175,7 +175,9 @@ impl ShaderEffectSource {
     /// an application-defined uniform struct backed by up to 256 scalar values.
     /// Wabou overwrites floats 0, 1, and 2 with physical width, physical height,
     /// and native animation time. Textures and additional bindings remain
-    /// unsupported so resource ownership stays inside the renderer.
+    /// unsupported so resource ownership stays inside the renderer. Vertex
+    /// entry points must generate geometry without `@location` vertex inputs;
+    /// the fullscreen pipeline does not supply vertex buffers.
     pub fn new_module(source: &str) -> Result<Self, String> {
         if source.trim().is_empty() {
             return Err("shader source must not be empty".into());
@@ -228,6 +230,36 @@ impl ShaderEffectSource {
                 {
                     return Err(format!("complete shader module must define {entry}"));
                 }
+            }
+        }
+        // The fullscreen effect pipeline supplies vertex indices, not vertex buffers.
+        // Inspect struct members too: WGSL permits entry-point inputs in either form.
+        fn has_vertex_location(
+            module: &naga::Module,
+            ty: naga::Handle<naga::Type>,
+            binding: Option<&naga::Binding>,
+        ) -> bool {
+            if matches!(binding, Some(naga::Binding::Location { .. })) {
+                return true;
+            }
+            if let naga::TypeInner::Struct { members, .. } = &module.types[ty].inner {
+                return members
+                    .iter()
+                    .any(|member| has_vertex_location(module, member.ty, member.binding.as_ref()));
+            }
+            false
+        }
+        for entry in &module.entry_points {
+            if entry.stage == naga::ShaderStage::Vertex
+                && entry.name == "vs_main"
+                && entry.function.arguments.iter().any(|argument| {
+                    has_vertex_location(&module, argument.ty, argument.binding.as_ref())
+                })
+            {
+                return Err(
+                    "custom shader vertex @location inputs are unsupported; use @builtin(vertex_index) without vertex buffers"
+                        .into(),
+                );
             }
         }
         Ok(Self {
@@ -652,6 +684,28 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
 "#;
         assert!(ShaderEffectSource::new_module(source).is_ok());
         assert!(ShaderEffectSource::new_module("fn nope() {}").is_err());
+    }
+
+    #[test]
+    fn rejects_vertex_buffers_before_pipeline_creation() {
+        for (declaration, argument, position) in [
+            ("", "@location(0) position: vec2<f32>", "position"),
+            (
+                "struct Input { @location(0) position: vec2<f32> };",
+                "input: Input",
+                "input.position",
+            ),
+        ] {
+            let source = format!(
+                "{declaration}
+@vertex fn vs_main({argument}) -> @builtin(position) vec4<f32> {{
+    return vec4({position}, 0.0, 1.0);
+}}
+@fragment fn fs_main() -> @location(0) vec4<f32> {{ return vec4(1.0); }}"
+            );
+            let error = ShaderEffectSource::new_module(&source).unwrap_err();
+            assert!(error.contains("vertex @location inputs"), "{error}");
+        }
     }
 
     #[test]
