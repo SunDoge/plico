@@ -620,3 +620,34 @@ It compares every pixel against a renderer whose layer pool is cleared each fram
 Trimming, recreation and complete layer removal also verify byte accounting. This
 measures allocation avoidance, not CPU/GPU frame time. Wide-kernel optimization,
 filter graphs and physical-display checks remain outstanding.
+
+## Filter timing experiment
+
+Run manually (ignored by default, no CI performance threshold):
+
+```sh
+cargo test --locked -p plico-wgpu --lib profile_gaussian_workspace_cost -- --ignored --nocapture
+```
+
+The test prebuilds identical animated scene snapshots, warms eight frames, then
+measures 32 frames per policy in pooled/cleared/cleared/pooled order. It renders to
+a GPU texture, with no CPU readback or swapchain presentation. Submission wall
+time includes preparation, encoding, queue writes/submissions and any implicit
+backpressure; completion wall time additionally waits for the device. Neither is
+a GPU timestamp measurement or process CPU-utilization measurement. Scene build,
+layout and application declaration are excluded. Logs identify the actual adapter
+and include p50/p95, workspace allocations and resident pixel payload.
+
+On the local Intel Graphics (ARL), Vulkan/Mesa 25.0.7 run, the 384x256/sigma=3
+completion p50 was around 1.3–1.5 ms; sigma=18 was usually 3.3–3.6 ms, with a repeat
+outlier at 4.8 ms. Submission p50 was generally 0.15–0.4 ms. Pooling avoided all
+32 measured workspace creations but did not establish a large frame-time win.
+First-case warming and tail variation were visible, so these values are local
+observations rather than stable renderer performance guarantees.
+
+A candidate replacing per-pixel exponential calculations with a cached normalized
+uniform weight table was tested and removed: the same 384x256/sigma=3 case rose to
+roughly 1.8–2.1 ms, while sigma=18 only improved modestly in that run. This is
+insufficient evidence to replace the current kernel. The next wide-blur experiment
+should compare different sampling algorithms with pixel-error bounds and GPU
+timestamps, rather than assume that moving arithmetic to CPU improves GPU cost.

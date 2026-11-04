@@ -1749,6 +1749,136 @@ mod tests {
             buffer.unmap();
         }
     }
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "manual GPU timing experiment; not a CI performance threshold"]
+    fn profile_gaussian_workspace_cost() {
+        use kurbo::{Affine, Rect};
+        use peniko::{BlendMode, Color, Fill};
+        use plico_renderer::{
+            PaintScene, Scene,
+            filter::{BlurEdge, GaussianBlur},
+        };
+        use std::{sync::Arc, time::Instant};
+        fn percentiles(values: &mut [f64]) -> (f64, f64) {
+            values.sort_by(f64::total_cmp);
+            (
+                values[values.len() / 2],
+                values[(values.len() * 95 / 100).min(values.len() - 1)],
+            )
+        }
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        eprintln!("adapter={:?}", renderer.adapter_info());
+        for (width, height, sigma) in [(128, 96, 3.), (384, 256, 3.), (384, 256, 18.)] {
+            let size = [width, height];
+            let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Gaussian timing destination"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            // Build outside all timing intervals. Both policies replay identical
+            // scene snapshots; neither performs CPU readback or swapchain present.
+            let scenes: Vec<_> = (0..32)
+                .map(|frame| {
+                    let mut scene = Scene::new();
+                    scene.push_layer(
+                        BlendMode::default(),
+                        0.8,
+                        Affine::IDENTITY,
+                        &Rect::new(8., 8., width as f64 - 8., height as f64 - 8.),
+                        Some(Arc::new(
+                            GaussianBlur {
+                                sigma,
+                                edge: BlurEdge::Transparent,
+                            }
+                            .into_filter(),
+                        )),
+                        None,
+                    );
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::from_rgb8(50, 120, 230),
+                        None,
+                        &Rect::new(
+                            0.,
+                            0.,
+                            width as f64 * 0.6 + frame as f64 * 0.25,
+                            height as f64,
+                        ),
+                    );
+                    scene.pop_layer();
+                    scene
+                })
+                .collect();
+            // Reversed second pair reduces attribution to first-run warming.
+            for clear in [false, true, true, false] {
+                renderer.trim_layer_pool();
+                for scene in scenes.iter().take(8) {
+                    if clear {
+                        renderer.trim_layer_pool();
+                    }
+                    renderer
+                        .render_scene_to_view(
+                            scene,
+                            size,
+                            [1.; 4],
+                            false,
+                            &view,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        )
+                        .unwrap();
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                }
+                let before = renderer.layer_pool_stats();
+                let mut submission = Vec::new();
+                let mut completion = Vec::new();
+                for scene in &scenes {
+                    let start = Instant::now();
+                    if clear {
+                        renderer.trim_layer_pool();
+                    }
+                    renderer
+                        .render_scene_to_view(
+                            scene,
+                            size,
+                            [1.; 4],
+                            false,
+                            &view,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        )
+                        .unwrap();
+                    submission.push(start.elapsed().as_secs_f64() * 1000.);
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    completion.push(start.elapsed().as_secs_f64() * 1000.);
+                }
+                let stats = renderer.layer_pool_stats();
+                let (submit50, submit95) = percentiles(&mut submission);
+                let (done50, done95) = percentiles(&mut completion);
+                eprintln!(
+                    "blur {width}x{height} sigma={sigma} clear={clear} submission_ms p50={submit50:.3} p95={submit95:.3} completion_ms p50={done50:.3} p95={done95:.3} workspace_allocations={} resident_bytes={}",
+                    stats.filter_allocations - before.filter_allocations,
+                    stats.retained_bytes
+                );
+            }
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "linux", feature = "system-text"))]
