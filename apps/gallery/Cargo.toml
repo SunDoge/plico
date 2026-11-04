@@ -62,7 +62,7 @@ required-features = ["desktop"]
 
 [[example]]
 name = "code_editor"
-required-features = ["desktop"]
+required-features = ["host"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 plico-editor = { path = "../../crates/plico-editor" }

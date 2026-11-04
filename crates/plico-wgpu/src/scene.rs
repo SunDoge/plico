@@ -119,7 +119,7 @@ fn unsupported(index: usize, reason: impl Into<String>) -> Error {
         reason: reason.into(),
     }
 }
-fn uniform(transform: Affine, index: usize) -> Result<(f64, [f64; 2])> {
+pub(crate) fn uniform(transform: Affine, index: usize) -> Result<(f64, [f64; 2])> {
     let [a, b, c, d, e, f] = transform.as_coeffs();
     if ![a, b, c, d, e, f].iter().all(|v| v.is_finite())
         || a <= 0.
@@ -586,6 +586,24 @@ impl Renderer {
                                 Some(mask) => PreparedDraw::SetMask(mask.clone()),
                                 None => PreparedDraw::ResetMask,
                             });
+                        }
+                    }
+                    #[cfg(all(target_os = "linux", feature = "system-text"))]
+                    PaintCommand::GlyphRun { .. } => {
+                        if let Some((image, bounds)) =
+                            self.glyphs.raster(command).map_err(|error| match error {
+                                Error::Unsupported { reason, .. } => unsupported(index, reason),
+                                other => other,
+                            })?
+                        {
+                            let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
+                            draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                                quad: q,
+                                image,
+                                uv: [0., 0., 1., 1.],
+                                quality: peniko::ImageQuality::Low,
+                                alpha: 1.,
+                            }));
                         }
                     }
                     PaintCommand::BoxShadow {

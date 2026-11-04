@@ -717,3 +717,42 @@ references for left/right/top/bottom source rectangles, both directly inside a
 filter and inside an additional opacity group. This verifies viewport-edge source
 contributions without weakening the final output clip. Filter frames still use
 conservative full damage; this change does not claim incremental-filter redraw.
+
+## Externally positioned glyph runs
+
+Linux shared `GlyphRun` commands now have a native Cairo/FreeType bitmap fallback.
+The original font bytes, collection index, glyph IDs and positions are preserved;
+this path does not reshape text or substitute a family. Ordinary Pango paragraphs
+continue to use the existing glyph atlas. Current positioned-run coverage includes
+solid fills, positive uniform scaling/translation, hinting and brush alpha.
+Nondefault variable coordinates, synthetic emboldening/skew, stroke and non-solid
+brushes still fail explicitly. It is not yet full arbitrary glyph-run coverage.
+
+`plico-native::text::positioned::Font` retains shared font storage without copying
+it. A real editor run encountered a roughly 793 MiB CJK collection; copying or
+limiting every collection to 64 MiB was unsuitable. The resource cache keeps up to
+32 native faces and 1 GiB of unique retained source bytes, deduplicated across
+collection indices. Sources can be shared mappings: this counter is neither new
+allocation size nor RSS. Positioned raster/position payload has a separate
+256-entry/64 MiB budget, and the existing GPU image cache applies after upload.
+Retained prepared scenes can keep image resources alive independently of caches.
+This fallback caches whole runs, not individual glyph atlas entries; fractional
+scrolling may generate new rasters and remains performance work.
+
+The native font constructor extends cairo-rs' FreeType user-data ownership pattern
+to shared byte owners, with provenance/license notices in plico-native. Tests check
+font ownership, baseline positioning, integer translation invariance, premultiplied
+alpha and invalid glyph/font errors. Shared replay tests check a Parley-generated
+English/CJK run, integer-motion upload reuse and explicit cache clearing. Native
+font/raster byte counters are exposed in frame resource traces.
+
+Run the actual editor through wgpu with:
+
+```sh
+cargo run --locked -p gallery --no-default-features --features wgpu --example code_editor
+```
+
+An Xvfb X11 window displayed its English/CJK sample and syntax highlighting, and
+keyboard insertion updated the code and caret. This verifies this editor fixture;
+it does not establish terminal compatibility, real IME sessions, variable-font
+coverage or physical-display scrolling quality.

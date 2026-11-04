@@ -200,6 +200,7 @@ impl WgpuWindow {
     pub fn trim_gpu_cache(&mut self) {
         self.renderer.trim_layer_pool();
         self.renderer.trim_effect_cache();
+        self.renderer.trim_positioned_glyph_cache();
     }
     pub fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_scene_damage();

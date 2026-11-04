@@ -141,6 +141,8 @@ pub struct Renderer {
     pub(crate) svgs: crate::svg::SvgCache,
     #[cfg(feature = "paint-scene")]
     pub(crate) paths: crate::path::PathCache,
+    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    pub(crate) glyphs: crate::glyphs::GlyphCache,
     #[cfg(feature = "paint-scene")]
     pub(crate) masks: crate::mask::MaskCache,
     #[cfg(feature = "paint-scene")]
@@ -325,6 +327,8 @@ impl Renderer {
             svgs: Default::default(),
             #[cfg(feature = "paint-scene")]
             paths: Default::default(),
+            #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+            glyphs: Default::default(),
             #[cfg(feature = "paint-scene")]
             masks: Default::default(),
             #[cfg(feature = "paint-scene")]
@@ -555,9 +559,10 @@ impl Renderer {
         {
             let stats = self.layer_pool_stats();
             let effect_stats = self.effect_cache_stats();
+            let positioned = self.positioned_glyph_cache_stats();
             tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,"wgpu frame resources");
         }
         result
     }
@@ -1586,6 +1591,27 @@ impl Renderer {
             &self.atlas_texture.layout,
             &view,
         ))
+    }
+    /// Native positioned-text cache: faces, unique retained source bytes,
+    /// raster entries and raster/position payload bytes. Source bytes may be
+    /// shared file mappings; this is not process RSS or newly allocated memory.
+    pub fn positioned_glyph_cache_stats(&self) -> (usize, usize, usize, usize) {
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        {
+            self.glyphs.stats()
+        }
+        #[cfg(not(all(target_os = "linux", feature = "system-text")))]
+        {
+            (0, 0, 0, 0)
+        }
+    }
+    /// Drop native positioned-font and bitmap caches; retained scenes can still
+    /// own already prepared bitmap resources.
+    pub fn trim_positioned_glyph_cache(&mut self) {
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        {
+            self.glyphs = Default::default();
+        }
     }
     /// Live effect targets, pixel payload and cached pipelines.
     pub fn effect_cache_stats(&self) -> (usize, u64, usize) {
