@@ -1,4 +1,7 @@
 //! Parsed, reusable SVG scene fragments.
+//! Parsing and retained documents are backend-neutral. Native Vello projection
+//! helpers require the `vello` feature; the existing WASM WebGL backend enables
+//! that projection on its own target.
 
 #![warn(missing_docs)]
 
@@ -6,13 +9,14 @@ use std::fmt;
 use std::sync::Arc;
 
 use snafu::{ResultExt, Snafu};
-use vello_gpu::Scene;
 
 use crate::SvgDocument;
 pub use usvg;
 
-mod convert;
-mod render;
+#[cfg(any(feature = "vello", target_arch = "wasm32"))]
+mod vello;
+#[cfg(any(feature = "vello", target_arch = "wasm32"))]
+pub use vello::{append, append_tree, append_tree_with_transform, render};
 
 /// A feature which could not be represented faithfully by Vello GPU.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +50,7 @@ pub struct RenderReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[cfg(any(feature = "vello", target_arch = "wasm32"))]
 impl RenderReport {
     fn unsupported(&mut self, feature: UnsupportedFeature, node_id: &str) {
         self.diagnostics.push(Diagnostic {
@@ -90,44 +95,6 @@ pub fn parse(svg: &str, options: &usvg::Options) -> Result<usvg::Tree, Error> {
     usvg::Tree::from_str(svg, options).context(SvgSnafu)
 }
 
-/// Parse and append an SVG document to an existing Vello GPU scene.
-pub fn append(
-    scene: &mut Scene,
-    svg: &str,
-    options: &usvg::Options,
-) -> Result<RenderReport, Error> {
-    let tree = parse(svg, options)?;
-    append_tree(scene, &tree)
-}
-
-/// Append a normalized SVG tree to an existing Vello GPU scene.
-pub fn append_tree(scene: &mut Scene, tree: &usvg::Tree) -> Result<RenderReport, Error> {
-    append_tree_with_transform(scene, tree, kurbo::Affine::IDENTITY)
-}
-
-/// Append a normalized SVG tree under a caller-provided root transform.
-pub fn append_tree_with_transform(
-    scene: &mut Scene,
-    tree: &usvg::Tree,
-    transform: kurbo::Affine,
-) -> Result<RenderReport, Error> {
-    let mut report = RenderReport::default();
-    render::render_group(scene, tree.root(), transform, &mut report)?;
-    Ok(report)
-}
-
-/// Parse an SVG and create a Vello GPU scene sized by the caller.
-pub fn render(
-    svg: &str,
-    options: &usvg::Options,
-    width: u16,
-    height: u16,
-) -> Result<(Scene, RenderReport), Error> {
-    let mut scene = Scene::new(width, height);
-    let report = append(&mut scene, svg, options)?;
-    Ok((scene, report))
-}
-
 /// A static SVG that has already been normalized by `usvg` and encoded into a
 /// backend-neutral scene. Keeping this in the retained paint state avoids XML parsing on
 /// every frame.
@@ -138,7 +105,7 @@ pub struct SvgImage {
 }
 
 impl SvgImage {
-    /// Parse SVG XML and retain its normalized tree for direct Vello GPU projection.
+    /// Parse SVG XML and retain its normalized tree for backend-specific rendering.
     pub fn parse(source: &str) -> Result<Self, usvg::Error> {
         let tree = usvg::Tree::from_str(source, &usvg::Options::default())?;
         let size = tree.size();
@@ -195,5 +162,5 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "vello", target_arch = "wasm32")))]
 mod adapter_tests;

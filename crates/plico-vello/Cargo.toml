@@ -7,7 +7,7 @@ publish = false
 description = "Vello GPU renderer for Plico scenes"
 
 [dependencies]
-plico-renderer.workspace = true
+plico-renderer = { workspace = true, features = ["vello"] }
 glifo = { workspace = true, features = ["png"] }
 kurbo.workspace = true
 peniko.workspace = true
