@@ -113,3 +113,9 @@
 ## Widget capabilities
 
 [Input capabilities and backend support](widget-capabilities.md): static input flags, explicit native projection, type-change remounting and declaration-cost validation.
+
+[System text + independent wgpu compositor](system-text-wgpu.md): Linux glyph-atlas, blend-space and motion-cache experiment; not a production backend.
+
+[Independent wgpu quad backend](wgpu-backend-experiment.md): rounded fills, borders, Vello image comparisons and runtime WGSL material editing; experimental offscreen renderer.
+
+[wgpu renderer direction](wgpu-renderer-plan.md): replacement goal, mature-library reuse boundaries and remaining integration gates.

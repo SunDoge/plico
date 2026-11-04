@@ -1,0 +1,31 @@
+[package]
+name = "plico-wgpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Experimental instanced-quad wgpu renderer for Plico"
+
+[features]
+default = ["system-text"]
+system-text = ["dep:plico-native"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
+
+[dependencies]
+wgpu.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
+naga.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+pollster = "1.0"
+
+[dev-dependencies]
+winit.workspace = true
+raw-window-handle = "0.6"
+plico-renderer.workspace = true
+plico-vello = { path = "../plico-vello" }
+kurbo.workspace = true
+peniko.workspace = true
+image = { workspace = true, features = ["png"] }

@@ -96,3 +96,52 @@ fn rejects_bad_sizes_and_inputs_before_native_calls() {
     r.width = Some(f64::NAN);
     assert!(matches!(system.rasterize(&r), Err(Error::InvalidRequest)));
 }
+
+#[test]
+fn glyph_layout_geometry_preserves_utf8_utf16_and_dpi_boundaries() {
+    use plico_native::text::atlas::Atlas;
+    let atlas = Atlas::new().unwrap();
+    for scale in [1., 1.25, 1.5, 2.] {
+        let mut request = TextRequest::new("A👩‍💻中文 e\u{301}\nمرحبا بالعالم");
+        request.size = 16.;
+        request.scale = scale;
+        let layout = atlas.layout(&request).unwrap();
+        assert_eq!(layout.text(), request.text);
+        for byte in (0..=request.text.len()).filter(|b| request.text.is_char_boundary(*b)) {
+            let utf16 = layout.utf16_from_byte(byte).unwrap();
+            assert_eq!(layout.byte_from_utf16(utf16), Some(byte));
+            let caret = layout.caret_rect(byte).unwrap();
+            assert!(caret.iter().all(|v| v.is_finite()));
+            assert!(caret[3] > 0.);
+            let hit = layout.hit_test(caret[0], caret[1] + caret[3] / 2.).unwrap();
+            assert!(request.text.is_char_boundary(hit));
+        }
+        assert_eq!(
+            layout.byte_from_utf16(2),
+            None,
+            "half of an emoji surrogate was accepted"
+        );
+        assert!(layout.utf16_from_byte(2).is_none());
+        assert!(layout.caret_rect(2).is_none());
+        assert!(layout.hit_test(f64::NAN, 0.).is_none());
+        let chinese = request.text.find('中').unwrap();
+        let end = chinese + "中文".len();
+        let rects = layout.selection_rects(chinese..end).unwrap();
+        assert!(!rects.is_empty());
+        for r in rects {
+            assert!(r[2] > 0. && r[3] > 0.);
+        }
+        assert!(layout.selection_rects(2..end).is_none());
+        assert!(layout.selection_rects(0..0).unwrap().is_empty());
+        assert!(layout.selection_rects(0..request.text.len()).unwrap().len() >= 2);
+        let end = request.text.len();
+        let caret = layout.caret_rect(end).unwrap();
+        assert_eq!(layout.ime_candidate_rect(end, None), Some(caret));
+        let candidate = layout.ime_candidate_rect(end, Some(0..end)).unwrap();
+        assert_eq!(
+            candidate[1], caret[1],
+            "candidate moved to another visual line"
+        );
+        assert!(layout.ime_candidate_rect(end, Some(2..end)).is_none());
+    }
+}

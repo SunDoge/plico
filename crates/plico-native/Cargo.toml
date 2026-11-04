@@ -23,8 +23,8 @@ ashpd = { version = "0.13.13", default-features = false, features = ["tokio", "g
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }
 cairo-rs = { version = "0.22", optional = true }
-pango = { version = "0.18", optional = true }
-pangocairo = { version = "0.18", optional = true }
+pango = { version = "0.22", optional = true }
+pangocairo = { version = "0.22", optional = true }
 lru = { version = "0.19.0", optional = true }
 
 [[example]]
@@ -32,12 +32,21 @@ name = "system_text"
 required-features = ["linux-text"]
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+wgpu.workspace = true
+pollster = "1.0"
+bytemuck = { workspace = true, features = ["derive"] }
+plico-skia = { path = "../plico-skia", default-features = false, features = ["raster"] }
 kurbo.workspace = true
 peniko.workspace = true
 plico-renderer.workspace = true
-plico-shell.workspace = true
+plico-shell = { workspace = true, features = ["vello"] }
 image = { workspace = true, features = ["png"] }
 
 [[example]]
 name = "screenshot"
 required-features = ["screen-capture"]
+
+[[example]]
+name = "system_text_wgpu"
+path = "examples/system_text_wgpu/main.rs"
+required-features = ["linux-text"]

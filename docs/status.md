@@ -121,3 +121,13 @@ clear probe passes, while its normal window renderer remains unchanged. See
 ## Wabou gallery 对照页
 
 现有 gallery 增加 Data table / Tree navigation：从本地 Wabou 迁移项目数据、筛选/排序/选择与树形展开/选择交互。使用普通 immediate 函数和组件级持久状态；中英文、窄窗口和键盘输入有离屏/语义协议验证。表头与滚动行共享 Grid 列定义。树形页是按钮组合示例，不是完整 ARIA Tree 控件。来源和许可证见 `apps/gallery/reference/README.md`。
+
+## Experimental wgpu quad renderer
+
+`plico-wgpu` independently draws physical-pixel rounded rectangles, vertical gradients,
+inside borders, hard rectangular clips and runtime-loaded WGSL materials. The
+headless example compares identical quad inputs against Vello at four scales.
+It also supports Linux Pango/Cairo text, ordered shape/text draws, bounded glyph
+cache recycling and a GPU-only winit window demo. It is not yet a full paint-scene
+or integrated desktop backend; Windows text and actual editor/IME bridging remain
+unfinished. See [experiment and verification](wgpu-backend-experiment.md).

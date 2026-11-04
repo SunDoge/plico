@@ -2,8 +2,7 @@
 
 `plico-native` is a renderer/window-independent home for optional desktop capabilities.
 The first implemented capability is Linux text layout and rasterization via
-Pango + Cairo/FreeType, following MyGO's Linux architecture. The normal Plico
-Parley/Vello text path is unchanged.
+Pango + Cairo/FreeType, following MyGO's Linux architecture. The ordinary Skia and Vello text paths are unchanged.
 
 ## Run
 
@@ -85,3 +84,14 @@ See [source and license notes](../crates/plico-native/SOURCES.md) for the local
 MyGO and WGPUI references. Other useful future platform services include desktop
 appearance/font settings, application activation, native menus and credential
 storage; those are not implemented by this change.
+
+## Independent GPU compositor experiment
+
+[System text + wgpu](system-text-wgpu.md) adds a standalone glyph-atlas example,
+SkParagraph comparisons, blend-space controls and finite-phase motion/cache checks.
+It is separate from the whole-paragraph API above and is not a production backend.
+
+`text::atlas` now exposes system-resolved glyph layouts and a fixed-budget raster
+atlas reused by `plico-wgpu`. Layouts provide UTF-8 hit testing, selection/caret
+geometry, native UTF-16 conversion and composition candidate anchors from their
+own Pango layout. See the [wgpu window/text milestone](wgpu-backend-experiment.md).
