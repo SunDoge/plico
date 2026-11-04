@@ -136,6 +136,7 @@ Shared images use cached independent textures, nearest/bilinear premultiplied-al
 sampling and ordered batches; SVG uses a cached resvg fallback. It is not yet a
 full paint-scene backend: solid general paths now use cached tiny-skia coverage,
 and nested nonrectangular clip masks preserve native text drawing. Non-solid
-path brushes, isolated layers and Windows text remain unfinished. Single-line
+path brushes, filter/blend layers and Windows text remain unfinished. Isolated
+source-over opacity groups use cropped GPU-only intermediate textures. Single-line
 editing uses Pango caret/selection geometry; actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).

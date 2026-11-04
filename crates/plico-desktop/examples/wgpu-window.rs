@@ -30,7 +30,9 @@ fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String) {
     column(cx).width_percent(100.).height_percent(100.).padding(32).gap(18).background(Color::Surface) + |cx| {
         text(cx, "Plico / wgpu").font_size(26).weight(600);
         text(cx, "Shared window host, layout and input dispatch").font_size(14).color(Color::Muted);
-        column(cx).padding(24).gap(16).radius(12.).background(Color::Panel).border(1., Color::Border) + |cx| {
+        column(cx).padding(24).gap(16).radius(12.).background(Color::Panel).border(1., Color::Border).opacity(0.94)
+        + |cx|
+        {
             text(cx, "A normal Plico component").font_size(18).weight(600);
             text!(cx, "Count: {}", count).font_size(32);
             text(cx, "中文与日本語の文字 · café · 👩‍💻").font_size(14);

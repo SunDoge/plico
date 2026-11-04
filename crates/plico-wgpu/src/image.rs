@@ -15,7 +15,7 @@ type Key = (u64, u32, u32, u8, u8);
 pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
     // Retain the actual source allocation, not just its identity.
-    _source: ImageData,
+    _source: Option<ImageData>,
     bytes: usize,
 }
 pub(crate) struct ImageCache {
@@ -165,7 +165,7 @@ impl ImageCache {
         }
         let entry = Rc::new(GpuImage {
             bind,
-            _source: image.clone(),
+            _source: Some(image.clone()),
             bytes,
         });
         self.entries.put(key, entry.clone());
@@ -175,5 +175,39 @@ impl ImageCache {
     }
     pub fn stats(&self) -> (usize, usize, u64, u64) {
         (self.entries.len(), self.bytes, self.uploads, self.hits)
+    }
+}
+
+impl GpuImage {
+    pub(crate) fn from_layer(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        texture: &wgpu::Texture,
+    ) -> Rc<Self> {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let view = texture.create_view(&Default::default());
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Plico isolated layer"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        Rc::new(Self {
+            bind,
+            _source: None,
+            bytes: 0,
+        })
     }
 }

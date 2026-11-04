@@ -131,6 +131,8 @@ pub enum Draw<'a> {
     Quad(&'a Quad),
     #[cfg(feature = "paint-scene")]
     Image(&'a image::ImageQuad),
+    #[cfg(feature = "paint-scene")]
+    Layer(&'a scene::PreparedLayer),
     /// Replace the active coverage mask; masks do not themselves paint pixels.
     #[cfg(feature = "paint-scene")]
     SetMask(&'a mask::CoverageMask),

@@ -61,6 +61,12 @@ pub struct Renderer {
     #[cfg(feature = "paint-scene")]
     pub(crate) masks: crate::mask::MaskCache,
     #[cfg(feature = "paint-scene")]
+    pub(crate) scene_prepare_depth: u8,
+    #[cfg(feature = "paint-scene")]
+    layer_depth: u8,
+    #[cfg(feature = "paint-scene")]
+    frame_layer_bytes: u64,
+    #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -111,7 +117,7 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(32),
+                    min_binding_size: wgpu::BufferSize::new(48),
                 },
                 count: None,
             }],
@@ -162,7 +168,7 @@ impl Renderer {
         });
         let frame = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad frame"),
-            size: 32,
+            size: 48,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -212,6 +218,12 @@ impl Renderer {
             paths: Default::default(),
             #[cfg(feature = "paint-scene")]
             masks: Default::default(),
+            #[cfg(feature = "paint-scene")]
+            scene_prepare_depth: 0,
+            #[cfg(feature = "paint-scene")]
+            layer_depth: 0,
+            #[cfg(feature = "paint-scene")]
+            frame_layer_bytes: 0,
             #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
             atlas_texture,
@@ -385,6 +397,21 @@ impl Renderer {
         time: f32,
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
+        self.encode_frame_at(items, size, background, time, regions, [0.; 2])
+    }
+    fn encode_frame_at(
+        &mut self,
+        items: &[crate::Draw<'_>],
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+        regions: Option<&[[u32; 4]]>,
+        origin: [f32; 2],
+    ) -> Result<wgpu::CommandEncoder> {
+        #[cfg(feature = "paint-scene")]
+        if self.layer_depth == 0 {
+            self.frame_layer_bytes = 0;
+        }
         let limit = self.device.limits();
         let [width, height] = size;
         let pitch = u64::from(width).saturating_mul(4).div_ceil(256) * 256;
@@ -450,6 +477,10 @@ impl Renderer {
                 background[1] * background[3],
                 background[2] * background[3],
                 background[3],
+                origin[0],
+                origin[1],
+                0.,
+                0.,
             ]),
         );
         self.target(size);
@@ -623,6 +654,29 @@ impl Renderer {
     ) -> Result<Vec<Instance>> {
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         {
+            #[cfg(feature = "paint-scene")]
+            if self.layer_depth == 0
+                && items
+                    .iter()
+                    .any(|item| matches!(item, crate::Draw::Layer(_)))
+            {
+                // Reserve the complete graph's glyphs before submitting any
+                // child. A child must never recycle UVs already prepared in its parent.
+                let mut scratch = Vec::new();
+                let warm = self.warm_layer_text(items, size, &mut scratch);
+                if matches!(
+                    warm,
+                    Err(Error::Text {
+                        source: plico_native::text::Error::AtlasFull
+                    })
+                ) {
+                    self.atlas.as_mut().expect("full atlas").clear();
+                    self.text_stats.recycled_frames += 1;
+                    self.warm_layer_text(items, size, &mut scratch)?;
+                } else {
+                    warm?;
+                }
+            }
             let result = self.encode_items(items, size);
             let result = if matches!(
                 result,
@@ -645,6 +699,30 @@ impl Renderer {
         }
         #[cfg(not(all(target_os = "linux", feature = "system-text")))]
         self.encode_items(items, size)
+    }
+    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    fn warm_layer_text(
+        &mut self,
+        items: &[crate::Draw<'_>],
+        size: [u32; 2],
+        scratch: &mut Vec<Instance>,
+    ) -> Result<()> {
+        for item in items {
+            match item {
+                crate::Draw::Text(run) => {
+                    scratch.clear();
+                    self.encode_text(run, size, scratch)?;
+                }
+                crate::Draw::Layer(layer)
+                    if layer.alpha > 0.
+                        && !layer.quad.clip.is_some_and(|r| r[2] <= 0. || r[3] <= 0.) =>
+                {
+                    self.warm_layer_text(&layer.scene.draws(), size, scratch)?
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
     fn encode_items(&mut self, items: &[crate::Draw<'_>], size: [u32; 2]) -> Result<Vec<Instance>> {
         let [width, height] = size;
@@ -710,6 +788,33 @@ impl Renderer {
                             0.,
                             0.,
                         ],
+                    });
+                }
+                #[cfg(feature = "paint-scene")]
+                crate::Draw::Layer(layer) => {
+                    if layer.alpha == 0.
+                        || layer
+                            .quad
+                            .clip
+                            .is_some_and(|clip| clip[2] <= 0. || clip[3] <= 0.)
+                    {
+                        continue;
+                    }
+                    let resource = self.render_layer(layer)?;
+                    let slot = self.frame_images.len();
+                    self.frame_images.push(resource);
+                    let q = &layer.quad;
+                    instances.push(Instance {
+                        mask_rect: [0.; 4],
+                        rect: q.rect,
+                        color: [0., 0., 0., layer.alpha],
+                        color2: [0.; 4],
+                        border: [0.; 4],
+                        config: [0., 0., 4., slot as f32],
+                        clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
+                        uv: [0., 0., 1., 1.],
+                        gradient: [0.; 4],
+                        clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                     });
                 }
                 #[cfg(feature = "paint-scene")]
@@ -1000,6 +1105,47 @@ impl Renderer {
     }
 }
 
+#[cfg(feature = "paint-scene")]
+impl Renderer {
+    /// Intermediate color-texture pixel payload requested by isolated layers
+    /// in the most recently encoded frame (excluding driver overhead/in-flight frames).
+    pub fn layer_frame_bytes(&self) -> u64 {
+        self.frame_layer_bytes
+    }
+    fn render_layer(
+        &mut self,
+        layer: &crate::scene::PreparedLayer,
+    ) -> Result<std::rc::Rc<crate::image::GpuImage>> {
+        let [x, y, width, height] = layer.quad.rect;
+        let size = [width as u32, height as u32];
+        let bytes = u64::from(size[0]) * u64::from(size[1]) * 4;
+        if self.layer_depth >= 16 || self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
+            return Err(Error::InvalidInput {
+                reason: "isolated layers exceed depth 16 or 128 MiB frame budget".into(),
+            });
+        }
+        self.frame_layer_bytes += bytes;
+        self.layer_depth += 1;
+        let parent_target = self.target.take();
+        let parent_images = std::mem::take(&mut self.frame_images);
+        let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
+        // Bindings keep the child texture alive after its temporary Target drops.
+        let result = encoded.map(|encoder| {
+            let image = crate::image::GpuImage::from_layer(
+                &self.device,
+                &self.atlas_texture.layout,
+                &self.target.as_ref().expect("encoded layer target").texture,
+            );
+            self.queue.submit([encoder.finish()]);
+            image
+        });
+        self.target = parent_target;
+        self.frame_images = parent_images;
+        self.layer_depth -= 1;
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1151,6 +1297,92 @@ mod tests {
 #[cfg(all(test, target_os = "linux", feature = "system-text"))]
 mod atlas_tests {
     use super::*;
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires system fonts and a working wgpu adapter"]
+    fn child_layer_cannot_recycle_parent_glyph_uvs() {
+        use kurbo::{Affine, Rect};
+        use plico_renderer::{
+            PaintCommand, PaintScene, Scene, paragraph::ParagraphRequest, style::Paint,
+        };
+        use std::sync::Arc;
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let request = |text: &str, color| {
+            Arc::new(
+                ParagraphRequest::from_paint(
+                    &Paint {
+                        text: Some(text.into()),
+                        font_size: 1000.,
+                        text_color: color,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let first = request("W", peniko::Color::from_rgba8(200, 0, 0, 255));
+        let second = request("Z", peniko::Color::from_rgba8(0, 0, 200, 255));
+        let w = renderer.paragraph_layout(first.clone(), 1.).unwrap();
+        let z = renderer.paragraph_layout(second.clone(), 1.).unwrap();
+        let origin = |layout: &crate::text::GlyphLayout, x: f64| {
+            let glyph = &layout.glyphs[0];
+            Affine::translate((
+                x - glyph.x - glyph.ink_bounds[0],
+                8. - glyph.y - glyph.ink_bounds[1],
+            ))
+        };
+        let mut scene = Scene::new();
+        scene.commands.push(PaintCommand::Paragraph {
+            request: first,
+            transform: origin(&w, 8.),
+        });
+        scene.push_layer(
+            peniko::BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 256., 64.),
+            None,
+            None,
+        );
+        scene.commands.push(PaintCommand::Paragraph {
+            request: second,
+            transform: origin(&z, 64.),
+        });
+        scene.pop_layer();
+        let expected = renderer
+            .render_scene(&scene, [256, 64], [1.; 4], false)
+            .unwrap();
+        let mut fill = crate::text::TextRequest::new("MNABCDEFGH");
+        fill.size = 1000.;
+        let fill = renderer.layout_text(&fill).unwrap();
+        let atlas = renderer.atlas.as_mut().unwrap();
+        atlas.clear();
+        atlas.get(&w.glyphs[0], 0).unwrap();
+        let mut full = false;
+        'fill: for glyph in &fill.glyphs {
+            for phase in 0..4 {
+                match atlas.get(glyph, phase) {
+                    Ok(_) => {}
+                    Err(plico_native::text::Error::AtlasFull) => {
+                        full = true;
+                        break 'fill;
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            }
+        }
+        assert!(full);
+        let actual = renderer
+            .render_scene(&scene, [256, 64], [1.; 4], false)
+            .unwrap();
+        assert_eq!(
+            actual, expected,
+            "child layer invalidated already prepared parent UVs"
+        );
+        assert!(renderer.text_stats().recycled_frames > 0);
+    }
+
     #[test]
     #[ignore = "requires system fonts and a working wgpu adapter"]
     fn full_atlas_recycles_before_draw_without_stale_uvs() {

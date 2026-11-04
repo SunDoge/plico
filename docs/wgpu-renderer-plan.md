@@ -53,7 +53,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    Solid general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
    coverage masks, while rect clips keep the fast path. Non-solid general paths,
-   isolated opacity/layers and shared shader effects remain. Bound derived caches and track resource generations.
+   filter/blend layers and shared shader effects remain. Isolated source-over
+   opacity groups now use cropped GPU-only intermediates with bounded depth/bytes. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers. Single-line native input, selection and IME event geometry

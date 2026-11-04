@@ -380,8 +380,8 @@ The mask-intersection cache has a 256-entry/64 MiB pixel budget, additional to t
 path/SVG CPU caches. Mask GPU textures share the existing 128 MiB image-texture
 cache and frame ownership rules. A nonrectangular clip adds a coverage sample per
 fragment and can split a texture batch; no performance advantage is claimed.
-Clip depth above 128 and invalid mask bounds return errors. Isolated opacity,
-blend modes and filter layers remain unsupported.
+Clip depth above 128 and invalid mask bounds return errors. Isolated opacity now
+uses the GPU group path below; blend modes and filter layers remain unsupported.
 
 GPU tests cover nested curved/triangular masks, fractional motion, independent
 CPU mask intersection, disjoint masks, pop restoration and clipped native text.
@@ -418,3 +418,42 @@ advanced damage history, requiring a full subsequent frame. GPU target contents
 still live in the independent retained texture. Repeated keyboard edits displayed
 correctly after this change; the pure offscreen tests alone did not expose the
 swapchain behavior.
+
+
+### Isolated source-over opacity groups
+
+`PushLayer` with the default source-over blend, no filter, and finite alpha in
+0..=1 now produces a GPU-only intermediate. Children are composited into a
+transparent texture, then group alpha and the enclosing/layer clip masks are
+applied once. Applying alpha to every child independently would incorrectly darken
+overlapping content. Nested groups preserve painter order, image/mask resources
+and native glyph rendering. Nondefault blend modes and filter layers still return
+explicit unsupported errors.
+
+Targets are cropped to the outward-rounded layer clip bounds. A physical origin
+in the frame uniform maps global geometry into the cropped viewport, while glyph
+raster phases, mask coordinates and hit testing remain in screen space. This
+avoids allocating a full-window texture for every fading control. The graph is
+limited to 16 isolated levels and 128 MiB of requested intermediate color-pixel
+payload per frame. `layer_frame_bytes` exposes that payload; it is not total GPU
+memory and excludes driver overhead, the persistent target and in-flight frames.
+A phase-preservation fixture requests 81*56*4 = 18,144 bytes for its clipped group.
+Zero-opacity and empty groups skip GPU allocation. Intermediates are currently
+created for changed frames rather than pooled; animation throughput and allocation
+cost have not been benchmarked.
+
+Before a graph containing layers submits children, it reserves the whole graph's
+conservatively visible glyph working set. Otherwise a child could recycle the atlas after its
+parent had already recorded glyph UVs. Exhaustion retries from an empty atlas;
+a graph that still cannot fit returns an error. Ordinary non-layer frames keep
+the previous text preparation path. This preflight costs extra CPU traversal and
+is a correctness step, not a performance optimization.
+
+GPU tests verify overlapping children get group alpha once, nested alpha multiplies,
+masked groups retain native text/images, crop coordinates preserve text phase,
+damaged/full replay match through alpha/content/resize changes, depth rejection
+recovers, and a deliberately full glyph atlas cannot corrupt parent text when
+preparing a child. The shared `scene_counter` card now uses opacity to exercise
+this path through ordinary Plico declarations at four DPI scales. The shared X11
+window card also uses group opacity; keyboard input and a mouse counter update
+were verified under Xvfb with damage enabled.

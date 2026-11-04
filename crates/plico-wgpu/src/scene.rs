@@ -11,8 +11,16 @@ pub struct PreparedScene {
     flattened: Scene,
     ink: Vec<Option<Rect>>,
 }
+/// An isolated source-over group. Children are drawn into a transparent GPU
+/// texture, then alpha/clip are applied once to the completed group.
+pub struct PreparedLayer {
+    pub(crate) scene: std::rc::Rc<PreparedScene>,
+    pub(crate) quad: Quad,
+    pub(crate) alpha: f32,
+}
 enum PreparedDraw {
     Quad(Quad),
+    Layer(PreparedLayer),
     Image(crate::image::ImageQuad),
     SetMask(std::rc::Rc<crate::mask::CoverageMask>),
     ResetMask,
@@ -28,6 +36,12 @@ impl PreparedDraw {
     fn ink_bounds(&self) -> Rect {
         match self {
             Self::SetMask(_) | Self::ResetMask => Rect::ZERO,
+            Self::Layer(layer) => Rect::new(
+                layer.quad.rect[0] as f64,
+                layer.quad.rect[1] as f64,
+                (layer.quad.rect[0] + layer.quad.rect[2]) as f64,
+                (layer.quad.rect[1] + layer.quad.rect[3]) as f64,
+            ),
             Self::Quad(q) | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
                 let [x, y, w, h] = q.rect;
                 Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
@@ -73,6 +87,7 @@ impl PreparedScene {
             .iter()
             .map(|draw| match draw {
                 PreparedDraw::Quad(q) => Draw::Quad(q),
+                PreparedDraw::Layer(layer) => Draw::Layer(layer),
                 PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
                 PreparedDraw::ResetMask => Draw::ResetMask,
                 PreparedDraw::Image(image) => Draw::Image(image),
@@ -200,6 +215,19 @@ impl Renderer {
         scene: &Scene,
         size: [u32; 2],
     ) -> Result<std::rc::Rc<PreparedScene>> {
+        if self.scene_prepare_depth > 16 {
+            return Err(unsupported(0, "layer preparation depth exceeds 16"));
+        }
+        self.scene_prepare_depth += 1;
+        let result = self.prepare_scene_inner(scene, size);
+        self.scene_prepare_depth -= 1;
+        result
+    }
+    fn prepare_scene_inner(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+    ) -> Result<std::rc::Rc<PreparedScene>> {
         if let Some((cached_size, cached)) = &self.prepared_cache
             && *cached_size == size
             && cached.source.shares_commands_with(scene)
@@ -213,7 +241,11 @@ impl Renderer {
         let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
         let mut ink = vec![None; scene.commands.len()];
+        let mut skip_until = 0;
         for (index, command) in scene.commands.iter().enumerate() {
+            if index < skip_until {
+                continue;
+            }
             let clip = *clips.last().unwrap();
             let first_draw = draws.len();
             let fallback = match command {
@@ -364,6 +396,100 @@ impl Renderer {
                         q.border_color = color.components;
                         draws.push(PreparedDraw::Quad(q));
                     }
+                    PaintCommand::PushLayer {
+                        blend,
+                        alpha,
+                        transform,
+                        clip: shape,
+                        filter,
+                    } => {
+                        if *blend != peniko::BlendMode::default() || filter.is_some() {
+                            return Err(unsupported(index, "layer blend mode/filter"));
+                        }
+                        if !alpha.is_finite() || !(0. ..=1.).contains(alpha) {
+                            return Err(unsupported(index, "invalid layer alpha"));
+                        }
+                        let mut depth = 1;
+                        let mut end = None;
+                        for (next, command) in scene.commands.iter().enumerate().skip(index + 1) {
+                            match command {
+                                PaintCommand::PushLayer { .. } | PaintCommand::PushClip { .. } => {
+                                    depth += 1
+                                }
+                                PaintCommand::PopLayer => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        end = Some(next);
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        let end =
+                            end.ok_or_else(|| unsupported(index, "unclosed isolated layer"))?;
+                        skip_until = end + 1;
+                        let mut child = Scene::new();
+                        child
+                            .commands
+                            .extend(scene.commands[index + 1..end].iter().cloned());
+                        let child =
+                            self.prepare_scene(&child, size)
+                                .map_err(|error| match error {
+                                    Error::Unsupported { command, reason } => {
+                                        unsupported(index + 1 + command, reason)
+                                    }
+                                    other => other,
+                                })?;
+                        let parent = masks.last().unwrap().clone();
+                        let mut layer_clip = clip;
+                        let mut composite_mask = parent.clone();
+                        if let Ok((rect, 0.)) = geometry(shape, index)
+                            && uniform(*transform, index).is_ok()
+                        {
+                            layer_clip = layer_clip.intersect(transform.transform_rect_bbox(rect));
+                        } else {
+                            let command = PaintCommand::Fill {
+                                fill: peniko::Fill::NonZero,
+                                transform: *transform,
+                                brush: peniko::Color::WHITE.into(),
+                                brush_transform: None,
+                                shape: shape.clone(),
+                            };
+                            if let Some((image, bounds)) = self.paths.raster(&command)? {
+                                let mask =
+                                    self.masks.intersect(image, bounds, parent.as_deref())?;
+                                layer_clip = layer_clip.intersect(mask.bounds());
+                                composite_mask = Some(mask);
+                            } else {
+                                layer_clip = Rect::ZERO;
+                            }
+                        }
+                        if let Some(mask) = &composite_mask {
+                            draws.push(PreparedDraw::SetMask(mask.clone()));
+                        }
+                        let q = quad(
+                            Rect::new(
+                                layer_clip.x0.floor(),
+                                layer_clip.y0.floor(),
+                                layer_clip.x1.ceil(),
+                                layer_clip.y1.ceil(),
+                            ),
+                            0.,
+                            Affine::IDENTITY,
+                            layer_clip,
+                            index,
+                        )?;
+                        draws.push(PreparedDraw::Layer(PreparedLayer {
+                            scene: child,
+                            quad: q,
+                            alpha: *alpha,
+                        }));
+                        draws.push(match parent {
+                            Some(mask) => PreparedDraw::SetMask(mask),
+                            None => PreparedDraw::ResetMask,
+                        });
+                    }
                     PaintCommand::PushClip {
                         transform,
                         clip: shape,
@@ -478,7 +604,6 @@ impl Renderer {
                                     PaintCommand::GlyphRun { .. } => "positioned glyph",
                                     PaintCommand::BoxShadow { .. } => "shadow",
                                     PaintCommand::Shader { .. } => "shader",
-                                    PaintCommand::PushLayer { .. } => "isolated layer",
                                     PaintCommand::Fragment { .. } => "unflattened fragment",
                                     _ => "unknown",
                                 }

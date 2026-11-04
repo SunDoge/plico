@@ -1,4 +1,4 @@
-struct Frame { size_time_scale: vec4f }
+struct Frame { size_time_scale: vec4f, background:vec4f, origin:vec4f }
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(0) var glyph_atlas: texture_2d<f32>;
 @group(1) @binding(1) var glyph_sampler: sampler;
@@ -29,7 +29,7 @@ struct Vertex {
     let local=corners[index]*(rect.zw+2.)-1.;
     let world=rect.xy+local;
     var out: Vertex;
-    out.position=vec4f(world/frame.size_time_scale.xy*vec2f(2,-2)+vec2f(-1,1),0,1);
+    out.position=vec4f((world-frame.origin.xy)/frame.size_time_scale.xy*vec2f(2,-2)+vec2f(-1,1),0,1);
     out.local=local;out.size=rect.zw;out.color=color;out.color2=color2;
     out.clip_params=clip_params;
     out.mask_rect=mask_rect;
@@ -52,7 +52,7 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
     return clamp(0.5-distance_to_round_rect(p,size,radius),0.,1.);
 }
 @fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
-    let world=input.position.xy;
+    let world=input.position.xy+frame.origin.xy;
     let clip=input.clip;
     // Clip rectangle is a hard scissor equivalent, in physical pixels.
     var clip_alpha=1.;
