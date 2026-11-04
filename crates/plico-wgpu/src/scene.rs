@@ -13,12 +13,13 @@ pub struct PreparedScene {
     root_clip: Rect,
     ink: Vec<Option<Rect>>,
 }
-/// An isolated source-over group. Children are drawn into a transparent GPU
+/// An isolated source-over or additive group. Children are drawn into a transparent GPU
 /// texture, then alpha/clip are applied once to the completed group.
 pub struct PreparedLayer {
     pub(crate) scene: std::rc::Rc<PreparedScene>,
     pub(crate) quad: Quad,
     pub(crate) alpha: f32,
+    pub(crate) additive: bool,
     pub(crate) blur: Option<plico_renderer::filter::GaussianBlur>,
 }
 #[derive(Default)]
@@ -617,7 +618,14 @@ impl Renderer {
                         clip: shape,
                         filter,
                     } => {
-                        if *blend != peniko::BlendMode::default() {
+                        if blend.mix != peniko::Mix::Normal
+                            || !matches!(
+                                blend.compose,
+                                peniko::Compose::SrcOver
+                                    | peniko::Compose::Plus
+                                    | peniko::Compose::PlusLighter
+                            )
+                        {
                             return Err(unsupported(index, "layer blend mode/filter"));
                         }
                         let blur = filter
@@ -720,6 +728,7 @@ impl Renderer {
                                 scene: child,
                                 quad: q,
                                 alpha: *alpha,
+                                additive: blend.compose != peniko::Compose::SrcOver,
                                 blur,
                             },
                         ));

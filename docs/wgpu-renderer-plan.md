@@ -60,7 +60,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    paths now combine cached shape coverage with GPU world-to-source sampling.
    Solid, linear, radial and sweep gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
-   coverage masks, while rect clips keep the fast path. General filter graphs/non-default blend layers remain. Single Gaussian filtered
+   coverage masks, while rect clips keep the fast path. General filter graphs and background-reading blend modes remain; isolated additive Plus/PlusLighter composition is implemented. Single Gaussian filtered
    layers now use two GPU passes, and the real gallery Glass page renders. Gaussian box shadows now use quad coverage with
    four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the
    existing public shader widget with local damage and injected time; texture
@@ -242,3 +242,25 @@ This exercises real host input, animated-image decode/cache/playback, hosted pai
 application zoom and window submission together. It does not prove pixel-perfect
 image quality, physical-monitor DPI transitions, frame pacing or power use under
 a real compositor. Xvfb still reports missing DRI3.
+
+## Additive isolated layers
+
+Shared `PushLayer` accepts Normal mixing with SrcOver, Plus and PlusLighter.
+Children still render source-over into an isolated RGBA8 target; group alpha and
+clip apply once, then the completed image uses either source-over or saturating
+One + One blending for color and alpha. Transparent source pixels leave the
+backdrop intact, so the existing cropped layer/damage bounds remain valid.
+Other mixes/compositions remain explicit unsupported-command errors; this does
+not implement Multiply, backdrop reads or arbitrary blend graphs.
+
+The additive pipeline is created lazily from the validated current material.
+Successful material replacement invalidates that variant; rejected material
+updates keep the last working state. Adjacent batch grouping includes composition
+identity, and following ordinary controls restore source-over. No destination
+texture copy or CPU compositing is introduced. No performance advantage is claimed.
+
+A GPU regression checks independent expected premultiplied colors, nested child
+overlap/group opacity, following normal controls, saturation, material replacement,
+and partial/full replay including removal. The complete local suite passed 95
+tests (five manual profiles excluded), with Clippy and no-default/Windows/WASM
+checks. Windows and browser runtime blend results remain unverified.

@@ -447,3 +447,151 @@ fn pool_eviction_keeps_current_frame_layers_distinct_and_alive() {
     assert_eq!(stats.entries, 128);
     assert_eq!(stats.retained_bytes, 128 * 4);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn additive_groups_isolate_children_restore_source_over_and_match_damage() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    for compose in [
+        peniko::Compose::SrcOver,
+        peniko::Compose::Plus,
+        peniko::Compose::PlusLighter,
+    ] {
+        for frame in 0..4 {
+            let mut scene = Scene::new();
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                PaintColor::from_rgba8(255, 0, 0, 128),
+                None,
+                &Rect::new(0., 0., 64., 32.),
+            );
+            if frame < 3 {
+                scene.push_layer(
+                    compose,
+                    0.5,
+                    Affine::translate((frame as f64 * 0.25, 0.)),
+                    &Rect::new(0., 0., 48., 32.),
+                    None,
+                    None,
+                );
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    PaintColor::from_rgb8(0, 0, 255),
+                    None,
+                    &Rect::new(0., 0., 20., 32.),
+                );
+                scene.push_layer(
+                    peniko::BlendMode::default(),
+                    1.,
+                    Affine::IDENTITY,
+                    &Rect::new(12., 0., 32., 32.),
+                    None,
+                    None,
+                );
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    PaintColor::from_rgb8(0, 0, 255),
+                    None,
+                    &Rect::new(12., 0., 32., 32.),
+                );
+                scene.pop_layer();
+                scene.pop_layer();
+            }
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                PaintColor::from_rgba8(0, 255, 0, 128),
+                None,
+                &Rect::new(24., 0., 40., 32.),
+            );
+            if frame == 1 {
+                // Replacing material must also invalidate the lazy blend variant.
+                pollster::block_on(partial.set_material(&format!(
+                    "fn plico_material(m: Material)->vec4f {{return m.color;}} // {compose:?}"
+                )))
+                .unwrap();
+            }
+            let compilations = partial.pipeline_compilations();
+            let actual = partial
+                .render_scene(&scene, [64, 32], [0.; 4], true)
+                .unwrap();
+            let expected = full.render_scene(&scene, [64, 32], [0.; 4], false).unwrap();
+            assert_eq!(actual, expected, "{compose:?} frame {frame}");
+            if frame == 1 && compose != peniko::Compose::SrcOver {
+                assert_eq!(
+                    partial.pipeline_compilations(),
+                    compilations + 1,
+                    "material replacement did not recreate additive variant"
+                );
+            }
+            if frame == 0 {
+                let additive = compose != peniko::Compose::SrcOver;
+                for (x, expected) in [
+                    (
+                        8,
+                        if additive {
+                            [128, 0, 128, 255]
+                        } else {
+                            [64, 0, 128, 192]
+                        },
+                    ),
+                    (
+                        16,
+                        if additive {
+                            [128, 0, 128, 255]
+                        } else {
+                            [64, 0, 128, 192]
+                        },
+                    ),
+                    (
+                        28,
+                        if additive {
+                            [64, 128, 64, 255]
+                        } else {
+                            [32, 128, 64, 224]
+                        },
+                    ),
+                    (36, [64, 128, 0, 192]),
+                    (54, [128, 0, 0, 128]),
+                ] {
+                    let pixel = &actual[(16 * 64 + x) * 4..(16 * 64 + x) * 4 + 4];
+                    assert!(
+                        pixel.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                        "{compose:?} at {x}: {pixel:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(partial.pipeline_compilations() >= 3);
+    for compose in [peniko::Compose::Plus, peniko::Compose::PlusLighter] {
+        let mut scene = Scene::new();
+        scene.push_layer(
+            compose,
+            0.75,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 4., 4.),
+            None,
+            None,
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::WHITE,
+            None,
+            &Rect::new(0., 0., 4., 4.),
+        );
+        scene.pop_layer();
+        let pixels = partial
+            .render_scene(&scene, [4, 4], [0.75; 4], true)
+            .unwrap();
+        assert!(
+            pixels.iter().all(|c| *c == 255),
+            "additive saturation: {compose:?}"
+        );
+    }
+}

@@ -131,6 +131,8 @@ pub struct Renderer {
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
     pipeline: Option<wgpu::RenderPipeline>,
+    plus_pipeline: Option<wgpu::RenderPipeline>,
+    material_module: Option<wgpu::ShaderModule>,
     clear_pipeline: wgpu::RenderPipeline,
     source: String,
     target: Option<Target>,
@@ -327,6 +329,8 @@ impl Renderer {
             frame,
             bind,
             pipeline: None,
+            plus_pipeline: None,
+            material_module: None,
             clear_pipeline,
             source: String::new(),
             target: None,
@@ -452,14 +456,32 @@ impl Renderer {
                 label: Some("Plico quad material"),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
+        let pipeline =
+            self.material_pipeline(&shader, wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+        if let Some(error) = scope.pop().await {
+            return Err(Error::Shader {
+                message: error.to_string(),
+            });
+        }
+        self.pipeline = Some(pipeline);
+        self.plus_pipeline = None;
+        self.material_module = Some(shader);
+        self.source = material.into();
+        self.compilations += 1;
+        Ok(true)
+    }
+    fn material_pipeline(
+        &self,
+        shader: &wgpu::ShaderModule,
+        blend: wgpu::BlendState,
+    ) -> wgpu::RenderPipeline {
         let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4];
-        let pipeline = self
-            .device
+        self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Plico SDF quads"),
                 layout: Some(&self.layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: shader,
                     entry_point: Some("vs_main"),
                     compilation_options: Default::default(),
                     buffers: &[Some(wgpu::VertexBufferLayout {
@@ -472,27 +494,35 @@ impl Renderer {
                 depth_stencil: None,
                 multisample: Default::default(),
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: shader,
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
                 multiview_mask: None,
                 cache: None,
-            });
-        if let Some(error) = scope.pop().await {
-            return Err(Error::Shader {
-                message: error.to_string(),
-            });
+            })
+    }
+    fn ensure_plus_pipeline(&mut self) {
+        if self.plus_pipeline.is_none() {
+            let component = wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            };
+            self.plus_pipeline = Some(self.material_pipeline(
+                self.material_module.as_ref().expect("material installed"),
+                wgpu::BlendState {
+                    color: component,
+                    alpha: component,
+                },
+            ));
+            self.compilations += 1;
         }
-        self.pipeline = Some(pipeline);
-        self.source = material.into();
-        self.compilations += 1;
-        Ok(true)
     }
     fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -722,6 +752,12 @@ impl Renderer {
                 })
             });
         }
+        if instances
+            .iter()
+            .any(|instance| instance.config[2] == 4. && instance.config[1] == 1.)
+        {
+            self.ensure_plus_pipeline();
+        }
         tracing::trace!(instances = instances.len(), "prepared ordered instances");
         if instances.len() > 1_000_000
             || (instances.len().max(1).next_power_of_two() * std::mem::size_of::<Instance>()) as u64
@@ -797,11 +833,7 @@ impl Renderer {
                     pass.draw(0..3, 0..1);
                     self.batch_stats.clears += 1;
                 }
-                pass.set_pipeline(
-                    self.pipeline
-                        .as_ref()
-                        .expect("constructor installs pipeline"),
-                );
+
                 pass.set_bind_group(0, &self.bind, &[]);
                 pass.set_vertex_buffer(0, self.instances.slice(..));
                 // Batch only adjacent textures: sorting would break painter order.
@@ -817,9 +849,18 @@ impl Renderer {
                     while end < instances.len()
                         && key(end) == texture
                         && instances[end].clip_params[2] == instances[first].clip_params[2]
+                        && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
+                            == (instances[first].config[2] == 4.
+                                && instances[first].config[1] == 1.)
                     {
                         end += 1;
                     }
+                    let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
+                    pass.set_pipeline(if plus {
+                        self.plus_pipeline.as_ref().expect("plus pipeline prepared")
+                    } else {
+                        self.pipeline.as_ref().expect("material installed")
+                    });
                     #[cfg(feature = "paint-scene")]
                     let bind = texture.map_or(&self.atlas_texture.bind, |slot| {
                         &self.frame_images[slot].bind
@@ -1183,7 +1224,7 @@ impl Renderer {
                         color: [0., 0., 0., layer.alpha],
                         color2: [0.; 4],
                         border: [0.; 4],
-                        config: [0., 0., 4., slot as f32],
+                        config: [0., if layer.additive { 1. } else { 0. }, 4., slot as f32],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: [0., 0., 1., 1.],
                         gradient: [0.; 4],
