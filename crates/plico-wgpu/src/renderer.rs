@@ -580,6 +580,12 @@ impl Renderer {
         self.encode_frame_regions(items, size, background, time, None)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.encode",
+        skip_all
+    )]
     pub(crate) fn encode_frame_regions(
         &mut self,
         items: &[crate::Draw<'_>],
@@ -617,7 +623,7 @@ impl Renderer {
             );
         }
         #[cfg(feature = "paint-scene")]
-        {
+        if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.layer_pool_stats();
             let effect_stats = self.effect_cache_stats();
             let positioned = self.positioned_glyph_cache_stats();
@@ -628,7 +634,7 @@ impl Renderer {
                 layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
-        {
+        if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.paragraph_cache_stats();
             let atlas = self.text_stats();
             tracing::trace!(target: "plico::perf", paragraphs=stats.layouts,
@@ -637,6 +643,19 @@ impl Renderer {
                 application_fonts=stats.fonts, application_font_bytes=stats.font_bytes,
                 atlas_cpu_bytes=atlas.atlas_cpu_bytes, atlas_gpu_bytes=atlas.atlas_gpu_bytes,
                 glyph_upload_bytes_total=atlas.uploaded_bytes, "wgpu native text resources");
+        }
+        #[cfg(all(
+            feature = "paint-scene",
+            target_os = "windows",
+            feature = "system-text"
+        ))]
+        if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
+            let stats = self.windows_text_cache_stats();
+            tracing::trace!(target: "plico::perf", paragraphs=stats.layouts,
+                paragraph_rust_bytes=stats.layout_bytes, rasters=stats.rasters,
+                raster_payload_bytes=stats.raster_bytes, rasterizations_total=stats.rasterizations,
+                colorizations_total=stats.colorizations, application_fonts=stats.font_files,
+                native_font_copy_bytes=stats.font_copy_bytes, "wgpu DirectWrite resources");
         }
         result
     }
@@ -820,6 +839,12 @@ impl Renderer {
         let encoder = self.encode_frame(items, size, background, time)?;
         self.read_frame(encoder, size)
     }
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.readback_including_gpu_wait",
+        skip_all
+    )]
     pub(crate) fn read_frame(
         &mut self,
         mut encoder: wgpu::CommandEncoder,
@@ -1400,6 +1425,12 @@ impl Renderer {
         let encoder = self.encode_frame(items, size, background, time)?;
         self.submit_to_view(encoder, destination, format)
     }
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.submit",
+        skip_all
+    )]
     pub(crate) fn submit_to_view(
         &mut self,
         mut encoder: wgpu::CommandEncoder,

@@ -84,12 +84,14 @@ fn run() -> Result<(), Error> {
         .context(VelloSnafu),
         #[cfg(feature = "wgpu")]
         "wgpu" => {
-            let _ = tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| "info".into()),
-                )
-                .try_init();
+            let subscriber = tracing_subscriber::fmt().with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "info".into()),
+            );
+            #[cfg(feature = "profiling")]
+            let subscriber =
+                subscriber.with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE);
+            let _ = subscriber.try_init();
             plico_desktop::run_source_with_options(
                 plico_desktop::Source::new(backend_settings::ImmediateSettings::default()),
                 plico_desktop::WindowOptions::new()

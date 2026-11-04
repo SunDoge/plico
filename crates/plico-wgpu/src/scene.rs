@@ -282,6 +282,12 @@ fn brush(q: &mut Quad, brush: &Brush, local: Rect, index: usize) -> Result<()> {
 impl Renderer {
     /// Compile supported shared commands while preserving order and clip scopes.
     /// Fails atomically: no partial frame is submitted if an operation is unsupported.
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.prepare_scene",
+        skip_all
+    )]
     pub fn prepare_scene(
         &mut self,
         scene: &Scene,
@@ -1014,6 +1020,12 @@ impl SceneFramePlan {
     }
 }
 impl Renderer {
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.damage",
+        skip_all
+    )]
     fn scene_regions(
         &mut self,
         prepared: &PreparedScene,
