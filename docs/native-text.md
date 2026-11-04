@@ -76,8 +76,8 @@ cost more memory and cache invalidation work than reusable glyphs, and changing
 color invalidates a bitmap. Rebuilding at target scale is required after DPI changes;
 rotated/continuously scaled text remains better suited to the outline path.
 
-macOS CoreText and Windows DirectWrite are future implementations, not stubs claimed
-as working backends. No GTK window or main loop is introduced. `linux-text` is off
+macOS CoreText remains unimplemented; the experimental Windows DirectWrite service
+and wgpu bridge are described below. No GTK window or main loop is introduced. `linux-text` is off
 by default and target-gated; default builds, WASM and ESP-IDF do not link Pango/Cairo.
 
 See [source and license notes](../crates/plico-native/SOURCES.md) for the local
@@ -114,10 +114,19 @@ On Windows, verify typing and IME composition, selection/caret placement, scroll
 clipping, resizing and moving between monitors with different scaling settings.
 Repeat with `PLICO_WGPU_DAMAGE=1` in the environment to compare damage replay.
 Record OS, GPU, scale settings and screenshots when reporting a failure.
-The example builds/runs on Linux; Windows full-desktop cross-check in this Linux
-environment currently stops in ring's C build because MinGW GCC is absent.
-The narrower Windows renderer/service cross-checks do not prove that executable
-build or Windows window behavior.
+The example builds/runs on Linux. A full Windows GNU cross-check of the desktop
+example also passes in this Linux environment with Zig 0.17's bundled Windows
+C toolchain and LLVM ar 19. A temporary local compiler wrapper adapts cc-rs's
+Rust target spelling to Zig's target spelling; no system package or repository
+dependency was changed. This overcomes the earlier missing-MinGW check failure,
+but a successful cross-check does not prove linking or Windows window behavior.
+A subsequent full GNU build reached the final executable link after compiling
+the Rust dependency graph. That link still failed because this Zig setup cannot
+resolve Rust's GNU target MSVCRT/pthread libraries. LLVM dlltool was available
+through another temporary tool-name adapter. No `.exe` or Windows execution is
+claimed; use a matching MinGW runtime/toolchain or native Windows MSVC before
+treating the fixture as built for distribution. Zig is not a project requirement
+or a recommended substitute for that release-toolchain validation.
 
 Local Linux/X11 acceptance used an actual wgpu window under Xvfb with the NVIDIA
 Vulkan adapter: initial/scroll/resize screenshots were inspected, font-size
