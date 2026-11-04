@@ -890,6 +890,7 @@ impl Engine {
         let parent = frame_root;
         view(&mut UiContext {
             engine: self,
+            localizer: &crate::localization::ENGLISH,
             parent,
             scope: namespace,
             inherited,

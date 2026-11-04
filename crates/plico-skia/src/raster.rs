@@ -32,6 +32,7 @@ pub(crate) struct Resources {
     font_manager: FontMgr,
     svg_rasters: std::collections::HashMap<(usize, u32, u32), SvgRaster>,
     images: ImageCache,
+    shaders: std::collections::HashMap<String, skia_safe::RuntimeEffect>,
 }
 struct SvgRaster {
     source: std::sync::Weak<plico_renderer::svg::usvg::Tree>,
@@ -54,6 +55,7 @@ impl Default for Resources {
             font_manager: FontMgr::new(),
             svg_rasters: Default::default(),
             images: Default::default(),
+            shaders: Default::default(),
         }
     }
 }
@@ -926,7 +928,50 @@ impl SkiaSurface {
                     );
                     self.surface.canvas().restore();
                 }
-                PaintCommand::Shader { .. } => return unsupported("Shader"),
+                PaintCommand::Shader { effect, transform } => {
+                    let source = effect.sksl().ok_or(Error::Unsupported {
+                        command: "Shader without SkSL variant",
+                    })?;
+                    let mut resources = self.resources.borrow_mut();
+                    if !resources.shaders.contains_key(source) {
+                        let complete = format!(
+                            "uniform float4 resolution_time_scale; uniform float4 values[64];\n{source}\nhalf4 main(float2 p) {{ return plico_effect(p * resolution_time_scale.w / resolution_time_scale.xy); }}"
+                        );
+                        let compiled = skia_safe::RuntimeEffect::make_for_shader(complete, None)
+                            .map_err(|message| Error::Shader { message })?;
+                        if resources.shaders.len() >= 64 {
+                            resources.shaders.clear();
+                        }
+                        resources.shaders.insert(source.to_owned(), compiled);
+                    }
+                    let compiled = &resources.shaders[source];
+                    let size = effect.logical_size();
+                    let mut floats = [0_f32; 260];
+                    floats[..4].copy_from_slice(&[
+                        f32::from(effect.physical_size()[0]),
+                        f32::from(effect.physical_size()[1]),
+                        effect.time(),
+                        effect.device_scale(),
+                    ]);
+                    let values = &effect.values()[..effect.values().len().min(256)];
+                    floats[4..4 + values.len()].copy_from_slice(values);
+                    let mut bytes = [0_u8; 1040];
+                    for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(floats) {
+                        slot.copy_from_slice(&value.to_ne_bytes());
+                    }
+                    let shader = compiled
+                        .make_shader(skia_safe::Data::new_copy(&bytes), &[], None)
+                        .ok_or_else(|| Error::Shader {
+                            message: "invalid uniform data".into(),
+                        })?;
+                    let mut paint = Paint::default();
+                    paint.set_shader(shader);
+                    let canvas = self.surface.canvas();
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    canvas.draw_rect(skia_safe::Rect::from_wh(size[0], size[1]), &paint);
+                    canvas.restore();
+                }
             }
         }
         if !restore_counts.is_empty() {

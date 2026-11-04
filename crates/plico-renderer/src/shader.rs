@@ -103,10 +103,19 @@ enum ShaderEffectInterface {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ShaderEffectSource {
     wgsl: Arc<str>,
+    sksl: Option<Arc<str>>,
     interface: ShaderEffectInterface,
 }
 
 impl ShaderEffectSource {
+    /// Attach an optional SkSL implementation, compiled by the Skia backend.
+    pub fn with_sksl(mut self, source: &str) -> Result<Self, String> {
+        if source.trim().is_empty() || source.len() > MAX_SOURCE_BYTES {
+            return Err("SkSL source must be nonempty and within the shader source limit".into());
+        }
+        self.sksl = Some(source.into());
+        Ok(self)
+    }
     /// Validate and retain a custom WGSL effect function.
     pub fn new(source: &str) -> Result<Self, String> {
         if source.trim().is_empty() {
@@ -186,6 +195,7 @@ impl ShaderEffectSource {
         }
         Ok(Self {
             wgsl: complete.into(),
+            sksl: None,
             interface,
         })
     }
@@ -214,6 +224,22 @@ pub struct ShaderEffect {
 }
 
 impl ShaderEffect {
+    /// Skia implementation, when supplied.
+    pub fn sksl(&self) -> Option<&str> {
+        self.source.sksl.as_deref()
+    }
+    /// Injected animation time in seconds.
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+    /// Application scalar parameters, packed into float4 values.
+    pub fn values(&self) -> &[f32] {
+        &self.values
+    }
+    /// Device pixels per logical pixel.
+    pub fn device_scale(&self) -> f32 {
+        self.device_scale
+    }
     /// Output texture dimensions in physical pixels.
     pub fn physical_size(&self) -> [u16; 2] {
         self.physical_size

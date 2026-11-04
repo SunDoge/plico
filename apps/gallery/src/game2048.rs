@@ -248,6 +248,7 @@ impl Game {
     #[component]
     #[rustfmt::skip]
     pub fn show(&mut self, cx: &mut UiContext) {
+        let l = cx.localizer();
         self.time = cx.now();
         let [width, height] = cx.viewport_size();
         let size = (width - 300.).min(height - 390.).clamp(220., 400.);
@@ -270,8 +271,8 @@ impl Game {
                     };
                 };
                 row(cx).justify(Justify::SpaceBetween).align(Align::Center).gap(10) + |cx| {
-                    text(cx, "Join the numbers. Reach 2048!").font_size(13).color(INK).width(0.).grow(1.);
-                    if game_button(cx, "New game") {
+                    text(cx, l.text("join-the-numbers-reach-2048", "Join the numbers. Reach 2048!")).font_size(13).color(INK).width(0.).grow(1.);
+                    if game_button(cx, &l.text("new-game", "New game")) {
                         self.restart();
                     }
                 };
@@ -299,12 +300,21 @@ impl Game {
                             .align(Align::Center).justify(Justify::Center).gap(20)
                             .opacity(((elapsed - 0.35) / 0.25).clamp(0., 1.)) + |cx|
                         {
-                            text(cx, if self.over { "Game over!" } else { "You win!" }).font_size(38).weight(750).color(INK);
+                            text(
+                                cx,
+                                if self.over {
+                                    l.text("game-over", "Game over!")
+                                } else {
+                                    l.text("you-win", "You win!")
+                                },
+                            ).font_size(38).weight(750).color(INK);
                             row(cx).gap(10).children(|cx| {
-                                if !self.over && game_button(cx, "Keep going") {
+                                if !self.over
+                                    && game_button(cx, &l.text("keep-going", "Keep going"))
+                                {
                                     self.keep_playing = true;
                                 }
-                                if game_button(cx, "Try again") {
+                                if game_button(cx, &l.text("try-again", "Try again")) {
                                     self.restart();
                                 }
                             })
@@ -325,8 +335,9 @@ impl Game {
                         });
                     }
                 };
-                text(cx, "HOW TO PLAY").font_size(11).weight(750).color(INK);
-                text(cx, "Use arrow keys, WASD or HJKL. Equal tiles merge once per move. R starts a new game.")
+                text(cx, l.text("how-to-play", "HOW TO PLAY")).font_size(11).weight(750).color(INK);
+                text(cx, l
+                    .text("use-arrow-keys-wasd-or-hjkl-equal-tiles-merge-once-per-move-r-starts-a-new-game", "Use arrow keys, WASD or HJKL. Equal tiles merge once per move. R starts a new game."))
                     .font_size(12).color(INK);
             };
         };

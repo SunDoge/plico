@@ -143,7 +143,7 @@ fn tab_space_shift_tab_and_disabled_skipping() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     let dark = named(&s, SemanticRole::Switch, "Dark theme").id;
-    for _ in 0..12 {
+    for _ in 0..s.adapter.semantics(&s.engine, 0).nodes.len() {
         s.handle_event(key("Tab", false));
         if s.adapter.semantics(&s.engine, 0).focus == Some(dark) {
             break;
@@ -158,7 +158,7 @@ fn tab_space_shift_tab_and_disabled_skipping() {
     frame(&mut s, &mut tcx, 920);
     assert!(s.view.large);
     let increment = named(&s, SemanticRole::Button, "Increment").id;
-    for _ in 0..12 {
+    for _ in 0..s.adapter.semantics(&s.engine, 0).nodes.len() {
         s.handle_event(key("Tab", false));
         if s.adapter.semantics(&s.engine, 0).focus == Some(increment) {
             break;
@@ -415,6 +415,8 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             Page::Controls,
             Page::Motion,
             Page::Lists,
+            Page::DataTable,
+            Page::TreeView,
         ] {
             let mut s = Source::new(Gallery {
                 router: plico::Router::new(page),

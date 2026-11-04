@@ -221,8 +221,10 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
             .role(WidgetRole::ListBox)
             .children(|cx| {
                 if let Some(query) = search {
-                    text_input(cx, "Search options", query)
-                        .placeholder("搜索…")
+                    let label = cx.tr("select-search", "Search options");
+                    let placeholder = cx.tr("select-search-placeholder", "Search…");
+                    text_input(cx, label, query)
+                        .placeholder(placeholder)
                         .width_percent(100.);
                 }
                 let query = search
@@ -276,7 +278,8 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
                     }
                 }
                 if shown_count == 0 {
-                    text(cx, "没有匹配项").color(Color::Muted);
+                    let label = cx.tr("select-no-results", "No matching options");
+                    text(cx, label).color(Color::Muted);
                 }
                 if options.len() > 80 {
                     text(cx, "输入关键词筛选，最多显示 80 项")

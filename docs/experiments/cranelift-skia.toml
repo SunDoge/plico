@@ -1,0 +1,24 @@
+[profile.dev.package.gallery]
+codegen-backend = "cranelift"
+[profile.dev.package.plico]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-dev]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-motion]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-i18n]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-markdown]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-renderer]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-runtime]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-editor]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-skia]
+codegen-backend = "llvm"
+[profile.dev.package.plico-shell]
+codegen-backend = "cranelift"
+[profile.dev.package.plico-desktop]
+codegen-backend = "cranelift"

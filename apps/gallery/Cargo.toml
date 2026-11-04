@@ -13,6 +13,7 @@ usage-rs.workspace = true
 snafu.workspace = true
 plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
 plico.workspace = true
+plico-i18n = { path = "../../crates/plico-i18n" }
 plico-motion.workspace = true
 plico-markdown = { path = "../../crates/plico-markdown" }
 plico-dev.workspace = true

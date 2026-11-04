@@ -4,12 +4,40 @@ use std::borrow::Cow;
 /// Context borrowed while declaring one UI tree. Widget constructors live in `widgets`.
 pub struct UiContext<'e> {
     pub(crate) engine: &'e mut Engine,
+    pub(crate) localizer: &'e dyn crate::Localizer,
     pub(crate) parent: Entity,
     pub(crate) scope: u64,
     pub(crate) inherited: Style,
     pub(crate) in_button: bool,
 }
 impl<'e> UiContext<'e> {
+    /// Translation context inherited by this declaration's children and portals.
+    pub fn localizer(&self) -> &'e dyn crate::Localizer {
+        self.localizer
+    }
+    /// Resolve a message without coupling its display text to widget identity.
+    pub fn tr(&self, id: &str, fallback: &'static str) -> Cow<'e, str> {
+        self.localizer.text(id, fallback)
+    }
+    /// Borrow an app-owned catalog for a synchronous declaration scope. No global
+    /// locale or reference is retained; nested scopes and unwinding restore the
+    /// outer context naturally. Regions must re-inject on each replay and declare
+    /// the selected locale as an explicit dependency.
+    pub fn localized<R>(
+        &mut self,
+        localizer: &dyn crate::Localizer,
+        build: impl FnOnce(&mut UiContext<'_>) -> R,
+    ) -> R {
+        build(&mut UiContext {
+            engine: &mut *self.engine,
+            localizer,
+            parent: self.parent,
+            scope: self.scope,
+            inherited: self.inherited,
+            in_button: self.in_button,
+        })
+    }
+
     /// Component-local storage. Call sites are independent of declaration order.
     /// Use `keyed` around repeated component instances in dynamic lists.
     #[track_caller]
@@ -373,6 +401,7 @@ impl<'e> UiContext<'e> {
         self.engine.nodes.get_mut(parent).unwrap().auto = 0;
         let mut ui = UiContext {
             engine: &mut *self.engine,
+            localizer: self.localizer,
             parent,
             scope,
             inherited: self.inherited,
@@ -1933,6 +1962,7 @@ impl<'e> UiContext<'e> {
             inner,
             params: crate::ShaderParams {
                 module: asset.is_module(),
+                sksl: asset.sksl().map(str::to_owned),
                 ..Default::default()
             },
         }

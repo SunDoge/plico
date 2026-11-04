@@ -54,3 +54,34 @@ cargo run -p gallery --example capture -- --page motion --out /tmp/shader.png
 主题转场会同时绘制同一个 surface 的旧、新快照。renderer 为同一帧中参数或程序不同的版本分配独立纹理和 uniform buffer，不能仅按 surface id 共用一个目标。下一帧复用目标，未再绘制的版本在 finish_frame 清理；不变版本直接复用已绘制纹理，也不为此重新查找或编译 pipeline。
 
 实际 GPU 回归测试先复现了“红色旧快照被绿色新参数覆盖”，再验证并排的旧／新版本、重复绘制、单版本清理后恢复，以及 Plico 主题圆形揭示的中心新色／角落旧色和最终完整新色。该修复维护在 Plico 内置后端，不修改原 Wabou checkout。
+
+## Skia / SkSL variant
+
+A shader asset can carry separate WGSL and SkSL implementations:
+
+```rust
+static EFFECT: plico::ShaderAsset =
+    plico::shader_asset!("effect.wgsl")
+        .with_sksl(include_str!("effect.sksl"));
+```
+
+WGSL defines `fn wabou_effect(uv: vec2<f32>) -> vec4<f32>`;
+SkSL defines `half4 plico_effect(float2 uv)`. Both receive normalized local
+coordinates and the same injected clock and parameters. SkSL returns
+premultiplied RGBA (multiply RGB by alpha for translucent output).
+
+The SkSL prelude declares `uniform float4 resolution_time_scale` (physical
+width, physical height, seconds, device scale), and `uniform float4 values[64]`
+(up to 256 scalars, zero-filled when absent). WGSL exposes the same fields
+through `wabou`. These names are reserved; additional uniforms and child
+shaders are not part of this interface. This is not a WGSL-to-SkSL translator.
+
+Skia compiles RuntimeEffects on first use and reuses them across frames with
+a cache limited to 64 sources per rendering resource context. Its CPU raster
+and Vulkan paths consume the same effects. Invalid SkSL produces a diagnostic
+error; a WGSL-only asset still requires Vello. WGSL validation remains part of
+asset preparation on both paths. Browser WebGL2 does not support these effects.
+
+The gallery Motion page's Aurora effect supplies both implementations.
+Tests cover time/parameter pixels, compilation errors and recovery, and
+rendering the complete page with Skia at two viewport sizes.

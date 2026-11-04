@@ -990,3 +990,32 @@ fn tracked_damage_crossing_unchanged_nested_text_fragment_matches_full_pixels() 
         }
     }
 }
+
+#[test]
+fn sksl_uses_injected_time_parameters_and_reports_compile_errors() {
+    use plico_renderer::{ShaderEffectId, ShaderEffectSource, TextContext, widget::PaintContext};
+    use std::sync::Arc;
+    let wgsl = "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv,0.,1.); }";
+    let mut surface = SkiaSurface::new(16, 16).unwrap();
+    let mut text = TextContext::new();
+    let mut render = |source: &str, time| {
+        let source = ShaderEffectSource::new(wgsl)
+            .unwrap()
+            .with_sksl(source)
+            .unwrap();
+        let mut paint = PaintContext::new(16., 16., 1., &mut text);
+        paint.draw_shader_effect(ShaderEffectId::new(), source, time, Arc::from([0.25]));
+        surface.render_scene(&paint.finish(), Color::BLACK)
+    };
+    let source = "half4 plico_effect(float2 uv) { return half4(resolution_time_scale.z, values[0].x, uv.x, 1.); }";
+    let first = render(source, 0.).unwrap();
+    let second = render(source, 1.).unwrap();
+    assert_eq!(pixel(&first, 8, 8)[0], 0);
+    assert_eq!(pixel(&second, 8, 8)[0], 255);
+    assert!((i16::from(pixel(&second, 8, 8)[1]) - 64).abs() <= 1);
+    assert!(matches!(
+        render("invalid SkSL", 0.),
+        Err(Error::Shader { .. })
+    ));
+    assert!(render(source, 0.).is_ok());
+}

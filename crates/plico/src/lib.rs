@@ -14,6 +14,8 @@ pub use keyboard::{
 };
 mod layout;
 mod local;
+mod localization;
+pub use localization::Localizer;
 mod storage;
 pub use calendar::{CalendarDate, CalendarMode, CalendarState, WeekStart};
 pub use local::LocalState;

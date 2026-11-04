@@ -40,6 +40,7 @@ impl Chat {
     #[component]
     #[rustfmt::skip]
     pub fn show(&mut self, cx: &mut UiContext) {
+        let l = cx.localizer();
         let now = cx.now();
         if let Some(last) = self.last
             && !self.paused
@@ -60,19 +61,21 @@ impl Chat {
                 self.stream.finish();
             }
         }
-        text(cx, "Markdown chat").font_size(28).weight(750);
-        text(cx, "A reply that arrives at its own pace.").color(Color::Muted);
+        text(cx, l.text("markdown-chat", "Markdown chat")).font_size(28).weight(750);
+        text(cx, l.text("a-reply-that-arrives-at-its-own-pace", "A reply that arrives at its own pace.")).color(Color::Muted);
         row(cx).gap(8).wrap(true).align(Align::Center) + |cx| {
-            if button(cx).text("Replay").primary().clicked() {
+            if button(cx).text(l.text("replay", "Replay")).primary().clicked() {
                 *self = Self::default();
             }
             if button(cx).text(if self.paused { "Resume" } else { "Pause arrival" }).clicked() {
                 self.paused = !self.paused;
             }
-            if button(cx).text("Send remaining").disabled(self.sent == REPLY.len()).clicked() {
+            if button(cx).text(l.text("send-remaining", "Send remaining")).disabled(self.sent == REPLY.len())
+                .clicked()
+            {
                 self.burst();
             }
-            checkbox(cx, "Reduce motion", &mut self.stream.reduced_motion);
+            checkbox(cx, l.text("reduce-motion", "Reduce motion"), &mut self.stream.reduced_motion);
         };
         row(cx).gap(12).align(Align::Center).wrap(true) + |cx| {
             segmented(cx, &mut self.mode, &["Character", "Word", "Line", "At once"]);
@@ -82,7 +85,7 @@ impl Chat {
                 RevealUnit::Line,
                 RevealUnit::AtOnce,
             ][self.mode];
-            checkbox(cx, "Follow reply", &mut self.follow);
+            checkbox(cx, l.text("follow-reply", "Follow reply"), &mut self.follow);
         };
         separator(cx);
         column(cx).height(0.).grow(1.).scroll_y(true).smooth_scroll(true).gap(20).padding(16).radius(14.)

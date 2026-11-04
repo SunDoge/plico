@@ -45,6 +45,7 @@
 | [应用内毛玻璃](glass.md) | 背景高斯模糊、底色透明度、圆角裁剪与前缀重放边界 |
 | [主题转场](theme-transition.md) | 场景复用与 GPU 圆形裁剪 |
 | [宿主服务与可重载 UI](host-services.md) | 类型化快照/消息、常驻 worker、自定义 main 与恢复边界 |
+| [国际化](i18n.md) | 显式 locale scope、Fluent 消息、裁剪 ICU4X 数据与中英文 gallery |
 | [场景预览](preview.md) | JSON 状态、模拟操作、虚拟时钟、离屏截图与自动编译重启 |
 | [动画、异步与热更新](lifecycle.md) | 模拟时钟实验的结论和未来迁移约束 |
 | [自动身份](identity.md) | component/view 的隐式 ID、列表 key 与恢复边界 |
@@ -63,6 +64,7 @@
 | [代码编辑器](code-editor.md) | Floem 编辑核心、Parley 可见行、native surface 示例与接入边界 |
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
+| [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
 | [API、宏与格式化](authoring.md) | chain、component、LSP、rustfmt 与专用 formatter |
 | [实现状态与验证](status.md) | 已迁入代码、实验来源、测试、性能结论的适用范围 |
