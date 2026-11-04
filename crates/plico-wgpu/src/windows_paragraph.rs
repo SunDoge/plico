@@ -1,6 +1,8 @@
 //! DirectWrite geometry shared by retained measurement and subsequent painting.
 use crate::{Error, Renderer, Result};
-use plico_native::windows_text::{Alignment, Context, Paragraph as Layout, Rasterized, Request};
+use plico_native::windows_text::{
+    Alignment, Context, Paragraph as Layout, Rasterized, Request, StyleSpan,
+};
 use plico_renderer::{
     TextContext,
     paragraph::{
@@ -221,9 +223,19 @@ impl Cache {
         if !scale.is_finite() || scale <= 0. || scale > 8. {
             return Err(rejected("invalid DirectWrite device scale"));
         }
-        if !request.runs.is_empty() || request.max_lines != 0 || request.ellipsis {
+        if request.max_lines != 0 || request.ellipsis {
+            return Err(rejected("DirectWrite truncation is not implemented"));
+        }
+        if request.runs.len() > 4096 {
+            return Err(rejected("too many DirectWrite style spans"));
+        }
+        if request
+            .runs
+            .iter()
+            .any(|run| run.color != request.color || run.line_height.is_some())
+        {
             return Err(rejected(
-                "DirectWrite rich spans and truncation are not implemented",
+                "DirectWrite range colors and range line heights are not implemented",
             ));
         }
         if !request.font_weight.is_finite() || !(1. ..=1000.).contains(&request.font_weight) {
@@ -275,15 +287,32 @@ impl Cache {
         };
         native.wrap = request.wrap;
         native.width = request.width.filter(|w| *w != f32::INFINITY);
+        let spans = request
+            .runs
+            .iter()
+            .map(|run| {
+                if !run.font_weight.is_finite() || !(1. ..=1000.).contains(&run.font_weight) {
+                    return Err(rejected("invalid DirectWrite span weight"));
+                }
+                Ok(StyleSpan {
+                    range: run.range.clone(),
+                    size: run.font_size,
+                    weight: run.font_weight as u16,
+                    italic: run.font_italic,
+                })
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         let layout = self
             .context
-            .layout(&native)
+            .layout_spans(&native, &spans)
             .map_err(|e| rejected(e.to_string()))?;
         // Account Rust source/index/line payload conservatively; COM allocations
         // are opaque and are not included in this byte budget.
         let bytes = std::mem::size_of::<Paragraph>()
             + geometry.family.len()
             + geometry.text.len() * (2 + 2 * std::mem::size_of::<usize>())
+            + std::mem::size_of::<(usize, u32)>()
+            + std::mem::size_of_val(geometry.runs.as_ref())
             + std::mem::size_of_val(layout.lines());
         let p = Rc::new(Paragraph {
             request: Arc::new(geometry),
@@ -544,6 +573,34 @@ mod tests {
         assert!(!Rc::ptr_eq(&natural, &spaced));
         assert!(spaced.caret_rect(2).unwrap()[0] > natural.caret_rect(2).unwrap()[0]);
         assert!(!cache.raster(declaration, 1., 0.).unwrap().is_empty());
+    }
+    #[test]
+    fn style_spans_update_native_geometry_and_reject_unimplemented_overrides() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "Small LARGE".into();
+        let natural = cache.layout(Arc::new(declaration.clone()), 1.).unwrap();
+        let mut run = plico_renderer::text::TextRun {
+            range: 6..11,
+            font_size: 40.,
+            font_weight: 700.,
+            font_italic: true,
+            line_height: None,
+            color: declaration.color,
+        };
+        declaration.runs = Arc::from([run.clone()]);
+        let styled = cache.layout(Arc::new(declaration.clone()), 1.).unwrap();
+        assert!(styled.metrics().height > natural.metrics().height);
+        assert!(styled.metrics().width > natural.metrics().width);
+        assert!(
+            !cache
+                .raster(Arc::new(declaration.clone()), 1., 0.)
+                .unwrap()
+                .is_empty()
+        );
+        run.color = [255, 0, 0, 255];
+        declaration.runs = Arc::from([run]);
+        assert!(cache.layout(Arc::new(declaration), 1.).is_err());
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {

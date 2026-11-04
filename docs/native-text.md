@@ -156,7 +156,7 @@ title can precede mapping and give a false input failure.
 Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
-family and an explicit paragraph base direction; CSS family lists, rich spans,
+family and an explicit paragraph base direction; CSS family lists, range colors,
 application fonts and clipping/ellipsis are not implemented in this service yet.
 Raw grayscale glyph-run rasterization is available, with the limits below.
 The experimental plico-wgpu Windows provider now connects ordinary paragraph
@@ -206,7 +206,14 @@ accepted, including negative spacing. This is DirectWrite's native character
 spacing behavior, not a promise of pixel-identical spacing with Pango or Skia.
 Tests cover changed intrinsic widths, caret advances, wrapping and invalid input;
 they have only been cross-compiled here.
-Rich spans, truncation and application fonts
+`Context::layout_spans` applies UTF-8 font-size, weight and italic ranges before
+native measurement. It validates scalar boundaries and bounds the span count
+to 4096; later overlapping ranges win. The wgpu adapter accepts these spans when
+their colors match the paragraph base color and no per-range line height is
+requested. Native line/caret/raster geometry use the styled layout, without
+copying a separately shaped prefix. Tests cover non-ASCII range conversion,
+overlap order, changed metrics and invalid ranges; they cross-compile only here.
+Range colors, per-range line height, truncation and application fonts
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers

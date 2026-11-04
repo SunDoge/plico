@@ -52,6 +52,18 @@ pub enum Alignment {
     /// Expand eligible lines to fill the available width.
     Justify,
 }
+/// Font overrides for a UTF-8 byte range. Later overlapping spans win.
+#[derive(Clone, Debug)]
+pub struct StyleSpan {
+    /// Valid scalar boundaries in the original request text.
+    pub range: Range<usize>,
+    /// Logical font size.
+    pub size: f32,
+    /// Numeric weight, 1 through 1000.
+    pub weight: u16,
+    /// Italic face selection.
+    pub italic: bool,
+}
 /// Basic system-font paragraph. Sizes and widths are logical DIPs.
 pub struct Request<'a> {
     /// Original UTF-8 contents.
@@ -205,6 +217,11 @@ impl Context {
     }
     /// Shape and retain one bounded paragraph. No system clock is read.
     pub fn layout(&self, request: &Request<'_>) -> Result<Paragraph> {
+        self.layout_spans(request, &[])
+    }
+    /// Apply bounded UTF-8 font ranges before native measurement and shaping.
+    /// Range colors and per-range line heights are not part of this service API.
+    pub fn layout_spans(&self, request: &Request<'_>, spans: &[StyleSpan]) -> Result<Paragraph> {
         if request.text.len() > 1024 * 1024
             || request.family.is_empty()
             || request.family.len() > 4096
@@ -224,6 +241,31 @@ impl Context {
         {
             return Err(Error::InvalidRequest);
         }
+        if spans.len() > 4096 {
+            return Err(Error::InvalidRequest);
+        }
+        let indices = TextIndices::new(request.text);
+        let ranges = spans
+            .iter()
+            .map(|span| {
+                if span.range.start > span.range.end
+                    || !span.size.is_finite()
+                    || span.size <= 0.
+                    || span.size > 4096.
+                    || !(1..=1000).contains(&span.weight)
+                {
+                    return Err(Error::InvalidRequest);
+                }
+                let start = indices
+                    .utf16(span.range.start)
+                    .ok_or(Error::InvalidRequest)?;
+                let end = indices.utf16(span.range.end).ok_or(Error::InvalidRequest)?;
+                Ok(DWRITE_TEXT_RANGE {
+                    startPosition: start,
+                    length: end - start,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         let utf16: Vec<u16> = request.text.encode_utf16().collect();
         let family = HSTRING::from(request.family);
         // SAFETY: DirectWrite copies text and format properties before the local
@@ -259,6 +301,29 @@ impl Context {
                 .CreateTextLayout(&utf16, &format, 16_777_216., 16_777_216.)
                 .context(NativeSnafu)?
         };
+        for (span, range) in spans.iter().zip(ranges) {
+            if range.length == 0 {
+                continue;
+            }
+            // SAFETY: ranges were validated and converted against the original
+            // UTF-8 source. Native layout copies values, not Rust references.
+            unsafe {
+                layout.SetFontSize(span.size, range).context(NativeSnafu)?;
+                layout
+                    .SetFontWeight(DWRITE_FONT_WEIGHT(i32::from(span.weight)), range)
+                    .context(NativeSnafu)?;
+                layout
+                    .SetFontStyle(
+                        if span.italic {
+                            DWRITE_FONT_STYLE_ITALIC
+                        } else {
+                            DWRITE_FONT_STYLE_NORMAL
+                        },
+                        range,
+                    )
+                    .context(NativeSnafu)?;
+            }
+        }
         if request.letter_spacing != 0. && !utf16.is_empty() {
             let spaced: IDWriteTextLayout1 = layout.cast().context(NativeSnafu)?;
             // SAFETY: the full UTF-16 range is bounded by the validated source;
@@ -393,7 +458,7 @@ impl Context {
         Ok(Paragraph {
             layout,
             source: request.text.into(),
-            indices: TextIndices::new(request.text),
+            indices,
             metrics,
             lines,
             ink,
@@ -511,6 +576,49 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn utf8_font_spans_preserve_native_ranges_and_overlap_order() {
+        let context = Context::new().unwrap();
+        let request = Request::new("中abcdef");
+        let natural = context.layout(&request).unwrap();
+        let spans = [
+            StyleSpan {
+                range: 3..6,
+                size: 40.,
+                weight: 700,
+                italic: true,
+            },
+            StyleSpan {
+                range: 4..5,
+                size: 20.,
+                weight: 500,
+                italic: false,
+            },
+        ];
+        let paragraph = context.layout_spans(&request, &spans).unwrap();
+        for (position, expected) in [(0, 14.), (1, 40.), (2, 20.), (3, 40.), (4, 14.)] {
+            let mut size = 0.;
+            // SAFETY: querying valid UTF-16 positions into writable outputs.
+            unsafe { paragraph.layout.GetFontSize(position, &mut size, None) }.unwrap();
+            assert_eq!(size, expected);
+        }
+        assert!(paragraph.metrics().height > natural.metrics().height);
+        assert!(paragraph.metrics().max_content_width > natural.metrics().max_content_width);
+        assert!(paragraph.caret_rect(6, 1.).unwrap()[0] > natural.caret_rect(6, 1.).unwrap()[0]);
+        assert!(!paragraph.rasterize(1., [0., 0.]).unwrap().masks.is_empty());
+        for range in [1..3, Range { start: 4, end: 3 }, 0..100] {
+            let mut invalid = spans[0].clone();
+            invalid.range = range;
+            assert!(matches!(
+                context.layout_spans(&request, &[invalid]),
+                Err(Error::InvalidRequest)
+            ));
+        }
+        assert!(matches!(
+            context.layout_spans(&request, &vec![spans[0].clone(); 4097]),
+            Err(Error::InvalidRequest)
+        ));
+    }
     #[test]
     fn character_spacing_changes_intrinsics_and_caret_advances_together() {
         let context = Context::new().unwrap();
