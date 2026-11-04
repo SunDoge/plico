@@ -172,6 +172,18 @@ native rasterization and CPU colorization counts separately from layout/image
 cache payloads; counters survive explicit cache trimming. These counters and
 the recoloring identity tests are cross-compiled, not Windows runtime evidence.
 
+Windows scene preparation checks native glyph-overhang bounds before requesting
+coverage, so an entirely offscreen paragraph can retain layout without generating
+R8/RGBA images or GPU uploads. The estimate includes `2 * scale + 2` physical
+pixels of margin for layout-coordinate precision, grid fitting and snapping.
+[DirectWrite documents](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_overhang_metrics)
+that overhang is untransformed and can differ from final hinted pixel bounds.
+The native test compares this estimate against actual run-mask rectangles for
+italic, centered, tight-line-height text across scales; an opt-in Windows GPU
+test checks zero raster calls offscreen and a raster call after moving onscreen.
+Both tests have only been cross-compiled here. Visible paragraphs still rasterize
+all of their runs; this is paragraph culling, not per-line virtualization.
+
 DirectWrite metrics expose `min_content_width` and `max_content_width` separately
 from the final constrained content width. The service measures hard lines with
 wrapping disabled, queries DirectWrite's minimum width, and then applies the

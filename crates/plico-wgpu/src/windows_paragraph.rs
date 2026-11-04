@@ -114,6 +114,7 @@ impl Cache {
         self.entries.clear();
         self.bytes = 0;
     }
+    #[cfg(test)]
     fn raster(
         &mut self,
         request: Arc<ParagraphRequest>,
@@ -121,6 +122,15 @@ impl Cache {
         phase: f64,
     ) -> std::result::Result<Rc<RunImages>, ParagraphError> {
         let paragraph = self.layout(request.clone(), scale)?;
+        self.raster_layout(paragraph, request.color, scale, phase)
+    }
+    fn raster_layout(
+        &mut self,
+        paragraph: Rc<Paragraph>,
+        color: [u8; 4],
+        scale: f64,
+        phase: f64,
+    ) -> std::result::Result<Rc<RunImages>, ParagraphError> {
         let key = (
             paragraph.request.fingerprint(),
             scale.to_bits(),
@@ -128,7 +138,7 @@ impl Cache {
         );
         if let Some(raster) = self.rasters.get(&key)
             && Rc::ptr_eq(&raster.paragraph, &paragraph)
-            && raster.color == request.color
+            && raster.color == color
         {
             return Ok(raster.images.clone());
         }
@@ -144,7 +154,7 @@ impl Cache {
             }
         };
         let masks = coverage
-            .colorize(request.color.map(|v| v as f32 / 255.), false)
+            .colorize(color.map(|v| v as f32 / 255.), false)
             .map_err(|e| rejected(e.to_string()))?;
         self.colorizations += 1;
         let mut bytes = paragraph.bytes
@@ -179,7 +189,7 @@ impl Cache {
                 Raster {
                     paragraph,
                     coverage,
-                    color: request.color,
+                    color,
                     images: images.clone(),
                     bytes,
                 },
@@ -358,17 +368,23 @@ impl Renderer {
         request: Arc<ParagraphRequest>,
         scale: f64,
         phase: f64,
-    ) -> Result<Rc<RunImages>> {
+        visible: impl FnOnce([f32; 4]) -> bool,
+    ) -> Result<Option<Rc<RunImages>>> {
         if self.windows_paragraphs.is_none() {
             self.windows_paragraphs = Some(Rc::new(RefCell::new(
                 Cache::new().map_err(|source| Error::Paragraph { source })?,
             )));
         }
-        self.windows_paragraphs
-            .as_ref()
-            .unwrap()
-            .borrow_mut()
-            .raster(request, scale, phase)
+        let mut cache = self.windows_paragraphs.as_ref().unwrap().borrow_mut();
+        let paragraph = cache
+            .layout(request.clone(), scale)
+            .map_err(|source| Error::Paragraph { source })?;
+        if !visible(paragraph.layout.ink_bounds()) {
+            return Ok(None);
+        }
+        cache
+            .raster_layout(paragraph, request.color, scale, phase)
+            .map(Some)
             .map_err(|source| Error::Paragraph { source })
     }
     /// Drop derived DirectWrite layouts and run images; live geometry remains valid.
@@ -406,6 +422,32 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires a Windows GPU adapter and installed system fonts"]
+    fn offscreen_paragraphs_do_not_generate_native_coverage() {
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let request = request();
+        let mut scene = plico_renderer::Scene::new();
+        scene
+            .commands
+            .push(plico_renderer::PaintCommand::Paragraph {
+                request: request.clone(),
+                transform: kurbo::Affine::translate((20., 1000.)),
+            });
+        let prepared = renderer.prepare_scene(&scene, [320, 180]).unwrap();
+        assert!(prepared.draws().is_empty());
+        assert_eq!(renderer.windows_text_cache_stats().rasterizations, 0);
+        scene.commands.clear();
+        scene
+            .commands
+            .push(plico_renderer::PaintCommand::Paragraph {
+                request,
+                transform: kurbo::Affine::translate((20., 20.)),
+            });
+        let prepared = renderer.prepare_scene(&scene, [320, 180]).unwrap();
+        assert!(!prepared.draws().is_empty());
+        assert_eq!(renderer.windows_text_cache_stats().rasterizations, 1);
+    }
     fn request() -> Arc<ParagraphRequest> {
         Arc::new(ParagraphRequest {
             font_revision: 0,

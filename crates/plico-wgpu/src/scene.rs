@@ -894,11 +894,31 @@ impl Renderer {
                             // Integer movement never creates a new raster entry.
                             let snapped_x = (x * 4.).round() / 4.;
                             let base_x = snapped_x.floor();
-                            let images = self.windows_paragraph_images(
+                            let Some(images) = self.windows_paragraph_images(
                                 request.clone(),
                                 scale,
                                 snapped_x - base_x,
-                            )?;
+                                |[left, top, right, bottom]| {
+                                    // Allow for native coordinate precision,
+                                    // grid fitting and pixel snapping.
+                                    let margin = 2. * scale + 2.;
+                                    let estimate = Rect::new(
+                                        x + f64::from(left) * scale,
+                                        y + f64::from(top) * scale,
+                                        x + f64::from(right) * scale,
+                                        y + f64::from(bottom) * scale,
+                                    )
+                                    .inflate(margin, margin);
+                                    let visible = !estimate.intersect(clip).is_zero_area();
+                                    if !visible {
+                                        ink[index] = Some(estimate);
+                                    }
+                                    visible
+                                },
+                            )?
+                            else {
+                                continue;
+                            };
                             let mut bounds: Option<Rect> = None;
                             for (image, origin) in images.iter() {
                                 let left = base_x + f64::from(origin[0]);

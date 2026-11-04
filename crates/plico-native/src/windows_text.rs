@@ -132,6 +132,7 @@ pub struct Paragraph {
     indices: TextIndices,
     metrics: Metrics,
     lines: Vec<Line>,
+    ink: [f32; 4],
     // Retain the factory explicitly; it drops after the layout/font references.
     _factory: IDWriteFactory2,
     _thread: PhantomData<Rc<()>>,
@@ -331,6 +332,17 @@ impl Context {
                 return Err(Error::InvalidRequest);
             }
         }
+        // SAFETY: the retained layout owns all glyph data used by the query.
+        let overhang = unsafe { layout.GetOverhangMetrics() }.context(NativeSnafu)?;
+        let ink = [
+            -overhang.left,
+            -overhang.top,
+            native.layoutWidth + overhang.right,
+            native.layoutHeight + overhang.bottom,
+        ];
+        if !ink.iter().all(|v| v.is_finite() && v.abs() <= 1e9) {
+            return Err(Error::InvalidRequest);
+        }
         let lines: Vec<_> = raw
             .into_iter()
             .take(count as usize)
@@ -361,12 +373,19 @@ impl Context {
             indices: TextIndices::new(request.text),
             metrics,
             lines,
+            ink,
             _factory: self.factory.clone(),
             _thread: PhantomData,
         })
     }
 }
 impl Paragraph {
+    /// Unhinted visible bounds [x0,y0,x1,y1] in logical DIPs, including native
+    /// alignment and glyph overhang. Add a conservative margin before culling:
+    /// native grid fitting and physical pixel snapping can change final bounds.
+    pub fn ink_bounds(&self) -> [f32; 4] {
+        self.ink
+    }
     /// Retained logical metrics.
     pub fn metrics(&self) -> Metrics {
         self.metrics
@@ -469,6 +488,30 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overhang_estimate_conservatively_contains_native_run_masks() {
+        let context = Context::new().unwrap();
+        for rtl in [false, true] {
+            let mut request = Request::new("fÅj Hello");
+            request.italic = true;
+            request.rtl = rtl;
+            request.width = Some(240.);
+            request.alignment = Alignment::Center;
+            request.line_height = Some(12.);
+            let paragraph = context.layout(&request).unwrap();
+            let [left, top, right, bottom] = paragraph.ink_bounds();
+            for scale in [1., 1.25, 2., 8.] {
+                let margin = 2. * scale + 2.;
+                let raster = paragraph.rasterize(scale, [0.75, 0.]).unwrap();
+                for mask in raster.masks {
+                    assert!(mask.origin[0] as f32 >= left * scale - margin);
+                    assert!(mask.origin[1] as f32 >= top * scale - margin);
+                    assert!(mask.origin[0] as f32 + mask.size[0] as f32 <= right * scale + margin);
+                    assert!(mask.origin[1] as f32 + mask.size[1] as f32 <= bottom * scale + margin);
+                }
+            }
+        }
+    }
     #[test]
     fn uniform_line_height_updates_baselines_and_editing_geometry() {
         let context = Context::new().unwrap();
