@@ -75,13 +75,6 @@ impl WebRenderer {
             .ok()
             .filter(|v| *v != 0)
             .ok_or("invalid canvas height")?;
-        if scene
-            .commands
-            .iter()
-            .any(|c| matches!(c, PaintCommand::Shader { .. }))
-        {
-            return Err("custom WGSL effects require a WebGPU backend".into());
-        }
         let expanded;
         let scene = if scene
             .commands
@@ -93,6 +86,13 @@ impl WebRenderer {
         } else {
             scene
         };
+        if scene
+            .commands
+            .iter()
+            .any(|c| matches!(c, PaintCommand::Shader { .. }))
+        {
+            return Err("custom WGSL effects require a WebGPU backend".into());
+        }
         self.scene.reset_and_resize(width, height);
         let mut used = HashSet::new();
         let mut layers = Vec::new();
@@ -238,7 +238,12 @@ impl WebRenderer {
                     )
                     .map_err(|e| format!("SVG projection: {e:?}"))?;
                 }
-                PaintCommand::Shader { .. } => unreachable!(),
+                PaintCommand::Shader { .. } => {
+                    unreachable!("effects rejected before canvas mutation")
+                }
+                PaintCommand::Fragment { .. } => {
+                    unreachable!("retained fragments flattened before replay")
+                }
             }
         }
         if !layers.is_empty() {
