@@ -1183,3 +1183,22 @@ visible metrics with the complete layout. GPU tests change line limits across
 frames, compare full/damaged rendering, compare visible pixels with complete
 layout output, and assert hidden lines do not paint. The old unsupported-paragraph
 fixture now specifically tests cross-paragraph ellipsis.
+
+### Frame preflight before derived GPU resources
+
+Frame size, device texture/readback limits, item count, injected time and background
+color validation now share one helper. Root encoding performs this check before
+preparing effect resources; public scene preparation checks dimensions before
+flattening/raster work, and shared scene rendering validates background/size before
+updating damage history. Child passes retain their own validation because their
+cropped dimensions differ from the root. Window zero-size handling remains its
+existing explicit presentation skip.
+
+A GPU regression submits a deliberately device-incompatible shader together with
+zero/oversized dimensions and NaN background channels. These attempts return
+`InvalidInput` before scene-preparation counters or effect-resource counts change,
+and the previous valid scene remains readable. A valid-size shader pipeline
+failure still returns `Shader`; subsequent valid scenes and a corrected shader
+recover with the expected pixels. The test distinguishes invalid-frame preflight
+from later pipeline failure recovery; it does not claim arbitrary GPU/device-loss
+errors leave every intermediate target intact.

@@ -285,3 +285,92 @@ fn damage_skipped_effect_survives_cache_trim_and_is_released_on_removal() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn frame_preflight_skips_resources_and_shader_failure_recovers() {
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    use plico_wgpu::Error;
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut good = Scene::new();
+    good.fill(
+        peniko::Fill::NonZero,
+        kurbo::Affine::IDENTITY,
+        peniko::Color::from_rgba8(255, 0, 0, 255),
+        None,
+        &kurbo::Rect::new(0., 0., 16., 16.),
+    );
+    let baseline = renderer
+        .render_scene(&good, [16, 16], [0.; 4], true)
+        .unwrap();
+    let invalid = ShaderEffectSource::new_module(r#"
+        @vertex fn vs_main(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {
+            let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));return vec4f(p[i],0.,1.);
+        }
+        @fragment fn fs_main()->@location(0) vec4u {return vec4u(1u);}
+    "#).unwrap();
+    let mut text = TextContext::new();
+    let id = ShaderEffectId::new();
+    let bad = effect_scene(&mut text, invalid, id, &[]);
+    let prepared = renderer.scene_prepare_stats();
+    assert!(matches!(
+        renderer.prepare_scene(&bad, [0, 16]),
+        Err(Error::InvalidInput { .. })
+    ));
+    assert_eq!(renderer.scene_prepare_stats(), prepared);
+
+    for (size, background) in [
+        ([0, 16], [0.; 4]),
+        ([16, 0], [0.; 4]),
+        ([u32::MAX, 16], [0.; 4]),
+        ([16, 16], [f32::NAN, 0., 0., 0.]),
+    ] {
+        let prepared = renderer.scene_prepare_stats();
+        assert!(matches!(
+            renderer.render_scene(&bad, size, background, true),
+            Err(Error::InvalidInput { .. })
+        ));
+        assert_eq!(
+            renderer.scene_prepare_stats(),
+            prepared,
+            "invalid frame prepared its scene"
+        );
+        assert_eq!(
+            renderer.effect_cache_stats(),
+            (0, 0, 0),
+            "invalid frame allocated effects"
+        );
+        let restored = renderer
+            .render_scene(&good, [16, 16], [0.; 4], true)
+            .unwrap();
+        assert_eq!(restored, baseline);
+    }
+    assert!(matches!(
+        renderer.render_scene(&bad, [16, 16], [0.; 4], true),
+        Err(Error::Shader { .. })
+    ));
+    assert_eq!(
+        renderer
+            .render_scene(&good, [16, 16], [0.; 4], true)
+            .unwrap(),
+        baseline
+    );
+    let fixed =
+        ShaderEffectSource::new("fn plico_effect(_uv:vec2f)->vec4f {return vec4f(0.,1.,0.,1.);}")
+            .unwrap();
+    let result = renderer
+        .render_scene(
+            &effect_scene(&mut text, fixed, id, &[]),
+            [16, 16],
+            [0.; 4],
+            true,
+        )
+        .unwrap();
+    assert!(
+        result
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [0, 255, 0, 255])
+    );
+}

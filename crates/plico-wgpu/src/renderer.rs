@@ -516,6 +516,33 @@ impl Renderer {
             pitch,
         });
     }
+    pub(crate) fn validate_frame(
+        &self,
+        item_count: usize,
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+    ) -> Result<()> {
+        let limit = self.device.limits();
+        let [width, height] = size;
+        let pitch = u64::from(width).saturating_mul(4).div_ceil(256) * 256;
+        if width == 0
+            || height == 0
+            || width > limit.max_texture_dimension_2d
+            || height > limit.max_texture_dimension_2d
+            || pitch.saturating_mul(u64::from(height)) > limit.max_buffer_size
+            || item_count > 1_000_000
+            || !time.is_finite()
+            || !background
+                .iter()
+                .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+        {
+            return Err(Error::InvalidInput {
+                reason: "frame exceeds GPU limits or contains invalid size/time/color".into(),
+            });
+        }
+        Ok(())
+    }
     /// Draw in painter order and return tightly packed premultiplied RGBA8.
     /// Time is externally injected, in seconds; the renderer never reads a clock.
     pub fn render(
@@ -549,6 +576,7 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
         self.batch_stats = FrameBatchStats::default();
+        self.validate_frame(items.len(), size, background, time)?;
         #[cfg(feature = "paint-scene")]
         let unchanged = regions.is_some_and(|r| r.is_empty())
             && self.target.as_ref().is_some_and(|t| t.size == size);
@@ -615,24 +643,8 @@ impl Renderer {
             self.layer_used.clear();
             self.layer_used.resize(self.layer_pool.len(), false);
         }
-        let limit = self.device.limits();
+        self.validate_frame(items.len(), size, background, time)?;
         let [width, height] = size;
-        let pitch = u64::from(width).saturating_mul(4).div_ceil(256) * 256;
-        if width == 0
-            || height == 0
-            || width > limit.max_texture_dimension_2d
-            || height > limit.max_texture_dimension_2d
-            || pitch.saturating_mul(u64::from(height)) > limit.max_buffer_size
-            || items.len() > 1_000_000
-            || !time.is_finite()
-            || !background
-                .iter()
-                .all(|v| v.is_finite() && (0. ..=1.).contains(v))
-        {
-            return Err(Error::InvalidInput {
-                reason: "frame exceeds GPU limits or contains invalid size/time/color".into(),
-            });
-        }
         // If the persistent target was recreated, partial preservation is impossible.
         let regions = regions.filter(|_| self.target.as_ref().is_some_and(|t| t.size == size));
         let selected;
@@ -665,7 +677,7 @@ impl Renderer {
         tracing::trace!(instances = instances.len(), "prepared ordered instances");
         if instances.len() > 1_000_000
             || (instances.len().max(1).next_power_of_two() * std::mem::size_of::<Instance>()) as u64
-                > limit.max_buffer_size
+                > self.device.limits().max_buffer_size
         {
             return Err(Error::InvalidInput {
                 reason: "instance stream exceeds GPU limits".into(),

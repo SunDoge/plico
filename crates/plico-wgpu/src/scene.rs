@@ -273,6 +273,7 @@ impl Renderer {
         scene: &Scene,
         size: [u32; 2],
     ) -> Result<std::rc::Rc<PreparedScene>> {
+        self.validate_frame(0, size, [0.; 4], 0.)?;
         self.prepare_scene_with_clip(
             scene,
             size,
@@ -973,6 +974,7 @@ impl Renderer {
         background: [f32; 4],
         damage: bool,
     ) -> Result<SceneFramePlan> {
+        self.validate_frame(0, size, background, 0.)?;
         let prepared = self.prepare_scene(scene, size)?;
         let regions = self.scene_regions(&prepared, size, background, damage);
         Ok(SceneFramePlan {
@@ -1020,6 +1022,7 @@ impl Renderer {
         background: [f32; 4],
         damage: bool,
     ) -> Result<Vec<u8>> {
+        self.validate_frame(0, size, background, 0.)?;
         let prepared = self.prepare_scene(scene, size)?;
         let regions = self.scene_regions(&prepared, size, background, damage);
         let result = self
