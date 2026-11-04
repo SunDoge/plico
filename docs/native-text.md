@@ -129,6 +129,14 @@ shared measurement/paint, then verify actual Windows fonts,
 DPI transitions, IME and window output. Cross-compilation proves none of those
 runtime/visual properties.
 
+DirectWrite metrics expose `min_content_width` and `max_content_width` separately
+from the final constrained content width. The service measures hard lines with
+wrapping disabled, queries DirectWrite's minimum width, and then applies the
+requested available width to the same retained layout. No-wrap requests report
+their maximum content width as their minimum. Windows tests check that changing
+the available width preserves both intrinsic widths; these tests have only been
+cross-compiled here, not executed on Windows.
+
 ### DirectWrite raw run coverage
 
 `Paragraph::rasterize(scale, phase)` now invokes `IDWriteTextLayout::Draw` with a

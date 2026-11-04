@@ -85,6 +85,11 @@ pub struct Line {
 /// Logical metrics from the exact retained DirectWrite layout.
 #[derive(Clone, Copy, Debug)]
 pub struct Metrics {
+    /// Minimum width without breaking an unbreakable segment. For no-wrap
+    /// requests this equals `max_content_width`.
+    pub min_content_width: f32,
+    /// Longest hard line measured before applying the available width.
+    pub max_content_width: f32,
     /// Content width including trailing whitespace.
     pub width: f32,
     /// Content height.
@@ -133,6 +138,7 @@ impl Context {
     pub fn layout(&self, request: &Request<'_>) -> Result<Paragraph> {
         if request.text.len() > 1024 * 1024
             || request.family.is_empty()
+            || request.family.len() > 4096
             || request.family.contains('\0')
             || !request.size.is_finite()
             || request.size <= 0.
@@ -166,11 +172,7 @@ impl Context {
                 )
                 .context(NativeSnafu)?;
             format
-                .SetWordWrapping(if request.wrap && request.width.is_some() {
-                    DWRITE_WORD_WRAPPING_WRAP
-                } else {
-                    DWRITE_WORD_WRAPPING_NO_WRAP
-                })
+                .SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
                 .context(NativeSnafu)?;
             format
                 .SetReadingDirection(if request.rtl {
@@ -180,30 +182,46 @@ impl Context {
                 })
                 .context(NativeSnafu)?;
             self.factory
-                .CreateTextLayout(
-                    &utf16,
-                    &format,
-                    request.width.unwrap_or(16_777_216.),
-                    16_777_216.,
-                )
+                .CreateTextLayout(&utf16, &format, 16_777_216., 16_777_216.)
                 .context(NativeSnafu)?
         };
         let mut native = DWRITE_TEXT_METRICS::default();
+        let max_content_width;
+        let min_content_width;
         // SAFETY: output storage is initialized and valid for each native call.
         unsafe {
             layout.GetMetrics(&mut native).context(NativeSnafu)?;
-            if request.width.is_none() {
-                // Keep unbounded RTL paragraphs near the origin rather than
-                // aligning them to the large measurement-only width.
-                layout
-                    .SetMaxWidth(native.widthIncludingTrailingWhitespace.ceil().max(1.))
-                    .context(NativeSnafu)?;
-                layout.GetMetrics(&mut native).context(NativeSnafu)?;
+            max_content_width = native.widthIncludingTrailingWhitespace;
+            if !max_content_width.is_finite() || !(0. ..=1e7).contains(&max_content_width) {
+                return Err(Error::InvalidRequest);
             }
+            min_content_width = if request.wrap {
+                layout
+                    .SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)
+                    .context(NativeSnafu)?;
+                layout.DetermineMinWidth().context(NativeSnafu)?
+            } else {
+                max_content_width
+            };
+            // Intrinsic requests remain unwrapped; keep RTL text near the
+            // origin rather than aligned to the measurement-only width.
+            if request.width.is_none() {
+                layout
+                    .SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
+                    .context(NativeSnafu)?;
+            }
+            layout
+                .SetMaxWidth(request.width.unwrap_or(max_content_width.ceil().max(1.)))
+                .context(NativeSnafu)?;
+            layout.GetMetrics(&mut native).context(NativeSnafu)?;
         }
-        if ![native.widthIncludingTrailingWhitespace, native.height]
-            .iter()
-            .all(|v| v.is_finite() && *v >= 0. && *v <= 1e7)
+        if ![
+            native.widthIncludingTrailingWhitespace,
+            native.height,
+            min_content_width,
+        ]
+        .iter()
+        .all(|v| v.is_finite() && *v >= 0. && *v <= 1e7)
         {
             return Err(Error::InvalidRequest);
         }
@@ -231,6 +249,8 @@ impl Context {
             .map(|l| l.height)
             .sum();
         let metrics = Metrics {
+            min_content_width,
+            max_content_width,
             width: native.widthIncludingTrailingWhitespace,
             height: native.height,
             baselines: [
@@ -399,8 +419,29 @@ mod tests {
         let wrapped = context.layout(&request).unwrap();
         assert!(wrapped.lines().len() > 1);
         assert!(wrapped.metrics().height > request.size);
+        let intrinsic = {
+            request.width = None;
+            context.layout(&request).unwrap().metrics()
+        };
+        assert!(intrinsic.min_content_width <= intrinsic.max_content_width);
+        assert!(intrinsic.max_content_width > 80.);
+        for width in [40., 80., 160.] {
+            request.width = Some(width);
+            let metrics = context.layout(&request).unwrap().metrics();
+            assert_eq!(metrics.min_content_width, intrinsic.min_content_width);
+            assert_eq!(metrics.max_content_width, intrinsic.max_content_width);
+        }
         request.wrap = false;
-        assert_eq!(context.layout(&request).unwrap().lines().len(), 1);
+        let no_wrap = context.layout(&request).unwrap();
+        assert_eq!(no_wrap.lines().len(), 1);
+        assert_eq!(
+            no_wrap.metrics().min_content_width,
+            intrinsic.max_content_width
+        );
+        assert_eq!(
+            no_wrap.metrics().max_content_width,
+            intrinsic.max_content_width
+        );
         request.size = f32::NAN;
         assert!(matches!(
             context.layout(&request),
