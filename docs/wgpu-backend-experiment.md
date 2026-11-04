@@ -671,3 +671,29 @@ composition, submission gaps and CPU waiting; they still describe this device an
 kernel, not an application-wide speed claim. The next optimization target is the
 wide Gaussian sampling workload, not texture allocation. Timing instrumentation
 itself is optional and is not a default application cost.
+
+## Rejected line-tiled Gaussian candidate
+
+A test-only 32-lane line tile cooperatively loads a four-sigma halo into 8704 bytes
+of workgroup memory. It then evaluates the same discrete kernel from shared memory
+instead of repeatedly sampling the texture. Four edge modes, partial workgroups,
+small sigma and the maximum supported sigma are compared with the direct kernel;
+all tested output channels differ by at most one 8-bit level.
+
+Reproduce the candidate timing with:
+
+```sh
+PLICO_TEST_TILED_BLUR=1 cargo test --locked -p plico-wgpu --lib profile_gaussian_workspace_cost -- --ignored --nocapture
+```
+
+The environment switch exists only in the ignored test. The candidate WGSL is
+included only in unit-test builds; ordinary applications continue to use direct
+sampling and do not gain an experimental switch or extra dispatch branch.
+
+On the local Intel ARL Vulkan adapter the candidate regressed: 384x256/sigma=3
+compute p50 was around 1.25–1.38 ms versus the direct kernel's 0.31 ms;
+sigma=18 was around 7.2–10 ms versus 2.62 ms. This rejects this particular tiling
+scheme on this device, not shared-memory algorithms in general. The measurement
+does not identify whether occupancy, shared-memory accesses, barriers or another
+hardware/compiler interaction caused the regression. Further work should test
+filtering/sampling alternatives with the same pixel oracle and timestamp protocol.

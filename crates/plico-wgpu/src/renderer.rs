@@ -1757,6 +1757,59 @@ mod tests {
     }
     #[cfg(feature = "paint-scene")]
     #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn tiled_gaussian_matches_direct_sampling_for_edges_and_partial_tiles() {
+        use kurbo::{Affine, Rect};
+        use peniko::{BlendMode, Color, Fill};
+        use plico_renderer::{
+            PaintScene, Scene,
+            filter::{BlurEdge, GaussianBlur},
+        };
+        use std::sync::Arc;
+        let mut tiled = pollster::block_on(Renderer::new()).unwrap();
+        let mut reference = pollster::block_on(Renderer::new()).unwrap();
+        tiled.blur = Some(crate::blur::Blur::tiled(&tiled.device));
+        for sigma in [0.3, 3., 18., 64.] {
+            for edge in [
+                BlurEdge::Transparent,
+                BlurEdge::Clamp,
+                BlurEdge::Repeat,
+                BlurEdge::Mirror,
+            ] {
+                let mut scene = Scene::new();
+                scene.push_layer(
+                    BlendMode::default(),
+                    0.7,
+                    Affine::IDENTITY,
+                    &Rect::new(1.5, 2.25, 46.5, 30.75),
+                    Some(Arc::new(GaussianBlur { sigma, edge }.into_filter())),
+                    None,
+                );
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    Color::from_rgba8(200, 30, 100, 173),
+                    None,
+                    &Rect::new(-200., -300., 17.5, 400.),
+                );
+                scene.pop_layer();
+                let a = tiled
+                    .render_scene(&scene, [49, 35], [0.; 4], false)
+                    .unwrap();
+                let b = reference
+                    .render_scene(&scene, [49, 35], [0.; 4], false)
+                    .unwrap();
+                for (i, (a, b)) in a.iter().zip(&b).enumerate() {
+                    assert!(
+                        a.abs_diff(*b) <= 1,
+                        "sigma={sigma} edge={edge:?} byte={i}: {a}/{b}"
+                    );
+                }
+            }
+        }
+    }
+    #[cfg(feature = "paint-scene")]
+    #[test]
     #[ignore = "manual GPU timing experiment; not a CI performance threshold"]
     fn profile_gaussian_workspace_cost() {
         use kurbo::{Affine, Rect};
@@ -1776,6 +1829,10 @@ mod tests {
         let instance = wgpu::Instance::new(crate::instance_descriptor());
         let mut renderer =
             pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
+        if std::env::var_os("PLICO_TEST_TILED_BLUR").is_some() {
+            renderer.blur = Some(crate::blur::Blur::tiled(&renderer.device));
+            eprintln!("test-only tiled kernel selected");
+        }
         eprintln!("adapter={:?}", renderer.adapter_info());
         for (width, height, sigma) in [(128, 96, 3.), (384, 256, 3.), (384, 256, 18.)] {
             let size = [width, height];

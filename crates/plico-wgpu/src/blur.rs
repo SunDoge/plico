@@ -1,6 +1,8 @@
 //! Separable premultiplied Gaussian image filtering, entirely on the GPU.
 pub(crate) struct Blur {
     pipeline: wgpu::ComputePipeline,
+    #[cfg(test)]
+    tiled: bool,
 }
 pub(crate) struct Workspace {
     temporary: wgpu::Texture,
@@ -16,11 +18,24 @@ pub(crate) struct Timing {
 }
 impl Blur {
     pub fn new(device: &wgpu::Device) -> Self {
+        Self::with_source(device, include_str!("blur.wgsl"), false)
+    }
+    #[cfg(test)]
+    pub fn tiled(device: &wgpu::Device) -> Self {
+        Self::with_source(
+            device,
+            include_str!("../tests/assets/blur-tiled.wgsl"),
+            true,
+        )
+    }
+    fn with_source(device: &wgpu::Device, source: &str, _tiled: bool) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Plico Gaussian blur"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("blur.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         Self {
+            #[cfg(test)]
+            tiled: _tiled,
             pipeline: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Plico separable blur"),
                 layout: None,
@@ -147,6 +162,15 @@ impl Blur {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &workspace.binds[axis], &[]);
+            #[cfg(test)]
+            if self.tiled {
+                if axis == 0 {
+                    pass.dispatch_workgroups(size.width.div_ceil(32), size.height, 1);
+                } else {
+                    pass.dispatch_workgroups(size.width, size.height.div_ceil(32), 1);
+                }
+                continue;
+            }
             pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
         }
         if let Some(timing) = &workspace.timing {
