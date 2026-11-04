@@ -138,7 +138,13 @@ geometry. Alignment is set on the retained DirectWrite layout after intrinsic
 measurement, so caret/selection geometry and raster positions agree. Native
 tests check centered/trailing caret and selection shifts, unchanged intrinsic
 widths and wrapped justification; they are cross-compiled only here.
-Rich spans, custom line height, letter spacing, truncation and application fonts
+Uniform line height accepts logical pixels or the shared font-size multiplier.
+The service splits extra leading around the first natural line's baseline and
+sets native uniform spacing, preserving glyph sizes. All native caret/selection
+and raster geometry use that layout; tests cover two-line baseline spacing,
+relative/absolute height equivalence and invalid inputs. Per-span line height
+is not implemented. These Windows tests have only been cross-compiled here.
+Rich spans, letter spacing, truncation and application fonts
 are explicitly rejected. Color-font faces remain unsupported by rasterization.
 Automatic paragraph base-direction selection is not connected yet. Therefore
 this is not Windows gallery feature parity or a validated default renderer.

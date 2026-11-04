@@ -213,7 +213,6 @@ impl Cache {
         }
         if !request.runs.is_empty()
             || request.letter_spacing != 0.
-            || request.line_height.is_some()
             || request.max_lines != 0
             || request.ellipsis
         {
@@ -253,6 +252,13 @@ impl Cache {
         native.size = request.font_size;
         native.weight = request.font_weight as u16;
         native.italic = request.italic;
+        native.line_height = request.line_height.map(|(value, relative)| {
+            if relative {
+                value * request.font_size
+            } else {
+                value
+            }
+        });
         native.alignment = match request.align {
             TextAlign::Start => Alignment::Start,
             TextAlign::Center => Alignment::Center,
@@ -454,6 +460,20 @@ mod tests {
         let images = cache.raster(declaration, 1., 0.).unwrap();
         assert!(!images.is_empty());
         assert!(images[0].1[0] as f32 >= end.caret_rect(0).unwrap()[0] - 2.);
+    }
+    #[test]
+    fn relative_and_absolute_line_heights_produce_the_same_geometry() {
+        let mut cache = Cache::new().unwrap();
+        let mut declaration = (*request()).clone();
+        declaration.text = "Hello\nWorld".into();
+        declaration.line_height = Some((2., true));
+        let relative = cache.layout(Arc::new(declaration.clone()), 1.).unwrap();
+        declaration.line_height = Some((32., false));
+        let absolute = cache.layout(Arc::new(declaration), 1.).unwrap();
+        assert_eq!(relative.metrics().height, absolute.metrics().height);
+        assert_eq!(relative.metrics().baselines, absolute.metrics().baselines);
+        assert_eq!(relative.metrics().first_line_height, 32.);
+        assert_eq!(relative.caret_rect(6), absolute.caret_rect(6));
     }
     #[test]
     fn native_run_images_reuse_phase_and_reject_unsupported_requests() {

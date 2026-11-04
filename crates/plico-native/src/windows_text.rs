@@ -71,6 +71,9 @@ pub struct Request<'a> {
     pub rtl: bool,
     /// Alignment performed by the retained native layout, including hit testing.
     pub alignment: Alignment,
+    /// Uniform logical line-box height. Extra leading is split around the
+    /// first natural line's baseline; glyph outlines are never scaled.
+    pub line_height: Option<f32>,
 }
 impl<'a> Request<'a> {
     /// Default Segoe UI paragraph at 14 DIPs.
@@ -85,6 +88,7 @@ impl<'a> Request<'a> {
             wrap: true,
             rtl: false,
             alignment: Alignment::Start,
+            line_height: None,
         }
     }
 }
@@ -204,6 +208,9 @@ impl Context {
             || request.size > 4096.
             || !(1..=1000).contains(&request.weight)
             || request
+                .line_height
+                .is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e7)
+            || request
                 .width
                 .is_some_and(|w| !w.is_finite() || w <= 0. || w > 1e7)
         {
@@ -300,6 +307,28 @@ impl Context {
         if count > 0 {
             // SAFETY: the slice has exactly the size requested by DirectWrite.
             unsafe { layout.GetLineMetrics(Some(&mut raw), &mut count) }.context(NativeSnafu)?;
+        }
+        if let Some(height) = request.line_height
+            && let Some(first) = raw.first()
+        {
+            let baseline = first.baseline + (height - first.height) * 0.5;
+            if !baseline.is_finite() || baseline < 0. {
+                return Err(Error::InvalidRequest);
+            }
+            // SAFETY: the retained layout owns all shaping data. Uniform line
+            // spacing changes vertical geometry, not wrapping or source ranges.
+            unsafe {
+                layout
+                    .SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, height, baseline)
+                    .context(NativeSnafu)?;
+                layout.GetMetrics(&mut native).context(NativeSnafu)?;
+                layout
+                    .GetLineMetrics(Some(&mut raw), &mut count)
+                    .context(NativeSnafu)?;
+            }
+            if !native.height.is_finite() || !(0. ..=1e7).contains(&native.height) {
+                return Err(Error::InvalidRequest);
+            }
         }
         let lines: Vec<_> = raw
             .into_iter()
@@ -439,6 +468,38 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uniform_line_height_updates_baselines_and_editing_geometry() {
+        let context = Context::new().unwrap();
+        let mut request = Request::new("Hello\nWorld");
+        let natural = context.layout(&request).unwrap();
+        let first = natural.lines()[0];
+        let height = first.height + 20.;
+        request.line_height = Some(height);
+        let spaced = context.layout(&request).unwrap();
+        assert_eq!(spaced.lines().len(), 2);
+        for line in spaced.lines() {
+            assert!((line.height - height).abs() < 0.01);
+            assert!((line.baseline - first.baseline - 10.).abs() < 0.01);
+        }
+        assert!((spaced.metrics().height - height * 2.).abs() < 0.01);
+        assert_eq!(
+            spaced.metrics().max_content_width,
+            natural.metrics().max_content_width
+        );
+        let a = spaced.caret_rect(0, 1.).unwrap();
+        let b = spaced.caret_rect(6, 1.).unwrap();
+        assert!((b[1] - a[1] - height).abs() < 0.01);
+        let selection = spaced.selection_rects(6..11).unwrap();
+        assert!(selection.iter().all(|r| r[1] >= height - 0.01));
+        for invalid in [f32::NAN, f32::INFINITY, 0., -1., 1e8] {
+            request.line_height = Some(invalid);
+            assert!(matches!(
+                context.layout(&request),
+                Err(Error::InvalidRequest)
+            ));
+        }
+    }
     #[test]
     fn alignment_moves_native_editing_geometry_without_changing_intrinsics() {
         let context = Context::new().unwrap();
