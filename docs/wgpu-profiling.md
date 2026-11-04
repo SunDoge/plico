@@ -174,3 +174,27 @@ inputs retain conversion, and wgpu still stages/copies upload bytes. CPU fallbac
 versus GPU pixel comparisons cover both formats and alpha representations. Large
 first uploads remain expensive; this is not a claim of zero-copy or jank-free
 image loading. The test override is absent from production builds.
+
+## Upload stage spans
+
+Enable `RUST_LOG=plico::perf=debug` on the manual upload profile above to emit
+close-time spans (a test-only tracing subscriber reads that filter). Production
+apps use their own subscriber. The subscriber is a dev dependency only; the lock
+file records it. Cache hits return before creating upload-stage spans.
+
+Stages are `wgpu.upload_image`, `wgpu.prepare_image_bytes`,
+`wgpu.allocate_image`, `wgpu.stage_image_level`, `wgpu.cpu_mip`,
+`wgpu.compile_mip_pipeline`, and `wgpu.generate_mips`; the latter additionally
+contains `wgpu.finish_mips` and `wgpu.submit_mips`. All are CPU wall intervals.
+Fields identify dimensions, source/payload bytes, format/alpha, mip level and
+GPU/CPU selection. Existing INFO behavior does not enable these DEBUG stages.
+
+A follow-up Intel/Mesa dev sample (seven distinct uploads including first use)
+located the long interval at queue submission: mip-submit medians 22.4 / 21.7 ms
+for even/odd 4K inputs, versus encoder-finish 0.141 / 0.125 ms. First pipeline
+creation was 0.481 / 0.474 ms. An earlier staged sample showed occasional stalls
+moving between staging write and submission. These observations identify a CPU
+API boundary, not GPU shader execution duration or proof of a driver defect.
+Staging, driver work and synchronization inside that boundary remain unresolved.
+Do not sum nested span times or separate medians. No upload-speedup claim follows
+from adding instrumentation.

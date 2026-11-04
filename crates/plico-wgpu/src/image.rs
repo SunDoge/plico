@@ -107,6 +107,9 @@ impl ImageCache {
             self.binding_creations += u64::from(created);
             return Ok(image);
         }
+        let _upload = tracing::debug_span!(target: "plico::perf", "wgpu.upload_image",
+            width=image.width, height=image.height)
+        .entered();
         let bytes = image
             .format
             .size_in_bytes(image.width, image.height)
@@ -128,6 +131,9 @@ impl ImageCache {
         // write_texture copies/owns its staging data before returning. Already
         // premultiplied RGBA can borrow source bytes for this call, avoiding a
         // full-image temporary allocation and a no-op per-pixel conversion walk.
+        let preparation = tracing::debug_span!(target: "plico::perf", "wgpu.prepare_image_bytes",
+            bytes, format=?image.format, alpha=?image.alpha_type)
+        .entered();
         let mut pixels =
             if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
                 std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
@@ -151,6 +157,7 @@ impl ImageCache {
                 }
                 std::borrow::Cow::Owned(pixels)
             };
+        drop(preparation);
         // Small glyph/run images and coverage masks do not need a mip chain.
         // Keep the full allocation within the same per-source/cache budget.
         let mut sizes = vec![[image.width, image.height]];
@@ -170,6 +177,9 @@ impl ImageCache {
         let gpu_mips = sizes.len() > 1 && crate::mipmap::MipGenerator::supported(device);
         #[cfg(test)]
         let gpu_mips = gpu_mips && !self.force_cpu_mips;
+        let allocation = tracing::debug_span!(target: "plico::perf", "wgpu.allocate_image",
+            levels=sizes.len(), texture_bytes, gpu_mips)
+        .entered();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Plico immutable image"),
             size: wgpu::Extent3d {
@@ -190,15 +200,21 @@ impl ImageCache {
                 },
             view_formats: &[],
         });
+        drop(allocation);
         let mut previous_size = sizes[0];
         for (level, &[width, height]) in sizes.iter().enumerate() {
             if level > 0 && gpu_mips {
                 break;
             }
             if level > 0 {
-                pixels =
-                    std::borrow::Cow::Owned(area_reduce(&pixels, previous_size, [width, height]));
+                pixels = std::borrow::Cow::Owned(
+                    tracing::debug_span!(target: "plico::perf", "wgpu.cpu_mip", level)
+                        .in_scope(|| area_reduce(&pixels, previous_size, [width, height])),
+                );
             }
+            let staging = tracing::debug_span!(target: "plico::perf", "wgpu.stage_image_level",
+                level, bytes=pixels.len())
+            .entered();
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
@@ -218,12 +234,15 @@ impl ImageCache {
                     depth_or_array_layers: 1,
                 },
             );
+            drop(staging);
             previous_size = [width, height];
         }
         if gpu_mips {
-            self.mip_generator
-                .get_or_insert_with(|| crate::mipmap::MipGenerator::new(device))
-                .generate(device, queue, &texture);
+            let generator = self.mip_generator.get_or_insert_with(|| {
+                tracing::debug_span!(target: "plico::perf", "wgpu.compile_mip_pipeline")
+                    .in_scope(|| crate::mipmap::MipGenerator::new(device))
+            });
+            generator.generate(device, queue, &texture);
         }
         let bytes = texture_bytes;
         while self.bytes + bytes > 128 * 1024 * 1024

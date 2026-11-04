@@ -71,6 +71,9 @@ impl MipGenerator {
                 1,
             );
         }
-        queue.submit([encoder.finish()]);
+        let commands = tracing::debug_span!(target: "plico::perf", "wgpu.finish_mips")
+            .in_scope(|| encoder.finish());
+        tracing::debug_span!(target: "plico::perf", "wgpu.submit_mips")
+            .in_scope(|| queue.submit([commands]));
     }
 }

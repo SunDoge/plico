@@ -5080,6 +5080,7 @@ dependencies = [
  "resvg 0.48.1",
  "snafu",
  "tracing",
+ "tracing-subscriber",
  "wgpu",
  "winit",
 ]

@@ -1908,6 +1908,15 @@ mod tests {
     #[test]
     #[ignore = "manual GPU upload profile; run with --ignored --nocapture"]
     fn profile_image_upload_cpu_and_gpu_wait() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("off")),
+            )
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .with_ansi(false)
+            .with_test_writer()
+            .try_init();
         use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
         use std::{sync::Arc, time::Instant};
         let mut renderer = pollster::block_on(Renderer::new()).unwrap();
