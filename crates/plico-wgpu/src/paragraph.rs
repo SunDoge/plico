@@ -66,8 +66,8 @@ impl Cache {
                 "application-font registration is not implemented by the Pango provider",
             ));
         }
-        // Coverage geometry is color-independent; theme/hover tint changes must
-        // not create new native layouts. Paint still reads the original request.
+        // Base tint is independent of coverage. Range colors remain in the key:
+        // native itemization must preserve their shaping/ligature boundaries.
         let mut geometry = (*request).clone();
         geometry.color = [0; 4];
         let key = (geometry.fingerprint(), scale.to_bits());
@@ -76,9 +76,7 @@ impl Cache {
         {
             return Ok(p.clone());
         }
-        if !request.runs.is_empty()
-            || (request.max_lines != 0 && (!request.ellipsis || request.text.contains('\n')))
-        {
+        if request.max_lines != 0 && (!request.ellipsis || request.text.contains('\n')) {
             return Err(rejected(format!(
                 "unsupported paragraph: runs={} spacing={} line_height={:?} max_lines={} ellipsis={} align={:?}",
                 request.runs.len(),
@@ -121,9 +119,28 @@ impl Cache {
                 .map(|(v, multiplier)| if multiplier { v * request.font_size } else { v })
                 .map(f64::from),
         };
+        let spans: Vec<_> = request
+            .runs
+            .iter()
+            .map(|r| {
+                if !r.font_weight.is_finite() || !(1. ..=1000.).contains(&r.font_weight) {
+                    return Err(rejected("invalid span font weight"));
+                }
+                Ok(plico_native::text::atlas::LayoutSpan {
+                    range: r.range.clone(),
+                    size: f64::from(r.font_size),
+                    weight: r.font_weight as u16,
+                    italic: r.font_italic,
+                    line_height: r
+                        .line_height
+                        .map(|(v, relative)| f64::from(if relative { v * r.font_size } else { v })),
+                    color: r.color,
+                })
+            })
+            .collect::<std::result::Result<_, _>>()?;
         let layout = Rc::new(
             self.context
-                .layout_styled(&native, options)
+                .layout_rich(&native, options, &spans)
                 .map_err(|e| rejected(e.to_string()))?,
         );
         let lines = layout.line_metrics();

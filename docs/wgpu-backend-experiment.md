@@ -997,3 +997,21 @@ fall back to Parley. The local GPU test passes.
 This is deterministic rendering/cache coverage, not evidence of physical-monitor
 DPI transitions or perceived scrolling smoothness. Default native text still
 uses vertically pixel-snapped glyph placement.
+
+### Native rich paragraph ranges
+
+The Pango bridge now accepts shared `TextRun` ranges: font size, numeric weight,
+italic, absolute/relative line height and RGBA foreground. UTF-8 boundaries and
+style values are validated before native layout. Overlaps are resolved into
+non-overlapping intervals with later-span precedence, including resetting an
+older absolute line height to the base natural metrics. Glyph cluster byte
+indices select foreground colors without reshaping or family substitution in
+the renderer; native color glyphs retain their intrinsic RGB.
+
+Measurement, caret geometry and drawing share the same native layout. A GPU
+regression covers mixed ASCII/Japanese typography at 1/1.25/2 scale, per-range
+alpha, color changes, and damage/full pixel equality. Recoloring keeps geometry
+and glyph uploads unchanged. Range colors remain in the paragraph cache key to
+preserve native itemization boundaries; unlike base tint changes, changing a
+range color may create another native layout. Native overlap tests compare with
+explicit disjoint ranges and reject invalid UTF-8 byte boundaries.

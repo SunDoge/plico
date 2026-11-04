@@ -12,6 +12,8 @@ pub type Result<T> = std::result::Result<T, super::Error>;
 #[derive(Clone, Debug)]
 /// A system-resolved glyph retaining its font and physical position.
 pub struct Glyph {
+    /// Explicit span foreground; None uses the draw foreground.
+    pub foreground: Option<[u8; 4]>,
     font: pango::Font,
     id: u32,
     /// Physical horizontal glyph origin.
@@ -364,6 +366,15 @@ impl LayoutContext {
         request: &super::TextRequest<'_>,
         options: LayoutOptions,
     ) -> Result<GlyphLayout> {
+        self.layout_rich(request, options, &[])
+    }
+    /// Shape UTF-8 range overrides in the same paragraph used for editing geometry.
+    pub fn layout_rich(
+        &self,
+        request: &super::TextRequest<'_>,
+        options: LayoutOptions,
+        spans: &[LayoutSpan],
+    ) -> Result<GlyphLayout> {
         let mut validation = request.clone();
         if validation.width == Some(0.) {
             validation.width = None;
@@ -410,6 +421,97 @@ impl LayoutContext {
                 (height * request.scale * UNIT).round() as i32,
             ));
         }
+        for span in spans {
+            if span.range.start > span.range.end
+                || span.range.end > request.text.len()
+                || !request.text.is_char_boundary(span.range.start)
+                || !request.text.is_char_boundary(span.range.end)
+                || span.range.end > u32::MAX as usize
+                || !span.size.is_finite()
+                || span.size <= 0.
+                || span.size > 4096.
+                || !(1..=1000).contains(&span.weight)
+                || span
+                    .line_height
+                    .is_some_and(|h| !h.is_finite() || h <= 0. || h > 16384.)
+            {
+                return Err(super::Error::InvalidRequest);
+            }
+        }
+        // Resolve overlaps once. Pango's absolute/relative line-height attributes
+        // are distinct types, so inserting overlapping overrides directly would
+        // leave stale absolute heights underneath later natural-height spans.
+        let mut events = Vec::with_capacity(spans.len() * 2);
+        for (index, span) in spans
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.range.is_empty())
+        {
+            events.push((span.range.start, true, index));
+            events.push((span.range.end, false, index));
+        }
+        events.sort_unstable();
+        let mut active = std::collections::BTreeSet::new();
+        let mut resolved = Vec::new();
+        let mut cursor = 0;
+        while cursor < events.len() {
+            let start = events[cursor].0;
+            while cursor < events.len() && events[cursor].0 == start {
+                let (_, entering, index) = events[cursor];
+                if entering {
+                    active.insert(index);
+                } else {
+                    active.remove(&index);
+                }
+                cursor += 1;
+            }
+            if let (Some(&index), Some(&(end, _, _))) = (active.last(), events.get(cursor)) {
+                let mut span = spans[index].clone();
+                span.range = start..end;
+                resolved.push(span);
+            }
+        }
+        for span in &resolved {
+            let insert = |mut attr: pango::Attribute| {
+                attr.set_start_index(span.range.start as u32);
+                attr.set_end_index(span.range.end as u32);
+                attrs.change(attr);
+            };
+            insert(
+                pango::AttrSize::new_size_absolute(
+                    (span.size * request.scale * UNIT).round() as i32
+                )
+                .into(),
+            );
+            insert(pango::AttrInt::new_weight(unsafe { from_glib(i32::from(span.weight)) }).into());
+            insert(
+                pango::AttrInt::new_style(if span.italic {
+                    pango::Style::Italic
+                } else {
+                    pango::Style::Normal
+                })
+                .into(),
+            );
+            insert(
+                pango::AttrColor::new_foreground(
+                    u16::from(span.color[0]) * 257,
+                    u16::from(span.color[1]) * 257,
+                    u16::from(span.color[2]) * 257,
+                )
+                .into(),
+            );
+            insert(pango::AttrInt::new_foreground_alpha(u16::from(span.color[3]) * 257).into());
+            if let Some(height) = span.line_height.or(options.line_height) {
+                insert(
+                    pango::AttrInt::new_line_height_absolute(
+                        (height * request.scale * UNIT).round() as i32,
+                    )
+                    .into(),
+                );
+            } else {
+                insert(pango::AttrFloat::new_line_height(1.).into());
+            }
+        }
         layout.set_attributes(Some(&attrs));
         if options.ellipsis {
             layout.set_ellipsize(pango::EllipsizeMode::End);
@@ -426,10 +528,16 @@ impl LayoutContext {
                 let baseline = iter.baseline() as f64 / UNIT;
                 let font = run.item().analysis().font();
                 let mut x = logical.x() as f64 / UNIT;
-                for info in run.glyph_string().glyph_info() {
+                let string = run.glyph_string();
+                for (info, cluster) in string.glyph_info().iter().zip(string.log_clusters()) {
+                    let byte = (run.item().offset() + cluster) as usize;
                     let g = info.geometry();
                     let (ink, _) = font.glyph_extents(info.glyph());
                     glyphs.push(Glyph {
+                        foreground: resolved
+                            .get(resolved.partition_point(|s| s.range.end <= byte))
+                            .filter(|s| s.range.contains(&byte))
+                            .map(|s| s.color),
                         font: font.clone(),
                         id: info.glyph(),
                         ink_bounds: [
@@ -525,4 +633,88 @@ pub struct LayoutOptions {
     pub letter_spacing: f64,
     /// Absolute logical line-box height. None uses native font metrics.
     pub line_height: Option<f64>,
+}
+
+/// Complete style override for one UTF-8 range. Later spans take precedence.
+#[derive(Clone, Debug)]
+pub struct LayoutSpan {
+    /// Byte range in the paragraph, on UTF-8 boundaries.
+    pub range: std::ops::Range<usize>,
+    /// Logical font size.
+    pub size: f64,
+    /// Numeric OpenType weight.
+    pub weight: u16,
+    /// Italic face selection.
+    pub italic: bool,
+    /// Absolute logical line height, if overridden.
+    pub line_height: Option<f64>,
+    /// Straight RGBA foreground.
+    pub color: [u8; 4],
+}
+
+#[cfg(test)]
+mod rich_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires system fonts"]
+    fn overlapping_spans_equal_explicit_disjoint_styles_and_validate_utf8() {
+        let context = LayoutContext::new().unwrap();
+        let request = crate::text::TextRequest::new("AB日本CD");
+        let outer = LayoutSpan {
+            range: 0..10,
+            size: 18.,
+            weight: 700,
+            italic: true,
+            line_height: Some(48.),
+            color: [255, 0, 0, 255],
+        };
+        let inner = LayoutSpan {
+            range: 2..8,
+            size: 24.,
+            weight: 400,
+            italic: false,
+            line_height: None,
+            color: [0, 0, 255, 128],
+        };
+        let nested = context
+            .layout_rich(
+                &request,
+                LayoutOptions::default(),
+                &[outer.clone(), inner.clone()],
+            )
+            .unwrap();
+        let mut left = outer.clone();
+        left.range = 0..2;
+        let mut right = outer;
+        right.range = 8..10;
+        let flat = context
+            .layout_rich(
+                &request,
+                LayoutOptions::default(),
+                &[left, inner.clone(), right],
+            )
+            .unwrap();
+        assert_eq!(nested.logical_size, flat.logical_size);
+        assert_eq!(nested.line_metrics(), flat.line_metrics());
+        assert_eq!(nested.glyphs.len(), flat.glyphs.len());
+        for (a, b) in nested.glyphs.iter().zip(&flat.glyphs) {
+            assert_eq!(
+                (a.id, a.x, a.y, a.foreground),
+                (b.id, b.x, b.y, b.foreground)
+            );
+        }
+        assert!(
+            nested
+                .glyphs
+                .iter()
+                .any(|g| g.foreground == Some(inner.color))
+        );
+        let mut invalid = inner;
+        invalid.range.start = 3;
+        assert!(
+            context
+                .layout_rich(&request, LayoutOptions::default(), &[invalid])
+                .is_err()
+        );
+    }
 }

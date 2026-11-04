@@ -1162,3 +1162,109 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
         assert_eq!(text.cache_entries(), (0, 0), "Parley fallback was used");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn rich_paragraph_colors_typography_and_damage_share_native_geometry() {
+    use plico_renderer::text::TextRun;
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    let paint = Paint {
+        text: Some("ABC 日本語 XYZ".into()),
+        font_size: 20.,
+        ..Paint::default()
+    };
+    let mut request = ParagraphRequest::from_paint(&paint, None).unwrap();
+    request.color = [0, 0, 0, 255];
+    request.runs = vec![
+        TextRun {
+            range: 0..3,
+            font_size: 20.,
+            font_weight: 400.,
+            font_italic: false,
+            line_height: None,
+            color: [255, 0, 0, 255],
+        },
+        TextRun {
+            range: 4..13,
+            font_size: 28.,
+            font_weight: 700.,
+            font_italic: false,
+            line_height: Some((1.5, true)),
+            color: [0, 255, 0, 255],
+        },
+        TextRun {
+            range: 14..17,
+            font_size: 20.,
+            font_weight: 400.,
+            font_italic: true,
+            line_height: None,
+            color: [0, 0, 255, 128],
+        },
+    ]
+    .into();
+    for scale in [1., 1.25, 2.] {
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale).unwrap();
+        let original = text.native_paragraph(Arc::new(request.clone())).unwrap();
+        assert!(original.metrics().height >= 42.);
+        let mut enlarged = request.clone();
+        Arc::make_mut(&mut enlarged.runs)[0].font_size = 40.;
+        let enlarged = text.native_paragraph(Arc::new(enlarged)).unwrap();
+        assert!(enlarged.metrics().width > original.metrics().width);
+        for byte in [0, 3, 4, 7, 10, 13, 14, 17] {
+            let rect = original.caret_rect(byte).unwrap();
+            assert!(rect.iter().all(|v| v.is_finite()));
+            assert!(
+                request
+                    .text
+                    .is_char_boundary(original.hit_test(rect[0], rect[1]))
+            );
+        }
+        let mut uploads = None;
+        for recolor in [false, true, false] {
+            let mut current = request.clone();
+            if recolor {
+                Arc::make_mut(&mut current.runs)[0].color = [255, 0, 255, 255];
+            }
+            let measured = text.native_paragraph(Arc::new(current.clone())).unwrap();
+            assert_eq!(measured.metrics().width, original.metrics().width);
+            assert_eq!(measured.metrics().height, original.metrics().height);
+            let mut scene = Scene::new();
+            scene.commands.push(PaintCommand::Paragraph {
+                request: Arc::new(current),
+                transform: Affine::scale(scale) * Affine::translate((8., 8.)),
+            });
+            let size = [(320. * scale) as u32, (100. * scale) as u32];
+            let expected = oracle.render_scene(&scene, size, [0.; 4], false).unwrap();
+            let actual = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
+            assert_eq!(actual, expected, "rich text damage at scale={scale}");
+            let has = |channel: usize| {
+                actual
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|p| p[channel] > 20 && p[(channel + 1) % 3] == 0)
+            };
+            assert!(has(0) && has(1) && has(2), "span colors were lost");
+            assert!(
+                actual
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| p[2] > 0 && p[0] == 0 && p[1] == 0)
+                    .all(|p| p[3] <= 128),
+                "span alpha was lost"
+            );
+            let bytes = renderer.text_stats().uploaded_bytes;
+            if let Some(warm) = uploads {
+                assert_eq!(bytes, warm, "recolor uploaded glyphs");
+            }
+            uploads = Some(bytes);
+        }
+        let mut invalid = request.clone();
+        Arc::make_mut(&mut invalid.runs)[1].range.start = 5;
+        assert!(text.native_paragraph(Arc::new(invalid)).is_none());
+        assert!(text.take_native_paragraph_error().is_some());
+    }
+}

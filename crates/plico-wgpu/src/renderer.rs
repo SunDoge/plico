@@ -1269,7 +1269,9 @@ impl Renderer {
             instances.push(Instance {
                 mask_rect: [0.; 4],
                 rect,
-                color: run.color,
+                color: glyph
+                    .foreground
+                    .map_or(run.color, |rgba| rgba.map(|v| f32::from(v) / 255.)),
                 color2: [0.; 4],
                 border: [0.; 4],
                 config: [0., 0., if entry.colored { 3. } else { 2. }, 0.],
