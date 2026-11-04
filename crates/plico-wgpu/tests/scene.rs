@@ -87,15 +87,15 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
         None,
         &Rect::new(0., 0., 10., 10.),
     );
-    bad.fill(
-        Fill::NonZero,
+    bad.push_layer(
+        peniko::BlendMode::new(peniko::Mix::Multiply, peniko::Compose::SrcOver),
+        1.,
         Affine::IDENTITY,
-        &peniko::Gradient::new_sweep((20., 20.), 0., std::f32::consts::TAU)
-            .with_stops([PaintColor::BLACK, PaintColor::WHITE])
-            .with_interpolation_cs(peniko::color::ColorSpaceTag::Oklab),
-        None,
         &Circle::new((20., 20.), 8.),
+        None,
+        None,
     );
+    bad.pop_layer();
     assert!(matches!(
         renderer.prepare_scene(&bad, [320, 180]),
         Err(Error::Unsupported { command: 1, .. })

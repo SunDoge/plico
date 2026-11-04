@@ -239,6 +239,10 @@ fn brush(q: &mut Quad, brush: &Brush, local: Rect, index: usize) -> Result<()> {
                 || gradient.stops[1].offset != 1.
                 || gradient.extend != Extend::Pad
                 || gradient.interpolation_cs != peniko::color::ColorSpaceTag::Srgb
+                || gradient
+                    .stops
+                    .iter()
+                    .any(|s| !s.color.flags.missing().is_empty())
             {
                 return Err(unsupported(
                     index,
@@ -251,6 +255,16 @@ fn brush(q: &mut Quad, brush: &Brush, local: Rect, index: usize) -> Result<()> {
             let b = gradient.stops[1]
                 .color
                 .to_alpha_color::<peniko::color::Srgb>();
+            if a.components
+                .iter()
+                .chain(b.components.iter())
+                .any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
+            {
+                return Err(unsupported(
+                    index,
+                    "gradient needs color-space/gamut fallback",
+                ));
+            }
             q.gradient_premultiplied = gradient.interpolation_alpha_space
                 == peniko::InterpolationAlphaSpace::Premultiplied;
             q.colors = [a.components, b.components];

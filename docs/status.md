@@ -138,11 +138,11 @@ geometry and image-filled/stroked paths use cached coverage with GPU source samp
 uses a cached resvg fallback. Shared native WGSL
 effect surfaces use the public shader widget, injected time and bounded local
 damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
-full paint-scene backend: solid/linear/radial/sweep sRGB-gradient paths use a bounded tiny-skia
+full paint-scene backend: solid/linear/radial/sweep gradient paths use a bounded tiny-skia
 fallback, including affine linear-brush transforms and multi-stop primitive
 fills/strokes; nested clip masks preserve native text drawing. Gaussian box shadows
 and Gaussian filtered layers are implemented, with pooled GPU workspaces; general
-filter graphs, non-default blends, non-sRGB gradient interpolation and
+filter graphs, non-default blends and
 Windows/macOS text remain unfinished. Isolated source-over groups use cropped
 GPU intermediates. Externally positioned glyph runs use shared memory-font
 Cairo/FreeType rasterization, including normalized variable coordinates and

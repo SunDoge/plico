@@ -1239,3 +1239,28 @@ texture uploads. A second test varies dash offset and subpixel placement under
 nonrectangular clipping and isolated opacity, compares every frame with full
 redraw, verifies removal, and checks that the following solid draw is unaffected
 by the stroke's temporary mask. Existing image quality/alpha tests remain shared.
+
+### Shared color-library gradient interpolation
+
+Non-sRGB interpolation now uses `peniko::color`'s mature `Interpolator` and
+`UnpremultipliedInterpolator`, prepared once per stop segment during fallback
+rasterization. This reuses the upstream conversion, hue-direction and missing
+component rules instead of maintaining local Oklab/HSL/etc. conversion equations.
+Ordinary sRGB interpolation keeps its existing direct arithmetic. sRGB gradients
+with missing components also use the library path; analytic quads route these
+and out-of-gamut stops to the fallback rather than losing their semantics.
+
+The output contract remains an 8-bit premultiplied sRGB target: interpolated
+straight RGB channels are clipped to [0,1], then premultiplied. This is channel
+clipping, not perceptual gamut mapping, HDR or display-profile color management.
+Nonfinite stops and invalid alpha remain errors. Cache identity now includes
+interpolation color space, hue direction, original stop color spaces/components
+and flags, in addition to geometry/extension/alpha mode and full command equality.
+
+Unit fixtures check known black/white midpoints in sRGB, linear sRGB and Oklab,
+short/long HSL hue paths, missing-component borrowing, gamut clipping and cache
+reuse when switching back to a previous color space. GPU tests compare six color
+spaces, two alpha modes and two hue directions against the color library and
+full/damage replay; separate pixels verify missing-component and wide-gamut
+requests bypass the simple quad path. The unsupported-command atomicity fixture
+now uses a non-default Multiply blend layer, which is still unsupported.

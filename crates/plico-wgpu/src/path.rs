@@ -189,6 +189,7 @@ impl PathCache {
             }
             std::mem::discriminant(&g.extend).hash(&mut hash);
             g.premultiplied.hash(&mut hash);
+            g.color_key.hash(&mut hash);
             for (offset, color) in &g.stops {
                 offset.to_bits().hash(&mut hash);
                 for v in color {
@@ -345,14 +346,31 @@ struct GradientPaint {
     stops: Vec<(f32, [f32; 4])>,
     extend: peniko::Extend,
     premultiplied: bool,
+    segments: Vec<ColorSegment>,
+    color_key: u64,
+}
+enum ColorSegment {
+    Premultiplied(peniko::color::Interpolator),
+    Straight(peniko::color::UnpremultipliedInterpolator),
+}
+impl ColorSegment {
+    fn sample(&self, t: f32) -> [f32; 4] {
+        let color = match self {
+            Self::Premultiplied(i) => i.eval(t),
+            Self::Straight(i) => i.eval(t),
+        };
+        let rgba = color.to_alpha_color::<peniko::color::Srgb>().components;
+        let alpha = rgba[3].clamp(0., 1.);
+        [
+            rgba[0].clamp(0., 1.) * alpha,
+            rgba[1].clamp(0., 1.) * alpha,
+            rgba[2].clamp(0., 1.) * alpha,
+            alpha,
+        ]
+    }
 }
 impl GradientPaint {
     fn new(g: &peniko::Gradient) -> Result<Self> {
-        if g.interpolation_cs != peniko::color::ColorSpaceTag::Srgb {
-            return Err(unsupported(
-                "general path gradient requires sRGB interpolation",
-            ));
-        }
         match g.kind {
             peniko::GradientKind::Linear(line) => {
                 let direction = line.end - line.start;
@@ -414,17 +432,58 @@ impl GradientPaint {
             || stops.iter().any(|(offset, c)| {
                 !offset.is_finite()
                     || !(0. ..=1.).contains(offset)
-                    || c.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
+                    || c.iter().any(|v| !v.is_finite())
+                    || !(0. ..=1.).contains(&c[3])
             })
         {
             return Err(invalid("invalid gradient stops"));
         }
+        let premultiplied =
+            g.interpolation_alpha_space == peniko::InterpolationAlphaSpace::Premultiplied;
+        let mut key = std::collections::hash_map::DefaultHasher::new();
+        g.interpolation_cs.hash(&mut key);
+        std::mem::discriminant(&g.hue_direction).hash(&mut key);
+        for stop in g.stops.iter() {
+            if stop.color.components.iter().any(|v| !v.is_finite()) {
+                return Err(invalid("nonfinite gradient color"));
+            }
+            stop.color.cs.hash(&mut key);
+            stop.color.flags.hash(&mut key);
+            for v in stop.color.components {
+                v.to_bits().hash(&mut key);
+            }
+        }
+        let dynamic = g.interpolation_cs != peniko::color::ColorSpaceTag::Srgb
+            || g.stops.iter().any(|s| !s.color.flags.missing().is_empty());
+        let segments = if dynamic {
+            g.stops
+                .windows(2)
+                .map(|pair| {
+                    if premultiplied {
+                        ColorSegment::Premultiplied(pair[0].color.interpolate(
+                            pair[1].color,
+                            g.interpolation_cs,
+                            g.hue_direction,
+                        ))
+                    } else {
+                        ColorSegment::Straight(pair[0].color.interpolate_unpremultiplied(
+                            pair[1].color,
+                            g.interpolation_cs,
+                            g.hue_direction,
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         Ok(Self {
+            segments,
+            color_key: key.finish(),
             kind: g.kind,
             stops,
             extend: g.extend,
-            premultiplied: g.interpolation_alpha_space
-                == peniko::InterpolationAlphaSpace::Premultiplied,
+            premultiplied,
         })
     }
     fn sample(&self, point: kurbo::Point) -> [f32; 4] {
@@ -455,6 +514,16 @@ impl GradientPaint {
             peniko::Extend::Reflect => 1. - (t.rem_euclid(2.) - 1.).abs(),
         } as f32;
         let upper = self.stops.partition_point(|s| s.0 <= t);
+        if !self.segments.is_empty() {
+            if upper == 0 {
+                return self.segments[0].sample(0.);
+            }
+            if upper == self.stops.len() {
+                return self.segments.last().unwrap().sample(1.);
+            }
+            let u = (t - self.stops[upper - 1].0) / (self.stops[upper].0 - self.stops[upper - 1].0);
+            return self.segments[upper - 1].sample(u);
+        }
         let (a, b, u) = if upper == 0 {
             (self.stops[0].1, self.stops[0].1, 0.)
         } else if upper == self.stops.len() {
@@ -468,11 +537,12 @@ impl GradientPaint {
         let alpha = a[3] + (b[3] - a[3]) * u;
         let mut out = [0.; 4];
         for i in 0..3 {
-            out[i] = if self.premultiplied {
+            out[i] = (if self.premultiplied {
                 a[i] * a[3] * (1. - u) + b[i] * b[3] * u
             } else {
                 (a[i] + (b[i] - a[i]) * u) * alpha
-            };
+            })
+            .clamp(0., alpha);
         }
         out[3] = alpha;
         out
@@ -747,5 +817,79 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn mature_color_interpolation_preserves_space_hue_missing_and_cache_identity() {
+        use peniko::color::{ColorSpaceTag as Cs, DynamicColor, Flags, HueDirection, Missing};
+        let base =
+            Gradient::new_linear((0., 0.), (10., 0.)).with_stops([Color::BLACK, Color::WHITE]);
+        for (cs, expected) in [
+            (Cs::Srgb, 0.5),
+            (Cs::LinearSrgb, 0.735357),
+            (Cs::Oklab, 0.388573),
+        ] {
+            let color = GradientPaint::new(&base.clone().with_interpolation_cs(cs))
+                .unwrap()
+                .sample((5., 0.).into());
+            assert!((color[0] - expected).abs() < 0.0001, "{cs:?}: {color:?}");
+        }
+        let hue = Gradient::new_linear((0., 0.), (10., 0.))
+            .with_stops([Color::from_rgb8(255, 0, 0), Color::from_rgb8(0, 0, 255)])
+            .with_interpolation_cs(Cs::Hsl);
+        for (direction, expected) in [
+            (HueDirection::Shorter, [1., 0., 1., 1.]),
+            (HueDirection::Longer, [0., 1., 0., 1.]),
+        ] {
+            let color = GradientPaint::new(&hue.clone().with_hue_direction(direction))
+                .unwrap()
+                .sample((5., 0.).into());
+            assert!(
+                color
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, b)| (*a - b).abs() < 0.001)
+            );
+        }
+        let mut missing: DynamicColor = Color::BLACK.into();
+        missing.flags = Flags::from_missing(Missing::single(0));
+        let borrowed = Gradient::new_linear((0., 0.), (10., 0.))
+            .with_stops([(0., missing), (1., DynamicColor::from(Color::WHITE))]);
+        assert_eq!(
+            GradientPaint::new(&borrowed)
+                .unwrap()
+                .sample((5., 0.).into()),
+            [1., 0.5, 0.5, 1.]
+        );
+        let wide = peniko::color::AlphaColor::<peniko::color::DisplayP3>::new([0., 1., 0., 0.5]);
+        let wide = Gradient::new_linear((0., 0.), (10., 0.)).with_stops([
+            (0., DynamicColor::from(wide)),
+            (1., DynamicColor::from(wide)),
+        ]);
+        let color = GradientPaint::new(&wide).unwrap().sample((5., 0.).into());
+        assert!(color.iter().all(|v| *v >= 0. && *v <= 0.5));
+        use plico_renderer::PaintScene;
+        let mut cache = PathCache::default();
+        let mut ids = Vec::new();
+        for cs in [Cs::Srgb, Cs::Oklab, Cs::Srgb] {
+            let mut scene = plico_renderer::Scene::new();
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &base.clone().with_interpolation_cs(cs),
+                None,
+                &Rect::new(0., 0., 10., 8.),
+            );
+            ids.push(
+                cache
+                    .raster(&scene.commands[0])
+                    .unwrap()
+                    .unwrap()
+                    .0
+                    .data
+                    .id(),
+            );
+        }
+        assert_ne!(ids[0], ids[1]);
+        assert_eq!(ids[0], ids[2]);
     }
 }

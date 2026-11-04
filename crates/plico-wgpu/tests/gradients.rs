@@ -263,3 +263,111 @@ fn sweep_transformed_alpha_pixels_and_partial_updates_match_full() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn gradient_color_spaces_match_color_library_and_partial_replay() {
+    use peniko::color::{ColorSpaceTag as Cs, DynamicColor, HueDirection, Srgb};
+    let start: DynamicColor = Color::from_rgba8(255, 0, 0, 64).into();
+    let end: DynamicColor = Color::from_rgba8(0, 0, 255, 200).into();
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    for cs in [
+        Cs::Srgb,
+        Cs::LinearSrgb,
+        Cs::Oklab,
+        Cs::Hsl,
+        Cs::Oklch,
+        Cs::DisplayP3,
+    ] {
+        for alpha in [
+            InterpolationAlphaSpace::Premultiplied,
+            InterpolationAlphaSpace::Unpremultiplied,
+        ] {
+            for direction in [HueDirection::Shorter, HueDirection::Longer] {
+                let gradient = Gradient::new_linear((0., 0.), (32., 0.))
+                    .with_stops([(0., start), (1., end)])
+                    .with_interpolation_cs(cs)
+                    .with_interpolation_alpha_space(alpha)
+                    .with_hue_direction(direction);
+                let mut scene = Scene::new();
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    &gradient,
+                    None,
+                    &Rect::new(0., 0., 32., 16.),
+                );
+                let actual = partial
+                    .render_scene(&scene, [40, 24], [0.; 4], true)
+                    .unwrap();
+                assert_eq!(
+                    actual,
+                    full.render_scene(&scene, [40, 24], [0.; 4], false).unwrap()
+                );
+                for x in 1..31 {
+                    let t = (x as f32 + 0.5) / 32.;
+                    let color = match alpha {
+                        InterpolationAlphaSpace::Premultiplied => {
+                            start.interpolate(end, cs, direction).eval(t)
+                        }
+                        InterpolationAlphaSpace::Unpremultiplied => start
+                            .interpolate_unpremultiplied(end, cs, direction)
+                            .eval(t),
+                    }
+                    .to_alpha_color::<Srgb>()
+                    .components;
+                    let a = color[3].clamp(0., 1.);
+                    let expected = [
+                        color[0].clamp(0., 1.) * a,
+                        color[1].clamp(0., 1.) * a,
+                        color[2].clamp(0., 1.) * a,
+                        a,
+                    ]
+                    .map(|v| (v * 255.).round() as u8);
+                    let pixel = &actual[(8 * 40 + x) * 4..(8 * 40 + x) * 4 + 4];
+                    assert!(
+                        pixel.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                        "{cs:?}/{alpha:?}/{direction:?} x={x}: {pixel:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+    // These sRGB requests must bypass the analytic quad path: it cannot borrow
+    // missing components or represent colors outside its validated [0,1] range.
+    let mut missing: DynamicColor = Color::BLACK.into();
+    missing.flags = peniko::color::Flags::from_missing(peniko::color::Missing::single(0));
+    let wide = peniko::color::AlphaColor::<peniko::color::DisplayP3>::new([0., 1., 0., 0.5]);
+    for (stops, expected) in [
+        (
+            [(0., missing), (1., DynamicColor::from(Color::WHITE))],
+            [255, 131, 131, 255],
+        ),
+        (
+            [
+                (0., DynamicColor::from(wide)),
+                (1., DynamicColor::from(wide)),
+            ],
+            [0, 128, 0, 128],
+        ),
+    ] {
+        let gradient = Gradient::new_linear((0., 0.), (32., 0.)).with_stops(stops);
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &gradient,
+            None,
+            &Rect::new(0., 0., 32., 16.),
+        );
+        let actual = partial
+            .render_scene(&scene, [40, 24], [0.; 4], true)
+            .unwrap();
+        let pixel = &actual[(8 * 40 + 16) * 4..(8 * 40 + 16) * 4 + 4];
+        assert!(
+            pixel.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+            "fallback pixel {pixel:?} != {expected:?}"
+        );
+    }
+}
