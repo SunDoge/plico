@@ -1,0 +1,408 @@
+//! DirectWrite layout in logical DIPs. No bitmap scaling or second shaping pass.
+//! Contexts and layouts stay on their creating UI thread. GPU raster integration
+//! is separate; this module currently supplies measurement and editing geometry.
+use crate::text_indices::TextIndices;
+use snafu::{ResultExt, Snafu};
+use std::{marker::PhantomData, ops::Range, rc::Rc};
+use windows::{
+    Win32::{Globalization::GetUserDefaultLocaleName, Graphics::DirectWrite::*},
+    core::{BOOL, HSTRING},
+};
+
+/// DirectWrite/native input failures remain observable to the host.
+#[derive(Debug, Snafu)]
+pub enum Error {
+    /// Invalid geometry, text offsets or excessive allocation.
+    #[snafu(display("Invalid or oversized DirectWrite text request"))]
+    InvalidRequest,
+    /// Native DirectWrite failure, including missing font service support.
+    #[snafu(display("DirectWrite failed: {source}"))]
+    Native {
+        /// Native error.
+        source: windows::core::Error,
+    },
+}
+/// Result returned by the Windows text service.
+pub type Result<T> = std::result::Result<T, Error>;
+/// Basic system-font paragraph. Sizes and widths are logical DIPs.
+pub struct Request<'a> {
+    /// Original UTF-8 contents.
+    pub text: &'a str,
+    /// One installed system font family (not a CSS preference list).
+    pub family: &'a str,
+    /// Logical font size.
+    pub size: f32,
+    /// Numeric font weight.
+    pub weight: u16,
+    /// Select italic face.
+    pub italic: bool,
+    /// Available logical width; None measures intrinsic width.
+    pub width: Option<f32>,
+    /// Wrap within width. Hard line breaks remain effective without wrapping.
+    pub wrap: bool,
+    /// Explicit paragraph base direction; character bidi still uses DirectWrite.
+    pub rtl: bool,
+}
+impl<'a> Request<'a> {
+    /// Default Segoe UI paragraph at 14 DIPs.
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            family: "Segoe UI",
+            size: 14.,
+            weight: 400,
+            italic: false,
+            width: None,
+            wrap: true,
+            rtl: false,
+        }
+    }
+}
+/// Logical line geometry and its length in native UTF-16 units.
+#[derive(Clone, Copy, Debug)]
+pub struct Line {
+    /// Logical line-box height.
+    pub height: f32,
+    /// Baseline relative to the line top.
+    pub baseline: f32,
+    /// Native source length, including trailing whitespace/newlines.
+    pub utf16_len: u32,
+}
+/// Logical metrics from the exact retained DirectWrite layout.
+#[derive(Clone, Copy, Debug)]
+pub struct Metrics {
+    /// Content width including trailing whitespace.
+    pub width: f32,
+    /// Content height.
+    pub height: f32,
+    /// First/last absolute line baselines.
+    pub baselines: [Option<f32>; 2],
+}
+/// An isolated system font/layout factory, without process-global mutation.
+pub struct Context {
+    factory: IDWriteFactory2,
+    locale: HSTRING,
+    _thread: PhantomData<Rc<()>>,
+}
+/// Retained native paragraph; source offsets at its public boundary are UTF-8.
+pub struct Paragraph {
+    layout: IDWriteTextLayout,
+    source: String,
+    indices: TextIndices,
+    metrics: Metrics,
+    lines: Vec<Line>,
+    // Retain the factory explicitly; it drops after the layout/font references.
+    _factory: IDWriteFactory2,
+    _thread: PhantomData<Rc<()>>,
+}
+impl Context {
+    /// Create a DirectWrite factory and use the user's default Windows locale.
+    pub fn new() -> Result<Self> {
+        let mut locale = [0u16; 85];
+        // SAFETY: the API receives the complete writable buffer length.
+        let length = unsafe { GetUserDefaultLocaleName(&mut locale) };
+        let locale = if length > 1 {
+            HSTRING::from_wide(&locale[..length as usize - 1])
+        } else {
+            HSTRING::from("en-US")
+        };
+        // SAFETY: the typed result acquires the factory COM reference.
+        let factory =
+            unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED) }.context(NativeSnafu)?;
+        Ok(Self {
+            factory,
+            locale,
+            _thread: PhantomData,
+        })
+    }
+    /// Shape and retain one bounded paragraph. No system clock is read.
+    pub fn layout(&self, request: &Request<'_>) -> Result<Paragraph> {
+        if request.text.len() > 1024 * 1024
+            || request.family.is_empty()
+            || request.family.contains('\0')
+            || !request.size.is_finite()
+            || request.size <= 0.
+            || request.size > 4096.
+            || !(1..=1000).contains(&request.weight)
+            || request
+                .width
+                .is_some_and(|w| !w.is_finite() || w <= 0. || w > 1e7)
+        {
+            return Err(Error::InvalidRequest);
+        }
+        let utf16: Vec<u16> = request.text.encode_utf16().collect();
+        let family = HSTRING::from(request.family);
+        // SAFETY: DirectWrite copies text and format properties before the local
+        // UTF-16/family buffers drop. The layout owns its COM/font references.
+        let layout = unsafe {
+            let format = self
+                .factory
+                .CreateTextFormat(
+                    &family,
+                    None::<&IDWriteFontCollection>,
+                    DWRITE_FONT_WEIGHT(i32::from(request.weight)),
+                    if request.italic {
+                        DWRITE_FONT_STYLE_ITALIC
+                    } else {
+                        DWRITE_FONT_STYLE_NORMAL
+                    },
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    request.size,
+                    &self.locale,
+                )
+                .context(NativeSnafu)?;
+            format
+                .SetWordWrapping(if request.wrap && request.width.is_some() {
+                    DWRITE_WORD_WRAPPING_WRAP
+                } else {
+                    DWRITE_WORD_WRAPPING_NO_WRAP
+                })
+                .context(NativeSnafu)?;
+            format
+                .SetReadingDirection(if request.rtl {
+                    DWRITE_READING_DIRECTION_RIGHT_TO_LEFT
+                } else {
+                    DWRITE_READING_DIRECTION_LEFT_TO_RIGHT
+                })
+                .context(NativeSnafu)?;
+            self.factory
+                .CreateTextLayout(
+                    &utf16,
+                    &format,
+                    request.width.unwrap_or(16_777_216.),
+                    16_777_216.,
+                )
+                .context(NativeSnafu)?
+        };
+        let mut native = DWRITE_TEXT_METRICS::default();
+        // SAFETY: output storage is initialized and valid for each native call.
+        unsafe {
+            layout.GetMetrics(&mut native).context(NativeSnafu)?;
+            if request.width.is_none() {
+                // Keep unbounded RTL paragraphs near the origin rather than
+                // aligning them to the large measurement-only width.
+                layout
+                    .SetMaxWidth(native.widthIncludingTrailingWhitespace.ceil().max(1.))
+                    .context(NativeSnafu)?;
+                layout.GetMetrics(&mut native).context(NativeSnafu)?;
+            }
+        }
+        if ![native.widthIncludingTrailingWhitespace, native.height]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0. && *v <= 1e7)
+        {
+            return Err(Error::InvalidRequest);
+        }
+        let mut count = native.lineCount;
+        if count > 100_000 {
+            return Err(Error::InvalidRequest);
+        }
+        let mut raw = vec![DWRITE_LINE_METRICS::default(); count as usize];
+        if count > 0 {
+            // SAFETY: the slice has exactly the size requested by DirectWrite.
+            unsafe { layout.GetLineMetrics(Some(&mut raw), &mut count) }.context(NativeSnafu)?;
+        }
+        let lines: Vec<_> = raw
+            .into_iter()
+            .take(count as usize)
+            .map(|l| Line {
+                height: l.height,
+                baseline: l.baseline,
+                utf16_len: l.length,
+            })
+            .collect();
+        let last_top: f32 = lines
+            .iter()
+            .take(lines.len().saturating_sub(1))
+            .map(|l| l.height)
+            .sum();
+        let metrics = Metrics {
+            width: native.widthIncludingTrailingWhitespace,
+            height: native.height,
+            baselines: [
+                lines.first().map(|l| l.baseline),
+                lines.last().map(|l| last_top + l.baseline),
+            ],
+        };
+        Ok(Paragraph {
+            layout,
+            source: request.text.into(),
+            indices: TextIndices::new(request.text),
+            metrics,
+            lines,
+            _factory: self.factory.clone(),
+            _thread: PhantomData,
+        })
+    }
+}
+impl Paragraph {
+    /// Retained logical metrics.
+    pub fn metrics(&self) -> Metrics {
+        self.metrics
+    }
+    /// Native line metrics, without reshaping.
+    pub fn lines(&self) -> &[Line] {
+        &self.lines
+    }
+    /// UTF-8 to UTF-16; rejects mid-scalar offsets.
+    pub fn utf16_from_byte(&self, byte: usize) -> Option<u32> {
+        self.indices.utf16(byte)
+    }
+    /// UTF-16 to UTF-8; rejects surrogate interiors.
+    pub fn byte_from_utf16(&self, units: u32) -> Option<usize> {
+        self.indices.byte(units)
+    }
+    /// Nearest source insertion boundary to a logical point, respecting clusters.
+    pub fn hit_test(&self, x: f32, y: f32) -> Result<usize> {
+        if !x.is_finite() || !y.is_finite() || x.abs() > 1e9 || y.abs() > 1e9 {
+            return Err(Error::InvalidRequest);
+        }
+        let mut trailing = BOOL::default();
+        let mut inside = BOOL::default();
+        let mut hit = DWRITE_HIT_TEST_METRICS::default();
+        // SAFETY: pointers refer to valid output storage; layout stays alive.
+        unsafe {
+            self.layout
+                .HitTestPoint(x, y, &mut trailing, &mut inside, &mut hit)
+        }
+        .context(NativeSnafu)?;
+        let position = hit
+            .textPosition
+            .checked_add(if trailing.as_bool() { hit.length } else { 0 })
+            .ok_or(Error::InvalidRequest)?;
+        self.indices.byte(position).ok_or(Error::InvalidRequest)
+    }
+    /// One-physical-pixel caret [x,y,width,height] at a valid UTF-8 boundary.
+    pub fn caret_rect(&self, byte: usize, scale: f32) -> Result<[f32; 4]> {
+        if !scale.is_finite() || scale <= 0. || scale > 8. {
+            return Err(Error::InvalidRequest);
+        }
+        let position = self.indices.utf16(byte).ok_or(Error::InvalidRequest)?;
+        let mut x = 0.;
+        let mut y = 0.;
+        let mut hit = DWRITE_HIT_TEST_METRICS::default();
+        // SAFETY: source position was checked against this layout's original text.
+        unsafe {
+            self.layout
+                .HitTestTextPosition(position, false, &mut x, &mut y, &mut hit)
+        }
+        .context(NativeSnafu)?;
+        Ok([x, y, 1. / scale, hit.height])
+    }
+    /// Bidi-aware selection rectangles [x,y,width,height], in logical DIPs.
+    pub fn selection_rects(&self, range: Range<usize>) -> Result<Vec<[f32; 4]>> {
+        if range.start > range.end || range.end > self.source.len() {
+            return Err(Error::InvalidRequest);
+        }
+        let start = self
+            .indices
+            .utf16(range.start)
+            .ok_or(Error::InvalidRequest)?;
+        let end = self.indices.utf16(range.end).ok_or(Error::InvalidRequest)?;
+        if start == end {
+            return Ok(Vec::new());
+        }
+        let mut count = 0;
+        // SAFETY: the first query only asks for the required buffer length.
+        let first = unsafe {
+            self.layout
+                .HitTestTextRange(start, end - start, 0., 0., None, &mut count)
+        };
+        if let Err(error) = first {
+            // ERROR_INSUFFICIENT_BUFFER is the expected size-query result.
+            if error.code() != windows::core::HRESULT::from_win32(122) {
+                return Err(Error::Native { source: error });
+            }
+        }
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        if count > 100_000 {
+            return Err(Error::InvalidRequest);
+        }
+        let mut raw = vec![DWRITE_HIT_TEST_METRICS::default(); count as usize];
+        // SAFETY: checked range and correctly sized writable output slice.
+        unsafe {
+            self.layout
+                .HitTestTextRange(start, end - start, 0., 0., Some(&mut raw), &mut count)
+        }
+        .context(NativeSnafu)?;
+        Ok(raw
+            .into_iter()
+            .take(count as usize)
+            .map(|h| [h.left, h.top, h.width, h.height])
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_layout_keeps_geometry_and_utf8_offsets_after_factory_drop() {
+        for content in [
+            "",
+            "Hello ffi e\u{301} 中文 🙂",
+            "مرحبا بالعالم",
+            "👩‍👩‍👧‍👧\r\n日本語",
+        ] {
+            let paragraph = {
+                let context = Context::new().unwrap();
+                let mut request = Request::new(content);
+                request.rtl = content.starts_with('م');
+                context.layout(&request).unwrap()
+            };
+            let metrics = paragraph.metrics();
+            assert!(metrics.width.is_finite() && metrics.height.is_finite());
+            assert!(!paragraph.lines().is_empty());
+            for byte in (0..=content.len()).filter(|b| content.is_char_boundary(*b)) {
+                let units = content[..byte].encode_utf16().count() as u32;
+                assert_eq!(paragraph.utf16_from_byte(byte), Some(units));
+                assert_eq!(paragraph.byte_from_utf16(units), Some(byte));
+                for scale in [1., 1.25, 1.5, 2.] {
+                    let caret = paragraph.caret_rect(byte, scale).unwrap();
+                    assert!(caret.iter().all(|v| v.is_finite()));
+                    assert_eq!(caret[2], 1. / scale);
+                    let hit = paragraph
+                        .hit_test(caret[0], caret[1] + caret[3] * 0.5)
+                        .unwrap();
+                    assert!(content.is_char_boundary(hit));
+                }
+            }
+            let rects = paragraph.selection_rects(0..content.len()).unwrap();
+            assert!(rects.iter().flatten().all(|v| v.is_finite()));
+            assert!(paragraph.hit_test(f32::NAN, 0.).is_err());
+            assert!(paragraph.caret_rect(content.len() + 1, 1.).is_err());
+            assert!(paragraph.selection_rects(0..content.len() + 1).is_err());
+        }
+    }
+    #[test]
+    fn wrapping_and_invalid_requests_are_explicit() {
+        let context = Context::new().unwrap();
+        let mut request =
+            Request::new("A paragraph with enough content to wrap into several lines.");
+        request.width = Some(80.);
+        let wrapped = context.layout(&request).unwrap();
+        assert!(wrapped.lines().len() > 1);
+        assert!(wrapped.metrics().height > request.size);
+        request.wrap = false;
+        assert_eq!(context.layout(&request).unwrap().lines().len(), 1);
+        request.size = f32::NAN;
+        assert!(matches!(
+            context.layout(&request),
+            Err(Error::InvalidRequest)
+        ));
+        request.size = 14.;
+        request.family = "bad\0family";
+        assert!(matches!(
+            context.layout(&request),
+            Err(Error::InvalidRequest)
+        ));
+        let mut request = Request::new("🙂");
+        request.width = Some(0.);
+        assert!(matches!(
+            context.layout(&request),
+            Err(Error::InvalidRequest)
+        ));
+    }
+}

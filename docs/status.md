@@ -89,7 +89,9 @@ FLTK 共享工作台现包含 Router 前进/后退、响应式 Grid、固定表�
 
 ## Optional native text
 
-Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). The experimental wgpu host now uses native ordinary text and single-line editing geometry. Desktop font settings, CoreText and DirectWrite are not implemented.
+Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). The experimental wgpu host now uses native ordinary text and single-line editing geometry. Desktop font settings and CoreText are not implemented. Optional `windows-text`
+now provides a DirectWrite layout/editing service with cross-compiled tests;
+glyph rasterization, wgpu integration and Windows runtime validation remain pending.
 
 ## Widget input capabilities
 

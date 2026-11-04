@@ -68,7 +68,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    texture work. Allocation counts are verified; frame-time performance is pending. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
-   text providers. Externally positioned solid glyph runs now use a native memory-font raster
+   text providers. A DirectWrite layout/editing foundation now cross-compiles, but
+   is not yet connected to rasterization or wgpu. Externally positioned solid glyph runs now use a native memory-font raster
    fallback, and the real editor fixture displays and accepts input. Normalized variable coordinates are supported by immutable native font instances;
    per-glyph affine matrices cover synthetic skew. Emboldening/stroke coverage and
    terminal throughput/scroll/IME stress validation remain. The terminal fixture now

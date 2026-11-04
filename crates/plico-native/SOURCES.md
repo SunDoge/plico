@@ -25,3 +25,8 @@ these attribution notes do not relicense them.
   copied. The native wrapper is narrowly unsafe at Cairo's FFI face constructor;
   the cloned FreeType face and shared byte owner remain attached to Cairo user
   data. Copyright/license notices are retained in `licenses/cairo-rs-MIT.txt`.
+
+- GPUI Windows `direct_write.rs` was consulted for DirectWrite factory/font API
+  usage while implementing the optional Windows layout prototype. No GPUI Rust
+  source is copied. COM signatures and ownership wrappers come from the linked
+  `windows` crate; UTF-8 indexing, validation and the public service are local.

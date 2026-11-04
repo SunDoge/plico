@@ -9,6 +9,7 @@ publish = false
 default = []
 screen-capture = ["dep:ashpd", "ashpd/screenshot", "dep:tokio"]
 global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
+windows-text = ["dep:windows"]
 linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru", "dep:fontconfig-sys", "dep:tempfile"]
 
 [dependencies]
@@ -52,3 +53,6 @@ required-features = ["screen-capture"]
 name = "system_text_wgpu"
 path = "examples/system_text_wgpu/main.rs"
 required-features = ["linux-text"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", optional = true, default-features = false, features = ["std", "Win32_Graphics_DirectWrite", "Win32_Globalization"] }

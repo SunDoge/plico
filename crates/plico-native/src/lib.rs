@@ -16,3 +16,9 @@ pub mod hotkeys;
 /// Optional, user-authorized system screenshot capture.
 #[cfg(feature = "screen-capture")]
 pub mod capture;
+
+#[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
+mod text_indices;
+/// DirectWrite layout and UTF-8 editing geometry (experimental Windows service).
+#[cfg(all(target_os = "windows", feature = "windows-text"))]
+pub mod windows_text;

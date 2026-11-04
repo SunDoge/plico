@@ -4853,6 +4853,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "wgpu",
+ "windows",
  "yeslogic-fontconfig-sys",
 ]
 

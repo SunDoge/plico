@@ -95,3 +95,36 @@ It is separate from the whole-paragraph API above and is not a production backen
 atlas reused by `plico-wgpu`. Layouts provide UTF-8 hit testing, selection/caret
 geometry, native UTF-16 conversion and composition candidate anchors from their
 own Pango layout. See the [wgpu window/text milestone](wgpu-backend-experiment.md).
+
+## Windows DirectWrite foundation (experimental)
+
+`plico-native/windows-text` exposes `plico_native::windows_text::{Context, Request,
+Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
+user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
+hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
+family and an explicit paragraph base direction; CSS family lists, rich spans,
+application fonts, clipping/ellipsis and glyph rasterization are not implemented
+in this service yet. It is not connected to plico-wgpu, whose Windows native text
+path still returns an unsupported-platform error.
+
+Contexts/layouts are confined to their creating thread. A paragraph retains its
+native layout and factory references; it does not borrow the request's text or
+the context. Its UTF-8/UTF-16 index maps reject mid-scalar and surrogate-interior
+offsets. Point hit testing uses DirectWrite's complete cluster length when moving
+to a trailing edge, rather than adding a single UTF-16 unit. Caret widths are one
+physical pixel at the requested scale; all other geometry stays in logical DIPs.
+Text (1 MiB), size/width and native output buffer counts are bounded, and errors
+are returned through Snafu.
+
+Verified here: Windows GNU cross-check of the service/tests, Windows MSVC Clippy,
+and the platform-independent Unicode index tests running on Linux. The native
+API tests compile but have **not run on Windows**. Run them on Windows with:
+
+```sh
+cargo test --locked -p plico-native --no-default-features --features windows-text --lib
+```
+
+Before renderer adoption, implement grayscale glyph rasterization, connect the
+same layout to shared measurement/paint, then verify actual Windows fonts,
+DPI transitions, IME and window output. Cross-compilation proves none of those
+runtime/visual properties.

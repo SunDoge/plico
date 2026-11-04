@@ -1264,3 +1264,12 @@ spaces, two alpha modes and two hue directions against the color library and
 full/damage replay; separate pixels verify missing-component and wide-gamut
 requests bypass the simple quad path. The unsupported-command atomicity fixture
 now uses a non-default Multiply blend layer, which is still unsupported.
+
+### Windows system-text groundwork
+
+The optional native DirectWrite service described in [native text](native-text.md)
+now supplies actual Windows layout/editing geometry. It is deliberately separate
+from the Linux Pango atlas until glyph rasterization and a shared provider bridge
+are implemented. GNU cross-check and MSVC Clippy include its native API tests;
+pure UTF-8/UTF-16 scalar-boundary tests execute on Linux. No Windows runtime,
+rendered text quality or wgpu window behavior is claimed by this step.
