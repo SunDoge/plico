@@ -610,13 +610,11 @@ impl PaintScene for GpuPainter<'_> {
     }
 
     fn draw_shader_effect(&mut self, effect: ShaderEffect, transform: Affine) {
-        let texture_id = self.shaders.render(
-            &effect,
-            self.device,
-            self.queue,
-            self.encoder,
-            self.texture_bindings,
-        );
+        let (texture_id, view) =
+            self.shaders
+                .render_texture(&effect, self.device, self.queue, self.encoder);
+        let texture_id = vello_common::TextureId(texture_id.get());
+        self.texture_bindings.insert(texture_id, view);
         let [physical_width, physical_height] = effect.physical_size();
         self.scene.set_transform(
             transform

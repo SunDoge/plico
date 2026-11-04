@@ -74,6 +74,15 @@ resource/damage contract before extending this interface.
 
 Native effect outputs and pipelines reuse the shared renderer resource helper,
 through a wgpu-view interface rather than Vello scene or texture-binding replay.
+The shared `ShaderRenderer` now returns its own process-local `ShaderTextureId`
+and a native view through `render_texture`; Vello-specific texture-ID conversion
+and binding registration live in plico-vello. The wgpu consumer uses `render_view`
+and never registers a Vello texture. A GPU test renders two versions of one
+effect in the same snapshot through both adapters and checks matching output
+pixels, guarding against resource/uniform aliasing at this boundary.
+This removes the shader helper's direct type coupling; plico-renderer still
+depends on Vello for other existing SVG/filter/web implementations, so this is
+not a claim that its full dependency graph is Vello-free.
 The native bridge limits a frame to 256 effect draws and 128 MiB of declared output
 pixel payload, in addition to device dimension limits. Pipelines use the shared
 16-entry LRU. Removed output surfaces are released; cached pipelines may remain.

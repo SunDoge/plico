@@ -13,8 +13,6 @@ use rustc_hash::FxHashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::num::NonZeroUsize;
 #[cfg(not(target_arch = "wasm32"))]
-use vello_common::TextureId;
-#[cfg(not(target_arch = "wasm32"))]
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPipeline, Texture,
     TextureFormat, TextureView,
@@ -84,6 +82,22 @@ impl ShaderEffectId {
 impl Default for ShaderEffectId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Identity of a renderer-owned native shader output allocation.
+/// Distinct versions of one effect in the same frame have distinct identities;
+/// a retained target preserves its identity when resized. Backends may wrap
+/// this value in their own external-texture ID, without exposing that type here.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ShaderTextureId(u64);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ShaderTextureId {
+    /// Process-local identity; not a persistent asset or device handle.
+    pub fn get(self) -> u64 {
+        self.0
     }
 }
 
@@ -282,7 +296,7 @@ struct EffectTarget {
     bind_group: BindGroup,
     size: [u16; 2],
     used_in_frame: u64,
-    texture_id: TextureId,
+    texture_id: ShaderTextureId,
     effect: Option<ShaderEffect>,
 }
 
@@ -325,7 +339,7 @@ impl EffectTarget {
             bind_group,
             size,
             used_in_frame: 0,
-            texture_id: TextureId(ShaderEffectId::new().0),
+            texture_id: ShaderTextureId(ShaderEffectId::new().0),
             effect: None,
         }
     }
@@ -390,17 +404,16 @@ impl ShaderRenderer {
         });
     }
 
-    pub fn render(
+    /// Render and return a backend-neutral identity with its native view.
+    /// Consumers register the view in their own external-texture mechanism.
+    pub fn render_texture(
         &mut self,
         effect: &ShaderEffect,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        bindings: &mut vello_gpu::TextureBindings,
-    ) -> TextureId {
-        let (id, view) = self.render_target(effect, device, queue, encoder);
-        bindings.insert(id, view);
-        id
+    ) -> (ShaderTextureId, TextureView) {
+        self.render_target(effect, device, queue, encoder)
     }
 
     /// Render to a native wgpu view without a Vello texture-binding adapter.
@@ -431,7 +444,7 @@ impl ShaderRenderer {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-    ) -> (TextureId, TextureView) {
+    ) -> (ShaderTextureId, TextureView) {
         // A retained scene snapshot may contain several versions of one surface
         // (for example before/after a theme reveal). Distinct versions in the
         // same submission must never share a texture or uniform buffer.
