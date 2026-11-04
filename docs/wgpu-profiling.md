@@ -71,3 +71,11 @@ GPU 像素测试覆盖稳定目标的内容更新、目标尺寸变化，以及 
 切换；view 身份断言还检查了同尺寸复用、resize 后替换。这消除了明确的逐帧
 资源创建，但尚未通过稳定的 release 前后采样量化 CPU 收益，不能套用上表
 旧样本宣称加速比例。
+
+窗口 `trim_gpu_cache()` 现在也清理 immutable-image GPU 缓存及最后一帧的绑定引用；
+之前仅清理 layer/effect/text，图片缓存仍可保留至 128 MiB。独立
+`Renderer::trim_image_cache()` 保留累计上传／命中计数，resident bytes 与 binding
+数量归零。它不清理应用／scene 持有的 CPU 原图，也不破坏最终 retained pixels。
+GPU 测试验证 trim 后静态画面无需重传，随后图片移动会重新上传并与全量重绘一致。
+统计归零表示 renderer 已释放引用，驱动仍可能为在途提交暂留资源，不能等同于 RSS
+立即下降。

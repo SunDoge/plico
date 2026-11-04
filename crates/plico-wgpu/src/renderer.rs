@@ -1480,6 +1480,12 @@ impl Renderer {
 
 #[cfg(feature = "paint-scene")]
 impl Renderer {
+    /// Release immutable-image GPU textures and bindings, preserving cumulative
+    /// counters and retained final pixels. Source images remain owned by the scene.
+    pub fn trim_image_cache(&mut self) {
+        self.clear_frame_images();
+        self.images.clear();
+    }
     /// Cached source textures, resident texture bytes, uploads and source hits.
     /// Sampling bindings are counted separately; native atlas textures are excluded.
     pub fn image_cache_stats(&self) -> (usize, usize, u64, u64) {
