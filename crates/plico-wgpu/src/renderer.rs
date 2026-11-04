@@ -14,6 +14,7 @@ struct Instance {
     uv: [f32; 4],
     gradient: [f32; 4],
     clip_params: [f32; 4],
+    mask_rect: [f32; 4],
 }
 struct Target {
     texture: wgpu::Texture,
@@ -57,6 +58,8 @@ pub struct Renderer {
     pub(crate) svgs: crate::svg::SvgCache,
     #[cfg(feature = "paint-scene")]
     pub(crate) paths: crate::path::PathCache,
+    #[cfg(feature = "paint-scene")]
+    pub(crate) masks: crate::mask::MaskCache,
     #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
@@ -150,7 +153,11 @@ impl Renderer {
         let atlas_texture = crate::texture::AtlasTexture::new(&device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(&group), Some(&atlas_texture.layout)],
+            bind_group_layouts: &[
+                Some(&group),
+                Some(&atlas_texture.layout),
+                Some(&atlas_texture.layout),
+            ],
             immediate_size: 0,
         });
         let frame = device.create_buffer(&wgpu::BufferDescriptor {
@@ -204,6 +211,8 @@ impl Renderer {
             #[cfg(feature = "paint-scene")]
             paths: Default::default(),
             #[cfg(feature = "paint-scene")]
+            masks: Default::default(),
+            #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -251,7 +260,7 @@ impl Renderer {
             .iter()
             .filter(|(_, g)| g.binding.is_some())
             .count()
-            != 3
+            != 5
             || module.entry_points.len() != 2
         {
             return Err(Error::Shader {
@@ -265,7 +274,7 @@ impl Renderer {
                 label: Some("Plico quad material"),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
-        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4];
+        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4];
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -497,7 +506,10 @@ impl Renderer {
                     #[cfg(not(feature = "paint-scene"))]
                     let _ = texture;
                     let mut end = first + 1;
-                    while end < instances.len() && key(end) == texture {
+                    while end < instances.len()
+                        && key(end) == texture
+                        && instances[end].clip_params[2] == instances[first].clip_params[2]
+                    {
                         end += 1;
                     }
                     #[cfg(feature = "paint-scene")]
@@ -507,6 +519,15 @@ impl Renderer {
                     #[cfg(not(feature = "paint-scene"))]
                     let bind = &self.atlas_texture.bind;
                     pass.set_bind_group(1, bind, &[]);
+                    #[cfg(feature = "paint-scene")]
+                    let mask = if instances[first].clip_params[2] > 0. {
+                        &self.frame_images[instances[first].clip_params[2] as usize - 1].bind
+                    } else {
+                        &self.atlas_texture.bind
+                    };
+                    #[cfg(not(feature = "paint-scene"))]
+                    let mask = &self.atlas_texture.bind;
+                    pass.set_bind_group(2, mask, &[]);
                     pass.draw(0..6, first as u32..end as u32);
                     first = end;
                 }
@@ -630,14 +651,46 @@ impl Renderer {
         let mut instances = Vec::new();
         #[cfg(feature = "paint-scene")]
         self.frame_images.clear();
+        #[cfg(feature = "paint-scene")]
+        let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
+            #[cfg(feature = "paint-scene")]
+            let first = instances.len();
             match item {
+                #[cfg(feature = "paint-scene")]
+                crate::Draw::SetMask(mask) => {
+                    let [x, y, w, h] = mask.rect;
+                    if ![x, y, w, h]
+                        .iter()
+                        .all(|v| v.is_finite() && v.fract() == 0.)
+                        || w != mask.image.width as f32
+                        || h != mask.image.height as f32
+                    {
+                        return Err(Error::InvalidInput {
+                            reason: "invalid mask rectangle".into(),
+                        });
+                    }
+                    let image = self.images.get(
+                        &self.device,
+                        &self.queue,
+                        &self.atlas_texture.layout,
+                        &mask.image,
+                        peniko::ImageQuality::Low,
+                    )?;
+                    let slot = self.frame_images.len();
+                    self.frame_images.push(image);
+                    active_mask = Some((slot, mask.rect));
+                }
+                #[cfg(feature = "paint-scene")]
+                crate::Draw::ResetMask => active_mask = None,
+
                 crate::Draw::Quad(q) => {
                     q.validate()?;
                     if q.rect[2] <= 0. || q.rect[3] <= 0. {
                         continue;
                     }
                     instances.push(Instance {
+                        mask_rect: [0.; 4],
                         rect: q.rect,
                         color: q.colors[0],
                         color2: q.colors[1],
@@ -684,6 +737,7 @@ impl Renderer {
                     let slot = self.frame_images.len();
                     self.frame_images.push(resource);
                     instances.push(Instance {
+                        mask_rect: [0.; 4],
                         rect: q.rect,
                         color: [0., 0., 0., image.alpha],
                         color2: [0.; 4],
@@ -697,6 +751,13 @@ impl Renderer {
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 crate::Draw::Text(run) => self.encode_text(run, size, &mut instances)?,
+            }
+            #[cfg(feature = "paint-scene")]
+            if let Some((slot, rect)) = active_mask {
+                for instance in &mut instances[first..] {
+                    instance.clip_params[2] = slot as f32 + 1.;
+                    instance.mask_rect = rect;
+                }
             }
             if instances.len() > 1_000_000 {
                 return Err(Error::InvalidInput {
@@ -799,6 +860,7 @@ impl Renderer {
                 continue;
             }
             instances.push(Instance {
+                mask_rect: [0.; 4],
                 rect,
                 color: run.color,
                 color2: [0.; 4],

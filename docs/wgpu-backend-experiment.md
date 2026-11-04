@@ -363,3 +363,29 @@ CPU reference within one channel level, allowing float-transform rounding. The
 path sequence also runs through optional damage replay; the existing text/image/
 SVG tests continue to pass. This is a coverage fallback, not evidence that complex
 CPU paths are faster than Vello.
+
+
+### Nested nonrectangular clip masks
+
+Rectangular clip scopes retain their analytical fast path. Other clip outlines
+are rasterized through the solid path cache as white coverage, then intersected
+with the current nonrectangular mask. The GPU samples the resulting alpha in
+physical coordinates in addition to any rect clip. Mask state participates in
+ordered batch boundaries; pop restores the previous mask and an empty intersection
+cannot leak content. Text still uses native glyph layout/rasterization, not a
+whole-paragraph bitmap fallback. The shared `avatar` component now exercises its
+circular image clip in `scene_counter` captures at four DPI scales.
+
+The mask-intersection cache has a 256-entry/64 MiB pixel budget, additional to the
+path/SVG CPU caches. Mask GPU textures share the existing 128 MiB image-texture
+cache and frame ownership rules. A nonrectangular clip adds a coverage sample per
+fragment and can split a texture batch; no performance advantage is claimed.
+Clip depth above 128 and invalid mask bounds return errors. Isolated opacity,
+blend modes and filter layers remain unsupported.
+
+GPU tests cover nested curved/triangular masks, fractional motion, independent
+CPU mask intersection, disjoint masks, pop restoration and clipped native text.
+Damaged replay and full replay must be pixel-identical. Against tiny-skia's
+integer source-over oracle, coverage alpha is checked within one channel level
+and RGB within two levels: the GPU performs floating-point compositing into an
+8-bit UNORM target, whereas the CPU oracle rounds integer color products.

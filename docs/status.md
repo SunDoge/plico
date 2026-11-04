@@ -135,5 +135,6 @@ window exercise pass. Performance and physical-display verification remain pendi
 Shared images use cached independent textures, nearest/bilinear premultiplied-alpha
 sampling and ordered batches; SVG uses a cached resvg fallback. It is not yet a
 full paint-scene backend: solid general paths now use cached tiny-skia coverage,
-but non-solid path brushes, complex clips, isolated layers, Windows text and
-actual editor/IME bridging remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).
+and nested nonrectangular clip masks preserve native text drawing. Non-solid
+path brushes, isolated layers, Windows text and actual editor/IME bridging
+remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).

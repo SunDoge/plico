@@ -51,7 +51,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    implemented. Image upload handles straight/premultiplied alpha before filtering;
    nearest/bilinear sampling, opacity and ordered texture batches are verified.
    Solid general paths have a tiny-skia fallback with even-odd fill, curves,
-   rotation and dashed strokes. Non-solid general paths, complex clips,
+   rotation and dashed strokes. Nested nonrectangular clips now use cached
+   coverage masks, while rect clips keep the fast path. Non-solid general paths,
    isolated opacity/layers and shared shader effects remain. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS

@@ -2,6 +2,8 @@ struct Frame { size_time_scale: vec4f }
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(0) var glyph_atlas: texture_2d<f32>;
 @group(1) @binding(1) var glyph_sampler: sampler;
+@group(2) @binding(0) var clip_mask: texture_2d<f32>;
+@group(2) @binding(1) var clip_sampler: sampler;
 // PLICO_INTERFACE
 // PLICO_MATERIAL
 struct Vertex {
@@ -16,11 +18,12 @@ struct Vertex {
     @location(7) uv:vec2f,
     @location(8) @interpolate(flat) gradient:vec4f,
     @location(9) @interpolate(flat) clip_params:vec4f,
+    @location(10) @interpolate(flat) mask_rect:vec4f,
 }
 @vertex fn vs_main(@builtin(vertex_index) index: u32,
     @location(0) rect: vec4f, @location(1) color: vec4f,
     @location(2) color2: vec4f, @location(3) border: vec4f,
-    @location(4) config: vec4f, @location(5) clip: vec4f, @location(6) uv:vec4f, @location(7) gradient:vec4f, @location(8) clip_params:vec4f) -> Vertex {
+    @location(4) config: vec4f, @location(5) clip: vec4f, @location(6) uv:vec4f, @location(7) gradient:vec4f, @location(8) clip_params:vec4f, @location(9) mask_rect:vec4f) -> Vertex {
     let corners=array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1),vec2f(0,1),vec2f(1,0),vec2f(1,1));
     // Include the 1px antialiasing fringe, rather than clipping it at the quad.
     let local=corners[index]*(rect.zw+2.)-1.;
@@ -29,6 +32,7 @@ struct Vertex {
     out.position=vec4f(world/frame.size_time_scale.xy*vec2f(2,-2)+vec2f(-1,1),0,1);
     out.local=local;out.size=rect.zw;out.color=color;out.color2=color2;
     out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
     out.gradient=gradient;
     out.uv=uv.xy+local/rect.zw*uv.zw;
     out.border=border;out.config=config;out.clip=clip;
@@ -56,6 +60,12 @@ fn coverage(p: vec2f,size: vec2f,radius: f32) -> f32 {
         clip_alpha=coverage(world-clip.xy,clip.zw,0.);
         if clip_alpha<=0. { discard; }
     } else if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
+    if input.clip_params.z>0. {
+        let m=input.mask_rect;
+        if any(world<m.xy) || any(world>=m.xy+m.zw) {discard;}
+        clip_alpha*=textureSampleLevel(clip_mask,clip_sampler,(world-m.xy)/m.zw,0.).a;
+        if clip_alpha<=0. {discard;}
+    }
     if input.config.z>=4. {
         let pixel=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.);
         return pixel*input.color.a*coverage(input.local,input.size,input.config.x)*clip_alpha;

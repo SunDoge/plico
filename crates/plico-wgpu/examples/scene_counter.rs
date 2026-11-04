@@ -23,7 +23,7 @@ mod demo {
     fn content(cx: &mut UiContext<'_>, count: &mut i32, asset: &ImageAsset) {
         column(cx).width_percent(100.).height_percent(100.).padding(32).gap(18).background(Color::Surface) + |cx| {
             row(cx).gap(14).align(Align::Center) + |cx| {
-                image(cx, asset).size(48., 48.);
+                avatar(cx).image(asset).size(48.);
                 text(cx, "Plico / wgpu").font_size(26).weight(600);
                 svg_source(cx, r##"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="#dcfce7"/><path d="M9 16l5 5 10-11" fill="none" stroke="#15803d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##
                     .into()).size(32., 32.);

@@ -681,3 +681,204 @@ fn curved_dashed_stroke_matches_cpu_reference_under_rotation() {
     );
     assert!(actual.iter().any(|v| *v > 0));
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn nested_path_clip_masks_match_cpu_intersection_and_damage() {
+    use resvg::tiny_skia as sk;
+    let mut outer = kurbo::BezPath::new();
+    outer.move_to((12., 8.));
+    outer.line_to((60., 8.));
+    outer.quad_to((72., 8.), (72., 20.));
+    outer.line_to((72., 60.));
+    outer.quad_to((72., 72.), (60., 72.));
+    outer.line_to((12., 72.));
+    outer.quad_to((0., 72.), (0., 60.));
+    outer.line_to((0., 20.));
+    outer.quad_to((0., 8.), (12., 8.));
+    outer.close_path();
+    let mut op = sk::PathBuilder::new();
+    op.move_to(12., 8.);
+    op.line_to(60., 8.);
+    op.quad_to(72., 8., 72., 20.);
+    op.line_to(72., 60.);
+    op.quad_to(72., 72., 60., 72.);
+    op.line_to(12., 72.);
+    op.quad_to(0., 72., 0., 60.);
+    op.line_to(0., 20.);
+    op.quad_to(0., 8., 12., 8.);
+    op.close();
+    let op = op.finish().unwrap();
+    let mut inner = kurbo::BezPath::new();
+    inner.move_to((10., 10.));
+    inner.line_to((75., 25.));
+    inner.line_to((20., 75.));
+    inner.close_path();
+    let mut ip = sk::PathBuilder::new();
+    ip.move_to(10., 10.);
+    ip.line_to(75., 25.);
+    ip.line_to(20., 75.);
+    ip.close();
+    let ip = ip.finish().unwrap();
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..4 {
+        let dx = frame as f64 + 4.25;
+        let mut scene = Scene::new();
+        scene.push_clip_layer(Affine::translate((dx, 0.5)), &outer);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(200, 30, 50, 255),
+            None,
+            &Rect::new(0., 0., 96., 96.),
+        );
+        scene.push_clip_layer(Affine::translate((0., frame as f64 * 0.25)), &inner);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(20, 80, 220, 255),
+            None,
+            &Rect::new(0., 0., 96., 96.),
+        );
+        scene.pop_layer();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(0, 255, 0, 255),
+            None,
+            &Rect::new(2., 2., 8., 8.),
+        );
+        scene.pop_layer();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(255, 0, 200, 255),
+            None,
+            &Rect::new(0., 0., 3., 3.),
+        );
+        let actual = partial
+            .render_scene(&scene, [96, 96], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            actual,
+            full.render_scene(&scene, [96, 96], [0.; 4], false).unwrap()
+        );
+        let mut mask = sk::Mask::new(96, 96).unwrap();
+        mask.fill_path(
+            &op,
+            sk::FillRule::Winding,
+            true,
+            sk::Transform::from_translate(dx as f32, 0.5),
+        );
+        let mut both = mask.clone();
+        both.intersect_path(
+            &ip,
+            sk::FillRule::Winding,
+            true,
+            sk::Transform::from_translate(0., frame as f32 * 0.25),
+        );
+        let mut expected = sk::Pixmap::new(96, 96).unwrap();
+        let mut paint = sk::Paint::default();
+        paint.set_color_rgba8(200, 30, 50, 255);
+        let rect = sk::Rect::from_xywh(0., 0., 96., 96.).unwrap();
+        expected.fill_rect(rect, &paint, sk::Transform::identity(), Some(&mask));
+        paint.set_color_rgba8(20, 80, 220, 255);
+        expected.fill_rect(rect, &paint, sk::Transform::identity(), Some(&both));
+        paint.set_color_rgba8(0, 255, 0, 255);
+        expected.fill_rect(
+            sk::Rect::from_xywh(2., 2., 6., 6.).unwrap(),
+            &paint,
+            sk::Transform::identity(),
+            Some(&mask),
+        );
+        paint.set_color_rgba8(255, 0, 200, 255);
+        expected.fill_rect(
+            sk::Rect::from_xywh(0., 0., 3., 3.).unwrap(),
+            &paint,
+            sk::Transform::identity(),
+            None,
+        );
+        // tiny-skia uses integer source-over while the GPU blends float color
+        // into UNORM after each draw. Separate coverage from color quantization.
+        for (index, (actual, expected)) in actual.iter().zip(expected.data()).enumerate() {
+            let tolerance = if index % 4 == 3 { 1 } else { 2 };
+            assert!(
+                actual.abs_diff(*expected) <= tolerance,
+                "clip oracle mismatch frame={frame} byte={index}: {actual} != {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn native_text_respects_nonrectangular_clip_without_whole_layout_rasterization() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    scene.push_clip_layer(Affine::IDENTITY, &Circle::new((32., 32.), 16.));
+    let request = ParagraphRequest::from_paint(
+        &Paint {
+            text: Some("WWWWWWWW".into()),
+            font_size: 24.,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    scene.commands.push(PaintCommand::Paragraph {
+        request: Arc::new(request),
+        transform: Affine::translate((0., 16.)),
+    });
+    scene.pop_layer();
+    let actual = renderer
+        .render_scene(&scene, [96, 64], [0.; 4], true)
+        .unwrap();
+    assert!(actual.iter().any(|v| *v > 0));
+    for y in 0..64 {
+        for x in 0..96 {
+            if !(15..49).contains(&x) || !(15..49).contains(&y) {
+                assert_eq!(actual[(y * 96 + x) * 4 + 3], 0);
+            }
+        }
+    }
+    assert_eq!(text.cache_entries(), (0, 0));
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn disjoint_clip_masks_are_empty_and_pop_restores_the_parent() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut scene = Scene::new();
+    scene.push_clip_layer(Affine::IDENTITY, &Circle::new((16., 16.), 8.));
+    scene.push_clip_layer(Affine::IDENTITY, &Circle::new((70., 16.), 8.));
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        PaintColor::WHITE,
+        None,
+        &Rect::new(0., 0., 96., 32.),
+    );
+    scene.pop_layer();
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        PaintColor::from_rgba8(255, 0, 0, 255),
+        None,
+        &Rect::new(0., 0., 96., 32.),
+    );
+    scene.pop_layer();
+    let pixels = renderer
+        .render_scene(&scene, [96, 32], [0.; 4], true)
+        .unwrap();
+    assert_eq!(
+        &pixels[(16 * 96 + 16) * 4..(16 * 96 + 16) * 4 + 4],
+        [255, 0, 0, 255]
+    );
+    assert_eq!(
+        &pixels[(16 * 96 + 70) * 4..(16 * 96 + 70) * 4 + 4],
+        [0, 0, 0, 0]
+    );
+}

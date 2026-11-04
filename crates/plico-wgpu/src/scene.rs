@@ -14,6 +14,8 @@ pub struct PreparedScene {
 enum PreparedDraw {
     Quad(Quad),
     Image(crate::image::ImageQuad),
+    SetMask(std::rc::Rc<crate::mask::CoverageMask>),
+    ResetMask,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text {
         layout: std::rc::Rc<crate::text::GlyphLayout>,
@@ -25,6 +27,7 @@ enum PreparedDraw {
 impl PreparedDraw {
     fn ink_bounds(&self) -> Rect {
         match self {
+            Self::SetMask(_) | Self::ResetMask => Rect::ZERO,
             Self::Quad(q) | Self::Image(crate::image::ImageQuad { quad: q, .. }) => {
                 let [x, y, w, h] = q.rect;
                 Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
@@ -70,6 +73,8 @@ impl PreparedScene {
             .iter()
             .map(|draw| match draw {
                 PreparedDraw::Quad(q) => Draw::Quad(q),
+                PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
+                PreparedDraw::ResetMask => Draw::ResetMask,
                 PreparedDraw::Image(image) => Draw::Image(image),
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 PreparedDraw::Text {
@@ -205,6 +210,7 @@ impl Renderer {
         let source = scene.clone();
         let scene = scene.flattened();
         let mut clips = vec![Rect::new(0., 0., size[0] as f64, size[1] as f64)];
+        let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
         let mut ink = vec![None; scene.commands.len()];
         for (index, command) in scene.commands.iter().enumerate() {
@@ -362,19 +368,58 @@ impl Renderer {
                         transform,
                         clip: shape,
                     } => {
-                        let (rect, radius) = geometry(shape, index)?;
-                        if radius != 0. {
-                            return Err(unsupported(index, "rounded clip"));
+                        if clips.len() >= 128 {
+                            return Err(unsupported(index, "clip depth exceeds 128"));
                         }
-                        uniform(*transform, index)?;
-                        let rect = transform.transform_rect_bbox(rect);
-                        clips.push(clip.intersect(rect));
+                        let previous = masks.last().unwrap().clone();
+                        if let Ok((rect, 0.)) = geometry(shape, index)
+                            && uniform(*transform, index).is_ok()
+                        {
+                            clips.push(clip.intersect(transform.transform_rect_bbox(rect)));
+                            masks.push(previous);
+                        } else {
+                            let command = PaintCommand::Fill {
+                                fill: peniko::Fill::NonZero,
+                                transform: *transform,
+                                brush: peniko::Color::WHITE.into(),
+                                brush_transform: None,
+                                shape: shape.clone(),
+                            };
+                            let raster =
+                                self.paths.raster(&command).map_err(|error| match error {
+                                    Error::Unsupported { reason, .. } => unsupported(index, reason),
+                                    other => other,
+                                })?;
+                            if let Some((image, bounds)) = raster {
+                                let mask =
+                                    self.masks.intersect(image, bounds, previous.as_deref())?;
+                                clips.push(clip.intersect(mask.bounds()));
+                                masks.push(Some(mask.clone()));
+                                draws.push(PreparedDraw::SetMask(mask));
+                            } else {
+                                clips.push(Rect::ZERO);
+                                masks.push(previous);
+                            }
+                        }
                     }
                     PaintCommand::PopLayer => {
                         if clips.len() == 1 {
                             return Err(unsupported(index, "unbalanced clip pop"));
                         }
                         clips.pop();
+                        let old = masks.pop().unwrap();
+                        let restored = masks.last().unwrap();
+                        let same = match (&old, restored) {
+                            (None, None) => true,
+                            (Some(a), Some(b)) => std::rc::Rc::ptr_eq(a, b),
+                            _ => false,
+                        };
+                        if !same {
+                            draws.push(match restored {
+                                Some(mask) => PreparedDraw::SetMask(mask.clone()),
+                                None => PreparedDraw::ResetMask,
+                            });
+                        }
                     }
                     PaintCommand::Svg {
                         document,

@@ -10,6 +10,8 @@ mod window;
 pub use window::WgpuWindow;
 #[cfg(feature = "paint-scene")]
 pub mod image;
+#[cfg(feature = "paint-scene")]
+pub mod mask;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 mod paragraph;
 #[cfg(feature = "paint-scene")]
@@ -129,6 +131,11 @@ pub enum Draw<'a> {
     Quad(&'a Quad),
     #[cfg(feature = "paint-scene")]
     Image(&'a image::ImageQuad),
+    /// Replace the active coverage mask; masks do not themselves paint pixels.
+    #[cfg(feature = "paint-scene")]
+    SetMask(&'a mask::CoverageMask),
+    #[cfg(feature = "paint-scene")]
+    ResetMask,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text(text::TextRun<'a>),
 }
