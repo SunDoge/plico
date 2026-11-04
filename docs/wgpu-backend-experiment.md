@@ -982,3 +982,18 @@ slots with parent bindings across frames or pool trimming. This demonstrates dra
 submission avoidance, not an application FPS/CPU improvement measurement. Unique-
 binding workloads additionally pay registry lookup cost and need representative
 profiling before broader performance claims.
+
+### Native scrolling and DPI regression coverage
+
+`native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi` drives a
+real `Source` scroll container with wheel events and a virtual clock. It covers
+ASCII, Chinese and Japanese text at scales 1, 1.25, 2 and then 1 again, with
+48 frames per scale. The fixture asserts that scrolling actually occurs.
+Every damaged frame is compared pixel-for-pixel with an independent full replay.
+After the first scroll cycle, glyph upload bytes and atlas recycle counts remain
+unchanged; scrolling does not rerun the page's `show`, and measurement does not
+fall back to Parley. The local GPU test passes.
+
+This is deterministic rendering/cache coverage, not evidence of physical-monitor
+DPI transitions or perceived scrolling smoothness. Default native text still
+uses vertically pixel-snapped glyph placement.

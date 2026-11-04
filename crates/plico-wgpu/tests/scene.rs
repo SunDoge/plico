@@ -1054,3 +1054,111 @@ fn native_password_input_shapes_only_masked_presentation() {
         .render_scene(&scene, [320, 100], [1.; 4], true)
         .unwrap();
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
+    use plico_renderer::{GesturePhase, Modifiers, Point, UiEvent, WheelDeltaMode, WheelEvent};
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct ScrollPage {
+        shows: usize,
+    }
+    impl plico::View for ScrollPage {
+        fn theme(&self) -> Theme {
+            Theme::light()
+        }
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            self.shows += 1;
+            column(cx)
+                .width(280.)
+                .height(108.)
+                .scroll_y(true)
+                .gap(3)
+                .children(|cx| {
+                    for id in 0..60_u64 {
+                        text(cx, "abc S 中文 日本語 0123456789")
+                            .key(id)
+                            .font_size(14);
+                    }
+                });
+        }
+    }
+
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    for scale in [1., 1.25, 2., 1.] {
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale).unwrap();
+        oracle
+            .configure_text(&mut TextContext::new(), scale)
+            .unwrap();
+        let clock = plico::VirtualClock::default();
+        let mut source = Source::with_clock(NativeView(ScrollPage::default()), clock.clone());
+        let mut scene = Scene::new();
+        source
+            .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+            .unwrap();
+        let size = [(320. * scale) as u32, (160. * scale) as u32];
+        renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        let port = source
+            .adapter
+            .placed
+            .iter()
+            .find(|p| p.scroll.range[1] > 0.)
+            .unwrap()
+            .scroll
+            .port;
+        let position = Point {
+            x: f64::from(port[0] + 20.),
+            y: f64::from(port[1] + 20.),
+        };
+        let shows = source.view.0.shows;
+        let mut warmed = None;
+        let mut max_scroll = 0_f32;
+        for frame in 0..48 {
+            if frame % 12 == 0 {
+                source.prepare_for_event(&mut text);
+                source.handle_event(UiEvent::Wheel(WheelEvent {
+                    position,
+                    delta_x: 0.,
+                    delta_y: if frame % 24 == 0 { 96. } else { -96. },
+                    delta_mode: WheelDeltaMode::Pixel,
+                    phase: GesturePhase::Changed,
+                    modifiers: Modifiers::empty(),
+                }));
+            }
+            clock.advance(Duration::from_millis(16)).unwrap();
+            source
+                .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+                .unwrap();
+            max_scroll = source
+                .adapter
+                .placed
+                .iter()
+                .map(|p| p.scroll.offset[1])
+                .fold(max_scroll, f32::max);
+            let expected = oracle.render_scene(&scene, size, [1.; 4], false).unwrap();
+            let actual = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+            assert_eq!(
+                actual, expected,
+                "scroll damage mismatch: scale={scale} frame={frame}"
+            );
+            assert!(text.take_native_paragraph_error().is_none());
+            if frame == 23 {
+                warmed = Some(renderer.text_stats());
+            }
+        }
+        assert!(max_scroll > 20., "fixture did not scroll at scale={scale}");
+        let warm = warmed.unwrap();
+        let end = renderer.text_stats();
+        assert_eq!(
+            end.uploaded_bytes, warm.uploaded_bytes,
+            "warm scroll uploaded glyphs at scale={scale}"
+        );
+        assert_eq!(end.recycled_frames, warm.recycled_frames);
+        assert_eq!(source.view.0.shows, shows, "scroll redeclared the page");
+        assert_eq!(text.cache_entries(), (0, 0), "Parley fallback was used");
+    }
+}
