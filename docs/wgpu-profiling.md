@@ -145,3 +145,32 @@ remained 7.035 ms. This confirms a useful reduction, but 78 ms synchronous work
 is still a visible first-upload risk. GPU generation or background preparation
 requires further work; this optimization is not the final upload pipeline.
 Fifteen image/affine GPU regressions, Clippy and the WASM check passed.
+
+## Upload CPU work versus subsequent GPU wait
+
+```sh
+cargo test --locked -p plico-wgpu --lib profile_image_upload_cpu_and_gpu_wait -- --ignored --nocapture
+```
+
+This manual test uploads distinct large premultiplied RGBA sources, comparing a
+test-only forced CPU mip path with the production GPU path. Source construction
+and adapter creation are outside timing. The CPU interval includes conversion,
+texture creation, staging writes, mip work/submission and an empty staging flush;
+the separately timed device-idle wait follows it. The first upload per renderer
+is reported separately; six later distinct uploads reuse the pipeline, not image
+cache hits. Reported statistics are upper medians for six samples, not GPU
+timestamps. Driver shader caches may already be warm.
+
+Local Intel ARL/Mesa Vulkan, dev opt-level=1: before borrowing premultiplied input,
+GPU-path CPU upper medians were 48.733 ms (4096×3072) and 51.139 ms (4095×3071).
+Avoiding Plico's redundant full-image copy/conversion walk reduced them to 32.237
+and 30.664 ms. CPU-mip fallback after the same change was 41.534 / 111.135 ms.
+Subsequent GPU waits varied (6.237 / 10.172 ms for those GPU-path runs); these are
+not isolated mip GPU execution times, nor may separate medians be added to infer
+a frame median. The result is not a release/power benchmark.
+
+The borrow only applies to already premultiplied RGBA. Straight-alpha or BGRA
+inputs retain conversion, and wgpu still stages/copies upload bytes. CPU fallback
+versus GPU pixel comparisons cover both formats and alpha representations. Large
+first uploads remain expensive; this is not a claim of zero-copy or jank-free
+image loading. The test override is absent from production builds.

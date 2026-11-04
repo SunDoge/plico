@@ -52,6 +52,8 @@ struct TextureEntry {
 pub(crate) struct ImageCache {
     entries: lru::LruCache<Key, TextureEntry>,
     mip_generator: Option<crate::mipmap::MipGenerator>,
+    #[cfg(test)]
+    force_cpu_mips: bool,
     bytes: usize,
     pub uploads: u64,
     pub hits: u64,
@@ -64,6 +66,8 @@ impl Default for ImageCache {
             entries: lru::LruCache::new(NonZeroUsize::new(256).unwrap()),
             bytes: 0,
             mip_generator: None,
+            #[cfg(test)]
+            force_cpu_mips: false,
             uploads: 0,
             hits: 0,
             bindings: 0,
@@ -72,6 +76,10 @@ impl Default for ImageCache {
     }
 }
 impl ImageCache {
+    #[cfg(test)]
+    pub fn force_cpu_mips(&mut self) {
+        self.force_cpu_mips = true;
+    }
     pub fn get(
         &mut self,
         device: &wgpu::Device,
@@ -117,24 +125,32 @@ impl ImageCache {
                 reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
             });
         }
-        let mut pixels = image.data.data()[..bytes].to_vec();
-        for p in pixels.as_chunks_mut::<4>().0 {
-            match image.format {
-                ImageFormat::Rgba8 => {}
-                ImageFormat::Bgra8 => p.swap(0, 2),
-                _ => {
+        // write_texture copies/owns its staging data before returning. Already
+        // premultiplied RGBA can borrow source bytes for this call, avoiding a
+        // full-image temporary allocation and a no-op per-pixel conversion walk.
+        let mut pixels =
+            if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
+                std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
+            } else {
+                if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
                     return Err(Error::Unsupported {
                         command: 0,
                         reason: "image pixel format".into(),
                     });
                 }
-            }
-            if image.alpha_type == ImageAlphaType::Alpha {
-                for c in 0..3 {
-                    p[c] = ((u16::from(p[c]) * u16::from(p[3]) + 127) / 255) as u8;
+                let mut pixels = image.data.data()[..bytes].to_vec();
+                for p in pixels.as_chunks_mut::<4>().0 {
+                    if image.format == ImageFormat::Bgra8 {
+                        p.swap(0, 2);
+                    }
+                    if image.alpha_type == ImageAlphaType::Alpha {
+                        for c in 0..3 {
+                            p[c] = ((u16::from(p[c]) * u16::from(p[3]) + 127) / 255) as u8;
+                        }
+                    }
                 }
-            }
-        }
+                std::borrow::Cow::Owned(pixels)
+            };
         // Small glyph/run images and coverage masks do not need a mip chain.
         // Keep the full allocation within the same per-source/cache budget.
         let mut sizes = vec![[image.width, image.height]];
@@ -152,6 +168,8 @@ impl ImageCache {
             }
         }
         let gpu_mips = sizes.len() > 1 && crate::mipmap::MipGenerator::supported(device);
+        #[cfg(test)]
+        let gpu_mips = gpu_mips && !self.force_cpu_mips;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Plico immutable image"),
             size: wgpu::Extent3d {
@@ -178,7 +196,8 @@ impl ImageCache {
                 break;
             }
             if level > 0 {
-                pixels = area_reduce(&pixels, previous_size, [width, height]);
+                pixels =
+                    std::borrow::Cow::Owned(area_reduce(&pixels, previous_size, [width, height]));
             }
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {

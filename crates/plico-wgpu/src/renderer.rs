@@ -1853,6 +1853,135 @@ mod tests {
     #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
+    fn cpu_mip_fallback_matches_gpu_for_borrowed_and_converted_uploads() {
+        use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+        use std::sync::Arc;
+        let mut gpu = pollster::block_on(Renderer::new()).unwrap();
+        let mut cpu = pollster::block_on(Renderer::new()).unwrap();
+        cpu.images.force_cpu_mips();
+        for format in [ImageFormat::Rgba8, ImageFormat::Bgra8] {
+            for alpha in [ImageAlphaType::Alpha, ImageAlphaType::AlphaPremultiplied] {
+                let source: Vec<u8> = (0..65 * 67)
+                    .flat_map(|i| {
+                        let mut pixel = [((i * 13) % 128) as u8, 20, 3, 128];
+                        if format == ImageFormat::Bgra8 {
+                            pixel.swap(0, 2);
+                        }
+                        pixel
+                    })
+                    .collect();
+                let image = crate::image::ImageQuad {
+                    quality: peniko::ImageQuality::High,
+                    ..crate::image::ImageQuad::new(
+                        Quad::new([0., 0., 7., 5.], [1.; 4]),
+                        ImageData {
+                            data: Blob::new(Arc::new(source)),
+                            width: 65,
+                            height: 67,
+                            format,
+                            alpha_type: alpha,
+                        },
+                    )
+                };
+                let expected = cpu
+                    .render_items(&[crate::Draw::Image(&image)], [7, 5], [0.; 4], 0.)
+                    .unwrap();
+                let actual = gpu
+                    .render_items(&[crate::Draw::Image(&image)], [7, 5], [0.; 4], 0.)
+                    .unwrap();
+                assert!(
+                    actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 3),
+                    "{format:?} {alpha:?}"
+                );
+                assert!(
+                    actual
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|pixel| pixel[3] == 128)
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "manual GPU upload profile; run with --ignored --nocapture"]
+    fn profile_image_upload_cpu_and_gpu_wait() {
+        use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+        use std::{sync::Arc, time::Instant};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        assert!(crate::mipmap::MipGenerator::supported(&renderer.device));
+        eprintln!("adapter: {:?}", renderer.adapter_info());
+        for size in [[4096, 3072], [4095, 3071]] {
+            let pixels = vec![128u8; size[0] as usize * size[1] as usize * 4];
+            for cpu in [true, false] {
+                renderer.trim_image_cache();
+                // Reset the test override and pipeline outside the measured interval.
+                renderer.images = Default::default();
+                if cpu {
+                    renderer.images.force_cpu_mips();
+                }
+                let mut samples = Vec::new();
+                for index in 0..7 {
+                    let source = ImageData {
+                        data: Blob::new(Arc::new(pixels.clone())),
+                        width: size[0],
+                        height: size[1],
+                        format: ImageFormat::Rgba8,
+                        alpha_type: ImageAlphaType::AlphaPremultiplied,
+                    };
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    let start = Instant::now();
+                    let image = renderer
+                        .images
+                        .get(
+                            &renderer.device,
+                            &renderer.queue,
+                            &renderer.atlas_texture.layout,
+                            &source,
+                            crate::image::ImageSampling {
+                                quality: peniko::ImageQuality::High,
+                                extend: [peniko::Extend::Pad; 2],
+                                mipmaps: true,
+                            },
+                        )
+                        .unwrap();
+                    // Flush write_texture staging on the CPU-only mip path too.
+                    renderer.queue.submit([]);
+                    let cpu_time = start.elapsed();
+                    let wait = Instant::now();
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    let gpu_wait = wait.elapsed();
+                    std::hint::black_box(image);
+                    if index == 0 {
+                        eprintln!(
+                            "{size:?} cpu_mips={cpu} first: cpu={cpu_time:?}, subsequent_wait={gpu_wait:?}"
+                        );
+                    } else {
+                        samples.push((cpu_time, gpu_wait));
+                    }
+                }
+                samples.sort_by_key(|sample| sample.0);
+                let mut waits: Vec<_> = samples.iter().map(|sample| sample.1).collect();
+                waits.sort();
+                eprintln!(
+                    "{size:?} cpu_mips={cpu} warm n=6: cpu_upper_median={:?}, wait_upper_median={:?}",
+                    samples[3].0, waits[3]
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
     fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
         let renderer = pollster::block_on(Renderer::new()).unwrap();
         assert!(crate::mipmap::MipGenerator::supported(&renderer.device));
