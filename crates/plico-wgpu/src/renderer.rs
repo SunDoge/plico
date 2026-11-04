@@ -468,6 +468,13 @@ impl Renderer {
         self.material_module = Some(shader);
         self.source = material.into();
         self.compilations += 1;
+        #[cfg(feature = "paint-scene")]
+        {
+            // The same declaration may produce different pixels under a new
+            // material. Neither old layer pixels nor scene equality prove reuse.
+            self.trim_layer_pool();
+            self.invalidate_scene_damage();
+        }
         Ok(true)
     }
     fn material_pipeline(
@@ -1891,6 +1898,72 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn accepted_material_replacement_invalidates_layers_and_damage_but_rejection_does_not() {
+        use plico_renderer::{PaintScene, Scene};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut scene = Scene::new();
+        scene.push_layer(
+            peniko::Compose::Plus,
+            0.5,
+            kurbo::Affine::IDENTITY,
+            &kurbo::Rect::new(0., 0., 16., 16.),
+            None,
+            None,
+        );
+        scene.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &kurbo::Rect::new(0., 0., 16., 16.),
+        );
+        scene.pop_layer();
+        let original = renderer
+            .render_scene(&scene, [32, 32], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            renderer
+                .render_scene(&scene, [32, 32], [0.; 4], true)
+                .unwrap(),
+            original
+        );
+        assert_eq!(renderer.scene_damage_coverage([32, 32]), 0.);
+        let layers = renderer.layer_pool_stats();
+        assert!(layers.entries > 0);
+        let compilations = renderer.pipeline_compilations();
+        assert!(pollster::block_on(renderer.set_material("invalid WGSL")).is_err());
+        assert!(!pollster::block_on(renderer.set_material(DEFAULT_MATERIAL)).unwrap());
+        assert_eq!(renderer.layer_pool_stats().entries, layers.entries);
+        assert_eq!(renderer.pipeline_compilations(), compilations);
+        assert_eq!(
+            renderer
+                .render_scene(&scene, [32, 32], [0.; 4], true)
+                .unwrap(),
+            original
+        );
+        assert_eq!(renderer.scene_damage_coverage([32, 32]), 0.);
+        assert!(
+            pollster::block_on(
+                renderer.set_material("fn plico_material(m: Material)->vec4f {return m.color;}")
+            )
+            .unwrap()
+        );
+        assert_eq!(renderer.layer_pool_stats().entries, 0);
+        assert!(renderer.plus_pipeline.is_none());
+        assert_eq!(
+            renderer
+                .render_scene(&scene, [32, 32], [0.; 4], true)
+                .unwrap(),
+            original
+        );
+        assert_eq!(renderer.scene_damage_coverage([32, 32]), 1.);
+        assert!(renderer.layer_pool_stats().allocations > layers.allocations);
+        assert!(renderer.plus_pipeline.is_some());
+    }
+
     #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]

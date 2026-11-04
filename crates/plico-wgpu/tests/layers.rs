@@ -521,6 +521,12 @@ fn additive_groups_isolate_children_restore_source_over_and_match_damage() {
                 .unwrap();
             let expected = full.render_scene(&scene, [64, 32], [0.; 4], false).unwrap();
             assert_eq!(actual, expected, "{compose:?} frame {frame}");
+            if frame == 2 && compose != peniko::Compose::SrcOver {
+                assert!(
+                    partial.scene_damage_coverage([64, 32]) < 1.,
+                    "additive scene never exercised partial damage"
+                );
+            }
             if frame == 1 && compose != peniko::Compose::SrcOver {
                 assert_eq!(
                     partial.pipeline_compilations(),

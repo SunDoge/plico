@@ -1,6 +1,17 @@
 //! Optional redraw information, independent of layout and window APIs.
 use kurbo::Rect;
 
+/// Conservative locality contract shared by flattened commands and fragments.
+/// Additive source pixels affect only their own coverage, like source-over.
+pub(crate) fn layer_requires_full_damage(blend: peniko::BlendMode, filtered: bool) -> bool {
+    filtered
+        || blend.mix != peniko::Mix::Normal
+        || !matches!(
+            blend.compose,
+            peniko::Compose::SrcOver | peniko::Compose::Plus | peniko::Compose::PlusLighter
+        )
+}
+
 /// Damage in physical surface pixels, relative to the last successful draw.
 /// Consumers may always promote a region to `Full`. Producers must include
 /// both old and new ink bounds, including effects and overlapping content.
@@ -308,7 +319,6 @@ impl SceneDamageTracker {
     ) -> DamageRegion {
         use crate::PaintCommand;
         use kurbo::Shape;
-        use peniko::BlendMode;
         self.regions.clear();
         if self.previous.is_none() || self.size != Some((width, height)) || self.nonlocal {
             self.regions.add(DamageRegion::Full);
@@ -328,7 +338,7 @@ impl SceneDamageTracker {
                     blend,
                     ..
                 } => {
-                    if filter.is_some() || *blend != BlendMode::default() {
+                    if layer_requires_full_damage(*blend, filter.is_some()) {
                         self.regions.add(DamageRegion::Full);
                         self.nonlocal = true;
                     }
@@ -512,6 +522,59 @@ mod tracker_tests {
             DamageRegion::Full
         );
     }
+    #[test]
+    fn additive_layers_and_fragments_are_local_but_other_blends_remain_conservative() {
+        for compose in [peniko::Compose::Plus, peniko::Compose::PlusLighter] {
+            let make = |x| {
+                let mut layer = Scene::new();
+                layer.push_layer(
+                    compose,
+                    0.5,
+                    Affine::IDENTITY,
+                    &Rect::new(0., 0., 40., 40.),
+                    None,
+                    None,
+                );
+                layer.append_scene(scene(x), Affine::IDENTITY);
+                layer.pop_layer();
+                layer
+            };
+            let mut tracker = SceneDamageTracker::default();
+            let first = make(10.);
+            assert!(!first.has_nonlocal_effects());
+            assert_eq!(tracker.update(&first, 100, 100, bounds), DamageRegion::Full);
+            assert_eq!(
+                tracker.update(&first, 100, 100, bounds),
+                DamageRegion::Empty
+            );
+            assert!(matches!(
+                tracker.update(&make(12.), 100, 100, bounds),
+                DamageRegion::Rect(_)
+            ));
+            let mut fragment = Scene::new();
+            fragment.append_cached_scene(first, Affine::IDENTITY);
+            assert!(!fragment.has_nonlocal_effects());
+        }
+        let mut multiply = Scene::new();
+        multiply.push_layer(
+            peniko::Mix::Multiply,
+            1.,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 40., 40.),
+            None,
+            None,
+        );
+        multiply.pop_layer();
+        assert!(multiply.has_nonlocal_effects());
+        let mut tracker = SceneDamageTracker::default();
+        for _ in 0..2 {
+            assert_eq!(
+                tracker.update(&multiply, 100, 100, bounds),
+                DamageRegion::Full
+            );
+        }
+    }
+
     #[test]
     fn resized_and_filtered_frames_invalidate_including_filter_removal() {
         let mut tracker = SceneDamageTracker::default();

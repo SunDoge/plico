@@ -261,6 +261,30 @@ texture copy or CPU compositing is introduced. No performance advantage is claim
 
 A GPU regression checks independent expected premultiplied colors, nested child
 overlap/group opacity, following normal controls, saturation, material replacement,
-and partial/full replay including removal. The complete local suite passed 95
+and damage-enabled/full replay including removal. At this point the shared tracker
+still promoted non-default blends to full damage; the follow-up below verifies
+actual partial redraw. The complete local suite passed 95
 tests (five manual profiles excluded), with Clippy and no-default/Windows/WASM
 checks. Windows and browser runtime blend results remain unverified.
+
+### Additive damage locality and material invalidation
+
+The shared tracker and cached-fragment locality check now classify only Normal
+SrcOver/Plus/PlusLighter as local unfiltered compositions. Filters, Multiply and
+other unclassified combinations retain conservative full damage. A shared unit
+test checks unchanged/moved additive commands and fragment classification; the
+wgpu additive GPU test now asserts non-full coverage on an actual update and
+still matches full replay pixels. Locality does not imply backend support:
+Skia currently rejects additive layer commands at its painting interface.
+
+Successful wgpu material replacement clears derived layer targets and invalidates
+scene damage, while retaining the CPU prepared declaration. A rejected update or
+identical source preserves both caches and pipelines. The GPU test checks empty
+damage on unchanged/rejected updates, cleared layers on accepted replacement,
+full next redraw, and recreation of the additive pipeline without changing
+ordinary scene pixels. This establishes the resource-change invalidation contract;
+it is not a claim that ordinary scene commands currently use custom materials.
+
+Regression evidence: 135 shared-renderer library tests, 96 wgpu tests (five manual
+profiles excluded), 23 existing Skia raster tests (one ignored), shared/wgpu Clippy,
+and Windows/WASM checks passed. Windows runtime behavior remains unverified.
