@@ -58,7 +58,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    paths now combine cached shape coverage with GPU world-to-source sampling.
    Solid, linear, radial and sweep sRGB gradient general paths have a tiny-skia fallback with even-odd fill, curves,
    rotation and dashed strokes. Nested nonrectangular clips now use cached
-   coverage masks, while rect clips keep the fast path. Image strokes/non-sRGB gradient interpolation,
+   coverage masks, while rect clips keep the fast path. Non-sRGB gradient interpolation,
    general filter graphs/non-default blend layers remain. Single Gaussian filtered
    layers now use two GPU passes, and the real gallery Glass page renders. Gaussian box shadows now use quad coverage with
    four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the

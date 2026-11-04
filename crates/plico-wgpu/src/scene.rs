@@ -322,14 +322,24 @@ impl Renderer {
             }
             let clip = *clips.last().unwrap();
             let first_draw = draws.len();
-            if let PaintCommand::Fill {
-                fill,
-                shape,
-                transform,
-                brush: Brush::Image(image),
-                brush_transform,
-            } = command
-            {
+            let image_path = match command {
+                PaintCommand::Fill {
+                    shape,
+                    transform,
+                    brush: Brush::Image(image),
+                    brush_transform,
+                    ..
+                } => Some((shape, transform, image, brush_transform, false)),
+                PaintCommand::Stroke {
+                    shape,
+                    transform,
+                    brush: Brush::Image(image),
+                    brush_transform,
+                    ..
+                } => Some((shape, transform, image, brush_transform, true)),
+                _ => None,
+            };
+            if let Some((shape, transform, image, brush_transform, stroke)) = image_path {
                 let axis = |t: Affine| {
                     let [a, b, c, d, e, f] = t.as_coeffs();
                     [a, b, c, d, e, f].iter().all(|v| v.is_finite())
@@ -338,11 +348,14 @@ impl Renderer {
                         && b == 0.
                         && c == 0.
                 };
-                let fast = geometry(shape, index).is_ok_and(|(_, radius)| {
-                    axis(*transform)
-                        && (radius == 0.
-                            || (transform.as_coeffs()[0] - transform.as_coeffs()[3]).abs() < 1e-9)
-                }) && axis(brush_transform.unwrap_or(Affine::IDENTITY));
+                let fast = !stroke
+                    && geometry(shape, index).is_ok_and(|(_, radius)| {
+                        axis(*transform)
+                            && (radius == 0.
+                                || (transform.as_coeffs()[0] - transform.as_coeffs()[3]).abs()
+                                    < 1e-9)
+                    })
+                    && axis(brush_transform.unwrap_or(Affine::IDENTITY));
                 if !fast {
                     let source = *transform * brush_transform.unwrap_or(Affine::IDENTITY);
                     let coefficients = source.as_coeffs();
@@ -363,14 +376,31 @@ impl Renderer {
                         1. / image.image.height as f64,
                     ) * source.inverse();
                     let parent = masks.last().unwrap().clone();
-                    let mask_command = PaintCommand::Fill {
-                        fill: *fill,
-                        shape: shape.clone(),
-                        transform: *transform,
-                        brush: peniko::Color::WHITE.into(),
-                        brush_transform: None,
-                    };
-                    if let Some((coverage, bounds)) = self.paths.raster(&mask_command)? {
+                    let mut mask_command = command.clone();
+                    match &mut mask_command {
+                        PaintCommand::Fill {
+                            brush,
+                            brush_transform,
+                            ..
+                        }
+                        | PaintCommand::Stroke {
+                            brush,
+                            brush_transform,
+                            ..
+                        } => {
+                            *brush = peniko::Color::WHITE.into();
+                            *brush_transform = None;
+                        }
+                        _ => unreachable!(),
+                    }
+                    let coverage =
+                        self.paths
+                            .raster(&mask_command)
+                            .map_err(|error| match error {
+                                Error::Unsupported { reason, .. } => unsupported(index, reason),
+                                other => other,
+                            })?;
+                    if let Some((coverage, bounds)) = coverage {
                         let mask = self.masks.intersect(coverage, bounds, parent.as_deref())?;
                         let bounds = mask.bounds();
                         let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;

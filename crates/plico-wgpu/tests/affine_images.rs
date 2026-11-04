@@ -201,3 +201,121 @@ fn image_path_fill_preserves_even_odd_holes() {
     }
     assert!(hole > 4 && filled > 4);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn image_stroke_keeps_ring_coverage_and_independent_brush_coordinates() {
+    let (image, pixels) = source();
+    let mut brush = ImageBrush::new(image);
+    brush.sampler.quality = ImageQuality::Low;
+    brush.sampler.x_extend = Extend::Repeat;
+    brush.sampler.y_extend = Extend::Reflect;
+    let transform = Affine::translate((30., 16.)) * Affine::rotate(0.3) * Affine::scale(12.);
+    let brush_transform =
+        Affine::translate((0.3, -0.2)) * Affine::skew(0.2, 0.1) * Affine::scale(0.6);
+    let circle = Circle::new((2., 1.5), 1.2);
+    let mut scene = Scene::new();
+    scene.stroke(
+        &kurbo::Stroke::new(0.5),
+        transform,
+        &brush,
+        Some(brush_transform),
+        &circle,
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&scene, [96, 80], [0.; 4], false)
+        .unwrap();
+    let local = transform.inverse();
+    let sample = (transform * brush_transform).inverse();
+    let mut checked = 0;
+    for y in 0..80 {
+        for x in 0..96 {
+            let p = kurbo::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+            let distance = (local * p).distance((2., 1.5).into());
+            let ring = (distance - 1.2).abs();
+            let actual = &actual[(y * 96 + x) * 4..(y * 96 + x) * 4 + 4];
+            if ring < 0.12 {
+                let uv = sample * p;
+                let sx = (uv.x.floor() as i32).rem_euclid(4) as usize;
+                let sy = (uv.y.floor() as i32).rem_euclid(6);
+                let sy = sy.min(5 - sy) as usize;
+                assert_eq!(
+                    actual,
+                    &pixels[(sy * 4 + sx) * 4..(sy * 4 + sx) * 4 + 4],
+                    "stroke sample {x},{y}"
+                );
+                checked += 1;
+            } else if ring > 0.4 {
+                assert_eq!(actual, [0; 4], "stroke filled its hole/outside");
+            }
+        }
+    }
+    assert!(checked > 100);
+    let uploads = renderer.image_cache_stats().2;
+    assert_eq!(
+        renderer
+            .render_scene(&scene, [96, 80], [0.; 4], false)
+            .unwrap(),
+        actual
+    );
+    assert_eq!(
+        renderer.image_cache_stats().2,
+        uploads,
+        "unchanged stroke reuploaded resources"
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn moving_dashed_image_strokes_restore_parent_masks_and_match_full_redraw() {
+    let (image, _) = source();
+    let mut brush = ImageBrush::new(image);
+    brush.sampler.quality = ImageQuality::High;
+    brush.sampler.x_extend = Extend::Repeat;
+    brush.sampler.y_extend = Extend::Reflect;
+    brush.sampler.alpha = 0.8;
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..8 {
+        let mut scene = Scene::new();
+        scene.push_layer(
+            peniko::BlendMode::default(),
+            0.75,
+            Affine::IDENTITY,
+            &Circle::new((40., 32.), 27.),
+            None,
+            None,
+        );
+        if frame < 7 {
+            let style = kurbo::Stroke::new(4.)
+                .with_caps(kurbo::Cap::Round)
+                .with_dashes(frame as f64 * 0.3, [5., 3.]);
+            scene.stroke(
+                &style,
+                Affine::translate((frame as f64 * 0.25, 0.)) * Affine::skew(0.15, 0.),
+                &brush,
+                Some(Affine::scale(7.)),
+                &Circle::new((32., 28.), 19.),
+            );
+        }
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::from_rgb8(255, 0, 255),
+            None,
+            &Rect::new(35., 25., 45., 35.),
+        );
+        scene.pop_layer();
+        let actual = partial
+            .render_scene(&scene, [80, 64], [0.; 4], true)
+            .unwrap();
+        let expected = full.render_scene(&scene, [80, 64], [0.; 4], false).unwrap();
+        assert_eq!(actual, expected, "image stroke frame {frame}");
+        assert_eq!(
+            &actual[(30 * 80 + 40) * 4..(30 * 80 + 40) * 4 + 4],
+            &[191, 0, 191, 191],
+            "stroke mask leaked to next draw"
+        );
+    }
+}

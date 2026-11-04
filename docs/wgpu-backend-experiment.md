@@ -1220,3 +1220,22 @@ restarts playback. All source and native paragraph errors fail the test. It
 exercises decoded-resource hosting and renderer lifecycle, not animated WebP
 codec conformance, network behavior, physical-display image quality or process
 RSS. Existing decoder tests and optional network fixtures remain separate.
+
+### Image-painted path strokes
+
+Image strokes now share the affine image-fill path: a solid-white stroke records
+shape coverage through the bounded path cache, intersects any parent mask, and
+samples the original image texture in GPU source coordinates. Stroke width,
+dash pattern/offset, joins and matching end caps retain the existing path fallback
+contract. No colorized stroke bitmap or second image sampler is introduced.
+Simple image fills keep their prior analytic fast path; image strokes currently
+always use cached coverage. Unsupported coverage operations retain the actual
+shared-command index in their errors.
+
+GPU tests check an affine image-painted ring against analytic interior/exterior
+coverage and independent nearest-source sampling, including repeat/reflect axes
+and a separate brush transform. Repeated rendering of unchanged geometry adds no
+texture uploads. A second test varies dash offset and subpixel placement under
+nonrectangular clipping and isolated opacity, compares every frame with full
+redraw, verifies removal, and checks that the following solid draw is unaffected
+by the stroke's temporary mask. Existing image quality/alpha tests remain shared.
