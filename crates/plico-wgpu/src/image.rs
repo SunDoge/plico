@@ -1,7 +1,7 @@
 //! Immutable image resources, separate from the glyph atlas and bounded by bytes.
 use crate::{Error, Quad, Result};
 use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality};
-use std::{num::NonZeroUsize, rc::Rc};
+use std::{collections::HashMap, num::NonZeroUsize, rc::Rc};
 
 /// A physical-pixel textured quad. UVs are normalized source coordinates.
 pub struct ImageQuad {
@@ -31,18 +31,26 @@ impl ImageQuad {
         }
     }
 }
-type Key = (u64, u32, u32, u8, u8);
+type Key = (u64, u32, u32, u8);
 pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
     // Retain the actual source allocation, not just its identity.
     _source: Option<ImageData>,
+}
+struct TextureEntry {
+    texture: wgpu::Texture,
+    source: ImageData,
     bytes: usize,
+    primary: Option<(u8, Rc<GpuImage>)>,
+    additional: HashMap<u8, Rc<GpuImage>>,
 }
 pub(crate) struct ImageCache {
-    entries: lru::LruCache<Key, Rc<GpuImage>>,
+    entries: lru::LruCache<Key, TextureEntry>,
     bytes: usize,
     pub uploads: u64,
     pub hits: u64,
+    bindings: usize,
+    binding_creations: u64,
 }
 impl Default for ImageCache {
     fn default() -> Self {
@@ -51,6 +59,8 @@ impl Default for ImageCache {
             bytes: 0,
             uploads: 0,
             hits: 0,
+            bindings: 0,
+            binding_creations: 0,
         }
     }
 }
@@ -64,17 +74,19 @@ impl ImageCache {
         quality: ImageQuality,
         extend: [Extend; 2],
     ) -> Result<Rc<GpuImage>> {
-        // Sampler is part of identity; changing sampling never uploads every frame.
+        // Pixel identity excludes sampler policy. Bindings share one source texture.
         let key = (
             image.data.id(),
             image.width,
             image.height,
             image.format as u8 | ((image.alpha_type as u8) << 4),
-            quality as u8 | ((extend[0] as u8) << 2) | ((extend[1] as u8) << 4),
         );
-        if let Some(entry) = self.entries.get(&key) {
+        if let Some(entry) = self.entries.get_mut(&key) {
             self.hits += 1;
-            return Ok(entry.clone());
+            let (image, created) = entry.binding(device, layout, quality, extend);
+            self.bindings += usize::from(created);
+            self.binding_creations += u64::from(created);
+            return Ok(image);
         }
         let bytes = image
             .format
@@ -145,6 +157,55 @@ impl ImageCache {
                 depth_or_array_layers: 1,
             },
         );
+        while self.bytes + bytes > 128 * 1024 * 1024
+            || self.entries.len() == self.entries.cap().get()
+        {
+            let Some((_, evicted)) = self.entries.pop_lru() else {
+                break;
+            };
+            self.bytes -= evicted.bytes;
+            self.bindings -= usize::from(evicted.primary.is_some()) + evicted.additional.len();
+        }
+        let mut entry = TextureEntry {
+            texture,
+            source: image.clone(),
+            bytes,
+            primary: None,
+            additional: HashMap::new(),
+        };
+        let (binding, _) = entry.binding(device, layout, quality, extend);
+        self.entries.put(key, entry);
+        self.bindings += 1;
+        self.binding_creations += 1;
+        self.bytes += bytes;
+        self.uploads += 1;
+        Ok(binding)
+    }
+    pub fn binding_stats(&self) -> (usize, u64) {
+        (self.bindings, self.binding_creations)
+    }
+    pub fn stats(&self) -> (usize, usize, u64, u64) {
+        (self.entries.len(), self.bytes, self.uploads, self.hits)
+    }
+}
+
+impl TextureEntry {
+    fn binding(
+        &mut self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        quality: ImageQuality,
+        extend: [Extend; 2],
+    ) -> (Rc<GpuImage>, bool) {
+        let key = quality as u8 | ((extend[0] as u8) << 2) | ((extend[1] as u8) << 4);
+        if let Some((mode, image)) = &self.primary
+            && *mode == key
+        {
+            return (image.clone(), false);
+        }
+        if let Some(image) = self.additional.get(&key) {
+            return (image.clone(), false);
+        }
         let filter = if quality == ImageQuality::Low {
             wgpu::FilterMode::Nearest
         } else {
@@ -162,7 +223,7 @@ impl ImageCache {
             min_filter: filter,
             ..Default::default()
         });
-        let view = texture.create_view(&Default::default());
+        let view = self.texture.create_view(&Default::default());
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Plico image binding"),
             layout,
@@ -177,26 +238,17 @@ impl ImageCache {
                 },
             ],
         });
-        while self.bytes + bytes > 128 * 1024 * 1024
-            || self.entries.len() == self.entries.cap().get()
-        {
-            let Some((_, evicted)) = self.entries.pop_lru() else {
-                break;
-            };
-            self.bytes -= evicted.bytes;
-        }
-        let entry = Rc::new(GpuImage {
+
+        let image = Rc::new(GpuImage {
             bind,
-            _source: Some(image.clone()),
-            bytes,
+            _source: Some(self.source.clone()),
         });
-        self.entries.put(key, entry.clone());
-        self.bytes += bytes;
-        self.uploads += 1;
-        Ok(entry)
-    }
-    pub fn stats(&self) -> (usize, usize, u64, u64) {
-        (self.entries.len(), self.bytes, self.uploads, self.hits)
+        if self.primary.is_none() {
+            self.primary = Some((key, image.clone()));
+        } else {
+            self.additional.insert(key, image.clone());
+        }
+        (image, true)
     }
 }
 
@@ -235,7 +287,6 @@ impl GpuImage {
         Rc::new(Self {
             bind,
             _source: None,
-            bytes: 0,
         })
     }
 }

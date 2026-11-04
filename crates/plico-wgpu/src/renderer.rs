@@ -560,9 +560,11 @@ impl Renderer {
             let stats = self.layer_pool_stats();
             let effect_stats = self.effect_cache_stats();
             let positioned = self.positioned_glyph_cache_stats();
+            let image_sources = self.image_cache_stats();
+            let image_bindings = self.image_binding_stats();
             tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,"wgpu frame resources");
         }
         result
     }
@@ -1354,9 +1356,15 @@ impl Renderer {
 
 #[cfg(feature = "paint-scene")]
 impl Renderer {
-    /// Cached entries, resident texture bytes, uploads and hits (excluding glyphs).
+    /// Cached source textures, resident texture bytes, uploads and source hits.
+    /// Sampling bindings are counted separately; native atlas textures are excluded.
     pub fn image_cache_stats(&self) -> (usize, usize, u64, u64) {
         self.images.stats()
+    }
+    /// Resident immutable-image sampling bindings and cumulative creations. Several
+    /// bindings can share one source texture without another upload.
+    pub fn image_binding_stats(&self) -> (usize, u64) {
+        self.images.binding_stats()
     }
 }
 

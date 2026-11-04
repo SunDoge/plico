@@ -924,3 +924,29 @@ work. Image-only scenes can use more capacity because they add a small order ind
 to unchanged image payloads, and additional vector headers have a per-scene cost.
 The change targets mixed GUI scenes, not universal memory reduction. Existing GPU
 pixel-oracle tests continue to cover painter order, masks, text, filters and damage.
+
+## One source texture across sampling policies
+
+The immutable image cache now owns source textures independently of sampling
+bindings. Source identity includes allocation, dimensions, pixel format and alpha
+encoding. Quality plus X/Y extension selects a binding within that source entry;
+changing sampling does not reconvert or reupload its pixels. The first binding is
+stored directly, so ordinary single-policy images and native glyph bitmaps do not
+allocate an additional HashMap. Extra policies use a small lazy binding map.
+
+The existing 256-source/128 MiB cached texture-payload limits now count unique
+source textures. Eviction removes the source and all its cached bindings together;
+current-frame references keep already recorded GPU resources alive. There are at
+most 27 policies per source under the current enums. Binding/driver allocation
+overhead and in-flight references are not part of the texture pixel budget.
+`image_cache_stats` reports source textures/bytes/uploads/source hits;
+`image_binding_stats` separately reports resident bindings and cumulative creations.
+Both are recorded in the frame-resource trace. Layer/effect output views are not
+immutable-source cache entries.
+
+The 27-policy CPU pixel oracle still passes, now with one upload and one resident
+source texture instead of 27 uploads/textures. A 300-source/two-policy painter-order
+fixture verifies every pixel even after source eviction, expects 256 cached sources
+and 512 bindings, and verifies reimport evicts all policies together with correct
+counters. This establishes upload/payload avoidance, not a frame-time or process
+memory multiplier for applications that use only one policy.

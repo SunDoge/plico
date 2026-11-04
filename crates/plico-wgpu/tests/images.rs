@@ -261,9 +261,11 @@ fn image_extension_modes_match_cpu_sampling_across_negative_uvs_and_seams() {
     }
     assert_eq!(
         renderer.image_cache_stats().2,
-        27,
-        "sampler modes were not part of resource identity"
+        1,
+        "changing sampler modes reuploaded immutable pixels"
     );
+    assert_eq!(renderer.image_binding_stats(), (27, 27));
+    assert_eq!(renderer.image_cache_stats().1, 4 * 3 * 4);
 }
 
 #[test]
@@ -308,4 +310,55 @@ fn shared_image_brush_preserves_independent_extend_axes() {
             .unwrap()
     );
     assert_eq!(renderer.image_cache_stats().2, 1);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn source_eviction_releases_all_bindings_without_corrupting_in_flight_draws() {
+    let mut scene = Scene::new();
+    let mut first = None;
+    for x in 0..300_u32 {
+        let image = ImageData {
+            data: Blob::new(Arc::new(vec![(x % 251) as u8, 80, 200, 255])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+            width: 1,
+            height: 1,
+        };
+        if x == 0 {
+            first = Some(image.clone());
+        }
+        let mut brush = ImageBrush::new(image);
+        brush.sampler.quality = ImageQuality::Low;
+        scene.draw_image((&brush).into(), Affine::translate(((2 * x) as f64, 0.)));
+        brush.sampler.quality = ImageQuality::High;
+        brush.sampler.x_extend = peniko::Extend::Reflect;
+        scene.draw_image((&brush).into(), Affine::translate(((2 * x + 1) as f64, 0.)));
+    }
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&scene, [600, 1], [0.; 4], false)
+        .unwrap();
+    for x in 0..600 {
+        assert_eq!(
+            &actual[x * 4..x * 4 + 4],
+            [((x / 2) % 251) as u8, 80, 200, 255]
+        );
+    }
+    assert_eq!(
+        (
+            renderer.image_cache_stats().0,
+            renderer.image_cache_stats().1,
+            renderer.image_cache_stats().2
+        ),
+        (256, 1024, 300)
+    );
+    assert_eq!(renderer.image_binding_stats(), (512, 600));
+    let mut return_to_first = Scene::new();
+    return_to_first.draw_image((&ImageBrush::new(first.unwrap())).into(), Affine::IDENTITY);
+    renderer
+        .render_scene(&return_to_first, [1, 1], [0.; 4], false)
+        .unwrap();
+    assert_eq!(renderer.image_cache_stats().2, 301);
+    assert_eq!(renderer.image_binding_stats(), (511, 601));
 }

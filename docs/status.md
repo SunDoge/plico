@@ -132,7 +132,7 @@ cache recycling and a GPU-only winit window demo. It supports analytical shared 
 Optional shared-scene damage replay (`PLICO_WGPU_DAMAGE=1`) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
 window exercise pass. Representative performance and physical-display verification remain pending.
-Shared images use cached independent textures, nearest/bilinear/Mitchell-bicubic premultiplied-alpha
+Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled paths use cached coverage with GPU source sampling; SVG
 uses a cached resvg fallback. Shared native WGSL

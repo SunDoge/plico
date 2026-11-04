@@ -48,7 +48,8 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    operations. Preserve analytical box geometry rather than guessing rounded
    rectangles from arbitrary flattened Bezier paths. Report unsupported operations.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
-   implemented. Image upload handles straight/premultiplied alpha before filtering;
+   implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
+   policies share source textures, with separate binding and upload counters;
    nearest/bilinear/Mitchell-bicubic sampling, independent pad/repeat/reflect axes,
    opacity and ordered texture batches are verified. Affine images and image-filled
    paths now combine cached shape coverage with GPU world-to-source sampling.
