@@ -643,7 +643,9 @@ impl Renderer {
             let positioned = self.positioned_glyph_cache_stats();
             let image_sources = self.image_cache_stats();
             let image_bindings = self.image_binding_stats();
-            tracing::trace!(target:"plico::perf",layer_allocations=self.layer_allocations-counters.0,
+            let target = self.target_storage_bytes();
+            let rasters = self.raster_cache_stats();
+            tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
                 layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
@@ -1005,6 +1007,23 @@ impl Renderer {
             }
         }
         Ok(())
+    }
+    /// Root color-target and optional CPU-readback buffer payload bytes.
+    /// Excludes layer pools, swapchain images, driver overhead and in-flight resources.
+    pub fn target_storage_bytes(&self) -> (u64, u64) {
+        self.target.as_ref().map_or((0, 0), |target| {
+            (
+                u64::from(target.size[0]) * u64::from(target.size[1]) * 4,
+                target.readback.as_ref().map_or(0, wgpu::Buffer::size),
+            )
+        })
+    }
+    /// Release the optional screenshot/readback buffer without changing final pixels.
+    /// A later capture allocates it again; normal window submission does not need it.
+    pub fn trim_readback_buffer(&mut self) {
+        if let Some(target) = &mut self.target {
+            target.readback = None;
+        }
     }
     /// Statistics for the last encoding attempt; skipped window presentation
     /// without encoding leaves the previous statistics intact.
@@ -1823,6 +1842,33 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn readback_trim_preserves_target_and_recreates_only_for_capture() {
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        assert_eq!(renderer.target_storage_bytes(), (0, 0));
+        let quad = Quad::new([0., 0., 17., 19.], [1., 0., 0., 1.]);
+        let expected = renderer.render(&[quad], [17, 19], [0.; 4], 0.).unwrap();
+        assert_eq!(renderer.target_storage_bytes(), (17 * 19 * 4, 256 * 19));
+        let view = renderer.target.as_ref().unwrap().view.clone();
+        renderer.trim_readback_buffer();
+        assert_eq!(renderer.target_storage_bytes(), (17 * 19 * 4, 0));
+        let encoder = renderer
+            .encode_frame(&[crate::Draw::Quad(&quad)], [17, 19], [0.; 4], 0.)
+            .unwrap();
+        renderer.queue.submit([encoder.finish()]);
+        assert_eq!(renderer.target_storage_bytes(), (17 * 19 * 4, 0));
+        assert_eq!(renderer.target.as_ref().unwrap().view, view);
+        assert_eq!(
+            renderer.render(&[quad], [17, 19], [0.; 4], 0.).unwrap(),
+            expected
+        );
+        assert_eq!(renderer.target_storage_bytes(), (17 * 19 * 4, 256 * 19));
+        renderer.trim_readback_buffer();
+        renderer.trim_readback_buffer();
+        assert_eq!(renderer.target_storage_bytes().1, 0);
+    }
+
     #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]

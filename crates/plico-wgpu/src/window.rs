@@ -216,6 +216,7 @@ impl WgpuWindow {
     /// Release derived raster, image, layer, effect and native text caches. Final pixels remain
     /// intact; text trimming forces the next frame to rebuild its atlas safely.
     pub fn trim_gpu_cache(&mut self) {
+        self.renderer.trim_readback_buffer();
         self.renderer.trim_raster_cache();
         self.renderer.trim_image_cache();
         self.renderer.trim_layer_pool();

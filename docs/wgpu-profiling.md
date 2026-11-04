@@ -103,3 +103,11 @@ Linux/X11、Xvfb、NVIDIA Vulkan，`wgpu-window`、1.25× scale、damage 开启�
 trim 的正确性由前述 GPU 测试覆盖；不将窗口截图当作内存回收的证据。
 Xvfb 报告缺少 DRI3，不能据此评价真实合成器下的延迟、帧率或功耗。
 生成截图与日志留在本地 reports/ 或临时目录，不进入仓库。
+
+截图 readback buffer 也纳入窗口 trim。`target_storage_bytes()` 分别返回根颜色目标
+与可选 readback buffer 的实际载荷字节（后者包含 256-byte 行对齐）。
+`trim_readback_buffer()` 保留颜色目标，随后正常窗口编码不会重建 readback；下一次
+捕获才按需分配。GPU 测试覆盖这条生命周期及重捕获像素一致性。
+TRACE 资源事件新增 `target_color_bytes`、`readback_buffer_bytes`，以及
+`path_raster_bytes`、`svg_raster_bytes`、`clip_raster_bytes`；所有统计仍在 TRACE
+启用检查内，默认不计算或输出。这些值不包含 swapchain、驱动开销或在途资源。
