@@ -134,5 +134,6 @@ target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvf
 window exercise pass. Performance and physical-display verification remain pending.
 Shared images use cached independent textures, nearest/bilinear premultiplied-alpha
 sampling and ordered batches; SVG uses a cached resvg fallback. It is not yet a
-full paint-scene backend: general paths, complex clips, isolated layers, Windows
-text and actual editor/IME bridging remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).
+full paint-scene backend: solid general paths now use cached tiny-skia coverage,
+but non-solid path brushes, complex clips, isolated layers, Windows text and
+actual editor/IME bridging remain unfinished. See [experiment and verification](wgpu-backend-experiment.md).

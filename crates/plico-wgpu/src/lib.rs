@@ -13,6 +13,8 @@ pub mod image;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 mod paragraph;
 #[cfg(feature = "paint-scene")]
+mod path;
+#[cfg(feature = "paint-scene")]
 pub mod scene;
 #[cfg(feature = "paint-scene")]
 mod svg;

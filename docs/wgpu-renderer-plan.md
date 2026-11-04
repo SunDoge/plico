@@ -15,8 +15,8 @@ applications still encounter explicit unsupported-command errors.
   choose interpolation/blending rules rather than inheriting accidental defaults.
 - Reuse image decoding, SVG parsing and resource/service code. Investigate a mature
   cached CPU raster fallback for uncommon operations before writing a complete GPU
-  vector rasterizer. SVG now uses a bounded resvg raster cache; general shared
-  Bezier fill/stroke commands still need a fallback.
+  vector rasterizer. SVG now uses a bounded resvg raster cache; uncommon solid
+  Bezier fill/stroke commands use a bounded tiny-skia raster cache.
 - Use native text layout and glyph rasterization: Pango/Cairo currently works on
   Linux; DirectWrite and CoreText are still required. Do not approximate glyph
   coverage with the rectangle SDF shader. Existing editing/IME state remains outside
@@ -50,8 +50,9 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering;
    nearest/bilinear sampling, opacity and ordered texture batches are verified.
-   General paths, complex clips, isolated opacity/layers and shared shader effects
-   remain. Bound derived caches and track resource generations.
+   Solid general paths have a tiny-skia fallback with even-odd fill, curves,
+   rotation and dashed strokes. Non-solid general paths, complex clips,
+   isolated opacity/layers and shared shader effects remain. Bound derived caches and track resource generations.
 4. **Host adoption:** integrate the shell/renderer selection, reuse existing window
    events, accessibility and input handling. Implement native Windows and macOS
    text providers, and validate real text-input sessions.

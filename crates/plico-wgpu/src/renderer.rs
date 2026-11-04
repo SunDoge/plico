@@ -56,6 +56,8 @@ pub struct Renderer {
     #[cfg(feature = "paint-scene")]
     pub(crate) svgs: crate::svg::SvgCache,
     #[cfg(feature = "paint-scene")]
+    pub(crate) paths: crate::path::PathCache,
+    #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -199,6 +201,8 @@ impl Renderer {
             images: Default::default(),
             #[cfg(feature = "paint-scene")]
             svgs: Default::default(),
+            #[cfg(feature = "paint-scene")]
+            paths: Default::default(),
             #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
             atlas_texture,

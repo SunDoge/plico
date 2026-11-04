@@ -90,7 +90,8 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
     bad.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        PaintColor::BLACK,
+        &peniko::Gradient::new_radial((20., 20.), 8.)
+            .with_stops([PaintColor::BLACK, PaintColor::WHITE]),
         None,
         &Circle::new((20., 20.), 8.),
     );
@@ -558,4 +559,125 @@ fn image_filtering_is_premultiplied_and_invalid_resources_are_rejected() {
             .unwrap(),
         pixels
     );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn general_path_coverage_matches_tiny_skia_and_reuses_integer_motion() {
+    use resvg::tiny_skia as sk;
+    let mut shape = kurbo::BezPath::new();
+    shape.move_to((8., 8.));
+    shape.line_to((32., 8.));
+    shape.quad_to((48., 8.), (48., 24.));
+    shape.curve_to((48., 40.), (8., 40.), (8., 24.));
+    shape.close_path();
+    shape.move_to((16., 16.));
+    shape.line_to((24., 16.));
+    shape.line_to((24., 24.));
+    shape.line_to((16., 24.));
+    shape.close_path();
+    let mut builder = sk::PathBuilder::new();
+    builder.move_to(8., 8.);
+    builder.line_to(32., 8.);
+    builder.quad_to(48., 8., 48., 24.);
+    builder.cubic_to(48., 40., 8., 40., 8., 24.);
+    builder.close();
+    builder.move_to(16., 16.);
+    builder.line_to(24., 16.);
+    builder.line_to(24., 24.);
+    builder.line_to(16., 24.);
+    builder.close();
+    let path = builder.finish().unwrap();
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut paint = sk::Paint::default();
+    paint.set_color_rgba8(180, 30, 80, 160);
+    for scale in [1., 1.25, 2.] {
+        let mut uploads = 0;
+        for dx in [7.25, 8.25, 8.5] {
+            let mut scene = Scene::new();
+            scene.fill(
+                Fill::EvenOdd,
+                Affine::translate((dx, 4.5)) * Affine::scale(scale),
+                PaintColor::from_rgba8(180, 30, 80, 160),
+                None,
+                &shape,
+            );
+            let pixels = renderer
+                .render_scene(&scene, [128, 96], [0.; 4], true)
+                .unwrap();
+            let mut reference = sk::Pixmap::new(128, 96).unwrap();
+            reference.fill_path(
+                &path,
+                &paint,
+                sk::FillRule::EvenOdd,
+                sk::Transform::from_row(scale as f32, 0., 0., scale as f32, dx as f32, 4.5),
+                None,
+            );
+            assert_eq!(
+                pixels,
+                reference.data(),
+                "path mismatch at scale={scale} dx={dx}"
+            );
+            if dx == 8.25 {
+                assert_eq!(
+                    renderer.image_cache_stats().2,
+                    uploads,
+                    "integer motion rerasterized path"
+                );
+            }
+            uploads = renderer.image_cache_stats().2;
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn curved_dashed_stroke_matches_cpu_reference_under_rotation() {
+    use resvg::tiny_skia as sk;
+    let mut shape = kurbo::BezPath::new();
+    shape.move_to((4., 8.));
+    shape.curve_to((20., 0.), (30., 32.), (48., 8.));
+    let style = kurbo::Stroke::new(3.)
+        .with_caps(kurbo::Cap::Round)
+        .with_dashes(1., [4., 2.]);
+    let transform = Affine::translate((30.25, 15.5)) * Affine::rotate(0.4);
+    let mut scene = Scene::new();
+    scene.stroke(
+        &style,
+        transform,
+        PaintColor::from_rgba8(40, 80, 220, 180),
+        None,
+        &shape,
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&scene, [128, 96], [0.; 4], true)
+        .unwrap();
+    let mut path = sk::PathBuilder::new();
+    path.move_to(4., 8.);
+    path.cubic_to(20., 0., 30., 32., 48., 8.);
+    let mut paint = sk::Paint::default();
+    paint.set_color_rgba8(40, 80, 220, 180);
+    let stroke = sk::Stroke {
+        width: 3.,
+        line_cap: sk::LineCap::Round,
+        dash: sk::StrokeDash::new(vec![4., 2.], 1.),
+        ..Default::default()
+    };
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    let mut reference = sk::Pixmap::new(128, 96).unwrap();
+    reference.stroke_path(
+        &path.finish().unwrap(),
+        &paint,
+        &stroke,
+        sk::Transform::from_row(a as f32, b as f32, c as f32, d as f32, e as f32, f as f32),
+        None,
+    );
+    assert!(
+        actual
+            .iter()
+            .zip(reference.data())
+            .all(|(a, b)| a.abs_diff(*b) <= 1)
+    );
+    assert!(actual.iter().any(|v| *v > 0));
 }

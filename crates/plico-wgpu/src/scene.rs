@@ -210,192 +210,236 @@ impl Renderer {
         for (index, command) in scene.commands.iter().enumerate() {
             let clip = *clips.last().unwrap();
             let first_draw = draws.len();
-            match command {
+            let fallback = match command {
                 PaintCommand::Fill {
-                    transform,
-                    brush: paint,
-                    brush_transform,
                     shape,
-                    fill: _,
+                    transform,
+                    brush,
+                    ..
                 } => {
-                    if !matches!(paint, Brush::Image(_))
-                        && brush_transform.is_some_and(|t| t != Affine::IDENTITY)
-                    {
-                        return Err(unsupported(index, "brush transform"));
-                    }
-                    let (rect, radius) = geometry(shape, index)?;
-                    if rect.width() <= 0. || rect.height() <= 0. {
-                        continue;
-                    }
-                    if let Brush::Image(image) = paint {
-                        use peniko::{Extend, ImageQuality};
-                        if image.sampler.x_extend != Extend::Pad
-                            || image.sampler.y_extend != Extend::Pad
-                            || image.sampler.quality == ImageQuality::High
-                        {
-                            return Err(unsupported(
-                                index,
-                                "repeated/reflected or bicubic image sampling",
-                            ));
-                        }
-                        let [a, b, c, d, e, f] = transform.as_coeffs();
-                        if ![a, b, c, d, e, f].iter().all(|v| v.is_finite())
-                            || a <= 0.
-                            || d <= 0.
-                            || b != 0.
-                            || c != 0.
-                            || (radius > 0. && (a - d).abs() > 1e-9)
-                        {
-                            return Err(unsupported(
-                                index,
-                                "rotated/sheared image or elliptical image corners",
-                            ));
-                        }
-                        let mut q = quad(rect, radius, Affine::IDENTITY, clip, index)?;
-                        q.rect = [
-                            (rect.x0 * a + e) as f32,
-                            (rect.y0 * d + f) as f32,
-                            (rect.width() * a) as f32,
-                            (rect.height() * d) as f32,
-                        ];
-                        q.radius = (radius * a) as f32;
-                        let [sx, by, cx, sy, tx, ty] =
-                            brush_transform.unwrap_or(Affine::IDENTITY).as_coeffs();
-                        if ![sx, by, cx, sy, tx, ty].iter().all(|v| v.is_finite())
-                            || sx <= 0.
-                            || sy <= 0.
-                            || by != 0.
-                            || cx != 0.
-                        {
-                            return Err(unsupported(index, "rotated/sheared image brush"));
-                        }
-                        let iw = image.image.width as f64 * sx;
-                        let ih = image.image.height as f64 * sy;
-                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
-                            quad: q,
-                            image: image.image.clone(),
-                            quality: image.sampler.quality,
-                            alpha: image.sampler.alpha,
-                            uv: [
-                                ((rect.x0 - tx) / iw) as f32,
-                                ((rect.y0 - ty) / ih) as f32,
-                                (rect.width() / iw) as f32,
-                                (rect.height() / ih) as f32,
-                            ],
-                        }));
-                    } else {
-                        let mut q = quad(rect, radius, *transform, clip, index)?;
-                        brush(&mut q, paint, rect, index)?;
-                        draws.push(PreparedDraw::Quad(q));
-                    }
+                    geometry(shape, index).is_err()
+                        || (!matches!(brush, Brush::Image(_))
+                            && uniform(*transform, index).is_err())
                 }
                 PaintCommand::Stroke {
-                    style,
-                    transform,
-                    brush: paint,
-                    brush_transform,
                     shape,
+                    transform,
+                    style,
+                    ..
                 } => {
-                    if brush_transform.is_some_and(|t| t != Affine::IDENTITY)
+                    geometry(shape, index).is_err()
+                        || uniform(*transform, index).is_err()
                         || !style.dash_pattern.is_empty()
-                    {
-                        return Err(unsupported(index, "transformed/dashed stroke"));
-                    }
-                    let Brush::Solid(color) = paint else {
-                        return Err(unsupported(index, "non-solid stroke"));
-                    };
-                    let (rect, radius) = geometry(shape, index)?;
-                    let half = style.width * 0.5;
-                    let outer_radius = if radius > 0. || style.join == kurbo::Join::Round {
-                        radius + half
-                    } else if style.join == kurbo::Join::Miter {
-                        0.
-                    } else {
-                        return Err(unsupported(index, "beveled rectangle stroke"));
-                    };
-                    let mut q = quad(rect.inset(half), outer_radius, *transform, clip, index)?;
-                    q.border_width = (style.width * uniform(*transform, index)?.0) as f32;
-                    q.border_color = color.components;
-                    draws.push(PreparedDraw::Quad(q));
+                        || style.join == kurbo::Join::Bevel
                 }
-                PaintCommand::PushClip {
-                    transform,
-                    clip: shape,
-                } => {
-                    let (rect, radius) = geometry(shape, index)?;
-                    if radius != 0. {
-                        return Err(unsupported(index, "rounded clip"));
-                    }
-                    uniform(*transform, index)?;
-                    let rect = transform.transform_rect_bbox(rect);
-                    clips.push(clip.intersect(rect));
-                }
-                PaintCommand::PopLayer => {
-                    if clips.len() == 1 {
-                        return Err(unsupported(index, "unbalanced clip pop"));
-                    }
-                    clips.pop();
-                }
-                PaintCommand::Svg {
-                    document,
-                    transform,
-                } => {
-                    let (scale, [tx, ty]) = uniform(*transform, index)?;
-                    let image = self.svgs.raster(document, scale)?;
-                    let size = document.0.size();
-                    let q = quad(
-                        Rect::new(0., 0., size.width() as f64, size.height() as f64),
-                        0.,
-                        Affine::new([scale, 0., 0., scale, tx, ty]),
-                        clip,
-                        index,
-                    )?;
+                _ => false,
+            };
+            if fallback {
+                let raster = self.paths.raster(command).map_err(|error| match error {
+                    Error::Unsupported { reason, .. } => unsupported(index, reason),
+                    other => other,
+                })?;
+                if let Some((image, bounds)) = raster {
+                    let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
                     draws.push(PreparedDraw::Image(crate::image::ImageQuad {
                         quad: q,
                         image,
                         uv: [0., 0., 1., 1.],
-                        quality: peniko::ImageQuality::Medium,
+                        quality: peniko::ImageQuality::Low,
                         alpha: 1.,
                     }));
                 }
-                PaintCommand::Paragraph { request, transform } => {
-                    #[cfg(all(target_os = "linux", feature = "system-text"))]
-                    {
-                        let (scale, origin) = uniform(*transform, index)?;
-                        let layout = self.paragraph_layout(request.clone(), scale)?;
-                        draws.push(PreparedDraw::Text {
-                            layout,
-                            origin,
-                            color: request.color.map(|c| c as f32 / 255.),
-                            clip: [
-                                clip.x0 as f32,
-                                clip.y0 as f32,
-                                clip.width() as f32,
-                                clip.height() as f32,
-                            ],
-                        });
-                    }
-                    #[cfg(not(all(target_os = "linux", feature = "system-text")))]
-                    {
-                        let _ = (request, transform);
-                        return Err(unsupported(index, "system paragraph provider unavailable"));
-                    }
-                }
-                _ => {
-                    return Err(unsupported(
-                        index,
-                        format!(
-                            "{} command",
-                            match command {
-                                PaintCommand::GlyphRun { .. } => "positioned glyph",
-                                PaintCommand::BoxShadow { .. } => "shadow",
-                                PaintCommand::Shader { .. } => "shader",
-                                PaintCommand::PushLayer { .. } => "isolated layer",
-                                PaintCommand::Fragment { .. } => "unflattened fragment",
-                                _ => "unknown",
+            } else {
+                match command {
+                    PaintCommand::Fill {
+                        transform,
+                        brush: paint,
+                        brush_transform,
+                        shape,
+                        fill: _,
+                    } => {
+                        if !matches!(paint, Brush::Image(_))
+                            && brush_transform.is_some_and(|t| t != Affine::IDENTITY)
+                        {
+                            return Err(unsupported(index, "brush transform"));
+                        }
+                        let (rect, radius) = geometry(shape, index)?;
+                        if rect.width() <= 0. || rect.height() <= 0. {
+                            continue;
+                        }
+                        if let Brush::Image(image) = paint {
+                            use peniko::{Extend, ImageQuality};
+                            if image.sampler.x_extend != Extend::Pad
+                                || image.sampler.y_extend != Extend::Pad
+                                || image.sampler.quality == ImageQuality::High
+                            {
+                                return Err(unsupported(
+                                    index,
+                                    "repeated/reflected or bicubic image sampling",
+                                ));
                             }
-                        ),
-                    ));
+                            let [a, b, c, d, e, f] = transform.as_coeffs();
+                            if ![a, b, c, d, e, f].iter().all(|v| v.is_finite())
+                                || a <= 0.
+                                || d <= 0.
+                                || b != 0.
+                                || c != 0.
+                                || (radius > 0. && (a - d).abs() > 1e-9)
+                            {
+                                return Err(unsupported(
+                                    index,
+                                    "rotated/sheared image or elliptical image corners",
+                                ));
+                            }
+                            let mut q = quad(rect, radius, Affine::IDENTITY, clip, index)?;
+                            q.rect = [
+                                (rect.x0 * a + e) as f32,
+                                (rect.y0 * d + f) as f32,
+                                (rect.width() * a) as f32,
+                                (rect.height() * d) as f32,
+                            ];
+                            q.radius = (radius * a) as f32;
+                            let [sx, by, cx, sy, tx, ty] =
+                                brush_transform.unwrap_or(Affine::IDENTITY).as_coeffs();
+                            if ![sx, by, cx, sy, tx, ty].iter().all(|v| v.is_finite())
+                                || sx <= 0.
+                                || sy <= 0.
+                                || by != 0.
+                                || cx != 0.
+                            {
+                                return Err(unsupported(index, "rotated/sheared image brush"));
+                            }
+                            let iw = image.image.width as f64 * sx;
+                            let ih = image.image.height as f64 * sy;
+                            draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                                quad: q,
+                                image: image.image.clone(),
+                                quality: image.sampler.quality,
+                                alpha: image.sampler.alpha,
+                                uv: [
+                                    ((rect.x0 - tx) / iw) as f32,
+                                    ((rect.y0 - ty) / ih) as f32,
+                                    (rect.width() / iw) as f32,
+                                    (rect.height() / ih) as f32,
+                                ],
+                            }));
+                        } else {
+                            let mut q = quad(rect, radius, *transform, clip, index)?;
+                            brush(&mut q, paint, rect, index)?;
+                            draws.push(PreparedDraw::Quad(q));
+                        }
+                    }
+                    PaintCommand::Stroke {
+                        style,
+                        transform,
+                        brush: paint,
+                        brush_transform,
+                        shape,
+                    } => {
+                        if brush_transform.is_some_and(|t| t != Affine::IDENTITY)
+                            || !style.dash_pattern.is_empty()
+                        {
+                            return Err(unsupported(index, "transformed/dashed stroke"));
+                        }
+                        let Brush::Solid(color) = paint else {
+                            return Err(unsupported(index, "non-solid stroke"));
+                        };
+                        let (rect, radius) = geometry(shape, index)?;
+                        let half = style.width * 0.5;
+                        let outer_radius = if radius > 0. || style.join == kurbo::Join::Round {
+                            radius + half
+                        } else if style.join == kurbo::Join::Miter {
+                            0.
+                        } else {
+                            return Err(unsupported(index, "beveled rectangle stroke"));
+                        };
+                        let mut q = quad(rect.inset(half), outer_radius, *transform, clip, index)?;
+                        q.border_width = (style.width * uniform(*transform, index)?.0) as f32;
+                        q.border_color = color.components;
+                        draws.push(PreparedDraw::Quad(q));
+                    }
+                    PaintCommand::PushClip {
+                        transform,
+                        clip: shape,
+                    } => {
+                        let (rect, radius) = geometry(shape, index)?;
+                        if radius != 0. {
+                            return Err(unsupported(index, "rounded clip"));
+                        }
+                        uniform(*transform, index)?;
+                        let rect = transform.transform_rect_bbox(rect);
+                        clips.push(clip.intersect(rect));
+                    }
+                    PaintCommand::PopLayer => {
+                        if clips.len() == 1 {
+                            return Err(unsupported(index, "unbalanced clip pop"));
+                        }
+                        clips.pop();
+                    }
+                    PaintCommand::Svg {
+                        document,
+                        transform,
+                    } => {
+                        let (scale, [tx, ty]) = uniform(*transform, index)?;
+                        let image = self.svgs.raster(document, scale)?;
+                        let size = document.0.size();
+                        let q = quad(
+                            Rect::new(0., 0., size.width() as f64, size.height() as f64),
+                            0.,
+                            Affine::new([scale, 0., 0., scale, tx, ty]),
+                            clip,
+                            index,
+                        )?;
+                        draws.push(PreparedDraw::Image(crate::image::ImageQuad {
+                            quad: q,
+                            image,
+                            uv: [0., 0., 1., 1.],
+                            quality: peniko::ImageQuality::Medium,
+                            alpha: 1.,
+                        }));
+                    }
+                    PaintCommand::Paragraph { request, transform } => {
+                        #[cfg(all(target_os = "linux", feature = "system-text"))]
+                        {
+                            let (scale, origin) = uniform(*transform, index)?;
+                            let layout = self.paragraph_layout(request.clone(), scale)?;
+                            draws.push(PreparedDraw::Text {
+                                layout,
+                                origin,
+                                color: request.color.map(|c| c as f32 / 255.),
+                                clip: [
+                                    clip.x0 as f32,
+                                    clip.y0 as f32,
+                                    clip.width() as f32,
+                                    clip.height() as f32,
+                                ],
+                            });
+                        }
+                        #[cfg(not(all(target_os = "linux", feature = "system-text")))]
+                        {
+                            let _ = (request, transform);
+                            return Err(unsupported(
+                                index,
+                                "system paragraph provider unavailable",
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(unsupported(
+                            index,
+                            format!(
+                                "{} command",
+                                match command {
+                                    PaintCommand::GlyphRun { .. } => "positioned glyph",
+                                    PaintCommand::BoxShadow { .. } => "shadow",
+                                    PaintCommand::Shader { .. } => "shader",
+                                    PaintCommand::PushLayer { .. } => "isolated layer",
+                                    PaintCommand::Fragment { .. } => "unflattened fragment",
+                                    _ => "unknown",
+                                }
+                            ),
+                        ));
+                    }
                 }
             }
             // Bounds come from the native geometry actually submitted, not a

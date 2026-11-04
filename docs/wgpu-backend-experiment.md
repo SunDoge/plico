@@ -327,7 +327,7 @@ embedded raster-image support. The cache retains tree identity and effective
 raster dimensions, is capped at 128 entries/64 MiB of raster pixels, and does not
 rerasterize merely because an icon moves. The produced premultiplied image uses
 the same GPU image path. SVG currently requires positive uniform scale plus
-translation. General shared Bezier path commands remain unsupported.
+translation. Solid shared Bezier paths now have the additional fallback below.
 
 GPU tests verify channels/alpha, overlapping images and shapes, premultiplied
 bilinear filtering, failed-resource recovery, cache eviction with 300 images and
@@ -335,3 +335,31 @@ full-versus-damaged image frames. An SVG containing a gradient, mask and stroked
 path matches direct resvg pixels at 1/1.25/2x. `scene_counter` now exercises ordinary
 Plico Image and SVG declarations at four DPI scales, along with native text.
 Generated captures remain under ignored `reports/wgpu-scene/`.
+
+
+### General solid-path fallback
+
+Analytical rectangles/roundrects keep the SDF path. Uncommon solid fills/strokes
+are converted from Kurbo elements into tiny-skia coverage, cached as premultiplied
+images and submitted in normal painter order. This covers quadratic/cubic curves,
+even-odd/nonzero fills, affine rotation/shear, and even-length dashed strokes with
+matching start/end caps. Brush gradients/images on general paths, mixed caps and
+odd-length dash arrays are explicit unsupported errors. Zero-width strokes do
+not become tiny-skia hairlines. Nonfinite/singular transforms and coordinates
+outside the fallback precision limit are rejected.
+
+The cache retains the normalized command and checks full equality after hashing;
+a hash alone cannot select a raster. Raster bounds include conservative stroke
+reach and AA padding. Integer physical translation is factored out of cache
+identity; fractional phase, transform, fill rule and stroke parameters remain in
+identity. The CPU cache is bounded to 256 entries/64 MiB, and each raster is limited
+to 16384 pixels per side and 64 MiB. This budget is additional to the image/SVG
+caches and current-frame/in-flight resources described above.
+
+GPU tests compare a compound quadratic/cubic even-odd path pixel-for-pixel against
+direct tiny-skia at 1/1.25/2x and different fractional positions. Integer motion
+must not upload a new resource. A rotated curved dashed stroke matches the direct
+CPU reference within one channel level, allowing float-transform rounding. The
+path sequence also runs through optional damage replay; the existing text/image/
+SVG tests continue to pass. This is a coverage fallback, not evidence that complex
+CPU paths are faster than Vello.
