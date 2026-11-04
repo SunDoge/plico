@@ -139,3 +139,20 @@ four desktop/Vello shader tests. The desktop suite requires
 `--no-default-features --features vello`; with the default Skia feature that test
 file is cfg-disabled and reports zero tests. These results cover the shared
 validation change, not Windows runtime quality or renderer replacement readiness.
+
+## Minification evidence
+
+`cargo run --locked -p plico-wgpu --example image-minification` renders an opaque
+257×193 single-pixel checkerboard to four smaller sizes and compares readback to
+an exact source-pixel area-average reference. This deliberately adversarial
+high-frequency input tests alias suppression, not general photographic quality.
+On Intel Graphics (ARL), Mesa 25.0.7 Vulkan, the 8×6 output had RMSE (0–255 scale)
+127.497 / 41.574 / 37.427 for Low / Medium / High. At 17×13, High remained 37.308.
+The source texture stayed shared (one upload, 198404 bytes) across quality modes.
+
+Thus current level-zero bilinear and 16-tap Mitchell reconstruction do not solve
+large-ratio minification. Mip/area prefiltering needs a separate implementation:
+account for mip payload in the existing byte budget, preserve premultiplied alpha,
+cover odd dimensions and affine derivatives, and avoid generating mips for text
+coverage or every animated offscreen target. Preserve nearest-neighbor semantics
+for Low and existing magnification behavior. No mip support is claimed yet.

@@ -43,3 +43,7 @@ plico-vello = { path = "../plico-vello" }
 kurbo.workspace = true
 peniko.workspace = true
 image = { workspace = true, features = ["png"] }
+
+[[example]]
+name = "image-minification"
+required-features = ["paint-scene"]
