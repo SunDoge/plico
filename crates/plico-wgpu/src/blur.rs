@@ -7,6 +7,12 @@ pub(crate) struct Workspace {
     pub output: wgpu::Texture,
     uniforms: [wgpu::Buffer; 2],
     binds: [wgpu::BindGroup; 2],
+    pub timing: Option<Timing>,
+}
+pub(crate) struct Timing {
+    queries: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    pub readback: wgpu::Buffer,
 }
 impl Blur {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -84,11 +90,34 @@ impl Blur {
                 ],
             })
         });
+        let timing = device
+            .features()
+            .contains(wgpu::Features::TIMESTAMP_QUERY)
+            .then(|| Timing {
+                queries: device.create_query_set(&wgpu::QuerySetDescriptor {
+                    label: Some("Plico blur timestamps"),
+                    ty: wgpu::QueryType::Timestamp,
+                    count: 4,
+                }),
+                resolve: device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 32,
+                    usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                }),
+                readback: device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 32,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+            });
         Workspace {
             temporary,
             output,
             uniforms,
             binds,
+            timing,
         }
     }
     pub fn encode(
@@ -108,11 +137,21 @@ impl Blur {
             );
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Plico Gaussian axis"),
-                timestamp_writes: None,
+                timestamp_writes: workspace.timing.as_ref().map(|t| {
+                    wgpu::ComputePassTimestampWrites {
+                        query_set: &t.queries,
+                        beginning_of_pass_write_index: Some(axis as u32 * 2),
+                        end_of_pass_write_index: Some(axis as u32 * 2 + 1),
+                    }
+                }),
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &workspace.binds[axis], &[]);
             pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
+        }
+        if let Some(timing) = &workspace.timing {
+            encoder.resolve_query_set(&timing.queries, 0..4, &timing.resolve, 0);
+            encoder.copy_buffer_to_buffer(&timing.resolve, 0, &timing.readback, 0, 32);
         }
     }
 }

@@ -183,18 +183,19 @@ impl Renderer {
         // repeated backend discovery, this serializes Vulkan-loader startup.
         static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
         let instance = INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()));
-        Self::new_compatible(instance, None).await
+        Self::new_compatible(instance, None, false).await
     }
     /// Select an adapter compatible with the window surface before allocating resources.
     pub async fn new_for_surface(
         instance: &wgpu::Instance,
         surface: &wgpu::Surface<'_>,
     ) -> Result<Self> {
-        Self::new_compatible(instance, Some(surface)).await
+        Self::new_compatible(instance, Some(surface), false).await
     }
     async fn new_compatible(
         instance: &wgpu::Instance,
         surface: Option<&wgpu::Surface<'_>>,
+        profiling: bool,
     ) -> Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -208,6 +209,11 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Plico experimental quad renderer"),
+                required_features: if profiling {
+                    adapter.features() & wgpu::Features::TIMESTAMP_QUERY
+                } else {
+                    wgpu::Features::empty()
+                },
                 ..Default::default()
             })
             .await
@@ -1767,7 +1773,9 @@ mod tests {
                 values[(values.len() * 95 / 100).min(values.len() - 1)],
             )
         }
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let instance = wgpu::Instance::new(crate::instance_descriptor());
+        let mut renderer =
+            pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
         eprintln!("adapter={:?}", renderer.adapter_info());
         for (width, height, sigma) in [(128, 96, 3.), (384, 256, 3.), (384, 256, 18.)] {
             let size = [width, height];
@@ -1846,6 +1854,7 @@ mod tests {
                 let before = renderer.layer_pool_stats();
                 let mut submission = Vec::new();
                 let mut completion = Vec::new();
+                let mut gpu = Vec::new();
                 for scene in &scenes {
                     let start = Instant::now();
                     if clear {
@@ -1867,10 +1876,51 @@ mod tests {
                         .poll(wgpu::PollType::wait_indefinitely())
                         .unwrap();
                     completion.push(start.elapsed().as_secs_f64() * 1000.);
+                    if let Some(time) = renderer.layer_pool.iter().flatten().find_map(|entry| {
+                        entry
+                            .blur
+                            .as_ref()
+                            .and_then(|(work, _)| work.timing.as_ref())
+                    }) {
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        time.readback
+                            .slice(..)
+                            .map_async(wgpu::MapMode::Read, move |r| {
+                                let _ = tx.send(r);
+                            });
+                        renderer
+                            .device
+                            .poll(wgpu::PollType::wait_indefinitely())
+                            .unwrap();
+                        rx.recv().unwrap().unwrap();
+                        let data = time.readback.slice(..).get_mapped_range().unwrap();
+                        let ticks: Vec<_> = data
+                            .as_chunks::<8>()
+                            .0
+                            .iter()
+                            .map(|b| u64::from_ne_bytes(*b))
+                            .collect();
+                        gpu.push(
+                            (ticks[1].wrapping_sub(ticks[0]) as f64
+                                + ticks[3].wrapping_sub(ticks[2]) as f64)
+                                * renderer.queue.get_timestamp_period() as f64
+                                / 1e6,
+                        );
+                        drop(data);
+                        time.readback.unmap();
+                    }
                 }
                 let stats = renderer.layer_pool_stats();
                 let (submit50, submit95) = percentiles(&mut submission);
                 let (done50, done95) = percentiles(&mut completion);
+                if !gpu.is_empty() {
+                    let (p50, p95) = percentiles(&mut gpu);
+                    eprintln!(
+                        "blur_gpu_ms {width}x{height} sigma={sigma} clear={clear} p50={p50:.3} p95={p95:.3}"
+                    );
+                } else {
+                    eprintln!("GPU timestamps unavailable on this adapter");
+                }
                 eprintln!(
                     "blur {width}x{height} sigma={sigma} clear={clear} submission_ms p50={submit50:.3} p95={submit95:.3} completion_ms p50={done50:.3} p95={done95:.3} workspace_allocations={} resident_bytes={}",
                     stats.filter_allocations - before.filter_allocations,

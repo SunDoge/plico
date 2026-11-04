@@ -651,3 +651,23 @@ roughly 1.8–2.1 ms, while sigma=18 only improved modestly in that run. This is
 insufficient evidence to replace the current kernel. The next wide-blur experiment
 should compare different sampling algorithms with pixel-error bounds and GPU
 timestamps, rather than assume that moving arithmetic to CPU improves GPU cost.
+
+## Device timestamps for filtered passes
+
+The manual filter profiler now requests `TIMESTAMP_QUERY` only when supported and
+places begin/end timestamps directly inside each Gaussian compute pass. It sums
+the horizontal and vertical durations using the queue's timestamp period. Query
+resolution copies 32 bytes per measured workspace; query-buffer mapping happens
+after the recorded completion wall interval. No image readback is added. An
+adapter without the optional feature still reports wall timings and explicitly
+reports unavailable device timing. Ordinary renderer/window construction does not
+request timestamps or allocate query resources.
+
+On the same local Intel ARL Vulkan adapter, GPU pass-time p50 was about 0.17 ms for
+128x96/sigma=3, 0.31 ms for 384x256/sigma=3, and 2.62 ms for 384x256/sigma=18.
+Both pooled and cleared policies produced essentially the same compute durations.
+Unlike the previous completion metric, these values exclude child drawing,
+composition, submission gaps and CPU waiting; they still describe this device and
+kernel, not an application-wide speed claim. The next optimization target is the
+wide Gaussian sampling workload, not texture allocation. Timing instrumentation
+itself is optional and is not a default application cost.
