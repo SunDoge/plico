@@ -114,3 +114,10 @@ cargo test --locked -p plico-wgpu --test render native_text_scroll -- --include-
 
 该测试证明整数物理平移不改变覆盖率或重新上传字形，不证明连续亚像素滚动的
 视觉平滑度，也不覆盖 Windows、真实显示器切换或 IME。
+
+共享 scene 的 `fractional_text_damage_matches_full_replay_at_phase_and_clip_boundaries`
+另外覆盖四种 DPI、40 帧分数位移／删除／恢复，带分数裁剪边界及重叠透明矩形。
+局部重绘逐像素匹配全量 GPU 重绘，并断言确实出现非全屏 damage。
+端到端 `native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi`
+已补入 1.5×，五段各 48 帧的虚拟时钟滚动序列通过，保留热字形上传与不重新声明页面的断言。
+这些是像素正确性和缓存验证，不是滚动主观平滑度或功耗测量。

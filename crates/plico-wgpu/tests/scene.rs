@@ -1089,7 +1089,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
 
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let mut oracle = pollster::block_on(Renderer::new()).unwrap();
-    for scale in [1., 1.25, 2., 1.] {
+    for scale in [1., 1.25, 1.5, 2., 1.] {
         let mut text = TextContext::new();
         renderer.configure_text(&mut text, scale).unwrap();
         oracle
@@ -1295,7 +1295,7 @@ fn application_font_registered_before_or_after_provider_survives_dpi_changes() {
         if !before {
             assert!(text.register_font(&asset));
         }
-        for scale in [1., 1.25, 2., 1.] {
+        for scale in [1., 1.25, 1.5, 2., 1.] {
             renderer.configure_text(&mut text, scale).unwrap();
             let request = Arc::new(text.paragraph_request(&paint, None).unwrap());
             let paragraph = text.native_paragraph(request.clone()).unwrap();
@@ -1396,5 +1396,67 @@ fn clipped_native_lines_keep_full_layout_pixels_and_damage_when_limit_changes() 
             }
             assert!(text.take_native_paragraph_error().is_none());
         }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn fractional_text_damage_matches_full_replay_at_phase_and_clip_boundaries() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let request = Arc::new(
+        ParagraphRequest::from_paint(
+            &Paint {
+                text: Some("Sss 中文 日本語".into()),
+                font_size: 15.,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap(),
+    );
+    let size = [360, 150];
+    for scale in [1., 1.25, 1.5, 2.] {
+        let mut text = TextContext::new();
+        partial.configure_text(&mut text, scale).unwrap();
+        full.configure_text(&mut TextContext::new(), scale).unwrap();
+        let mut saw_partial = false;
+        for (frame, offset) in [0., 0.12, 0.13, 0.37, 0.38, 0.49, 0.5, -0.13, -30., 0.]
+            .into_iter()
+            .enumerate()
+        {
+            let mut scene = Scene::new();
+            scene.push_clip_layer(Affine::IDENTITY, &Rect::new(12.25, 20.5, 310.75, 94.25));
+            // The penultimate frame removes the text; the last restores it.
+            if frame != 8 {
+                scene.commands.push(PaintCommand::Paragraph {
+                    request: request.clone(),
+                    transform: Affine::new([scale, 0., 0., scale, 18. + offset, 31. + offset]),
+                });
+            }
+            scene.pop_layer();
+            // Replay must preserve painter order where translucent content overlaps text.
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                PaintColor::from_rgba8(30, 90, 180, 90),
+                None,
+                &Rect::new(64., 15., 98., 110.),
+            );
+            let expected = full.render_scene(&scene, size, [1.; 4], false).unwrap();
+            let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
+            assert_eq!(
+                actual, expected,
+                "scale={scale}, frame={frame}, offset={offset}"
+            );
+            if frame > 0 && partial.scene_damage_coverage(size) < 1. {
+                saw_partial = true;
+            }
+            assert!(text.take_native_paragraph_error().is_none());
+        }
+        assert!(
+            saw_partial,
+            "fixture only exercised full redraw at scale={scale}"
+        );
     }
 }
