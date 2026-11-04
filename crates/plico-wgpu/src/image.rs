@@ -51,6 +51,7 @@ struct TextureEntry {
 }
 pub(crate) struct ImageCache {
     entries: lru::LruCache<Key, TextureEntry>,
+    mip_generator: Option<crate::mipmap::MipGenerator>,
     bytes: usize,
     pub uploads: u64,
     pub hits: u64,
@@ -62,6 +63,7 @@ impl Default for ImageCache {
         Self {
             entries: lru::LruCache::new(NonZeroUsize::new(256).unwrap()),
             bytes: 0,
+            mip_generator: None,
             uploads: 0,
             hits: 0,
             bindings: 0,
@@ -149,6 +151,7 @@ impl ImageCache {
                 texture_bytes = bytes;
             }
         }
+        let gpu_mips = sizes.len() > 1 && crate::mipmap::MipGenerator::supported(device);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Plico immutable image"),
             size: wgpu::Extent3d {
@@ -160,11 +163,20 @@ impl ImageCache {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | if gpu_mips {
+                    wgpu::TextureUsages::STORAGE_BINDING
+                } else {
+                    wgpu::TextureUsages::empty()
+                },
             view_formats: &[],
         });
         let mut previous_size = sizes[0];
         for (level, &[width, height]) in sizes.iter().enumerate() {
+            if level > 0 && gpu_mips {
+                break;
+            }
             if level > 0 {
                 pixels = area_reduce(&pixels, previous_size, [width, height]);
             }
@@ -188,6 +200,11 @@ impl ImageCache {
                 },
             );
             previous_size = [width, height];
+        }
+        if gpu_mips {
+            self.mip_generator
+                .get_or_insert_with(|| crate::mipmap::MipGenerator::new(device))
+                .generate(device, queue, &texture);
         }
         let bytes = texture_bytes;
         while self.bytes + bytes > 128 * 1024 * 1024
@@ -216,6 +233,7 @@ impl ImageCache {
     }
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.mip_generator = None;
         self.bytes = 0;
         self.bindings = 0;
     }
@@ -332,7 +350,7 @@ impl GpuImage {
 
 /// Exact area weights for each reduction, including odd dimensions. Inputs are
 /// premultiplied encoded RGBA; identical weights preserve RGB <= alpha.
-fn area_reduce(source: &[u8], size: [u32; 2], target: [u32; 2]) -> Vec<u8> {
+pub(crate) fn area_reduce(source: &[u8], size: [u32; 2], target: [u32; 2]) -> Vec<u8> {
     let [sw, sh] = size;
     let [dw, dh] = target;
     if sw == dw * 2 && sh == dh * 2 {

@@ -7,6 +7,8 @@ mod blit;
 mod blur;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 mod glyphs;
+#[cfg(feature = "paint-scene")]
+mod mipmap;
 mod renderer;
 #[cfg(feature = "window")]
 mod window;

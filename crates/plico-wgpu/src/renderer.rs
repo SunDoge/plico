@@ -1850,6 +1850,132 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "paint-scene")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
+        let renderer = pollster::block_on(Renderer::new()).unwrap();
+        assert!(crate::mipmap::MipGenerator::supported(&renderer.device));
+        let generator = crate::mipmap::MipGenerator::new(&renderer.device);
+        for size in [[64u32, 64u32], [65, 67], [257, 193], [1, 129], [3, 1]] {
+            let source: Vec<u8> = (0..size[0] * size[1])
+                .flat_map(|i| {
+                    let alpha = (i % 251) as u8;
+                    [
+                        ((i * 17) % (u32::from(alpha) + 1)) as u8,
+                        alpha / 2,
+                        0,
+                        alpha,
+                    ]
+                })
+                .collect();
+            let levels = 32 - size[0].max(size[1]).leading_zeros();
+            let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("mip CPU oracle"),
+                size: wgpu::Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: levels,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            renderer.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &source,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(size[0] * 4),
+                    rows_per_image: None,
+                },
+                texture.size(),
+            );
+            generator.generate(&renderer.device, &renderer.queue, &texture);
+            let mut previous_gpu = source.clone();
+            let mut reference = source;
+            let mut previous_size = size;
+            for level in 1..levels {
+                let target = [(size[0] >> level).max(1), (size[1] >> level).max(1)];
+                let pitch = (target[0] * 4).div_ceil(256) * 256;
+                let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: u64::from(pitch) * u64::from(target[1]),
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut encoder = renderer.device.create_command_encoder(&Default::default());
+                encoder.copy_texture_to_buffer(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: level,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &buffer,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(pitch),
+                            rows_per_image: None,
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: target[0],
+                        height: target[1],
+                        depth_or_array_layers: 1,
+                    },
+                );
+                renderer.queue.submit([encoder.finish()]);
+                let (tx, rx) = std::sync::mpsc::channel();
+                buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |result| {
+                        tx.send(result).unwrap();
+                    });
+                renderer
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                rx.recv().unwrap().unwrap();
+                let mapped = buffer.slice(..).get_mapped_range().unwrap();
+                let actual: Vec<u8> = mapped
+                    .chunks_exact(pitch as usize)
+                    .flat_map(|row| row[..target[0] as usize * 4].iter().copied())
+                    .collect();
+                let step = crate::image::area_reduce(&previous_gpu, previous_size, target);
+                reference = crate::image::area_reduce(&reference, previous_size, target);
+                assert!(
+                    actual.iter().zip(&step).all(|(a, b)| a.abs_diff(*b) <= 1),
+                    "step {size:?} level {level}"
+                );
+                assert!(
+                    actual
+                        .iter()
+                        .zip(&reference)
+                        .all(|(a, b)| a.abs_diff(*b) <= 3),
+                    "chain {size:?} level {level}"
+                );
+                for pixel in actual.as_chunks::<4>().0 {
+                    assert!(pixel[..3].iter().all(|c| *c <= pixel[3]));
+                }
+                previous_gpu = actual;
+                previous_size = target;
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn readback_trim_preserves_target_and_recreates_only_for_capture() {

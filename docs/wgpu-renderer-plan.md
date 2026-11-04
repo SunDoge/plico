@@ -194,3 +194,28 @@ interior channels stay within one byte of 128, including extension seams, and
 damage output matches full replay pixel-for-pixel. The test asserts that a
 non-full damage frame actually occurred. This fixture validates the existing
 isotropic policy; it does not remove the anisotropic quality limitation above.
+
+### GPU mip generation
+
+On devices with the required compute/storage limits, only level zero is uploaded;
+a lazily created WGSL compute pipeline generates subsequent levels in queue order
+before sampling. Each pass binds disjoint single-level views of the same texture,
+with no scene readback or GPU wait. The same full-chain memory budget and source
+sharing apply. Masks and single-level targets are unchanged. Devices without these
+limits retain the CPU area-prefilter fallback.
+
+A GPU readback oracle covers even/odd images and one-pixel axes, checking each
+level against CPU area reduction: within one byte for an individual step and
+three bytes for the complete tested chains, with RGB <= alpha maintained. Floating
+GPU quantization is not claimed bit-identical to integer CPU filtering. The
+checkerboard diagnostic retained its post-mip error figures. The complete local
+regression passed 93 tests, excluding three manual profiles; Clippy and
+Windows/WASM cross-checks passed. WASM compilation does not prove browser runtime
+compute or fallback behavior.
+
+CPU source copying/premultiplication, first pipeline compilation and GPU execution
+still have costs. The earlier 78 ms CPU odd-size figure now characterizes the
+fallback/reference path, not compute-enabled mip generation. No end-to-end upload
+speedup is claimed without measuring the new path. DEBUG `wgpu.generate_mips`
+records mip encoding/submission CPU duration and dimensions/level count; it
+excludes lazy pipeline construction and does not measure GPU completion.
