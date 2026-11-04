@@ -30,3 +30,7 @@ these attribution notes do not relicense them.
   usage while implementing the optional Windows layout prototype. No GPUI Rust
   source is copied. COM signatures and ownership wrappers come from the linked
   `windows` crate; UTF-8 indexing, validation and the public service are local.
+- GPUI Windows glyph analysis was also consulted for DirectWrite grayscale texture
+  format selection and scale handling. The new collector/range/budget code is local.
+  No alpha-correction shader or gamma formula has been copied or guessed; native
+  parameters are returned as metadata until compositing is implemented and checked.

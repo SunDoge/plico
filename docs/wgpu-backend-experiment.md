@@ -1273,3 +1273,17 @@ from the Linux Pango atlas until glyph rasterization and a shared provider bridg
 are implemented. GNU cross-check and MSVC Clippy include its native API tests;
 pure UTF-8/UTF-16 scalar-boundary tests execute on Linux. No Windows runtime,
 rendered text quality or wgpu window behavior is claimed by this step.
+
+### Windows raw glyph-run rasterization
+
+The DirectWrite foundation now extracts bounded grayscale run masks directly from
+its retained layout, using a non-agile synchronous COM callback and native glyph
+analysis. Native recommended rendering/grid-fit modes, physical scale/phase and
+source UTF-16 ranges are preserved. Rendering gamma/grayscale contrast are
+returned as metadata, not applied with a guessed formula. See [native text](native-text.md)
+for resource limits and unsupported operations.
+
+GNU cross-check and MSVC Clippy include new native raster tests; Linux index tests
+and the existing Linux wgpu build still pass. These are compile/compatibility
+checks. Windows runtime/visual tests, corrected compositing, color glyphs and the
+actual wgpu bridge are still required before Windows host adoption.

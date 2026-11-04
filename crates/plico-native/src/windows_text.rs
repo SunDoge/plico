@@ -1,7 +1,9 @@
 //! DirectWrite layout in logical DIPs. No bitmap scaling or second shaping pass.
 //! Contexts and layouts stay on their creating UI thread. GPU raster integration
-//! is separate; this module currently supplies measurement and editing geometry.
+//! is separate; this module supplies editing geometry and raw grayscale run masks.
+mod raster;
 use crate::text_indices::TextIndices;
+pub use raster::{GlyphMask, Rasterized};
 use snafu::{ResultExt, Snafu};
 use std::{marker::PhantomData, ops::Range, rc::Rc};
 use windows::{
@@ -12,6 +14,12 @@ use windows::{
 /// DirectWrite/native input failures remain observable to the host.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// A raster operation requires coverage not implemented by this prototype.
+    #[snafu(display("Unsupported DirectWrite raster operation: {reason}"))]
+    Unsupported {
+        /// Explanation without document contents.
+        reason: &'static str,
+    },
     /// Invalid geometry, text offsets or excessive allocation.
     #[snafu(display("Invalid or oversized DirectWrite text request"))]
     InvalidRequest,

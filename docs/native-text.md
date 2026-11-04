@@ -103,8 +103,8 @@ Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
 family and an explicit paragraph base direction; CSS family lists, rich spans,
-application fonts, clipping/ellipsis and glyph rasterization are not implemented
-in this service yet. It is not connected to plico-wgpu, whose Windows native text
+application fonts and clipping/ellipsis are not implemented in this service yet.
+Raw grayscale glyph-run rasterization is available, with the limits below. It is not connected to plico-wgpu, whose Windows native text
 path still returns an unsupported-platform error.
 
 Contexts/layouts are confined to their creating thread. A paragraph retains its
@@ -124,7 +124,38 @@ API tests compile but have **not run on Windows**. Run them on Windows with:
 cargo test --locked -p plico-native --no-default-features --features windows-text --lib
 ```
 
-Before renderer adoption, implement grayscale glyph rasterization, connect the
+Before renderer adoption, finish corrected glyph compositing and connect the
 same layout to shared measurement/paint, then verify actual Windows fonts,
 DPI transitions, IME and window output. Cross-compilation proves none of those
 runtime/visual properties.
+
+### DirectWrite raw run coverage
+
+`Paragraph::rasterize(scale, phase)` now invokes `IDWriteTextLayout::Draw` with a
+private, non-agile COM renderer. It rasterizes the callback's exact native glyph
+runs immediately through `IDWriteGlyphRunAnalysis`; borrowed native glyph arrays
+do not escape the callback and no second shaping pass is introduced. The
+returned ordered `GlyphMask`s own R8 coverage, physical bounds and source UTF-16
+ranges. They contain no COM pointers and can outlive the paragraph.
+
+The collector uses explicit grayscale antialiasing and native recommended raster/
+grid-fit modes. Outline/default recommendations fall back to a renderable natural
+symmetric mode. The single-channel `ALIASED_1x1` texture name describes the byte
+format, not an instruction to disable antialiasing. Fractional phase is supplied
+in physical pixels; glyph positioning stays in logical DIPs until native raster.
+
+Output is limited to 4096 nonempty runs, 100,000 glyphs, 16,384 pixels per mask
+axis and 64 MiB total coverage. Native failure returns an error, never a partial
+mask list. Color fonts, underline/strikethrough and inline objects are explicitly
+unsupported in this prototype. The renderer owns thread-local callback state and
+does not advertise `IAgileObject`; the layout and factory remain UI-thread bound.
+
+Coverage is **raw**, not final composited alpha. `Rasterized` includes the native
+gamma and grayscale contrast values for future foreground-dependent correction;
+these are not a simple `pow(alpha, gamma)` contract. Gamma/contrast compositing,
+color glyphs, caching/atlas upload and the wgpu bridge remain unimplemented.
+
+Windows raster API tests compile for GNU/MSVC and cover repeatability, phase and
+scale, source ranges, empty content, invalid inputs and non-agile COM identity.
+They have not run on Windows here; no Windows rendered-quality result follows
+from these checks.
