@@ -229,13 +229,9 @@ impl Cache {
         if request.runs.len() > 4096 {
             return Err(rejected("too many DirectWrite style spans"));
         }
-        if request
-            .runs
-            .iter()
-            .any(|run| run.color != request.color || run.line_height.is_some())
-        {
+        if request.runs.iter().any(|run| run.line_height.is_some()) {
             return Err(rejected(
-                "DirectWrite range colors and range line heights are not implemented",
+                "DirectWrite range line heights are not implemented",
             ));
         }
         if !request.font_weight.is_finite() || !(1. ..=1000.).contains(&request.font_weight) {
@@ -299,6 +295,7 @@ impl Cache {
                     size: run.font_size,
                     weight: run.font_weight as u16,
                     italic: run.font_italic,
+                    color: Some(run.color),
                 })
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -599,6 +596,18 @@ mod tests {
                 .is_empty()
         );
         run.color = [255, 0, 0, 255];
+        declaration.runs = Arc::from([run.clone()]);
+        let images = cache.raster(Arc::new(declaration.clone()), 1., 0.).unwrap();
+        assert!(images.iter().any(|(image, _)| {
+            image
+                .data
+                .data()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[0] > 0 && p[1] == 0 && p[2] == 0 && p[3] > 0)
+        }));
+        run.line_height = Some((2., true));
         declaration.runs = Arc::from([run]);
         assert!(cache.layout(Arc::new(declaration), 1.).is_err());
     }

@@ -1,6 +1,7 @@
 //! DirectWrite layout in logical DIPs. No bitmap scaling or second shaping pass.
 //! Contexts and layouts stay on their creating UI thread. GPU raster integration
 //! is separate; this module supplies editing geometry and raw grayscale run masks.
+mod color;
 mod raster;
 pub use crate::text_direction::paragraph_is_rtl;
 use crate::text_indices::TextIndices;
@@ -63,6 +64,8 @@ pub struct StyleSpan {
     pub weight: u16,
     /// Italic face selection.
     pub italic: bool,
+    /// Optional foreground override; None inherits the paragraph brush.
+    pub color: Option<[u8; 4]>,
 }
 /// Basic system-font paragraph. Sizes and widths are logical DIPs.
 pub struct Request<'a> {
@@ -220,7 +223,7 @@ impl Context {
         self.layout_spans(request, &[])
     }
     /// Apply bounded UTF-8 font ranges before native measurement and shaping.
-    /// Range colors and per-range line heights are not part of this service API.
+    /// Per-range line heights are not part of this service API.
     pub fn layout_spans(&self, request: &Request<'_>, spans: &[StyleSpan]) -> Result<Paragraph> {
         if request.text.len() > 1024 * 1024
             || request.family.is_empty()
@@ -305,9 +308,17 @@ impl Context {
             if range.length == 0 {
                 continue;
             }
+            let effect = span
+                .color
+                .map(color::effect)
+                .transpose()
+                .context(NativeSnafu)?;
             // SAFETY: ranges were validated and converted against the original
             // UTF-8 source. Native layout copies values, not Rust references.
             unsafe {
+                layout
+                    .SetDrawingEffect(effect.as_ref(), range)
+                    .context(NativeSnafu)?;
                 layout.SetFontSize(span.size, range).context(NativeSnafu)?;
                 layout
                     .SetFontWeight(DWRITE_FONT_WEIGHT(i32::from(span.weight)), range)
@@ -577,6 +588,55 @@ impl Paragraph {
 mod tests {
     use super::*;
     #[test]
+    fn range_colors_survive_context_drop_and_later_inheritance_reset() {
+        let paragraph = {
+            let context = Context::new().unwrap();
+            let spans = [
+                StyleSpan {
+                    range: 0..3,
+                    size: 20.,
+                    weight: 400,
+                    italic: false,
+                    color: Some([255, 0, 0, 255]),
+                },
+                StyleSpan {
+                    range: 1..2,
+                    size: 20.,
+                    weight: 400,
+                    italic: false,
+                    color: Some([0, 0, 255, 128]),
+                },
+                StyleSpan {
+                    range: 2..3,
+                    size: 20.,
+                    weight: 400,
+                    italic: false,
+                    color: None,
+                },
+            ];
+            context.layout_spans(&Request::new("AAA"), &spans).unwrap()
+        };
+        let raster = paragraph.rasterize(1., [0., 0.]).unwrap();
+        for color in [Some([255, 0, 0, 255]), Some([0, 0, 255, 128]), None] {
+            assert!(raster.masks.iter().any(|mask| mask.foreground == color));
+        }
+        let images = raster.colorize([0., 1., 0., 1.], false).unwrap();
+        assert!(images.iter().any(|m| {
+            m.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[0] > 0 && p[1] == 0 && p[2] == 0)
+        }));
+        assert!(images.iter().any(|m| {
+            m.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[2] > 0 && p[0] == 0 && p[1] == 0 && p[3] <= 128)
+        }));
+    }
+    #[test]
     fn utf8_font_spans_preserve_native_ranges_and_overlap_order() {
         let context = Context::new().unwrap();
         let request = Request::new("中abcdef");
@@ -587,12 +647,14 @@ mod tests {
                 size: 40.,
                 weight: 700,
                 italic: true,
+                color: None,
             },
             StyleSpan {
                 range: 4..5,
                 size: 20.,
                 weight: 500,
                 italic: false,
+                color: None,
             },
         ];
         let paragraph = context.layout_spans(&request, &spans).unwrap();

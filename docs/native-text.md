@@ -156,7 +156,7 @@ title can precede mapping and give a false input failure.
 Paragraph}` on Windows. It currently provides an isolated DirectWrite factory,
 user-locale system-font layout, logical metrics/line baselines, UTF-8 caret and
 hit-test APIs, and bidi-aware selection rectangles. Requests have one installed
-family and an explicit paragraph base direction; CSS family lists, range colors,
+family and an explicit paragraph base direction; CSS family lists,
 application fonts and clipping/ellipsis are not implemented in this service yet.
 Raw grayscale glyph-run rasterization is available, with the limits below.
 The experimental plico-wgpu Windows provider now connects ordinary paragraph
@@ -208,12 +208,19 @@ Tests cover changed intrinsic widths, caret advances, wrapping and invalid input
 they have only been cross-compiled here.
 `Context::layout_spans` applies UTF-8 font-size, weight and italic ranges before
 native measurement. It validates scalar boundaries and bounds the span count
-to 4096; later overlapping ranges win. The wgpu adapter accepts these spans when
-their colors match the paragraph base color and no per-range line height is
-requested. Native line/caret/raster geometry use the styled layout, without
+to 4096; later overlapping ranges win. Optional RGBA range colors use immutable
+private COM drawing effects retained by DirectWrite. The synchronous glyph-run
+callback copies their packed color into each raw mask; it holds no borrowed
+application state or closure. `None` restores the paragraph foreground, including
+for a later overlapping span. Native palette layers retain their RGB and use
+the effective range foreground's alpha. Unknown drawing-effect interfaces fail
+instead of silently losing color. The wgpu adapter accepts colored font spans
+without per-range line height. Native line/caret/raster geometry use the styled layout, without
 copying a separately shaped prefix. Tests cover non-ASCII range conversion,
 overlap order, changed metrics and invalid ranges; they cross-compile only here.
-Range colors, per-range line height, truncation and application fonts
+Tests also cover colors after context drop, inheritance reset, opacity and
+corrected image output. All Windows-specific tests are cross-compiled only here.
+Per-range line height, truncation and application fonts
 are explicitly rejected. DirectWrite outline color layers are now enumerated and
 rasterized in native painter order. Each raw mask retains an optional straight
 palette RGBA; foreground layers use the authored text color, while palette layers

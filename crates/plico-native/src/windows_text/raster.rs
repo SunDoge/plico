@@ -23,6 +23,8 @@ pub struct GlyphMask {
     pub coverage: Vec<u8>,
     /// Straight palette RGBA for a color layer; None uses the authored foreground.
     pub palette: Option<[f32; 4]>,
+    /// Range foreground override captured from a native drawing effect.
+    pub foreground: Option<[u8; 4]>,
 }
 /// Corrected premultiplied sRGB RGBA8 for one run; no native resources retained.
 #[derive(Clone, Debug, PartialEq)]
@@ -89,10 +91,18 @@ impl Rasterized {
             if mask.coverage.is_empty() {
                 continue;
             }
+            let brush = mask
+                .foreground
+                .map(|c| c.map(|v| v as f32 / 255.))
+                .unwrap_or(foreground);
             let prepared = if let Some(mut color) = mask.palette {
-                color[3] *= foreground[3];
+                color[3] *= brush[3];
                 correction
                     .prepare(color, false)
+                    .context(super::CorrectionSnafu)?
+            } else if mask.foreground.is_some() {
+                correction
+                    .prepare(brush, thin_font)
                     .context(super::CorrectionSnafu)?
             } else {
                 foreground_correction
@@ -169,8 +179,9 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
         measuring: DWRITE_MEASURING_MODE,
         run: *const DWRITE_GLYPH_RUN,
         description: *const DWRITE_GLYPH_RUN_DESCRIPTION,
-        _effect: Ref<IUnknown>,
+        effect: Ref<IUnknown>,
     ) -> windows::core::Result<()> {
+        let foreground = super::color::read(effect)?;
         if run.is_null() || description.is_null() {
             return Err(native_error(E_POINTER));
         }
@@ -245,6 +256,7 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
                             measuring,
                             description.textPosition..end,
                             palette,
+                            foreground,
                         )?;
                     }
                     return Ok(());
@@ -253,7 +265,14 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
                 Err(error) => return Err(error),
             }
         }
-        self.capture_run(run, [x, y], measuring, description.textPosition..end, None)
+        self.capture_run(
+            run,
+            [x, y],
+            measuring,
+            description.textPosition..end,
+            None,
+            foreground,
+        )
     }
 
     fn DrawUnderline(
@@ -297,6 +316,7 @@ impl Collector {
         measuring: DWRITE_MEASURING_MODE,
         source_range: Range<u32>,
         palette: Option<[f32; 4]>,
+        foreground: Option<[u8; 4]>,
     ) -> windows::core::Result<()> {
         let [x, y] = origin;
         if run.glyphCount == 0 {
@@ -397,6 +417,7 @@ impl Collector {
             size: [width as u32, height as u32],
             coverage,
             palette,
+            foreground,
         });
         Ok(())
     }
@@ -491,6 +512,7 @@ mod tests {
                     size: [1, 1],
                     coverage: vec![255],
                     palette: Some([1., 0., 0., 0.5]),
+                    foreground: None,
                 },
                 GlyphMask {
                     utf16_range: 0..1,
@@ -498,6 +520,7 @@ mod tests {
                     size: [1, 1],
                     coverage: vec![255],
                     palette: None,
+                    foreground: None,
                 },
             ],
         };
@@ -516,6 +539,9 @@ mod tests {
                 .iter()
                 .all(|m| m.rgba.iter().all(|v| *v == 0))
         );
+        raster.masks[1].foreground = Some([0, 0, 255, 128]);
+        let overridden = raster.colorize([0., 1., 0., 1.], false).unwrap();
+        assert_eq!(overridden[1].rgba, [0, 0, 128, 128]);
         raster.masks[0].palette = Some([f32::NAN; 4]);
         assert!(matches!(
             raster.colorize([1.; 4], false),
@@ -689,6 +715,7 @@ mod tests {
                 size: [2, 2],
                 coverage: vec![255],
                 palette: None,
+                foreground: None,
             }],
         };
         assert!(matches!(
