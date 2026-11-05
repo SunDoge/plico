@@ -20,6 +20,7 @@ pub struct Patterns {
     query: String,
     file: String,
     file_open: bool,
+    tint: Color,
 }
 
 impl Default for Patterns {
@@ -39,6 +40,7 @@ impl Default for Patterns {
             query: String::new(),
             file: "main.go".into(),
             file_open: true,
+            tint: Color::Literal(0x3b82f6),
         }
     }
 }
@@ -215,6 +217,23 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                 }
             });
             text!(ui, "Selected: {}", state.file).color(Color::Muted);
+        };
+        panel(ui, "Color picker").description("Hue, saturation, brightness and named swatches, ported from MyGO.")
+        + |ui|
+        {
+            row(ui).gap(16.).align(Align::Start) + |ui| {
+                column(ui).gap(8.).width(260.) + |ui| {
+                    if color_picker(ui, &mut state.tint) {
+                        ui.request_rebuild();
+                    }
+                };
+                column(ui).gap(8.).grow(1.) + |ui| {
+                    text(ui, "Preview").font_size(12).color(Color::Muted);
+                    column(ui).width(140.).height(80.).radius(8.).background(state.tint)
+                        .border(1., Color::Border) + |_ui|
+                    {};
+                };
+            };
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

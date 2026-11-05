@@ -191,6 +191,21 @@ fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) 
 The split panes (`split`, `split_vertical`, `split_percent`,
 `split_vertical_percent`) are documented in [desktop widgets](desktop-widgets.md).
 
+### Color picker (MyGO port)
+
+`color_picker(cx, &mut Color)` ports MyGO's `ui/colorpicker.go`: a preview
+swatch with its hex value, Hue/Saturation/Brightness sliders and twelve named
+swatch buttons. It returns whether the color changed and writes
+`Color::Literal` on the first edit; theme tokens are edited from the color they
+currently resolve to. The hue of a gray is remembered in transient state, as
+MyGO does, so saturation can return to the last hue.
+
+MyGO's saturation/brightness square, opacity slider and editable hex field are
+not ported: Plico exposes no local pointer coordinates for a custom-painted
+square, `Color` carries no alpha, and the hex text is therefore read-only. The
+sliders are continuous rather than snapped, so deriving a color from its RGB
+does not drift it.
+
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized
 before the addition still deserialize with those defaults.

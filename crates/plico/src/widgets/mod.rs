@@ -226,6 +226,7 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 }
 
 mod calendar;
+mod colorpicker;
 mod composite;
 mod desktop;
 mod indicators;
@@ -235,6 +236,7 @@ mod search;
 mod split;
 mod tree;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
+pub use colorpicker::color_picker;
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,
