@@ -315,3 +315,8 @@ the actual shaped CTLine, with bounded requests and UI-thread ownership. See
 `docs/native-text.md` for the exact supported API and native-test commands.
 Rasterization, paragraph layout and wgpu integration are still missing; this is
 progress toward the macOS gate, not evidence that the gate has passed.
+
+The CoreText foundation also has a bounded CGContext bitmap primitive using the
+retained line, with portable physical-bounds tests. Native raster tests only
+cross-compile; orientation, emoji and text quality remain unverified. No macOS
+renderer/capture capability is enabled by this step.

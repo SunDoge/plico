@@ -1,9 +1,16 @@
 //! Experimental CoreText foundation. One retained native line supplies both
 //! metrics and editing offsets; no second shaping pass or raster approximation.
-//! Multiline layout, rasterization, rich text and renderer integration are pending.
+//! Multiline layout, rich text and renderer integration are pending.
+mod raster;
 use crate::text_indices::TextIndices;
-use objc2_core_foundation::{CFMutableAttributedString, CFRange, CFRetained, CFString, CGPoint};
-use objc2_core_text::{CTFont, CTFontUIFontType, CTLine, kCTFontAttributeName};
+use objc2_core_foundation::{
+    CFBoolean, CFMutableAttributedString, CFRange, CFRetained, CFString, CGPoint,
+};
+use objc2_core_text::{
+    CTFont, CTFontUIFontType, CTLine, kCTFontAttributeName,
+    kCTForegroundColorFromContextAttributeName,
+};
+pub use raster::Rasterized;
 use snafu::Snafu;
 use std::{marker::PhantomData, rc::Rc};
 
@@ -13,8 +20,8 @@ pub enum Error {
     /// Invalid size, unsupported multiline input or exceeded resource limits.
     #[snafu(display("invalid or oversized CoreText single-line request"))]
     InvalidRequest,
-    /// The system font or attributed string could not be allocated.
-    #[snafu(display("CoreText font or attributed-string allocation failed"))]
+    /// A native font, attributed string or bitmap resource could not be allocated.
+    #[snafu(display("CoreText/CoreGraphics resource allocation failed"))]
     Allocation,
     /// Native metrics were nonfinite, excessive or otherwise inconsistent.
     #[snafu(display("invalid CoreText line metrics"))]
@@ -122,6 +129,12 @@ impl Line {
                 CFRange::new(0, units as isize),
                 Some(kCTFontAttributeName),
                 Some(&font),
+            );
+            CFMutableAttributedString::set_attribute(
+                Some(&attributed),
+                CFRange::new(0, units as isize),
+                Some(kCTForegroundColorFromContextAttributeName),
+                Some(CFBoolean::new(true)),
             );
             CTLine::with_attributed_string(&attributed)
         };

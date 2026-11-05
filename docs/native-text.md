@@ -436,8 +436,7 @@ objects are deliberately UI-thread-local and own their native references.
 
 The local GPUI Apple text implementation was read as an API/design reference:
 it uses CTLine shaping, UTF-16/UTF-8 index conversion and CGContext rasterization.
-This foundation does not depend on GPUI or font-kit. CoreText rasterization,
-multiline wrapping, font style spans, selection rectangles, private fonts and
+This foundation does not depend on GPUI or font-kit. Multiline wrapping, font style spans, selection rectangles, private fonts and
 wgpu provider integration remain to be implemented. In particular, enabling the
 native feature does not yet enable macOS wgpu window/capture text.
 
@@ -453,3 +452,28 @@ Both architecture cross-checks and Apple Silicon Clippy passed locally. On Linux
 the shared scalar-index test passed with macos-text; the five Windows portable
 correction/index tests also passed. Native macOS tests were only compiled, never
 executed here. There is no macOS rendered-quality or runtime claim yet.
+
+#### CoreText bitmap primitive
+
+The retained line now has `rasterize(scale, phase, foreground)`, producing a
+baseline-relative top-down premultiplied sRGB RGBA image. It draws the same CTLine
+through a temporary CGContext, without reshaping. Scale is bounded to `(0, 8]`,
+physical subpixel phases to `[0, 1)`, dimensions to 16384 and total payload to
+64 MiB. Bounds include a two-pixel AA guard and preserve negative bearings. Empty
+ink or zero alpha produces no bitmap. The CGContext is released before Rust
+resumes access to its backing Vec, and native references never escape that scope.
+
+The line's foreground-from-context attribute is explicitly enabled. Context fill
+supplies RGB, global context alpha applies opacity, and native color glyphs are
+delegated to CoreText. Font smoothing/LCD output is disabled for the transparent
+RGBA texture; native grayscale AA and subpixel positioning are enabled, with no
+synthetic weight expansion. No cross-platform gamma equivalence is asserted.
+
+Three portable index/geometry tests pass on Linux. Apple Silicon Clippy and both
+macOS architecture checks compile the native tests, which cover repeated bytes,
+DPI/phases, foreground, alpha, whitespace and an asymmetric F orientation check.
+**Those native tests have not executed here.** In particular, bitmap row order,
+color-emoji bounds/output and visual edge quality require macOS runtime proof
+before this primitive is wired into the main renderer. It currently has no atlas,
+viewport raster clipping or paragraph adapter; long-line raster requests can hit
+the explicit allocation limit even when their typographic metrics are valid.

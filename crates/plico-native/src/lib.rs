@@ -36,3 +36,6 @@ pub mod directwrite_correction;
 /// Experimental CoreText single-line metrics and scalar-index geometry.
 #[cfg(all(target_os = "macos", feature = "macos-text"))]
 pub mod macos_text;
+
+#[cfg(all(feature = "macos-text", any(target_os = "macos", test)))]
+mod raster_bounds;
