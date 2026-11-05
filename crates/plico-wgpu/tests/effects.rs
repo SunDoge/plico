@@ -495,3 +495,54 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
     assert!(source.adapter.shader_diagnostics().next().is_none());
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_copy_preserves_orientation_batch_boundaries_and_following_draws() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill, Gradient};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    let gradient = Gradient::new_linear((0., 0.), (0., 16.)).with_stops([
+        Color::from_rgba8(255, 0, 0, 255),
+        Color::from_rgba8(0, 0, 255, 255),
+    ]);
+    base.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &gradient,
+        None,
+        &Rect::new(0., 0., 16., 16.),
+    );
+    let mut expected = base.clone();
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv: vec2f) -> vec4f { return plico_backdrop_at(uv); }",
+        true,
+    )
+    .unwrap();
+    let mut actual = base;
+    actual.append_scene(
+        effect_scene(&mut text, source, ShaderEffectId::new(), &[]),
+        Affine::IDENTITY,
+    );
+    for scene in [&mut actual, &mut expected] {
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgba8(0, 255, 0, 255),
+            None,
+            &Rect::new(0., 0., 4., 4.),
+        );
+    }
+    let actual = renderer
+        .render_scene(&actual, [16, 16], [0.; 4], false)
+        .unwrap();
+    let expected = renderer
+        .render_scene(&expected, [16, 16], [0.; 4], false)
+        .unwrap();
+    for (a, b) in actual.iter().zip(&expected) {
+        assert!(a.abs_diff(*b) <= 1, "{a} != {b}");
+    }
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1120,
+    "height": 820,
+    "scale": 1.0
+  },
+  "state": {
+    "black_hole": true
+  },
+  "steps": [
+    {
+      "command": {
+        "action": "pointer_move",
+        "x": 675,
+        "y": 480
+      }
+    }
+  ],
+  "time_ms": 1200
+}

@@ -5,8 +5,8 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction, SemanticRole,
-    SemanticSnapshot, TextContext, UiEvent,
+    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerEvent, PointerPhase,
+    PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext, UiEvent,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -17,6 +17,13 @@ use std::time::Duration;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     Snapshot,
+    /// Move the primary mouse pointer in window-logical pixels.
+    PointerMove {
+        x: f64,
+        y: f64,
+    },
+    /// Remove the pointer from the window (clears hover and pointer queries).
+    PointerLeave,
     Click {
         role: String,
         label: String,
@@ -62,6 +69,8 @@ pub enum Error {
     Declaration { message: String },
     #[snafu(display("invalid test viewport; dimensions must be nonzero"))]
     Viewport,
+    #[snafu(display("pointer coordinates must be finite"))]
+    PointerPosition,
     #[snafu(display("virtual clock overflow"))]
     Clock,
 }
@@ -103,6 +112,29 @@ pub fn dispatch<V: HostView>(
     source.prepare_for_event(text);
     match command {
         Command::Snapshot => {}
+        Command::PointerMove { x, y } => {
+            if !x.is_finite() || !y.is_finite() {
+                return Err(Error::PointerPosition);
+            }
+            source.handle_event(UiEvent::Pointer(PointerEvent {
+                phase: PointerPhase::Move,
+                position: Point { x: *x, y: *y },
+                button: None,
+                buttons: 0,
+                modifiers: Modifiers::empty(),
+                properties: PointerProperties::default(),
+            }));
+        }
+        Command::PointerLeave => {
+            source.handle_event(UiEvent::Pointer(PointerEvent {
+                phase: PointerPhase::Leave,
+                position: Point { x: 0., y: 0. },
+                button: None,
+                buttons: 0,
+                modifiers: Modifiers::empty(),
+                properties: PointerProperties::default(),
+            }));
+        }
         Command::Click {
             role,
             label,

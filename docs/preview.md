@@ -28,7 +28,7 @@ cargo plico capture apps/gallery --scenario apps/gallery/scenarios/controls.json
 
 `state` 是应用定义的类型，可以是 App 本身，也可以是构造 App 的专用配置。应用的普通运行接口不再要求 App 实现 Serialize/Deserialize。只有预览配置需要反序列化；线程、SDK、密钥等不放入场景。
 
-`steps` 使用 `plico_runtime::testing::Command`，包括 click、focus、set_value、text、key、key_event。`after_ms` 在该步前推进虚拟时钟；`time_ms` 在最后一步后再推进一次，不睡眠、不模拟中间 vsync 帧。动画需要逐帧采样时，使用多个步骤或 Rust 测试驱动器。重复 label 必须指定 occurrence，找不到目标会报错。
+`steps` 使用 `plico_runtime::testing::Command`，包括 click、focus、set_value、text、key、key_event、pointer_move、pointer_leave。`after_ms` 在该步前推进虚拟时钟；`time_ms` 在最后一步后再推进一次，不睡眠、不模拟中间 vsync 帧。动画需要逐帧采样时，使用多个步骤或 Rust 测试驱动器。重复 label 必须指定 occurrence，找不到目标会报错。
 
 ```rust,ignore
 let scenario = plico_desktop::PreviewScenario::<PreviewConfig>::load(path)?;
@@ -79,3 +79,25 @@ GPU 测试验证 1.5× DPI 的重复像素、脚本点击与虚拟时钟 210ms�
 
 额外的 wgpu GPU 测试覆盖 hosted image canvas 的 1.25× 预览；Windows 仅验证
 交叉编译，尚无 Windows 实机截图结论。
+
+## 指针与视觉效果
+
+指针坐标采用窗口逻辑像素，与鼠标事件一致，不乘 device scale。
+`pointer_move` 更新 hover 和组件中的 `cx.pointer_position()`，`pointer_leave` 清除它。
+非有限坐标会被拒绝；修改 JSON 后可重复渲染，无需真实移动系统鼠标。
+
+```json
+{
+  "version": 1,
+  "viewport": { "width": 1120, "height": 820, "scale": 1.0 },
+  "state": { "black_hole": true },
+  "steps": [
+    { "command": { "action": "pointer_move", "x": 675, "y": 480 } }
+  ],
+  "time_ms": 1200
+}
+```
+
+Gallery 的完整场景为 `apps/gallery/scenarios/black-hole.json`。
+`state` 仍是应用定义的预览配置；它不是自动写入任意运行中 Rust 字段的反射接口。
+真实窗口的外部 IPC 与运行时状态路径写入尚未实现。

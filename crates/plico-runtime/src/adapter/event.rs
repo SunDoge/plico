@@ -25,10 +25,15 @@ impl Adapter {
                 true,
             );
         }
+        let previous_pointer = self.pointer_position;
         let mut declare = true;
         let mut response = self.event_inner(engine, event, &mut declare);
         engine.set_hovered(self.hovered);
         engine.set_pointer_position(self.pointer_position);
+        if previous_pointer != self.pointer_position && engine.observes_pointer_position() {
+            response.request_redraw = true;
+            declare = true;
+        }
         response.request_redraw |= self.tips.needs_frame();
         (response, declare)
     }

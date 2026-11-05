@@ -43,6 +43,7 @@ pub struct Engine {
     hovered_path: Option<Vec<crate::PathKey>>,
     /// Host pointer position in window logical pixels; None outside the window.
     pointer_position: Option<(f64, f64)>,
+    pointer_observed: std::cell::Cell<bool>,
     clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
@@ -99,6 +100,7 @@ impl Default for Engine {
             hovered: None,
             hovered_path: None,
             pointer_position: None,
+            pointer_observed: std::cell::Cell::new(false),
             clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
@@ -494,7 +496,12 @@ impl Engine {
     }
     /// Current host pointer position in window logical pixels, when inside.
     pub fn pointer_position(&self) -> Option<(f64, f64)> {
+        self.pointer_observed.set(true);
         self.pointer_position
+    }
+    /// Whether the current declaration reads the host pointer position.
+    pub fn observes_pointer_position(&self) -> bool {
+        self.pointer_observed.get()
     }
     /// Logical hover identity across module/host arenas. None clears the snapshot.
     pub fn set_hovered_path(&mut self, path: Option<Vec<crate::PathKey>>) {
@@ -876,6 +883,7 @@ impl Engine {
             self.changes.insert(Changes::PAINT);
         }
         self.error = None;
+        self.pointer_observed.set(false);
         if measure {
             // The simulated-measurement path owns the whole tree; nobody drains
             // removals or unmatched events, so per-frame clearing keeps both

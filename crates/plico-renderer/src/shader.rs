@@ -92,7 +92,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> PlicoVertexOutput {
 
 /// Additional prelude for effects that declared `read_backdrop`: the host
 /// binds the region's already-painted content as a texture at group 1.
-/// backdrop_at samples it at the surface's own uv (y up like uv), bilinearly;
+/// backdrop_at samples it at the surface's own top-left-origin uv, bilinearly;
 /// outside the surface it returns transparent black, never repeating edges.
 const SHADER_BACKDROP_PREFIX: &str = r#"
 @group(1) @binding(0)
@@ -107,14 +107,14 @@ fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(
         plico_backdrop,
         plico_backdrop_sampler,
-        vec2<f32>(uv.x, 1.0 - uv.y),
+        uv,
         0.0,
     );
 }
 
 /// The surface's own sample of its backdrop at uv, premultiplied.
 fn plico_backdrop_at(uv: vec2<f32>) -> vec4<f32> {
-    backdrop_at(uv)
+    return backdrop_at(uv);
 }
 "#;
 
@@ -277,6 +277,40 @@ impl ShaderEffectSource {
             .map_err(|error| format!("invalid shader interface: {error}"))?;
         let mut parameters = Vec::new();
         for (_, variable) in module.global_variables.iter() {
+            // Only the two resources owned by the generated backdrop prelude
+            // are allowed outside the uniform group. Arbitrary user bindings
+            // remain rejected, including for complete shader modules.
+            if reads_backdrop
+                && variable.space == naga::AddressSpace::Handle
+                && variable.binding.as_ref().is_some_and(|binding| {
+                    binding.group == 1
+                        && matches!(
+                            (
+                                binding.binding,
+                                variable.name.as_deref(),
+                                &module.types[variable.ty].inner,
+                            ),
+                            (
+                                0,
+                                Some("plico_backdrop"),
+                                naga::TypeInner::Image {
+                                    dim: naga::ImageDimension::D2,
+                                    arrayed: false,
+                                    class: naga::ImageClass::Sampled {
+                                        kind: naga::ScalarKind::Float,
+                                        multi: false,
+                                    },
+                                },
+                            ) | (
+                                1,
+                                Some("plico_backdrop_sampler"),
+                                naga::TypeInner::Sampler { comparison: false },
+                            )
+                        )
+                })
+            {
+                continue;
+            }
             if let Some(binding) = &variable.binding
                 && (binding.group != 0 || binding.binding != 0)
             {
@@ -1006,6 +1040,13 @@ fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backdrop_prelude_accepts_the_public_sampling_helper() {
+        let body = "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return plico_backdrop_at(uv); }";
+        ShaderEffectSource::with_backdrop(body, true).unwrap();
+        assert!(ShaderEffectSource::new(body).is_err());
+    }
 
     #[test]
     fn effect_parameters_preserve_header_and_clear_unused_lanes() {

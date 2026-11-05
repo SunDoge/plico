@@ -481,6 +481,18 @@ impl<V: HostView> Source<V> {
             self.revision += 1;
         }
     }
+    /// Rebuild device-sized shader fragments when the host's DPI changes.
+    pub(crate) fn update_shader_scale(&mut self, tcx: &mut TextContext, scale: f64) -> bool {
+        if self.adapter.shader_scale == scale {
+            return false;
+        }
+        self.adapter.shader_scale = scale;
+        let updated = self.adapter.update_shaders(&self.engine, tcx);
+        if updated {
+            self.revision += 1;
+        }
+        updated
+    }
     fn paint_frame_scene(
         &mut self,
         scene: &mut Scene,
@@ -489,12 +501,7 @@ impl<V: HostView> Source<V> {
         size: (u32, u32),
         scale: f64,
     ) {
-        if self.adapter.shader_scale != scale {
-            self.adapter.shader_scale = scale;
-            if self.adapter.update_shaders(&self.engine, tcx) {
-                self.revision += 1;
-            }
-        }
+        self.update_shader_scale(tcx, scale);
         if let Some((cached, cached_scale, _)) = &self.target_scene
             && self
                 .target_scene

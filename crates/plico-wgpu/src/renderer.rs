@@ -996,6 +996,7 @@ impl Renderer {
                 let mut end = first + 1;
                 while backdrop_at.is_none()
                     && end < instances.len()
+                    && instances[end].color[3] != 2.
                     && key(end) == texture
                     && instances[end].clip_params[2] == instances[first].clip_params[2]
                     && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
@@ -1067,6 +1068,8 @@ impl Renderer {
                         self.effects = effects;
                         self.blitter = blitter;
                         self.batch_stats.passes += 1;
+                        pass.set_bind_group(0, &self.bind, &[]);
+                        pass.set_vertex_buffer(0, self.instances.slice(..));
                         scissor_run = None;
                         first = end;
                         continue;
