@@ -59,8 +59,8 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
         {
             // A busy, saturated backdrop makes the pane's blur and rim refraction
             // visible; the shader reads everything painted before it.
-            column(ui).width_percent(100.).height(300.).clip(true).radius(18.).background(Color::Literal(0x121826))
-            + |ui|
+            column(ui).width_percent(100.).height(300.).shrink(0.).clip(true).radius(18.)
+                .background(Color::Literal(0x121826)) + |ui|
             {
                 column(ui).absolute(-50., -70.).width(280.).height(280.).radius(140.)
                     .background(Color::Literal(0xf97316)) + |_ui|
@@ -83,7 +83,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
             };
             text(ui, "LIQUID GLASS · read_backdrop: nine-tap blur, rim refraction, chromatic fringe, inner rim light")
                 .font_size(11).color(Color::Muted);
-            row(ui).width_percent(100.).gap(16).align(Align::Stretch) + |ui| {
+            row(ui).width_percent(100.).shrink(0.).gap(16).align(Align::Stretch) + |ui| {
                 column(ui).width(0.).grow(1.).height(320.).clip(true).radius(18.)
                     .background(Color::Literal(0x171126)) + |ui|
                 {
