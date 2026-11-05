@@ -1,7 +1,9 @@
 //! Experimental CoreText foundation. One retained native line supplies both
 //! metrics and editing offsets; no second shaping pass or raster approximation.
-//! Multiline layout, rich text and renderer integration are pending.
+//! Native soft wrapping is available; hard-break paragraphs, rich text and
+//! renderer integration are pending.
 mod raster;
+mod wrapping;
 use crate::text_indices::TextIndices;
 use objc2_core_foundation::{
     CFBoolean, CFDictionary, CFMutableAttributedString, CFNumber, CFRange, CFRetained, CFString,
@@ -15,6 +17,7 @@ use objc2_core_text::{
 pub use raster::Rasterized;
 use snafu::Snafu;
 use std::{marker::PhantomData, rc::Rc};
+pub use wrapping::WrappedLine;
 
 /// Invalid requests and native service failures are observable to the caller.
 #[derive(Debug, Snafu)]
@@ -28,6 +31,9 @@ pub enum Error {
     /// The requested family has no face matching the requested symbolic style.
     #[snafu(display("CoreText font family has no matching bold/italic face"))]
     UnavailableStyle,
+    /// Native line breaking failed to make progress or exceeded its line budget.
+    #[snafu(display("CoreText wrapping failed or exceeded the 4096-line budget"))]
+    Wrapping,
     /// Native metrics were nonfinite, excessive or otherwise inconsistent.
     #[snafu(display("invalid CoreText line metrics"))]
     Metrics,
@@ -143,12 +149,21 @@ pub struct Line {
     font: CFRetained<CTFont>,
     text: String,
     indices: TextIndices,
+    utf16_start: u32,
     metrics: Metrics,
     _thread: PhantomData<Rc<()>>,
 }
 impl Line {
     /// Shape once through CoreText, retaining its fallback/ligature/bidi result.
     pub fn new(request: &Request<'_>) -> Result<Self> {
+        let (font, attributed) = Self::attributed(request)?;
+        // SAFETY: The attributed string is valid and no longer being mutated.
+        let native = unsafe { CTLine::with_attributed_string(&attributed) };
+        Self::from_native(native, font, request.text, 0)
+    }
+    fn attributed(
+        request: &Request<'_>,
+    ) -> Result<(CFRetained<CTFont>, CFRetained<CFMutableAttributedString>)> {
         if !request.valid() {
             return Err(Error::InvalidRequest);
         }
@@ -219,7 +234,7 @@ impl Line {
         // SAFETY: This newly allocated string has no aliases being mutated. The
         // replacement is at its empty range; the font range spans the inserted
         // UTF-16 string exactly. CoreFoundation retains the attribute value.
-        let native = unsafe {
+        unsafe {
             CFMutableAttributedString::replace_string(
                 Some(&attributed),
                 CFRange::new(0, 0),
@@ -249,8 +264,15 @@ impl Line {
                     Some(&spacing),
                 );
             }
-            CTLine::with_attributed_string(&attributed)
-        };
+        }
+        Ok((font, attributed))
+    }
+    fn from_native(
+        native: CFRetained<CTLine>,
+        font: CFRetained<CTFont>,
+        text: &str,
+        utf16_start: u32,
+    ) -> Result<Self> {
         let (mut ascent, mut descent, mut leading) = (0., 0., 0.);
         // SAFETY: Valid retained line/font and writable local metric outputs.
         let metrics = unsafe {
@@ -277,8 +299,9 @@ impl Line {
         Ok(Self {
             native,
             font,
-            text: request.text.into(),
-            indices: TextIndices::new(request.text),
+            text: text.into(),
+            indices: TextIndices::new(text),
+            utf16_start,
             metrics,
             _thread: PhantomData,
         })
@@ -331,7 +354,7 @@ impl Line {
         // a writable secondary output; the native line owns its shaping data.
         let primary = unsafe {
             self.native
-                .offset_for_string_index(units as isize, &mut secondary)
+                .offset_for_string_index((units + self.utf16_start) as isize, &mut secondary)
         };
         if !primary.is_finite() || !secondary.is_finite() {
             return Err(Error::Metrics);
@@ -346,7 +369,8 @@ impl Line {
         }
         // SAFETY: Valid retained line and a finite point relative to its baseline.
         let unit = unsafe { self.native.string_index_for_position(CGPoint::new(x, 0.)) };
-        self.indices.byte(u32::try_from(unit).ok()?)
+        self.indices
+            .byte(u32::try_from(unit).ok()?.checked_sub(self.utf16_start)?)
     }
 }
 

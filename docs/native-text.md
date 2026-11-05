@@ -534,3 +534,26 @@ still apply to the result. Negative spacing is accepted within those bounds.
 Native regressions cover positive/negative tracking, caret/hit consistency and
 repeatable fractional-DPI raster output. They cross-compile here; actual macOS
 execution and the paragraph/provider bridge remain pending.
+
+#### CoreText soft wrapping
+
+`Line::wrap(&request, width)` uses one native `CTTypesetter` to choose contextual
+line breaks and produce retained native lines. Each `WrappedLine` includes an
+original UTF-8 byte range and a `Line` whose caret/hit-test arguments and results
+are local to that range. Internally native indices remain relative to the full
+original attributed string; the wrapper explicitly applies the UTF-16 base for
+later lines. No substring is re-shaped independently after breaking.
+
+Text is conserved, including trailing whitespace. Empty input produces one empty
+line with font metrics. Width must be positive, finite and at most 1e9 logical
+points. Native no-progress, invalid ranges or more than 4096 lines return
+`Error::Wrapping`; this is not an implicit truncation API. Extremely narrow widths
+can therefore fail if CoreText cannot produce a progressing break. It does not
+invent a scalar boundary inside a linguistic cluster to force progress.
+
+This is a single-logical-paragraph primitive: hard newline input remains rejected
+by `Request`. Vertical placement, alignment, explicit line height, ellipsis,
+paragraph selection and the shared wgpu provider are still pending. Native tests
+cover multilingual/combining/bidi text conservation, later-line local offsets,
+fractional-DPI raster repeatability, empty input and line-budget enforcement.
+These tests only cross-compile here; macOS runtime behavior is not verified.

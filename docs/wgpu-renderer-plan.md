@@ -339,3 +339,9 @@ The CoreText line foundation also accepts bounded native tracking, shared by
 measurement, editing offsets and rasterization. Zero tracking preserves default
 native shaping. Tests compile for macOS but have not run there; this does not
 turn on macOS wgpu text support by itself.
+
+A bounded CoreText soft-wrapping primitive now retains native CTTypesetter lines,
+original UTF-8 ranges and correct line-local editing offsets. Native regressions
+cross-compile on both macOS targets. Hard-break paragraphs, vertical layout,
+alignment/truncation and the shared paragraph/window bridge remain unfinished;
+this is not yet macOS renderer acceptance.
