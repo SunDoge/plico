@@ -70,3 +70,7 @@ usage-rs = "7.0.0"
 [profile.dev]
 opt-level = 1
 incremental = true
+
+# Optimize dependencies for runtime performance without generating their debug info.
+[profile.dev.package."*"]
+opt-level = 2

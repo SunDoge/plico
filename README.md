@@ -95,7 +95,7 @@ See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
 
 | Path | Current scope |
 | --- | --- |
-| wgpu | Default desktop renderer, native system text and WGSL effects; still under active development |
+| wgpu | Default desktop renderer, native system text, WGSL effects and adaptive damage redraw; still under active development |
 | Skia | Primary quality reference, CPU/Vulkan replay and Vulkan windows |
 | Vello | Minimal compatibility maintenance; no feature parity guarantees, may be removed |
 | FLTK + Taffy | Experimental native widgets and shared settings app; limited styling/platform coverage |

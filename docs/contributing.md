@@ -128,3 +128,19 @@ git diff -- Cargo.toml Cargo.lock CHANGELOG.md
 
 普通 CI 不运行桌面自动化。这些 Python 窗口脚本只保留为本地验收工具，
 不提供额外的全量 CI 开关。
+
+## Development build profiles
+
+Workspace development builds keep `opt-level = 1` and incremental compilation.
+Non-workspace dependencies use `opt-level = 2`, `debug = 0` and
+`strip = "debuginfo"`; workspace crates retain their existing debug information.
+The `plico new` template uses the same dependency settings. The wildcard package
+rule does not affect workspace members; build scripts/proc macros keep Cargo's
+normal build-override defaults unless a package override takes precedence.
+
+Dependency optimization prioritizes runtime performance and can increase the first
+build time compared with opt-level 1. Disabling debug-info generation can reduce compile/link work and disk
+usage. Stripping is primarily an artifact-size setting, not a measured compile-time
+speedup. Dependency stack traces lose source lines/local variables; use a temporary
+package-specific profile override when debugging a dependency. The first build
+after changing profile settings must rebuild affected dependencies.
