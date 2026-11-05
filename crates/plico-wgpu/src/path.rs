@@ -42,6 +42,25 @@ impl PathCache {
         (self.entries.len(), self.bytes)
     }
     pub fn raster(&mut self, command: &PaintCommand) -> Result<Option<(ImageData, Rect)>> {
+        self.raster_clipped(
+            command,
+            Rect::new(
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+            ),
+        )
+    }
+    /// Raster with a visible-frame clip: allocations cover the intersection
+    /// of the path bounds and `viewport` instead of the whole path. Scenes
+    /// pass their root clip so large off-screen geometry cannot exceed the
+    /// 64 MiB limit when only a small part is visible.
+    pub fn raster_clipped(
+        &mut self,
+        command: &PaintCommand,
+        viewport: Rect,
+    ) -> Result<Option<(ImageData, Rect)>> {
         let (shape, transform, brush, brush_transform, stroke) = match command {
             PaintCommand::Fill {
                 shape,
@@ -142,6 +161,10 @@ impl PathCache {
             bounds.x1.ceil() + 2.,
             bounds.y1.ceil() + 2.,
         );
+        let clipped = bounds.intersect(viewport);
+        if !clipped.is_zero_area() {
+            bounds = clipped;
+        }
         let (width, height) = (bounds.width(), bounds.height());
         if ![bounds.x0, bounds.y0, width, height]
             .iter()

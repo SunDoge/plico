@@ -526,10 +526,13 @@ impl Renderer {
                 _ => false,
             };
             if fallback {
-                let raster = self.paths.raster(command).map_err(|error| match error {
-                    Error::Unsupported { reason, .. } => unsupported(index, reason),
-                    other => other,
-                })?;
+                let raster = self
+                    .paths
+                    .raster_clipped(command, root_clip)
+                    .map_err(|error| match error {
+                        Error::Unsupported { reason, .. } => unsupported(index, reason),
+                        other => other,
+                    })?;
                 if let Some((image, bounds)) = raster {
                     let q = quad(bounds, [0.; 4], Affine::IDENTITY, clip, index)?;
                     draws.push(image_draw(
@@ -740,7 +743,9 @@ impl Renderer {
                                 brush_transform: None,
                                 shape: shape.clone(),
                             };
-                            if let Some((image, bounds)) = self.paths.raster(&command)? {
+                            if let Some((image, bounds)) =
+                                self.paths.raster_clipped(&command, root_clip)?
+                            {
                                 let mask =
                                     self.masks.intersect(image, bounds, parent.as_deref())?;
                                 layer_clip = layer_clip.intersect(mask.bounds());
@@ -801,11 +806,12 @@ impl Renderer {
                                 brush_transform: None,
                                 shape: shape.clone(),
                             };
-                            let raster =
-                                self.paths.raster(&command).map_err(|error| match error {
+                            let raster = self.paths.raster_clipped(&command, root_clip).map_err(
+                                |error| match error {
                                     Error::Unsupported { reason, .. } => unsupported(index, reason),
                                     other => other,
-                                })?;
+                                },
+                            )?;
                             if let Some((image, bounds)) = raster {
                                 let mask =
                                     self.masks.intersect(image, bounds, previous.as_deref())?;
@@ -1052,9 +1058,35 @@ impl Renderer {
                                 ));
                             }
                         }
-                        #[cfg(not(all(
-                            any(target_os = "linux", target_os = "windows", target_os = "macos"),
-                            feature = "system-text"
+                        #[cfg(all(target_arch = "wasm32", feature = "web"))]
+                        {
+                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            if let Some((image, offset)) =
+                                self.web_paragraph_image(request.clone(), scale)?
+                            {
+                                let rect = Rect::new(
+                                    x + offset[0],
+                                    y + offset[1],
+                                    x + offset[0] + f64::from(image.width),
+                                    y + offset[1] + f64::from(image.height),
+                                );
+                                let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
+                                draws.push(image_draw(
+                                    &mut payloads,
+                                    crate::image::ImageQuad::new(q, image),
+                                ));
+                            }
+                        }
+                        #[cfg(not(any(
+                            all(target_arch = "wasm32", feature = "web"),
+                            all(
+                                any(
+                                    target_os = "linux",
+                                    target_os = "windows",
+                                    target_os = "macos"
+                                ),
+                                feature = "system-text"
+                            )
                         )))]
                         {
                             let _ = (request, transform);
@@ -1156,11 +1188,20 @@ impl Renderer {
         self.scene_background = Some(background);
         self.scene_damage.set_multi_rect_damage(true);
         let region = prepared.update_damage(&mut self.scene_damage, size);
+        // Like MyGO's gpu.Part.Set: past half the frame, replaying separate
+        // scissors costs more than one full pass (notably while scrolling).
+        // Keep the tracker's new history: a full replay still establishes the
+        // correct retained target for a later small update or unchanged frame.
+        let full_redraw = matches!(region, plico_renderer::DamageRegion::Full)
+            || self.scene_damage.damage_rects().coverage(size[0], size[1]) >= 0.5;
         tracing::trace!(target: "plico::perf",
             damage_coverage = self.scene_damage.damage_rects().coverage(size[0], size[1]),
             damage_rect_count = self.scene_damage.damage_rects().rects().len(),
-            full_redraw = matches!(region, plico_renderer::DamageRegion::Full),
+            full_redraw,
             "wgpu scene damage");
+        if full_redraw {
+            return None;
+        }
         let rects: Vec<[u32; 4]> = self
             .scene_damage
             .damage_rects()
@@ -1175,7 +1216,7 @@ impl Renderer {
                 ]
             })
             .collect();
-        (!matches!(region, plico_renderer::DamageRegion::Full)).then_some(rects)
+        Some(rects)
     }
 
     /// GPU-only scene replay into a window view. Returns false when identical
@@ -1264,6 +1305,31 @@ impl Renderer {
             self.scene_damage.invalidate();
         }
         result
+    }
+}
+
+// Exercise the production planner/encoder without submitting yet, so a manual
+// test can bracket the entire GPU command buffer with timestamp queries.
+#[cfg(all(test, target_os = "linux", feature = "system-text"))]
+impl Renderer {
+    pub(crate) fn encode_scene_for_profile(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+        damage: bool,
+    ) -> Result<Option<wgpu::CommandEncoder>> {
+        let plan = self.plan_scene_frame(scene, size, [1.; 4], damage)?;
+        if plan.unchanged() {
+            return Ok(None);
+        }
+        self.encode_frame_regions(
+            &plan.prepared.draws(),
+            plan.size,
+            plan.background,
+            0.,
+            plan.regions.as_deref(),
+        )
+        .map(Some)
     }
 }
 

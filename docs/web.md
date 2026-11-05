@@ -1,8 +1,10 @@
 # WASM / 浏览器宿主
 
 Plico 现在可以在 wasm32-unknown-unknown 上编译并运行 gallery。plico-web-host 使用现有
-plico-runtime::Source 与 plico-renderer::web::WebRenderer，后端为 WebGL2 / Vello。
-组件、身份、失效分类、Taffy、文字、SVG 与 motion 共用原生实现，没有另建 DOM widget API。
+plico-runtime::Source，默认使用 plico-wgpu，优先选择 WebGPU，无可用 adapter 时回退 WebGL2。
+组件、身份、失效分类、Taffy、SVG 与 motion 共用原生实现；普通文字由浏览器 Canvas2D
+测量和光栅化，作为缓存纹理交给同一套 wgpu 管线，没有另建 DOM widget API。
+原 Vello WebGL2 路径保留为兼容对照。
 
 ## 运行 gallery
 
@@ -15,9 +17,12 @@ crates/plico-web-host/web/build.sh
 python3 -m http.server 8080 --directory target/plico-web-host
 ```
 
-打开 http://localhost:8080 。build.sh 可以通过 WASM_BINDGEN 环境变量指定 CLI 路径。
+打开 http://localhost:8080 。可用 `?renderer=webgl` 强制 WebGL2，
+`?renderer=webgpu` 强制 WebGPU，`?renderer=vello` 使用旧路径。显式指定的后端
+不可用时会显示错误；默认 `auto` 会先检测 WebGPU adapter，再选择 WebGL2。build.sh 可以通过 WASM_BINDGEN 环境变量指定 CLI 路径。
 生成的 WASM、JS、字体和 HTML 全部放在已忽略的 target/plico-web-host，不提交生成文件。
-演示字体使用仓库中已有 DejaVuSans.ttf，同时复制原许可证。
+Vello 对照使用仓库中已有 DejaVuSans.ttf，同时复制原许可证。wgpu 路径使用
+浏览器可用的系统/CSS 字体，初始化前等待 document.fonts.ready。
 
 只检查核心和浏览器目标：
 
@@ -28,15 +33,18 @@ cargo clippy -p plico-web-host --features gallery --target wasm32-unknown-unknow
 ```
 
 不要对原生桌面应用执行整个 workspace 的 wasm all-targets 构建。CLI、原生窗口、
-动态库 watcher 和后台 std::thread 示例仍是原生目标。浏览器宿主直接使用
-`plico-runtime`，不依赖 `plico-desktop` 或其原生热重载功能。
+后台 std::thread 示例仍是原生目标。浏览器宿主直接使用
+`plico-runtime`，不依赖 `plico-desktop` 。
 
 ## 应用接入
 
 WebHost<V: HostView> 是可复用 Rust 宿主，不要求应用使用 gallery：
 
-- new(canvas, view) 创建 Source、文字上下文、场景和持久 WebGL renderer。
-- load_font(bytes) 加载 TTF/OTF；浏览器无法枚举操作系统字体，必须显式提供字体。
+- `WebHost::new_wgpu(canvas, view, BrowserBackend::Auto).await` 创建 wgpu 宿主；
+  `WebGpu` / `WebGl` 可显式选择后端，需要默认启用的 `wgpu` feature。
+- `new(canvas, view)` 保留旧 Vello WebGL2 构造入口。
+- `load_font(bytes)` 是旧 Vello 路径的字体注册入口；wgpu 使用 CSS/FontFace 加载字体，
+  不通过该入口注册二进制字体。动态替换字体后需清理文字缓存并重新声明。
 - frame(timestamp_ms, logical_width, logical_height, device_scale) 提交帧，
   返回是否还有动画需要继续调度。
 - dispatch(timestamp_ms, UiEvent) 在分发输入前消费上一操作并刷新必要几何。
@@ -57,11 +65,29 @@ WebHost 的主线程服务唤醒发出 plico-wake，JS 宿主监听它并安排 
 
 ## 当前范围
 
-浏览器已验证 SVG、文字、点击、checkbox/switch、主题过渡、2048 键盘操作、
+旧 Vello 路径已验证 SVG、文字、点击、checkbox/switch、主题过渡、2048 键盘操作、
 虚拟列表 smooth scroll、尺寸改变和 1x/2x DPI。字体注册会为浏览器的 generic families
 补默认映射，支持的字符范围取决于应用加载的字体。
 
+wgpu 路径的基础 Gallery 已在 Chrome WebGL2（SwiftShader 软件实现）中运行；
+1×/2× 的计数、主题、文本输入、2048、虚拟滚动、布局动画、resize 和空闲调度
+交互检查通过；自动 WebGPU 检测在无 adapter 时回退 WebGL2。隔离层的高斯模糊
+在无 compute 的 WebGL2 上走渲染管线回退（全屏三角形执行同一分离卷积），
+Glass 页的模糊与移动背景交互在 WebGL2 上实测通过；CPU path/clip 光栅缓存
+按视口求交分配，超出屏幕的大几何不再触发 64 MiB 分配上限。
+这不是硬件 GPU、所有浏览器或移动设备兼容性的证明。Canvas 文字的段落和位图
+缓存分别限制为 256 项/约 8 MiB 与 256 项/32 MiB；这是缓存自有数据预算，
+不包括宿主保留的段落、GPU 纹理和浏览器内部开销。插入光标位置按需测量，避免
+布局时对长行的每个前缀都重新整形。
+
 这是 Canvas 宿主的第一版，以下能力没有宣称完成：
+
+- 新 wgpu 路径暂不支持 rich text spans、双向文字编辑、positioned glyph runs
+  或自定义 widget 的字形绘制（如 editor/terminal）；普通段落支持换行、基础省略、
+  对齐和 LTR 选区几何。
+- 新 wgpu WebGL2 路径的模糊 layer 需要 compute，目前明确报不支持，尚无 fragment
+  fallback；不要把旧 Vello 的 backdrop blur 测试结果视为新路径能力。
+- 新 wgpu 浏览器路径尚未开放自定义 WGSL widget effects。
 
 - WebGL2 不执行 custom WGSL shader；gallery 的 Motion 页显示限制提示。
   其他应用发送 Shader paint command 时 renderer 明确报错。
@@ -81,7 +107,8 @@ npm install --prefix /tmp/plico-web-host-qa playwright
 NODE_PATH=/tmp/plico-web-host-qa/node_modules node crates/plico-web-host/web/smoke.cjs
 ```
 
-可用 CHROMIUM_PATH 指定已有 Chromium，可用 PLICO_WEB_URL 覆盖默认 localhost:8080。
+可用 CHROMIUM_PATH 指定已有 Chromium，可用 PLICO_WEB_URL 覆盖默认 localhost:8080
+（包含 renderer 查询参数）。
 测试在 1x/2x DPI 下通过真实指针/按键执行三次计数、主题切换、2048、虚拟滚动、
-Motion 页 fallback 和 resize，检查空闲 rAF 停止及 100 次唤醒只产生一帧。
+Motion 页 fallback 和 resize；仅旧 Vello 路径验证 backdrop blur，检查空闲 rAF 停止及 100 次唤醒只产生一帧。
 本机 Chromium 的 WebGL2 软件渲染验证通过，不代表跨浏览器/移动设备的完整兼容证明。

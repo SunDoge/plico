@@ -48,13 +48,11 @@ struct Target {
     size: [u32; 2],
     pitch: u32,
 }
-#[cfg(feature = "paint-scene")]
 struct LayerTarget {
     target: Target,
     image: std::rc::Rc<crate::image::GpuImage>,
     blur: Option<(crate::blur::Workspace, std::rc::Rc<crate::image::GpuImage>)>,
 }
-#[cfg(feature = "paint-scene")]
 impl LayerTarget {
     fn bytes(&self) -> u64 {
         u64::from(self.target.size[0])
@@ -63,7 +61,6 @@ impl LayerTarget {
     }
 }
 /// Cumulative layer allocation work and currently retained pool payload.
-#[cfg(feature = "paint-scene")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LayerPoolStats {
     pub allocations: u64,
@@ -121,13 +118,9 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
     };
     match draw {
         crate::Draw::Quad(q) => quad(q),
-        #[cfg(feature = "paint-scene")]
         crate::Draw::Image(image) => quad(&image.quad),
-        #[cfg(feature = "paint-scene")]
         crate::Draw::Layer(layer) => quad(&layer.quad),
-        #[cfg(feature = "paint-scene")]
         crate::Draw::Effect(_, q) => quad(q),
-        #[cfg(feature = "paint-scene")]
         crate::Draw::SetMask(_) | crate::Draw::ResetMask => true,
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         crate::Draw::Text(run) => run.layout.glyphs.iter().any(|glyph| {
@@ -170,6 +163,8 @@ pub struct Renderer {
     plain_pipeline: wgpu::RenderPipeline,
     /// Comparison switch disabling class specialization (mygo's NoClasses).
     force_general: bool,
+    #[cfg(test)]
+    profile_no_batch_cull: bool,
     material_module: Option<wgpu::ShaderModule>,
     clear_pipeline: wgpu::RenderPipeline,
     source: String,
@@ -181,67 +176,44 @@ pub struct Renderer {
     /// std::mem::take + clear + write back on success.
     instance_scratch: Vec<Instance>,
     compilations: usize,
-    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
-    #[cfg(all(
-        feature = "paint-scene",
-        target_os = "windows",
-        feature = "system-text"
-    ))]
+    #[cfg(all(target_os = "windows", feature = "system-text"))]
     pub(crate) windows_paragraphs:
         Option<std::rc::Rc<std::cell::RefCell<crate::windows_paragraph::Cache>>>,
-    #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+    #[cfg(all(target_os = "macos", feature = "system-text"))]
     pub(crate) macos_paragraphs:
         Option<std::rc::Rc<std::cell::RefCell<crate::macos_paragraph::Cache>>>,
-    #[cfg(feature = "paint-scene")]
+    #[cfg(all(target_arch = "wasm32", feature = "web"))]
+    pub(crate) web_paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::web_text::Cache>>>,
     pub(crate) prepared_cache: PreparedCache,
-    #[cfg(feature = "paint-scene")]
     pub(crate) scene_preparations: u64,
-    #[cfg(feature = "paint-scene")]
     pub(crate) scene_cache_hits: u64,
-    #[cfg(feature = "paint-scene")]
     pub(crate) scene_damage: plico_renderer::damage::SceneDamageTracker,
-    #[cfg(feature = "paint-scene")]
     pub(crate) scene_background: Option<[f32; 4]>,
-    #[cfg(feature = "paint-scene")]
     images: crate::image::ImageCache,
-    #[cfg(feature = "paint-scene")]
     pub(crate) svgs: crate::svg::SvgCache,
-    #[cfg(feature = "paint-scene")]
     pub(crate) paths: crate::path::PathCache,
-    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) glyphs: crate::glyphs::GlyphCache,
-    #[cfg(feature = "paint-scene")]
     pub(crate) masks: crate::mask::MaskCache,
-    #[cfg(feature = "paint-scene")]
     pub(crate) scene_prepare_depth: u8,
-    #[cfg(feature = "paint-scene")]
     layer_depth: u8,
-    #[cfg(feature = "paint-scene")]
     blur: Option<crate::blur::Blur>,
-    #[cfg(feature = "paint-scene")]
     frame_layer_bytes: u64,
-    #[cfg(feature = "paint-scene")]
     layer_pool: Vec<Option<LayerTarget>>,
-    #[cfg(feature = "paint-scene")]
     layer_used: Vec<bool>,
-    #[cfg(feature = "paint-scene")]
     layer_allocations: u64,
-    #[cfg(feature = "paint-scene")]
     layer_reuses: u64,
-    #[cfg(feature = "paint-scene")]
     filter_allocations: u64,
-    #[cfg(feature = "paint-scene")]
     filter_reuses: u64,
-    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     effects: Option<plico_renderer::shader::ShaderRenderer>,
-    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     frame_effect_draws: usize,
-    #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     frame_effect_bytes: u64,
-    #[cfg(feature = "paint-scene")]
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
-    #[cfg(feature = "paint-scene")]
     frame_image_slots: std::collections::HashMap<usize, usize>,
     batch_stats: FrameBatchStats,
     atlas_texture: crate::texture::AtlasTexture,
@@ -275,6 +247,28 @@ const PLAIN_FRAGMENT: &str = r#"
 /// coverage mask. Everything the general fragment does beyond the SDF and
 /// clip is absent, so the specialized pipeline draws the same pixels with a
 /// much smaller shader.
+/// The most pixels a run may cover for joinLast to merge it with its
+/// neighbors of other classes (mygo's joinArea). On an M5 a draw call costs
+/// about 1.1 µs of CPU and 0.1 µs of GPU, while a plain fill drawn through
+/// the general shader costs the GPU at most 0.075 ns a pixel more: at this
+/// area, the worst specialization loss equals the call it saves.
+const JOIN_AREA: f32 = 128. * 128.;
+
+/// Pixel area a run's quads cover as the vertex stage grows them (one AA
+/// pixel each side). Stops early at JOIN_AREA; shadow quads already include
+/// their four-sigma halo in the rect.
+fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
+    let mut area = 0.;
+    for instance in &instances[start..end] {
+        let [_, _, w, h] = instance.rect;
+        area += (w + 2.) * (h + 2.);
+        if area > JOIN_AREA {
+            return area;
+        }
+    }
+    area
+}
+
 fn is_plain(instance: &Instance) -> bool {
     instance.config[2] == 0.
         && instance.config[1] == 0.
@@ -286,8 +280,12 @@ impl Renderer {
     pub async fn new() -> Result<Self> {
         // Share the backend instance across default renderers. Besides avoiding
         // repeated backend discovery, this serializes Vulkan-loader startup.
+        #[cfg(not(target_arch = "wasm32"))]
         static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
+        #[cfg(not(target_arch = "wasm32"))]
         let instance = INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()));
+        #[cfg(target_arch = "wasm32")]
+        let instance = &wgpu::Instance::new(crate::instance_descriptor());
         Self::new_compatible(instance, None, false).await
     }
     /// Select an adapter compatible with the window surface before allocating resources.
@@ -314,6 +312,11 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Plico experimental quad renderer"),
+                required_limits: if info.backend == wgpu::Backend::Gl {
+                    wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+                } else {
+                    wgpu::Limits::default()
+                },
                 required_features: if profiling {
                     adapter.features() & wgpu::Features::TIMESTAMP_QUERY
                 } else {
@@ -426,6 +429,8 @@ impl Renderer {
             plus_pipeline: None,
             plain_pipeline,
             force_general: false,
+            #[cfg(test)]
+            profile_no_batch_cull: false,
             material_module: None,
             clear_pipeline,
             source: String::new(),
@@ -434,65 +439,42 @@ impl Renderer {
             capacity,
             instance_scratch: Vec::new(),
             compilations: 0,
-            #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+            #[cfg(all(target_os = "linux", feature = "system-text"))]
             paragraphs: None,
-            #[cfg(all(
-                feature = "paint-scene",
-                target_os = "windows",
-                feature = "system-text"
-            ))]
+            #[cfg(all(target_os = "windows", feature = "system-text"))]
             windows_paragraphs: None,
-            #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+            #[cfg(all(target_os = "macos", feature = "system-text"))]
             macos_paragraphs: None,
-            #[cfg(feature = "paint-scene")]
+            #[cfg(all(target_arch = "wasm32", feature = "web"))]
+            web_paragraphs: None,
             prepared_cache: std::collections::HashMap::new(),
-            #[cfg(feature = "paint-scene")]
             scene_preparations: 0,
-            #[cfg(feature = "paint-scene")]
             scene_cache_hits: 0,
-            #[cfg(feature = "paint-scene")]
             scene_damage: Default::default(),
-            #[cfg(feature = "paint-scene")]
             scene_background: None,
-            #[cfg(feature = "paint-scene")]
             images: Default::default(),
-            #[cfg(feature = "paint-scene")]
             svgs: Default::default(),
-            #[cfg(feature = "paint-scene")]
             paths: Default::default(),
-            #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+            #[cfg(all(target_os = "linux", feature = "system-text"))]
             glyphs: Default::default(),
-            #[cfg(feature = "paint-scene")]
             masks: Default::default(),
-            #[cfg(feature = "paint-scene")]
             scene_prepare_depth: 0,
-            #[cfg(feature = "paint-scene")]
             layer_depth: 0,
-            #[cfg(feature = "paint-scene")]
             blur: None,
-            #[cfg(feature = "paint-scene")]
             frame_layer_bytes: 0,
-            #[cfg(feature = "paint-scene")]
             layer_pool: Vec::new(),
-            #[cfg(feature = "paint-scene")]
             layer_used: Vec::new(),
-            #[cfg(feature = "paint-scene")]
             layer_allocations: 0,
-            #[cfg(feature = "paint-scene")]
             layer_reuses: 0,
-            #[cfg(feature = "paint-scene")]
             filter_allocations: 0,
-            #[cfg(feature = "paint-scene")]
             filter_reuses: 0,
-            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            #[cfg(not(target_arch = "wasm32"))]
             effects: None,
-            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            #[cfg(not(target_arch = "wasm32"))]
             frame_effect_draws: 0,
-            #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+            #[cfg(not(target_arch = "wasm32"))]
             frame_effect_bytes: 0,
-            #[cfg(feature = "paint-scene")]
             frame_images: Vec::new(),
-            #[cfg(feature = "paint-scene")]
             frame_image_slots: Default::default(),
             batch_stats: Default::default(),
             atlas_texture,
@@ -509,14 +491,7 @@ impl Renderer {
     }
     /// Total prepared scenes retained across cache keys.
     pub(crate) fn prepared_len(&self) -> usize {
-        #[cfg(feature = "paint-scene")]
-        {
-            self.prepared_cache.values().map(Vec::len).sum()
-        }
-        #[cfg(not(feature = "paint-scene"))]
-        {
-            0
-        }
+        self.prepared_cache.values().map(Vec::len).sum()
     }
     /// Successful pipeline compilations, for checking that frames do not recompile shaders.
     pub fn pipeline_compilations(&self) -> usize {
@@ -584,7 +559,6 @@ impl Renderer {
         self.material_module = Some(shader);
         self.source = material.into();
         self.compilations += 1;
-        #[cfg(feature = "paint-scene")]
         {
             // The same declaration may produce different pixels under a new
             // material. Neither old layer pixels nor scene equality prove reuse.
@@ -672,10 +646,7 @@ impl Renderer {
         if self.target.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
-        #[cfg(feature = "paint-scene")]
         let root = self.layer_depth == 0;
-        #[cfg(not(feature = "paint-scene"))]
-        let root = true;
         if root && let Some(blitter) = &mut self.blitter {
             blitter.clear_source();
         }
@@ -752,7 +723,6 @@ impl Renderer {
         background: [f32; 4],
         time: f32,
     ) -> Result<wgpu::CommandEncoder> {
-        #[cfg(feature = "paint-scene")]
         self.scene_damage.invalidate();
         self.encode_frame_regions(items, size, background, time, None)
     }
@@ -763,6 +733,8 @@ impl Renderer {
         name = "wgpu.encode",
         skip_all
     )]
+    /// `regions` must be disjoint, as produced by SceneDamageTracker. None
+    /// replays the full target; an empty set preserves all retained pixels.
     pub(crate) fn encode_frame_regions(
         &mut self,
         items: &[crate::Draw<'_>],
@@ -773,21 +745,18 @@ impl Renderer {
     ) -> Result<wgpu::CommandEncoder> {
         self.batch_stats = FrameBatchStats::default();
         self.validate_frame(items.len(), size, background, time)?;
-        #[cfg(feature = "paint-scene")]
         let unchanged = regions.is_some_and(|r| r.is_empty())
             && self.target.as_ref().is_some_and(|t| t.size == size);
-        #[cfg(feature = "paint-scene")]
         let counters = (self.layer_allocations, self.layer_reuses);
-        #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         if !unchanged {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
         // Encoded commands retain their own GPU references. The pass-local
         // interning table must not keep evicted textures alive until another frame.
-        #[cfg(feature = "paint-scene")]
         self.clear_frame_images();
-        #[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         if !unchanged {
             if result.is_err() {
                 self.effects = None;
@@ -795,7 +764,6 @@ impl Renderer {
                 effects.finish_frame();
             }
         }
-        #[cfg(feature = "paint-scene")]
         if self.layer_depth == 0 && (!unchanged || result.is_err()) {
             self.trim_idle_layers(
                 items
@@ -803,7 +771,6 @@ impl Renderer {
                     .any(|item| matches!(item, crate::Draw::Layer(_))),
             );
         }
-        #[cfg(feature = "paint-scene")]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.layer_pool_stats();
             let effect_stats = self.effect_cache_stats();
@@ -816,7 +783,7 @@ impl Renderer {
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
                 layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
-        #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.paragraph_cache_stats();
             let atlas = self.text_stats();
@@ -827,11 +794,7 @@ impl Renderer {
                 atlas_cpu_bytes=atlas.atlas_cpu_bytes, atlas_gpu_bytes=atlas.atlas_gpu_bytes,
                 glyph_upload_bytes_total=atlas.uploaded_bytes, "wgpu native text resources");
         }
-        #[cfg(all(
-            feature = "paint-scene",
-            target_os = "windows",
-            feature = "system-text"
-        ))]
+        #[cfg(all(target_os = "windows", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.windows_text_cache_stats();
             tracing::trace!(target: "plico::perf", paragraphs=stats.layouts,
@@ -840,7 +803,7 @@ impl Renderer {
                 colorizations_total=stats.colorizations, application_fonts=stats.font_files,
                 native_font_copy_bytes=stats.font_copy_bytes, "wgpu DirectWrite resources");
         }
-        #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+        #[cfg(all(target_os = "macos", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.macos_text_cache_stats();
             tracing::trace!(target: "plico::perf", paragraphs=stats.layouts, paragraph_rust_bytes=stats.layout_bytes,
@@ -860,7 +823,6 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
         origin: [f32; 2],
     ) -> Result<wgpu::CommandEncoder> {
-        #[cfg(feature = "paint-scene")]
         if self.layer_depth == 0 {
             self.frame_layer_bytes = 0;
             self.layer_used.clear();
@@ -968,74 +930,162 @@ impl Renderer {
                 ..Default::default()
             });
             let full = [[0, 0, width, height]];
-            for &[x, y, w, h] in regions.unwrap_or(&full) {
-                pass.set_scissor_rect(x, y, w, h);
-                if regions.is_some() {
-                    // Replacement, not source-over: transparent backgrounds must
-                    // erase old pixels before replaying overlapping contributors.
-                    pass.set_pipeline(&self.clear_pipeline);
-                    pass.set_bind_group(0, &self.bind, &[]);
+            let areas = regions.unwrap_or(&full);
+            let mut scissor = None;
+            if regions.is_some() {
+                // Disjoint damage regions can all be cleared before replay. Each
+                // batch then preserves painter order within every affected pixel.
+                pass.set_pipeline(&self.clear_pipeline);
+                pass.set_bind_group(0, &self.bind, &[]);
+                for &[x, y, w, h] in areas {
+                    pass.set_scissor_rect(x, y, w, h);
+                    scissor = Some([x, y, w, h]);
                     pass.draw(0..3, 0..1);
                     self.batch_stats.clears += 1;
                 }
-
-                pass.set_bind_group(0, &self.bind, &[]);
-                pass.set_vertex_buffer(0, self.instances.slice(..));
-                // Batch only adjacent textures: sorting would break painter order.
-                let mut first = 0;
-                while first < instances.len() {
-                    let key = |i: usize| {
-                        (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
-                    };
-                    let texture = key(first);
-                    #[cfg(not(feature = "paint-scene"))]
-                    let _ = texture;
-                    // Class runs: adjacent plain fills share the specialized
-                    // pipeline, everything else keeps the general shader. The
-                    // run boundary never reorders painter sequence.
-                    let plain = !self.force_general && is_plain(&instances[first]);
-                    let mut end = first + 1;
-                    while end < instances.len()
-                        && key(end) == texture
-                        && instances[end].clip_params[2] == instances[first].clip_params[2]
-                        && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
-                            == (instances[first].config[2] == 4.
-                                && instances[first].config[1] == 1.)
-                        && (!self.force_general && is_plain(&instances[end])) == plain
-                    {
-                        end += 1;
+            }
+            pass.set_bind_group(0, &self.bind, &[]);
+            pass.set_vertex_buffer(0, self.instances.slice(..));
+            // Like MyGO drawBuilt: bind each ordered batch once, then draw only
+            // the disjoint damage rectangles it can actually reach. No sorting.
+            let mut first = 0;
+            // mygo joinLast: scenes that interleave classes op by op - a
+            // shadow then its fill per box, a label then its icon per row -
+            // would otherwise draw a call per instance. Adjacent runs that
+            // differ only in their class and each cover few pixels merge
+            // into one run drawn through the general pipeline; plain
+            // instances render identically there (tests/classes.rs), and at
+            // mygo's measured 128x128-pixel trade-off the saved call costs
+            // the CPU less than the specialized shader saves on those pixels.
+            struct Run {
+                start: usize,
+                end: usize,
+                plain: bool,
+                plus: bool,
+                texture: Option<usize>,
+                mask: u32,
+            }
+            let mut scissor_run = scissor;
+            let mut flush = |pass: &mut wgpu::RenderPass<'_>, run: Run| {
+                // The vertex stage expands each quad by one AA pixel. A
+                // custom material may supply its own vertex stage, so do
+                // not bound it.
+                #[cfg(test)]
+                let cull_batches = !self.profile_no_batch_cull;
+                #[cfg(not(test))]
+                let cull_batches = true;
+                let bounds = regions.filter(|_| cull_batches).and_then(|_| {
+                    instances[run.start..run.end].iter().try_fold(
+                        [
+                            f32::INFINITY,
+                            f32::INFINITY,
+                            f32::NEG_INFINITY,
+                            f32::NEG_INFINITY,
+                        ],
+                        |mut bounds, instance| {
+                            if instance.config[2] == 1. {
+                                return None;
+                            }
+                            let [x, y, w, h] = instance.rect;
+                            bounds[0] = bounds[0].min(x - 1.);
+                            bounds[1] = bounds[1].min(y - 1.);
+                            bounds[2] = bounds[2].max(x + w + 1.);
+                            bounds[3] = bounds[3].max(y + h + 1.);
+                            Some(bounds)
+                        },
+                    )
+                });
+                pass.set_pipeline(if run.plus {
+                    self.plus_pipeline.as_ref().expect("plus pipeline prepared")
+                } else if run.plain {
+                    &self.plain_pipeline
+                } else {
+                    self.pipeline.as_ref().expect("material installed")
+                });
+                let bind = run.texture.map_or(&self.atlas_texture.bind, |slot| {
+                    &self.frame_images[slot].bind
+                });
+                pass.set_bind_group(1, bind, &[]);
+                let mask = if run.mask > 0 {
+                    &self.frame_images[run.mask as usize - 1].bind
+                } else {
+                    &self.atlas_texture.bind
+                };
+                pass.set_bind_group(2, mask, &[]);
+                for &[x, y, w, h] in areas {
+                    if bounds.is_some_and(|[left, top, right, bottom]| {
+                        right <= x as f32
+                            || bottom <= y as f32
+                            || left >= (x + w) as f32
+                            || top >= (y + h) as f32
+                    }) {
+                        continue;
                     }
-                    let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
-                    if plain {
+                    if scissor_run != Some([x, y, w, h]) {
+                        pass.set_scissor_rect(x, y, w, h);
+                        scissor_run = Some([x, y, w, h]);
+                    }
+                    pass.draw(0..6, run.start as u32..run.end as u32);
+                    self.batch_stats.draw_calls += 1;
+                    if run.plain {
                         self.batch_stats.plain_draw_calls += 1;
                     }
-                    pass.set_pipeline(if plus {
-                        self.plus_pipeline.as_ref().expect("plus pipeline prepared")
-                    } else if plain {
-                        &self.plain_pipeline
-                    } else {
-                        self.pipeline.as_ref().expect("material installed")
-                    });
-                    #[cfg(feature = "paint-scene")]
-                    let bind = texture.map_or(&self.atlas_texture.bind, |slot| {
-                        &self.frame_images[slot].bind
-                    });
-                    #[cfg(not(feature = "paint-scene"))]
-                    let bind = &self.atlas_texture.bind;
-                    pass.set_bind_group(1, bind, &[]);
-                    #[cfg(feature = "paint-scene")]
-                    let mask = if instances[first].clip_params[2] > 0. {
-                        &self.frame_images[instances[first].clip_params[2] as usize - 1].bind
-                    } else {
-                        &self.atlas_texture.bind
-                    };
-                    #[cfg(not(feature = "paint-scene"))]
-                    let mask = &self.atlas_texture.bind;
-                    pass.set_bind_group(2, mask, &[]);
-                    pass.draw(0..6, first as u32..end as u32);
-                    self.batch_stats.draw_calls += 1;
-                    first = end;
                 }
+            };
+            let mut pending: Option<(Run, bool)> = None;
+            while first < instances.len() {
+                let key = |i: usize| {
+                    (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
+                };
+                let texture = key(first);
+                // Class runs: adjacent plain fills share the specialized
+                // pipeline, everything else keeps the general shader. The
+                // run boundary never reorders painter sequence.
+                let plain = !self.force_general && is_plain(&instances[first]);
+                let mut end = first + 1;
+                while end < instances.len()
+                    && key(end) == texture
+                    && instances[end].clip_params[2] == instances[first].clip_params[2]
+                    && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
+                        == (instances[first].config[2] == 4. && instances[first].config[1] == 1.)
+                    && (!self.force_general && is_plain(&instances[end])) == plain
+                {
+                    end += 1;
+                }
+                let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
+                let mask = instances[first].clip_params[2] as u32;
+                let small = run_area(&instances, first, end) <= JOIN_AREA;
+                let run = Run {
+                    start: first,
+                    end,
+                    plain,
+                    plus,
+                    texture,
+                    mask,
+                };
+                if let Some((previous, previous_small)) = &mut pending
+                    && *previous_small
+                    && small
+                    && previous.texture == texture
+                    && previous.mask == mask
+                    && !previous.plus
+                    && !plus
+                {
+                    // Only the class differs; extend the pending run. The
+                    // merged run keeps the plain pipeline only if every
+                    // merged part was plain.
+                    previous.end = run.end;
+                    previous.plain = previous.plain && run.plain;
+                } else {
+                    if let Some((previous, _)) = pending.take() {
+                        flush(&mut pass, previous);
+                    }
+                    pending = Some((run, small));
+                }
+                first = end;
+            }
+            if let Some((previous, _)) = pending.take() {
+                flush(&mut pass, previous);
             }
         }
         // Keep this frame's grown capacity for the next frame's staging vector.
@@ -1137,7 +1187,6 @@ impl Renderer {
     ) -> Result<Vec<Instance>> {
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         {
-            #[cfg(feature = "paint-scene")]
             if self.layer_depth == 0
                 && items
                     .iter()
@@ -1185,7 +1234,7 @@ impl Renderer {
         #[cfg(not(all(target_os = "linux", feature = "system-text")))]
         self.encode_items(items, size)
     }
-    #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
     fn warm_layer_text(
         &mut self,
         items: &[crate::Draw<'_>],
@@ -1231,12 +1280,10 @@ impl Renderer {
     pub fn batch_stats(&self) -> FrameBatchStats {
         self.batch_stats
     }
-    #[cfg(feature = "paint-scene")]
     fn clear_frame_images(&mut self) {
         self.frame_image_slots.clear();
         self.frame_images.clear();
     }
-    #[cfg(feature = "paint-scene")]
     fn intern_frame_image(&mut self, image: std::rc::Rc<crate::image::GpuImage>) -> usize {
         // Pointer identity is local to this pass, and every registered resource
         // is strongly owned by this pass's current/saved frame_images. The
@@ -1255,15 +1302,11 @@ impl Renderer {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
-        #[cfg(feature = "paint-scene")]
         self.clear_frame_images();
-        #[cfg(feature = "paint-scene")]
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
-            #[cfg(feature = "paint-scene")]
             let first = instances.len();
             match item {
-                #[cfg(feature = "paint-scene")]
                 crate::Draw::SetMask(mask) => {
                     let [x, y, w, h] = mask.rect;
                     if ![x, y, w, h]
@@ -1290,7 +1333,6 @@ impl Renderer {
                     let slot = self.intern_frame_image(image);
                     active_mask = Some((slot, mask.rect));
                 }
-                #[cfg(feature = "paint-scene")]
                 crate::Draw::ResetMask => active_mask = None,
 
                 crate::Draw::Quad(q) => {
@@ -1338,7 +1380,6 @@ impl Renderer {
                         ],
                     });
                 }
-                #[cfg(feature = "paint-scene")]
                 crate::Draw::Effect(effect, q) => {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
@@ -1369,7 +1410,6 @@ impl Renderer {
                         });
                     }
                 }
-                #[cfg(feature = "paint-scene")]
                 crate::Draw::Layer(layer) => {
                     if layer.alpha == 0.
                         || layer
@@ -1396,7 +1436,6 @@ impl Renderer {
                         clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                     });
                 }
-                #[cfg(feature = "paint-scene")]
                 crate::Draw::Image(image) => {
                     let q = &image.quad;
                     q.validate()?;
@@ -1425,13 +1464,14 @@ impl Renderer {
                             mipmaps: true,
                         },
                     )?;
+                    let mip_levels = resource.mip_levels;
                     let slot = self.intern_frame_image(resource);
                     instances.push(Instance {
                         mask_rect: [0.; 4],
                         radii: shrink_radii([q.rect[2], q.rect[3]], q.radii),
                         rect: q.rect,
                         color: [0., 0., 0., image.alpha],
-                        color2: [0.; 4],
+                        color2: [mip_levels as f32, 0., 0., 0.],
                         border: [0.; 4],
                         config: [q.radii[0], 0., 4., slot as f32],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
@@ -1468,7 +1508,6 @@ impl Renderer {
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 crate::Draw::Text(run) => self.encode_text(run, size, &mut instances)?,
             }
-            #[cfg(feature = "paint-scene")]
             if let Some((slot, rect)) = active_mask {
                 for instance in &mut instances[first..] {
                     instance.clip_params[2] = slot as f32 + 1.;
@@ -1502,7 +1541,6 @@ impl Renderer {
             .layout(request)
             .context(crate::TextSnafu)
     }
-    #[cfg(feature = "paint-scene")]
     pub(crate) fn trim_native_atlas(&mut self) {
         self.atlas = None;
         self.atlas_texture.ensure_size(&self.device, 1);
@@ -1717,7 +1755,6 @@ impl Renderer {
     }
 }
 
-#[cfg(feature = "paint-scene")]
 impl Renderer {
     /// CPU raster cache entries and payload bytes, in path/SVG/clip-mask order.
     /// Excludes scene-owned source assets and externally retained prepared scenes.
@@ -1750,7 +1787,6 @@ impl Renderer {
     }
 }
 
-#[cfg(feature = "paint-scene")]
 impl Renderer {
     /// Intermediate color-texture pixel payload requested by isolated layers
     /// in the most recently encoded frame (excluding driver overhead/in-flight frames).
@@ -1922,7 +1958,7 @@ impl Renderer {
     }
 }
 
-#[cfg(all(feature = "paint-scene", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
     for draw in items {
         match draw {
@@ -1932,7 +1968,6 @@ fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_render
         }
     }
 }
-#[cfg(feature = "paint-scene")]
 impl Renderer {
     #[cfg(not(target_arch = "wasm32"))]
     fn prepare_effect_frame(&mut self, items: &[crate::Draw<'_>]) -> Result<()> {
@@ -2058,7 +2093,6 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn accepted_material_replacement_invalidates_layers_and_damage_but_rejection_does_not() {
@@ -2124,7 +2158,6 @@ mod tests {
         assert!(renderer.plus_pipeline.is_some());
     }
 
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn cpu_mip_fallback_matches_gpu_for_borrowed_and_converted_uploads() {
@@ -2337,7 +2370,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "manual GPU upload profile; run with --ignored --nocapture"]
     fn profile_image_upload_cpu_and_gpu_wait() {
@@ -2425,7 +2457,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
@@ -2578,7 +2609,6 @@ mod tests {
         assert_eq!(renderer.target_storage_bytes().1, 0);
     }
 
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
@@ -2625,7 +2655,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn scene_present_skip_requires_valid_retained_target() {
@@ -2785,7 +2814,6 @@ mod tests {
             buffer.unmap();
         }
     }
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn tiled_gaussian_matches_direct_sampling_for_edges_and_partial_tiles() {
@@ -2838,7 +2866,6 @@ mod tests {
             }
         }
     }
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "manual GPU timing experiment; not a CI performance threshold"]
     fn profile_gaussian_workspace_cost() {
@@ -3021,7 +3048,6 @@ mod tests {
 #[cfg(all(test, target_os = "linux", feature = "system-text"))]
 mod atlas_tests {
     use super::*;
-    #[cfg(feature = "paint-scene")]
     #[test]
     #[ignore = "requires system fonts and a working wgpu adapter"]
     fn child_layer_cannot_recycle_parent_glyph_uvs() {
@@ -3161,3 +3187,7 @@ mod atlas_tests {
         assert_eq!(stats.atlas_gpu_bytes, 16 * 1024 * 1024);
     }
 }
+
+#[cfg(all(test, target_os = "linux", feature = "system-text"))]
+#[path = "damage_profile.rs"]
+mod damage_profile;

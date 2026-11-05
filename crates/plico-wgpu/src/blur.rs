@@ -1,6 +1,13 @@
 //! Separable premultiplied Gaussian image filtering, entirely on the GPU.
+/// The compute pipeline, or the render-pass pipeline on backends without
+/// compute support (WebGL2): the same convolution drawn by a fullscreen
+/// triangle into a render attachment.
+enum Pass {
+    Compute(wgpu::ComputePipeline),
+    Render(wgpu::RenderPipeline),
+}
 pub(crate) struct Blur {
-    pipeline: wgpu::ComputePipeline,
+    pass: Pass,
     #[cfg(test)]
     tiled: bool,
 }
@@ -9,6 +16,9 @@ pub(crate) struct Workspace {
     pub output: wgpu::Texture,
     uniforms: [wgpu::Buffer; 2],
     binds: [wgpu::BindGroup; 2],
+    /// Destination views per axis; render passes need them as attachments,
+    /// compute passes already address them through the bind group.
+    destinations: [wgpu::TextureView; 2],
     pub timing: Option<Timing>,
 }
 pub(crate) struct Timing {
@@ -33,17 +43,84 @@ impl Blur {
             label: Some("Plico Gaussian blur"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
+        let pass = if crate::mipmap::MipGenerator::supported(device) {
+            Pass::Compute(
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Plico separable blur"),
+                    layout: None,
+                    module: &module,
+                    entry_point: Some("main"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                }),
+            )
+        } else {
+            let render = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Plico Gaussian blur pass"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("blur_pass.wgsl").into()),
+            });
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Plico blur pass layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(16),
+                        },
+                        count: None,
+                    },
+                ],
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Plico blur pass pipeline"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            });
+            Pass::Render(
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Plico Gaussian blur pass"),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &render,
+                        entry_point: Some("vs"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    primitive: Default::default(),
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &render,
+                        entry_point: Some("fs"),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                }),
+            )
+        };
         Self {
             #[cfg(test)]
             tiled: _tiled,
-            pipeline: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Plico separable blur"),
-                layout: None,
-                module: &module,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            }),
+            pass,
         }
     }
     pub fn workspace(
@@ -52,6 +129,13 @@ impl Blur {
         source: &wgpu::Texture,
         size: [u32; 2],
     ) -> Workspace {
+        let storage = matches!(self.pass, Pass::Compute(_));
+        let usage = wgpu::TextureUsages::TEXTURE_BINDING
+            | if storage {
+                wgpu::TextureUsages::STORAGE_BINDING
+            } else {
+                wgpu::TextureUsages::RENDER_ATTACHMENT
+            };
         let allocate = || {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Plico pooled blur intermediate"),
@@ -64,7 +148,7 @@ impl Blur {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+                usage,
                 view_formats: &[],
             })
         };
@@ -78,6 +162,10 @@ impl Blur {
                 mapped_at_creation: false,
             })
         });
+        let mut destinations = [
+            temporary.create_view(&Default::default()),
+            output.create_view(&Default::default()),
+        ];
         let binds = std::array::from_fn(|axis| {
             let (input, destination) = if axis == 0 {
                 (source, &temporary)
@@ -86,24 +174,41 @@ impl Blur {
             };
             let input = input.create_view(&Default::default());
             let destination = destination.create_view(&Default::default());
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Plico pooled blur axis"),
-                layout: &self.pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&input),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&destination),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: uniforms[axis].as_entire_binding(),
-                    },
-                ],
-            })
+            destinations[axis] = destination.clone();
+            match &self.pass {
+                Pass::Compute(pipeline) => device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Plico pooled blur axis"),
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&input),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&destination),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: uniforms[axis].as_entire_binding(),
+                        },
+                    ],
+                }),
+                Pass::Render(pipeline) => device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Plico pooled blur axis"),
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&input),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: uniforms[axis].as_entire_binding(),
+                        },
+                    ],
+                }),
+            }
         });
         let timing = device
             .features()
@@ -132,6 +237,7 @@ impl Blur {
             output,
             uniforms,
             binds,
+            destinations,
             timing,
         }
     }
@@ -150,28 +256,50 @@ impl Blur {
                 0,
                 bytemuck::cast_slice(&[sigma.to_bits(), axis as u32, edge as u32, 0]),
             );
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Plico Gaussian axis"),
-                timestamp_writes: workspace.timing.as_ref().map(|t| {
-                    wgpu::ComputePassTimestampWrites {
-                        query_set: &t.queries,
-                        beginning_of_pass_write_index: Some(axis as u32 * 2),
-                        end_of_pass_write_index: Some(axis as u32 * 2 + 1),
+            match &self.pass {
+                Pass::Compute(pipeline) => {
+                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Plico Gaussian axis"),
+                        timestamp_writes: workspace.timing.as_ref().map(|t| {
+                            wgpu::ComputePassTimestampWrites {
+                                query_set: &t.queries,
+                                beginning_of_pass_write_index: Some(axis as u32 * 2),
+                                end_of_pass_write_index: Some(axis as u32 * 2 + 1),
+                            }
+                        }),
+                    });
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &workspace.binds[axis], &[]);
+                    #[cfg(test)]
+                    if self.tiled {
+                        if axis == 0 {
+                            pass.dispatch_workgroups(size.width.div_ceil(32), size.height, 1);
+                        } else {
+                            pass.dispatch_workgroups(size.width, size.height.div_ceil(32), 1);
+                        }
+                        continue;
                     }
-                }),
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &workspace.binds[axis], &[]);
-            #[cfg(test)]
-            if self.tiled {
-                if axis == 0 {
-                    pass.dispatch_workgroups(size.width.div_ceil(32), size.height, 1);
-                } else {
-                    pass.dispatch_workgroups(size.width, size.height.div_ceil(32), 1);
+                    pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
                 }
-                continue;
+                Pass::Render(pipeline) => {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Plico Gaussian axis"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &workspace.destinations[axis],
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &workspace.binds[axis], &[]);
+                    pass.draw(0..3, 0..1);
+                }
             }
-            pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
         }
         if let Some(timing) = &workspace.timing {
             encoder.resolve_query_set(&timing.queries, 0..4, &timing.resolve, 0);
