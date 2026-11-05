@@ -77,6 +77,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                     text(ui, "Frosted by nine taps, bent at the rim, lit with a sheen.").font_size(13).color(Color::Literal(0xe2e8f0));
                 };
                 plico::widgets::shader(ui, &LIQUID_GLASS).position(Position::Absolute).inset(0.)
+                    .width_percent(100.).height_percent(100.)
                     .values(&[state.frost as f32, state.bend as f32, state.sheen as f32]).animated(true)
                     .paused(state.paused);
             };
