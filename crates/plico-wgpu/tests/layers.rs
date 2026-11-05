@@ -601,3 +601,69 @@ fn additive_groups_isolate_children_restore_source_over_and_match_damage() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
+    use plico::{Theme, UiContext};
+    use plico_renderer::{FrameSource, Scene};
+    use plico_runtime::{HostView, Source};
+    use std::time::Duration;
+    struct Demo {
+        dark: bool,
+    }
+    impl HostView for Demo {
+        fn theme(&self) -> Theme {
+            if self.dark {
+                Theme::dark()
+            } else {
+                Theme::light()
+            }
+        }
+        fn show(&mut self, cx: &mut UiContext) {
+            plico::widgets::column(cx)
+                .width_percent(100.)
+                .height_percent(100.)
+                .opacity(0.85)
+                .background(plico::Color::Panel)
+                .children(|_| {});
+        }
+    }
+    let clock = plico::VirtualClock::default();
+    let mut source = Source::with_clock(Demo { dark: false }, clock.clone());
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    source.render_retained_frame(&mut scene, &mut text, (800, 600), 1.);
+    renderer
+        .render_scene(&scene, [800, 600], [0.; 4], true)
+        .unwrap();
+    for step in 0..80 {
+        clock.advance(Duration::from_millis(30)).unwrap();
+        source.view.dark = step % 2 == 0;
+        source.request_rebuild();
+        source.render_retained_frame(&mut scene, &mut text, (800, 600), 1.);
+        renderer
+            .render_scene(&scene, [800, 600], [0.; 4], true)
+            .unwrap();
+        assert!(
+            renderer.layer_frame_bytes() <= 800 * 600 * 4 * 2,
+            "theme history accumulated at toggle {step}: {}",
+            renderer.layer_frame_bytes()
+        );
+    }
+    clock.advance(Duration::from_millis(201)).unwrap();
+    source.render_retained_frame(&mut scene, &mut text, (800, 600), 1.);
+    let settled = renderer
+        .render_scene(&scene, [800, 600], [0.; 4], true)
+        .unwrap();
+    source.set_theme_transition_duration(Duration::ZERO);
+    source.request_rebuild();
+    source.render_retained_frame(&mut scene, &mut text, (800, 600), 1.);
+    assert_eq!(
+        settled,
+        renderer
+            .render_scene(&scene, [800, 600], [0.; 4], false)
+            .unwrap()
+    );
+}

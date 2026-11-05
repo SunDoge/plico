@@ -11,6 +11,11 @@ pub(crate) struct ThemeTransition {
     theme: Option<Theme>,
     last: Option<Scene>,
     from: Option<Scene>,
+    from_theme: Option<Theme>,
+    to: Option<Scene>,
+    to_theme: Option<Theme>,
+    start_progress: f32,
+    end_progress: f32,
     started: Option<Instant>,
     size: Option<(u32, u32, u64)>,
     next_origin: Option<(f64, f64)>,
@@ -24,6 +29,11 @@ impl Default for ThemeTransition {
             theme: None,
             last: None,
             from: None,
+            from_theme: None,
+            to: None,
+            to_theme: None,
+            start_progress: 0.,
+            end_progress: 1.,
             started: None,
             size: None,
             next_origin: None,
@@ -35,8 +45,7 @@ impl ThemeTransition {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
-            self.from = None;
-            self.started = None;
+            self.clear_animation();
         }
     }
     pub fn set_origin(&mut self, x: f64, y: f64) {
@@ -47,8 +56,22 @@ impl ThemeTransition {
     }
     pub fn set_duration(&mut self, duration: Duration) {
         self.duration = duration;
+        self.clear_animation();
+    }
+    fn clear_animation(&mut self) {
         self.from = None;
+        self.from_theme = None;
+        self.to = None;
+        self.to_theme = None;
         self.started = None;
+    }
+    fn progress(&self, now: Instant) -> f32 {
+        let t = self.started.map_or(1., |start| {
+            (now.saturating_duration_since(start).as_secs_f32() / self.duration.as_secs_f32())
+                .clamp(0., 1.)
+        });
+        let eased = t * t * (3. - 2. * t);
+        self.start_progress + (self.end_progress - self.start_progress) * eased
     }
     pub fn compose(
         &mut self,
@@ -61,47 +84,69 @@ impl ThemeTransition {
         let size = (width, height, scale.to_bits());
         if self.size != Some(size) {
             self.last = None;
-            self.from = None;
-            self.started = None;
+            self.clear_animation();
             self.size = Some(size);
         }
-        if self
+        let changed = self
             .theme
-            .is_some_and(|previous| !previous.same_colors(theme))
-            && self.enabled
-            && !self.duration.is_zero()
-        {
-            // Retarget from the last presented scene, including a rapid reversal.
-            self.origin = self
-                .next_origin
-                .take()
-                .unwrap_or((width as f64 / 2., height as f64 / 2.));
-            self.from = self.last.take();
-            self.started = self.from.as_ref().map(|_| now);
-        }
-        self.theme = Some(theme);
-        if let (Some(start), Some(from)) = (self.started, &self.from) {
-            let t = (now.saturating_duration_since(start).as_secs_f32()
-                / self.duration.as_secs_f32())
-            .clamp(0., 1.);
-            if t < 1. {
-                let alpha = t * t * (3. - 2. * t);
-                let target = scene.clone();
-                *scene = from.clone();
-                let (x, y) = self.origin;
-                let radius = x.max(width as f64 - x).hypot(y.max(height as f64 - y)) * alpha as f64;
-                scene.push_clip_layer(
-                    Affine::IDENTITY,
-                    &Circle::new((x * scale, y * scale), radius * scale),
-                );
-                scene.append_scene(target, Affine::IDENTITY);
-                scene.pop_layer();
+            .is_some_and(|previous| !previous.same_colors(theme));
+        if changed && self.enabled && !self.duration.is_zero() {
+            let progress = self.progress(now);
+            if self.active() && self.from_theme.is_some_and(|t| t.same_colors(theme)) {
+                // Reverse the same reveal geometry. Never use a composed frame
+                // as an endpoint: rapid toggles would retain unbounded history.
+                self.start_progress = progress;
+                self.end_progress = 0.;
+                self.started = Some(now);
+                self.next_origin = None;
+            } else if self.active() && self.to_theme.is_some_and(|t| t.same_colors(theme)) {
+                self.start_progress = progress;
+                self.end_progress = 1.;
+                self.started = Some(now);
+                self.next_origin = None;
             } else {
-                self.from = None;
-                self.started = None;
+                self.origin = self
+                    .next_origin
+                    .take()
+                    .unwrap_or((width as f64 / 2., height as f64 / 2.));
+                // A third palette starts from the last uncomposed target. This
+                // intentionally trades continuity for bounded scene ownership.
+                self.from = self.last.take();
+                self.from_theme = self.theme;
+                self.to_theme = Some(theme);
+                self.to = Some(scene.clone());
+                self.start_progress = 0.;
+                self.end_progress = 1.;
+                self.started = self.from.as_ref().map(|_| now);
             }
         }
+        self.theme = Some(theme);
+        // Store clean endpoints, including live content updates in either palette.
         self.last = Some(scene.clone());
+        if let Some(start) = self.started {
+            if now.saturating_duration_since(start) >= self.duration {
+                self.clear_animation();
+            } else {
+                if self.from_theme.is_some_and(|t| t.same_colors(theme)) {
+                    self.from = Some(scene.clone());
+                } else {
+                    self.to = Some(scene.clone());
+                }
+                let progress = self.progress(now);
+                if let (Some(from), Some(to)) = (&self.from, &self.to) {
+                    *scene = from.clone();
+                    let (x, y) = self.origin;
+                    let radius =
+                        x.max(width as f64 - x).hypot(y.max(height as f64 - y)) * progress as f64;
+                    scene.push_clip_layer(
+                        Affine::IDENTITY,
+                        &Circle::new((x * scale, y * scale), radius * scale),
+                    );
+                    scene.append_scene(to.clone(), Affine::IDENTITY);
+                    scene.pop_layer();
+                }
+            }
+        }
     }
 }
 #[cfg(test)]
@@ -151,6 +196,10 @@ mod tests {
             now + Duration::from_millis(100),
         );
         assert!(transition.active());
+        assert_eq!(
+            reversed, middle,
+            "reversal must preserve the presented reveal"
+        );
         let mut end = a.clone();
         transition.compose(
             &mut end,
@@ -160,6 +209,45 @@ mod tests {
         );
         assert!(!transition.active());
         assert_eq!(end, a);
+    }
+    #[test]
+    fn rapid_retargets_keep_only_two_clean_endpoints() {
+        let now = Instant::now();
+        let mut transition = ThemeTransition::default();
+        let light = Theme::light();
+        let dark = Theme::dark();
+        let a = scene(Color::WHITE);
+        let b = scene(Color::BLACK);
+        transition.compose(&mut a.clone(), light, (2560, 1600, 2.), now);
+        for step in 1..=100 {
+            let (theme, target) = if step % 2 == 0 {
+                (light, &a)
+            } else {
+                (dark, &b)
+            };
+            let mut frame = target.clone();
+            transition.compose(
+                &mut frame,
+                theme,
+                (2560, 1600, 2.),
+                now + Duration::from_millis(step * 30),
+            );
+            assert_eq!(
+                frame.commands.len(),
+                a.commands.len() + b.commands.len() + 2
+            );
+            assert_eq!(transition.last.as_ref(), Some(target));
+        }
+        let mut final_frame = a.clone();
+        transition.compose(
+            &mut final_frame,
+            light,
+            (2560, 1600, 2.),
+            now + Duration::from_millis(3201),
+        );
+        assert_eq!(final_frame, a);
+        assert!(!transition.active());
+        assert!(transition.from.is_none() && transition.to.is_none());
     }
     #[test]
     fn resize_and_reduced_motion_do_not_leave_animation_running() {

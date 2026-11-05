@@ -1855,9 +1855,26 @@ impl Renderer {
             } else {
                 4
             };
-        if self.layer_depth >= 16 || self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
+        if self.layer_depth >= 16 {
             return Err(Error::InvalidInput {
-                reason: "isolated layers exceed depth 16 or 128 MiB frame budget".into(),
+                reason: format!(
+                    "isolated layer depth {} exceeds limit 16 ({}x{} target)",
+                    self.layer_depth + 1,
+                    size[0],
+                    size[1]
+                ),
+            });
+        }
+        if self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
+            return Err(Error::InvalidInput {
+                reason: format!(
+                    "isolated layers exceed 128 MiB frame budget: {} bytes used, {} requested for {}x{} at depth {}",
+                    self.frame_layer_bytes,
+                    bytes,
+                    size[0],
+                    size[1],
+                    self.layer_depth + 1
+                ),
             });
         }
         self.frame_layer_bytes += bytes;
