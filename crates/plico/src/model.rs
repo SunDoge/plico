@@ -205,6 +205,10 @@ pub enum WidgetRole {
     Menu,
     MenuButton,
     MenuItem,
+    /// A tab strip container (mygo Tabs semantics).
+    TabList,
+    /// One tab within a tab strip.
+    Tab,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

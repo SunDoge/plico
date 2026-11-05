@@ -77,6 +77,8 @@ impl Adapter {
                             Some(plico::WidgetRole::Menu) => Role::Menu,
                             Some(plico::WidgetRole::MenuButton) => Role::Button,
                             Some(plico::WidgetRole::MenuItem) => Role::MenuItem,
+                            Some(plico::WidgetRole::TabList) => Role::TabList,
+                            Some(plico::WidgetRole::Tab) => Role::Tab,
                             None => match n.kind {
                                 Kind::Button | Kind::ButtonBase => Role::Button,
                                 Kind::Slider => Role::Slider,

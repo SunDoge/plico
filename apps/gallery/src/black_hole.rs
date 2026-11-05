@@ -13,7 +13,11 @@ static BLACK_HOLE: plico::ShaderAsset =
 /// reads everything painted before it. `enabled` carries the toggle.
 #[component]
 #[rustfmt::skip]
-pub fn overlay(ui: &mut UiContext, enabled: &mut bool) {
+pub fn overlay(
+    ui: &mut UiContext,
+    #[cfg(target_arch = "wasm32")] _enabled: &mut bool,
+    #[cfg(not(target_arch = "wasm32"))] enabled: &mut bool,
+) {
     #[cfg(not(target_arch = "wasm32"))]
     if *enabled {
         let (x, y) = ui.pointer_position().unwrap_or((-1., -1.));
@@ -25,7 +29,11 @@ pub fn overlay(ui: &mut UiContext, enabled: &mut bool) {
 /// The page hosting the toggle and documenting what the overlay does.
 #[component]
 #[rustfmt::skip]
-pub fn page(ui: &mut UiContext, enabled: &mut bool) {
+pub fn page(
+    ui: &mut UiContext,
+    #[cfg(target_arch = "wasm32")] _enabled: &mut bool,
+    #[cfg(not(target_arch = "wasm32"))] enabled: &mut bool,
+) {
     heading(ui, "Black hole", "A small lens at your pointer. Toggle it on, then move across any page.");
     #[cfg(not(target_arch = "wasm32"))]
     {

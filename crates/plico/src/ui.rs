@@ -64,6 +64,17 @@ impl<'e> UiContext<'e> {
             name: name.to_owned(),
         }
     }
+    /// Frame-to-frame state outside checkpoints entirely: toasts, drag
+    /// gestures and other ephemeral host state that must not resurrect on
+    /// restore. The value is never serialized, unlike `persisted_state`.
+    pub fn transient_state<T: 'static>(
+        &mut self,
+        name: &str,
+        init: impl FnOnce() -> T,
+    ) -> crate::LocalState<T> {
+        let key = self.storage_key(name);
+        self.engine.storage.transient(key, init)
+    }
     pub fn remove_persisted_state(&mut self, name: &str) -> bool {
         let key = self.storage_key(name);
         self.engine.storage.remove(&key)

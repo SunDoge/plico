@@ -209,11 +209,8 @@ pub struct Renderer {
     layer_reuses: u64,
     filter_allocations: u64,
     filter_reuses: u64,
-    #[cfg(not(target_arch = "wasm32"))]
     effects: Option<plico_renderer::shader::ShaderRenderer>,
-    #[cfg(not(target_arch = "wasm32"))]
     frame_effect_draws: usize,
-    #[cfg(not(target_arch = "wasm32"))]
     frame_effect_bytes: u64,
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     frame_image_slots: std::collections::HashMap<usize, usize>,
@@ -292,12 +289,15 @@ impl Renderer {
     pub async fn new() -> Result<Self> {
         // Share the backend instance across default renderers. Besides avoiding
         // repeated backend discovery, this serializes Vulkan-loader startup.
+        // wasm holds no static: the instance is not Send+Sync there (JS
+        // objects bound to the main thread), so a shared OnceLock cannot hold.
         #[cfg(not(target_arch = "wasm32"))]
-        static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
-        #[cfg(not(target_arch = "wasm32"))]
-        let instance = INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()));
+        let instance = {
+            static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
+            INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()))
+        };
         #[cfg(target_arch = "wasm32")]
-        let instance = &wgpu::Instance::new(crate::instance_descriptor());
+        let instance = wgpu::Instance::new(crate::instance_descriptor());
         Self::new_compatible(instance, None, false).await
     }
     /// Select an adapter compatible with the window surface before allocating resources.
@@ -481,11 +481,8 @@ impl Renderer {
             layer_reuses: 0,
             filter_allocations: 0,
             filter_reuses: 0,
-            #[cfg(not(target_arch = "wasm32"))]
             effects: None,
-            #[cfg(not(target_arch = "wasm32"))]
             frame_effect_draws: 0,
-            #[cfg(not(target_arch = "wasm32"))]
             frame_effect_bytes: 0,
             frame_images: Vec::new(),
             frame_image_slots: Default::default(),
@@ -761,7 +758,6 @@ impl Renderer {
         let unchanged = regions.is_some_and(|r| r.is_empty())
             && self.target.as_ref().is_some_and(|t| t.size == size);
         let counters = (self.layer_allocations, self.layer_reuses);
-        #[cfg(not(target_arch = "wasm32"))]
         if !unchanged {
             self.prepare_effect_frame(items)?;
         }
@@ -769,7 +765,6 @@ impl Renderer {
         // Encoded commands retain their own GPU references. The pass-local
         // interning table must not keep evicted textures alive until another frame.
         self.clear_frame_images();
-        #[cfg(not(target_arch = "wasm32"))]
         if !unchanged {
             if result.is_err() {
                 self.effects = None;
@@ -1478,7 +1473,6 @@ impl Renderer {
                     });
                 }
                 crate::Draw::Effect(effect, q) => {
-                    #[cfg(not(target_arch = "wasm32"))]
                     if effect.reads_backdrop() {
                         // Backdrop readers sample what the frame paints before
                         // them; that content is drawn by the pass this instance
@@ -2095,7 +2089,6 @@ impl Renderer {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
     for draw in items {
         match draw {
@@ -2106,7 +2099,6 @@ fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_render
     }
 }
 impl Renderer {
-    #[cfg(not(target_arch = "wasm32"))]
     fn prepare_effect_frame(&mut self, items: &[crate::Draw<'_>]) -> Result<()> {
         self.frame_effect_draws = 0;
         self.frame_effect_bytes = 0;
@@ -2142,7 +2134,6 @@ impl Renderer {
         }
         Ok(())
     }
-    #[cfg(not(target_arch = "wasm32"))]
     fn render_effect(
         &mut self,
         effect: &plico_renderer::ShaderEffect,
@@ -2207,23 +2198,13 @@ impl Renderer {
     }
     /// Live effect targets, pixel payload and cached pipelines.
     pub fn effect_cache_stats(&self) -> (usize, u64, usize) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.effects
-                .as_ref()
-                .map_or((0, 0, 0), |effects| effects.resource_stats())
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            (0, 0, 0)
-        }
+        self.effects
+            .as_ref()
+            .map_or((0, 0, 0), |effects| effects.resource_stats())
     }
     /// Discard derived effect resources while preserving final retained pixels.
     pub fn trim_effect_cache(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.effects = None;
-        }
+        self.effects = None;
     }
 }
 

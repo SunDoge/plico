@@ -5,14 +5,10 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 use lru::LruCache;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-#[cfg(not(target_arch = "wasm32"))]
 use rustc_hash::FxHashMap;
-#[cfg(not(target_arch = "wasm32"))]
 use std::num::NonZeroUsize;
-#[cfg(not(target_arch = "wasm32"))]
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPipeline, Texture,
     TextureFormat, TextureView,
@@ -21,9 +17,7 @@ use wgpu::{
 const MAX_SOURCE_BYTES: usize = 64 * 1024;
 const PARAMETER_COUNT: usize = 256;
 const UNIFORM_FLOAT_COUNT: usize = PARAMETER_COUNT + 4;
-#[cfg(not(target_arch = "wasm32"))]
 const PIPELINE_CACHE_SIZE: usize = 16;
-#[cfg(not(target_arch = "wasm32"))]
 const EFFECT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
 /// `.values()` carries finite f32 words, not arbitrary host-shared bytes. Validate
@@ -151,11 +145,9 @@ impl Default for ShaderEffectId {
 /// Distinct versions of one effect in the same frame have distinct identities;
 /// a retained target preserves its identity when resized. Backends may wrap
 /// this value in their own external-texture ID, without exposing that type here.
-#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ShaderTextureId(u64);
 
-#[cfg(not(target_arch = "wasm32"))]
 impl ShaderTextureId {
     /// Process-local identity; not a persistent asset or device handle.
     pub fn get(self) -> u64 {
@@ -505,12 +497,10 @@ impl ShaderEffectSource {
         Ok(values)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn wgsl(&self) -> &Arc<str> {
         &self.wgsl
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn interface(&self) -> ShaderEffectInterface {
         self.interface
     }
@@ -560,7 +550,6 @@ impl ShaderEffect {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 struct EffectTarget {
     _texture: Texture,
     view: TextureView,
@@ -572,7 +561,6 @@ struct EffectTarget {
     effect: Option<ShaderEffect>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl EffectTarget {
     fn new(device: &Device, layout: &BindGroupLayout, size: [u16; 2]) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -619,7 +607,6 @@ impl EffectTarget {
 
 #[doc(hidden)]
 #[allow(missing_docs)]
-#[cfg(not(target_arch = "wasm32"))]
 pub struct ShaderRenderer {
     layout: BindGroupLayout,
     backdrop_layout: BindGroupLayout,
@@ -631,7 +618,6 @@ pub struct ShaderRenderer {
 }
 
 #[allow(missing_docs)]
-#[cfg(not(target_arch = "wasm32"))]
 impl ShaderRenderer {
     pub fn new(device: &Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1017,7 +1003,6 @@ impl ShaderRenderer {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
     let mut uniforms = [0.0; UNIFORM_FLOAT_COUNT];
     match effect.source.interface() {

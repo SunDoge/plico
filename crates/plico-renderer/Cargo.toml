@@ -11,6 +11,7 @@ profiling = []
 peniko.workspace = true
 kurbo.workspace = true
 gif = "0.14"
+wgpu.workspace = true
 plico.workspace = true
 web-time = "1.1"
 directories.workspace = true
@@ -34,4 +35,3 @@ plico-motion = { workspace = true }
 web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wgpu.workspace = true
