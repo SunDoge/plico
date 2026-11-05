@@ -37,6 +37,8 @@ mod shader;
 pub use shader::{ShaderAsset, ShaderParams, ShaderValue};
 mod snapshot;
 mod text_style;
+mod time;
+pub use time::TimeOfDay;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -161,7 +163,7 @@ pub mod prelude {
         row, ruby_text, search_field, segmented, select, separator, settings_row, settings_section,
         shader, sidebar, sidebar_item, sidebar_section, slider, spinner, split, split_percent,
         split_vertical, split_vertical_percent, stat, stepper, svg, svg_source, switch,
-        table_header, table_row, tabs, text, text_empty, text_input, text_input_string,
+        table_header, table_row, tabs, text, text_empty, text_input, text_input_string, time_input,
         toast_viewport, toolbar, toolbar_spacer, tooltip, tree, tree_item, virtual_list,
     };
     pub use crate::{
@@ -170,9 +172,9 @@ pub mod prelude {
         InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, Metrics,
         ModalState, Modifiers, Motion, PopoverState, Position, Response, Route, Router,
         SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse,
-        StandardShortcut, SvgAsset, TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext,
-        VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent,
-        px, text,
+        StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize,
+        UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax,
+        percent, px, text,
     };
 }
 

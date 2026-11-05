@@ -274,6 +274,21 @@ settlement declaration pass after the modal closes, the returned index must be
 handled in the same declaration pass (`match` in the view), not stored for
 later.
 
+### Time input (MyGO port)
+
+`time_input(cx, label, &mut TimeOfDay)` ports MyGO's `TimeInput` as a
+validated `HH:MM` text field over the new `TimeOfDay` value
+(`TimeOfDay::new`/`from_minutes`/`minutes`, chronologically ordered and
+serde-validated). Typed text applies as soon as it parses (`15:04`, `9:5`,
+`1504` and `904` are accepted); Enter rewrites it in canonical form, and
+Enter with invalid text restores the current value. An application change
+rewrites the field.
+
+MyGO edits hours, minutes and AM/PM as separately focused segments, follows
+the regional hour cycle and formats on blur; Plico has no per-segment focus
+or blur hook, so the port is a single 24-hour field and invalid text stays
+visible until Enter.
+
 ### Date input (MyGO port)
 
 `date_input(cx, label, &mut CalendarDate, &mut PopoverState)` ports MyGO's

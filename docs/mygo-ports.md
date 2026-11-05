@@ -28,6 +28,7 @@
 | Link | `link` | Link 角色与行为由调用方决定 |
 | Back/forward buttons | `back_button` / `forward_button` | 依赖 `Router`，两端禁用 |
 | Date input | `date_input` / `date_input_with` | ISO 显示 + 日历 popover |
+| Time input | `time_input` / `TimeOfDay` | 校验 HH:MM 文本框；非分段/12 小时制 |
 | Find bar | `find_bar` | 匹配计数、前后跳转、Done、打开聚焦 |
 | Alert dialog | `alert_dialog` | alert 角色、Escape dismissed、外部点击无效 |
 | Accordion | `accordion` + `collapsible` | 边框容器；item 复用 collapsible |
@@ -63,7 +64,7 @@
 
 | MyGO | 阻塞原因 |
 |---|---|
-| Number input / Decimal input / Time input | 需要在编辑结束时格式化、保留焦点，以及按小时/分钟/上下午分段聚焦；Plico 没有公开的焦点查询或分段编辑，也没有 decimal 类型 |
+| Number input / Decimal input | 需要在编辑结束时格式化、保留焦点，以及按分段聚焦；Plico 没有公开的焦点查询或分段编辑，也没有 decimal 类型 |
 | Range slider | 双 thumb 需要每个 thumb 的焦点与局部指针坐标；当前 slider 是单值，组件也无法取得自身布局矩形 |
 | Token field | 需要在输入中捕获逗号/退格并驱动建议浮层；当前 Input 只暴露 changed/submitted |
 | Outline | 带列的层级虚拟化；现有 tree 构建全部可见项，virtual_list 是扁平行 |

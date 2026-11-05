@@ -1,7 +1,7 @@
 //! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
 //! breadcrumbs, indicators, steppers, split panes, a source list, a search
-//! field, radios, links, router history, a date input and a find bar (the
-//! shared widgets in plico::widgets, MyGO semantics).
+//! field, radios, links, router history, date and time inputs, and a find bar
+//! (the shared widgets in plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
@@ -30,6 +30,7 @@ pub struct Patterns {
     find_query: String,
     find_current: usize,
     tint_open: bool,
+    meeting: TimeOfDay,
     alert: ModalState,
     deleted: usize,
     dismissed: usize,
@@ -63,6 +64,7 @@ impl Default for Patterns {
             find_query: String::new(),
             find_current: 0,
             tint_open: false,
+            meeting: TimeOfDay::new(15, 4).expect("demo time"),
             alert: ModalState::default(),
             deleted: 0,
             dismissed: 0,
@@ -350,6 +352,14 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                     text(ui, "Privacy settings live here.").color(Color::Muted);
                 });
             });
+        };
+        panel(ui, "Time input").description(
+            "A validated HH:MM field with canonical Enter formatting, ported from MyGO.") + |ui|
+        {
+            if time_input(ui, "Meeting", &mut state.meeting) {
+                ui.request_rebuild();
+            }
+            text!(ui, "Meeting at {}", state.meeting).color(Color::Muted);
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

@@ -238,6 +238,7 @@ mod media;
 mod navigation;
 mod search;
 mod split;
+mod timeinput;
 mod tree;
 pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
@@ -259,9 +260,11 @@ pub use navigation::{
 };
 pub use search::{SearchResponse, search_field};
 pub use split::{split, split_percent, split_vertical, split_vertical_percent};
+pub use timeinput::time_input;
 pub use tree::{tree, tree_item};
 
-/// A native single-line editor. Secret buffers expose only masked presentation.
+/// A native editor. `TextBuffer::multiline()` enables wrapped, top-aligned text;
+/// ordinary and secret buffers remain single-line.
 pub fn text_input<'u, 'e, 't>(
     cx: &'u mut crate::UiContext<'e>,
     label: impl Into<Cow<'t, str>>,
