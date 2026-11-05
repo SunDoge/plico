@@ -611,8 +611,8 @@ pub struct ShaderRenderer {
     layout: BindGroupLayout,
     backdrop_layout: BindGroupLayout,
     backdrop_sampler: wgpu::Sampler,
-    pipelines: LruCache<Arc<str>, Arc<RenderPipeline>>,
-    backdrop_pipelines: LruCache<Arc<str>, Arc<RenderPipeline>>,
+    pipelines: LruCache<Arc<str>, RenderPipeline>,
+    backdrop_pipelines: LruCache<Arc<str>, RenderPipeline>,
     targets: FxHashMap<ShaderEffectId, Vec<EffectTarget>>,
     frame: u64,
 }
@@ -904,12 +904,12 @@ impl ShaderRenderer {
     /// Pipeline for a backdrop-reading effect: group 1 binds the sampled
     /// frame region in addition to the uniform group.
     fn backdrop_pipeline(
-        cache: &mut LruCache<Arc<str>, Arc<RenderPipeline>>,
+        cache: &mut LruCache<Arc<str>, RenderPipeline>,
         group_layout: &BindGroupLayout,
         backdrop_layout: &BindGroupLayout,
         device: &Device,
         source: &ShaderEffectSource,
-    ) -> Arc<RenderPipeline> {
+    ) -> RenderPipeline {
         if let Some(pipeline) = cache.get(source.wgsl()) {
             return pipeline.clone();
         }
@@ -922,43 +922,41 @@ impl ShaderRenderer {
             bind_group_layouts: &[Some(group_layout), Some(backdrop_layout)],
             immediate_size: 0,
         });
-        let pipeline = Arc::new(
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Plico backdrop shader pipeline"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: EFFECT_TEXTURE_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Plico backdrop shader pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: EFFECT_TEXTURE_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
             }),
-        );
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         cache.put(source.wgsl().to_owned(), pipeline.clone());
         pipeline
     }
 
     fn pipeline(
-        cache: &mut LruCache<Arc<str>, Arc<RenderPipeline>>,
+        cache: &mut LruCache<Arc<str>, RenderPipeline>,
         group_layout: &BindGroupLayout,
         device: &Device,
         source: &ShaderEffectSource,
-    ) -> Arc<RenderPipeline> {
+    ) -> RenderPipeline {
         if let Some(pipeline) = cache.get(source.wgsl()) {
             return pipeline.clone();
         }
@@ -971,33 +969,31 @@ impl ShaderRenderer {
             bind_group_layouts: &[Some(group_layout)],
             immediate_size: 0,
         });
-        let pipeline = Arc::new(
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Plico custom shader pipeline"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: EFFECT_TEXTURE_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Plico custom shader pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: EFFECT_TEXTURE_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
             }),
-        );
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         cache.put(source.wgsl().clone(), pipeline.clone());
         pipeline
     }
