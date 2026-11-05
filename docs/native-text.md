@@ -553,8 +553,8 @@ invent a scalar boundary inside a linguistic cluster to force progress.
 
 This is a single-logical-paragraph primitive: hard newline input remains rejected
 by `Line::wrap`. Use `Paragraph` below for hard breaks, vertical placement and
-explicit line height. Alignment, ellipsis, paragraph selection and the shared
-wgpu provider are still pending. Native tests
+explicit line height. Direction-aware alignment is described below; ellipsis,
+paragraph selection and the shared wgpu provider are still pending. Native tests
 cover multilingual/combining/bidi text conservation, later-line local offsets,
 fractional-DPI raster repeatability, empty input and line-budget enforcement.
 These tests only cross-compile here; macOS runtime behavior is not verified.
@@ -581,4 +581,26 @@ Requests retain the 1 MiB/100,000-scalar bound, with at most 4096 visual lines a
 1e9 points of total height. Invalid dimensions and limits fail explicitly rather
 than truncating. Hard-break partitioning and line-box overflow/rounding tests run
 on Linux; CoreText multiline/range/hit-test tests only cross-compile for macOS.
-Native execution, alignment, rich runs, ellipsis and the wgpu provider remain open.
+Native execution, rich runs, ellipsis and the wgpu provider remain open.
+
+#### CoreText direction-aware alignment
+
+`Paragraph::with_alignment` adds `Start`, `Center`, `End` and `Justify` modes;
+`Paragraph::new` now defaults to direction-aware `Start`. Base direction is
+resolved independently for each hard paragraph using Unicode bidi P2/P3 (the
+same helper as DirectWrite); all of its soft-wrapped lines inherit that direction.
+CoreText still performs shaping and visual bidi ordering.
+
+Line baseline x uses `CTLineGetPenOffsetForFlush`, accounting for native trailing
+whitespace rather than blindly subtracting typographic width. Hit testing
+subtracts this same baseline offset. `alignment_width()` reports the supplied
+wrap width, or maximum intrinsic line advance if no width is supplied; `size()`
+continues to report intrinsic advance and total line-box height.
+
+With an explicit width, `Justify` retains a native justified CTLine for eligible
+soft-wrapped lines. The last line of each hard paragraph remains start-aligned;
+Overwide lines are not compressed to force a fit. CoreText may decline
+justification, in which case the original line is retained.
+Native tests cover alignment/hit consistency, independent LTR/RTL paragraphs and
+justification range preservation. They cross-compile only; the shared direction
+rules run as portable tests. Runtime macOS visual acceptance is still pending.

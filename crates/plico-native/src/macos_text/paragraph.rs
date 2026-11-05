@@ -3,10 +3,26 @@ use super::*;
 use crate::paragraph_geometry::{hard_lines, line_box};
 use std::ops::Range;
 
+/// Paragraph-relative horizontal alignment, resolved per hard paragraph.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Alignment {
+    /// Leading edge: left for LTR, right for RTL.
+    #[default]
+    Start,
+    /// Center each line in the available width.
+    Center,
+    /// Trailing edge: right for LTR, left for RTL.
+    End,
+    /// Natively justify soft-wrapped lines except the final line of each hard paragraph.
+    Justify,
+}
+
 /// One retained native line positioned within a paragraph's logical coordinates.
 pub struct ParagraphLine {
     /// Original UTF-8 content range, excluding a following hard separator.
     pub range: Range<usize>,
+    /// Base direction of the complete hard paragraph, inherited by soft wraps.
+    pub right_to_left: bool,
     /// Following hard separator, or an empty range for a soft wrap/end of text.
     /// CRLF is represented as one separator spanning both bytes.
     pub hard_break: Range<usize>,
@@ -18,10 +34,11 @@ pub struct ParagraphLine {
     pub line: Line,
 }
 /// Multiline CoreText geometry with retained lines and no second shaping pass.
-/// Rich runs, alignment, ellipsis and a renderer-provider bridge are pending.
+/// Rich runs, ellipsis and a renderer-provider bridge are pending.
 pub struct Paragraph {
     lines: Vec<ParagraphLine>,
     size: [f64; 2],
+    alignment_width: f64,
 }
 impl Paragraph {
     /// Lay out text with optional soft-wrap width and absolute logical line height.
@@ -32,6 +49,18 @@ impl Paragraph {
         request: &Request<'_>,
         width: Option<f64>,
         line_height: Option<f64>,
+    ) -> Result<Self> {
+        Self::with_alignment(request, width, line_height, Alignment::Start)
+    }
+    /// Lay out with direction-aware alignment. Width is also the soft-wrap limit;
+    /// without one, lines align within the maximum intrinsic line advance.
+    /// Justification reuses native CTLine shaping and is skipped for hard-final
+    /// lines and when no explicit width was provided.
+    pub fn with_alignment(
+        request: &Request<'_>,
+        width: Option<f64>,
+        line_height: Option<f64>,
+        alignment: Alignment,
     ) -> Result<Self> {
         if !request.valid_paragraph()
             || width.is_some_and(|w| !w.is_finite() || w <= 0. || w > 1e9)
@@ -54,6 +83,7 @@ impl Paragraph {
                 text: &request.text[content.clone()],
                 ..*request
             };
+            let right_to_left = crate::text_direction::paragraph_is_rtl(part.text);
             let wrapped = match width {
                 Some(width) => Line::wrap(&part, width)?,
                 None => vec![WrappedLine {
@@ -66,7 +96,22 @@ impl Paragraph {
             }
             let last = wrapped.len() - 1;
             for (index, wrapped) in wrapped.into_iter().enumerate() {
-                let metrics = wrapped.line.metrics();
+                let mut line = wrapped.line;
+                if alignment == Alignment::Justify
+                    && index < last
+                    && let Some(width) = width.filter(|width| *width >= line.metrics().width)
+                {
+                    // SAFETY: The line is retained and the width was validated.
+                    if let Some(native) = unsafe { line.native.justified_line(1., width) } {
+                        line = Line::from_native(
+                            native,
+                            line.font.clone(),
+                            &line.text,
+                            line.utf16_start,
+                        )?;
+                    }
+                }
+                let metrics = line.metrics();
                 let (baseline, bottom) = line_box(
                     y,
                     [metrics.ascent, metrics.descent, metrics.leading],
@@ -82,22 +127,50 @@ impl Paragraph {
                 max_width = max_width.max(metrics.width);
                 lines.push(ParagraphLine {
                     range,
+                    right_to_left,
                     hard_break,
                     baseline: [0., baseline],
                     vertical_bounds: [y, bottom],
-                    line: wrapped.line,
+                    line,
                 });
                 y = bottom;
             }
         }
+        let alignment_width = width.unwrap_or(max_width);
+        for placed in &mut lines {
+            let flush = match alignment {
+                Alignment::Center => 0.5,
+                Alignment::End if !placed.right_to_left => 1.,
+                Alignment::Start | Alignment::Justify if placed.right_to_left => 1.,
+                _ => 0.,
+            };
+            // Native flush accounts for trailing whitespace; subtracting the
+            // typographic width here would misalign wrapped whitespace lines.
+            // SAFETY: Retained line, finite flush and bounded alignment width.
+            let x = unsafe {
+                placed
+                    .line
+                    .native
+                    .pen_offset_for_flush(flush, alignment_width)
+            };
+            if !x.is_finite() || x.abs() > 1e9 {
+                return Err(Error::Metrics);
+            }
+            placed.baseline[0] = x;
+        }
         Ok(Self {
             lines,
             size: [max_width, y],
+            alignment_width,
         })
     }
     /// Retained lines in reading order; each line uses its native bidi geometry.
     pub fn lines(&self) -> &[ParagraphLine] {
         &self.lines
+    }
+    /// Width used to align lines, independent of their intrinsic advances.
+    pub fn alignment_width(&self) -> f64 {
+        self.alignment_width
     }
     /// Maximum native advance and total line-box height, in logical points.
     /// Glyph ink/overhang can extend outside these typographic bounds.
@@ -181,5 +254,73 @@ mod tests {
             Paragraph::new(&Request::new("a\nb"), None, Some(1e9)),
             Err(Error::Metrics)
         ));
+    }
+}
+
+#[cfg(test)]
+mod alignment_tests {
+    use super::*;
+    #[test]
+    fn alignment_moves_native_lines_and_hit_testing_together() {
+        let request = Request::new("NNN");
+        let mut offsets = Vec::new();
+        for alignment in [Alignment::Start, Alignment::Center, Alignment::End] {
+            let paragraph =
+                Paragraph::with_alignment(&request, Some(200.), None, alignment).unwrap();
+            let line = &paragraph.lines()[0];
+            offsets.push(line.baseline[0]);
+            let x = line.line.caret_offsets(1).unwrap().primary + line.baseline[0];
+            assert_eq!(
+                paragraph.hit_test([x, line.vertical_bounds[0] + 1.]),
+                Some(1)
+            );
+            assert_eq!(paragraph.alignment_width(), 200.);
+        }
+        assert!(offsets[0].abs() < 1e-6);
+        assert!(offsets[1] > offsets[0] && offsets[2] > offsets[1]);
+        assert!((offsets[1] * 2. - offsets[2]).abs() < 1e-6);
+    }
+    #[test]
+    fn hard_paragraphs_resolve_start_end_independently() {
+        let request = Request::new("English\nשלום\n123");
+        for alignment in [Alignment::Start, Alignment::End] {
+            let paragraph =
+                Paragraph::with_alignment(&request, Some(200.), None, alignment).unwrap();
+            let lines = paragraph.lines();
+            assert_eq!(
+                lines
+                    .iter()
+                    .map(|line| line.right_to_left)
+                    .collect::<Vec<_>>(),
+                vec![false, true, false]
+            );
+            for line in lines {
+                let right = (alignment == Alignment::Start) == line.right_to_left;
+                if right {
+                    assert!(line.baseline[0] > 0.);
+                } else {
+                    assert!(line.baseline[0].abs() < 1e-6);
+                }
+            }
+        }
+    }
+    #[test]
+    fn native_justification_preserves_ranges_and_hard_final_lines() {
+        let request = Request::new("one two three four five six seven eight nine ten\nlast");
+        let normal = Paragraph::new(&request, Some(140.), None).unwrap();
+        let justified =
+            Paragraph::with_alignment(&request, Some(140.), None, Alignment::Justify).unwrap();
+        assert_eq!(normal.lines().len(), justified.lines().len());
+        let mut expanded = false;
+        for (before, after) in normal.lines().iter().zip(justified.lines()) {
+            assert_eq!(before.range, after.range);
+            assert_eq!(before.hard_break, after.hard_break);
+            if !before.hard_break.is_empty() || before.range.end == request.text.len() {
+                assert_eq!(before.line.metrics().width, after.line.metrics().width);
+            } else if after.line.metrics().width > before.line.metrics().width + 0.1 {
+                expanded = true;
+            }
+        }
+        assert!(expanded);
     }
 }

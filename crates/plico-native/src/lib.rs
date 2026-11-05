@@ -17,7 +17,10 @@ pub mod hotkeys;
 #[cfg(feature = "screen-capture")]
 pub mod capture;
 
-#[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
+#[cfg(any(
+    all(feature = "windows-text", any(target_os = "windows", test)),
+    all(feature = "macos-text", any(target_os = "macos", test))
+))]
 mod text_direction;
 #[cfg(any(
     all(target_os = "windows", feature = "windows-text"),

@@ -343,11 +343,16 @@ turn on macOS wgpu text support by itself.
 A bounded CoreText soft-wrapping primitive now retains native CTTypesetter lines,
 original UTF-8 ranges and correct line-local editing offsets. Native regressions
 cross-compile on both macOS targets. Hard-break paragraphs, vertical layout,
-alignment/truncation and the shared paragraph/window bridge remain unfinished;
+truncation and the shared paragraph/window bridge remain unfinished;
 this is not yet macOS renderer acceptance.
 
 CoreText multiline geometry now handles explicit/empty/trailing lines and native
 soft wrapping, preserving original content/separator byte ranges, logical
 baselines and paragraph hit testing. Portable hard-break/line-box tests execute
-on Linux. Native paragraph tests cross-compile only; alignment, rich runs,
+on Linux. Native paragraph tests cross-compile only; rich runs,
 truncation and renderer-provider/window integration remain open.
+
+CoreText paragraph baselines now use direction-aware native flush offsets, with
+independent bidi base direction per hard paragraph and native justification for
+eligible soft lines. Portable direction tests run; native geometry tests only
+cross-compile. No macOS renderer/window gate is claimed from these checks.

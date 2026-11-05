@@ -15,7 +15,7 @@ use objc2_core_text::{
     kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorFromContextAttributeName,
     kCTTrackingAttributeName,
 };
-pub use paragraph::{Paragraph, ParagraphLine};
+pub use paragraph::{Alignment, Paragraph, ParagraphLine};
 pub use raster::Rasterized;
 use snafu::Snafu;
 use std::{marker::PhantomData, rc::Rc};
