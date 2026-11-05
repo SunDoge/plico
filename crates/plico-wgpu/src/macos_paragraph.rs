@@ -560,7 +560,7 @@ impl Renderer {
             .get_or_insert_with(|| Rc::new(RefCell::new(Cache::new())))
             .clone();
         text.set_paragraph_engine(Box::new(Engine { cache, scale }));
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.invalidate_scene_damage();
         Ok(())
     }
@@ -608,7 +608,7 @@ impl Renderer {
         if let Some(c) = &self.macos_paragraphs {
             c.borrow_mut().clear();
         }
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.invalidate_scene_damage();
     }
     /// Inspect bounded Rust-owned CoreText caches, excluding native/GPU allocations.

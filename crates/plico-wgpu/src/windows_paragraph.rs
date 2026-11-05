@@ -455,7 +455,7 @@ impl Renderer {
         if let Some(cache) = &self.windows_paragraphs {
             cache.borrow_mut().clear();
         }
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.invalidate_scene_damage();
     }
 
@@ -472,7 +472,7 @@ impl Renderer {
                 Cache::new().map_err(|source| Error::Paragraph { source })?,
             )));
         }
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.invalidate_scene_damage();
         text.set_paragraph_engine(Box::new(Engine {
             cache: self.windows_paragraphs.as_ref().unwrap().clone(),
