@@ -383,6 +383,12 @@ impl<'e> UiContext<'e> {
     pub fn hovered(&self) -> bool {
         self.engine.hovered(self.parent)
     }
+    /// Current host pointer position in window logical pixels, when the
+    /// pointer is inside the window. Read during declarations; pointer
+    /// movement triggers a settling re-declaration like other input state.
+    pub fn pointer_position(&self) -> Option<(f64, f64)> {
+        self.engine.pointer_position()
+    }
     /// Request another declaration for a non-event update performed during show.
     pub fn request_rebuild(&mut self) {
         self.engine.changes.insert(Changes::VIEW);
@@ -1964,6 +1970,7 @@ impl<'e> UiContext<'e> {
                 source_path: asset.source_path().map(str::to_owned),
                 module: asset.is_module(),
                 sksl: asset.sksl().map(str::to_owned),
+                reads_backdrop: asset.reads_backdrop(),
                 ..Default::default()
             },
         }

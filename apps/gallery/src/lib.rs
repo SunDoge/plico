@@ -1,3 +1,4 @@
+mod black_hole;
 mod calendar;
 mod color_icons;
 pub mod data_table;
@@ -58,6 +59,8 @@ pub enum Page {
     Localization,
     #[route(label = "Images", icon = color_icons::IMAGE)]
     Images,
+    #[route(label = "Black hole", icon = color_icons::IMAGE)]
+    BlackHole,
 }
 
 /// A spring-driven demo chip on the Motion page. The value samples purely
@@ -87,6 +90,8 @@ impl PartialEq for SpringDemo {
 #[serde(default)]
 pub struct Gallery {
     pub language: i18n::Language,
+    /// Whether the gravitational-lens overlay distorts every page.
+    pub black_hole: bool,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -210,9 +215,13 @@ impl Gallery {
                     Page::Calendar => calendar::page(ui),
                     Page::Localization => i18n::page(ui, self.language),
                     Page::Images => self.images_page(ui),
+                    Page::BlackHole => black_hole::page(ui, &mut self.black_hole),
                 }
             })
         };
+        // The gravitational lens overlays every page when enabled. Declared
+        // last so its backdrop is everything painted before it.
+        black_hole::overlay(ui, &mut self.black_hole);
     }
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
     fn images_page(&mut self, cx: &mut UiContext) {

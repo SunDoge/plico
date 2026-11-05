@@ -41,6 +41,8 @@ pub struct Engine {
     node_changes: Vec<NodeChange>,
     hovered: Option<Entity>,
     hovered_path: Option<Vec<crate::PathKey>>,
+    /// Host pointer position in window logical pixels; None outside the window.
+    pointer_position: Option<(f64, f64)>,
     clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
@@ -96,6 +98,7 @@ impl Default for Engine {
             node_changes: Vec::new(),
             hovered: None,
             hovered_path: None,
+            pointer_position: None,
             clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
@@ -484,6 +487,14 @@ impl Engine {
     pub fn set_hovered(&mut self, entity: Option<Entity>) {
         self.hovered = entity;
         self.hovered_path = None;
+    }
+    /// Host pointer snapshot in window logical pixels; None clears it.
+    pub fn set_pointer_position(&mut self, position: Option<(f64, f64)>) {
+        self.pointer_position = position;
+    }
+    /// Current host pointer position in window logical pixels, when inside.
+    pub fn pointer_position(&self) -> Option<(f64, f64)> {
+        self.pointer_position
     }
     /// Logical hover identity across module/host arenas. None clears the snapshot.
     pub fn set_hovered_path(&mut self, path: Option<Vec<crate::PathKey>>) {

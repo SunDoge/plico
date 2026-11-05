@@ -1146,12 +1146,9 @@ fn layer_image_filter(
     let FilterPrimitive::GaussianBlur {
         std_deviation,
         edge_mode,
-    } = (match filter.single() {
+    } = match filter.single() {
         Some(primitive) => primitive,
         None => return unsupported("layer filter graph"),
-    })
-    else {
-        return unsupported("layer filter primitive");
     };
     if !std_deviation.is_finite() || *std_deviation < 0. {
         return unsupported("layer blur sigma");

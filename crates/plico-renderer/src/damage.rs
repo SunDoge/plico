@@ -369,6 +369,14 @@ impl SceneDamageTracker {
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
                 }
+                // Backdrop readers sample everything painted before them:
+                // any earlier change must reach them, so they are never
+                // damage-skipped (mygo's scene.Effect.Backdrop contract).
+                PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
+                    self.nonlocal = true;
+                    self.regions.add(DamageRegion::Full);
+                    DamageRegion::Full
+                }
                 _ if same_command
                     && self.size == Some((width, height))
                     && self.contexts.get(index) == Some(&context) =>
@@ -584,14 +592,12 @@ mod tracker_tests {
             1.,
             Affine::IDENTITY,
             &Rect::new(10., 10., 20., 20.),
-            Some(std::sync::Arc::new(
-                crate::filter::Filter::from_primitive(
-                    crate::filter::FilterPrimitive::GaussianBlur {
-                        std_deviation: 1.,
-                        edge_mode: crate::filter::EdgeMode::None,
-                    },
-                ),
-            )),
+            Some(std::sync::Arc::new(crate::filter::Filter::from_primitive(
+                crate::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 1.,
+                    edge_mode: crate::filter::EdgeMode::None,
+                },
+            ))),
             None,
         );
         s.pop_layer();
@@ -613,14 +619,12 @@ mod tracker_tests {
             1.,
             Affine::IDENTITY,
             &Rect::new(0., 0., 10., 10.),
-            Some(std::sync::Arc::new(
-                crate::filter::Filter::from_primitive(
-                    crate::filter::FilterPrimitive::GaussianBlur {
-                        std_deviation: 1.,
-                        edge_mode: crate::filter::EdgeMode::None,
-                    },
-                ),
-            )),
+            Some(std::sync::Arc::new(crate::filter::Filter::from_primitive(
+                crate::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 1.,
+                    edge_mode: crate::filter::EdgeMode::None,
+                },
+            ))),
             None,
         );
         filtered.pop_layer();

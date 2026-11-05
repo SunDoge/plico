@@ -210,6 +210,8 @@ pub struct Adapter {
     pub placed: Vec<PlacedNode>,
     pub stats: BackendStats,
     pub(super) hovered: Option<Entity>,
+    /// Latest pointer position in window logical pixels; None outside.
+    pub(super) pointer_position: Option<(f64, f64)>,
     pub(super) pressed: Option<Entity>,
     pub(super) presentation: HashMap<NodeId, presentation::Presentation>,
     pub(super) presentation_dirty: bool,
@@ -286,6 +288,7 @@ impl Default for Adapter {
             placed: Vec::new(),
             stats: BackendStats::default(),
             hovered: None,
+            pointer_position: None,
             pressed: None,
             presentation: HashMap::new(),
             presentation_dirty: false,

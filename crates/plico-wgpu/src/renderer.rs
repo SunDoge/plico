@@ -171,6 +171,8 @@ pub struct Renderer {
     target: Option<Target>,
     instances: wgpu::Buffer,
     capacity: usize,
+    /// Backdrop-reading effects collected during encode, in paint order.
+    backdrop_effects: Vec<plico_renderer::ShaderEffect>,
     /// Reused instance staging vector: every frame keeps the capacity the
     /// previous frame grew instead of allocating from empty. Rust pattern:
     /// std::mem::take + clear + write back on success.
@@ -257,6 +259,16 @@ const JOIN_AREA: f32 = 128. * 128.;
 /// Pixel area a run's quads cover as the vertex stage grows them (one AA
 /// pixel each side). Stops early at JOIN_AREA; shadow quads already include
 /// their four-sigma halo in the rect.
+/// One ordered instance run to draw through a chosen pipeline.
+struct RunFlush {
+    start: usize,
+    end: usize,
+    plain: bool,
+    plus: bool,
+    texture: Option<usize>,
+    mask: u32,
+}
+
 fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
     let mut area = 0.;
     for instance in &instances[start..end] {
@@ -438,6 +450,7 @@ impl Renderer {
             instances,
             capacity,
             instance_scratch: Vec::new(),
+            backdrop_effects: Vec::new(),
             compilations: 0,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             paragraphs: None,
@@ -901,8 +914,14 @@ impl Renderer {
             ]),
         );
         self.target(size);
-        let target = self.target.as_ref().expect("target just created");
-        let view = &target.view;
+        let view = self
+            .target
+            .as_ref()
+            .expect("target just created")
+            .view
+            .clone();
+        let mut flush_draws: u64 = 0;
+        let mut flush_plain_draws: u64 = 0;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         self.batch_stats.instances += instances.len() as u64;
         self.batch_stats.passes += 1;
@@ -910,7 +929,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Plico quad draw"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: &view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -957,82 +976,9 @@ impl Renderer {
             // instances render identically there (tests/classes.rs), and at
             // mygo's measured 128x128-pixel trade-off the saved call costs
             // the CPU less than the specialized shader saves on those pixels.
-            struct Run {
-                start: usize,
-                end: usize,
-                plain: bool,
-                plus: bool,
-                texture: Option<usize>,
-                mask: u32,
-            }
             let mut scissor_run = scissor;
-            let mut flush = |pass: &mut wgpu::RenderPass<'_>, run: Run| {
-                // The vertex stage expands each quad by one AA pixel. A
-                // custom material may supply its own vertex stage, so do
-                // not bound it.
-                #[cfg(test)]
-                let cull_batches = !self.profile_no_batch_cull;
-                #[cfg(not(test))]
-                let cull_batches = true;
-                let bounds = regions.filter(|_| cull_batches).and_then(|_| {
-                    instances[run.start..run.end].iter().try_fold(
-                        [
-                            f32::INFINITY,
-                            f32::INFINITY,
-                            f32::NEG_INFINITY,
-                            f32::NEG_INFINITY,
-                        ],
-                        |mut bounds, instance| {
-                            if instance.config[2] == 1. {
-                                return None;
-                            }
-                            let [x, y, w, h] = instance.rect;
-                            bounds[0] = bounds[0].min(x - 1.);
-                            bounds[1] = bounds[1].min(y - 1.);
-                            bounds[2] = bounds[2].max(x + w + 1.);
-                            bounds[3] = bounds[3].max(y + h + 1.);
-                            Some(bounds)
-                        },
-                    )
-                });
-                pass.set_pipeline(if run.plus {
-                    self.plus_pipeline.as_ref().expect("plus pipeline prepared")
-                } else if run.plain {
-                    &self.plain_pipeline
-                } else {
-                    self.pipeline.as_ref().expect("material installed")
-                });
-                let bind = run.texture.map_or(&self.atlas_texture.bind, |slot| {
-                    &self.frame_images[slot].bind
-                });
-                pass.set_bind_group(1, bind, &[]);
-                let mask = if run.mask > 0 {
-                    &self.frame_images[run.mask as usize - 1].bind
-                } else {
-                    &self.atlas_texture.bind
-                };
-                pass.set_bind_group(2, mask, &[]);
-                for &[x, y, w, h] in areas {
-                    if bounds.is_some_and(|[left, top, right, bottom]| {
-                        right <= x as f32
-                            || bottom <= y as f32
-                            || left >= (x + w) as f32
-                            || top >= (y + h) as f32
-                    }) {
-                        continue;
-                    }
-                    if scissor_run != Some([x, y, w, h]) {
-                        pass.set_scissor_rect(x, y, w, h);
-                        scissor_run = Some([x, y, w, h]);
-                    }
-                    pass.draw(0..6, run.start as u32..run.end as u32);
-                    self.batch_stats.draw_calls += 1;
-                    if run.plain {
-                        self.batch_stats.plain_draw_calls += 1;
-                    }
-                }
-            };
-            let mut pending: Option<(Run, bool)> = None;
+            let force_general = self.force_general;
+            let mut pending: Option<(RunFlush, bool)> = None;
             while first < instances.len() {
                 let key = |i: usize| {
                     (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
@@ -1041,21 +987,27 @@ impl Renderer {
                 // Class runs: adjacent plain fills share the specialized
                 // pipeline, everything else keeps the general shader. The
                 // run boundary never reorders painter sequence.
-                let plain = !self.force_general && is_plain(&instances[first]);
+                // Backdrop markers (color[3] == 2) are singleton runs: they
+                // never join a class run or the joiner.
+                let backdrop_at =
+                    (instances[first].color[3] == 2.).then(|| instances[first].config[3] as usize);
+                let plain =
+                    backdrop_at.is_none() && !self.force_general && is_plain(&instances[first]);
                 let mut end = first + 1;
-                while end < instances.len()
+                while backdrop_at.is_none()
+                    && end < instances.len()
                     && key(end) == texture
                     && instances[end].clip_params[2] == instances[first].clip_params[2]
                     && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
                         == (instances[first].config[2] == 4. && instances[first].config[1] == 1.)
-                    && (!self.force_general && is_plain(&instances[end])) == plain
+                    && (!force_general && is_plain(&instances[end])) == plain
                 {
                     end += 1;
                 }
                 let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
                 let mask = instances[first].clip_params[2] as u32;
-                let small = run_area(&instances, first, end) <= JOIN_AREA;
-                let run = Run {
+                let small = backdrop_at.is_none() && run_area(&instances, first, end) <= JOIN_AREA;
+                let run = RunFlush {
                     start: first,
                     end,
                     plain,
@@ -1070,6 +1022,7 @@ impl Renderer {
                     && previous.mask == mask
                     && !previous.plus
                     && !plus
+                    && backdrop_at.is_none()
                 {
                     // Only the class differs; extend the pending run. The
                     // merged run keeps the plain pipeline only if every
@@ -1078,21 +1031,161 @@ impl Renderer {
                     previous.plain = previous.plain && run.plain;
                 } else {
                     if let Some((previous, _)) = pending.take() {
-                        flush(&mut pass, previous);
+                        self.flush_run(
+                            &mut pass,
+                            previous,
+                            &instances,
+                            regions,
+                            areas,
+                            &mut scissor_run,
+                            &mut flush_draws,
+                            &mut flush_plain_draws,
+                        );
+                    }
+                    if let Some(effect_index) = backdrop_at {
+                        // Split the pass: everything before the effect is
+                        // now in the target; copy that region out, render
+                        // the effect with it bound, then continue the rest
+                        // in a fresh pass (mygo's Backdrop step between
+                        // batches).
+                        drop(pass);
+                        let effect = self.backdrop_effects[effect_index].clone();
+                        let mut effects = self.effects.take();
+                        let mut blitter = self.blitter.take();
+                        pass = encode_backdrop_step(
+                            &self.device,
+                            &self.queue,
+                            self.target.as_ref(),
+                            &mut effects,
+                            &mut blitter,
+                            &mut encoder,
+                            &view,
+                            instances[run.start].rect,
+                            &effect,
+                            size,
+                        );
+                        self.effects = effects;
+                        self.blitter = blitter;
+                        self.batch_stats.passes += 1;
+                        scissor_run = None;
+                        first = end;
+                        continue;
                     }
                     pending = Some((run, small));
                 }
                 first = end;
             }
             if let Some((previous, _)) = pending.take() {
-                flush(&mut pass, previous);
+                self.flush_run(
+                    &mut pass,
+                    previous,
+                    &instances,
+                    regions,
+                    areas,
+                    &mut scissor_run,
+                    &mut flush_draws,
+                    &mut flush_plain_draws,
+                );
             }
         }
+        self.batch_stats.draw_calls += flush_draws;
+        self.batch_stats.plain_draw_calls += flush_plain_draws;
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;
         Ok(encoder)
     }
+    #[allow(clippy::too_many_arguments)]
+    fn flush_run(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        run: RunFlush,
+        instances: &[Instance],
+        regions: Option<&[[u32; 4]]>,
+        areas: &[[u32; 4]],
+        scissor_run: &mut Option<[u32; 4]>,
+        draw_calls: &mut u64,
+        plain_draw_calls: &mut u64,
+    ) {
+        // Resolve every self borrow before the pass ops so the caller's
+        // encoder/pass lifetimes stay disjoint from self.
+        #[cfg(test)]
+        let cull_batches = !self.profile_no_batch_cull;
+        #[cfg(not(test))]
+        let cull_batches = true;
+        let bounds = regions.filter(|_| cull_batches).and_then(|_| {
+            instances[run.start..run.end].iter().try_fold(
+                [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ],
+                |mut bounds, instance| {
+                    if instance.config[2] == 1. {
+                        return None;
+                    }
+                    let [x, y, w, h] = instance.rect;
+                    bounds[0] = bounds[0].min(x - 1.);
+                    bounds[1] = bounds[1].min(y - 1.);
+                    bounds[2] = bounds[2].max(x + w + 1.);
+                    bounds[3] = bounds[3].max(y + h + 1.);
+                    Some(bounds)
+                },
+            )
+        });
+        let pipeline = if run.plus {
+            self.plus_pipeline.as_ref().expect("plus pipeline prepared") as &wgpu::RenderPipeline
+        } else if run.plain {
+            &self.plain_pipeline
+        } else {
+            self.pipeline.as_ref().expect("material installed")
+        };
+        let atlas_bind = &self.atlas_texture.bind;
+        let texture_bind = run
+            .texture
+            .map_or(atlas_bind, |slot| &self.frame_images[slot].bind);
+        let mask_bind = if run.mask > 0 {
+            &self.frame_images[run.mask as usize - 1].bind
+        } else {
+            atlas_bind
+        };
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(1, texture_bind, &[]);
+        pass.set_bind_group(2, mask_bind, &[]);
+        for &[x, y, w, h] in areas {
+            if bounds.is_some_and(|[left, top, right, bottom]| {
+                right <= x as f32
+                    || bottom <= y as f32
+                    || left >= (x + w) as f32
+                    || top >= (y + h) as f32
+            }) {
+                continue;
+            }
+            if *scissor_run != Some([x, y, w, h]) {
+                pass.set_scissor_rect(x, y, w, h);
+                *scissor_run = Some([x, y, w, h]);
+            }
+            pass.draw(0..6, run.start as u32..run.end as u32);
+            *draw_calls += 1;
+            if run.plain {
+                *plain_draw_calls += 1;
+            }
+        }
+    }
+
+    /// Render one backdrop-reading effect between the halves of the frame
+    /// pass: the caller has just dropped the pass, so the target holds
+    /// everything painted before the effect. Copy the effect's region out,
+    /// render the effect against it, draw the result into the frame and
+    /// return a fresh pass for the remaining instances (mygo's Backdrop
+    /// step between batches).
+    /// Render one backdrop-reading effect between the halves of the frame pass
+    /// (mygo's Backdrop step between batches): copy the effect's region out of
+    /// the live target, render the effect against it, blit the result back into
+    /// the frame, and return a fresh pass for the remaining instances.
+    /// All renderer state arrives as parameters so it stays disjoint from the
+    /// caller's encoder/pass borrows.
     /// Offscreen readback; window submission uses render_to_view instead.
     pub fn render_items(
         &mut self,
@@ -1302,6 +1395,7 @@ impl Renderer {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
+        self.backdrop_effects.clear();
         self.clear_frame_images();
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
@@ -1382,6 +1476,29 @@ impl Renderer {
                 }
                 crate::Draw::Effect(effect, q) => {
                     #[cfg(not(target_arch = "wasm32"))]
+                    if effect.reads_backdrop() {
+                        // Backdrop readers sample what the frame paints before
+                        // them; that content is drawn by the pass this instance
+                        // belongs to. Encode a placeholder here; encode_frame_at
+                        // splits the pass at it, copies the target and renders
+                        // the effect between the two halves (mygo's Backdrop
+                        // step between batches).
+                        self.backdrop_effects.push((*effect).clone());
+                        instances.push(Instance {
+                            mask_rect: [0.; 4],
+                            radii: [0.; 4],
+                            rect: q.rect,
+                            color: [0., 0., 0., 2.], // kind: backdrop marker
+                            color2: [0.; 4],
+                            border: [0.; 4],
+                            config: [6., 0., 0., (self.backdrop_effects.len() - 1) as f32],
+                            clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
+                            uv: [0.; 4],
+                            gradient: [0.; 4],
+                            clip_params: [0.; 4],
+                        });
+                        continue;
+                    }
                     {
                         q.validate()?;
                         let resource = self.render_effect(effect)?;
@@ -2105,6 +2222,113 @@ impl Renderer {
             self.effects = None;
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_backdrop_step<'p>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: Option<&Target>,
+    effects: &mut Option<plico_renderer::shader::ShaderRenderer>,
+    blitter: &mut Option<crate::blit::Blitter>,
+    encoder: &'p mut wgpu::CommandEncoder,
+    frame_view: &wgpu::TextureView,
+    rect: [f32; 4],
+    effect: &plico_renderer::ShaderEffect,
+    size: [u32; 2],
+) -> wgpu::RenderPass<'p> {
+    let [x, y, w, h] = rect;
+    let target = target.expect("backdrop steps only run with a live target");
+    let region = wgpu::Extent3d {
+        width: (w as u32)
+            .min(size[0].saturating_sub(x.max(0.) as u32))
+            .max(1),
+        height: (h as u32)
+            .min(size[1].saturating_sub(y.max(0.) as u32))
+            .max(1),
+        depth_or_array_layers: 1,
+    };
+    let backdrop = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Plico effect backdrop copy"),
+        size: region,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target.texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: x.max(0.) as u32,
+                y: y.max(0.) as u32,
+                z: 0,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture: &backdrop,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        region,
+    );
+    let backdrop_view = backdrop.create_view(&wgpu::TextureViewDescriptor::default());
+    let effects = effects.get_or_insert_with(|| {
+        let mut effects = plico_renderer::shader::ShaderRenderer::new(device);
+        effects.begin_frame();
+        effects
+    });
+    let output = effects.render_view_with_backdrop(effect, &backdrop_view, device, queue, encoder);
+    // Blit the effect output into the frame at the instance's rect: a
+    // fullscreen premultiplied blit, scissored to the rect.
+    let format = target.texture.format();
+    if blitter.as_ref().is_none_or(|b| b.format != format) {
+        *blitter = Some(crate::blit::Blitter::new(device, format));
+    }
+    let blitter = blitter.as_mut().expect("blitter just created");
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Plico backdrop effect composite"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: frame_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_scissor_rect(
+            x.max(0.) as u32,
+            y.max(0.) as u32,
+            region.width,
+            region.height,
+        );
+        blitter.encode_scissored(device, &output, pass);
+    }
+    // Continue the frame in a fresh pass over the same target.
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("Plico quad draw (continued)"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: frame_view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]

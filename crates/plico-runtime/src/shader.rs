@@ -74,6 +74,7 @@ impl Adapter {
             let program_changed = surface.authored != logical.text
                 || surface.params.source_path != params.source_path
                 || surface.params.module != params.module
+                || surface.params.reads_backdrop != params.reads_backdrop
                 || surface.params.sksl != params.sksl
                 || surface.source.is_none() && surface.error.is_none();
             let values_changed = surface.params.values != params.values
@@ -83,7 +84,7 @@ impl Adapter {
                     if params.module {
                         ShaderEffectSource::new_module(logical.text)
                     } else {
-                        ShaderEffectSource::new(logical.text)
+                        ShaderEffectSource::with_backdrop(logical.text, params.reads_backdrop)
                     }
                     .and_then(|source| match &params.sksl {
                         Some(sksl) => source.with_sksl(sksl),

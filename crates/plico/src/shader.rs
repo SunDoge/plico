@@ -5,6 +5,9 @@ pub struct ShaderAsset {
     source_path: Option<&'static str>,
     module: bool,
     sksl: Option<&'static str>,
+    /// The effect samples what is painted behind it (mygo's scene.Effect
+    /// Backdrop): the host binds the region's rendered content as an input.
+    reads_backdrop: bool,
 }
 impl ShaderAsset {
     pub const fn new(source: &'static str) -> Self {
@@ -13,6 +16,7 @@ impl ShaderAsset {
             source_path: None,
             module: false,
             sksl: None,
+            reads_backdrop: false,
         }
     }
     pub const fn module(source: &'static str) -> Self {
@@ -21,7 +25,19 @@ impl ShaderAsset {
             source_path: None,
             module: true,
             sksl: None,
+            reads_backdrop: false,
         }
+    }
+    /// Declare that the effect's `plico_effect` calls `plico.backdrop_at(uv)`.
+    /// Backdrop readers see everything painted before them and cannot be
+    /// damage-skipped; hosts apply full-damage semantics (mygo's
+    /// scene.Effect.Backdrop).
+    pub const fn read_backdrop(mut self) -> Self {
+        self.reads_backdrop = true;
+        self
+    }
+    pub const fn reads_backdrop(self) -> bool {
+        self.reads_backdrop
     }
     /// Attach the authored resource path for tooling and diagnostics.
     /// This is metadata only; it does not read or watch the file at runtime.
@@ -118,6 +134,8 @@ pub struct ShaderParams {
     pub animated: bool,
     pub paused: bool,
     pub module: bool,
+    /// The effect samples its backdrop through `plico.backdrop_at`.
+    pub reads_backdrop: bool,
 }
 impl Default for ShaderParams {
     fn default() -> Self {
@@ -131,6 +149,7 @@ impl Default for ShaderParams {
             animated: false,
             paused: false,
             module: false,
+            reads_backdrop: false,
         }
     }
 }

@@ -90,6 +90,34 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> PlicoVertexOutput {
 }
 "#;
 
+/// Additional prelude for effects that declared `read_backdrop`: the host
+/// binds the region's already-painted content as a texture at group 1.
+/// backdrop_at samples it at the surface's own uv (y up like uv), bilinearly;
+/// outside the surface it returns transparent black, never repeating edges.
+const SHADER_BACKDROP_PREFIX: &str = r#"
+@group(1) @binding(0)
+var plico_backdrop: texture_2d<f32>;
+@group(1) @binding(1)
+var plico_backdrop_sampler: sampler;
+
+fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+    if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
+        return vec4<f32>(0.0);
+    }
+    return textureSampleLevel(
+        plico_backdrop,
+        plico_backdrop_sampler,
+        vec2<f32>(uv.x, 1.0 - uv.y),
+        0.0,
+    );
+}
+
+/// The surface's own sample of its backdrop at uv, premultiplied.
+fn plico_backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+    backdrop_at(uv)
+}
+"#;
+
 const SHADER_SUFFIX: &str = r#"
 @fragment
 fn fs_main(input: PlicoVertexOutput) -> @location(0) vec4<f32> {
@@ -162,6 +190,9 @@ pub struct ShaderEffectSource {
     sksl: Option<Arc<str>>,
     interface: ShaderEffectInterface,
     parameters: Arc<[ParameterSlot]>,
+    /// The effect reads its backdrop through `plico.backdrop_at` (mygo's
+    /// scene.Effect.Backdrop). Hosts bind the region's rendered content.
+    reads_backdrop: bool,
 }
 
 impl ShaderEffectSource {
@@ -175,6 +206,13 @@ impl ShaderEffectSource {
     }
     /// Validate and retain a custom WGSL effect function.
     pub fn new(source: &str) -> Result<Self, String> {
+        Self::with_backdrop(source, false)
+    }
+
+    /// Validate a `plico_effect` function that may call `plico.backdrop_at`
+    /// to sample what is painted behind the surface (mygo's scene.Effect
+    /// Backdrop). Hosts apply full-damage semantics to these effects.
+    pub fn with_backdrop(source: &str, reads_backdrop: bool) -> Result<Self, String> {
         if source.trim().is_empty() {
             return Err("shader source must not be empty".into());
         }
@@ -185,10 +223,17 @@ impl ShaderEffectSource {
         }
         // The Plico shader prelude supplies the vertex stage, the `plico`
         // uniform and the fragment entry point; authored sources define
-        // `plico_effect` against it.
+        // `plico_effect` against it. Backdrop readers get the backdrop
+        // texture and its sampling helpers in addition.
+        let prefix = if reads_backdrop {
+            format!("{SHADER_PREFIX}\n{SHADER_BACKDROP_PREFIX}")
+        } else {
+            SHADER_PREFIX.to_owned()
+        };
         Self::validated(
-            format!("{SHADER_PREFIX}\n{source}\n{SHADER_SUFFIX}"),
+            format!("{prefix}\n{source}\n{SHADER_SUFFIX}"),
             ShaderEffectInterface::PlicoEffect,
+            reads_backdrop,
         )
     }
 
@@ -213,10 +258,18 @@ impl ShaderEffectSource {
                 "shader source exceeds the {MAX_SOURCE_BYTES}-byte limit"
             ));
         }
-        Self::validated(source.to_owned(), ShaderEffectInterface::CompleteModule)
+        Self::validated(
+            source.to_owned(),
+            ShaderEffectInterface::CompleteModule,
+            false,
+        )
     }
 
-    fn validated(complete: String, interface: ShaderEffectInterface) -> Result<Self, String> {
+    fn validated(
+        complete: String,
+        interface: ShaderEffectInterface,
+        reads_backdrop: bool,
+    ) -> Result<Self, String> {
         let module = naga::front::wgsl::parse_str(&complete)
             .map_err(|error| error.emit_to_string(&complete))?;
         Validator::new(ValidationFlags::all(), Capabilities::default())
@@ -353,6 +406,7 @@ impl ShaderEffectSource {
             sksl: None,
             interface,
             parameters: parameters.into(),
+            reads_backdrop,
         })
     }
 
@@ -445,6 +499,10 @@ impl ShaderEffect {
     pub fn sksl(&self) -> Option<&str> {
         self.source.sksl.as_deref()
     }
+    /// Whether the effect reads its backdrop (mygo's scene.Effect.Backdrop).
+    pub fn reads_backdrop(&self) -> bool {
+        self.source.reads_backdrop
+    }
     /// Injected animation time in seconds.
     pub fn time(&self) -> f32 {
         self.time
@@ -530,7 +588,10 @@ impl EffectTarget {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct ShaderRenderer {
     layout: BindGroupLayout,
+    backdrop_layout: BindGroupLayout,
+    backdrop_sampler: wgpu::Sampler,
     pipelines: LruCache<Arc<str>, Arc<RenderPipeline>>,
+    backdrop_pipelines: LruCache<Arc<str>, Arc<RenderPipeline>>,
     targets: FxHashMap<ShaderEffectId, Vec<EffectTarget>>,
     frame: u64,
 }
@@ -552,9 +613,45 @@ impl ShaderRenderer {
                 count: None,
             }],
         });
+        // Backdrop readers: the sampled frame region as a texture+sampler,
+        // matching the prelude's group-1 bindings.
+        let backdrop_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Plico shader backdrop layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let backdrop_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Plico shader backdrop sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
         Self {
             layout,
+            backdrop_layout,
+            backdrop_sampler,
             pipelines: LruCache::new(NonZeroUsize::new(PIPELINE_CACHE_SIZE).unwrap()),
+            backdrop_pipelines: LruCache::new(NonZeroUsize::new(PIPELINE_CACHE_SIZE).unwrap()),
             targets: FxHashMap::default(),
             frame: 0,
         }
@@ -607,6 +704,66 @@ impl ShaderRenderer {
         self.render_target(effect, device, queue, encoder).1
     }
 
+    /// Render a backdrop-reading effect against an already-encoded backdrop
+    /// view (mygo's Backdrop step): the effect's plico_effect samples the
+    /// bound region through plico.backdrop_at. The caller copies the frame
+    /// region into `backdrop` before calling; the output is the effect's
+    /// own target view, not the frame itself.
+    pub fn render_view_with_backdrop(
+        &mut self,
+        effect: &ShaderEffect,
+        backdrop: &wgpu::TextureView,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) -> TextureView {
+        let (_id, view, bind_group) = self.render_target_full(effect, device, queue, encoder);
+        let pipeline = Self::backdrop_pipeline(
+            &mut self.backdrop_pipelines,
+            &self.layout,
+            &self.backdrop_layout,
+            device,
+            &effect.source,
+        );
+        let backdrop_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Plico shader backdrop bind"),
+            layout: &self.backdrop_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(backdrop),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.backdrop_sampler),
+                },
+            ],
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Plico backdrop shader pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_bind_group(1, &backdrop_bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        view
+    }
+
     /// Keep an unchanged surface alive when a damage consumer skips its draw.
     pub fn retain_effect(&mut self, effect: &ShaderEffect) {
         if let Some(targets) = self.targets.get_mut(&effect.id) {
@@ -654,7 +811,7 @@ impl ShaderRenderer {
             target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
-        if target.effect.as_ref() == Some(effect) {
+        if target.effect.as_ref() == Some(effect) && !effect.reads_backdrop() {
             return (target.texture_id, target.view.clone());
         }
         let pipeline = Self::pipeline(&mut self.pipelines, &self.layout, device, &effect.source);
@@ -685,6 +842,95 @@ impl ShaderRenderer {
 
         target.effect = Some(effect.clone());
         (target.texture_id, target.view.clone())
+    }
+
+    /// Allocation-only half of render_target for backdrop readers: same
+    /// target selection and uniform upload, without the non-backdrop pass
+    /// (the caller draws its own). Backdrop content differs every frame, so
+    /// equality never skips it.
+    fn render_target_full(
+        &mut self,
+        effect: &ShaderEffect,
+        device: &Device,
+        queue: &Queue,
+        _encoder: &mut CommandEncoder,
+    ) -> (ShaderTextureId, TextureView, BindGroup) {
+        let targets = self.targets.entry(effect.id).or_default();
+        let index = targets
+            .iter()
+            .position(|target| target.used_in_frame != self.frame)
+            .unwrap_or_else(|| {
+                targets.push(EffectTarget::new(
+                    device,
+                    &self.layout,
+                    effect.physical_size,
+                ));
+                targets.len() - 1
+            });
+        let target = &mut targets[index];
+        if target.size != effect.physical_size {
+            let texture_id = target.texture_id;
+            *target = EffectTarget::new(device, &self.layout, effect.physical_size);
+            target.texture_id = texture_id;
+        }
+        target.used_in_frame = self.frame;
+        let uniforms = effect_uniforms(effect);
+        queue.write_buffer(&target.uniforms, 0, bytemuck::cast_slice(&uniforms));
+        let bind = target.bind_group.clone();
+        target.effect = Some(effect.clone());
+        (target.texture_id, target.view.clone(), bind)
+    }
+
+    /// Pipeline for a backdrop-reading effect: group 1 binds the sampled
+    /// frame region in addition to the uniform group.
+    fn backdrop_pipeline(
+        cache: &mut LruCache<Arc<str>, Arc<RenderPipeline>>,
+        group_layout: &BindGroupLayout,
+        backdrop_layout: &BindGroupLayout,
+        device: &Device,
+        source: &ShaderEffectSource,
+    ) -> Arc<RenderPipeline> {
+        if let Some(pipeline) = cache.get(source.wgsl()) {
+            return pipeline.clone();
+        }
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Plico backdrop shader"),
+            source: wgpu::ShaderSource::Wgsl(source.wgsl().as_ref().into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Plico backdrop shader pipeline layout"),
+            bind_group_layouts: &[Some(group_layout), Some(backdrop_layout)],
+            immediate_size: 0,
+        });
+        let pipeline = Arc::new(
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Plico backdrop shader pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: EFFECT_TEXTURE_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            }),
+        );
+        cache.put(source.wgsl().to_owned(), pipeline.clone());
+        pipeline
     }
 
     fn pipeline(

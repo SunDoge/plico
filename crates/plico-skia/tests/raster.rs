@@ -43,7 +43,9 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         1.,
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
-        Some(std::sync::Arc::new(plico_renderer::filter::Filter::identity())),
+        Some(std::sync::Arc::new(
+            plico_renderer::filter::Filter::identity(),
+        )),
         None,
     );
     assert!(matches!(

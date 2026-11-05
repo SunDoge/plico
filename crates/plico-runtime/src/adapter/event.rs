@@ -28,6 +28,7 @@ impl Adapter {
         let mut declare = true;
         let mut response = self.event_inner(engine, event, &mut declare);
         engine.set_hovered(self.hovered);
+        engine.set_pointer_position(self.pointer_position);
         response.request_redraw |= self.tips.needs_frame();
         (response, declare)
     }
@@ -58,6 +59,12 @@ impl Adapter {
         match event {
             UiEvent::Pointer(p) => {
                 use plico_renderer::scrollbar::{self, ScrollAxis, ScrollbarPart};
+                // Persistent input snapshot for declaration-time queries;
+                // pointer movement outside any control still redeclares.
+                self.pointer_position = match p.phase {
+                    PointerPhase::Leave | PointerPhase::Cancel => None,
+                    _ => Some((p.position.x, p.position.y)),
+                };
                 let scrollbar_hit = if p.phase == PointerPhase::Down
                     && p.button == Some(PointerButton::Primary)
                 {
