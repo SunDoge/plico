@@ -180,6 +180,16 @@ fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) 
   clamped and the clamp is reported as a change. MyGO's hover preview and its
   arrow/Home/End handling on a single slider are not ported: Plico has no
   per-widget focus action wiring, and every star is its own focus stop.
+- `stepper(cx, &mut value, range, step)` puts two arrow buttons in a bordered
+  column, snapping the value to a step grid anchored at the low bound and
+  clamping it to the range. A press steps once, and holding repeats after
+  400 ms every 80 ms; the release adds no extra step, while keyboard activation
+  steps once. The container carries the spin-button role and the arrows are
+  named "Increase" and "Decrease". MyGO's single `.Label` name and its
+  Up/Down/Home/End handling are not ported.
+
+The split panes (`split`, `split_vertical`, `split_percent`,
+`split_vertical_percent`) are documented in [desktop widgets](desktop-widgets.md).
 
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized

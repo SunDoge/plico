@@ -1,7 +1,7 @@
 //! The MyGO ports must project their roles into the semantic tree, where the
 //! native accessibility bridges read them.
 use plico::UiContext;
-use plico::widgets::{MeterLevels, breadcrumbs, meter};
+use plico::widgets::{MeterLevels, breadcrumbs, meter, split, stepper};
 use plico_renderer::{FrameSource, SemanticRole, TextContext};
 use plico_runtime::{HostView, Source};
 
@@ -21,6 +21,19 @@ impl HostView for Trails {
                 critical: Some(95.),
             },
         );
+        let mut value = 4.0;
+        stepper(cx, &mut value, 1.0..=99.0, 1.0);
+        let mut pane = 120.0;
+        split(
+            cx,
+            &mut pane,
+            |cx| {
+                cx.text("Left");
+            },
+            |cx| {
+                cx.text("Right");
+            },
+        );
     }
 }
 
@@ -34,6 +47,8 @@ fn breadcrumbs_and_meter_project_their_semantic_roles() {
     assert_eq!(count(SemanticRole::Navigation), 1);
     assert_eq!(count(SemanticRole::Link), 2);
     assert_eq!(count(SemanticRole::Meter), 1);
+    assert!(count(SemanticRole::SpinButton) >= 1);
+    assert_eq!(count(SemanticRole::Separator), 1);
     assert!(
         semantics
             .nodes

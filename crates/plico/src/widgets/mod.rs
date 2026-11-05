@@ -231,6 +231,7 @@ mod desktop;
 mod indicators;
 mod media;
 mod navigation;
+mod split;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
@@ -239,9 +240,10 @@ pub use composite::{
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
-pub use indicators::{MeterLevels, meter, rating, spinner};
+pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::breadcrumbs;
+pub use split::{split, split_percent, split_vertical, split_vertical_percent};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

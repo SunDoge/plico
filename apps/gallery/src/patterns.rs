@@ -1,9 +1,10 @@
-//! Desktop paradigms demo: tab strips, toolbars, toasts and drag surfaces
-//! (the shared widgets in plico::widgets, MyGO semantics).
+//! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
+//! breadcrumbs, indicators, steppers and split panes (the shared widgets in
+//! plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Patterns {
     tab: usize,
     toasts: ToastHost,
@@ -12,6 +13,24 @@ pub struct Patterns {
     crumb: usize,
     disk: f64,
     stars: u8,
+    copies: f64,
+    pane: f32,
+}
+
+impl Default for Patterns {
+    fn default() -> Self {
+        Self {
+            tab: 0,
+            toasts: ToastHost::default(),
+            toast_count: 0,
+            dot: (0., 0.),
+            crumb: 0,
+            disk: 42.,
+            stars: 3,
+            copies: 1.,
+            pane: 200.,
+        }
+    }
 }
 
 impl Patterns {
@@ -91,6 +110,30 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                 ui.request_rebuild();
             }
             text!(ui, "{} of 5 stars", state.stars).color(Color::Muted);
+            separator(ui);
+            row(ui).gap(8).align(Align::Center) + |ui| {
+                text!(ui, "{} copies", state.copies);
+                stepper(ui, &mut state.copies, 1.0..=99.0, 1.0);
+            };
+        };
+        panel(ui, "Resizable split")
+            .description("Drag the divider: the sidebar width lives in the application state.") + |ui|
+        {
+            let _ = split(
+                ui,
+                &mut state.pane,
+                |ui| {
+                    column(ui).padding(12).height(150.).background(Color::Panel) + |ui| {
+                        text(ui, "Sidebar").weight(650);
+                    };
+                },
+                |ui| {
+                    column(ui).padding(12).height(150.) + |ui| {
+                        text(ui, "Content").weight(650);
+                        text(ui, "The divider moves the first pane and keeps the rest.").color(Color::Muted);
+                    };
+                },
+            );
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

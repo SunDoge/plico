@@ -83,6 +83,8 @@ impl Adapter {
                             Some(plico::WidgetRole::Link) => Role::Link,
                             Some(plico::WidgetRole::Meter) => Role::Meter,
                             Some(plico::WidgetRole::ProgressBar) => Role::ProgressBar,
+                            Some(plico::WidgetRole::SpinButton) => Role::SpinButton,
+                            Some(plico::WidgetRole::Separator) => Role::Separator,
                             None => match n.kind {
                                 Kind::Button | Kind::ButtonBase => Role::Button,
                                 Kind::Slider => Role::Slider,

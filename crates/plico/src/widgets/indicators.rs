@@ -1,12 +1,13 @@
 //! Indicators ported from MyGO's `ui` package: level meters, unknown-length
-//! spinners and star ratings.
+//! spinners, star ratings and numeric steppers.
 //!
 //! They keep MyGO's split between the value the application owns and the
-//! drawing the widget derives from it: the meter and rating read and write
-//! caller state, and the spinner samples only the injected frame clock.
-use crate::WidgetRole;
+//! drawing the widget derives from it: the meter, rating and stepper read and
+//! write caller state, and the spinner samples only the injected frame clock.
 use crate::prelude::*;
 use crate::text;
+use crate::{LocalState, WidgetRole, icons};
+use std::time::Duration;
 
 /// The levels from which a [`meter`] shows that its value is worse, in the
 /// meter's own units. The bar is `Success` colored below them, `Warning`
@@ -253,4 +254,205 @@ pub fn spinner(cx: &mut UiContext) {
             }
         });
     cx.request_animation_frame();
+}
+
+/// The chevron-up for [`stepper`]'s increment arrow (Lucide `chevron-up`).
+const CHEVRON_UP: SvgAsset = SvgAsset::new(
+    r#"<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m18 15-6-6-6 6" />
+</svg>
+"#,
+);
+
+/// How long an arrow is held before it steps repeatedly (MyGO 400 ms).
+const STEP_HOLD_DELAY: Duration = Duration::from_millis(400);
+/// The repeat interval after the hold delay (MyGO 80 ms).
+const STEP_REPEAT_MS: u128 = 80;
+
+/// One arrow's hold bookkeeping: when the press started and how many steps it
+/// has applied, so repeats do not run twice in a frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct StepHold {
+    started: Option<Duration>,
+    applied: u32,
+}
+
+/// The stepper's transient hold state, keyed by declaration identity. It never
+/// enters checkpoints, and a restore releases an in-flight hold.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct StepperHolds {
+    arrows: std::collections::HashMap<u64, StepHold>,
+}
+
+/// A pair of arrows stepping `value` by `step` between the bounds of `range`
+/// (MyGO `Stepper`): the up arrow increases and the down arrow decreases, a
+/// press steps at once and holding keeps stepping after 400 ms, every 80 ms,
+/// as MyGO's does. Values are snapped to the step grid anchored at the low
+/// bound and clamped to the range. Returns whether the value changed.
+///
+/// The arrows are buttons named "Increase" and "Decrease"; the container
+/// carries the spin-button role. MyGO names the whole stepper with
+/// `.Label(...)` and handles Up/Down/Home/End on it; Plico has no
+/// per-container accessible-name API and no focus action wiring yet, so the
+/// two arrows are separate focus stops without arrow-key handling.
+///
+/// ```text
+/// row(cx).gap(6) + |cx| {
+///     text!(cx, "{} copies", copies);
+///     stepper(cx, &mut copies, 1.0..=99.0, 1.0);
+/// };
+/// ```
+pub fn stepper(
+    cx: &mut UiContext,
+    value: &mut f64,
+    range: std::ops::RangeInclusive<f64>,
+    step: f64,
+) -> bool {
+    let before = *value;
+    // Non-finite or reversed bounds fall back to a single-point range rather
+    // than panicking in `clamp`.
+    let start = if range.start().is_finite() {
+        *range.start()
+    } else {
+        0.
+    };
+    let end = if range.end().is_finite() {
+        *range.end()
+    } else {
+        start
+    };
+    let (low, high) = (start.min(end), start.max(end));
+    *value = snap_value(*value, low, high, step);
+    let m = cx.theme().metrics;
+    let holds = cx.transient_state("plico.stepper", StepperHolds::default);
+    // Stable per-frame identity for each arrow's hold, distinct from other
+    // steppers under the same parent.
+    let up_id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
+    let down_id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
+    let height = m.space(4) as f32;
+    column(cx)
+        .width(m.space(5) as f32)
+        .radius(m.radius as f32)
+        .border(1., Color::Border)
+        .background(Color::Surface)
+        .clip(true)
+        .semantic_role(WidgetRole::SpinButton)
+        .children(|cx| {
+            stepper_arrow(cx, value, low, high, step, true, height, up_id, &holds);
+            stepper_arrow(cx, value, low, high, step, false, height, down_id, &holds);
+        });
+    *value != before
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stepper_arrow(
+    cx: &mut UiContext,
+    value: &mut f64,
+    low: f64,
+    high: f64,
+    step: f64,
+    up: bool,
+    height: f32,
+    id: u64,
+    holds: &LocalState<StepperHolds>,
+) {
+    let can = if up { *value < high } else { *value > low };
+    let mut pressing = false;
+    let response = button_base(cx, if up { "Increase" } else { "Decrease" })
+        .width_percent(100.)
+        .height(height)
+        .padding(0.)
+        .min_height(0.)
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .hover_background(Color::ControlHover)
+        .pressed_background(Color::ControlPressed)
+        .color(if can { Color::Foreground } else { Color::Muted })
+        .disabled(!can)
+        .semantic_role(WidgetRole::SpinButton)
+        .children(|cx| {
+            let _ = svg(
+                cx,
+                if up {
+                    &CHEVRON_UP
+                } else {
+                    &icons::CHEVRON_DOWN
+                },
+            )
+            .size(height * 0.55, height * 0.55);
+            pressing = can && cx.pressed();
+            if pressing {
+                let now = cx.now();
+                let mut hold = holds.read().arrows.get(&id).copied().unwrap_or_default();
+                let started = hold.started.unwrap_or(now);
+                let elapsed = now.saturating_sub(started);
+                let due = if elapsed > STEP_HOLD_DELAY {
+                    1 + u32::try_from((elapsed - STEP_HOLD_DELAY).as_millis() / STEP_REPEAT_MS)
+                        .unwrap_or(u32::MAX)
+                } else {
+                    1
+                };
+                if due > hold.applied {
+                    let direction = if up { step } else { -step };
+                    for _ in hold.applied..due {
+                        *value = snap_value(*value + direction, low, high, step);
+                    }
+                    hold.applied = due;
+                }
+                hold.started = Some(started);
+                holds.update(|holds| {
+                    holds.arrows.insert(id, hold);
+                });
+                // The repeats run on the frame clock, not on pointer moves.
+                cx.request_animation_frame();
+            }
+        })
+        .response;
+    if pressing {
+        return;
+    }
+    let was_holding = holds.read().arrows.contains_key(&id);
+    if was_holding {
+        // The release frame also reports a click; the press already stepped,
+        // so only forget the hold.
+        holds.update(|holds| {
+            holds.arrows.remove(&id);
+        });
+        return;
+    }
+    // Keyboard/assistive activation arrives as a click without a press.
+    if response.clicked() && can {
+        let direction = if up { step } else { -step };
+        *value = snap_value(*value + direction, low, high, step);
+    }
+}
+
+/// Snap `value` to the grid anchored at `low`, clamped to `[low, high]`, and
+/// rounded away from accumulated floating-point noise as MyGO's `snap` does.
+fn snap_value(value: f64, low: f64, high: f64, step: f64) -> f64 {
+    let value = if value.is_finite() {
+        value.clamp(low, high)
+    } else {
+        low
+    };
+    if !step.is_finite() || step <= 0. || high <= low {
+        return value;
+    }
+    let snapped = low + ((value - low) / step).round() * step;
+    let snapped = if snapped > high {
+        snapped - step
+    } else {
+        snapped
+    };
+    ((snapped * 1e9).round() / 1e9).clamp(low, high)
 }

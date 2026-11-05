@@ -223,6 +223,10 @@ pub enum WidgetRole {
     Meter,
     /// A work indicator, determinate or not (mygo Spinner).
     ProgressBar,
+    /// A pair of arrows stepping a bounded value (mygo Stepper).
+    SpinButton,
+    /// An adjustable divider between regions (mygo Split).
+    Separator,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

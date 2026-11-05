@@ -233,3 +233,103 @@ fn semantic_colors_resolve_from_the_theme_with_legacy_defaults() {
     assert_eq!(legacy.warning, defaults.warning);
     assert_eq!(legacy.danger, defaults.danger);
 }
+
+fn named(engine: &Engine, label: &str) -> Entity {
+    let mut found = Vec::new();
+    collect(
+        engine,
+        engine.root(),
+        &mut |entity, node| (node.text == label).then_some(entity),
+        &mut found,
+    );
+    *found.first().expect("a node with that label")
+}
+
+#[test]
+fn stepper_snaps_to_the_step_grid_and_clamps_the_value() {
+    let mut value = 0.300_000_000_000_000_04_f64;
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=1.0, 0.1);
+    });
+    assert!(
+        (value - 0.3).abs() < 1e-9,
+        "float noise is rounded away: {value}"
+    );
+
+    let mut out_of_range = 5.0_f64;
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut out_of_range, 0.0..=1.0, 0.1);
+    });
+    assert_eq!(
+        out_of_range, 1.0,
+        "values above the range clamp to the high bound"
+    );
+}
+
+#[test]
+fn stepper_steps_on_activation_and_stops_at_the_bounds() {
+    let mut value = 0.0_f64;
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=2.0, 1.0);
+    });
+    let increase = named(&engine, "Increase");
+    let mut changed = false;
+    engine.queue_click(increase);
+    frame(&mut engine, |cx| {
+        changed = stepper(cx, &mut value, 0.0..=2.0, 1.0);
+    });
+    assert_eq!(value, 1.0, "keyboard or pointer activation steps once");
+    assert!(changed);
+    engine.queue_click(increase);
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=2.0, 1.0);
+    });
+    assert_eq!(value, 2.0);
+    engine.queue_click(increase);
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=2.0, 1.0);
+    });
+    assert_eq!(value, 2.0, "a disabled arrow cannot pass the high bound");
+}
+
+#[test]
+fn stepper_holds_to_repeat_faster_after_the_delay() {
+    let mut value = 0.0_f64;
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=100.0, 1.0);
+    });
+    let increase = named(&engine, "Increase");
+    engine.set_pressed(Some(increase));
+    engine.set_time(FrameTime {
+        now: Duration::ZERO,
+        delta: Duration::ZERO,
+    });
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=100.0, 1.0);
+    });
+    assert_eq!(value, 1.0, "a press steps at once");
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(500),
+        delta: Duration::from_millis(500),
+    });
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=100.0, 1.0);
+    });
+    assert_eq!(value, 2.0, "one repeat after 400 ms");
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(900),
+        delta: Duration::from_millis(400),
+    });
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=100.0, 1.0);
+    });
+    assert_eq!(value, 7.0, "repeats every 80 ms while held");
+    engine.set_pressed(None);
+    frame(&mut engine, |cx| {
+        stepper(cx, &mut value, 0.0..=100.0, 1.0);
+    });
+    assert_eq!(value, 7.0, "the release adds no extra step");
+}
