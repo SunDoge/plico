@@ -16,6 +16,7 @@ struct Key {
     size: f64,
     coordinates: Vec<i16>,
     glyph_transform: [f64; 6],
+    embolden: [f64; 2],
     hint: bool,
     color: [f32; 4],
     glyphs: Vec<Glyph>,
@@ -97,8 +98,17 @@ impl GlyphCache {
                 ),
             });
         }
-        if *embolden != kurbo::Vec2::ZERO || !matches!(style, peniko::Style::Fill(_)) {
-            return Err(unsupported("positioned glyph emboldening or stroke"));
+        if !matches!(style, peniko::Style::Fill(_)) {
+            return Err(unsupported("positioned glyph stroke"));
+        }
+        if !embolden.x.is_finite()
+            || !embolden.y.is_finite()
+            || embolden.x < 0.
+            || embolden.y < 0.
+            || embolden.x > f64::from(*font_size) * 2.
+            || embolden.y > f64::from(*font_size) * 2.
+        {
+            return Err(unsupported("invalid positioned glyph emboldening"));
         }
         let peniko::Brush::Solid(color) = brush else {
             return Err(unsupported("non-solid positioned glyph brush"));
@@ -133,6 +143,7 @@ impl GlyphCache {
                 let [ga, gb, gc, gd, ge, gf] = combined.as_coeffs();
                 [ga, gb, gc, gd, ge * scale, gf * scale]
             },
+            embolden: [embolden.x, embolden.y],
             hint: *hint,
             color,
             glyphs: glyphs
@@ -151,6 +162,9 @@ impl GlyphCache {
         key.hint.hash(&mut hash);
         key.coordinates.hash(&mut hash);
         for v in key.glyph_transform {
+            v.to_bits().hash(&mut hash);
+        }
+        for v in key.embolden {
             v.to_bits().hash(&mut hash);
         }
         for v in key.color {
@@ -223,6 +237,7 @@ impl GlyphCache {
                 key.hint,
                 key.color,
                 key.glyph_transform,
+                key.embolden,
             )
             .map_err(|source| Error::Text { source })?
         else {

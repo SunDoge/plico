@@ -250,3 +250,71 @@ fn affine_runs_match_transformed_positions_and_outline_matrices() {
         vec![0; 160 * 96 * 4]
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn emboldened_positioned_runs_render_wider_and_darker_than_plain() {
+    let mut text = TextContext::new();
+    let layout = plico_renderer::text::layout_text(&mut text, "Bold text bold 中文", 20.);
+    let plain = text.glyph_scene(&layout);
+    let Some(run) = plain
+        .commands
+        .iter()
+        .find(|c| matches!(c, PaintCommand::GlyphRun { .. }))
+        .cloned()
+    else {
+        panic!("expected a positioned glyph run");
+    };
+    // Synthetic bold: the classic FreeType strength of about 1/24 em.
+    let mut bold = plain.commands.clone();
+    for command in bold.iter_mut() {
+        if let PaintCommand::GlyphRun { embolden, .. } = command {
+            *embolden = kurbo::Vec2::new(20. / 24., 20. / 24.);
+        }
+    }
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut scene = Scene::new();
+    scene.commands = plain.commands.clone();
+    let plain_pixels = renderer
+        .render_scene(&scene, [260, 64], [0.; 4], false)
+        .expect("plain run renders");
+    let mut scene = Scene::new();
+    scene.commands = bold;
+    let bold_pixels = renderer
+        .render_scene(&scene, [260, 64], [0.; 4], false)
+        .expect("emboldened run must render instead of being rejected");
+    let ink = |pixels: &[u8]| pixels.iter().map(|p| u32::from(*p)).sum::<u32>();
+    let plain_ink = ink(&plain_pixels);
+    let bold_ink = ink(&bold_pixels);
+    assert!(
+        bold_ink > plain_ink,
+        "emboldening must add ink: {bold_ink} vs {plain_ink}"
+    );
+    // The widened strokes must reach further right than the plain coverage.
+    let rightmost = |pixels: &[u8]| {
+        (0..64)
+            .rev()
+            .flat_map(|y| (0..260).rev().map(move |x| (y, x)))
+            .find(|&(y, x)| pixels[(y * 260 + x) * 4 + 3] > 40)
+            .map(|(_, x)| x)
+            .unwrap_or(0)
+    };
+    assert!(
+        rightmost(&bold_pixels) >= rightmost(&plain_pixels),
+        "emboldened coverage must not shrink"
+    );
+    // A second identical emboldened frame must hit the raster cache: the
+    // embolden vector is part of the cache key, so this exercises reuse.
+    let mut scene = Scene::new();
+    let mut commands = plain.commands.clone();
+    for command in commands.iter_mut() {
+        if let PaintCommand::GlyphRun { embolden, .. } = command {
+            *embolden = kurbo::Vec2::new(20. / 24., 20. / 24.);
+        }
+    }
+    scene.commands = commands;
+    let again = renderer
+        .render_scene(&scene, [260, 64], [0.; 4], false)
+        .unwrap();
+    assert_eq!(bold_pixels, again);
+}

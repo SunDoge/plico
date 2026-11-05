@@ -128,11 +128,14 @@ impl Font {
         hint: bool,
         color: [f32; 4],
     ) -> Result<Option<Bitmap>> {
-        self.raster_transformed(glyphs, size, hint, color, [1., 0., 0., 1., 0., 0.])
+        self.raster_transformed(glyphs, size, hint, color, [1., 0., 0., 1., 0., 0.], [0.; 2])
     }
     /// Apply an affine transform to each glyph outline independently of its
     /// baseline position. Translation terms are physical pixels. This supports
     /// synthetic skew without shearing line spacing or glyph placement.
+    /// `embolden` is the synthetic-bold expansion in physical pixels along
+    /// each axis; positive values rasterize the run as centered multiple
+    /// strikes, widening stems like outline expansion.
     pub fn raster_transformed(
         &self,
         glyphs: &[Glyph],
@@ -140,9 +143,15 @@ impl Font {
         hint: bool,
         color: [f32; 4],
         matrix: [f64; 6],
+        embolden: [f64; 2],
     ) -> Result<Option<Bitmap>> {
         let [a, b, c, d, _, _] = matrix;
-        if !matrix.iter().all(|v| v.is_finite()) || (a * d - b * c).abs() < 1e-12 {
+        if !matrix.iter().all(|v| v.is_finite())
+            || (a * d - b * c).abs() < 1e-12
+            || !embolden
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0. && *v < size)
+        {
             return Err(Error::InvalidRequest);
         }
         if !size.is_finite()
@@ -176,10 +185,12 @@ impl Font {
         if extents.width() <= 0. || extents.height() <= 0. {
             return Ok(None);
         }
-        let x = (extents.x_bearing() + glyphs[0].x()).floor() - 1.;
-        let y = (extents.y_bearing() + glyphs[0].y()).floor() - 1.;
-        let w = (glyphs[0].x() + extents.x_bearing() + extents.width()).ceil() + 1. - x;
-        let h = (glyphs[0].y() + extents.y_bearing() + extents.height()).ceil() + 1. - y;
+        let x = (extents.x_bearing() + glyphs[0].x()).floor() - embolden[0] - 1.;
+        let y = (extents.y_bearing() + glyphs[0].y()).floor() - embolden[1] - 1.;
+        let w =
+            (glyphs[0].x() + extents.x_bearing() + extents.width()).ceil() + embolden[0] + 1. - x;
+        let h =
+            (glyphs[0].y() + extents.y_bearing() + extents.height()).ceil() + embolden[1] + 1. - y;
         if w > 16384. || h > 16384. || w * h * 4. > 64. * 1024. * 1024. {
             return Err(Error::InvalidRequest);
         }
@@ -195,7 +206,21 @@ impl Font {
                 color[2] as f64,
                 color[3] as f64,
             );
-            context.show_glyphs(&glyphs).context(super::CairoSnafu)?;
+            if embolden == [0., 0.] {
+                context.show_glyphs(&glyphs).context(super::CairoSnafu)?;
+            } else {
+                // Centered strikes: coverage unions into widened stems,
+                // approximating outline expansion for synthetic bold.
+                for (dx, dy) in [
+                    (-embolden[0] * 0.5, -embolden[1] * 0.5),
+                    (embolden[0] * 0.5, embolden[1] * 0.5),
+                ] {
+                    let _ = context.save();
+                    context.translate(dx, dy);
+                    context.show_glyphs(&glyphs).context(super::CairoSnafu)?;
+                    let _ = context.restore();
+                }
+            }
         }
         surface.flush();
         let stride = surface.stride() as usize;
@@ -390,7 +415,7 @@ mod tests {
         let glyphs = [Glyph { id, x: 20., y: 40. }, Glyph { id, x: 65., y: 65. }];
         let matrix = [1., 0., 0.25, 1., 2., -3.];
         let bitmap = font
-            .raster_transformed(&glyphs, 24., false, [1.; 4], matrix)
+            .raster_transformed(&glyphs, 24., false, [1.; 4], matrix, [0.; 2])
             .unwrap()
             .unwrap();
         let mut surface = ImageSurface::create(Format::ARgb32, 128, 96).unwrap();
@@ -439,7 +464,7 @@ mod tests {
             }
         }
         assert!(
-            font.raster_transformed(&glyphs, 24., false, [1.; 4], [0.; 6])
+            font.raster_transformed(&glyphs, 24., false, [1.; 4], [0.; 6], [0.; 2])
                 .is_err()
         );
     }
