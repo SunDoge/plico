@@ -330,8 +330,7 @@ impl ImmediateSettings {
     #[component]
     #[rustfmt::skip]
     fn preferences(&mut self, cx: &mut UiContext) {
-        column(cx).padding(18).gap(14).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
-            text(cx, "Profile / 工作区").font_size(18).weight(600);
+        panel(cx, "Profile / 工作区") + |cx| {
             text(cx, "Workspace name");
             text_input(cx, "Workspace name", &self.name).placeholder("Enter a name").width_percent(100.)
                 .height(36.);
@@ -353,7 +352,7 @@ impl ImmediateSettings {
             checkbox(cx, "Dark theme", &mut self.dark);
             button(cx).text("Disabled action").disabled(true);
         };
-        row(cx).gap(10).wrap(true) + |cx| {
+        plico::widgets::toolbar(cx).padding_x(0).wrap(true) + |cx| {
             if button(cx).icon(&icons::CHECK).text("Save changes").primary().clicked() {
                 self.saves += 1;
                 self.saved = format!(

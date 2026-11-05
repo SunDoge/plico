@@ -552,7 +552,7 @@ pub fn toolbar<'u, 'e>(cx: &'u mut UiContext<'e>) -> crate::Layout<'u, 'e> {
 /// A horizontal stretch inside a [`toolbar`] pushing later content to the
 /// far end.
 pub fn toolbar_spacer(cx: &mut UiContext) {
-    let _ = column(cx).grow(1.);
+    column(cx).width(0.).min_width(0.).grow(1.).end();
 }
 
 /// A pointer-drag surface (MyGO Draggable): while the primary button is

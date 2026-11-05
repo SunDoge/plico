@@ -78,8 +78,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
     let saved = cx.local_persisted_state(3, Saved::default);
     // The component boundary is a real column: it must own the original gap.
     column(cx).gap(18) + |cx| {
-        column(cx).padding(18).gap(14).background(Color::Panel).border(1., Color::Border).radius(8.) + |cx| {
-            text(cx, "Profile / 工作区").font_size(18).weight(600);
+        panel(cx, "Profile / 工作区") + |cx| {
             text(cx, "Workspace name");
             cx.region((name,), |cx, (name,)| {
                 text_input(cx, "Workspace name", &name.read()).placeholder("Enter a name").width_percent(100.)
@@ -94,7 +93,8 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
                 checkbox(cx, "Enable notifications", &mut value).bind(notifications.handle());
             });
             cx.region((advanced,), |cx, (advanced,)| {
-                column(cx).gap(14) + |cx| {
+                let gap = cx.theme().metrics.space(3);
+                column(cx).gap(gap) + |cx| {
                     let mut value = *advanced.read();
                     checkbox(cx, "Show advanced options", &mut value).bind(advanced.handle());
                     if value {
@@ -125,7 +125,7 @@ fn preferences(cx: &mut UiContext, (theme, reduced): (Access<'_, Theme>, Access<
         // These handles are only used by events. A component boundary keeps
         // the toolbar out of the name/saved subscriptions without hidden captures.
         cx.component((name, saved), |cx, (name, saved)| {
-            row(cx).gap(10).wrap(true) + |cx| {
+            plico::widgets::toolbar(cx).padding_x(0).wrap(true) + |cx| {
                 button(cx).icon(&icons::CHECK).text("Save changes").primary()
                     .on_click((name.handle(), saved.handle()), save);
                 button(cx).text("Reset name").on_click((name.handle(),), |(name,)| {
