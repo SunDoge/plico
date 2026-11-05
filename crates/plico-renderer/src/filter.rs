@@ -5,9 +5,10 @@
 //! Backends and platforms read the same value; unsupported graphs are
 //! rejected, never approximated.
 /// How a sampled image extends beyond its bounds (SVG edge modes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EdgeMode {
     /// Extend by transparent black.
+    #[default]
     None,
     /// Extend by duplicating edge pixels (clamp to edge).
     Duplicate,
@@ -15,11 +16,6 @@ pub enum EdgeMode {
     Wrap,
     /// Extend by reflecting each repeated tile.
     Mirror,
-}
-impl Default for EdgeMode {
-    fn default() -> Self {
-        Self::None
-    }
 }
 /// A supported filter primitive.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,10 +91,7 @@ impl GaussianBlur {
         let FilterPrimitive::GaussianBlur {
             std_deviation,
             edge_mode,
-        } = filter.single()?
-        else {
-            return None;
-        };
+        } = filter.single()?;
         if !std_deviation.is_finite() || *std_deviation < 0. || *std_deviation > 64. {
             return None;
         }

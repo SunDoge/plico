@@ -562,7 +562,7 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     scene.push_layer(BlendMode::default(), 1., transform, &clip, None, None);
     let filter = crate::filter::Filter::from_primitive(
         crate::filter::FilterPrimitive::GaussianBlur {
-            std_deviation: sigma.min(64.) as f32,
+            std_deviation: sigma.min(64.),
             edge_mode: crate::filter::EdgeMode::None,
         },
     );
