@@ -108,3 +108,14 @@ browser-side effect compilation; WASM type checking passes, but attempting such 
 surface in that path returns an explicit unsupported error. Typed uniform
 structures, texture inputs, resource file watching and backdrop/filter graphs are
 future work, not current capabilities.
+
+## Embedded complete modules
+
+Use `shader_asset!(module, "assets/custom.wgsl")` for a complete module with
+`vs_main` / `fs_main`, rather than an effect function. Both macro forms retain
+the literal relative path in `ShaderAsset::source_path()` for authoring tools;
+inline assets created with `ShaderAsset::new` or `module` have no path unless
+`with_source_path` is used. This metadata does not enable runtime file watching
+and prefixes runtime source-validation diagnostics with the resource path. GPU
+pipeline diagnostics remain backend-specific. Module resources and uniform ABI
+remain subject to the limits described above.

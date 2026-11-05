@@ -435,3 +435,44 @@ fn control_metric_invalidation_matches_fresh_layout_and_cleans_unmounted_members
     assert_eq!(s.adapter.stats.control_align_checks, 1);
     assert_eq!(s.adapter.stats.control_metric_builds, 1);
 }
+
+#[test]
+fn shader_diagnostics_follow_asset_path_changes_and_recover() {
+    struct Demo {
+        path: &'static str,
+        valid: bool,
+    }
+    impl HostView for Demo {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            let code = if self.valid {
+                "fn plico_effect(uv: vec2f) -> vec4f { return vec4f(uv, 0., 1.); }"
+            } else {
+                "invalid WGSL"
+            };
+            let asset = ShaderAsset::new(code).with_source_path(self.path);
+            shader(cx, &asset).width(32.).height(32.);
+        }
+    }
+    let mut source = Source::new(Demo {
+        path: "effects/first.wgsl",
+        valid: false,
+    });
+    let mut text = TextContext::new();
+    for path in ["effects/first.wgsl", "effects/second.wgsl"] {
+        source.view.path = path;
+        source.request_rebuild();
+        source
+            .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
+            .unwrap();
+        let errors: Vec<_> = source.adapter.shader_diagnostics().collect();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].starts_with(&format!("{path}: ")), "{}", errors[0]);
+    }
+    source.view.valid = true;
+    source.request_rebuild();
+    source
+        .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
+        .unwrap();
+    assert!(source.adapter.shader_diagnostics().next().is_none());
+}

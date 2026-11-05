@@ -72,6 +72,7 @@ impl Adapter {
             }
             surface.sampled = now;
             if surface.authored != logical.text
+                || surface.params.source_path != params.source_path
                 || surface.params.module != params.module
                 || surface.params.sksl != params.sksl
                 || surface.source.is_none() && surface.error.is_none()
@@ -91,7 +92,10 @@ impl Adapter {
                         surface.error = None;
                     }
                     Err(error) => {
-                        surface.error = Some(error);
+                        surface.error = Some(match &params.source_path {
+                            Some(path) => format!("{path}: {error}"),
+                            None => error,
+                        });
                     }
                 }
                 surface.authored.clear();
