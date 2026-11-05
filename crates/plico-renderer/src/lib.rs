@@ -22,8 +22,6 @@ pub mod style;
 pub mod svg;
 pub mod text;
 pub mod vector_path;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
 pub mod widget;
 pub use crate::platform::{EffectCompletion, EffectRequest};
 pub use paint::{Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, SvgDocument};

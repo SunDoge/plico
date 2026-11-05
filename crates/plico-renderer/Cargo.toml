@@ -7,9 +7,6 @@ publish = false
 
 [features]
 profiling = []
-# Native Vello projection is opt-in; ordinary wgpu/Skia consumers do not need it.
-vello = ["dep:vello-gpu"]
-
 [dependencies]
 peniko.workspace = true
 kurbo.workspace = true
@@ -37,8 +34,6 @@ plico-motion = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
-vello-gpu = { workspace = true, features = ["webgl", "text"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wgpu.workspace = true
-vello-gpu = { workspace = true, optional = true, features = ["wgpu", "text"] }

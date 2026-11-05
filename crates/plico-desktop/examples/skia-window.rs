@@ -51,11 +51,7 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-    let renderer = if std::env::var_os("PLICO_COMPARE_VELLO").is_some() {
-        RenderBackend::Vello
-    } else {
-        RenderBackend::Skia
-    };
+    let renderer = RenderBackend::Skia;
     plico_desktop::run_source_with_options(
         Source::new(Counter::default()),
         WindowOptions::new()

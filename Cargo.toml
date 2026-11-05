@@ -50,7 +50,6 @@ kurbo = "0.13.1"
 peniko = "0.6.1"
 vello-common = { package = "vello_common", version = "0.3.0" }
 zeroize = "1.9"
-vello-gpu = { package = "vello_gpu", version = "0.3.0", default-features = false }
 plico-motion = { path = "crates/plico-motion" }
 wgpu = "30"
 wgpu-context = { package = "wgpu_context", version = "0.10.0" }

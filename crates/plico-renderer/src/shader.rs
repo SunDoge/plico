@@ -61,29 +61,29 @@ fn validate_float_uniform(
 }
 
 const SHADER_PREFIX: &str = r#"
-struct WabouShaderUniforms {
+struct PlicoShaderUniforms {
     // x/y: physical output size, z: elapsed seconds, w: device scale.
     resolution_time_scale: vec4<f32>,
     values: array<vec4<f32>, 64>,
 };
 
 @group(0) @binding(0)
-var<uniform> wabou: WabouShaderUniforms;
+var<uniform> plico: PlicoShaderUniforms;
 
-struct WabouVertexOutput {
+struct PlicoVertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> WabouVertexOutput {
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> PlicoVertexOutput {
     var positions = array<vec2<f32>, 3>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>(3.0, -1.0),
         vec2<f32>(-1.0, 3.0),
     );
     let position = positions[vertex_index];
-    var output: WabouVertexOutput;
+    var output: PlicoVertexOutput;
     output.position = vec4<f32>(position, 0.0, 1.0);
     output.uv = position * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
     return output;
@@ -92,8 +92,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> WabouVertexOutput {
 
 const SHADER_SUFFIX: &str = r#"
 @fragment
-fn fs_main(input: WabouVertexOutput) -> @location(0) vec4<f32> {
-    return wabou_effect(input.uv);
+fn fs_main(input: PlicoVertexOutput) -> @location(0) vec4<f32> {
+    return plico_effect(input.uv);
 }
 "#;
 
@@ -135,16 +135,16 @@ impl ShaderTextureId {
     }
 }
 
-/// A validated WGSL function compiled under Wabou's stable shader prelude.
+/// A validated WGSL function compiled under the Plico shader prelude.
 ///
 /// New source defines `fn plico_effect(uv: vec2<f32>) -> vec4<f32>` and reads
 /// `plico.resolution_time_scale` and the 256 scalar values in `plico.values`.
-/// The legacy `wabou_effect`/`wabou` spelling remains supported. Surface outputs
+/// Surface outputs
 /// use premultiplied RGBA, matching the shared texture/SkSL compositing contract. Extra bind groups are deliberately rejected so renderer
 /// resource ownership remains explicit.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ShaderEffectInterface {
-    WabouEffect,
+    PlicoEffect,
     CompleteModule,
 }
 
@@ -183,32 +183,13 @@ impl ShaderEffectSource {
                 "shader source exceeds the {MAX_SOURCE_BYTES}-byte limit"
             ));
         }
-        // Prefer Plico names for new effects; validate the legacy interface as
-        // a fallback without rewriting authored identifiers or comments.
-        let prefix = SHADER_PREFIX
-            .replace("Wabou", "Plico")
-            .replace("wabou", "plico");
-        let suffix = SHADER_SUFFIX
-            .replace("Wabou", "Plico")
-            .replace("wabou", "plico");
-        let modern = Self::validated(
-            format!("{prefix}\n{source}\n{suffix}"),
-            ShaderEffectInterface::WabouEffect,
-        );
-        match modern {
-            Ok(source) => Ok(source),
-            Err(modern_error) => Self::validated(
-                format!("{SHADER_PREFIX}\n{source}\n{SHADER_SUFFIX}"),
-                ShaderEffectInterface::WabouEffect,
-            )
-            .map_err(|legacy_error| {
-                if source.contains("plico_effect") {
-                    modern_error
-                } else {
-                    legacy_error
-                }
-            }),
-        }
+        // The Plico shader prelude supplies the vertex stage, the `plico`
+        // uniform and the fragment entry point; authored sources define
+        // `plico_effect` against it.
+        Self::validated(
+            format!("{SHADER_PREFIX}\n{source}\n{SHADER_SUFFIX}"),
+            ShaderEffectInterface::PlicoEffect,
+        )
     }
 
     /// Validate a complete single-pass WGSL module.
@@ -447,7 +428,7 @@ impl ShaderEffectSource {
     }
 }
 
-/// One resolved custom-shader draw retained in Wabou's paint stream.
+/// One resolved custom-shader draw retained in the shared paint stream.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShaderEffect {
     pub(crate) id: ShaderEffectId,
@@ -503,7 +484,7 @@ struct EffectTarget {
 impl EffectTarget {
     fn new(device: &Device, layout: &BindGroupLayout, size: [u16; 2]) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Wabou custom shader target"),
+            label: Some("Plico custom shader target"),
             size: wgpu::Extent3d {
                 width: u32::from(size[0]),
                 height: u32::from(size[1]),
@@ -518,13 +499,13 @@ impl EffectTarget {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Wabou custom shader uniforms"),
+            label: Some("Plico custom shader uniforms"),
             size: (UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>()) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wabou custom shader bind group"),
+            label: Some("Plico custom shader bind group"),
             layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -559,7 +540,7 @@ pub struct ShaderRenderer {
 impl ShaderRenderer {
     pub fn new(device: &Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Wabou custom shader layout"),
+            label: Some("Plico custom shader layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -682,7 +663,7 @@ impl ShaderRenderer {
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Wabou custom shader pass"),
+                label: Some("Plico custom shader pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &target.view,
                     depth_slice: None,
@@ -716,17 +697,17 @@ impl ShaderRenderer {
             return pipeline.clone();
         }
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wabou custom shader"),
+            label: Some("Plico custom shader"),
             source: wgpu::ShaderSource::Wgsl(source.wgsl().as_ref().into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Wabou custom shader pipeline layout"),
+            label: Some("Plico custom shader pipeline layout"),
             bind_group_layouts: &[Some(group_layout)],
             immediate_size: 0,
         });
         let pipeline = Arc::new(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Wabou custom shader pipeline"),
+                label: Some("Plico custom shader pipeline"),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -760,7 +741,7 @@ impl ShaderRenderer {
 fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
     let mut uniforms = [0.0; UNIFORM_FLOAT_COUNT];
     match effect.source.interface() {
-        ShaderEffectInterface::WabouEffect => {
+        ShaderEffectInterface::PlicoEffect => {
             let count = effect.values.len().min(PARAMETER_COUNT);
             uniforms[4..4 + count].copy_from_slice(&effect.values[..count]);
             uniforms[3] = effect.device_scale;
@@ -811,7 +792,7 @@ mod tests {
     #[test]
     fn validates_the_public_effect_function_contract() {
         ShaderEffectSource::new(
-            "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv, 0.0, 1.0); }",
+            "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv, 0.0, 1.0); }",
         )
         .unwrap();
         assert!(ShaderEffectSource::new("fn nope() {}").is_err());
@@ -821,7 +802,7 @@ mod tests {
     #[test]
     fn rejects_resources_outside_the_uniform_contract() {
         let error = ShaderEffectSource::new(
-            "@group(1) @binding(0) var image: texture_2d<f32>;\nfn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return textureLoad(image, vec2<i32>(uv), 0); }",
+            "@group(1) @binding(0) var image: texture_2d<f32>;\nfn plico_effect(uv: vec2<f32>) -> vec4<f32> { return textureLoad(image, vec2<i32>(uv), 0); }",
         )
         .unwrap_err();
         assert!(error.contains("@group(1) @binding(0)"), "{error}");

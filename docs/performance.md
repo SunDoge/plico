@@ -501,7 +501,7 @@ trace 有额外开销，以下仅用于阶段定位，不与无 trace 绝对数�
 
 ```sh
 cargo build --release -p lyrune-plico --features skia,profiling --example lyric_damage
-RUST_LOG=warn PLICO_TRACE_FILTER='plico::layout=trace,plico::perf=trace,plico::skia=trace,wabou::perf=trace' PLICO_TRACE_FILE=reports/plico/lyrics-trace.json target/release/examples/lyric_damage --cover cover.jpg --mode damage --frames 1200 --scale 1.75 --device Intel --paced
+RUST_LOG=warn PLICO_TRACE_FILTER='plico::layout=trace,plico::perf=trace,plico::skia=trace' PLICO_TRACE_FILE=reports/plico/lyrics-trace.json target/release/examples/lyric_damage --cover cover.jpg --mode damage --frames 1200 --scale 1.75 --device Intel --paced
 ```
 
 省略 `PLICO_TRACE_FILE` 测无 trace 基线，`--mode full` 对照全量绘制。
@@ -543,7 +543,7 @@ paused 仍强制调用帧入口，不能据此推断窗口空闲时的唤醒频�
 ## 缓存与工作量 tracing
 
 启用应用的 `profiling` feature 并设置 `PLICO_TRACE_FILE` 后，默认 Chrome/
-Perfetto 过滤器现在包含 `wabou` 以及 `plico::perf`、`plico::layout`、
+Perfetto 过滤器包含 `plico::perf`、`plico::layout`、
 `plico::skia`、`plico::cache`。仍不接收 winit、zbus 等依赖的 TRACE 噪声。
 `RUST_LOG` 单独控制终端输出，`PLICO_TRACE_FILTER` 可覆盖文件过滤器。
 例如在 Lyrune checkout 中记录真实窗口（正常关闭窗口以完整 flush 文件）：

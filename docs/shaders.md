@@ -1,6 +1,6 @@
 # Custom WGSL surfaces
 
-Plico 的 shader 是普通声明叶子。`plico-wgpu` 与 `plico-vello` 共用 WGSL 校验及效果管线；Skia 可使用资源附带的独立 SkSL 实现。shader 不替代布局、文字或输入节点。
+Plico 的 shader 是普通声明叶子。`plico-wgpu` 承载 WGSL 校验及效果管线；Skia 可使用资源附带的独立 SkSL 实现。shader 不替代布局、文字或输入节点。
 
 ```rust
 static AURORA: ShaderAsset = plico::shader_asset!("aurora.wgsl");
@@ -97,7 +97,7 @@ premultiplied RGBA (multiply RGB by alpha for translucent output).
 The SkSL prelude declares `uniform float4 resolution_time_scale` (physical
 width, physical height, seconds, device scale), and `uniform float4 values[64]`
 (up to 256 scalars, zero-filled when absent). WGSL exposes the same fields
-through `wabou`. These names are reserved; additional uniforms and child
+through `plico`. These names are reserved; additional uniforms and child
 shaders are not part of this interface. This is not a WGSL-to-SkSL translator.
 
 Skia compiles RuntimeEffects on first use and reuses them across frames with
@@ -115,7 +115,7 @@ rendering the complete page with Skia at two viewport sizes.
 当前参数是最多 256 个 `f32`，不是任意 Rust struct 的内存映射。类型化参数布局、
 图片／sampler 输入和多 pass 渲染图尚未实现；不能将 `.values()` 解释为这些能力。
 效果输出裁剪在节点表面内，外扩阴影或 backdrop 读取也没有单独的 damage 契约。
-新 WGSL 优先使用 `plico_effect` / `plico`；旧 `wabou_effect` / `wabou` 名称仍保留兼容。
+WGSL 入口为 `plico_effect` / `plico`；历史 `wabou` 拼写已随 Vello 后端一并移除。
 
 ## 具名模块参数
 

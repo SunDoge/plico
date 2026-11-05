@@ -167,18 +167,13 @@ The independent `plico-wgpu` backend is the default desktop renderer and remains
 under active development. Skia is the primary rendering-quality reference.
 Vello receives minimal compatibility maintenance and may be removed: existing functionality
 is retained, but shared-interface changes receive only necessary compile fixes;
-new features and parity with Skia/wgpu are not promised. Mainline Linux/Windows
-CI checks Skia/wgpu; a separate Linux compile step keeps the optional Vello host
-compatible without GPU acceptance tests. Browser/WASM Vello integration remains
-in place as a compatibility path. The browser Gallery now defaults to wgpu
-(WebGPU adapter detection with WebGL2 fallback), with Canvas2D ordinary text.
-WebGL2 interaction tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU,
-rich text, full IME and WebGL2 blur are not yet accepted. See [browser scope](web.md).
-This policy does not remove the shared `vello_common` types.
-
-Historical Vello image comparisons remain available explicitly with
-`plico-wgpu/vello-compare` (including the `compare_quads` example); they are not
-part of default wgpu development checks.
+The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
+path and the `vello-compare` tooling are deleted; wgpu is the default desktop
+renderer and Skia remains the quality comparison target. The browser Gallery
+uses wgpu (WebGPU adapter detection with WebGL2 fallback), with Canvas2D
+ordinary text and a render-pass Gaussian blur on WebGL2. WebGL2 interaction
+tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU, rich text and
+full IME are not yet accepted. See [browser scope](web.md).
 
 The default Cargo features, automatic window/capture selection and new-app CLI
 template now use wgpu. Explicit Skia selection remains supported; video examples
@@ -187,7 +182,7 @@ imply full renderer parity or Windows/macOS runtime acceptance.
 
 Shared Scene support in `plico-wgpu` is unconditional; the former `paint-scene`
 feature has been removed. `--no-default-features` disables system text but retains
-Scene preparation/rendering. `system-text`, `window` and `vello-compare` remain
+Scene preparation/rendering. `system-text` and `window` remain
 independent options. Remove explicit `paint-scene` entries from consumer manifests.
 
 wgpu windows now enable damage by default, following MyGO's default partial-redraw

@@ -50,10 +50,8 @@ pub enum RenderBackend {
     /// Prefer Skia, falling back to another compiled renderer.
     #[default]
     Auto,
-    /// Experimental independent wgpu consumer; requires the shell's `wgpu` feature.
+    /// Independent wgpu consumer; requires the shell's `wgpu` feature.
     Wgpu,
-    /// Vello GPU consumer.
-    Vello,
     /// Default Skia Vulkan consumer; requires the shell's `skia` feature.
     Skia,
     /// Experimental native egui controls with Taffy geometry; requires the
@@ -131,7 +129,7 @@ impl Default for WindowOptions {
     fn default() -> Self {
         Self {
             renderer: RenderBackend::Auto,
-            title: "wabou".into(),
+            title: "plico".into(),
             initial_inner_size: (800, 600),
             min_inner_size: None,
             max_inner_size: None,

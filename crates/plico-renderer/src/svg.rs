@@ -1,7 +1,6 @@
 //! Parsed, reusable SVG scene fragments.
-//! Parsing and retained documents are backend-neutral. Native Vello projection
-//! helpers require the `vello` feature; the existing WASM WebGL backend enables
-//! that projection on its own target.
+//! Parsing, retained documents and fidelity reports are backend-neutral;
+//! backends rasterize or project the retained tree however they need.
 
 #![warn(missing_docs)]
 
@@ -13,12 +12,7 @@ use snafu::{ResultExt, Snafu};
 use crate::SvgDocument;
 pub use usvg;
 
-#[cfg(any(feature = "vello", target_arch = "wasm32"))]
-mod vello;
-#[cfg(any(feature = "vello", target_arch = "wasm32"))]
-pub use vello::{append, append_tree, append_tree_with_transform, render};
-
-/// A feature which could not be represented faithfully by Vello GPU.
+/// A feature which could not be represented faithfully by a GPU adapter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum UnsupportedFeature {
@@ -50,15 +44,7 @@ pub struct RenderReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[cfg(any(feature = "vello", target_arch = "wasm32"))]
-impl RenderReport {
-    fn unsupported(&mut self, feature: UnsupportedFeature, node_id: &str) {
-        self.diagnostics.push(Diagnostic {
-            feature,
-            node_id: (!node_id.is_empty()).then(|| node_id.to_owned()),
-        });
-    }
-}
+impl RenderReport {}
 
 /// Failure to parse or decode an SVG resource.
 #[derive(Debug, Snafu)]
@@ -162,5 +148,5 @@ mod tests {
     }
 }
 
-#[cfg(all(test, any(feature = "vello", target_arch = "wasm32")))]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod adapter_tests;

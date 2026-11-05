@@ -1,11 +1,10 @@
 use plico::{Clock, VirtualClock};
-use plico_renderer::{FrameSource, Scene, TextContext, UiEvent, web::WebRenderer};
+use plico_renderer::{FrameSource, Scene, TextContext, UiEvent};
 use plico_runtime::{HostView, Source};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 enum BrowserRenderer {
-    Vello(Box<WebRenderer>),
     #[cfg(feature = "wgpu")]
     Wgpu(Box<plico_wgpu::web::WebRenderer>),
 }
@@ -19,14 +18,6 @@ pub struct WebHost<V: HostView> {
     clock: VirtualClock,
 }
 impl<V: HostView> WebHost<V> {
-    pub fn new(canvas: web_sys::HtmlCanvasElement, view: V) -> Result<Self, JsValue> {
-        let renderer = WebRenderer::new(canvas.clone()).map_err(error)?;
-        Ok(Self::with_renderer(
-            canvas,
-            view,
-            BrowserRenderer::Vello(Box::new(renderer)),
-        ))
-    }
     #[cfg(feature = "wgpu")]
     pub async fn new_wgpu(
         canvas: web_sys::HtmlCanvasElement,
@@ -73,7 +64,6 @@ impl<V: HostView> WebHost<V> {
     }
     pub fn renderer_name(&self) -> &'static str {
         match &self.renderer {
-            BrowserRenderer::Vello(_) => "vello-webgl2",
             #[cfg(feature = "wgpu")]
             BrowserRenderer::Wgpu(renderer) => renderer.backend_name(),
         }
@@ -123,16 +113,11 @@ impl<V: HostView> WebHost<V> {
             (f64::from(width) * scale).ceil() as u32,
             (f64::from(height) * scale).ceil() as u32,
         ];
-        match &mut self.renderer {
-            BrowserRenderer::Vello(renderer) => renderer
-                .render(&self.scene, size[0], size[1])
-                .map_err(error)?,
-            #[cfg(feature = "wgpu")]
-            BrowserRenderer::Wgpu(renderer) => {
-                renderer
-                    .render(&self.scene, size, self.source.base_color().components)
-                    .map_err(|e| error(e.to_string()))?;
-            }
+        #[cfg(feature = "wgpu")]
+        if let BrowserRenderer::Wgpu(renderer) = &mut self.renderer {
+            renderer
+                .render(&self.scene, size, self.source.base_color().components)
+                .map_err(|e| error(e.to_string()))?;
         }
         Ok(self.source.has_anim())
     }
@@ -290,15 +275,6 @@ pub struct Gallery {
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
 impl Gallery {
-    #[wasm_bindgen(constructor)]
-    pub fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Self, JsValue> {
-        Ok(Self {
-            host: WebHost::new(
-                canvas,
-                plico_runtime::NativeApp(gallery::Gallery::default()),
-            )?,
-        })
-    }
     #[cfg(feature = "wgpu")]
     pub async fn create_wgpu(
         canvas: web_sys::HtmlCanvasElement,

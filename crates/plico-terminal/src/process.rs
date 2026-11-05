@@ -41,7 +41,7 @@ pub(super) fn pty_spawn_parts(launch: &LaunchConfig) -> (String, Vec<String>) {
         let mut args = vec![
             "TERM=xterm-256color".into(),
             "COLORTERM=truecolor".into(),
-            "TERM_PROGRAM=wabou".into(),
+            "TERM_PROGRAM=plico".into(),
             format!("TERM_PROGRAM_VERSION={}", env!("CARGO_PKG_VERSION")),
             launch.command.clone(),
         ];

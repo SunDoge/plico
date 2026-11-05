@@ -995,7 +995,7 @@ fn tracked_damage_crossing_unchanged_nested_text_fragment_matches_full_pixels() 
 fn sksl_uses_injected_time_parameters_and_reports_compile_errors() {
     use plico_renderer::{ShaderEffectId, ShaderEffectSource, TextContext, widget::PaintContext};
     use std::sync::Arc;
-    let wgsl = "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv,0.,1.); }";
+    let wgsl = "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv,0.,1.); }";
     let mut surface = SkiaSurface::new(16, 16).unwrap();
     let mut text = TextContext::new();
     let mut render = |source: &str, time| {

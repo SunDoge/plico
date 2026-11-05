@@ -120,11 +120,11 @@ mod tests {
     fn storage_namespaces_cannot_escape_local_data() {
         let dirs = AppDirectories::resolve(
             &AppDirectoryConfig::new("dev", "Wabou", "Directory Test"),
-            "/opt/wabou/resources",
+            "/opt/plico/resources",
         )
         .expect("platform has a home directory");
 
-        assert_eq!(dirs.resource_dir, PathBuf::from("/opt/wabou/resources"));
+        assert_eq!(dirs.resource_dir, PathBuf::from("/opt/plico/resources"));
         assert!(
             dirs.storage_namespace("kv")
                 .unwrap()

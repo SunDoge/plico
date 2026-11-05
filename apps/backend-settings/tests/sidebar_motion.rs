@@ -1,6 +1,6 @@
 //! Sidebar animation behavior on a virtual clock: tween continuity, rapid
 //! reversal, viewport auto-collapse, reduced motion and layout coexistence.
-#![cfg(any(feature = "vello", feature = "skia"))]
+#![cfg(feature = "skia")]
 use backend_settings::{Page, Settings};
 use plico::VirtualClock;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};

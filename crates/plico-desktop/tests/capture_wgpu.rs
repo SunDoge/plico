@@ -100,9 +100,9 @@ fn wgpu_capture_preserves_premultiplied_pixels_and_writes_straight_alpha_png() {
 #[test]
 fn capture_rejects_unavailable_backend_without_silent_fallback() {
     assert!(matches!(
-        capture(&mut Empty).renderer(RenderBackend::Vello).render(),
+        capture(&mut Empty).renderer(RenderBackend::Egui).render(),
         Err(plico_desktop::CaptureError::Backend {
-            backend: RenderBackend::Vello
+            backend: RenderBackend::Egui
         })
     ));
     assert!(capture(&mut Empty).size(0, 40).render().is_err());

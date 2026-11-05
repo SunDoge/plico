@@ -113,8 +113,9 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    including background changes, unchanged frames and target replacement by raw
    rendering. The shared window enables damage by default; `PLICO_WGPU_DAMAGE=0` disables it.
    Physical-display/Wayland verification and representative performance are pending.
-6. **Replacement:** run representative gallery, editor, terminal, image/OCR and
-   animation apps before changing defaults or removing the Vello implementation.
+6. **Replacement:** the default moved to wgpu with representative apps running on it;
+   the Vello implementation has since been removed entirely, leaving wgpu as the
+   desktop default and Skia as the quality comparison target.
 
 WGSL is a material/coverage implementation tool, not the application's state or
 layout language. The existing public shader widget accepts embedded WGSL assets and explicit

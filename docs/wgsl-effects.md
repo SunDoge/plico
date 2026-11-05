@@ -28,8 +28,7 @@ fn plico_effect(uv: vec2f) -> vec4f {
 }
 ```
 
-The existing `wabou_effect` / `wabou` spelling remains supported. Authored shader
-identifiers are not rewritten. The renderer supplies:
+Authored shader identifiers are not rewritten. The renderer supplies:
 
 - `plico.resolution_time_scale.xy`: physical output width/height.
 - `.z`: injected effect time in seconds; `.w`: device scale.
@@ -81,19 +80,13 @@ back conservatively. Expanding effects or backdrop effects will need an explicit
 resource/damage contract before extending this interface.
 
 Native effect outputs and pipelines reuse the shared renderer resource helper,
-through a wgpu-view interface rather than Vello scene or texture-binding replay.
-The shared `ShaderRenderer` now returns its own process-local `ShaderTextureId`
-and a native view through `render_texture`; Vello-specific texture-ID conversion
-and binding registration live in plico-vello. The wgpu consumer uses `render_view`
-and never registers a Vello texture. A GPU test renders two versions of one
-effect in the same snapshot through both adapters and checks matching output
-pixels, guarding against resource/uniform aliasing at this boundary.
-This removes the shader helper's direct type coupling. Native SVG projection
-now requires plico-renderer's `vello` feature, enabled by plico-vello; ordinary
-native wgpu/Skia consumers no longer require `vello_gpu` through the shared
-crate. `vello_common` remains for existing data/filter types, and the WASM WebGL
-implementation still uses Vello. This is not a claim that the full dependency
-graph is Vello-free.
+through a wgpu-view interface rather than scene or texture-binding replay.
+The shared `ShaderRenderer` returns its own process-local `ShaderTextureId`
+and a native view through `render_texture`; the wgpu consumer uses `render_view`.
+A GPU test renders two versions of one effect in the same snapshot through
+both paths and checks matching output pixels, guarding against resource and
+uniform aliasing at this boundary. The Vello adapter that once consumed these
+has been removed with the backend.
 The native bridge limits a frame to 256 effect draws and 128 MiB of declared output
 pixel payload, in addition to device dimension limits. Pipelines use the shared
 16-entry LRU. Removed output surfaces are released; cached pipelines may remain.

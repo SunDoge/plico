@@ -5,8 +5,8 @@ pub mod i18n;
 pub mod icons;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub mod images;
+mod legacy_icons;
 pub mod tree_view;
-mod wabou_icons;
 use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
 mod components;

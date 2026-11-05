@@ -76,7 +76,7 @@ const { chromium } = require("playwright");
       await page.waitForFunction(() => !window.plico.state.expanded);
       await healthy();
       const backend = await page.evaluate(() => window.plico.backend);
-      if (backend === "vello-webgl2") {
+      if (backend === "webgl2") {
         await click("Glass");
         await page.waitForFunction(() => window.plico.state.router.current === "Glass");
         await click("Move background");
@@ -108,7 +108,7 @@ const { chromium } = require("playwright");
       await page.waitForTimeout(200);
       assert.equal(await page.evaluate(()=>window.plico.frames), frames+1, "wake burst rAF");
       await healthy();
-      console.log(JSON.stringify({scale,backend,frames,page:"Controls",counter:3,checks:["pointer","theme","text-input","keyboard2048","virtual-scroll","shader-fallback",...(backend === "vello-webgl2" ? ["backdrop-blur"] : []),"grid-layout","resize","idle"]}));
+      console.log(JSON.stringify({scale,backend,frames,page:"Controls",counter:3,checks:["pointer","theme","text-input","keyboard2048","virtual-scroll","shader-fallback",...(backend === "webgl2" ? ["backdrop-blur"] : []),"grid-layout","resize","idle"]}));
       await context.close();
     }
   } finally { await browser.close(); }

@@ -642,7 +642,7 @@ impl<V: HostView> Source<V> {
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.
         #[cfg(feature = "profiling")]
-        let span = tracing::trace_span!(target: "wabou::perf", "frame.declare");
+        let span = tracing::trace_span!(target: "plico::perf", "frame.declare");
         #[cfg(feature = "profiling")]
         let _guard = span.enter();
         let passes = self

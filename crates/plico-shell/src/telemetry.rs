@@ -287,7 +287,7 @@ impl Drop for Span<'_> {
         if let (Some(recorder), Some(mut event)) = (self.recorder, self.event.take()) {
             event.dur = micros(recorder.start.elapsed()).saturating_sub(event.ts);
             let overhead = Instant::now();
-            tracing::trace!(target:"wabou::perf",operation=%event.name,category=%event.cat,duration_us=event.dur,id=event.args.get("id").copied().unwrap_or(0),"measurement.complete");
+            tracing::trace!(target:"plico::perf",operation=%event.name,category=%event.cat,duration_us=event.dur,id=event.args.get("id").copied().unwrap_or(0),"measurement.complete");
             recorder.record(self.generation, event);
             recorder
                 .overhead_ns
@@ -319,8 +319,8 @@ pub fn span(category: &str, name: &str) -> Span<'static> {
 /// the Chrome layer; without it only the stderr fmt layer is installed and no
 /// Chrome layer exists at all (its default would create `trace-*.json` in the
 /// working directory). The fmt layer is filtered by `RUST_LOG` (default
-/// `info,wabou=trace`); the Chrome layer is filtered by `PLICO_TRACE_FILTER`
-/// (default Plico perf/layout/Skia/cache targets and `wabou=trace`) because
+/// `info,plico=trace`); the Chrome layer is filtered by `PLICO_TRACE_FILTER`
+/// (default Plico perf/layout/Skia/cache targets and `plico=trace`) because
 /// a trace file is a perf artifact —
 /// dependency TRACE noise such as winit or zbus would otherwise dominate it.
 /// Returns a guard that must live for the whole process: Chrome writes the
@@ -395,11 +395,11 @@ fn report_existing_subscriber() {
 }
 /// Filter defaults kept as constants so tests can assert them.
 #[cfg(feature = "profiling")]
-pub const FMT_DEFAULT: &str = "info,wabou=trace";
+pub const FMT_DEFAULT: &str = "info,plico=trace";
 /// Default filter directives for the Chrome trace layer: perf spans only.
 #[cfg(feature = "profiling")]
 pub const TRACE_DEFAULT: &str =
-    "wabou=trace,plico::perf=trace,plico::layout=trace,plico::skia=trace,plico::cache=trace";
+    "plico::perf=trace,plico::layout=trace,plico::skia=trace,plico::cache=trace";
 /// Environment variable overriding the Chrome layer's filter directives.
 #[cfg(feature = "profiling")]
 const TRACE_FILTER_ENV: &str = "PLICO_TRACE_FILTER";
@@ -549,7 +549,7 @@ mod tracing_setup {
         // probes are spelled out.
         let probe_all = |dispatch: &tracing::Dispatch| {
             tracing::dispatcher::with_default(dispatch, || {
-                let span = tracing::span!(target: "wabou::perf", tracing::Level::TRACE, "probe");
+                let span = tracing::span!(target: "plico::perf", tracing::Level::TRACE, "probe");
                 std::mem::drop(span.enter());
             });
             tracing::dispatcher::with_default(dispatch, || {
@@ -588,7 +588,7 @@ mod tracing_setup {
         // artifact, so its default admits only our own span targets.
         assert_eq!(
             targets_reaching_layer(FMT_DEFAULT),
-            vec!["my_app", "wabou::perf"]
+            vec!["my_app", "plico::perf"]
         );
         assert_eq!(
             targets_reaching_layer(TRACE_DEFAULT),
@@ -597,7 +597,7 @@ mod tracing_setup {
                 "plico::layout",
                 "plico::perf",
                 "plico::skia",
-                "wabou::perf"
+                "plico::perf"
             ]
         );
     }

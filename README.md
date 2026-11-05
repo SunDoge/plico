@@ -110,7 +110,7 @@ Backends do not yet have feature parity; Bevy and `no_std` are not integrated.
 
 Desktop windows and captures prefer wgpu when enabled. Enable `plico-desktop/skia`
 for comparison and select Skia explicitly when both are enabled; use
-`default-features = false` with `skia` or `vello` for a
+`default-features = false` with `skia` for a
 single-renderer build. An explicit unavailable renderer returns an error. The
 current Skia window backend uses Vulkan and requires a working Vulkan device;
 it does not automatically fall back after initialization fails.
@@ -128,7 +128,7 @@ in `apps/` without it.
 | --- | --- |
 | Renderer-independent declarations | `plico`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
 | Runtime and desktop host | `plico-runtime`, `plico-desktop` |
-| Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-vello`, `plico-motion`, `plico-native` |
+| Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-motion`, `plico-native` |
 | Alternative backends | `plico-skia`, `plico-fltk`, `plico-lvgl`, `plico-web-host` |
 | Development tools | `plico-cli`, `plico-dev`, `plico-macros` |
 | Rich content | `plico-markdown`, `plico-editor`, `plico-terminal` |

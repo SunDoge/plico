@@ -1,8 +1,6 @@
 //! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
 use crate::{RenderBackend, Scene};
 use peniko::Color;
-#[cfg(feature = "vello")]
-use plico_vello as renderer_backend;
 #[cfg(feature = "skia")]
 use snafu::ResultExt;
 use std::sync::Arc;
@@ -14,8 +12,6 @@ pub(crate) enum WindowRenderer {
         active: Option<Box<plico_wgpu::WgpuWindow>>,
         transparent: bool,
     },
-    #[cfg(feature = "vello")]
-    Vello(Box<renderer_backend::WindowRenderer>),
     #[allow(dead_code)]
     Unavailable,
     #[cfg(feature = "skia")]
@@ -121,8 +117,6 @@ impl WindowRenderer {
     }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
-            #[cfg(feature = "vello")]
-            Self::Vello(_) => None,
             Self::Unavailable => None,
             #[cfg(feature = "wgpu")]
             Self::Wgpu {
@@ -143,12 +137,7 @@ impl WindowRenderer {
         }
     }
     #[cfg_attr(
-        not(any(
-            feature = "vello",
-            feature = "skia",
-            feature = "egui",
-            feature = "wgpu"
-        )),
+        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
         allow(unused_variables)
     )]
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
@@ -162,25 +151,11 @@ impl WindowRenderer {
                 {
                     Self::new(RenderBackend::Skia, transparent)
                 }
-                #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "vello"))]
-                {
-                    Self::new(RenderBackend::Vello, transparent)
-                }
-                #[cfg(all(
-                    not(feature = "skia"),
-                    not(feature = "wgpu"),
-                    not(feature = "vello"),
-                    feature = "egui"
-                ))]
+                #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "egui"))]
                 {
                     Self::new(RenderBackend::Egui, transparent)
                 }
-                #[cfg(not(any(
-                    feature = "skia",
-                    feature = "vello",
-                    feature = "egui",
-                    feature = "wgpu"
-                )))]
+                #[cfg(not(any(feature = "skia", feature = "egui", feature = "wgpu")))]
                 {
                     Err(crate::Error::Renderer {
                         message: "no renderer enabled".into(),
@@ -199,22 +174,6 @@ impl WindowRenderer {
                 {
                     Err(crate::Error::Renderer {
                         message: "wgpu requires plico-shell's wgpu feature".into(),
-                    })
-                }
-            }
-            RenderBackend::Vello => {
-                #[cfg(feature = "vello")]
-                {
-                    renderer_backend::WindowRenderer::new(transparent)
-                        .map(|renderer| Self::Vello(Box::new(renderer)))
-                        .map_err(|error| crate::Error::Renderer {
-                            message: error.to_string(),
-                        })
-                }
-                #[cfg(not(feature = "vello"))]
-                {
-                    Err(crate::Error::Renderer {
-                        message: "Vello requires plico-shell's vello feature".into(),
                     })
                 }
             }
@@ -251,12 +210,7 @@ impl WindowRenderer {
         }
     }
     #[cfg_attr(
-        not(any(
-            feature = "vello",
-            feature = "skia",
-            feature = "egui",
-            feature = "wgpu"
-        )),
+        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
         allow(unused_variables)
     )]
     pub(crate) fn resume(
@@ -266,8 +220,6 @@ impl WindowRenderer {
         height: u32,
     ) -> crate::Result<()> {
         match self {
-            #[cfg(feature = "vello")]
-            Self::Vello(renderer) => renderer.resume(window, width, height),
             Self::Unavailable => {}
             #[cfg(feature = "wgpu")]
             Self::Wgpu {
@@ -351,18 +303,11 @@ impl WindowRenderer {
         Ok(())
     }
     #[cfg_attr(
-        not(any(
-            feature = "vello",
-            feature = "skia",
-            feature = "egui",
-            feature = "wgpu"
-        )),
+        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
         allow(unused_variables)
     )]
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         match self {
-            #[cfg(feature = "vello")]
-            Self::Vello(renderer) => renderer.resize(width, height),
             Self::Unavailable => {}
             #[cfg(feature = "wgpu")]
             Self::Wgpu {
@@ -443,12 +388,7 @@ impl WindowRenderer {
         }
     }
     #[cfg_attr(
-        not(any(
-            feature = "vello",
-            feature = "skia",
-            feature = "egui",
-            feature = "wgpu"
-        )),
+        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
         allow(unused_variables)
     )]
     pub(crate) fn render(
@@ -459,11 +399,6 @@ impl WindowRenderer {
         color: Color,
     ) -> crate::Result<bool> {
         match self {
-            #[cfg(feature = "vello")]
-            Self::Vello(renderer) => {
-                renderer.render(scene, width, height, color);
-                Ok(true)
-            }
             #[cfg(feature = "wgpu")]
             Self::Wgpu {
                 active: Some(renderer),
@@ -552,28 +487,16 @@ mod tests {
         assert!(matches!(result, Ok(WindowRenderer::Skia { .. })));
         #[cfg(feature = "wgpu")]
         assert!(matches!(result, Ok(WindowRenderer::Wgpu { .. })));
-        #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "vello"))]
-        assert!(matches!(result, Ok(WindowRenderer::Vello(_))));
-        #[cfg(all(
-            not(feature = "skia"),
-            not(feature = "wgpu"),
-            not(feature = "vello"),
-            feature = "egui"
-        ))]
+        #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "egui"))]
         assert!(matches!(result, Ok(WindowRenderer::Egui { .. })));
-        #[cfg(not(any(
-            feature = "skia",
-            feature = "vello",
-            feature = "egui",
-            feature = "wgpu"
-        )))]
+        #[cfg(not(any(feature = "skia", feature = "egui", feature = "wgpu")))]
         assert!(result.is_err());
     }
 
     #[test]
-    #[cfg(not(feature = "vello"))]
-    fn explicit_vello_reports_missing_feature() {
-        assert!(WindowRenderer::new(RenderBackend::Vello, false).is_err());
+    #[cfg(not(feature = "wgpu"))]
+    fn explicit_wgpu_reports_missing_feature() {
+        assert!(WindowRenderer::new(RenderBackend::Wgpu, false).is_err());
     }
 
     #[test]

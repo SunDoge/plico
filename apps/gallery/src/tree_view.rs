@@ -251,9 +251,9 @@ fn tree(cx: &mut UiContext, roots: &'static [TreeNode], state: &mut TreeState, c
                     let item = if branch { item.expanded(expanded) } else { item };
                     let clicked = item.children(|cx| {
                         let image = if branch {
-                            if expanded { &crate::wabou_icons::FOLDER_OPEN } else { &crate::icons::FOLDER }
+                            if expanded { &crate::legacy_icons::FOLDER_OPEN } else { &crate::icons::FOLDER }
                         } else {
-                            &crate::wabou_icons::FILE_TEXT
+                            &crate::legacy_icons::FILE_TEXT
                         };
                         svg(cx, image).size(16., 16.);
                         text(cx, title.as_ref()).font_size(14).weight(if selected { 600 } else { 400 })

@@ -9,8 +9,7 @@ publish = false
 profiling = ["plico-runtime/profiling", "dep:tracing", "dep:tracing-subscriber"]
 default = ["wgpu"]
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
-# Keep Skia capture available for the existing Vello sidebar_capture example.
-vello = ["plico-desktop/vello", "plico-desktop/skia", "plico-shell/vello", "dep:plico-desktop", "dep:plico-shell"]
+# Offline capture uses the shell's headless offscreen renderer (wgpu by default).
 wgpu = ["dep:plico-desktop", "plico-desktop/wgpu", "dep:tracing-subscriber"]
 skia = ["dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
 egui = [
@@ -39,7 +38,7 @@ plico-shell = { path = "../../crates/plico-shell", optional = true }
 
 [[example]]
 name = "sidebar_capture"
-required-features = ["vello"]
+required-features = ["wgpu"]
 
 [[example]]
 name = "fltk_probe"
@@ -51,6 +50,7 @@ required-features = ["fltk"]
 
 [dev-dependencies]
 peniko.workspace = true
+plico-shell = { path = "../../crates/plico-shell" }
 
 [[example]]
 name = "damage_probe"

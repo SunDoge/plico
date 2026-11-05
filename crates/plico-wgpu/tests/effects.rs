@@ -187,20 +187,6 @@ fn shader_versions_in_one_snapshot_keep_distinct_uniforms_and_premultiplied_outp
         [64, 0, 0, 128]
     );
     assert_eq!(renderer.effect_cache_stats(), (2, 2 * 16 * 16 * 4, 1));
-    #[cfg(feature = "vello-compare")]
-    {
-        // The Vello adapter must register the neutral output identities separately,
-        // without aliasing two versions of the same public effect ID.
-        let mut vello = plico_vello::ImageRenderer::new(32, 16);
-        let vello_pixels = vello.render(&scene, 32, 16, peniko::Color::TRANSPARENT);
-        for x in [8, 24] {
-            let offset = (8 * 32 + x) * 4;
-            assert_eq!(
-                &vello_pixels[offset..offset + 4],
-                &pixels[offset..offset + 4]
-            );
-        }
-    }
 }
 #[test]
 #[ignore = "requires a working wgpu adapter"]

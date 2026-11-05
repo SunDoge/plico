@@ -329,7 +329,7 @@ impl App {
         }
         let retained = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.retained");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.retained");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "retained.cpu");
@@ -344,7 +344,7 @@ impl App {
         }
         let (node_count, build_frame_ms, scene_ms) = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.build");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.build");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "build.cpu");
@@ -467,7 +467,7 @@ impl App {
             }
             Err(error) => {
                 tracing::warn!(
-                    target: "wabou::ime",
+                    target: "plico::ime",
                     %error,
                     "failed to reset IME before pointer selection"
                 );
@@ -514,7 +514,7 @@ impl App {
         );
         if shell.window().request_ime_update(request).is_ok() {
             self.ime_enabled = true;
-            tracing::debug!(target: "wabou::ime", "enabled IME for focused editor");
+            tracing::debug!(target: "plico::ime", "enabled IME for focused editor");
         }
     }
 
@@ -550,13 +550,13 @@ impl App {
                 Ok(()) => {
                     self.ime_enabled = false;
                     tracing::debug!(
-                        target: "wabou::ime",
+                        target: "plico::ime",
                         "restarting IME after focused text client changed"
                     );
                 }
                 Err(error) => {
                     tracing::warn!(
-                        target: "wabou::ime",
+                        target: "plico::ime",
                         %error,
                         "failed to reset IME after focused text client changed"
                     );
@@ -593,7 +593,7 @@ impl App {
                 .is_ok()
             {
                 tracing::debug!(
-                    target: "wabou::ime",
+                    target: "plico::ime",
                     x = position.x,
                     y = position.y,
                     width = size.width,
@@ -873,7 +873,7 @@ impl App {
         self.performance_hud.begin_frame(Instant::now());
         #[cfg(feature = "profiling")]
         let frame_span = tracing::trace_span!(
-            target: "wabou::perf",
+            target: "plico::perf",
             "frame",
             window_id = %self.window_key,
             node_count = tracing::field::Empty,
@@ -943,7 +943,7 @@ impl App {
         let t2 = Instant::now();
         let presented = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.present");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.present");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "present.cpu");
@@ -972,7 +972,7 @@ impl App {
         frame_span.record("present_ms", present_ms);
         #[cfg(feature = "profiling")]
         tracing::trace!(
-            target: "wabou::perf",
+            target: "plico::perf",
             window_id = %self.window_key,
             node_count,
             build_ms = build_frame_ms,

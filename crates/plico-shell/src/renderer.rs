@@ -2,20 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::Scene;
 use image::ImageEncoder as _;
 use peniko::Color;
-#[cfg(any(feature = "vello", feature = "skia", feature = "wgpu"))]
+#[cfg(any(feature = "skia", feature = "wgpu"))]
 use snafu::OptionExt;
 use snafu::ResultExt;
-#[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
-use std::sync::{Mutex, OnceLock};
-
-use crate::Scene;
-#[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
-use plico_vello::ImageRenderer;
-
-#[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
-static IMAGE_RENDERER: OnceLock<Mutex<ImageRenderer>> = OnceLock::new();
 
 /// Render a retained scene to an RGBA image using an enabled backend.
 pub fn render_to_image(
@@ -26,21 +18,6 @@ pub fn render_to_image(
 ) -> crate::Result<image::RgbaImage> {
     if width == 0 || height == 0 || width > u16::MAX as u32 || height > u16::MAX as u32 {
         return Err(crate::Error::InvalidRenderSize { width, height });
-    }
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
-    {
-        plico_vello::render_size(width, height)
-            .map_err(|_| crate::Error::InvalidRenderSize { width, height })?;
-        let mut renderer = IMAGE_RENDERER
-            .get_or_init(|| Mutex::new(ImageRenderer::new(width, height)))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        image::RgbaImage::from_raw(
-            width,
-            height,
-            renderer.render(scene, width, height, base_color),
-        )
-        .context(crate::error::InvalidImageBufferSnafu { width, height })
     }
     #[cfg(feature = "wgpu")]
     {
@@ -88,7 +65,7 @@ pub fn render_to_image(
         image::RgbaImage::from_raw(width, height, pixels)
             .context(crate::error::InvalidImageBufferSnafu { width, height })
     }
-    #[cfg(not(any(feature = "vello", feature = "skia", feature = "wgpu")))]
+    #[cfg(not(any(feature = "skia", feature = "wgpu")))]
     {
         let _ = (scene, width, height, base_color);
         Err(crate::Error::Renderer {
@@ -174,7 +151,6 @@ mod tests {
     use crate::PaintScene;
     use kurbo::{Affine, Rect};
     use peniko::Fill;
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
     use std::sync::Arc;
 
     #[test]
@@ -189,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn gpu_renderer_replays_wabou_scene() {
+    fn gpu_renderer_replays_plico_scene() {
         let mut scene = Scene::new();
         scene.fill(
             Fill::NonZero,
@@ -239,11 +215,10 @@ mod tests {
         assert_eq!(image.get_pixel(8, 8).0, [240, 20, 60, 255]);
     }
 
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
     #[test]
     fn gpu_renderer_composites_and_resizes_custom_wgsl() {
         let source = crate::ShaderEffectSource::new(
-            "fn wabou_effect(_uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
+            "fn plico_effect(_uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
         )
         .unwrap();
         let id = crate::ShaderEffectId::new();
@@ -261,11 +236,10 @@ mod tests {
         assert_eq!(second.get_pixel(4, 8).0, [0, 255, 0, 255]);
     }
 
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
     #[test]
     fn shader_versions_in_one_scene_do_not_alias_textures_or_uniform_buffers() {
         let source = crate::ShaderEffectSource::new(
-            "fn wabou_effect(_uv: vec2<f32>) -> vec4<f32> { return wabou.values[0]; }",
+            "fn plico_effect(_uv: vec2<f32>) -> vec4<f32> { return plico.values[0]; }",
         )
         .unwrap();
         let id = crate::ShaderEffectId::new();
@@ -291,7 +265,6 @@ mod tests {
         assert_eq!(restored.get_pixel(24, 8).0, [0, 255, 0, 255]);
     }
 
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
     #[test]
     fn gpu_renderer_composites_complete_shader_modules() {
         let source = crate::ShaderEffectSource::new_module(
@@ -326,7 +299,6 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32, color: vec4<f32> };
         assert_eq!(image.get_pixel(2, 2).0, [0, 0, 0, 255]);
     }
 
-    #[cfg(all(feature = "vello", not(feature = "skia"), not(feature = "wgpu")))]
     #[test]
     fn gpu_renderer_composes_svg_groups_and_clip_paths() {
         let svg = crate::svg::SvgImage::parse(

@@ -545,7 +545,7 @@ impl TextContext {
         }
         #[cfg(feature = "profiling")]
         let span = tracing::trace_span!(
-            target: "wabou::perf",
+            target: "plico::perf",
             "text.glyph_encode.cache_miss",
             lines = layout.len() as u64,
             device_scale,
@@ -767,7 +767,7 @@ pub fn layout_text_styled_with_spacing(
     }
     #[cfg(feature = "profiling")]
     let span = tracing::trace_span!(
-        target: "wabou::perf",
+        target: "plico::perf",
         "text.shape.cache_miss",
         bytes = text.len() as u64,
         styled_runs = runs.len() as u64,

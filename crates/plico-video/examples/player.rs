@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let renderer = if cfg!(feature = "skia") {
         plico_desktop::RenderBackend::Skia
     } else {
-        plico_desktop::RenderBackend::Vello
+        plico_desktop::RenderBackend::Wgpu
     };
     plico_desktop::run_source_with_options(
         SurfaceSource::new(

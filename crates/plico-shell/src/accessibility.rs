@@ -451,7 +451,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn initial_tree_identifies_the_wabou_window() {
+    fn initial_tree_identifies_the_plico_window() {
         let update = root_update("Gallery".into(), 800.0, 600.0, 1.0, true, None);
         assert_eq!(update.focus, ROOT_ID);
         assert_eq!(update.tree.as_ref().unwrap().root, ROOT_ID);

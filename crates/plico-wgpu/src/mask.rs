@@ -41,18 +41,36 @@ impl MaskCache {
         parent: Option<&CoverageMask>,
     ) -> Result<Rc<CoverageMask>> {
         let Some(parent) = parent else {
+            // The child raster already covers its own bounds; keep whatever
+            // fractional edge the clip geometry produced clamped to it.
+            let [x0, y0, x1, y1] = [
+                bounds.x0.floor(),
+                bounds.y0.floor(),
+                (bounds.x1.ceil() as i64).min((bounds.x0 as i64) + image.width as i64) as f64,
+                (bounds.y1.ceil() as i64).min((bounds.y0 as i64) + image.height as i64) as f64,
+            ];
             return Ok(Rc::new(CoverageMask {
                 image,
-                rect: [
-                    bounds.x0 as f32,
-                    bounds.y0 as f32,
-                    bounds.width() as f32,
-                    bounds.height() as f32,
-                ],
+                rect: [x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32],
             }));
         };
         let outer = parent.bounds();
+        // Align outward to whole pixels: CoverageMask rects must be integer
+        // (the renderer validates it), and HiDPI blur halos inflate clips to
+        // fractional bounds. Ceil keeps the mask covering everything the
+        // floating-point intersection did, clamped back into the child image
+        // so the rasterized coverage stays the source of the dimensions.
         let rect = bounds.intersect(outer);
+        let rect = Rect::new(
+            rect.x0.floor(),
+            rect.y0.floor(),
+            (rect.x1.ceil() as i64)
+                .min((bounds.x0 as i64) + image.width as i64)
+                .max(rect.x0.floor() as i64) as f64,
+            (rect.y1.ceil() as i64)
+                .min((bounds.y0 as i64) + image.height as i64)
+                .max(rect.y0.floor() as i64) as f64,
+        );
         // An empty intersection is represented by an all-zero one-pixel mask;
         // the independent clip rectangle prevents it from drawing anything.
         if rect.width() <= 0. || rect.height() <= 0. {

@@ -201,7 +201,7 @@ fn enabling_and_removing_last_selectable_owner_updates_selection_index() {
 #[test]
 fn shader_registry_tracks_mount_and_unmount_without_gpu_rasterization() {
     static EFFECT: ShaderAsset =
-        ShaderAsset::new("fn wabou_effect(_uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(1.0); }");
+        ShaderAsset::new("fn plico_effect(_uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(1.0); }");
     struct Demo {
         present: bool,
     }
