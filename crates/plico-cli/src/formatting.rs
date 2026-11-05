@@ -1,4 +1,4 @@
-//! Component formatting is deliberately confined to skipped component functions.
+//! Rust components and standalone WGSL formatting share selection and atomic writes.
 use crate::{Error, IoSnafu, MetadataSnafu, Result};
 use snafu::ResultExt;
 use std::{
@@ -928,6 +928,39 @@ impl<'p> Formatter<'p> {
     }
 }
 
+fn format_wgsl(path: &Path, source: &[u8], width: usize) -> Result<Vec<u8>> {
+    let source = std::str::from_utf8(source).map_err(|e| failure(path, e.to_string()))?;
+    let parse = |text: &str| {
+        wgsl_parser::parse_entrypoint_with_capabilities(
+            text,
+            wgsl_parser::ParseEntryPoint::File,
+            wgsl_parser::Edition::LATEST,
+            wgsl_parser::Capabilities::default(),
+        )
+    };
+    let parsed = parse(source);
+    if let Some(error) = parsed.errors().first() {
+        return Err(failure(path, format!("WGSL syntax error: {error}")));
+    }
+    let options = wgsl_formatter::FormattingOptions {
+        max_line_width: width as u32,
+        ..Default::default()
+    };
+    let mut formatted = wgsl_formatter::format_node(&parsed.syntax(), &options)
+        .map_err(|e| failure(path, format!("WGSL formatting failed: {e}")))?;
+    if !formatted.is_empty() && !formatted.ends_with('\n') {
+        formatted.push('\n');
+    }
+    let result = parse(&formatted);
+    if let Some(error) = result.errors().first() {
+        return Err(failure(
+            path,
+            format!("formatter produced invalid WGSL: {error}"),
+        ));
+    }
+    Ok(formatted.into_bytes())
+}
+
 fn collect(path: &Path, files: &mut BTreeSet<PathBuf>) -> Result<()> {
     let metadata = fs::symlink_metadata(path).context(IoSnafu)?;
     if metadata.file_type().is_symlink() {
@@ -945,7 +978,10 @@ fn collect(path: &Path, files: &mut BTreeSet<PathBuf>) -> Result<()> {
             }
             collect(&entry.path(), files)?;
         }
-    } else if path.extension().is_some_and(|ext| ext == "rs") {
+    } else if path
+        .extension()
+        .is_some_and(|ext| ext == "rs" || ext == "wgsl")
+    {
         files.insert(path.canonicalize().context(IoSnafu)?);
     }
     Ok(())
@@ -987,7 +1023,7 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<u8> {
                 continue;
             }
             let root = package.manifest_path.parent().unwrap().as_std_path();
-            for name in ["src", "tests", "examples", "benches"] {
+            for name in ["src", "tests", "examples", "benches", "shaders", "assets"] {
                 let path = root.join(name);
                 if path.exists() {
                     collect(&path, &mut files)?;
@@ -1013,7 +1049,7 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<u8> {
         }
     }
     if files.is_empty() && !options.paths.is_empty() {
-        return Err(failure(manifest, "no Rust files selected"));
+        return Err(failure(manifest, "no Rust or WGSL files selected"));
     }
     let roots: BTreeMap<_, _> = packages
         .iter()
@@ -1033,7 +1069,11 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<u8> {
             .max_by_key(|(root, _)| root.components().count())
             .map_or("2024", |(_, edition)| *edition);
         let original = fs::read(&path).context(IoSnafu)?;
-        let formatted = Formatter::new(&path, edition, options.width)?.format(&original)?;
+        let formatted = if path.extension().is_some_and(|ext| ext == "wgsl") {
+            format_wgsl(&path, &original, options.width)?
+        } else {
+            Formatter::new(&path, edition, options.width)?.format(&original)?
+        };
         if original != formatted {
             changed.push((path, original, formatted));
         }

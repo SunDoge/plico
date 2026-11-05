@@ -132,7 +132,7 @@ enum Action {
         #[usage(trailing_var_arg = true, allow_hyphen_values = true)]
         arguments: Vec<OsString>,
     },
-    /// Format ordinary Rust and skipped Plico components together.
+    /// Format Rust, skipped Plico components and standalone WGSL together.
     Fmt {
         /// Report unformatted files without writing them.
         #[usage(long)]
@@ -146,7 +146,7 @@ enum Action {
         /// Maximum flattened component chain width (default: 120).
         #[usage(long)]
         width: Option<usize>,
-        /// Optional Rust files or directories, relative to the working directory.
+        /// Optional Rust/WGSL files or directories, relative to the working directory.
         paths: Vec<PathBuf>,
     },
     Clippy {
