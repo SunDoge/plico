@@ -386,6 +386,7 @@ impl<V: HostView> Source<V> {
                 || tooltip_active
                 || scroll.changed
                 || self.adapter.scroll_dirty
+                || self.adapter.selection_dirty
                 || self.declarations_pending
             {
                 self.update_backend(tcx, width, height);

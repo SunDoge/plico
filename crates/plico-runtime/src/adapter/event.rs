@@ -46,7 +46,11 @@ impl Adapter {
         if let Some(response) = self.input_event(engine, &mut event) {
             return response;
         }
+        let had_focus = self.focused.is_some();
         if let Some(response) = self.selection_event(engine, &event) {
+            // Read-only selection is backend presentation state. Losing an
+            // input focus can still require the application's normal settlement.
+            *declare = had_focus;
             return response;
         }
         let old_focus = self.focused;

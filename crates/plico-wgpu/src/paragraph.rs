@@ -62,7 +62,7 @@ impl NativeParagraph for Paragraph {
             .selection_rects(range)
             .unwrap_or_default()
             .into_iter()
-            .map(|r| r.map(|v| v as f32))
+            .map(|[x, y, w, h]| [x as f32, y as f32, (x + w) as f32, (y + h) as f32])
             .collect()
     }
 }

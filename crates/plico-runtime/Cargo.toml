@@ -6,6 +6,7 @@ license.workspace = true
 description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
 
 [dependencies]
+unicode-segmentation = "1.12"
 elsa = "1.11.2"
 slotmap.workspace = true
 peniko.workspace = true

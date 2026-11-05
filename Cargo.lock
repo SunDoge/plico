@@ -4929,6 +4929,7 @@ dependencies = [
  "snafu",
  "taffy",
  "tracing",
+ "unicode-segmentation",
  "web-time",
  "zeroize",
 ]

@@ -1,6 +1,8 @@
 //! Read-only paragraph selection uses the exact shaped layouts used for painting.
 use super::*;
-use plico_renderer::{ClipboardRequest, Point};
+use plico_renderer::{ClipboardRequest, Point, PointerId, PointerType};
+use std::{ops::Range, time::Duration};
+use unicode_segmentation::UnicodeSegmentation;
 
 struct Paragraph {
     entity: Entity,
@@ -13,13 +15,67 @@ struct Endpoint {
     entity: Entity,
     byte: usize,
 }
+struct Press {
+    entity: Entity,
+    pointer: PointerId,
+    pointer_type: PointerType,
+    position: Point,
+    time: Duration,
+    count: u8,
+}
 #[derive(Default)]
 pub(super) struct TextSelection {
     paragraphs: Vec<Paragraph>,
     anchor: Option<Endpoint>,
     head: Option<Endpoint>,
     dragging: bool,
+    last_press: Option<Press>,
+    unit: u8,
+    start: Option<(Endpoint, Endpoint)>,
     pub(super) hovered: bool,
+}
+fn grapheme_floor(text: &str, byte: usize) -> usize {
+    if byte >= text.len() {
+        return text.len();
+    }
+    text.grapheme_indices(true)
+        .take_while(|(i, _)| *i <= byte)
+        .last()
+        .map_or(0, |(i, _)| i)
+}
+// Unicode segmentation keeps combining text and emoji sequences intact. This
+// is UAX #29 word segmentation, not dictionary-based CJK word inference.
+fn unit_range(text: &str, byte: usize, unit: u8) -> Range<usize> {
+    let byte = grapheme_floor(text, byte);
+    let range = if unit == 3 {
+        let start = text[..byte]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        let end = text[byte..]
+            .char_indices()
+            .find(|(_, c)| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+            .map_or(text.len(), |(i, _)| byte + i);
+        start..end
+    } else {
+        text.split_word_bound_indices()
+            .find(|(start, word)| byte < start + word.len())
+            .or_else(|| text.split_word_bound_indices().next_back())
+            .map_or(0..0, |(start, word)| start..start + word.len())
+    };
+    let start = text
+        .grapheme_indices(true)
+        .take_while(|(i, _)| *i <= range.start)
+        .last()
+        .map_or(0, |(i, _)| i);
+    let end = text
+        .grapheme_indices(true)
+        .map(|(i, _)| i)
+        .chain(std::iter::once(text.len()))
+        .find(|i| *i >= range.end)
+        .unwrap_or(text.len());
+    start..end
 }
 /// Shared empty selection rects: `Arc::from([])` allocates a header on every
 /// construction, and the no-selection path builds one per placed node per
@@ -109,6 +165,7 @@ impl Adapter {
                     .find(|p| p.entity == end.entity)
                     .is_some_and(|p| {
                         p.text.is_char_boundary(end.byte)
+                            && grapheme_floor(&p.text, end.byte) == end.byte
                             && self
                                 .selection
                                 .paragraphs
@@ -121,6 +178,8 @@ impl Adapter {
             self.selection.anchor = None;
             self.selection.head = None;
             self.selection.dragging = false;
+            self.selection.last_press = None;
+            self.selection.start = None;
         }
         self.selection.paragraphs = paragraphs;
         let ranges = self.selected_ranges();
@@ -136,6 +195,7 @@ impl Adapter {
                     .get_node_context_mut(p.node_id)
                     .unwrap()
                     .selection_rects = empty_rects();
+                self.scene_dirty_nodes.insert(p.node_id);
                 self.stats.paint_writes += 1;
             }
         } else {
@@ -159,6 +219,7 @@ impl Adapter {
                         .unwrap()
                         .selection_rects = rects.clone();
                     p.paint.selection_rects = rects;
+                    self.scene_dirty_nodes.insert(p.node_id);
                     self.stats.paint_writes += 1;
                 }
             }
@@ -258,7 +319,66 @@ impl Adapter {
             });
             distance = d;
         }
-        best
+        best.map(|mut end| {
+            if let Some(para) = self
+                .selection
+                .paragraphs
+                .iter()
+                .find(|p| p.entity == end.entity)
+            {
+                end.byte = grapheme_floor(&para.text, end.byte);
+            }
+            end
+        })
+    }
+    fn selection_unit(&self, point: Endpoint, unit: u8) -> (Endpoint, Endpoint) {
+        let range = self
+            .selection
+            .paragraphs
+            .iter()
+            .find(|p| p.entity == point.entity)
+            .map(|p| unit_range(&p.text, point.byte, unit))
+            .unwrap_or(point.byte..point.byte);
+        (
+            Endpoint {
+                byte: range.start,
+                ..point
+            },
+            Endpoint {
+                byte: range.end,
+                ..point
+            },
+        )
+    }
+    fn endpoint_order(&self, point: Endpoint) -> (usize, usize) {
+        (
+            self.selection
+                .paragraphs
+                .iter()
+                .position(|p| p.entity == point.entity)
+                .unwrap_or(0),
+            point.byte,
+        )
+    }
+    fn drag_selection(&mut self, point: Endpoint) {
+        if self.selection.unit > 1
+            && let Some((start, end)) = self.selection.start
+        {
+            let (a, b) = self.selection_unit(point, self.selection.unit);
+            if self.endpoint_order(point) < self.endpoint_order(start) {
+                self.selection.anchor = Some(end);
+                self.selection.head = Some(a);
+            } else {
+                self.selection.anchor = Some(start);
+                self.selection.head = Some(if self.endpoint_order(b) < self.endpoint_order(end) {
+                    end
+                } else {
+                    b
+                });
+            }
+        } else {
+            self.selection.head = Some(point);
+        }
     }
     pub(super) fn selection_event(
         &mut self,
@@ -272,6 +392,16 @@ impl Adapter {
                 let hit = self.hit(engine, p.position.x, p.position.y);
                 let point = self.selection_point(engine, p.position, self.selection.dragging);
                 self.selection.hovered = point.is_some() && hit.is_none();
+                if self.selection.dragging
+                    && matches!(p.phase, PointerPhase::Move | PointerPhase::Up)
+                    && self.selection.last_press.as_ref().is_some_and(|last| {
+                        (last.position.x - p.position.x).powi(2)
+                            + (last.position.y - p.position.y).powi(2)
+                            > 16.
+                    })
+                {
+                    self.selection.last_press = None;
+                }
                 match p.phase {
                     PointerPhase::Down if p.button == Some(PointerButton::Primary) => {
                         if let Some(point) = point.filter(|_| hit.is_none()) {
@@ -289,6 +419,40 @@ impl Adapter {
                                 self.selection.anchor = Some(point);
                             }
                             self.selection.head = Some(point);
+                            let count = if p.modifiers.shift() {
+                                1
+                            } else {
+                                self.selection
+                                    .last_press
+                                    .as_ref()
+                                    .filter(|last| {
+                                        last.entity == point.entity
+                                            && last.pointer == p.properties.id
+                                            && last.pointer_type == p.properties.pointer_type
+                                            && engine.time().now.checked_sub(last.time).is_some_and(
+                                                |elapsed| elapsed <= Duration::from_millis(500),
+                                            )
+                                            && (last.position.x - p.position.x).powi(2)
+                                                + (last.position.y - p.position.y).powi(2)
+                                                <= 16.
+                                    })
+                                    .map_or(1, |last| (last.count + 1).min(3))
+                            };
+                            self.selection.last_press = (!p.modifiers.shift()).then_some(Press {
+                                entity: point.entity,
+                                pointer: p.properties.id,
+                                pointer_type: p.properties.pointer_type,
+                                position: p.position,
+                                time: engine.time().now,
+                                count,
+                            });
+                            self.selection.unit = count;
+                            if count > 1 {
+                                let (a, b) = self.selection_unit(point, count);
+                                self.selection.anchor = Some(a);
+                                self.selection.head = Some(b);
+                            }
+                            self.selection.start = self.selection.anchor.zip(self.selection.head);
                             self.selection.dragging = true;
                             if let Some((buffer, _)) = self.focused.and_then(|e| engine.input(e)) {
                                 buffer.edit(plico::InputEdit::ClearPreedit);
@@ -303,25 +467,30 @@ impl Adapter {
                                 self.selection.anchor.is_some() || self.selection.head.is_some();
                             self.selection.anchor = None;
                             self.selection.head = None;
+                            self.selection.dragging = false;
+                            self.selection.last_press = None;
+                            self.selection.start = None;
                         }
                     }
                     PointerPhase::Move if self.selection.dragging => {
-                        if point.is_some() {
-                            self.selection.head = point;
+                        if let Some(point) = point {
+                            self.drag_selection(point);
                         }
                         handled = true;
                     }
                     PointerPhase::Up
                         if self.selection.dragging && p.button == Some(PointerButton::Primary) =>
                     {
-                        if point.is_some() {
-                            self.selection.head = point;
+                        if let Some(point) = point {
+                            self.drag_selection(point);
                         }
                         self.selection.dragging = false;
                         handled = true;
                     }
                     PointerPhase::Cancel => {
                         self.selection.dragging = false;
+                        self.selection.last_press = None;
+                        self.selection.start = None;
                     }
                     PointerPhase::Leave => {
                         self.selection.hovered = false;
@@ -366,6 +535,8 @@ impl Adapter {
             }
             UiEvent::Focus(false) => {
                 self.selection.dragging = false;
+                self.selection.last_press = None;
+                self.selection.start = None;
             }
             _ => {}
         }
@@ -379,5 +550,131 @@ impl Adapter {
             text_input: Some(false),
             clipboard,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plico::prelude::*;
+    use plico::{VirtualClock, widgets::text};
+    use plico_renderer::{FrameSource, Modifiers, PointerEvent, PointerProperties};
+    struct Demo;
+    impl HostView for Demo {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            column(cx).selectable(true).children(|cx| {
+                text(cx, "one two three\nsecond line").font_size(20);
+            });
+        }
+    }
+    fn setup() -> (Source<Demo>, VirtualClock, TextContext) {
+        let clock = VirtualClock::default();
+        let mut source = Source::with_clock(Demo, clock.clone());
+        let mut text = TextContext::new();
+        source.build_frame(&mut text, 400, 160);
+        assert_eq!(source.adapter.selection.paragraphs.len(), 1);
+        (source, clock, text)
+    }
+    fn point(source: &Source<Demo>, byte: usize) -> Point {
+        let para = &source.adapter.selection.paragraphs[0];
+        let node = &source.adapter.placed
+            [source.adapter.placed_indices[&source.adapter.nodes[&para.entity].id]];
+        let rect = para.layout.caret_rect(byte).unwrap();
+        Point {
+            x: f64::from(node.content_origin[0] + rect[0]) + 0.1,
+            y: f64::from(node.content_origin[1] + (rect[1] + rect[3]) * 0.5),
+        }
+    }
+    fn pointer(source: &mut Source<Demo>, phase: PointerPhase, position: Point) {
+        source.handle_event(UiEvent::Pointer(PointerEvent {
+            phase,
+            position,
+            button: matches!(phase, PointerPhase::Down | PointerPhase::Up)
+                .then_some(PointerButton::Primary),
+            buttons: u32::from(phase != PointerPhase::Up),
+            modifiers: Modifiers::empty(),
+            properties: PointerProperties::default(),
+        }));
+    }
+    fn click(source: &mut Source<Demo>, at: Point) {
+        pointer(source, PointerPhase::Down, at);
+        pointer(source, PointerPhase::Up, at);
+    }
+    #[test]
+    fn repeated_clicks_select_words_then_paragraphs_and_use_virtual_time() {
+        let (mut source, clock, mut text) = setup();
+        let at = point(&source, 5);
+        click(&mut source, at);
+        assert!(source.adapter.selected_text().is_none());
+        clock.advance(Duration::from_millis(100)).unwrap();
+        click(&mut source, at);
+        assert_eq!(source.adapter.selected_text().as_deref(), Some("two"));
+        source.build_frame(&mut text, 400, 160);
+        assert!(
+            source
+                .adapter
+                .placed
+                .iter()
+                .any(|n| !n.paint.selection_rects.is_empty())
+        );
+        clock.advance(Duration::from_millis(100)).unwrap();
+        click(&mut source, at);
+        assert_eq!(
+            source.adapter.selected_text().as_deref(),
+            Some("one two three")
+        );
+        clock.advance(Duration::from_millis(600)).unwrap();
+        click(&mut source, at);
+        assert!(source.adapter.selected_text().is_none());
+    }
+    #[test]
+    fn double_click_drag_keeps_the_initial_word_when_reversing_direction() {
+        let (mut source, clock, _) = setup();
+        let at = point(&source, 5);
+        click(&mut source, at);
+        clock.advance(Duration::from_millis(100)).unwrap();
+        pointer(&mut source, PointerPhase::Down, at);
+        let end = point(&source, 10);
+        pointer(&mut source, PointerPhase::Move, end);
+        assert_eq!(source.adapter.selected_text().as_deref(), Some("two three"));
+        let start = point(&source, 1);
+        pointer(&mut source, PointerPhase::Move, start);
+        pointer(&mut source, PointerPhase::Up, start);
+        assert_eq!(source.adapter.selected_text().as_deref(), Some("one two"));
+    }
+    #[test]
+    fn moving_to_another_word_and_cancelling_reset_the_click_sequence() {
+        let (mut source, clock, _) = setup();
+        let two = point(&source, 5);
+        click(&mut source, two);
+        clock.advance(Duration::from_millis(100)).unwrap();
+        let one = point(&source, 1);
+        click(&mut source, one);
+        assert!(source.adapter.selected_text().is_none());
+        clock.advance(Duration::from_millis(100)).unwrap();
+        click(&mut source, one);
+        assert_eq!(source.adapter.selected_text().as_deref(), Some("one"));
+        pointer(&mut source, PointerPhase::Cancel, one);
+        clock.advance(Duration::from_millis(100)).unwrap();
+        click(&mut source, one);
+        assert!(source.adapter.selected_text().is_none());
+    }
+    #[test]
+    fn unicode_units_do_not_split_combining_sequences_emoji_or_crlf() {
+        let text = "e\u{301} 👩‍👩‍👧‍👧 next";
+        assert_eq!(&text[unit_range(text, 1, 2)], "e\u{301}");
+        let emoji = text.find('👩').unwrap();
+        let range = unit_range(text, emoji + 4, 2);
+        assert_eq!(&text[range], "👩‍👩‍👧‍👧");
+        assert_eq!(grapheme_floor(text, emoji + 4), emoji);
+        assert_eq!(
+            &"first\r\nsecond"[unit_range("first\r\nsecond", 8, 3)],
+            "second"
+        );
+        assert_eq!(
+            &"first\r\nsecond"[unit_range("first\r\nsecond", 6, 3)],
+            "first"
+        );
     }
 }
