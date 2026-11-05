@@ -57,6 +57,18 @@ pub fn search_field(
     placeholder: &str,
     value: &mut String,
 ) -> SearchResponse {
+    search_field_with(cx, label, placeholder, value, false)
+}
+
+/// [`search_field`] with a one-shot focus request when the field mounts, for
+/// bars that open on demand (MyGO's find bar focuses its field).
+pub(crate) fn search_field_with(
+    cx: &mut UiContext,
+    label: &str,
+    placeholder: &str,
+    value: &mut String,
+    autofocus: bool,
+) -> SearchResponse {
     let m = cx.theme().metrics;
     let mut changed = false;
     let mut submitted = false;
@@ -74,6 +86,7 @@ pub fn search_field(
                 .color(Color::Muted);
             let response = text_input_string(cx, label, value)
                 .placeholder(placeholder)
+                .autofocus(autofocus)
                 .background(Color::Control)
                 .border(0., Color::Control)
                 .width(0.)

@@ -235,6 +235,8 @@ pub enum WidgetRole {
     RadioGroup,
     /// One radio button in a radio group.
     RadioButton,
+    /// A compact horizontal strip of related controls (mygo FindBar).
+    Toolbar,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

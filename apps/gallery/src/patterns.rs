@@ -1,7 +1,7 @@
 //! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
 //! breadcrumbs, indicators, steppers, split panes, a source list, a search
-//! field, radios, links, router history and a date input (the shared widgets
-//! in plico::widgets, MyGO semantics).
+//! field, radios, links, router history, a date input and a find bar (the
+//! shared widgets in plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
@@ -26,6 +26,9 @@ pub struct Patterns {
     size: String,
     birthday: CalendarDate,
     birthday_open: PopoverState,
+    finding: bool,
+    find_query: String,
+    find_current: usize,
 }
 
 impl Default for Patterns {
@@ -50,6 +53,9 @@ impl Default for Patterns {
             size: "Medium".into(),
             birthday: CalendarDate::new(2026, 11, 6).expect("demo date"),
             birthday_open: PopoverState::default(),
+            finding: false,
+            find_query: String::new(),
+            find_current: 0,
         }
     }
 }
@@ -291,6 +297,26 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 state.birthday.month(),
                 state.birthday.day()
             ).color(Color::Muted);
+        };
+        panel(ui, "Find bar").description(
+            "A query field with match status, previous/next and Done, ported from MyGO.") + |ui|
+        {
+            const SAMPLE: &str = "the quick brown fox jumps over the lazy dog; the fox naps";
+            if button(ui).text(if state.finding { "Close find bar" } else { "Open find bar" }).ghost().clicked() {
+                state.finding = !state.finding;
+            }
+            let matches = if state.find_query.is_empty() {
+                0
+            } else {
+                SAMPLE.matches(state.find_query.as_str()).count()
+            };
+            if find_bar(ui, &mut state.finding, &mut state.find_query, matches, &mut state.find_current).changed() {
+                ui.request_rebuild();
+            }
+            text!(ui, "Sample: {SAMPLE}").color(Color::Muted);
+            if !state.find_query.is_empty() && matches > 0 {
+                text!(ui, "Match {} of {matches}", state.find_current + 1).color(Color::Muted);
+            }
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

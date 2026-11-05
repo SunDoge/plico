@@ -267,6 +267,20 @@ the time of day; Plico dates carry no time and the localization layer exposes
 no numeric date order, so the field shows ISO and a time input would be
 composed separately.
 
+### Find bar (MyGO port)
+
+`find_bar(cx, &mut open, &mut query, matches, &mut current)` ports MyGO's
+`FindBar` while `open`: a toolbar-role bar holding the search field (with the
+magnifier and clear button), the "N of M" status, previous/next buttons and
+Done. The application owns the query and counts the matches; `current` is
+clamped to them and moves round the ends, and the return value reports that
+movement. Opening the bar focuses its field; Enter in the field moves to the
+next match.
+
+Escape and Cmd+G / F3 (Shift variants for the previous match) are not wired:
+Plico does not route those shortcuts out of the text input yet. A closed bar
+declares nothing, so the caller's `open` flag is the single source of truth.
+
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized
 before the addition still deserialize with those defaults.

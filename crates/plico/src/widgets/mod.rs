@@ -230,6 +230,7 @@ mod colorpicker;
 mod composite;
 mod dateinput;
 mod desktop;
+mod find;
 mod form;
 mod indicators;
 mod media;
@@ -247,6 +248,7 @@ pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
+pub use find::{FindResponse, find_bar};
 pub use form::{Field, field, fieldset, form};
 pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
