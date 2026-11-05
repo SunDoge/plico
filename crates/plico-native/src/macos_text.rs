@@ -1,7 +1,8 @@
 //! Experimental CoreText foundation. One retained native line supplies both
 //! metrics and editing offsets; no second shaping pass or raster approximation.
-//! Native soft wrapping is available; hard-break paragraphs, rich text and
-//! renderer integration are pending.
+//! Native multiline geometry is available; rich text and renderer integration
+//! are pending.
+mod paragraph;
 mod raster;
 mod wrapping;
 use crate::text_indices::TextIndices;
@@ -14,6 +15,7 @@ use objc2_core_text::{
     kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorFromContextAttributeName,
     kCTTrackingAttributeName,
 };
+pub use paragraph::{Paragraph, ParagraphLine};
 pub use raster::Rasterized;
 use snafu::Snafu;
 use std::{marker::PhantomData, rc::Rc};
@@ -23,7 +25,7 @@ pub use wrapping::WrappedLine;
 #[derive(Debug, Snafu)]
 pub enum Error {
     /// Invalid size, unsupported multiline input or exceeded resource limits.
-    #[snafu(display("invalid or oversized CoreText single-line request"))]
+    #[snafu(display("invalid or oversized CoreText text request"))]
     InvalidRequest,
     /// A native font, attributed string or bitmap resource could not be allocated.
     #[snafu(display("CoreText/CoreGraphics resource allocation failed"))]
@@ -70,7 +72,8 @@ pub struct ResolvedFontStyle {
     /// Native normalized weight, if the font reports a finite numeric trait.
     pub normalized_weight: Option<f64>,
 }
-/// A single-font request in logical macOS points.
+/// A single-font request in logical macOS points. `Line` rejects hard breaks;
+/// `Paragraph` accepts them.
 #[derive(Clone, Copy, Debug)]
 pub struct Request<'a> {
     /// Original UTF-8 text, at most 1 MiB and 100,000 scalar values.
@@ -99,12 +102,15 @@ impl<'a> Request<'a> {
         }
     }
     fn valid(&self) -> bool {
-        self.text.len() <= 1024 * 1024
-            && self.text.chars().take(100_001).count() <= 100_000
+        self.valid_paragraph()
             && !self
                 .text
                 .chars()
                 .any(|c| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+    }
+    fn valid_paragraph(&self) -> bool {
+        self.text.len() <= 1024 * 1024
+            && self.text.chars().take(100_001).count() <= 100_000
             && self.family.len() <= 4096
             && !self.family.contains('\0')
             && self.size.is_finite()

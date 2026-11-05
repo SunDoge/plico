@@ -345,3 +345,9 @@ original UTF-8 ranges and correct line-local editing offsets. Native regressions
 cross-compile on both macOS targets. Hard-break paragraphs, vertical layout,
 alignment/truncation and the shared paragraph/window bridge remain unfinished;
 this is not yet macOS renderer acceptance.
+
+CoreText multiline geometry now handles explicit/empty/trailing lines and native
+soft wrapping, preserving original content/separator byte ranges, logical
+baselines and paragraph hit testing. Portable hard-break/line-box tests execute
+on Linux. Native paragraph tests cross-compile only; alignment, rich runs,
+truncation and renderer-provider/window integration remain open.

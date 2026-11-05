@@ -33,9 +33,12 @@ pub mod windows_text;
 #[cfg(feature = "windows-text")]
 pub mod directwrite_correction;
 
-/// Experimental CoreText single-line metrics and scalar-index geometry.
+/// Experimental CoreText line/paragraph metrics, rasterization and UTF-8 geometry.
 #[cfg(all(target_os = "macos", feature = "macos-text"))]
 pub mod macos_text;
 
 #[cfg(all(feature = "macos-text", any(target_os = "macos", test)))]
 mod raster_bounds;
+
+#[cfg(all(feature = "macos-text", any(target_os = "macos", test)))]
+mod paragraph_geometry;

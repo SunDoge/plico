@@ -552,8 +552,33 @@ can therefore fail if CoreText cannot produce a progressing break. It does not
 invent a scalar boundary inside a linguistic cluster to force progress.
 
 This is a single-logical-paragraph primitive: hard newline input remains rejected
-by `Request`. Vertical placement, alignment, explicit line height, ellipsis,
-paragraph selection and the shared wgpu provider are still pending. Native tests
+by `Line::wrap`. Use `Paragraph` below for hard breaks, vertical placement and
+explicit line height. Alignment, ellipsis, paragraph selection and the shared
+wgpu provider are still pending. Native tests
 cover multilingual/combining/bidi text conservation, later-line local offsets,
 fractional-DPI raster repeatability, empty input and line-budget enforcement.
 These tests only cross-compile here; macOS runtime behavior is not verified.
+
+#### CoreText multiline geometry
+
+`Paragraph::new(&request, width, line_height)` now composes native lines across
+CRLF, CR, LF, NEL, LS and PS hard separators, retaining consecutive/trailing empty
+lines. `width: Option<f64>` enables native soft wrapping; `line_height` is an
+optional absolute height in logical points. Default line height uses native
+ascent/descent/leading. Leading is divided around the baseline; explicit short
+line heights allow glyph ink to overlap adjacent line boxes.
+
+`ParagraphLine` exposes original content/separator UTF-8 ranges, paragraph-local
+baseline and line-box vertical bounds, plus the retained native `Line`. Painting
+uses that same line at its supplied baseline. `Paragraph::size()` reports maximum
+native advance and total line-box height; ink overhang is not clipped to these
+bounds. Paragraph hit testing chooses the nearest vertical line box, then uses
+native line hit testing and converts to an original UTF-8 offset. Empty lines
+resolve to their original insertion point. It is not yet a grapheme-navigation
+or selection API.
+
+Requests retain the 1 MiB/100,000-scalar bound, with at most 4096 visual lines and
+1e9 points of total height. Invalid dimensions and limits fail explicitly rather
+than truncating. Hard-break partitioning and line-box overflow/rounding tests run
+on Linux; CoreText multiline/range/hit-test tests only cross-compile for macOS.
+Native execution, alignment, rich runs, ellipsis and the wgpu provider remain open.
