@@ -653,7 +653,7 @@ the closest face, not exact variable-font axis positions.
 Supported geometry includes native hard/soft wrapping, explicit line height,
 Start/Center/End/Justify, letter spacing, italic and original UTF-8 editing ranges.
 No-wrap text keeps its alignment width without introducing soft lines. Rich spans,
-ellipsis, line limits, quoted/escaped family lists and application font registration
+ellipsis, quoted/escaped family lists and application font registration
 are explicitly rejected. Native intrinsic measurement now uses CoreFoundation
 line-break opportunities and CoreText segment advances (see below). Private fonts
 and positioned editor/terminal glyphs are still needed before treating this as a
@@ -710,3 +710,30 @@ CoreText stats and frame tracing include cache entries/bytes/measurement calls.
 Native regressions cover ordinary words, CJK, NBSP, combining/bidi content,
 tracking, hard/empty lines, max-width agreement and reuse during constraint changes.
 They cross-compile only; actual macOS intrinsic-layout behavior remains to be run.
+
+#### CoreText clip-only line limits
+
+The wgpu provider now accepts `ParagraphRequest::max_lines` when `ellipsis` is
+false. Zero means unlimited; a positive value restricts visible native lines.
+Measurement width/height/baselines, ink bounds and returned raster images all use
+that visible prefix, while intrinsic widths still describe the complete source.
+The full bounded native layout is retained; this is not lazy shaping of a large
+document or a relaxation of the 4096-line/full-source budgets.
+
+Hit tests below the visible prefix resolve within its final line. Valid hidden
+caret positions clamp to the final visible content edge. At a soft-wrap boundary,
+this explicitly uses the preceding visible line rather than the native paragraph's
+default downstream affinity. Selection geometry excludes hidden content and still
+validates original UTF-8 boundaries. Source/copy data is not truncated.
+
+Native bitmaps intersect the line-limit height before allocation. CPU output rounds
+outward, so the exact fractional bottom is also passed to the GPU image clip;
+otherwise a subpixel strip could escape the visible line box. An empty first line
+can remain visible with font height and no raster image. Intrinsic measurements
+are reused across line-limit changes.
+
+Native regressions cover hard/soft boundaries, hidden carets/selections, empty
+lines, bitmap bounds and intrinsic reuse. An ignored macOS GPU test compares a
+fractional-height limited paragraph against explicitly clipped visible-only text.
+These only cross-compile here; actual macOS execution is pending. Ellipsis and
+rich-span truncation remain explicitly unsupported.

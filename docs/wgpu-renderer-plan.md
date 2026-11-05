@@ -321,7 +321,8 @@ progress, not macOS runtime/visual acceptance.
 
 The bridge resolves unquoted family preference lists, maps CSS weights through
 AppKit named constants and explicitly rejects unavailable families, application
-font registration, rich spans, ellipsis and line limits. Intrinsic widths now use native line-break tokenization and CoreText segment
+font registration, rich spans and ellipsis. Clip-only maximum line counts are
+supported (see below). Intrinsic widths now use native line-break tokenization and CoreText segment
 measurement, with a bounded source cache shared across layout constraints. Positioned editor/terminal glyphs are not implemented on macOS.
 
 Geometry is color/scale-independent. Per-line RGBA images are clipped before
@@ -350,3 +351,9 @@ Rust word slicing. A 128-entry/8 MiB cache reuses measurements across viewport,
 alignment and line-height changes; text/font/tracking changes invalidate them.
 Native tests only cross-compile, so macOS layout/locale behavior is still an open
 runtime acceptance gate.
+
+Clip-only maximum lines now restrict native metrics, editing geometry, ink and
+rasterization to a visible prefix while retaining full-source intrinsic widths.
+The exact fractional limit also reaches GPU clipping. Native tests and the GPU
+clip-reference test only cross-compile; macOS runtime acceptance remains open.
+Ellipsis and rich-span truncation are still rejected.

@@ -21,6 +21,13 @@ fn rejected(message: impl Into<String>) -> ParagraphError {
     }
 }
 
+pub(crate) struct PreparedParagraph {
+    pub images: Rc<Images>,
+    pub ink: [f64; 4],
+    /// Exact physical line-limit bottom; CPU bitmap clips round outward.
+    pub clip_height: Option<f64>,
+}
+
 struct Paragraph {
     request: Arc<ParagraphRequest>,
     layout: Layout,
@@ -28,11 +35,14 @@ struct Paragraph {
     line_inks: Vec<Option<[f64; 4]>>,
     bytes: usize,
     intrinsic: [f32; 2],
+    visible_lines: usize,
+    visible_end: usize,
+    visible_size: [f64; 2],
 }
 impl NativeParagraph for Paragraph {
     fn metrics(&self) -> ParagraphMetrics {
-        let size = self.layout.size();
-        let lines = self.layout.lines();
+        let size = self.visible_size;
+        let lines = &self.layout.lines()[..self.visible_lines];
         ParagraphMetrics {
             width: size[0] as f32,
             height: size[1] as f32,
@@ -47,15 +57,54 @@ impl NativeParagraph for Paragraph {
         }
     }
     fn hit_test(&self, x: f32, y: f32) -> usize {
-        self.layout.hit_test([x as f64, y as f64]).unwrap_or(0)
+        if !x.is_finite() || !y.is_finite() {
+            return 0;
+        }
+        let last = &self.layout.lines()[self.visible_lines - 1];
+        let y = if f64::from(y) >= self.visible_size[1] {
+            (last.vertical_bounds[0] + last.vertical_bounds[1]) * 0.5
+        } else {
+            f64::from(y)
+        };
+        self.layout
+            .hit_test([f64::from(x), y])
+            .unwrap_or(0)
+            .min(self.visible_end)
     }
     fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
+        if !self.request.text.is_char_boundary(byte) {
+            return None;
+        }
+        if self.visible_lines < self.layout.lines().len() && byte >= self.visible_end {
+            // Native paragraph carets prefer the next soft line at a boundary;
+            // use the final visible line directly to avoid entering hidden text.
+            let last = &self.layout.lines()[self.visible_lines - 1];
+            let x = last.baseline[0]
+                + last
+                    .line
+                    .caret_offsets(last.line.text().len())
+                    .ok()?
+                    .primary;
+            return Some([
+                x as f32,
+                last.vertical_bounds[0] as f32,
+                (x + 1.) as f32,
+                last.vertical_bounds[1] as f32,
+            ]);
+        }
         self.layout
             .caret_rects(byte)
             .ok()
             .map(|r| r[0].map(|v| v as f32))
     }
     fn selection_rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]> {
+        if range.start > range.end
+            || !self.request.text.is_char_boundary(range.start)
+            || !self.request.text.is_char_boundary(range.end)
+        {
+            return Vec::new();
+        }
+        let range = range.start.min(self.visible_end)..range.end.min(self.visible_end);
         match self.layout.selection_rects(range) {
             Ok(rects) => rects.into_iter().map(|r| r.map(|v| v as f32)).collect(),
             Err(error) => {
@@ -149,9 +198,9 @@ impl Cache {
                 "CoreText application font registration is not implemented",
             ));
         }
-        if !request.runs.is_empty() || request.ellipsis || request.max_lines != 0 {
+        if !request.runs.is_empty() || request.ellipsis {
             return Err(rejected(
-                "CoreText rich spans, ellipsis and line limits are not implemented",
+                "CoreText rich spans and ellipsis are not implemented",
             ));
         }
         if request.family.len() > 4096 || request.family.contains(['\'', '"', '\\']) {
@@ -219,6 +268,7 @@ impl Cache {
         source.wrap = false;
         source.align = TextAlign::Start;
         source.line_height = None;
+        source.max_lines = 0;
         let source_key = source.fingerprint();
         let intrinsic = if let Some(cached) = self.intrinsic.get(&source_key)
             && *cached.request == source
@@ -256,9 +306,22 @@ impl Cache {
             }
             widths
         };
+        let visible_lines = if request.max_lines == 0 {
+            layout.lines().len()
+        } else {
+            layout.lines().len().min(request.max_lines)
+        };
+        let visible_end = layout.lines()[visible_lines - 1].range.end;
+        let visible_size = [
+            layout.lines()[..visible_lines]
+                .iter()
+                .map(|line| line.line.metrics().width)
+                .fold(0., f64::max),
+            layout.lines()[visible_lines - 1].vertical_bounds[1],
+        ];
         let mut ink: Option<[f64; 4]> = None;
-        let mut line_inks = Vec::with_capacity(layout.lines().len());
-        for line in layout.lines() {
+        let mut line_inks = Vec::with_capacity(visible_lines);
+        for line in &layout.lines()[..visible_lines] {
             let bounds = line
                 .line
                 .ink_bounds()
@@ -281,6 +344,12 @@ impl Cache {
                 }));
             }
         }
+        if visible_lines < layout.lines().len() {
+            ink = ink.and_then(|mut bounds| {
+                bounds[3] = bounds[3].min(visible_size[1]);
+                (bounds[2] > bounds[0] && bounds[3] > bounds[1]).then_some(bounds)
+            });
+        }
         let bytes = std::mem::size_of::<Paragraph>()
             + geometry.family.len()
             + geometry.text.len() * 32
@@ -294,6 +363,9 @@ impl Cache {
             line_inks,
             bytes,
             intrinsic,
+            visible_lines,
+            visible_end,
+            visible_size,
         });
         if bytes <= LIMIT {
             if let Some((_, old)) = self.layouts.push(key, p.clone()) {
@@ -317,12 +389,18 @@ impl Cache {
         color: [u8; 4],
         scale: f64,
         phase: f64,
-        clip: [f64; 4],
+        mut clip: [f64; 4],
     ) -> std::result::Result<Rc<Images>, ParagraphError> {
+        if paragraph.visible_lines < paragraph.layout.lines().len() {
+            clip[3] = clip[3].min(paragraph.visible_size[1] * scale);
+        }
         let mut images = Vec::new();
         let mut frame_bytes = 0usize;
         let fingerprint = paragraph.request.fingerprint();
-        for (index, line) in paragraph.layout.lines().iter().enumerate() {
+        for (index, line) in paragraph.layout.lines()[..paragraph.visible_lines]
+            .iter()
+            .enumerate()
+        {
             let Some(ink) = paragraph.line_inks[index] else {
                 continue;
             };
@@ -492,7 +570,7 @@ impl Renderer {
         scale: f64,
         phase: f64,
         clip: [f64; 4],
-    ) -> Result<(Rc<Images>, [f64; 4])> {
+    ) -> Result<PreparedParagraph> {
         if !scale.is_finite()
             || scale <= 0.
             || scale > 8.
@@ -514,10 +592,16 @@ impl Renderer {
             .layout(request.clone())
             .map_err(|source| Error::Paragraph { source })?;
         let ink = p.ink;
+        let clip_height =
+            (p.visible_lines < p.layout.lines().len()).then_some(p.visible_size[1] * scale);
         let images = cache
             .images(p, request.color, scale, phase, clip)
             .map_err(|source| Error::Paragraph { source })?;
-        Ok((images, ink))
+        Ok(PreparedParagraph {
+            images,
+            ink,
+            clip_height,
+        })
     }
     /// Clear derived native text caches; live externally retained layouts stay valid.
     pub fn trim_text_cache(&mut self) {
@@ -660,6 +744,72 @@ mod tests {
         assert_eq!(c.intrinsic_bytes, 0);
     }
     #[test]
+    fn line_limits_preserve_intrinsics_and_clamp_hidden_editing_and_rasters() {
+        let mut c = Cache::new();
+        let mut r = (*request()).clone();
+        r.text = "first\nsecond\n中文".into();
+        let full = c.layout(Arc::new(r.clone())).unwrap();
+        r.max_lines = 1;
+        let clipped = c.layout(Arc::new(r.clone())).unwrap();
+        assert_eq!(clipped.visible_lines, 1);
+        assert_eq!(clipped.visible_end, "first".len());
+        assert_eq!(clipped.metrics().intrinsic, full.metrics().intrinsic);
+        assert_eq!(c.intrinsic_measurements, 1);
+        assert!(clipped.metrics().height < full.metrics().height);
+        let edge = clipped.caret_rect(clipped.visible_end).unwrap();
+        assert_eq!(clipped.caret_rect(r.text.len()), Some(edge));
+        assert_eq!(clipped.hit_test(edge[0], 1000.), clipped.visible_end);
+        assert!(clipped.selection_rects(6..r.text.len()).is_empty());
+        assert!(
+            clipped
+                .selection_rects(0..r.text.len())
+                .iter()
+                .all(|rect| rect[3] <= clipped.metrics().height)
+        );
+        assert!(clipped.caret_rect(r.text.len() + 1).is_none());
+        let images = c
+            .images(
+                clipped.clone(),
+                r.color,
+                1.25,
+                0.25,
+                [-1000., -1000., 1000., 1000.],
+            )
+            .unwrap();
+        assert!(!images.is_empty());
+        assert_eq!(c.rasterizations, 1);
+        for (image, origin) in images.iter() {
+            assert!(
+                f64::from(origin[1]) + f64::from(image.height)
+                    <= (clipped.visible_size[1] * 1.25).ceil()
+            );
+        }
+    }
+    #[test]
+    fn clipped_soft_boundary_uses_visible_line_affinity_and_empty_lines_stay_empty() {
+        let mut c = Cache::new();
+        let mut r = (*request()).clone();
+        r.text = "NNN NNN NNN NNN".into();
+        r.width = Some(60.);
+        r.max_lines = 1;
+        let p = c.layout(Arc::new(r.clone())).unwrap();
+        assert!(p.layout.lines().len() > 1);
+        let edge = p.caret_rect(p.visible_end).unwrap();
+        assert_eq!(edge[1], 0.);
+        assert_eq!(edge[3], p.metrics().height);
+        r.text = "\nsecret".into();
+        let p = c.layout(Arc::new(r.clone())).unwrap();
+        assert_eq!(p.metrics().width, 0.);
+        assert_eq!(p.visible_end, 0);
+        assert_eq!(p.hit_test(100., 1000.), 0);
+        assert!(p.caret_rect(r.text.len()).is_some());
+        assert!(
+            c.images(p, r.color, 1.25, 0., [-1000., -1000., 1000., 1000.])
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
     fn no_wrap_keeps_alignment_without_introducing_soft_lines() {
         let mut c = Cache::new();
         let mut r = (*request()).clone();
@@ -676,6 +826,66 @@ mod tests {
 #[cfg(test)]
 mod gpu_tests {
     use super::*;
+    #[test]
+    #[ignore = "requires a macOS GPU adapter and installed system fonts"]
+    fn fractional_line_limit_matches_an_explicit_clip_of_only_visible_content() {
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let make = |text: &str, max_lines| {
+            Arc::new(ParagraphRequest {
+                font_revision: 0,
+                text: text.into(),
+                font_size: 20.,
+                font_weight: 500.,
+                italic: false,
+                letter_spacing: 0.,
+                line_height: Some((7.3, false)),
+                align: TextAlign::Start,
+                color: [20, 30, 40, 255],
+                runs: Arc::from([]),
+                family: "system-ui".into(),
+                width: Some(240.),
+                wrap: true,
+                max_lines,
+                ellipsis: false,
+            })
+        };
+        let transform = kurbo::Affine::new([1.25, 0., 0., 1.25, 20.25, 10.]);
+        let mut limited = plico_renderer::Scene::new();
+        limited
+            .commands
+            .push(plico_renderer::PaintCommand::Paragraph {
+                request: make("SSSS\nhidden", 1),
+                transform,
+            });
+        let pixels = renderer
+            .render_scene(&limited, [360, 100], [1.; 4], false)
+            .unwrap();
+        let mut reference = plico_renderer::Scene::new();
+        reference
+            .commands
+            .push(plico_renderer::PaintCommand::PushClip {
+                transform: kurbo::Affine::IDENTITY,
+                clip: plico_renderer::PaintShape::record(
+                    &kurbo::Rect::new(0., 0., 360., 10. + 7.3 * 1.25),
+                    0.1,
+                ),
+            });
+        reference
+            .commands
+            .push(plico_renderer::PaintCommand::Paragraph {
+                request: make("SSSS", 0),
+                transform,
+            });
+        reference
+            .commands
+            .push(plico_renderer::PaintCommand::PopLayer);
+        assert_eq!(
+            pixels,
+            renderer
+                .render_scene(&reference, [360, 100], [1.; 4], false)
+                .unwrap()
+        );
+    }
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn coretext_scene_pixels_survive_reuse_damage_and_cache_trim() {

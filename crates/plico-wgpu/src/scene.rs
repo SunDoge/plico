@@ -962,7 +962,7 @@ impl Renderer {
                             let snapped_x = (x * 4.).round() / 4.;
                             let base_x = snapped_x.floor();
                             let base_y = y.round();
-                            let (images, bounds) = self.macos_paragraph_images(
+                            let paragraph = self.macos_paragraph_images(
                                 request.clone(),
                                 scale,
                                 snapped_x - base_x,
@@ -973,6 +973,17 @@ impl Renderer {
                                     clip.y1 - base_y,
                                 ],
                             )?;
+                            let bounds = paragraph.ink;
+                            let clip = if let Some(height) = paragraph.clip_height {
+                                Rect::new(
+                                    clip.x0,
+                                    clip.y0,
+                                    clip.x1,
+                                    clip.y1.min(base_y + height).max(clip.y0),
+                                )
+                            } else {
+                                clip
+                            };
                             ink[index] = Some(if bounds == [0.; 4] {
                                 Rect::ZERO
                             } else {
@@ -984,7 +995,7 @@ impl Renderer {
                                 )
                                 .inflate(3., 3.)
                             });
-                            for (image, origin) in images.iter() {
+                            for (image, origin) in paragraph.images.iter() {
                                 let rect = Rect::new(
                                     base_x + f64::from(origin[0]),
                                     base_y + f64::from(origin[1]),
