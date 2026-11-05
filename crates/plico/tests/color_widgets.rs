@@ -94,3 +94,46 @@ fn the_hue_slider_rebuilds_the_literal_and_external_changes_reset_the_hue() {
         "the external blue moved the picker to hue 240"
     );
 }
+
+#[test]
+fn color_well_discloses_the_picker_and_reports_color_edits() {
+    let mut color = Color::Literal(0xef4444);
+    let mut open = false;
+    let mut engine = Engine::default();
+    let mut changed = false;
+    let view = |cx: &mut UiContext, color: &mut Color, open: &mut bool, changed: &mut bool| {
+        *changed = color_well(cx, "Tint", color, open);
+    };
+    frame(&mut engine, |cx| {
+        view(cx, &mut color, &mut open, &mut changed)
+    });
+    assert!(!open);
+    assert!(!changed);
+    assert!(find(&engine, "Tint").is_some());
+    assert!(find(&engine, "#ef4444").is_some());
+    assert!(find(&engine, "Hue").is_none(), "the picker starts folded");
+
+    engine.queue_click(named(&engine, "Tint"));
+    frame(&mut engine, |cx| {
+        view(cx, &mut color, &mut open, &mut changed)
+    });
+    assert!(open);
+    assert!(find(&engine, "Hue").is_some());
+
+    engine.queue_click(named(&engine, "Blue"));
+    frame(&mut engine, |cx| {
+        view(cx, &mut color, &mut open, &mut changed)
+    });
+    assert_eq!(color, Color::Literal(0x3b82f6));
+    assert!(changed);
+
+    engine.queue_click(named(&engine, "Tint"));
+    frame(&mut engine, |cx| {
+        view(cx, &mut color, &mut open, &mut changed)
+    });
+    assert!(!open);
+    assert!(
+        find(&engine, "Hue").is_none(),
+        "the picker folds with the well"
+    );
+}

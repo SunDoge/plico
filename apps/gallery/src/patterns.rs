@@ -29,6 +29,7 @@ pub struct Patterns {
     finding: bool,
     find_query: String,
     find_current: usize,
+    tint_open: bool,
 }
 
 impl Default for Patterns {
@@ -56,6 +57,7 @@ impl Default for Patterns {
             finding: false,
             find_query: String::new(),
             find_current: 0,
+            tint_open: false,
         }
     }
 }

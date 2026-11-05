@@ -4,6 +4,7 @@
 //! port edits an RGB literal through hue, saturation and brightness sliders
 //! instead of MyGO's saturation/brightness square, and leaves out the opacity
 //! slider and hex editing.
+use crate::WidgetRole;
 use crate::prelude::*;
 use crate::text;
 
@@ -188,4 +189,56 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
         states.entries.insert(id, entry);
     });
     changed
+}
+
+/// A color swatch that discloses a [`color_picker`] (MyGO `ColorWell`): the
+/// button shows the color and its hex value, toggles `open` on click and
+/// carries the color-well role and expanded state. While open the picker is
+/// declared inline below the swatch; returns whether the picker changed the
+/// color.
+///
+/// MyGO floats the picker in a popover below the well and exposes the hex as
+/// the well's value; Plico has no custom popover trigger yet, so the picker
+/// unfolds in place, and the well's accessible name is its label while the hex
+/// stays visible text.
+///
+/// ```text
+/// if color_well(cx, "Tint", &mut tint, &mut tint_open) {
+///     save(tint);
+/// }
+/// ```
+pub fn color_well(cx: &mut UiContext, label: &str, color: &mut Color, open: &mut bool) -> bool {
+    let m = cx.theme().metrics;
+    let current = cx.theme().resolve(*color);
+    let swatch = button_base(cx, label)
+        .padding(m.space(1))
+        .gap(m.space(2))
+        .radius(m.radius as f32)
+        .background(Color::Panel)
+        .hover_background(Color::ControlHover)
+        .pressed_background(Color::ControlPressed)
+        .expanded(*open)
+        .semantic_role(WidgetRole::ColorWell)
+        .children(|cx| {
+            let _ = column(cx)
+                .width(44.)
+                .height(24.)
+                .radius(4.)
+                .shrink(0.)
+                .background(Color::Literal(current))
+                .border(1., Color::Border)
+                .children(|_cx| {});
+            let _ = text!(cx, "#{current:06x}")
+                .font_size(m.font_size)
+                .color(Color::Muted);
+        })
+        .response;
+    if swatch.clicked() {
+        *open = !*open;
+    }
+    if *open {
+        color_picker(cx, color)
+    } else {
+        false
+    }
 }

@@ -154,7 +154,7 @@ pub mod prelude {
         Avatar, Button, CalendarResponse, Checkbox, Field, FindResponse, MeterLevels, Panel,
         RubyText, SearchResponse, Switch, TableColumn, Toast, ToastHost, ToastKind, avatar,
         back_button, badge, breadcrumbs, button, button_base, calendar, calendar_content,
-        calendar_with, checkbox, choice, collapsible, color_picker, column, date_input,
+        calendar_with, checkbox, choice, collapsible, color_picker, color_well, column, date_input,
         date_input_with, drag_area, field, fieldset, find_bar, form, forward_button, grid, icon,
         image, link, menu, menu_item, meter, modal, nav_item, nav_menu, panel, popover, progress,
         property_field, radio, radio_group, rating, row, ruby_text, search_field, segmented,

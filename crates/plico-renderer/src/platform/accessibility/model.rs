@@ -131,6 +131,8 @@ semantic_roles! {
     Navigation => "navigation",
     /// Read-only value within a bounded range, as a level indicator.
     Meter => "meter",
+    /// A swatch that opens a color picker.
+    ColorWell => "colorwell",
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

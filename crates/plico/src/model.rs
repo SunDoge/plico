@@ -237,6 +237,8 @@ pub enum WidgetRole {
     RadioButton,
     /// A compact horizontal strip of related controls (mygo FindBar).
     Toolbar,
+    /// A color swatch that opens a picker (mygo ColorWell).
+    ColorWell,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

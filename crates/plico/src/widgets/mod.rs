@@ -239,7 +239,7 @@ mod search;
 mod split;
 mod tree;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
-pub use colorpicker::color_picker;
+pub use colorpicker::{color_picker, color_well};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,

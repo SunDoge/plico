@@ -206,6 +206,13 @@ square, `Color` carries no alpha, and the hex text is therefore read-only. The
 sliders are continuous rather than snapped, so deriving a color from its RGB
 does not drift it.
 
+`color_well(cx, label, &mut Color, &mut open)` adds MyGO's `ColorWell`: a
+swatch button showing the color and its hex value, with the color-well role and
+expanded state, that unfolds the picker below itself while `open`. It returns
+whether the picker changed the color. MyGO floats the picker in a popover and
+exposes the hex as the well's value; Plico has no custom popover trigger, so
+the picker unfolds in place and the hex stays visible text.
+
 ### Form fields (MyGO port)
 
 `form`, `field` and `fieldset` port MyGO's `ui/form.go` composition:

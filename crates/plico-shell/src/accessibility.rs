@@ -93,6 +93,7 @@ fn accesskit_node(
         SemanticRole::GridCell => Role::GridCell,
         SemanticRole::Navigation => Role::Navigation,
         SemanticRole::Meter => Role::Meter,
+        SemanticRole::ColorWell => Role::ColorWell,
     };
     let mut node = Node::new(role);
     if let Some(label) = &semantic.label {
