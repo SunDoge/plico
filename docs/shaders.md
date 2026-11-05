@@ -116,3 +116,14 @@ rendering the complete page with Skia at two viewport sizes.
 图片／sampler 输入和多 pass 渲染图尚未实现；不能将 `.values()` 解释为这些能力。
 效果输出裁剪在节点表面内，外扩阴影或 backdrop 读取也没有单独的 damage 契约。
 新 WGSL 优先使用 `plico_effect` / `plico`；旧 `wabou_effect` / `wabou` 名称仍保留兼容。
+
+## 具名模块参数
+
+完整模块现在可写 `.param("progress", 0.5).param("color", [r, g, b])`。
+宿主从 WGSL 解析顶层 `f32/vec2f/vec3f/vec4f` 字段的真实偏移和分量数，
+不上传 Rust struct 内存。`vec3f` 后的标量也能正确打包。重复调用同名 setter
+以后一次为准；字段名、类型不匹配或覆盖宿主 width/height/time 会产生诊断。
+
+不能与 `.values(...)` 混用。函数模式、嵌套字段、数组和矩阵仍使用原始浮点
+参数接口。错误更新同时保留上一份有效程序和参数；JSON 场景兼容旧配置。
+完整例子与限制见 [WGSL effects](wgsl-effects.md#named-module-parameters)。

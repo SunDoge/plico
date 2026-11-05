@@ -58,6 +58,50 @@ macro_rules! shader_asset {
         $crate::ShaderAsset::new(include_str!($path)).with_source_path($path)
     };
 }
+/// A named WGSL scalar/vector parameter. Layout is resolved by the host from
+/// WGSL; Rust struct memory and padding are never uploaded as uniforms.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ShaderValue {
+    /// One WGSL f32 scalar.
+    Float(f32),
+    /// One WGSL vec2f.
+    Vec2([f32; 2]),
+    /// One WGSL vec3f; adjacent fields retain their own WGSL offsets.
+    Vec3([f32; 3]),
+    /// One WGSL vec4f.
+    Vec4([f32; 4]),
+}
+impl ShaderValue {
+    /// Consecutive components, excluding any WGSL layout padding.
+    pub fn components(&self) -> &[f32] {
+        match self {
+            Self::Float(v) => std::slice::from_ref(v),
+            Self::Vec2(v) => v,
+            Self::Vec3(v) => v,
+            Self::Vec4(v) => v,
+        }
+    }
+}
+impl From<f32> for ShaderValue {
+    fn from(v: f32) -> Self {
+        Self::Float(v)
+    }
+}
+impl From<[f32; 2]> for ShaderValue {
+    fn from(v: [f32; 2]) -> Self {
+        Self::Vec2(v)
+    }
+}
+impl From<[f32; 3]> for ShaderValue {
+    fn from(v: [f32; 3]) -> Self {
+        Self::Vec3(v)
+    }
+}
+impl From<[f32; 4]> for ShaderValue {
+    fn from(v: [f32; 4]) -> Self {
+        Self::Vec4(v)
+    }
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ShaderParams {
@@ -65,6 +109,9 @@ pub struct ShaderParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
     pub values: Vec<f32>,
+    /// Complete-module top-level f32/vector fields, resolved by WGSL name.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<(String, ShaderValue)>,
     pub sksl: Option<String>,
     pub time: f32,
     pub speed: f32,
@@ -77,6 +124,7 @@ impl Default for ShaderParams {
         Self {
             source_path: None,
             values: Vec::new(),
+            parameters: Vec::new(),
             sksl: None,
             time: 0.,
             speed: 1.,
@@ -88,7 +136,13 @@ impl Default for ShaderParams {
 }
 impl ShaderParams {
     pub fn valid(&self) -> bool {
-        self.values.len() <= 256
+        self.parameters.len() <= 256
+            && self.parameters.iter().all(|(name, value)| {
+                !name.is_empty()
+                    && name.len() <= 1024
+                    && value.components().iter().all(|v| v.is_finite())
+            })
+            && self.values.len() <= 256
             && self.values.iter().all(|v| v.is_finite())
             && self.time.is_finite()
             && self.speed.is_finite()
@@ -105,6 +159,20 @@ mod tests {
     const EFFECT: ShaderAsset = crate::shader_asset!("shader.rs");
     const MODULE: ShaderAsset = crate::shader_asset!(module, "shader.rs");
 
+    #[test]
+    fn named_parameters_round_trip_and_old_configs_default_to_empty() {
+        let old: ShaderParams = serde_json::from_str("{}").unwrap();
+        assert!(old.parameters.is_empty());
+        let mut params = ShaderParams {
+            parameters: vec![("color".into(), [0.1, 0.2, 0.3].into())],
+            ..Default::default()
+        };
+        assert!(params.valid());
+        let json = serde_json::to_string(&params).unwrap();
+        assert_eq!(serde_json::from_str::<ShaderParams>(&json).unwrap(), params);
+        params.parameters[0].1 = [0., f32::NAN, 1.].into();
+        assert!(!params.valid());
+    }
     #[test]
     fn embedded_assets_preserve_source_and_interface() {
         assert_eq!(EFFECT.source(), include_str!("shader.rs"));

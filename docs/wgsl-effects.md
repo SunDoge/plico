@@ -52,9 +52,9 @@ flat-word transport, not automatic struct serialization. Local integers and
 builtin vertex indices remain supported.
 
 Do not upload an arbitrary Rust struct as these parameters: Rust layout and
-WGSL uniform alignment are different contracts. Until a typed parameter API is
-provided, explicitly flatten fields into scalar values and document their order
-beside the WGSL declaration.
+WGSL uniform alignment are different contracts. With raw `.values(...)`,
+explicitly flatten fields into scalar values and document their order beside the
+WGSL declaration. Named scalar/vector parameters below resolve offsets from WGSL.
 
 Effect surfaces output **premultiplied RGBA**, matching the shared texture/SkSL
 compositing contract. For translucent color, return `vec4f(rgb * alpha, alpha)`.
@@ -127,3 +127,44 @@ inline assets created with `ShaderAsset::new` or `module` have no path unless
 and prefixes runtime source-validation diagnostics with the resource path. GPU
 pipeline diagnostics remain backend-specific. Module resources and uniform ABI
 remain subject to the limits described above.
+
+## Named module parameters
+
+Complete WGSL modules can bind top-level `f32`, `vec2f`, `vec3f` and `vec4f` fields:
+
+```rust
+static EFFECT: plico::ShaderAsset = plico::shader_asset!(module, "effect.wgsl");
+shader(cx, &EFFECT)
+    .param("progress", 0.5)
+    .param("color", [0.25, 0.5, 0.75])
+    .param("alpha", 1.0);
+```
+
+The corresponding module can declare:
+
+```wgsl
+struct Uniforms {
+    size: vec2f,  // supplied by the host
+    time: f32,   // supplied by the injected clock
+    progress: f32,
+    color: vec3f,
+    alpha: f32,
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+// Supply vs_main/fs_main as required by the complete-module interface.
+```
+
+Validated WGSL offsets determine packing, including `vec3f` followed by a scalar.
+No Rust struct memory is uploaded, and WGSL is not reparsed for ordinary valid
+parameter updates. Repeated builder names replace earlier values. Unknown fields,
+wrong component counts, duplicate serialized entries and writes overlapping the
+first three host-owned words are errors. Unspecified fields/padding are zero.
+
+Choose named `.param(...)` or raw `.values(...)` per widget; mixing them is an
+error. Effect-function assets, nested fields, arrays and matrices do not yet accept
+named parameters. They retain the raw float-word API. Native resource/error limits
+remain unchanged. Source validation and parameter packing commit together: an
+invalid update retains the preceding valid program **and parameter words**, with
+an authored-path diagnostic. Animation time/pause scheduling continues separately.
+The same packed data is used by any supplied SkSL implementation; its parameter
+interpretation must match the WGSL module offsets.

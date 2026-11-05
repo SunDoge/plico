@@ -34,7 +34,7 @@ pub use virtual_list::{VirtualList, VirtualListResponse};
 mod numeric;
 pub use numeric::{NumericRange, SliderResponse};
 mod shader;
-pub use shader::{ShaderAsset, ShaderParams};
+pub use shader::{ShaderAsset, ShaderParams, ShaderValue};
 mod snapshot;
 mod text_style;
 mod theme;

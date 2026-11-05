@@ -2021,6 +2021,23 @@ impl Shader<'_, '_, '_> {
         self.params.values.extend_from_slice(values);
         self
     }
+    /// Set a complete WGSL module's top-level f32/vec2/vec3/vec4 uniform field.
+    /// The host checks WGSL types/offsets; repeated names replace earlier values.
+    /// Reserved width/height/time fields cannot be written. Do not mix with values().
+    pub fn param(mut self, name: &str, value: impl Into<crate::ShaderValue>) -> Self {
+        let value = value.into();
+        if let Some((_, existing)) = self
+            .params
+            .parameters
+            .iter_mut()
+            .find(|(key, _)| key == name)
+        {
+            *existing = value;
+        } else {
+            self.params.parameters.push((name.to_owned(), value));
+        }
+        self
+    }
     #[inline(always)]
     pub fn time(mut self, time: f32) -> Self {
         self.params.time = time;

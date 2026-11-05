@@ -410,3 +410,99 @@ fn frame_preflight_skips_resources_and_shader_failure_recovers() {
             .all(|p| *p == [0, 255, 0, 255])
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn named_public_parameters_pack_vectors_and_recover_transactionally() {
+    static MODULE: ShaderAsset = ShaderAsset::module(
+        r#"
+struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
+@group(0) @binding(0) var<uniform> u: U;
+@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    let p = array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+    return vec4f(p[i],0.,1.);
+}
+@fragment fn fs_main() -> @location(0) vec4f { return vec4f(u.color*u.progress,u.alpha); }
+"#,
+    )
+    .with_source_path("named.wgsl");
+    struct Named {
+        bad: bool,
+        progress: f32,
+        raw: bool,
+    }
+    impl plico::View for Named {
+        fn theme(&self) -> Theme {
+            Theme::light()
+        }
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            let builder = shader(cx, &MODULE)
+                .width(32.)
+                .height(32.)
+                .radius(0.)
+                .param("progress", 0.1)
+                .param("progress", self.progress)
+                .param("alpha", 1.0);
+            let builder = if self.raw {
+                builder.values(&[1.])
+            } else {
+                builder
+            };
+            if self.bad {
+                builder.param("color", [0.25, 0.5]);
+            } else {
+                builder.param("color", [0.25, 0.5, 0.75]);
+            }
+        }
+    }
+    let mut source = Source::new(NativeView(Named {
+        bad: false,
+        progress: 0.5,
+        raw: false,
+    }));
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut draw = |source: &mut Source<NativeView<Named>>| {
+        let mut scene = Scene::new();
+        source
+            .render_retained_frame(&mut scene, &mut text, (64, 64), 1.)
+            .unwrap();
+        assert!(source.last_error.is_none());
+        let rgba = renderer
+            .render_scene(&scene, [64, 64], [0.; 4], true)
+            .unwrap();
+        <[u8; 4]>::try_from(&rgba[(8 * 64 + 8) * 4..(8 * 64 + 8) * 4 + 4]).unwrap()
+    };
+    assert_eq!(draw(&mut source), [32, 64, 96, 255]);
+    source.update(|s| {
+        s.0.bad = true;
+        s.0.progress = 1.;
+    });
+    assert_eq!(
+        draw(&mut source),
+        [32, 64, 96, 255],
+        "invalid parameters changed the last valid uniforms"
+    );
+    let error = source.adapter.shader_diagnostics().next().unwrap();
+    assert!(
+        error.starts_with("named.wgsl:") && error.contains("expects 3"),
+        "{error}"
+    );
+    source.update(|s| s.0.bad = false);
+    assert_eq!(draw(&mut source), [64, 128, 191, 255]);
+    assert!(source.adapter.shader_diagnostics().next().is_none());
+    source.update(|s| s.0.raw = true);
+    assert_eq!(draw(&mut source), [64, 128, 191, 255]);
+    assert!(
+        source
+            .adapter
+            .shader_diagnostics()
+            .next()
+            .unwrap()
+            .contains("not both")
+    );
+    source.update(|s| s.0.raw = false);
+    assert_eq!(draw(&mut source), [64, 128, 191, 255]);
+    assert!(source.adapter.shader_diagnostics().next().is_none());
+}

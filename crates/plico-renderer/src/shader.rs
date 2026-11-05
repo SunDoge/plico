@@ -148,12 +148,20 @@ enum ShaderEffectInterface {
     CompleteModule,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ParameterSlot {
+    name: String,
+    offset: usize,
+    lanes: Option<usize>,
+}
+
 /// Validated WGSL source for a shader-layer effect.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ShaderEffectSource {
     wgsl: Arc<str>,
     sksl: Option<Arc<str>>,
     interface: ShaderEffectInterface,
+    parameters: Arc<[ParameterSlot]>,
 }
 
 impl ShaderEffectSource {
@@ -233,6 +241,7 @@ impl ShaderEffectSource {
         Validator::new(ValidationFlags::all(), Capabilities::default())
             .validate(&module)
             .map_err(|error| format!("invalid shader interface: {error}"))?;
+        let mut parameters = Vec::new();
         for (_, variable) in module.global_variables.iter() {
             if let Some(binding) = &variable.binding
                 && (binding.group != 0 || binding.binding != 0)
@@ -247,6 +256,25 @@ impl ShaderEffectSource {
             }
             if variable.binding.is_some() {
                 validate_float_uniform(&module, variable.ty)?;
+                if interface == ShaderEffectInterface::CompleteModule
+                    && let naga::TypeInner::Struct { members, .. } =
+                        &module.types[variable.ty].inner
+                {
+                    for member in members {
+                        if let Some(name) = &member.name {
+                            let lanes = match module.types[member.ty].inner {
+                                naga::TypeInner::Scalar(_) => Some(1),
+                                naga::TypeInner::Vector { size, .. } => Some(size as usize),
+                                _ => None,
+                            };
+                            parameters.push(ParameterSlot {
+                                name: name.clone(),
+                                offset: member.offset as usize / 4,
+                                lanes,
+                            });
+                        }
+                    }
+                }
                 let size = module.types[variable.ty].inner.size(module.to_ctx()) as usize;
                 let capacity = UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>();
                 if size > capacity {
@@ -343,7 +371,69 @@ impl ShaderEffectSource {
             wgsl: complete.into(),
             sksl: None,
             interface,
+            parameters: parameters.into(),
         })
+    }
+
+    /// Pack named top-level f32/vector fields using validated WGSL byte offsets.
+    /// Width/height/time are host-owned. Arrays, matrices and nested structs may
+    /// still use raw values(), but are not named-parameter targets yet.
+    pub fn encode_parameters(
+        &self,
+        parameters: &[(String, plico::ShaderValue)],
+    ) -> Result<Vec<f32>, String> {
+        if parameters.is_empty() {
+            return Ok(Vec::new());
+        }
+        if self.interface != ShaderEffectInterface::CompleteModule || self.parameters.is_empty() {
+            return Err("named shader parameters require a complete module with a uniform struct at @group(0) @binding(0)".into());
+        }
+        if parameters.len() > PARAMETER_COUNT {
+            return Err("too many named shader parameters".into());
+        }
+        let mut values = Vec::new();
+        let mut written = vec![false; self.parameters.len()];
+        for (name, value) in parameters {
+            if name.is_empty() || name.len() > 1024 {
+                return Err("invalid named shader parameter name".into());
+            }
+            let index = self
+                .parameters
+                .iter()
+                .position(|slot| slot.name == *name)
+                .ok_or_else(|| format!("unknown shader uniform field {name:?}"))?;
+            let slot = &self.parameters[index];
+            if std::mem::replace(&mut written[index], true) {
+                return Err(format!("duplicate shader parameter {name:?}"));
+            }
+            if slot.offset < 3 {
+                return Err(format!(
+                    "shader uniform field {name:?} overlaps host-owned width/height/time"
+                ));
+            }
+            let lanes = slot.lanes.ok_or_else(|| format!("named shader field {name:?} must be f32 or a float vector; use values() for structured fields"))?;
+            let data = value.components();
+            if data.len() != lanes {
+                return Err(format!(
+                    "shader uniform field {name:?} expects {lanes} float components, received {}",
+                    data.len()
+                ));
+            }
+            if data.iter().any(|v| !v.is_finite()) {
+                return Err(format!(
+                    "shader uniform field {name:?} contains a nonfinite value"
+                ));
+            }
+            let end = slot.offset + lanes;
+            if end > PARAMETER_COUNT {
+                return Err(format!(
+                    "shader uniform field {name:?} exceeds the parameter buffer"
+                ));
+            }
+            values.resize(values.len().max(end), 0.);
+            values[slot.offset..end].copy_from_slice(data);
+        }
+        Ok(values)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -839,6 +929,47 @@ struct Uniforms {{ header: vec4f, payload: {payload} }};
             ShaderEffectSource::new_module(&module(payload))
                 .unwrap_or_else(|error| panic!("{payload}: {error}"));
         }
+    }
+
+    #[test]
+    fn named_parameters_follow_wgsl_vector_padding_and_reject_invalid_writes() {
+        let source = ShaderEffectSource::new_module(
+            r#"
+struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32, matrix: mat4x4f };
+@group(0) @binding(0) var<uniform> u: U;
+@vertex fn vs_main() -> @builtin(position) vec4f { return vec4f(0.); }
+@fragment fn fs_main() -> @location(0) vec4f { return vec4f(1.); }
+"#,
+        )
+        .unwrap();
+        let values = source
+            .encode_parameters(&[
+                ("alpha".into(), 0.5.into()),
+                ("color".into(), [0.1, 0.2, 0.3].into()),
+                ("progress".into(), 0.75.into()),
+            ])
+            .unwrap();
+        assert_eq!(values, vec![0., 0., 0., 0.75, 0.1, 0.2, 0.3, 0.5]);
+        for (name, value, message) in [
+            ("missing", 1f32.into(), "unknown"),
+            ("size", [1., 2.].into(), "host-owned"),
+            ("color", [1., 2.].into(), "expects 3"),
+            ("matrix", [1., 2., 3., 4.].into(), "structured"),
+            ("progress", f32::NAN.into(), "nonfinite"),
+        ] {
+            assert!(
+                source
+                    .encode_parameters(&[(name.into(), value)])
+                    .unwrap_err()
+                    .contains(message)
+            );
+        }
+        assert!(
+            source
+                .encode_parameters(&[("alpha".into(), 0.5.into()), ("alpha".into(), 1f32.into())])
+                .unwrap_err()
+                .contains("duplicate")
+        );
     }
 
     #[test]
