@@ -129,6 +129,7 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Lists | Page::DataTable | Page::TreeView => &icons::LIST,
         Page::Calendar => &icons::LAYOUT_GRID,
         Page::Patterns => &icons::LAYERS,
+        Page::Effects => &icons::SPARKLES,
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,
         Page::Markdown => &icons::MESSAGE_SQUARE,

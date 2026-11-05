@@ -87,10 +87,11 @@ fn run() -> Result<(), Error> {
         "glass" => Page::Glass,
         "calendar" => Page::Calendar,
         "images" => Page::Images,
+        "effects" => Page::Effects,
         _ => {
             return Err(Error::Input {
                 message:
-                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass, calendar or images"
+                    "page must be workspace, layout, controls, motion, lists, 2048, markdown, glass, calendar, images or effects"
                         .into(),
             });
         }

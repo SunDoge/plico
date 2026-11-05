@@ -1,7 +1,7 @@
 # Gallery、组件组织与路由
 
 
-当前 gallery 默认 Workspace，另有 Layout、Controls、Motion 和 Lists。Workspace 提供项目选择、项目独立的偏好草稿、保存/重置、归档与恢复；数据仅为当前会话保存，未接入磁盘持久化。窗口初始 1120×820、最小 640×740；浅/深色和大字号均有真实后端捕获。样本见 reports/gallery。
+当前 gallery 默认 Workspace，另有 Layout、Controls、Motion、Lists、Effects 等页面。Workspace 提供项目选择、项目独立的偏好草稿、保存/重置、归档与恢复；数据仅为当前会话保存，未接入磁盘持久化。窗口初始 1120×820、最小 640×740；浅/深色和大字号均有真实后端捕获。样本见 reports/gallery。
 
 Layout 展示固定导航、弹性画布与固定 inspector 的空间分配；侧栏宽度可连续变化。交叉轴 Start/Center/End 与主轴分布由 Taffy 求解，Wrap 可切换真实换行。这里只展示已经接入的 flex 能力，不宣称已支持 grid、滚动、FLIP 或完整 CSS。
 
