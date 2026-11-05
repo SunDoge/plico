@@ -122,3 +122,5 @@
 [wgpu renderer direction](wgpu-renderer-plan.md): replacement goal, mature-library reuse boundaries and remaining integration gates.
 
 [wgpu 窗口 CPU 采样](wgpu-profiling.md)：阶段 span、退出导出、真实设置页采样及解释边界。
+
+- [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.

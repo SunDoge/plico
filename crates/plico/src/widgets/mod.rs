@@ -305,3 +305,6 @@ pub fn virtual_list<'u, 'e>(
 
 mod inspection;
 pub use inspection::{TableColumn, property_field, table_header, table_row};
+
+mod settings;
+pub use settings::{SettingsRow, SettingsSection, settings_row, settings_section};
