@@ -13,6 +13,89 @@ impl Adapter {
             })
         })
     }
+
+    /// Arrow/Home/End traversal inside a role container such as a tab strip,
+    /// radio group, toolbar, tree or menu. Outside such a container the key is
+    /// left to the focused control or host.
+    fn container_focus_target(&self, engine: &Engine, key: &str) -> Option<Entity> {
+        use plico::WidgetRole;
+        let focused = self.focused?;
+        let node = self.nodes.get(&focused)?;
+        let mut cursor = self.tree.parent(node.id);
+        let mut container = None;
+        while let Some(id) = cursor {
+            if let Some(&entity) = self.reverse.get(&id)
+                && let Some(role) = engine.node(entity).and_then(|n| n.style.role)
+                && matches!(
+                    role,
+                    WidgetRole::TabList
+                        | WidgetRole::RadioGroup
+                        | WidgetRole::Toolbar
+                        | WidgetRole::Tree
+                        | WidgetRole::ListBox
+                        | WidgetRole::Menu
+                )
+            {
+                container = Some((id, role));
+                break;
+            }
+            cursor = self.tree.parent(id);
+        }
+        let (container, role) = container?;
+        let along = match key {
+            "Home" | "End" => true,
+            "ArrowRight" | "ArrowLeft" => matches!(
+                role,
+                WidgetRole::TabList | WidgetRole::Toolbar | WidgetRole::RadioGroup
+            ),
+            "ArrowDown" | "ArrowUp" => matches!(
+                role,
+                WidgetRole::Tree | WidgetRole::ListBox | WidgetRole::Menu | WidgetRole::RadioGroup
+            ),
+            _ => false,
+        };
+        if !along {
+            return None;
+        }
+        let mut items = Vec::new();
+        for &entity in &self.tab_order {
+            if !self.modal_allows(engine, entity) {
+                continue;
+            }
+            let Some(node) = self.nodes.get(&entity) else {
+                continue;
+            };
+            if !engine.node(entity).is_some_and(|n| !n.style.disabled) {
+                continue;
+            }
+            let mut cursor = Some(node.id);
+            let mut inside = false;
+            while let Some(id) = cursor {
+                if id == container {
+                    inside = true;
+                    break;
+                }
+                cursor = self.tree.parent(id);
+            }
+            if inside {
+                items.push(entity);
+            }
+        }
+        if items.len() < 2 {
+            return None;
+        }
+        let at = items.iter().position(|entity| *entity == focused)?;
+        let len = items.len();
+        let next = match key {
+            "Home" => 0,
+            "End" => len - 1,
+            "ArrowRight" | "ArrowDown" => (at + 1) % len,
+            "ArrowLeft" | "ArrowUp" => (at + len - 1) % len,
+            _ => return None,
+        };
+        items.get(next).copied()
+    }
+
     pub fn event(&mut self, engine: &mut Engine, event: UiEvent) -> EventResponse {
         self.event_with_invalidation(engine, event).0
     }
@@ -303,6 +386,15 @@ impl Adapter {
                         at.map_or(0, |i| (i + 1) % len)
                     };
                     self.focused = Some(tab_order[next]);
+                    self.focus_visible = true;
+                    self.reveal_focus = true;
+                    handled = true;
+                } else if matches!(
+                    k.key.as_str(),
+                    "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown" | "Home" | "End"
+                ) && let Some(next) = self.container_focus_target(engine, k.key.as_str())
+                {
+                    self.focused = Some(next);
                     self.focus_visible = true;
                     self.reveal_focus = true;
                     handled = true;

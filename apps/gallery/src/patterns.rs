@@ -277,7 +277,7 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                     text_input_string(ui, "Email", &mut state.email);
                 };
                 let _ = field(ui, "Copies").description("How many to print.") + |ui| {
-                    stepper(ui, &mut state.copies, 1.0..=99.0, 1.0);
+                    number_input(ui, "Copies", &mut state.copies, 1.0, 99.0, 1.0);
                 };
             });
         };

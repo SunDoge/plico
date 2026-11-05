@@ -236,6 +236,7 @@ mod form;
 mod indicators;
 mod media;
 mod navigation;
+mod numberinput;
 mod search;
 mod split;
 mod timeinput;
@@ -258,6 +259,7 @@ pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::{
     back_button, breadcrumbs, forward_button, link, sidebar, sidebar_item, sidebar_section,
 };
+pub use numberinput::number_input;
 pub use search::{SearchResponse, search_field};
 pub use split::{split, split_percent, split_vertical, split_vertical_percent};
 pub use timeinput::time_input;

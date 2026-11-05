@@ -178,6 +178,11 @@ impl<'e> UiContext<'e> {
     pub fn theme(&self) -> Theme {
         self.engine.theme()
     }
+    /// The entity the backend focused at the end of the previous frame.
+    /// Controls also report this through `Response::focused`.
+    pub fn focused(&self) -> Option<Entity> {
+        self.engine.focused()
+    }
     #[inline(always)]
     fn inherited_style(&self) -> Style {
         Style {
@@ -1026,6 +1031,7 @@ impl Leaf<'_, '_, '_> {
             hovered: !style.disabled && ui.engine.hovered(entity),
             clicked: !style.disabled && ui.engine.clicked(entity),
             enabled: !style.disabled,
+            focused: ui.engine.focused() == Some(entity),
         };
         ui.engine.set_grid(entity, None);
         ui.engine.set_spans(entity, &[]);
@@ -1464,12 +1470,14 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     fn finish_target(&mut self) -> (Response, crate::Entity) {
         if !self.composable {
             let enabled = !self.inner.style.disabled;
+            let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
             let (entity, clicked) = self.inner.finish();
             return (
                 Response {
                     clicked,
                     enabled,
                     hovered: self.inner.hovered,
+                    focused: focused == Some(entity),
                 },
                 entity,
             );
@@ -1477,6 +1485,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         let text = std::mem::take(&mut self.inner.text);
         let name = self.accessible_name.take();
         let icon = self.icon.take();
+        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
         let mut entity = None;
         let response = self
             .inner
@@ -1495,7 +1504,8 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                 }
             })
             .response;
-        (response, entity.expect("button declaration"))
+        let entity = entity.expect("button declaration");
+        (response.with_focused(focused == Some(entity)), entity)
     }
     /// Finish this control and retain its identity for a property subscription.
     #[doc(hidden)]
@@ -1612,11 +1622,13 @@ impl Toggle<'_, '_, '_> {
     #[inline(always)]
     fn finish(&mut self) -> ToggleResponse {
         let enabled = !self.inner.style.disabled;
-        let changed = self.inner.finish_controlled(Some(&mut *self.value)).1;
+        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
+        let (entity, changed) = self.inner.finish_controlled(Some(&mut *self.value));
         ToggleResponse {
             changed,
             checked: *self.value,
             enabled,
+            focused: focused == Some(entity),
         }
     }
     pub fn response(mut self) -> ToggleResponse {
@@ -1639,6 +1651,7 @@ pub struct ToggleResponse {
     changed: bool,
     checked: bool,
     enabled: bool,
+    focused: bool,
 }
 impl ToggleResponse {
     pub const fn changed(self) -> bool {
@@ -1649,6 +1662,10 @@ impl ToggleResponse {
     }
     pub const fn enabled(self) -> bool {
         self.enabled
+    }
+    /// Whether the backend had this control focused when it was declared.
+    pub const fn focused(self) -> bool {
+        self.focused
     }
 }
 
@@ -1743,6 +1760,7 @@ pub struct Response {
     hovered: bool,
     clicked: bool,
     enabled: bool,
+    focused: bool,
 }
 impl Response {
     pub(crate) const fn new(clicked: bool, enabled: bool, hovered: bool) -> Self {
@@ -1750,7 +1768,12 @@ impl Response {
             clicked,
             enabled,
             hovered,
+            focused: false,
         }
+    }
+    pub(crate) const fn with_focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
     }
     pub const fn clicked(self) -> bool {
         self.clicked
@@ -1762,6 +1785,10 @@ impl Response {
     }
     pub const fn enabled(self) -> bool {
         self.enabled
+    }
+    /// Whether the backend had this control focused when it was declared.
+    pub const fn focused(self) -> bool {
+        self.focused
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1850,6 +1877,8 @@ pub struct InputResponse {
     pub changed: bool,
     pub submitted: bool,
     pub navigation: Option<crate::InputNavigation>,
+    /// Whether the backend focused this field when it was declared.
+    pub focused: bool,
 }
 impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
     fn key_of(&self) -> Key {
@@ -1916,14 +1945,17 @@ impl<'t> Input<'_, '_, 't> {
             ui.engine.focus_request = Some(entity);
         }
         let counters = self.buffer.counters();
+        let focused = ui.engine.focused() == Some(entity);
         let mut response = ui.engine.inputs.get(&entity).map_or(
             InputResponse::default(),
             |(buffer, _, previous)| InputResponse {
                 changed: buffer.same_storage(&self.buffer) && previous.0 != counters.0,
                 submitted: buffer.same_storage(&self.buffer) && previous.1 != counters.1,
                 navigation: None,
+                focused,
             },
         );
+        response.focused = focused;
         match ui.engine.inputs.entry(entity) {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
                 let binding = entry.get_mut();

@@ -53,6 +53,7 @@ pub struct Engine {
     value_paths: Vec<(Vec<crate::PathKey>, f64)>,
     pub(crate) inputs: HashMap<Entity, (crate::TextBuffer, String, (u64, u64))>,
     pub(crate) focus_request: Option<Entity>,
+    focused: Option<Entity>,
     pub(crate) scroll_requests: HashMap<Entity, f32>,
     scroll_viewports: HashMap<Entity, [f32; 2]>,
     scroll_paths: Vec<(Vec<crate::PathKey>, [f32; 2])>,
@@ -112,6 +113,7 @@ impl Default for Engine {
             value_paths: Vec::new(),
             inputs: HashMap::new(),
             focus_request: None,
+            focused: None,
             scroll_requests: HashMap::new(),
             scroll_viewports: HashMap::new(),
             scroll_paths: Vec::new(),
@@ -190,6 +192,16 @@ impl Engine {
         (!text.is_empty()).then_some(Cow::Owned(text))
     }
 
+    /// The focus the backend last synchronized, for widgets and tests that
+    /// report a focused state in the same frame.
+    pub fn focused(&self) -> Option<Entity> {
+        self.focused
+    }
+    /// Synchronize the backend-owned focus into the declaration engine.
+    #[doc(hidden)]
+    pub fn set_focused(&mut self, focused: Option<Entity>) {
+        self.focused = focused;
+    }
     /// Consume a one-shot native focus request. Invalid/unmounted targets are ignored.
     pub fn take_focus_request(&mut self) -> Option<Entity> {
         self.focus_request

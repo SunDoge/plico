@@ -289,7 +289,31 @@ the regional hour cycle and formats on blur; Plico has no per-segment focus
 or blur hook, so the port is a single 24-hour field and invalid text stays
 visible until Enter.
 
+### Number input (MyGO port)
+
+`number_input(cx, label, &mut f64, min, max, step)` ports MyGO's
+`NumberInput`: a bounded text field with − and + step buttons. Typed text
+applies as soon as it parses inside the bounds; Enter rewrites it with the
+decimals implied by the step, and Enter with invalid or out-of-range text
+restores the current value. Values clamp to the bounds, and an application
+change rewrites the field.
+
+MyGO moves the value with Up/Down and formats on blur; Plico has no blur
+hook here, so the buttons are the stepping path and formatting happens on
+Enter. Decimal amounts still need a decimal type, as in MyGO.
+
+### Focus traversal
+
+The runtime now exposes the backend focus to declarations: `UiContext::focused()`
+returns the focused entity, and `Response::focused()` /
+`InputResponse::focused()` report it for the control just declared. Controls
+inside a tab strip, radio group, toolbar, tree, list box or menu move focus with
+the arrow keys, Home and End; Tab keeps the sequential traversal. The focused
+entity is synchronized from the backend at the start of each frame, so a
+declaration reads the previous frame's focus.
+
 ### Date input (MyGO port)
+
 
 `date_input(cx, label, &mut CalendarDate, &mut PopoverState)` ports MyGO's
 `ui/dateinput.go`: a pop-up button showing `YYYY-MM-DD` whose popover holds the
