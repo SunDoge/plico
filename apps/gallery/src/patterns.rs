@@ -85,6 +85,15 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
             };
         };
     };
+    column(ui).selectable(true).padding(12).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border)
+    + |ui|
+    {
+        text(ui, "Text selection").font_size(16).weight(650);
+        text(ui, "Drag to select text across these paragraphs. Double-click a word, triple-click a paragraph, then Ctrl/Cmd+C to copy.")
+            .color(Color::Muted);
+        text(ui, "中文与日本語 · Selectable text · e\u{301} · 👩‍💻").font_size(18);
+        text(ui, "Ctrl/Cmd+A selects this group; Escape clears the selection.").color(Color::Muted);
+    };
     // Overlay after the page so retiring cards remain above the content.
     toast_viewport(ui, &mut state.toasts);
 }
