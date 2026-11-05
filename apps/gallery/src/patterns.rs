@@ -9,6 +9,9 @@ pub struct Patterns {
     toasts: ToastHost,
     toast_count: u32,
     dot: (f64, f64),
+    crumb: usize,
+    disk: f64,
+    stars: u8,
 }
 
 impl Patterns {
@@ -65,6 +68,29 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                         .color(Color::Muted);
                 }
             };
+        };
+        panel(ui, "Navigation and indicators")
+            .description("Breadcrumb links, a leveled meter, a spinning indicator and a star rating, ported from MyGO.")
+        + |ui|
+        {
+            if breadcrumbs(ui, &["Macintosh HD", "Users", "ada", "Documents"], &mut state.crumb) {
+                ui.request_rebuild();
+            }
+            text!(ui, "Chosen: {}", state.crumb).color(Color::Muted);
+            separator(ui);
+            meter(ui, "Disk", state.disk, 0.0..=100.0, MeterLevels {
+                warning: Some(80.),
+                critical: Some(95.),
+            });
+            let _ = slider(ui, "Disk used", &mut state.disk, 0.0..=100.0).step(1.);
+            row(ui).gap(8).align(Align::Center) + |ui| {
+                spinner(ui);
+                text(ui, "Loading messages…").color(Color::Muted);
+            };
+            if rating(ui, &mut state.stars, 5) {
+                ui.request_rebuild();
+            }
+            text!(ui, "{} of 5 stars", state.stars).color(Color::Muted);
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

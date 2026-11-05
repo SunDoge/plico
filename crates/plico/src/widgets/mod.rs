@@ -228,7 +228,9 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 mod calendar;
 mod composite;
 mod desktop;
+mod indicators;
 mod media;
+mod navigation;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
@@ -237,7 +239,9 @@ pub use composite::{
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
+pub use indicators::{MeterLevels, meter, rating, spinner};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
+pub use navigation::breadcrumbs;
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

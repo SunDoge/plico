@@ -144,6 +144,12 @@ pub enum Color {
     AccentHover,
     AccentPressed,
     Focus,
+    /// A good or complete state, as a meter below its warning level.
+    Success,
+    /// A level that calls for attention, as a meter at its warning level.
+    Warning,
+    /// A level that needs action, as a meter at its critical level.
+    Danger,
 }
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +215,14 @@ pub enum WidgetRole {
     TabList,
     /// One tab within a tab strip.
     Tab,
+    /// A navigation landmark holding a path of links (mygo Breadcrumbs).
+    Navigation,
+    /// A hyperlink-like control inside a navigation path.
+    Link,
+    /// A read-only level indicator with a bounded value (mygo Meter).
+    Meter,
+    /// A work indicator, determinate or not (mygo Spinner).
+    ProgressBar,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

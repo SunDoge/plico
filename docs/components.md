@@ -138,6 +138,53 @@ for slider and progress controls. Plico's simple meter currently needs only
 layout primitives; slider dragging, text editing, scrolling and overlays still
 need dedicated input/layout infrastructure. No source was copied for this batch.
 
+### Navigation and indicators (MyGO ports)
+
+`breadcrumbs`, `meter`, `spinner` and `rating` port the local MyGO
+`ui/feedback.go` breadcrumb path and `ui/indicators.go` Meter, Spinner and
+Rating. They are ordinary context-first functions over public constructors;
+there is no new renderer kind or persistent callback.
+
+```rust
+use plico::prelude::*;
+#[component]
+fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) {
+    breadcrumbs(cx, &["Home", "Users", "Documents"], path);
+    meter(cx, "Disk", *disk, 0.0..=100.0, MeterLevels {
+        warning: Some(80.),
+        critical: Some(95.),
+    });
+    spinner(cx);
+    rating(cx, stars, 5);
+}
+```
+
+- `breadcrumbs(cx, items, &mut chosen)` renders a path with chevron
+  separators: every item but the last is a link and sets `chosen` on click;
+  the last item is plain text. It returns whether the choice changed, clamps
+  out-of-range choices and leaves an empty path alone. The row carries the
+  navigation role and the parents the link role.
+- `meter(cx, label, value, range, levels)` shows a labeled percentage bar.
+  Below `warning` it is success colored, from `warning` warning colored and
+  from `critical` danger colored; a critical level below the warning level
+  makes low values the bad ones, as a battery's. Non-finite values show an
+  empty bar. The container carries the meter role; the numeric value is not
+  projected to assistive technology yet.
+- `spinner(cx)` draws twelve muted dots fading in turn every 900 ms sized from
+  the theme's font size, and requests animation frames while declared. MyGO
+  strokes rotated spokes and names the control with `.Label(...)`; Plico has no
+  per-container accessible-name API yet, so place explanatory text beside it.
+- `rating(cx, &mut value, max)` renders `max` stars, `value` filled in the
+  warning color. A click sets that star and a click on the set star clears the
+  rating; each star is a button named "N of MAX stars". Values above `max` are
+  clamped and the clamp is reported as a change. MyGO's hover preview and its
+  arrow/Home/End handling on a single slider are not ported: Plico has no
+  per-widget focus action wiring, and every star is its own focus stop.
+
+Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
+follow MyGO's theme) for the meter fill and filled stars. Themes serialized
+before the addition still deserialize with those defaults.
+
 ### Desktop style geometry
 
 `padding_x` and `padding_y` override their respective axis; a later `padding`

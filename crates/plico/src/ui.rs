@@ -922,6 +922,14 @@ impl Layout<'_, '_> {
         self.style.disabled |= value;
         self
     }
+    /// Expose a semantic role for this container, such as a navigation
+    /// landmark, a meter bar or a progress indicator. Composed widgets use
+    /// it; interactive roles belong on the control that handles the input.
+    #[inline(always)]
+    pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
+        self.style.role = Some(role);
+        self
+    }
 
     /// Declare an empty container, such as a flex spacer or painted track.
     /// This is shorthand for `children(|_| {})` / `+ |_cx| {}`.

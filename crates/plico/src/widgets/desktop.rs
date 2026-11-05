@@ -73,8 +73,9 @@ pub enum ToastKind {
 impl ToastKind {
     fn accent(self) -> Color {
         match self {
-            Self::Info | Self::Success => Color::Accent,
-            Self::Error => Color::Focus,
+            Self::Info => Color::Accent,
+            Self::Success => Color::Success,
+            Self::Error => Color::Danger,
         }
     }
 }
