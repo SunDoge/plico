@@ -12,17 +12,10 @@ fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 # Offline capture uses the shell's headless offscreen renderer (wgpu by default).
 wgpu = ["dep:plico-desktop", "plico-desktop/wgpu", "dep:tracing-subscriber"]
 skia = ["dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
-egui = [
-    "dep:plico-egui",
-    "dep:plico-shell",
-    "plico-shell/egui",
-    "dep:tracing-subscriber",
-]
 
 [dependencies]
 tracing = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
-plico-egui = { path = "../../crates/plico-egui", optional = true, features = ["widgets"] }
 usage-rs.workspace = true
 snafu.workspace = true
 plico.workspace = true

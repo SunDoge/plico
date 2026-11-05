@@ -279,18 +279,6 @@ impl TextContext {
         Self::with_font_context(FontContext::new())
     }
 
-    /// Empty placeholder for native-widget hosts whose text system is external.
-    /// Does not enumerate system fonts or prepare a second fallback database.
-    pub fn without_system_fonts() -> Self {
-        Self::with_font_context(FontContext {
-            collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
-                system_fonts: false,
-                ..Default::default()
-            }),
-            source_cache: Default::default(),
-        })
-    }
-
     fn with_font_context(mut font_cx: FontContext) -> Self {
         // Parley prunes SourceCache as new layouts are built. The secondary
         // weak cache reuses a Blob still owned by older layouts instead of

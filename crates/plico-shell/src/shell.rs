@@ -111,18 +111,10 @@ impl Shell {
         let surface_height = physical_size.height.max(1);
         let mut renderer = WindowRenderer::new(options.renderer, transparent)?;
         renderer.resume(window.clone(), surface_width, surface_height)?;
-        let mut tcx = if options.renderer == crate::RenderBackend::Egui {
-            TextContext::without_system_fonts()
-        } else {
-            TextContext::new()
-        };
+        let mut tcx = TextContext::new();
         renderer.configure_text(&mut tcx)?;
         tracing::info!(
-            text_backend = if options.renderer == crate::RenderBackend::Egui {
-                "egui"
-            } else {
-                tcx.raster_backend_name()
-            },
+            text_backend = tcx.raster_backend_name(),
             "Window text layout initialized"
         );
         // Expose the window after its rendering resources are ready.

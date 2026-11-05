@@ -98,13 +98,7 @@ fn wgpu_capture_preserves_premultiplied_pixels_and_writes_straight_alpha_png() {
     assert!(decoded.pixels().all(|pixel| pixel.0 == [255, 0, 0, 128]));
 }
 #[test]
-fn capture_rejects_unavailable_backend_without_silent_fallback() {
-    assert!(matches!(
-        capture(&mut Empty).renderer(RenderBackend::Egui).render(),
-        Err(plico_desktop::CaptureError::Backend {
-            backend: RenderBackend::Egui
-        })
-    ));
+fn capture_rejects_invalid_size_without_silent_fallback() {
     assert!(capture(&mut Empty).size(0, 40).render().is_err());
 }
 

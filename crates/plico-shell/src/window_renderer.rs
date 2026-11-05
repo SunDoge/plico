@@ -19,11 +19,6 @@ pub(crate) enum WindowRenderer {
         active: Option<Box<plico_skia::SkiaWindow>>,
         transparent: bool,
     },
-    #[cfg(feature = "egui")]
-    Egui {
-        active: Option<Box<plico_egui::EguiWindow>>,
-        transparent: bool,
-    },
 }
 impl WindowRenderer {
     pub(crate) fn configure_text(
@@ -52,69 +47,6 @@ impl WindowRenderer {
         }
         Ok(())
     }
-    pub(crate) fn build_native(
-        &mut self,
-        _source: &mut dyn plico_renderer::FrameSource,
-        _size: [u32; 2],
-        _scale: f64,
-    ) -> Option<(usize, f64, f64)> {
-        #[cfg(feature = "egui")]
-        if let Self::Egui {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            return Some(renderer.build(_source, _size, _scale).unwrap_or_default());
-        }
-        None
-    }
-    pub(crate) fn event(
-        &mut self,
-        _event: &plico_renderer::UiEvent,
-    ) -> Option<plico_renderer::EventResponse> {
-        #[cfg(feature = "egui")]
-        if let Self::Egui {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            return renderer.event(_event);
-        }
-        None
-    }
-    pub(crate) fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
-        #[cfg(feature = "egui")]
-        if let Self::Egui {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            return renderer.take_host_action();
-        }
-        None
-    }
-    pub(crate) fn ime_state(&self) -> Option<plico_renderer::ImeState> {
-        #[cfg(feature = "egui")]
-        if let Self::Egui {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            return renderer.ime_state();
-        }
-        None
-    }
-    pub(crate) fn pointer_cursor(&self) -> Option<plico_renderer::style::CursorStyle> {
-        #[cfg(feature = "egui")]
-        if let Self::Egui {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            return Some(renderer.pointer_cursor());
-        }
-        None
-    }
     pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
         match self {
             Self::Unavailable => None,
@@ -132,14 +64,9 @@ impl WindowRenderer {
             } => Some(renderer.last_damage_coverage()),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => None,
-            #[cfg(feature = "egui")]
-            Self::Egui { .. } => None,
         }
     }
-    #[cfg_attr(
-        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
-        allow(unused_variables)
-    )]
+    #[cfg_attr(not(any(feature = "skia", feature = "wgpu")), allow(unused_variables))]
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {
             RenderBackend::Auto => {
@@ -151,11 +78,7 @@ impl WindowRenderer {
                 {
                     Self::new(RenderBackend::Skia, transparent)
                 }
-                #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "egui"))]
-                {
-                    Self::new(RenderBackend::Egui, transparent)
-                }
-                #[cfg(not(any(feature = "skia", feature = "egui", feature = "wgpu")))]
+                #[cfg(not(any(feature = "skia", feature = "wgpu")))]
                 {
                     Err(crate::Error::Renderer {
                         message: "no renderer enabled".into(),
@@ -192,27 +115,9 @@ impl WindowRenderer {
                     })
                 }
             }
-            RenderBackend::Egui => {
-                #[cfg(feature = "egui")]
-                {
-                    Ok(Self::Egui {
-                        active: None,
-                        transparent,
-                    })
-                }
-                #[cfg(not(feature = "egui"))]
-                {
-                    Err(crate::Error::Renderer {
-                        message: "Egui requires plico-shell's egui feature".into(),
-                    })
-                }
-            }
         }
     }
-    #[cfg_attr(
-        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
-        allow(unused_variables)
-    )]
+    #[cfg_attr(not(any(feature = "skia", feature = "wgpu")), allow(unused_variables))]
     pub(crate) fn resume(
         &mut self,
         window: Arc<dyn Window>,
@@ -233,21 +138,6 @@ impl WindowRenderer {
                         }
                     })?;
                 renderer.resize(width, height);
-                *active = Some(Box::new(renderer));
-            }
-            #[cfg(feature = "egui")]
-            Self::Egui {
-                active,
-                transparent,
-            } => {
-                let mut renderer =
-                    plico_egui::EguiWindow::new(window, *transparent).map_err(|error| {
-                        crate::Error::Renderer {
-                            message: error.to_string(),
-                        }
-                    })?;
-                renderer.resize(width, height);
-                tracing::info!("egui native-widget window renderer initialized");
                 *active = Some(Box::new(renderer));
             }
             #[cfg(feature = "skia")]
@@ -302,10 +192,7 @@ impl WindowRenderer {
         }
         Ok(())
     }
-    #[cfg_attr(
-        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
-        allow(unused_variables)
-    )]
+    #[cfg_attr(not(any(feature = "skia", feature = "wgpu")), allow(unused_variables))]
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         match self {
             Self::Unavailable => {}
@@ -323,13 +210,6 @@ impl WindowRenderer {
             } => renderer.resize(width, height),
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => {}
-            #[cfg(feature = "egui")]
-            Self::Egui {
-                active: Some(renderer),
-                ..
-            } => renderer.resize(width, height),
-            #[cfg(feature = "egui")]
-            Self::Egui { active: None, .. } => {}
         }
     }
     pub(crate) fn present_skipped(&self) -> bool {
@@ -387,10 +267,7 @@ impl WindowRenderer {
             renderer.trim_gpu_cache();
         }
     }
-    #[cfg_attr(
-        not(any(feature = "skia", feature = "egui", feature = "wgpu")),
-        allow(unused_variables)
-    )]
+    #[cfg_attr(not(any(feature = "skia", feature = "wgpu")), allow(unused_variables))]
     pub(crate) fn render(
         &mut self,
         scene: &mut Scene,
@@ -438,13 +315,6 @@ impl WindowRenderer {
             }
             #[cfg(feature = "skia")]
             Self::Skia { active: None, .. } => Ok(false),
-            #[cfg(feature = "egui")]
-            Self::Egui {
-                active: Some(renderer),
-                ..
-            } => Ok(renderer.present(scene, color)),
-            #[cfg(feature = "egui")]
-            Self::Egui { active: None, .. } => Ok(false),
         }
     }
 }
@@ -487,9 +357,7 @@ mod tests {
         assert!(matches!(result, Ok(WindowRenderer::Skia { .. })));
         #[cfg(feature = "wgpu")]
         assert!(matches!(result, Ok(WindowRenderer::Wgpu { .. })));
-        #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "egui"))]
-        assert!(matches!(result, Ok(WindowRenderer::Egui { .. })));
-        #[cfg(not(any(feature = "skia", feature = "egui", feature = "wgpu")))]
+        #[cfg(not(any(feature = "skia", feature = "wgpu")))]
         assert!(result.is_err());
     }
 
