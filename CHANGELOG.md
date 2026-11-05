@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/SunDoge/plico/compare/v0.2.1...v0.3.0) - 2026-11-05
+
+### Added
+
+- *(cli)* embed tagged WGSL formatter and format shaders
+- *(renderer)* default to wgpu and minimize Vello maintenance
+- *(ui)* add settings composition and polish gallery workspace
+- *(wgpu)* measure and cache native CoreText intrinsic widths
+- *(wgpu)* connect retained CoreText paragraphs to native rendering
+- *(native)* expose CoreText run-based selection and paragraph carets
+- *(native)* align CoreText paragraphs with native bidi-aware offsets
+- *(native)* compose CoreText multiline geometry and paragraph hit testing
+- *(native)* retain CoreText soft-wrapped lines with local editing offsets
+- *(native)* apply CoreText tracking to retained line geometry
+- *(native)* support normalized CoreText face weights
+- *(native)* select CoreText bold and italic faces
+- *(native)* bound CoreText line rasterization to visible clips
+- *(native)* rasterize retained CoreText lines into bounded RGBA images
+- *(native)* add bounded CoreText single-line geometry foundation
+- *(wgpu)* register private Windows memory fonts with retained loader guards
+- *(wgpu)* clip native Windows paragraphs without reshaping visible lines
+- *(wgpu)* render native Windows single-line ellipsis
+- *(wgpu)* preserve native Windows rich text foreground ranges
+- *(wgpu)* support bounded native Windows font style spans
+- *(wgpu)* apply native Windows character spacing before measurement
+- *(native)* raster DirectWrite outline color glyph layers
+- *(wgpu)* support native DirectWrite paragraph line height
+- *(wgpu)* preserve native paragraph alignment through editing and paint
+- *(native)* resolve Windows system font preferences explicitly
+- *(native)* expose DirectWrite intrinsic paragraph widths
+- *(native)* correct and colorize DirectWrite grayscale coverage
+- *(native)* raster DirectWrite layouts into bounded grayscale run masks
+- *(native)* add DirectWrite layout and UTF-8 editing geometry foundation
+- *(wgpu)* clip native paragraphs by visible line count
+- *(wgpu)* support private application fonts and family aliases
+- *(wgpu)* render native rich paragraph ranges with shared geometry
+- *(wgpu)* apply glyph-local affine transforms without shifting layout
+- *(wgpu)* preserve normalized variable-font instances in glyph runs
+- *(native)* raster positioned glyphs from shared font resources
+- *(wgpu)* [**breaking**] replay shared scenes with native text and damage
+- *(wgpu)* add quad renderer and native text window prototypes
+- *(shaders)* let plico_effect read its backdrop, mygo-style
+- *(shader)* pack named scalar and vector parameters from WGSL layouts
+- *(wgpu)* filter isolated layers with GPU Gaussian blur
+- *(wgpu)* render shared WGSL effects with local damage
+- *(wgpu)* use native paragraph geometry for text input
+- *(gallery)* adopt grouped navigation and shared desktop components
+- *(widgets)* animate toast presence and preserve exit lifetimes
+- *(widgets)* add mygo-style tabs, toasts, toolbar and drag surfaces
+- *(bevy)* embed Plico UI in shared GPU 3D scenes
+- *(selection)* add word and paragraph gestures with native highlights
+- *(shader)* embed WGSL modules and label source diagnostics
+- *(wgpu)* present in the browser and profile damage windows
+
+### Fixed
+
+- *(backend)* support CoreText rich text and ellipsis
+- *(wgpu)* rasterize synthetic emboldening in positioned glyph runs
+- *(native)* allow monochrome runs in color-capable Windows fonts
+- *(wgpu)* infer native Windows paragraph base direction
+- *(ci)* repair WASM shader checks and avoid optimized CI builds
+- *(wgpu)* correct backdrop effects and hosted shader DPI scaling
+- restore the i18n dependency section and simplify filter matching
+- *(web)* finish backend removal and check split host in CI
+- *(shader)* reject uniform layouts incompatible with float parameters
+- *(renderer)* keep additive damage local and invalidate material caches
+- *(renderer)* validate WGSL fragment output contract
+- *(renderer)* reject unsupported WGSL vertex buffer inputs
+- *(wgpu)* synchronize native measurement across zoom and retained layout caches
+- *(renderer)* reject nested WebGL effects before replay
+- *(runtime)* preserve scrolling during unrelated layout animations
+- *(runtime)* bound scene history during rapid theme reversals
+- *(shell)* export performance telemetry at window shutdown
+
+### Other
+
+- optimize dependency builds and document the dev probe
+- *(native)* reuse bounded CoreText font objects across layouts
+- *(wgpu)* cull offscreen DirectWrite paragraphs before rasterization
+- *(wgpu)* bound paragraph payloads and reclaim derived text caches
+- *(desktop)* add paced software adapter probe and comparison notes
+- *(wasm)* un-gate the wgpu effect stack on the browser target
+- drop dependencies left behind by the backend removals
+- [**breaking**] remove the egui native-widget backend
+- [**breaking**] remove the Vello backend and retire wabou naming
+- *(renderer)* make native Vello SVG projection opt-in
+- *(renderer)* isolate Vello shader texture registration in its adapter
+- *(renderer)* verify authored WGSL parameter ABI
+- *(wgpu)* reuse layer targets and prune undamaged draws
+
 ## [0.2.1](https://github.com/SunDoge/plico/compare/v0.2.0...v0.2.1) - 2026-11-04
 
 ### Added
