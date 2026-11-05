@@ -1,6 +1,7 @@
 //! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
-//! breadcrumbs, indicators, steppers, split panes, a source list and a search
-//! field (the shared widgets in plico::widgets, MyGO semantics).
+//! breadcrumbs, indicators, steppers, split panes, a source list, a search
+//! field, radios, links and router history (the shared widgets in
+//! plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
@@ -21,6 +22,8 @@ pub struct Patterns {
     file: String,
     file_open: bool,
     tint: Color,
+    email: String,
+    size: String,
 }
 
 impl Default for Patterns {
@@ -41,6 +44,8 @@ impl Default for Patterns {
             file: "main.go".into(),
             file_open: true,
             tint: Color::Literal(0x3b82f6),
+            email: String::new(),
+            size: "Medium".into(),
         }
     }
 }
@@ -53,7 +58,7 @@ impl Patterns {
 
 #[component]
 #[rustfmt::skip]
-pub fn page(ui: &mut UiContext, state: &mut Patterns) {
+pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router<crate::Page>) {
     heading(ui, "Desktop patterns", "Tabs, toolbars, toasts and drag surfaces — the shared desktop widgets.");
     toolbar(ui).wrap(true) + |ui| {
         if button(ui).text("Toast").primary().clicked() {
@@ -233,6 +238,42 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                         .border(1., Color::Border) + |_ui|
                     {};
                 };
+            };
+        };
+        panel(ui, "Form fields").description(
+            "A label above its control with help text and a danger error, ported from MyGO.") + |ui|
+        {
+            form(ui, |ui| {
+                let error = if !state.email.is_empty() && !state.email.contains('@') {
+                    "Enter an email address."
+                } else {
+                    ""
+                };
+                let _ = field(ui, "Email").description("For receipts.").error(error) + |ui| {
+                    text_input_string(ui, "Email", &mut state.email);
+                };
+                let _ = field(ui, "Copies").description("How many to print.") + |ui| {
+                    stepper(ui, &mut state.copies, 1.0..=99.0, 1.0);
+                };
+            });
+        };
+        panel(ui, "Radios, links and history").description(
+            "Radio buttons, a text link and router history buttons, ported from MyGO.") + |ui|
+        {
+            radio_group(ui, |ui| {
+                for size in ["Small", "Medium", "Large"] {
+                    if radio(ui, size, state.size == size).clicked() {
+                        state.size = size.into();
+                    }
+                }
+            });
+            if link(ui, "Open the workspace").clicked() {
+                router.go(crate::Page::Workspace);
+                ui.request_rebuild();
+            }
+            row(ui).gap(4.) + |ui| {
+                back_button(ui, router);
+                forward_button(ui, router);
             };
         };
         crate::shader_demo(ui);

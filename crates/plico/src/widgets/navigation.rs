@@ -211,3 +211,61 @@ pub fn sidebar_item(
         })
         .response
 }
+
+/// A text link (MyGO `Link`): accent-colored text with the link role that
+/// reports clicks and keyboard activation. The caller decides what the click
+/// does; Plico core cannot open URLs, so no `url` parameter is taken.
+///
+/// MyGO underlines the link while hovered; Plico's text style has no
+/// underline, so the accent color and hover background carry the affordance.
+pub fn link(cx: &mut UiContext, label: &str) -> crate::Response {
+    let m = cx.theme().metrics;
+    button_base(cx, label)
+        .padding_x(m.space(1))
+        .padding_y(m.space(1))
+        .radius(m.radius as f32)
+        .color(Color::Accent)
+        .hover_background(Color::ControlHover)
+        .pressed_background(Color::ControlPressed)
+        .semantic_role(WidgetRole::Link)
+        .children(|cx| {
+            let _ = text(cx, label).font_size(m.font_size).color(Color::Accent);
+        })
+        .response
+}
+
+/// A "Back" button for a [`crate::Router`] (MyGO `BackButton`), disabled at
+/// the oldest history entry. Clicking it goes back.
+pub fn back_button<R: Copy + Eq>(
+    cx: &mut UiContext,
+    router: &mut crate::Router<R>,
+) -> crate::Response {
+    let response = button(cx)
+        .icon(&icons::CHEVRON_LEFT)
+        .aria_label("Back")
+        .ghost()
+        .disabled(!router.can_back())
+        .response();
+    if response.clicked() {
+        router.back();
+    }
+    response
+}
+
+/// A "Forward" button for a [`crate::Router`] (MyGO `ForwardButton`), disabled
+/// at the newest history entry. Clicking it goes forward.
+pub fn forward_button<R: Copy + Eq>(
+    cx: &mut UiContext,
+    router: &mut crate::Router<R>,
+) -> crate::Response {
+    let response = button(cx)
+        .icon(&icons::CHEVRON_RIGHT)
+        .aria_label("Forward")
+        .ghost()
+        .disabled(!router.can_forward())
+        .response();
+    if response.clicked() {
+        router.forward();
+    }
+    response
+}

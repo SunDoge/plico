@@ -87,6 +87,8 @@ impl Adapter {
                             Some(plico::WidgetRole::Separator) => Role::Separator,
                             Some(plico::WidgetRole::Tree) => Role::Tree,
                             Some(plico::WidgetRole::TreeItem) => Role::TreeItem,
+                            Some(plico::WidgetRole::RadioGroup) => Role::RadioGroup,
+                            Some(plico::WidgetRole::RadioButton) => Role::RadioButton,
                             None => match n.kind {
                                 Kind::Button | Kind::ButtonBase => Role::Button,
                                 Kind::Slider => Role::Slider,

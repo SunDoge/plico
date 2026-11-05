@@ -248,7 +248,9 @@ pub use desktop::{
 pub use form::{Field, field, fieldset, form};
 pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
-pub use navigation::{breadcrumbs, sidebar, sidebar_item, sidebar_section};
+pub use navigation::{
+    back_button, breadcrumbs, forward_button, link, sidebar, sidebar_item, sidebar_section,
+};
 pub use search::{SearchResponse, search_field};
 pub use split::{split, split_percent, split_vertical, split_vertical_percent};
 pub use tree::{tree, tree_item};
@@ -307,7 +309,9 @@ pub fn popover<'u, 'e, 's>(
 }
 
 mod popup;
+mod radio;
 pub use popup::{MenuItem, Select, SelectOption, SelectResponse, menu, menu_item, select};
+pub use radio::{radio, radio_group};
 
 mod tooltip;
 pub use tooltip::{Tooltip, tooltip};

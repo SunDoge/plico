@@ -233,6 +233,25 @@ form(cx, |cx| {
   focus its control, and the control is not marked invalid by its field's
   error yet.
 
+### Radios, links and history (MyGO port)
+
+`radio`, `radio_group`, `link`, `back_button` and `forward_button` port MyGO's
+`Radio`/`RadioGroup` (`ui/widgets.go`), `Link` and the router history buttons.
+
+- `radio(cx, label, selected)` draws the dot and label and returns the normal
+  response; the caller owns the chosen value and sets it on `clicked`. The
+  button carries the radio-button role and its selected state.
+- `radio_group(cx, content)` is the column with the radio-group role. MyGO
+  makes the group one Tab stop whose arrows and Home/End move the choice;
+  Plico has no per-container focus action wiring, so every radio is its own
+  focus stop and Enter/Space activates it.
+- `link(cx, label)` is accent-colored text with the link role; the declaration
+  site decides what a click does, because Plico core does not open URLs. Plico
+  text has no underline, so the hover background is the affordance.
+- `back_button` / `forward_button` take a `Router`, disable at the ends of the
+  history and step it on click. MyGO's right-click history menu and the
+  Cmd+[ / Alt+Left shortcuts are not part of the widgets.
+
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized
 before the addition still deserialize with those defaults.

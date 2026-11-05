@@ -152,16 +152,16 @@ pub mod macro_support {
 pub mod prelude {
     pub use crate::widgets::{
         Avatar, Button, CalendarResponse, Checkbox, Field, MeterLevels, Panel, RubyText,
-        SearchResponse, Switch, TableColumn, Toast, ToastHost, ToastKind, avatar, badge,
-        breadcrumbs, button, button_base, calendar, calendar_content, calendar_with, checkbox,
-        choice, collapsible, color_picker, column, drag_area, field, fieldset, form, grid, icon,
-        image, menu, menu_item, meter, modal, nav_item, nav_menu, panel, popover, progress,
-        property_field, rating, row, ruby_text, search_field, segmented, select, separator,
-        settings_row, settings_section, shader, sidebar, sidebar_item, sidebar_section, slider,
-        spinner, split, split_percent, split_vertical, split_vertical_percent, stat, stepper, svg,
-        svg_source, switch, table_header, table_row, tabs, text, text_empty, text_input,
-        text_input_string, toast_viewport, toolbar, toolbar_spacer, tooltip, tree, tree_item,
-        virtual_list,
+        SearchResponse, Switch, TableColumn, Toast, ToastHost, ToastKind, avatar, back_button,
+        badge, breadcrumbs, button, button_base, calendar, calendar_content, calendar_with,
+        checkbox, choice, collapsible, color_picker, column, drag_area, field, fieldset, form,
+        forward_button, grid, icon, image, link, menu, menu_item, meter, modal, nav_item, nav_menu,
+        panel, popover, progress, property_field, radio, radio_group, rating, row, ruby_text,
+        search_field, segmented, select, separator, settings_row, settings_section, shader,
+        sidebar, sidebar_item, sidebar_section, slider, spinner, split, split_percent,
+        split_vertical, split_vertical_percent, stat, stepper, svg, svg_source, switch,
+        table_header, table_row, tabs, text, text_empty, text_input, text_input_string,
+        toast_viewport, toolbar, toolbar_spacer, tooltip, tree, tree_item, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,

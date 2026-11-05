@@ -231,6 +231,10 @@ pub enum WidgetRole {
     Tree,
     /// One item in a tree or source list.
     TreeItem,
+    /// A group of mutually exclusive radio buttons.
+    RadioGroup,
+    /// One radio button in a radio group.
+    RadioButton,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

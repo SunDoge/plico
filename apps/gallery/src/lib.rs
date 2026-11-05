@@ -193,7 +193,9 @@ impl Gallery {
                     Page::Localization => i18n::page(ui, self.language),
                     Page::Images => self.images_page(ui),
                     Page::BlackHole => black_hole::page(ui, &mut self.black_hole),
-                    Page::Patterns => patterns::page(ui, &mut self.patterns),
+                    Page::Patterns => {
+                        patterns::page(ui, &mut self.patterns, &mut self.router)
+                    }
                 }
             })
         };
