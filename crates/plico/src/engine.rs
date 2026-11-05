@@ -41,6 +41,8 @@ pub struct Engine {
     node_changes: Vec<NodeChange>,
     hovered: Option<Entity>,
     hovered_path: Option<Vec<crate::PathKey>>,
+    /// Entity the primary pointer press started on; None when no button is down.
+    pressed: Option<Entity>,
     /// Host pointer position in window logical pixels; None outside the window.
     pointer_position: Option<(f64, f64)>,
     pointer_observed: std::cell::Cell<bool>,
@@ -99,6 +101,7 @@ impl Default for Engine {
             node_changes: Vec::new(),
             hovered: None,
             hovered_path: None,
+            pressed: None,
             pointer_position: None,
             pointer_observed: std::cell::Cell::new(false),
             clicks: Vec::new(),
@@ -489,6 +492,14 @@ impl Engine {
     pub fn set_hovered(&mut self, entity: Option<Entity>) {
         self.hovered = entity;
         self.hovered_path = None;
+    }
+    /// Host primary-button snapshot: the entity the press started on.
+    pub fn set_pressed(&mut self, entity: Option<Entity>) {
+        self.pressed = entity;
+    }
+    /// Whether the primary pointer press started on `entity`.
+    pub fn pressed(&self, entity: Entity) -> bool {
+        self.pressed == Some(entity)
     }
     /// Host pointer snapshot in window logical pixels; None clears it.
     pub fn set_pointer_position(&mut self, position: Option<(f64, f64)>) {

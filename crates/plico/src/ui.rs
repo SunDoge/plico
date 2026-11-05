@@ -394,6 +394,12 @@ impl<'e> UiContext<'e> {
     pub fn hovered(&self) -> bool {
         self.engine.hovered(self.parent)
     }
+    /// Whether the primary pointer press started on the current parent
+    /// control and the button is still down. Drag surfaces use this to
+    /// anchor a drag at the press and track it across frames.
+    pub fn pressed(&self) -> bool {
+        self.engine.pressed(self.parent)
+    }
     /// Current host pointer position in window logical pixels, when the
     /// pointer is inside the window. Read during declarations; pointer
     /// movement triggers a settling re-declaration like other input state.

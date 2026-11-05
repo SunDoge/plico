@@ -151,13 +151,13 @@ pub mod macro_support {
 /// Recommended imports for application and custom widget modules.
 pub mod prelude {
     pub use crate::widgets::{
-        Avatar, Button, CalendarResponse, Checkbox, Panel, RubyText, Switch, TableColumn, avatar,
-        badge, button, button_base, calendar, calendar_content, calendar_with, checkbox, choice,
-        collapsible, column, grid, icon, image, menu, menu_item, modal, nav_item, nav_menu, panel,
-        popover, progress, property_field, row, ruby_text, segmented, select, separator,
-        settings_row, settings_section, shader, slider, stat, svg, svg_source, switch,
-        table_header, table_row, text, text_empty, text_input, text_input_string, tooltip,
-        virtual_list,
+        Avatar, Button, CalendarResponse, Checkbox, Panel, RubyText, Switch, TableColumn, Toast,
+        ToastHost, ToastKind, avatar, badge, button, button_base, calendar, calendar_content,
+        calendar_with, checkbox, choice, collapsible, column, drag_area, grid, icon, image, menu,
+        menu_item, modal, nav_item, nav_menu, panel, popover, progress, property_field, row,
+        ruby_text, segmented, select, separator, settings_row, settings_section, shader, slider,
+        stat, svg, svg_source, switch, table_header, table_row, tabs, text, text_empty, text_input,
+        text_input_string, toast_viewport, toolbar, toolbar_spacer, tooltip, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,

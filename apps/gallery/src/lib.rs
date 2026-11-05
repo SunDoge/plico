@@ -15,6 +15,7 @@ pub mod game2048;
 pub mod glass;
 mod layout_demo;
 pub mod markdown_chat;
+mod patterns;
 pub mod workspace;
 use components::icon_button;
 use plico::widgets::{
@@ -61,6 +62,8 @@ pub enum Page {
     Images,
     #[route(label = "Black hole", icon = color_icons::IMAGE)]
     BlackHole,
+    #[route(label = "Patterns", icon = color_icons::SETTINGS)]
+    Patterns,
 }
 
 /// A spring-driven demo chip on the Motion page. The value samples purely
@@ -92,6 +95,8 @@ pub struct Gallery {
     pub language: i18n::Language,
     /// Whether the gravitational-lens overlay distorts every page.
     pub black_hole: bool,
+    /// The desktop-patterns page's local demo state.
+    pub patterns: patterns::Patterns,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -216,6 +221,7 @@ impl Gallery {
                     Page::Localization => i18n::page(ui, self.language),
                     Page::Images => self.images_page(ui),
                     Page::BlackHole => black_hole::page(ui, &mut self.black_hole),
+                    Page::Patterns => patterns::page(ui, &mut self.patterns),
                 }
             })
         };
