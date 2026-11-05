@@ -10,6 +10,7 @@ use objc2_core_foundation::{
 use objc2_core_text::{
     CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, kCTFontAttributeName,
     kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorFromContextAttributeName,
+    kCTTrackingAttributeName,
 };
 pub use raster::Rasterized;
 use snafu::Snafu;
@@ -73,6 +74,9 @@ pub struct Request<'a> {
     pub family: &'a str,
     /// Logical font size, finite and in `(0, 4096]`.
     pub size: f64,
+    /// Native tracking in logical points, finite and within `[-4096, 4096]`.
+    /// Nonzero tracking lets CoreText suppress nonessential ligatures.
+    pub letter_spacing: f64,
     /// Select a face within the resolved family. `None` preserves a named face's
     /// style; `Some(FontStyle::default())` explicitly requests regular/upright.
     pub style: Option<FontStyle>,
@@ -84,6 +88,7 @@ impl<'a> Request<'a> {
             text,
             family: "system-ui",
             size: 14.,
+            letter_spacing: 0.,
             style: None,
         }
     }
@@ -99,6 +104,8 @@ impl<'a> Request<'a> {
             && self.size.is_finite()
             && self.size > 0.
             && self.size <= 4096.
+            && self.letter_spacing.is_finite()
+            && self.letter_spacing.abs() <= 4096.
             && self.style.is_none_or(|style| match style.weight {
                 FontWeight::Normalized(weight) => {
                     weight.is_finite() && (-1. ..=1.).contains(&weight)
@@ -230,6 +237,18 @@ impl Line {
                 Some(kCTForegroundColorFromContextAttributeName),
                 Some(CFBoolean::new(true)),
             );
+            // Leave zero tracking absent so the font's ordinary kerning and
+            // ligature defaults are untouched. CoreText applies nonzero tracking
+            // to clusters before both geometry queries and retained-line drawing.
+            if request.letter_spacing != 0. {
+                let spacing = CFNumber::new_f64(request.letter_spacing);
+                CFMutableAttributedString::set_attribute(
+                    Some(&attributed),
+                    CFRange::new(0, units as isize),
+                    Some(kCTTrackingAttributeName),
+                    Some(&spacing),
+                );
+            }
             CTLine::with_attributed_string(&attributed)
         };
         let (mut ascent, mut descent, mut leading) = (0., 0., 0.);
@@ -442,6 +461,56 @@ mod tests {
                         weight: FontWeight::Normalized(weight),
                         italic: false
                     }),
+                    ..Request::new("text")
+                }),
+                Err(Error::InvalidRequest)
+            ));
+        }
+    }
+    #[test]
+    fn tracking_updates_native_advance_carets_and_retained_pixels() {
+        let normal = Line::new(&Request::new("NNNN")).unwrap();
+        let tracked = Line::new(&Request {
+            letter_spacing: 3.,
+            ..Request::new("NNNN")
+        })
+        .unwrap();
+        assert!(tracked.metrics().width > normal.metrics().width);
+        let before = normal.caret_offsets(2).unwrap().primary;
+        let after = tracked.caret_offsets(2).unwrap().primary;
+        assert!(after > before);
+        // Hit testing uses the same tracked line; do not infer positions from
+        // character count (which would fail for ligatures, combining text/bidi).
+        for byte in 1..4 {
+            let caret = tracked.caret_offsets(byte).unwrap().primary;
+            assert_eq!(tracked.hit_test_x(caret), Some(byte));
+        }
+        let normal_pixels = normal
+            .rasterize(1.5, [0.25, 0.], [0, 0, 0, 255])
+            .unwrap()
+            .unwrap();
+        let pixels = tracked
+            .rasterize(1.5, [0.25, 0.], [0, 0, 0, 255])
+            .unwrap()
+            .unwrap();
+        assert_ne!(pixels, normal_pixels);
+        assert_eq!(
+            tracked
+                .rasterize(1.5, [0.25, 0.], [0, 0, 0, 255])
+                .unwrap()
+                .unwrap(),
+            pixels
+        );
+        let tight = Line::new(&Request {
+            letter_spacing: -0.5,
+            ..Request::new("NNNN")
+        })
+        .unwrap();
+        assert!(tight.metrics().width < normal.metrics().width);
+        for letter_spacing in [f64::NAN, f64::INFINITY, -4097., 4097.] {
+            assert!(matches!(
+                Line::new(&Request {
+                    letter_spacing,
                     ..Request::new("text")
                 }),
                 Err(Error::InvalidRequest)

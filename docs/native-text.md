@@ -519,3 +519,18 @@ They cross-compile on Apple Silicon/Intel; they have not run on macOS here.
 Normalized-weight tests additionally compile requests across the native range,
 read back actual traits and rasterize the retained line. These remain native
 macOS tests, cross-compiled here rather than executed on Linux.
+
+#### CoreText letter spacing
+
+`Request::letter_spacing` uses CoreText's tracking attribute in logical points.
+Zero leaves the attribute absent, preserving ordinary native kerning/ligature
+choices. Nonzero tracking is applied to native character clusters, may suppress
+nonessential ligatures, and participates in the same retained CTLine used for
+advance, caret offsets, hit testing and rasterization. It is not implemented by
+moving individually rasterized Unicode scalars. Inputs must be finite with an
+absolute value at most 4096 points; the existing line-metric and bitmap budgets
+still apply to the result. Negative spacing is accepted within those bounds.
+
+Native regressions cover positive/negative tracking, caret/hit consistency and
+repeatable fractional-DPI raster output. They cross-compile here; actual macOS
+execution and the paragraph/provider bridge remain pending.

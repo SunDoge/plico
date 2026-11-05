@@ -334,3 +334,8 @@ The native style/raster regressions only cross-compile; macOS runtime/window
 acceptance remains open. Normalized native descriptor weights are now accepted
 and their resolved values observable; the Plico CSS-weight mapping is pending.
 The foundation does not guess a CSS/native equivalence or synthesize weight.
+
+The CoreText line foundation also accepts bounded native tracking, shared by
+measurement, editing offsets and rasterization. Zero tracking preserves default
+native shaping. Tests compile for macOS but have not run there; this does not
+turn on macOS wgpu text support by itself.
