@@ -96,3 +96,21 @@ step 网格并夹在范围内，按下立即步进，按住 400 ms 后每 80 ms 
 （标签即其可访问名）暴露。
 
 两者都只读取调用方状态，不新增持久 callback；清空和选择都会让调用方在同一帧拿到结果。
+
+
+## Tree
+
+`tree(cx, content)` 参考 MyGO `ui/tree.go` 的 `Tree`/`TreeItem`（不是 look-less
+`TreeBase`）。它是一个带 tree 角色的普通列，调用方在内容闭包里用 `tree_item` 声明行。
+
+- `tree_item(cx, label, selected, open, depth, content)`：分支传 `Some(&mut open)`，
+  行首出现 Expand/Collapse 箭头按钮，点击切换并请求重建；`content` 只在展开时声明，
+  关闭即卸载。叶子传 `None`，没有展开状态。
+- `depth` 从 0 开始，每层缩进 16 px；父级调用方在 content 里传 `depth + 1`。
+  Plico 的 immediate API 没有 MyGO 的 tree builder 上下文，所以深度是显式参数。
+- 选中态由调用方传入，使用 Selection 背景和 Accent 前景；标签按钮带 treeitem 角色和
+  selected/expanded 状态。
+- Plico 不允许控件嵌套控件，因此分支行有两个焦点点：箭头按钮（名称 Expand/Collapse）
+  和标签按钮。MyGO 的单焦点行、Up/Down/Home/End、Right/Left 与首字母选择尚未移植。
+
+点击、展开状态与卸载都有核心测试覆盖，Gallery Patterns 页提供可展开的示例树。

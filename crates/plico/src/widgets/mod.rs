@@ -233,6 +233,7 @@ mod media;
 mod navigation;
 mod search;
 mod split;
+mod tree;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
@@ -246,6 +247,7 @@ pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::{breadcrumbs, sidebar, sidebar_item, sidebar_section};
 pub use search::{SearchResponse, search_field};
 pub use split::{split, split_percent, split_vertical, split_vertical_percent};
+pub use tree::{tree, tree_item};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.
 pub fn text_input<'u, 'e, 't>(

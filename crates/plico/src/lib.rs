@@ -160,7 +160,7 @@ pub mod prelude {
         sidebar_section, slider, spinner, split, split_percent, split_vertical,
         split_vertical_percent, stat, stepper, svg, svg_source, switch, table_header, table_row,
         tabs, text, text_empty, text_input, text_input_string, toast_viewport, toolbar,
-        toolbar_spacer, tooltip, virtual_list,
+        toolbar_spacer, tooltip, tree, tree_item, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,

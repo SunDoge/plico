@@ -18,6 +18,8 @@ pub struct Patterns {
     mailbox: String,
     mail_open: bool,
     query: String,
+    file: String,
+    file_open: bool,
 }
 
 impl Default for Patterns {
@@ -35,6 +37,8 @@ impl Default for Patterns {
             mailbox: "inbox".into(),
             mail_open: true,
             query: String::new(),
+            file: "main.go".into(),
+            file_open: true,
         }
     }
 }
@@ -185,6 +189,32 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                         .color(Color::Muted);
                 };
             };
+        };
+        panel(ui, "Tree").description("A disclosure tree of files, ported from MyGO's Tree/TreeItem.") + |ui| {
+            tree(ui, |ui| {
+                let branch = tree_item(
+                    ui,
+                    "src",
+                    state.file == "src",
+                    Some(&mut state.file_open),
+                    0,
+                    |ui| {
+                        if tree_item(ui, "main.go", state.file == "main.go", None, 1, |_| {}).clicked() {
+                            state.file = "main.go".into();
+                        }
+                        if tree_item(ui, "widgets.rs", state.file == "widgets.rs", None, 1, |_| {}).clicked() {
+                            state.file = "widgets.rs".into();
+                        }
+                    },
+                );
+                if branch.clicked() {
+                    state.file = "src".into();
+                }
+                if tree_item(ui, "Cargo.toml", state.file == "Cargo.toml", None, 0, |_| {}).clicked() {
+                    state.file = "Cargo.toml".into();
+                }
+            });
+            text!(ui, "Selected: {}", state.file).color(Color::Muted);
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {
