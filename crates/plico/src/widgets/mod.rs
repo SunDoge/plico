@@ -227,11 +227,15 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 
 mod calendar;
 mod composite;
+mod desktop;
 mod media;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,
+};
+pub use desktop::{
+    Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
 pub use media::{Avatar, RubyText, avatar, ruby_text};
 

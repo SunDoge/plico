@@ -61,7 +61,7 @@ frame.write_png(output)?;
 原生 widget source 可用 `render_source_with_backend`。声明、脚本事件几何和最终
 绘制复用同一个后端实例及文字服务，避免预览布局使用另一套文字度量。
 显式选择不可用的后端会报错，不静默换成另一个 renderer。此 capture API 目前
-只支持 Skia／wgpu。wgpu 已连接 Linux／Windows／macOS 的系统文字；macOS CoreText 接入仍属实验，尚无实机截图验证，富文本、应用字体与截断会明确报错。
+只支持 Skia／wgpu。wgpu 已连接 Linux／Windows／macOS 的系统文字；macOS CoreText 接入仍属实验，已支持 UTF-8 富文本 span 与单行截断。应用字体注册、span 独立行高和多行省略仍会明确报错。
 
 Gallery 可直接使用已有场景：
 

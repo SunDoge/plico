@@ -648,6 +648,11 @@ impl Adapter {
                 && !full
                 && !resized
                 && !theme_changed
+                // Layout candidates only describe Taffy box changes. A
+                // simultaneous scroll can move an unrelated subtree whose
+                // boxes did not change; patching candidates alone leaves its
+                // placed offset stale and writes it back below, freezing scroll.
+                && !self.scroll_dirty
                 && !wide_structure
                 && !self.geometry_roots.is_empty();
             let patch = attempt_patch.then(|| self.patch_dirty_geometry(engine));

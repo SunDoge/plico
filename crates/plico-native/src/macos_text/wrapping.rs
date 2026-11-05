@@ -17,16 +17,25 @@ impl Line {
     /// An empty paragraph produces one empty line. Hard breaks remain unsupported
     /// by `Request`; no line alignment, vertical placement or ellipsis is supplied.
     pub fn wrap(request: &Request<'_>, width: f64) -> Result<Vec<WrappedLine>> {
+        Self::wrap_styled(request, &[], width)
+    }
+    /// Styled equivalent of [`Self::wrap`], using one attributed typesetter for
+    /// the complete logical paragraph so shaping survives soft line breaks.
+    pub fn wrap_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+        width: f64,
+    ) -> Result<Vec<WrappedLine>> {
         if !width.is_finite() || width <= 0. || width > 1e9 {
             return Err(Error::InvalidRequest);
         }
         if request.text.is_empty() {
             return Ok(vec![WrappedLine {
                 range: 0..0,
-                line: Self::new(request)?,
+                line: Self::new_styled(request, spans)?,
             }]);
         }
-        let (font, attributed) = Self::attributed(request)?;
+        let (font, attributed) = Self::attributed_styled(request, spans)?;
         // SAFETY: The valid attributed string is not mutated after this call.
         let typesetter = unsafe { CTTypesetter::with_attributed_string(&attributed) };
         let indices = TextIndices::new(request.text);

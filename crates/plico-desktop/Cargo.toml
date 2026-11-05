@@ -63,3 +63,7 @@ required-features = ["wgpu"]
 [[example]]
 name = "wgpu-damage-window"
 required-features = ["wgpu"]
+
+[[example]]
+name = "wgpu-software-probe"
+required-features = ["wgpu", "profiling"]

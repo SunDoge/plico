@@ -41,9 +41,12 @@ pub struct Engine {
     node_changes: Vec<NodeChange>,
     hovered: Option<Entity>,
     hovered_path: Option<Vec<crate::PathKey>>,
+    /// Entity the primary pointer press started on; None when no button is down.
+    pressed: Option<Entity>,
     /// Host pointer position in window logical pixels; None outside the window.
     pointer_position: Option<(f64, f64)>,
     pointer_observed: std::cell::Cell<bool>,
+    hover_regions: std::cell::RefCell<HashMap<Entity, bool>>,
     clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
@@ -99,8 +102,10 @@ impl Default for Engine {
             node_changes: Vec::new(),
             hovered: None,
             hovered_path: None,
+            pressed: None,
             pointer_position: None,
             pointer_observed: std::cell::Cell::new(false),
+            hover_regions: Default::default(),
             clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
@@ -490,6 +495,14 @@ impl Engine {
         self.hovered = entity;
         self.hovered_path = None;
     }
+    /// Host primary-button snapshot: the entity the press started on.
+    pub fn set_pressed(&mut self, entity: Option<Entity>) {
+        self.pressed = entity;
+    }
+    /// Whether the primary pointer press started on `entity`.
+    pub fn pressed(&self, entity: Entity) -> bool {
+        self.pressed == Some(entity)
+    }
     /// Host pointer snapshot in window logical pixels; None clears it.
     pub fn set_pointer_position(&mut self, position: Option<(f64, f64)>) {
         self.pointer_position = position;
@@ -517,6 +530,47 @@ impl Engine {
                     .hovered_path
                     .as_ref()
                     .is_some_and(|path| self.matches_path(entity, path)))
+    }
+    pub(crate) fn hovered_within(&self, entity: Entity) -> bool {
+        if self
+            .nodes
+            .get(entity)
+            .is_none_or(|node| node.style.disabled)
+        {
+            return false;
+        }
+        let geometry = *self
+            .hover_regions
+            .borrow_mut()
+            .entry(entity)
+            .or_insert(false);
+        let mut hovered = self.hovered;
+        while let Some(current) = hovered {
+            if current == entity {
+                return true;
+            }
+            hovered = self
+                .nodes
+                .get(current)
+                .and_then(|node| (current != self.root).then_some(node.identity.parent));
+        }
+        geometry
+    }
+    /// Host geometry feedback for the small set of groups that queried hover.
+    /// Returns whether a declaration-observed hover value changed.
+    pub fn update_hover_regions(&self, mut contains: impl FnMut(Entity) -> bool) -> bool {
+        let mut changed = false;
+        self.hover_regions.borrow_mut().retain(|entity, hovered| {
+            if let Some(node) = self.nodes.get(*entity) {
+                let next = !node.style.disabled && contains(*entity);
+                changed |= next != *hovered;
+                *hovered = next;
+                true
+            } else {
+                false
+            }
+        });
+        changed
     }
     pub fn queue_click(&mut self, entity: Entity) {
         // A declaration exposes a boolean click. Coalesce repeated activation
@@ -933,6 +987,7 @@ impl Engine {
         }
         for id in self.removed.iter().copied() {
             self.scroll_viewports.remove(&id);
+            self.hover_regions.get_mut().remove(&id);
             let node = self.nodes.remove(id).unwrap();
             self.lookup.remove(&node.identity);
             self.inputs.remove(&id);

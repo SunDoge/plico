@@ -19,6 +19,15 @@ is required at build or runtime. The following local code was read as reference:
 
 Pango, Cairo and gtk-rs are linked dependencies under their respective licenses;
 these attribution notes do not relicense them.
+
+- GPUI Fast, Apache-2.0, commit `36956df0eb284faba6bd062f5258d5792d464001`:
+  `crates/gpui_apple/src/fast/text_system.rs` (`SizedFonts`) and
+  `crates/gpui_apple/src/text_system.rs` were consulted for CoreText ownership,
+  exact-size font reuse, fallback runs and CoreGraphics raster configuration.
+  The bounded thread-local font cache in `src/macos_text/fonts.rs` is newly
+  written, not copied source. Its key also distinguishes explicit/native style
+  selection, and text/tracking remain attributed-string properties. This change
+  does not adopt GPUI's glyph atlas or foreground-dependent font smoothing.
 - cairo-rs 0.22.9, MIT, `src/font/font_face.rs` (`create_from_ft`):
   the positioned-font bridge follows its FreeType reference/user-data ownership
   pattern, generalized to a shared font-byte owner so font collections are not

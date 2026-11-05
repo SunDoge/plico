@@ -20,6 +20,7 @@ pub fn badge(cx: &mut UiContext, label: &str) {
 pub struct Panel<'u, 'e> {
     layout: Layout<'u, 'e>,
     title: Option<&'u str>,
+    description: Option<&'u str>,
     font_size: u16,
 }
 /// Start a panel with an optional title row above the content.
@@ -36,7 +37,15 @@ pub fn panel<'u, 'e>(
             .background(Color::Panel)
             .border(1., Color::Border),
         title: title.into(),
+        description: None,
         font_size: m.font_size,
+    }
+}
+impl<'u> Panel<'u, '_> {
+    /// Supporting text below the title, using the current theme's body size.
+    pub fn description(mut self, description: &'u str) -> Self {
+        self.description = Some(description);
+        self
     }
 }
 impl crate::ImplicitKey for Panel<'_, '_> {
@@ -59,9 +68,15 @@ impl Panel<'_, '_> {
     pub fn children<R>(self, content: impl FnOnce(&mut UiContext) -> R) -> InnerResponse<R> {
         let title = self.title;
         let font_size = self.font_size;
+        let description = self.description;
         self.layout.children(|cx| {
             if let Some(title) = title {
                 text(cx, title).font_size(font_size).weight(650);
+            }
+            if let Some(description) = description {
+                text(cx, description)
+                    .font_size(font_size)
+                    .color(Color::Muted);
             }
             content(cx)
         })
@@ -128,12 +143,15 @@ pub fn nav_item(
         })
         .selected(selected)
         .transition(m.interaction_ms)
-        .gap(m.spacing)
+        .gap(m.space(2))
         .children(|cx| {
             if let Some(icon) = icon {
                 crate::widgets::icon(cx, icon);
             }
             text(cx, label)
+                .width(0.)
+                .grow(1.)
+                .min_width(0.)
                 .weight(if selected { 600 } else { 400 })
                 .font_size(m.font_size)
                 .ellipsis(true);

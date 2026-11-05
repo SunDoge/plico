@@ -15,7 +15,14 @@ impl Paragraph {
     /// Locale is inferred by CoreFoundation; no hyphenation or custom locale is
     /// requested. This does not promise CSS browser line-break-policy equivalence.
     pub fn measure_intrinsic(request: &Request<'_>) -> Result<[f64; 2]> {
-        if !request.valid_paragraph() {
+        Self::measure_intrinsic_styled(request, &[])
+    }
+    /// Measure rich text through the same attributed typesetter used for layout.
+    pub fn measure_intrinsic_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+    ) -> Result<[f64; 2]> {
+        if !request.valid_paragraph() || !valid_style_spans(request.text, spans) {
             return Err(Error::InvalidRequest);
         }
         if hard_lines(request.text).take(4097).count() > 4096 {
@@ -25,14 +32,27 @@ impl Paragraph {
         let mut maximum = 0f64;
         for (content, _) in hard_lines(request.text) {
             let part = Request {
-                text: &request.text[content],
+                text: &request.text[content.clone()],
                 ..*request
             };
             if part.text.is_empty() {
                 continue;
             }
             // Keep the face alive explicitly; attributes retain it as well.
-            let (_font, attributed) = Line::attributed(&part)?;
+            let part_spans = spans
+                .iter()
+                .filter_map(|span| {
+                    let start = span.range.start.max(content.start);
+                    let end = span.range.end.min(content.end);
+                    (start < end).then(|| StyleSpan {
+                        range: start - content.start..end - content.start,
+                        size: span.size,
+                        style: span.style,
+                        color: span.color,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let (_font, attributed) = Line::attributed_styled(&part, &part_spans)?;
             let indices = TextIndices::new(part.text);
             let units = indices.utf16(part.text.len()).ok_or(Error::Metrics)?;
             let string = CFString::from_str(part.text);

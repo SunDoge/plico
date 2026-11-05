@@ -15,11 +15,13 @@ pub mod game2048;
 pub mod glass;
 mod layout_demo;
 pub mod markdown_chat;
+mod patterns;
+mod sidebar;
 pub mod workspace;
 use components::icon_button;
 use plico::widgets::{
-    avatar, badge, button, checkbox, collapsible, column, nav_menu, progress, row, ruby_text,
-    segmented, separator, svg, switch, text, virtual_list,
+    avatar, badge, button, checkbox, collapsible, column, panel, progress, row, ruby_text,
+    segmented, separator, settings_row, settings_section, switch, text, virtual_list,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,6 +63,8 @@ pub enum Page {
     Images,
     #[route(label = "Black hole", icon = color_icons::IMAGE)]
     BlackHole,
+    #[route(label = "Patterns", icon = color_icons::SETTINGS)]
+    Patterns,
 }
 
 /// A spring-driven demo chip on the Motion page. The value samples purely
@@ -92,6 +96,8 @@ pub struct Gallery {
     pub language: i18n::Language,
     /// Whether the gravitational-lens overlay distorts every page.
     pub black_hole: bool,
+    /// The desktop-patterns page's local demo state.
+    pub patterns: patterns::Patterns,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -110,6 +116,7 @@ pub struct Gallery {
     pub alignment: u8,
     pub wrapped: bool,
     pub compact: bool,
+    pub sidebar_collapsed: bool,
     pub release_details: bool,
     pub workspace: workspace::Workspace,
     pub dialog: plico::ModalState,
@@ -163,38 +170,8 @@ impl Gallery {
         let l = ui.localizer();
         let m = ui.theme().metrics;
         row(ui).width_percent(100.).height_percent(100.).align(Align::Stretch) + |ui| {
-            column(ui).width(192.).shrink(0.).padding(12).gap(12).background(Color::Panel) + |ui| {
-                row(ui).gap(8) + |ui| {
-                    svg(ui, &LOGO).size(26., 26.);
-                    text(ui, "plico").font_size(23).weight(750);
-                };
-                text(ui, l.text("interface-lab", "INTERFACE LAB")).font_size(10).weight(600)
-                    .color(Color::Muted);
-                column(ui).height(0.).grow(1.).scroll_y(true).gap(6).padding(0) + |ui| {
-                    nav_menu(ui, &mut self.router);
-                };
-                row(ui).gap(6).wrap(true) + |ui| {
-                    for (language, label) in [
-                        (i18n::Language::English, "English"),
-                        (i18n::Language::Chinese, "中文"),
-                    ] {
-                        let control = button(ui).text(label).key(label).font_size(13);
-                        let control = if self.language == language {
-                            control.primary()
-                        } else {
-                            control.ghost()
-                        };
-                        if control.clicked() {
-                            self.language = language;
-                        }
-                    }
-                };
-                checkbox(ui, l.text("compact", "Compact"), &mut self.compact);
-                text(ui, l.text("rust-in-motion", "Rust, in motion.")).font_size(12).weight(600);
-                text(ui, l.text("development-gallery", "Development gallery")).font_size(10)
-                    .color(Color::Muted);
-            };
-            column(ui).width(0.).grow(1.).padding(m.space(6)).gap(m.space(4)).children(|ui| {
+            sidebar::show(ui, self);
+            column(ui).width(0.).min_width(0.).grow(1.).padding(m.space(6)).gap(m.space(4)).children(|ui| {
                 row(ui).justify(Justify::SpaceBetween).wrap(true).gap(8) + |ui| {
                     text(ui, l.text("workspace-gallery", "Workspace / Gallery")).font_size(12)
                         .color(Color::Muted).grow(1.);
@@ -216,6 +193,7 @@ impl Gallery {
                     Page::Localization => i18n::page(ui, self.language),
                     Page::Images => self.images_page(ui),
                     Page::BlackHole => black_hole::page(ui, &mut self.black_hole),
+                    Page::Patterns => patterns::page(ui, &mut self.patterns),
                 }
             })
         };
@@ -241,13 +219,10 @@ impl Gallery {
         let l = ui.localizer();
         heading(ui, &l.text("virtual-lists", "Virtual lists"),
             &l.text("a-bounded-viewport-over-a-large-data-set", "A bounded viewport over a large data set."));
-        column(ui).padding(16).gap(8).background(Color::Panel).radius(14.) + |ui| {
-            text(ui, l.text("virtual-rows", "10,000 virtual rows")).font_size(15).weight(650);
-            text(
-                ui,
-                l.text("only-the-visible-rows-are-built-scroll-to-explore",
-                    "Only the visible rows are built. Scroll to explore."),
-            ).color(Color::Muted);
+        panel(ui, l.text("virtual-rows", "10,000 virtual rows").as_ref()).description(&l.text(
+            "only-the-visible-rows-are-built-scroll-to-explore", "Only the visible rows are built. Scroll to explore."))
+        + |ui|
+        {
             virtual_list(ui, 10_000, 36.).height(216.).smooth_scroll(true).rows(
                 |i| i as u64,
                 |ui, i| {
@@ -272,8 +247,7 @@ impl Gallery {
                 "Small interactions, shared state. Leave the page and your values stay."),
         );
         column(ui).height(0.).grow(1.).scroll_y(true).gap(16) + |ui| {
-            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-                text(ui, l.text("hover-and-activation", "Hover and activation")).font_size(17).weight(650);
+            panel(ui, l.text("hover-and-activation", "Hover and activation").as_ref()) + |ui| {
                 let activations = ui.state(|| 0_u32);
                 let response = button(ui).text(l.text("hover-or-activate", "Hover or activate")).response();
                 let mut hint = l.text("hover-hint",
@@ -287,8 +261,7 @@ impl Gallery {
                 text(ui, hint).font_size(12).color(Color::Muted);
                 text(ui, i18n::count_message(self.language, "activated-count", activations.get().into())).weight(600);
             };
-            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-                text(ui, l.text("buttons-feedback", "Buttons & feedback")).font_size(17).weight(650);
+            panel(ui, l.text("buttons-feedback", "Buttons & feedback").as_ref()) + |ui| {
                 row(ui).gap(8).wrap(true) + |ui| {
                     let increment = plico::widgets::tooltip(ui,
                         l.text("add-one-to-the-counter", "Add one to the counter")).children(|ui| {
@@ -313,16 +286,14 @@ impl Gallery {
                     {
                         text(ui, l.text("workspace", "Workspace")).weight(650);
                         switch(ui, l.text("notifications", "Notifications"), &mut self.notifications);
-                        checkbox(ui, l.text("save-automatically", "Save automatically"),
-                            &mut self.autosave);
+                        checkbox(ui, l.text("save-automatically", "Save automatically"), &mut self.autosave);
                         separator(ui);
                         row(ui).gap(8).align(Align::Center).children(|ui| {
                             if button(ui).text(l.text("done", "Done")).primary().clicked() {
                                 ui.close_popover();
                             }
                             plico::widgets::menu(ui, &mut self.action_menu, l.text("actions", "Actions")) + |ui| {
-                                if plico::widgets::menu_item(ui,
-                                    l.text("increment-count", "Increment count")).icon(&crate::icons::PLUS).clicked()
+                                if plico::widgets::menu_item(ui, l.text("increment-count", "Increment count")).icon(&crate::icons::PLUS).clicked()
                                 {
                                     self.count += 1;
                                 }
@@ -376,29 +347,24 @@ impl Gallery {
             if applied {
                 self.dialog.close();
             }
-            column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-                text(ui, l.text("preferences", "Preferences")).font_size(17).weight(650);
-                row(ui).gap(8).wrap(true) + |ui| {
+            settings_section(ui, l.text("preferences", "Preferences").as_ref()) + |ui| {
+                let status = if self.notifications {
+                    l.text("notifications-enabled", "Notifications are enabled")
+                } else {
+                    l.text("notifications-paused", "Notifications are paused")
+                };
+                settings_row(ui, l.text("notification-delivery", "Delivery").as_ref()).description(&status) + |ui| {
                     switch(ui, l.text("notifications", "Notifications"), &mut self.notifications).motion(Motion::Smooth);
-                    if button(ui).text(l.text("edit-preferences", "Edit preferences")).font_size(12)
-                        .clicked()
-                    {
+                    if button(ui).text(l.text("edit-preferences", "Edit preferences")).clicked() {
                         self.preview_notifications = self.notifications;
                         self.dialog.open();
                     }
                 };
-                row(ui).gap(8).wrap(true) + |ui| {
+                separator(ui);
+                settings_row(ui, l.text("saving", "Saving").as_ref()) + |ui| {
                     checkbox(ui, l.text("save-automatically", "Save automatically"), &mut self.autosave);
                     checkbox(ui, l.text("disabled", "Disabled"), &mut self.autosave).disabled(true);
                 };
-                text(
-                    ui,
-                    if self.notifications {
-                        l.text("notifications-enabled", "Notifications are enabled")
-                    } else {
-                        l.text("notifications-paused", "Notifications are paused")
-                    },
-                ).font_size(12).color(Color::Muted);
             };
             release_channel(ui, &mut self.channel_select, &mut self.release_details);
             column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
@@ -608,9 +574,10 @@ fn shader_demo(ui: &mut UiContext) {
 #[component]
 #[rustfmt::skip]
 fn heading(ui: &mut UiContext, title: &str, subtitle: &str) {
+    let font_size = ui.theme().metrics.font_size;
     column(ui).gap(6) + |ui| {
         text(ui, title).font_size(28).weight(700);
-        text(ui, subtitle).font_size(12).color(Color::Muted);
+        text(ui, subtitle).font_size(font_size).color(Color::Muted);
     };
 }
 #[component]

@@ -63,19 +63,18 @@ fn workspace(
     commands: State<Vec<TaskCommand>>,
     counter: State<u64>,
 ) {
-    column(cx).padding(28).gap(20).width_percent(100.).height_percent(100.) + |cx| {
+    column(cx).padding(24).gap(16).width_percent(100.).height_percent(100.).scroll_y(true) + |cx| {
         row(cx).align(Align::Center).gap(12) + |cx| {
             icon(cx, &crate::icons::LAYERS).size(26., 26.).color(Color::Accent);
-            column(cx).gap(5) + |cx| {
+            column(cx).width(0.).grow(1.).gap(5) + |cx| {
                 text(cx, "Task workspace").font_size(24).weight(750);
-                text(cx, "Start a task, then edit this view while it runs.").font_size(12)
-                    .color(Color::Muted);
+                text(cx, "Start or cancel a background task while using the interface.").color(Color::Muted);
             };
         };
         cx.region((task, commands), |cx, (task, commands)| {
             let task = task.read();
             let running = task.status == TaskStatus::Running;
-            column(cx).padding(20).gap(16).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
+            panel(cx, None) + |cx| {
                 row(cx).justify(Justify::SpaceBetween) + |cx| {
                     text(cx, "Background task").font_size(16).weight(650);
                     text(
@@ -87,10 +86,10 @@ fn workspace(
                             TaskStatus::Cancelled => "Cancelled",
                             TaskStatus::Failed => "Could not start",
                         },
-                    ).font_size(12).color(Color::Muted);
+                    ).color(Color::Muted);
                 };
                 progress(cx, "Progress", f32::from(task.progress) / 100.);
-                row(cx).gap(10) + |cx| {
+                toolbar(cx).padding_x(0).wrap(true) + |cx| {
                     button(cx).text("Start task").primary().disabled(running)
                         .on_click(commands.handle(), |commands| {
                         commands.update(|commands| commands.push(TaskCommand::Start));
@@ -102,13 +101,14 @@ fn workspace(
                         },
                     );
                 };
-                text!(cx, "Completed tasks: {}", task.completed).font_size(12).color(Color::Muted);
+                text!(cx, "Completed tasks: {}", task.completed).color(Color::Muted);
             };
         });
         cx.region(counter, |cx, counter| {
             let counter = counter.handle();
-            column(cx).padding(20).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |cx| {
-                text(cx, "View state").font_size(16).weight(650);
+            panel(cx, "View state").description("Local interface state stays independent of the background task.")
+            + |cx|
+            {
                 row(cx).gap(12).align(Align::Center) + |cx| {
                     button(cx).text("Increment view counter").on_click(counter, |counter| {
                         counter.update(|value| *value += 1)
@@ -120,23 +120,23 @@ fn workspace(
                         },
                     );
                 };
-                reload_notes(cx);
+                state_details(cx);
             };
         });
-        text(cx, "The task is simulated; no files or network requests are made.").font_size(11).color(Color::Muted);
+        text(cx, "The task is simulated; no files or network requests are made.").font_size(14).color(Color::Muted);
     };
 }
 
 #[component]
 #[rustfmt::skip]
-fn reload_notes(cx: &mut UiContext) {
+fn state_details(cx: &mut UiContext) {
     let details = cx.local_persisted_state(2, || false);
     cx.region(details, |cx, details| {
         let mut expanded = *details.read();
-        checkbox(cx, "Show reload notes", &mut expanded).bind(details.handle());
+        checkbox(cx, "Show state details", &mut expanded).bind(details.handle());
         if expanded {
-            text(cx, "Compatible edits preserve this counter. An incompatible view reset leaves the task running.")
-                .font_size(12).color(Color::Muted);
+            text(cx, "This counter belongs to the interface. Starting or cancelling a task does not reset it.")
+                .color(Color::Muted);
         }
     });
 }
