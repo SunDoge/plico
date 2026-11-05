@@ -16,6 +16,8 @@ mod window;
 pub use window::WgpuWindow;
 #[cfg(feature = "paint-scene")]
 pub mod image;
+#[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+mod macos_paragraph;
 #[cfg(feature = "paint-scene")]
 pub mod mask;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
@@ -26,6 +28,8 @@ mod paragraph;
     feature = "system-text"
 ))]
 mod windows_paragraph;
+#[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+pub use macos_paragraph::MacosTextCacheStats;
 #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
 pub use paragraph::ParagraphCacheStats;
 #[cfg(all(

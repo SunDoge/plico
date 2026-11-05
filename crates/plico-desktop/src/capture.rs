@@ -124,11 +124,11 @@ impl CaptureRenderer {
             }
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
-                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
                 {
                     renderer.configure_text(text, scale).map_err(Into::into)
                 }
-                #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
                 {
                     let _ = (renderer, text);
                     Err(CaptureError::Backend {

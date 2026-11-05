@@ -18,6 +18,9 @@ plico-native = { path = "../plico-native", default-features = false, features = 
 [target.'cfg(target_os = "windows")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["windows-text"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+plico-native = { path = "../plico-native", default-features = false, features = ["macos-text"], optional = true }
+
 [dependencies]
 resvg = { version = "0.48.1", default-features = false, features = ["raster-images"], optional = true }
 winit = {workspace=true,optional=true}

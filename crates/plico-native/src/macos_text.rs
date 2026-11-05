@@ -1,7 +1,7 @@
 //! Experimental CoreText foundation. One retained native line supplies both
 //! metrics and editing offsets; no second shaping pass or raster approximation.
-//! Native multiline geometry is available; rich text and renderer integration
-//! are pending.
+//! Native multiline geometry is available; rich text remains pending. The
+//! experimental shared renderer bridge lives in plico-wgpu.
 mod editing;
 mod paragraph;
 mod raster;
@@ -54,6 +54,44 @@ pub enum FontWeight {
     /// CoreText normalized weight in `[-1, 1]`, with zero regular/medium.
     /// This is not a CSS weight or an OpenType `wght` axis coordinate.
     Normalized(f64),
+}
+impl FontWeight {
+    /// Map CSS weights through the platform's named weight constants. Values
+    /// between hundreds interpolate native anchors; 1..100 and 900..1000 clamp
+    /// to the lightest/heaviest named weight. This requests a closest face,
+    /// not guaranteed variable-font axis interpolation.
+    pub fn from_css(weight: f64) -> Result<Self> {
+        use objc2_app_kit::{
+            NSFontWeightBlack, NSFontWeightBold, NSFontWeightHeavy, NSFontWeightLight,
+            NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold, NSFontWeightThin,
+            NSFontWeightUltraLight,
+        };
+        if !weight.is_finite() || !(1. ..=1000.).contains(&weight) {
+            return Err(Error::InvalidRequest);
+        }
+        // SAFETY: Framework-owned immutable constants; use platform values
+        // rather than embedding guessed CoreText/CSS conversion coefficients.
+        let anchors = unsafe {
+            [
+                NSFontWeightUltraLight,
+                NSFontWeightThin,
+                NSFontWeightLight,
+                NSFontWeightRegular,
+                NSFontWeightMedium,
+                NSFontWeightSemibold,
+                NSFontWeightBold,
+                NSFontWeightHeavy,
+                NSFontWeightBlack,
+            ]
+        };
+        let position = (weight.clamp(100., 900.) - 100.) / 100.;
+        let lower = position.floor() as usize;
+        let upper = (lower + 1).min(8);
+        let fraction = position - lower as f64;
+        Ok(Self::Normalized(
+            anchors[lower] + (anchors[upper] - anchors[lower]) * fraction,
+        ))
+    }
 }
 /// Native face selection; no synthetic emboldening or skew is applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -313,6 +351,28 @@ impl Line {
             _thread: PhantomData,
         })
     }
+    /// Native ink bounds relative to the baseline, in logical top-down coordinates.
+    /// Whitespace/empty lines return None. Glyph overhang is included.
+    pub fn ink_bounds(&self) -> Result<Option<[f64; 4]>> {
+        // SAFETY: Retained immutable line, no external CGContext state.
+        let ink = unsafe { self.native.image_bounds(None) };
+        if ink.size.width == 0. || ink.size.height == 0. {
+            return Ok(None);
+        }
+        let bounds = [
+            ink.origin.x,
+            -ink.origin.y - ink.size.height,
+            ink.origin.x + ink.size.width,
+            -ink.origin.y,
+        ];
+        if bounds.iter().any(|n| !n.is_finite() || n.abs() > 1e9)
+            || bounds[2] < bounds[0]
+            || bounds[3] < bounds[1]
+        {
+            return Err(Error::Metrics);
+        }
+        Ok(Some(bounds))
+    }
     /// Resolved base face style; fallback runs can use other faces.
     pub fn font_style(&self) -> ResolvedFontStyle {
         // SAFETY: This line retains a valid immutable native font.
@@ -547,6 +607,38 @@ mod tests {
                 Err(Error::InvalidRequest)
             ));
         }
+    }
+    #[test]
+    fn css_weights_use_platform_anchors_and_ink_bounds_match_native_rasters() {
+        let mut previous = -1.;
+        for css in [
+            1., 100., 200., 300., 400., 450., 500., 600., 700., 800., 900., 1000.,
+        ] {
+            let FontWeight::Normalized(value) = FontWeight::from_css(css).unwrap() else {
+                panic!("expected normalized platform weight")
+            };
+            assert!(value >= previous && (-1. ..=1.).contains(&value));
+            previous = value;
+        }
+        for css in [0., 1001., f64::NAN, f64::INFINITY] {
+            assert!(FontWeight::from_css(css).is_err());
+        }
+        let line = Line::new(&Request::new("Italic f 中文🙂")).unwrap();
+        let bounds = line.ink_bounds().unwrap().unwrap();
+        assert!(bounds[2] > bounds[0] && bounds[3] > bounds[1]);
+        let raster = line
+            .rasterize(1.5, [0.25, 0.], [0, 0, 0, 255])
+            .unwrap()
+            .unwrap();
+        assert!(raster.origin[0] as f64 <= bounds[0] * 1.5 + 0.25);
+        assert!(raster.origin[1] as f64 <= bounds[1] * 1.5);
+        assert!(
+            Line::new(&Request::new("   "))
+                .unwrap()
+                .ink_bounds()
+                .unwrap()
+                .is_none()
+        );
     }
     #[test]
     fn rejects_multiline_and_invalid_dimensions() {

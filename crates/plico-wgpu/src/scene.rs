@@ -956,8 +956,50 @@ impl Renderer {
                             }
                             ink[index] = Some(bounds.unwrap_or(Rect::ZERO));
                         }
+                        #[cfg(all(target_os = "macos", feature = "system-text"))]
+                        {
+                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            let snapped_x = (x * 4.).round() / 4.;
+                            let base_x = snapped_x.floor();
+                            let base_y = y.round();
+                            let (images, bounds) = self.macos_paragraph_images(
+                                request.clone(),
+                                scale,
+                                snapped_x - base_x,
+                                [
+                                    clip.x0 - base_x,
+                                    clip.y0 - base_y,
+                                    clip.x1 - base_x,
+                                    clip.y1 - base_y,
+                                ],
+                            )?;
+                            ink[index] = Some(if bounds == [0.; 4] {
+                                Rect::ZERO
+                            } else {
+                                Rect::new(
+                                    snapped_x + bounds[0] * scale,
+                                    base_y + bounds[1] * scale,
+                                    snapped_x + bounds[2] * scale,
+                                    base_y + bounds[3] * scale,
+                                )
+                                .inflate(3., 3.)
+                            });
+                            for (image, origin) in images.iter() {
+                                let rect = Rect::new(
+                                    base_x + f64::from(origin[0]),
+                                    base_y + f64::from(origin[1]),
+                                    base_x + f64::from(origin[0]) + f64::from(image.width),
+                                    base_y + f64::from(origin[1]) + f64::from(image.height),
+                                );
+                                let q = quad(rect, 0., Affine::IDENTITY, clip, index)?;
+                                draws.push(image_draw(
+                                    &mut payloads,
+                                    crate::image::ImageQuad::new(q, image.clone()),
+                                ));
+                            }
+                        }
                         #[cfg(not(all(
-                            any(target_os = "linux", target_os = "windows"),
+                            any(target_os = "linux", target_os = "windows", target_os = "macos"),
                             feature = "system-text"
                         )))]
                         {

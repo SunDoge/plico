@@ -20,7 +20,8 @@ applications still encounter explicit unsupported-command errors.
 - Use native text layout and glyph rasterization: Pango/Cairo currently works on
   Linux; DirectWrite basic paragraphs now connect to shared geometry and corrected
   run-image painting, including bounded style/color ranges and outline color glyph layers, but are cross-compiled only and still lack full color-font
-  parity. CoreText is still required. Do not approximate glyph
+  parity. CoreText now has an experimental shared paragraph/run-image bridge,
+  cross-compiled only and still missing rich spans, font assets and truncation. Do not approximate glyph
   coverage with the rectangle SDF shader. Existing editing/IME state remains outside
   the renderer; its geometry must come from the layout actually drawn.
 - Reuse tests, virtual time, screenshot previews and damage concepts. Avoid taking
@@ -305,61 +306,41 @@ a hosted image canvas at 1.25×. Seven existing Skia capture/preview tests passe
 wgpu-only, Skia-only and combined library Clippy plus Windows cross-compilation
 passed. The actual gallery Controls JSON scenario produced and visually verified
 count 5 from seeded count 4 plus one scripted click. Generated PNG is local only.
-macOS native wgpu text capture remains unsupported; Windows runtime is unverified.
+macOS native wgpu text capture is now connected through the experimental CoreText
+bridge below, but macOS/Windows runtime capture remains unverified.
 
-## CoreText foundation progress
+## CoreText shared renderer bridge (experimental)
 
-The optional native `macos-text` feature now cross-compiles single-line CoreText
-metrics and UTF-8/scalar editing offsets on Apple Silicon and Intel. It retains
-the actual shaped CTLine, with bounded requests and UI-thread ownership. See
-`docs/native-text.md` for the exact supported API and native-test commands.
-Paragraph layout and wgpu integration are still missing; this is
-progress toward the macOS gate, not evidence that the gate has passed.
+The optional native `macos-text` feature supplies retained CTLine/CTTypesetter
+geometry, native face styles/tracking, hard/soft paragraphs, native alignment,
+primary/secondary carets and direction-run selection. `plico-wgpu/system-text`
+now connects it to `TextContext`, `PaintCommand::Paragraph`, WgpuWindow and the
+shared capture path on macOS. The renderer and native tests cross-compile for
+Apple Silicon; the window renderer also checks on Intel. This is integration
+progress, not macOS runtime/visual acceptance.
 
-The CoreText foundation also has a bounded CGContext bitmap primitive using the
-retained line, with portable physical-bounds tests. Native raster tests only
-cross-compile; orientation, emoji and text quality remain unverified. No macOS
-renderer/capture capability is enabled by this step.
+The bridge resolves unquoted family preference lists, maps CSS weights through
+AppKit named constants and explicitly rejects unavailable families, application
+font registration, rich spans, ellipsis and line limits. Min-content width is
+currently reported as a zero lower bound; exact native min-content measurement
+is still needed. Positioned editor/terminal glyphs are not implemented on macOS.
 
-CoreText's bitmap primitive now also clips physical raster bounds before its
-allocation limits, while retaining full line geometry. Portable tests cover
-bounded output for enormous ink; native crop-equivalence tests only cross-compile.
-This prepares viewport handling but does not establish actual CoreText glyph
-traversal performance or complete the paragraph/renderer integration gate.
+Geometry is color/scale-independent. Per-line RGBA images are clipped before
+allocation and keyed by retained paragraph identity, line, scale, phase, color
+and effective raster clip. Integer translation reuses full visible line images;
+only clipped edges need new native bitmaps. Native ink bounds are cached with
+layout. Source fingerprints are computed once per paragraph image request,
+rather than once per line. Layout/raster caches have 64 MiB accounted Rust-payload
+budgets and 512/1024 entry limits, with public stats and tracing. Native allocations,
+GPU textures and externally retained images/layouts are outside those counters.
 
-CoreText now also supports explicit native bold/italic face selection, preserving
-named styles by default and reporting unavailable family traits instead of
-synthesizing them. Resolved base-face style/PostScript identity is observable.
-The native style/raster regressions only cross-compile; macOS runtime/window
-acceptance remains open. Normalized native descriptor weights are now accepted
-and their resolved values observable; the Plico CSS-weight mapping is pending.
-The foundation does not guess a CSS/native equivalence or synthesize weight.
+Native tests compile coverage for color-independent geometry, bitmap reuse,
+long-line viewport bounds, offscreen skipping, no-wrap alignment and cache trim.
+An ignored macOS GPU test checks real paragraph pixels, damage reuse and trim
+recovery. None has run on macOS in this environment. The desktop cross-check
+stops in mac-notification-sys because the Linux host lacks Apple's Objective-C
+compiler/SDK. No physical-display, macOS IME or color-emoji acceptance is claimed.
 
-The CoreText line foundation also accepts bounded native tracking, shared by
-measurement, editing offsets and rasterization. Zero tracking preserves default
-native shaping. Tests compile for macOS but have not run there; this does not
-turn on macOS wgpu text support by itself.
-
-A bounded CoreText soft-wrapping primitive now retains native CTTypesetter lines,
-original UTF-8 ranges and correct line-local editing offsets. Native regressions
-cross-compile on both macOS targets. Hard-break paragraphs, vertical layout,
-truncation and the shared paragraph/window bridge remain unfinished;
-this is not yet macOS renderer acceptance.
-
-CoreText multiline geometry now handles explicit/empty/trailing lines and native
-soft wrapping, preserving original content/separator byte ranges, logical
-baselines and paragraph hit testing. Portable hard-break/line-box tests execute
-on Linux. Native paragraph tests cross-compile only; rich runs,
-truncation and renderer-provider/window integration remain open.
-
-CoreText paragraph baselines now use direction-aware native flush offsets, with
-independent bidi base direction per hard paragraph and native justification for
-eligible soft lines. Portable direction tests run; native geometry tests only
-cross-compile. No macOS renderer/window gate is claimed from these checks.
-
-CoreText lines now expose run-based visual selection spans; paragraphs expose
-aligned multiline selection rectangles and primary/secondary caret boxes at
-original UTF-8 offsets. Portable merge tests preserve bidi gaps and reuse storage;
-native selection/ligature/CRLF tests only cross-compile. Grapheme navigation,
-upstream wrap affinity, rich runs/truncation and macOS provider/window acceptance
-remain open.
+Linux regression after this bridge: all 96 wgpu tests (including GPU tests,
+excluding the five manual profiling cases) and eight portable native tests pass.
+See `docs/native-text.md` for the exact API and remaining native text gates.

@@ -28,7 +28,7 @@ pub struct WgpuWindow {
     damage_enabled: bool,
     present_skipped: bool,
     #[cfg(all(
-        any(target_os = "linux", target_os = "windows"),
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
         feature = "system-text"
     ))]
     text_scale: Option<u64>,
@@ -96,7 +96,7 @@ impl WgpuWindow {
             ),
             present_skipped: false,
             #[cfg(all(
-                any(target_os = "linux", target_os = "windows"),
+                any(target_os = "linux", target_os = "windows", target_os = "macos"),
                 feature = "system-text"
             ))]
             text_scale: None,
@@ -105,7 +105,7 @@ impl WgpuWindow {
     /// Reinstall the native measure provider only when device scale/context changes.
     pub fn configure_text(&mut self, text: &mut TextContext) -> Result<()> {
         #[cfg(all(
-            any(target_os = "linux", target_os = "windows"),
+            any(target_os = "linux", target_os = "windows", target_os = "macos"),
             feature = "system-text"
         ))]
         {
@@ -114,6 +114,8 @@ impl WgpuWindow {
                 || text.raster_backend_name()
                     != if cfg!(target_os = "windows") {
                         "directwrite-wgpu"
+                    } else if cfg!(target_os = "macos") {
+                        "coretext-wgpu"
                     } else {
                         "pango-wgpu"
                     }
@@ -124,7 +126,7 @@ impl WgpuWindow {
             Ok(())
         }
         #[cfg(not(all(
-            any(target_os = "linux", target_os = "windows"),
+            any(target_os = "linux", target_os = "windows", target_os = "macos"),
             feature = "system-text"
         )))]
         {
@@ -223,7 +225,7 @@ impl WgpuWindow {
         self.renderer.trim_effect_cache();
         self.renderer.trim_positioned_glyph_cache();
         #[cfg(all(
-            any(target_os = "linux", target_os = "windows"),
+            any(target_os = "linux", target_os = "windows", target_os = "macos"),
             feature = "system-text"
         ))]
         self.renderer.trim_text_cache();

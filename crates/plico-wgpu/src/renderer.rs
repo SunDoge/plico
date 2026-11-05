@@ -148,6 +148,9 @@ pub struct Renderer {
     ))]
     pub(crate) windows_paragraphs:
         Option<std::rc::Rc<std::cell::RefCell<crate::windows_paragraph::Cache>>>,
+    #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+    pub(crate) macos_paragraphs:
+        Option<std::rc::Rc<std::cell::RefCell<crate::macos_paragraph::Cache>>>,
     #[cfg(feature = "paint-scene")]
     pub(crate) prepared_cache: Option<([u32; 2], std::rc::Rc<crate::scene::PreparedScene>)>,
     #[cfg(feature = "paint-scene")]
@@ -345,6 +348,8 @@ impl Renderer {
                 feature = "system-text"
             ))]
             windows_paragraphs: None,
+            #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+            macos_paragraphs: None,
             #[cfg(feature = "paint-scene")]
             prepared_cache: None,
             #[cfg(feature = "paint-scene")]
@@ -709,6 +714,13 @@ impl Renderer {
                 raster_payload_bytes=stats.raster_bytes, rasterizations_total=stats.rasterizations,
                 colorizations_total=stats.colorizations, application_fonts=stats.font_files,
                 native_font_copy_bytes=stats.font_copy_bytes, "wgpu DirectWrite resources");
+        }
+        #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+        if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
+            let stats = self.macos_text_cache_stats();
+            tracing::trace!(target: "plico::perf", paragraphs=stats.layouts, paragraph_rust_bytes=stats.layout_bytes,
+                rasters=stats.rasters, raster_payload_bytes=stats.raster_bytes, rasterizations_total=stats.rasterizations,
+                "wgpu CoreText resources");
         }
         result
     }

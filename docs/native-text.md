@@ -77,7 +77,8 @@ color invalidates a bitmap. Rebuilding at target scale is required after DPI cha
 rotated/continuously scaled text remains better suited to the outline path.
 
 The experimental macOS CoreText single-line foundation and Windows DirectWrite
-service/wgpu bridge are described below. macOS wgpu integration remains pending. No GTK window or main loop is introduced. `linux-text` is off
+service/wgpu bridge are described below. The experimental macOS wgpu bridge is
+now connected, with runtime acceptance and several capabilities still pending. No GTK window or main loop is introduced. `linux-text` is off
 by default and target-gated; default builds, WASM and ESP-IDF do not link Pango/Cairo.
 
 See [source and license notes](../crates/plico-native/SOURCES.md) for the local
@@ -510,7 +511,8 @@ with zero regular/medium. CoreText chooses the closest available face; this valu
 is neither CSS weight nor an OpenType variation-axis coordinate. The actual
 `ResolvedFontStyle::normalized_weight` is read from the selected native font via
 a checked numeric downcast, and can be absent. Invalid/nonfinite requests are
-rejected. A separate CSS-to-native mapping and per-span styling are pending.
+rejected. `FontWeight::from_css` now maps through AppKit named constants (see bridge below);
+per-span styling is pending.
 
 Native tests cover the four Helvetica bold/italic combinations, regular face
 selection from a bold name, repeatable raster pixels and unchanged line metrics.
@@ -554,7 +556,8 @@ invent a scalar boundary inside a linguistic cluster to force progress.
 This is a single-logical-paragraph primitive: hard newline input remains rejected
 by `Line::wrap`. Use `Paragraph` below for hard breaks, vertical placement and
 explicit line height. Direction-aware alignment and paragraph editing are described
-below; ellipsis and the shared wgpu provider are still pending. Native tests
+below; ellipsis remains pending and the experimental wgpu bridge is described
+at the end of this section. Native tests
 cover multilingual/combining/bidi text conservation, later-line local offsets,
 fractional-DPI raster repeatability, empty input and line-budget enforcement.
 These tests only cross-compile here; macOS runtime behavior is not verified.
@@ -580,7 +583,8 @@ Requests retain the 1 MiB/100,000-scalar bound, with at most 4096 visual lines a
 1e9 points of total height. Invalid dimensions and limits fail explicitly rather
 than truncating. Hard-break partitioning and line-box overflow/rounding tests run
 on Linux; CoreText multiline/range/hit-test tests only cross-compile for macOS.
-Native execution, rich runs, ellipsis and the wgpu provider remain open.
+Native execution, rich runs and ellipsis remain open; see the experimental
+wgpu bridge below.
 
 #### CoreText direction-aware alignment
 
@@ -629,3 +633,57 @@ that disjoint gaps remain and storage is reused. Native tests cover mixed LTR/RT
 gaps, native ligature carets, aligned multiline rectangles and CRLF mapping;
 they only cross-compile here. Actual macOS selection behavior and the shared
 provider/window bridge still require runtime acceptance.
+
+#### Experimental macOS wgpu bridge
+
+`plico-wgpu/system-text` on macOS now installs a `coretext-wgpu` paragraph engine
+through `Renderer::configure_text` / `WgpuWindow::configure_text`. Measurement,
+caret/selection geometry and raster images use retained native paragraph lines.
+The shared capture/preview path can select this provider too; it has not been
+executed on macOS here.
+
+The bridge accepts unquoted family preference lists, including system-ui,
+sans-serif, serif and monospace aliases. Unknown named families are checked
+against the resolved native family/PostScript name before trying the next
+candidate. CSS weights 100..900 map/interpolate AppKit's platform-owned
+UltraLight/Thin/Light/Regular/Medium/Semibold/Bold/Heavy/Black constants; the valid
+outer ranges 1..100 and 900..1000 clamp to the outer named anchors. This requests
+the closest face, not exact variable-font axis positions.
+
+Supported geometry includes native hard/soft wrapping, explicit line height,
+Start/Center/End/Justify, letter spacing, italic and original UTF-8 editing ranges.
+No-wrap text keeps its alignment width without introducing soft lines. Rich spans,
+ellipsis, line limits, quoted/escaped family lists and application font registration
+are explicitly rejected. Min-content width is currently a zero lower bound,
+while max-content is measured using native unwrapped lines. Accurate native
+min-content width, private fonts and positioned editor/terminal glyphs are still
+needed before treating this as a complete replacement.
+
+Native ink bounds are retained with each layout. Painting clips each visible line
+before bitmap allocation; fully offscreen lines generate no coverage. Keys include
+line identity, effective clip, scale, native phase and color. Integer paragraph
+translation reuses fully visible line images. The paragraph x origin uses four
+phases, its y origin snaps to pixels, and each line baseline's residual phase is
+preserved inside native rasterization. GPU clipping retains the exact fractional
+clip; CPU output bounds round outward.
+
+Layouts/raster entries have 512/1024 count limits and independent 64 MiB accounted
+Rust-payload budgets; a frame also caps total returned RGBA at 64 MiB.
+`macos_text_cache_stats`, CoreText tracing spans and frame resource tracing expose
+retention and native raster counts. Native object allocations, GPU images and
+externally retained references are not process-RSS-accounted. Trim clears derived
+caches and invalidates prepared scenes/damage, while live native layouts remain
+valid.
+
+Native cache/geometry tests and an ignored GPU pixel/damage/trim regression
+cross-compile. Run on macOS with:
+
+```sh
+cargo test --locked -p plico-native --no-default-features --features macos-text --lib
+cargo test --locked -p plico-wgpu --features window macos_paragraph -- --include-ignored
+```
+
+Apple Silicon/Intel renderer checks and Apple Silicon Clippy pass on this Linux
+host. Full desktop cross-check is blocked in the existing mac-notification-sys
+Objective-C build without Apple's SDK/toolchain. Actual native tests, real window
+DPI/scrolling/IME, emoji and visual quality remain unverified.

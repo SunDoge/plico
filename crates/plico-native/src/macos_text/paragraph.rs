@@ -34,7 +34,7 @@ pub struct ParagraphLine {
     pub line: Line,
 }
 /// Multiline CoreText geometry with retained lines and no second shaping pass.
-/// Rich runs, ellipsis and a renderer-provider bridge are pending.
+/// Rich runs and ellipsis are pending; plico-wgpu hosts the shared renderer bridge.
 pub struct Paragraph {
     text: Box<str>,
     lines: Vec<ParagraphLine>,
@@ -63,6 +63,24 @@ impl Paragraph {
         line_height: Option<f64>,
         alignment: Alignment,
     ) -> Result<Self> {
+        Self::layout(request, width, line_height, alignment, true)
+    }
+    /// Preserve hard lines without soft wrapping while retaining an alignment width.
+    pub fn without_wrapping(
+        request: &Request<'_>,
+        width: Option<f64>,
+        line_height: Option<f64>,
+        alignment: Alignment,
+    ) -> Result<Self> {
+        Self::layout(request, width, line_height, alignment, false)
+    }
+    fn layout(
+        request: &Request<'_>,
+        width: Option<f64>,
+        line_height: Option<f64>,
+        alignment: Alignment,
+        wrap: bool,
+    ) -> Result<Self> {
         if !request.valid_paragraph()
             || width.is_some_and(|w| !w.is_finite() || w <= 0. || w > 1e9)
             || line_height.is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e9)
@@ -85,7 +103,7 @@ impl Paragraph {
                 ..*request
             };
             let right_to_left = crate::text_direction::paragraph_is_rtl(part.text);
-            let wrapped = match width {
+            let wrapped = match width.filter(|_| wrap) {
                 Some(width) => Line::wrap(&part, width)?,
                 None => vec![WrappedLine {
                     range: 0..part.text.len(),
