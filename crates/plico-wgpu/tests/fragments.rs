@@ -2,7 +2,6 @@
 //! form. The scene bridge shares the original command Arc when no fragments
 //! are present and only runs the flattening expansion for scenes that have
 //! them; both paths must produce the same pixels.
-#![cfg(feature = "paint-scene")]
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene};

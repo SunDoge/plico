@@ -1,4 +1,4 @@
-#![cfg(all(feature = "paint-scene", feature = "system-text", target_os = "linux"))]
+#![cfg(all(feature = "system-text", target_os = "linux"))]
 use plico::prelude::*;
 use plico::{ShaderAsset, VirtualClock};
 use plico_renderer::{FrameSource, Scene, TextContext};

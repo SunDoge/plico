@@ -1,4 +1,4 @@
-#![cfg(all(feature = "paint-scene", feature = "system-text", target_os = "linux"))]
+#![cfg(all(feature = "system-text", target_os = "linux"))]
 use kurbo::Affine;
 use plico_renderer::{PaintCommand, PaintScene, Scene, TextContext};
 use plico_wgpu::Renderer;

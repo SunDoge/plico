@@ -1,5 +1,5 @@
 //! Real Plico declarations -> runtime/Taffy -> shared Scene -> wgpu, without Vello replay.
-#[cfg(all(target_os = "linux", feature = "system-text", feature = "paint-scene"))]
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 mod demo {
     use plico::ImageAsset;
     use plico::prelude::*;
@@ -117,11 +117,11 @@ mod demo {
         Ok(())
     }
 }
-#[cfg(all(target_os = "linux", feature = "system-text", feature = "paint-scene"))]
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     demo::run()
 }
-#[cfg(not(all(target_os = "linux", feature = "system-text", feature = "paint-scene")))]
+#[cfg(not(all(target_os = "linux", feature = "system-text")))]
 fn main() {
-    eprintln!("This shared-scene example currently requires Linux, system-text and paint-scene.");
+    eprintln!("This shared-scene example currently requires Linux and system-text.");
 }

@@ -1,4 +1,3 @@
-#![cfg(feature = "paint-scene")]
 use kurbo::{Affine, Circle, Rect, Shape};
 use peniko::{
     Blob, Extend, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,

@@ -1,7 +1,6 @@
 //! Prepared-scene caching across the root scene and isolated layers. A single
 //! cache entry ping-ponged between the root and its layers, so frames with
 //! isolated groups never hit; the keyed map must serve both.
-#![cfg(feature = "paint-scene")]
 use kurbo::{Affine, Rect};
 use peniko::{BlendMode, Color, Fill};
 use plico_renderer::{PaintScene, Scene};

@@ -192,7 +192,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
     // false LOD spikes at repeat seams and supports affine source mappings.
     let source_size = vec2f(textureDimensions(glyph_atlas, 0));
     let footprint = max(length(dpdx(input.uv) * source_size), length(dpdy(input.uv) * source_size));
-    let lod = clamp(log2(max(footprint, 1.)), 0., f32(textureNumLevels(glyph_atlas) - 1u));
+    let lod = clamp(log2(max(footprint, 1.)), 0., max(input.color2.x - 1., 0.));
     let world = input.position.xy + frame.origin.xy;
     let clip = input.clip;
     // Clip rectangle is a hard scissor equivalent, in physical pixels.
@@ -230,7 +230,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         var pixel: vec4f;
         if input.clip_params.w > 0.5 {
             let lower = i32(floor(lod));
-            let upper = min(lower + 1, i32(textureNumLevels(glyph_atlas)) - 1);
+            let upper = min(lower + 1, i32(max(input.color2.x, 1.)) - 1);
             pixel = bicubic(uv, extend, lower);
             if upper != lower && fract(lod) > 0.0001 {
                 pixel = mix(pixel, bicubic(uv, extend, upper), fract(lod));

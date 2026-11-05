@@ -9,7 +9,7 @@ it is **not yet an implementation of the full `plico_renderer::Scene` contract**
 
 Base dependencies are wgpu, Naga, bytemuck, Snafu, tracing and pollster.
 Linux system text additionally uses the optional `plico-native` Pango/Cairo provider
-(Pango >= 1.50). The independent quad core does not invoke Vello. The default `paint-scene` bridge
+(Pango >= 1.50). The independent quad core does not invoke Vello. The built-in Scene bridge
 now depends on `plico-renderer` and its legacy transitive dependencies; see below.
 The Vello window consumer itself remains a comparison-only development dependency.
 The [system text experiment](system-text-wgpu.md) supplied the atlas now reused by
@@ -191,7 +191,7 @@ bidi selection rectangles, strict UTF-8/UTF-16 conversions and a candidate ancho
 on the caret's composition line. These use the same retained Pango layout as the
 glyph positions. They do not implement a text editor or install a system IME
 session. Existing Plico input state/event handling should be reused when the
-paint-scene bridge is connected. See the GPUI references in `SOURCES.md`.
+Scene bridge is connected. See the GPUI references in `SOURCES.md`.
 
 Tracing spans distinguish frame encoding, text layout and view submission without
 logging document text. To verify current behavior:
@@ -210,7 +210,7 @@ unfinished. The renderer cannot yet replace Vello for arbitrary Plico apps.
 
 ## Shared paint and desktop host milestone
 
-The `paint-scene` feature (default) now consumes the real shared `Scene` stream.
+The always-available Scene bridge consumes the real shared `Scene` stream.
 Supported commands are analytical rectangle/rounded-rectangle fills and solid
 strokes, sRGB two-stop linear gradients, nested rectangular clips, retained
 fragments and ordinary native paragraphs. Positive uniform scale and translation
@@ -258,7 +258,7 @@ available; mutation explicitly discards analytical metadata). `ParagraphEngine::
 returns `Result<_, ParagraphError>`. Existing Skia providers return their ordinary
 paragraph through `Ok`. Layout callers no longer unwrap provider failures.
 
-The `paint-scene` bridge depends on `plico-renderer`, whose legacy dependencies
+The Scene bridge depends on `plico-renderer`, whose legacy dependencies
 still pull Vello-related crates into the build. The new rendering path does not
 invoke Vello, but completely removing those transitive build dependencies remains
 a separate cleanup task. `--no-default-features` retains the independent quad core.
@@ -276,10 +276,12 @@ EGL `BadAccess` disappeared with primary-only discovery. Legacy GL is not a test
 fallback path. Existing Skia/Vello initialization policy is unchanged.
 
 
-### Optional retained-target damage replay
+### Default retained-target damage replay
 
-The shared host accepts `PLICO_WGPU_DAMAGE=1` for the wgpu renderer. The default
-remains full redraw while broader applications and platform behavior are checked.
+The shared wgpu host enables damage by default; `PLICO_WGPU_DAMAGE=0` restores
+full redraw (`false` is also accepted). Changes covering at least half the target
+fall back to one full replay, following MyGO's policy; identical frames can skip
+presentation. See [measured benefits and the scrolling fallback](experiments/wgpu-damage.md).
 `Renderer::render_scene` and `render_scene_to_view` share the same optional damage
 path. It uses a persistent RGBA target, disjoint physical damage rectangles,
 replacement (not source-over) background clear and ordered contributor replay.

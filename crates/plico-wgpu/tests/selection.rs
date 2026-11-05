@@ -1,4 +1,4 @@
-#![cfg(all(feature = "paint-scene", feature = "system-text", target_os = "linux"))]
+#![cfg(all(feature = "system-text", target_os = "linux"))]
 use plico::VirtualClock;
 use plico::prelude::*;
 use plico_renderer::{

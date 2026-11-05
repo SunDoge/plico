@@ -303,7 +303,6 @@ impl Renderer {
                 reason: "invalid system text device scale".into(),
             });
         }
-        #[cfg(feature = "paint-scene")]
         {
             self.prepared_cache.clear();
             self.invalidate_scene_damage();

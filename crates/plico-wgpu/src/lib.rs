@@ -1,53 +1,41 @@
-//! Experimental physical-pixel, axis-aligned quad renderer.
+//! Plico wgpu renderer with shared Scene support and physical-pixel quads.
 //!
-//! This is an offscreen backend prototype, not a complete `plico_renderer::Scene`
-//! implementation. It deliberately has no Vello dependency in its rendering path.
+//! Shared Scene rendering is always available; system text and window hosting
+//! remain separate features. The rendering path does not invoke Vello.
 mod blit;
-#[cfg(feature = "paint-scene")]
 mod blur;
-#[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 mod glyphs;
-#[cfg(feature = "paint-scene")]
 mod mipmap;
 mod renderer;
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+pub mod web;
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+mod web_text;
 #[cfg(feature = "window")]
 mod window;
 #[cfg(feature = "window")]
 pub use window::WgpuWindow;
-#[cfg(feature = "paint-scene")]
 pub mod image;
-#[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+#[cfg(all(target_os = "macos", feature = "system-text"))]
 mod macos_paragraph;
-#[cfg(feature = "paint-scene")]
 pub mod mask;
-#[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 mod paragraph;
-#[cfg(all(
-    feature = "paint-scene",
-    target_os = "windows",
-    feature = "system-text"
-))]
+#[cfg(all(target_os = "windows", feature = "system-text"))]
 mod windows_paragraph;
-#[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
+#[cfg(all(target_os = "macos", feature = "system-text"))]
 pub use macos_paragraph::MacosTextCacheStats;
-#[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 pub use paragraph::ParagraphCacheStats;
-#[cfg(all(
-    feature = "paint-scene",
-    target_os = "windows",
-    feature = "system-text"
-))]
+#[cfg(all(target_os = "windows", feature = "system-text"))]
 pub use windows_paragraph::WindowsTextCacheStats;
-#[cfg(feature = "paint-scene")]
 mod path;
-#[cfg(feature = "paint-scene")]
 pub mod scene;
-#[cfg(feature = "paint-scene")]
 mod svg;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 pub mod text;
 mod texture;
-#[cfg(feature = "paint-scene")]
 pub use renderer::LayerPoolStats;
 pub use renderer::{FrameBatchStats, Renderer};
 
@@ -58,7 +46,6 @@ use snafu::Snafu;
 pub enum Error {
     #[snafu(display("window surface failed: {message}"))]
     Surface { message: String },
-    #[cfg(feature = "paint-scene")]
     #[snafu(display("paragraph preparation failed: {source}"))]
     Paragraph {
         source: plico_renderer::paragraph::ParagraphError,
@@ -166,16 +153,11 @@ pub const MATERIAL_INTERFACE: &str = include_str!("material_interface.wgsl");
 #[derive(Clone, Copy)]
 pub enum Draw<'a> {
     Quad(&'a Quad),
-    #[cfg(feature = "paint-scene")]
     Image(&'a image::ImageQuad),
-    #[cfg(feature = "paint-scene")]
     Layer(&'a scene::PreparedLayer),
-    #[cfg(feature = "paint-scene")]
     Effect(&'a plico_renderer::ShaderEffect, &'a Quad),
     /// Replace the active coverage mask; masks do not themselves paint pixels.
-    #[cfg(feature = "paint-scene")]
     SetMask(&'a mask::CoverageMask),
-    #[cfg(feature = "paint-scene")]
     ResetMask,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     Text(text::TextRun<'a>),
@@ -186,6 +168,13 @@ pub enum Draw<'a> {
 // WGPU_BACKEND still permits an explicit legacy-GL override for experiments.
 pub(crate) fn instance_descriptor() -> wgpu::InstanceDescriptor {
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-    descriptor.backends = wgpu::Backends::PRIMARY;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        descriptor.backends = wgpu::Backends::PRIMARY;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        descriptor.backends = wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL;
+    }
     descriptor.with_env()
 }

@@ -7,6 +7,10 @@ use raw_window_handle::{
 };
 use std::sync::Arc;
 use winit::window::Window;
+// Partial redraw is the normal policy; retain an explicit full-redraw escape hatch.
+fn damage_enabled(value: Option<&str>) -> bool {
+    !matches!(value, Some("0" | "false"))
+}
 struct SharedWindow(Arc<dyn Window>);
 impl HasWindowHandle for SharedWindow {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
@@ -90,10 +94,7 @@ impl WgpuWindow {
             surface,
             window,
             config,
-            damage_enabled: matches!(
-                std::env::var("PLICO_WGPU_DAMAGE").as_deref(),
-                Ok("1") | Ok("true")
-            ),
+            damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
             #[cfg(all(
                 any(target_os = "linux", target_os = "windows", target_os = "macos"),
@@ -250,5 +251,18 @@ impl WgpuWindow {
         let prepared = self.renderer.prepare_scene(scene, size)?;
         self.renderer
             .render_items(&prepared.draws(), size, background.components, 0.)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn damage_defaults_on_with_an_explicit_full_redraw_override() {
+        for value in [None, Some("1"), Some("true"), Some("")] {
+            assert!(super::damage_enabled(value));
+        }
+        for value in [Some("0"), Some("false")] {
+            assert!(!super::damage_enabled(value));
+        }
     }
 }

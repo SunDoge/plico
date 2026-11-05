@@ -1,7 +1,6 @@
 //! Per-corner radii coverage: mygo-style individual corner rounding on quads
 //! and shared scenes, which previously fell back to CPU raster with a
 //! "nonuniform corner radii" rejection.
-#![cfg(feature = "paint-scene")]
 use kurbo::{Affine, RoundedRect};
 use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene};

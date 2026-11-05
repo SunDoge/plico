@@ -1,4 +1,4 @@
-#![cfg(all(feature = "paint-scene", feature = "system-text", target_os = "linux"))]
+#![cfg(all(feature = "system-text", target_os = "linux"))]
 use kurbo::{Affine, Circle, Rect};
 use peniko::{Color as PaintColor, Fill};
 use plico::prelude::*;

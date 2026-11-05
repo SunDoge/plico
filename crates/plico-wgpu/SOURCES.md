@@ -31,3 +31,19 @@ GPUI uses system font rasterization on Linux. Plico currently uses Pango/Cairo t
 Native candidate anchoring uses Pango's visual-line lookup rather than copying a
 backward scan over UTF-16 units. UTF-16 is converted only at a platform boundary;
 Plico's layout/editing geometry uses validated UTF-8 byte offsets.
+
+Additional MyGO damage-policy reference (MIT, commit
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577`):
+
+- [Linux default partial renderer](https://github.com/egoist/mygo/blob/ee3d4bd9bd741f197de231b9fd9b002e9db55577/ui/gpu_linux.go)
+- [bounded damage rectangles and half-frame full-redraw cutoff](https://github.com/egoist/mygo/blob/ee3d4bd9bd741f197de231b9fd9b002e9db55577/internal/gpu/damage.go)
+
+Plico adopts the default-on policy and the >=50% coverage full-replay cutoff using
+its existing retained-target tracker. It does not copy MyGO's swapchain buffer-age
+implementation or claim native incremental present support.
+
+The same MyGO revision's [GL drawBuilt batch/area loop](https://github.com/egoist/mygo/blob/ee3d4bd9bd741f197de231b9fd9b002e9db55577/internal/gpu/gl/gl.go)
+informs Plico's batch-major damage replay: clear disjoint regions first, keep
+painter order, bind a batch once and omit disjoint batch/region pairs. Plico uses
+conservative instance bounds including its own AA fringe, and retains the
+unculled path for custom vertex materials. This is not opaque occlusion culling.

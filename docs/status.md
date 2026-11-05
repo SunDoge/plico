@@ -133,16 +133,16 @@ inside borders, hard rectangular clips and runtime-loaded WGSL materials. The
 headless example compares identical quad inputs against Vello at four scales.
 It also supports Linux Pango/Cairo text, ordered shape/text draws, bounded glyph
 cache recycling and a GPU-only winit window demo. It supports analytical shared paint and an optional `plico-desktop/wgpu` host path.
-Optional shared-scene damage replay (`PLICO_WGPU_DAMAGE=1`) preserves its color
+Default shared-scene damage replay (`PLICO_WGPU_DAMAGE=0` disables it) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
-window exercise pass. Representative performance and physical-display verification remain pending.
+window exercise pass. A controlled [Linux damage benchmark](experiments/wgpu-damage.md) now records local GPU gains and a scrolling CPU regression; broader application performance and physical-display verification remain pending.
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG
 uses a cached resvg fallback. Shared native WGSL
 effect surfaces use the public shader widget, injected time and bounded local
 damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
-full paint-scene backend: solid/linear/radial/sweep gradient paths use a bounded tiny-skia
+complete Scene backend: solid/linear/radial/sweep gradient paths use a bounded tiny-skia
 fallback, including affine linear-brush transforms and multi-stop primitive
 fills/strokes; nested clip masks preserve native text drawing. Gaussian box shadows
 and Gaussian filtered layers are implemented, with pooled GPU workspaces; general
@@ -170,7 +170,11 @@ is retained, but shared-interface changes receive only necessary compile fixes;
 new features and parity with Skia/wgpu are not promised. Mainline Linux/Windows
 CI checks Skia/wgpu; a separate Linux compile step keeps the optional Vello host
 compatible without GPU acceptance tests. Browser/WASM Vello integration remains
-in place; this policy does not remove the shared `vello_common` types.
+in place as a compatibility path. The browser Gallery now defaults to wgpu
+(WebGPU adapter detection with WebGL2 fallback), with Canvas2D ordinary text.
+WebGL2 interaction tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU,
+rich text, full IME and WebGL2 blur are not yet accepted. See [browser scope](web.md).
+This policy does not remove the shared `vello_common` types.
 
 Historical Vello image comparisons remain available explicitly with
 `plico-wgpu/vello-compare` (including the `compare_quads` example); they are not
@@ -180,3 +184,14 @@ The default Cargo features, automatic window/capture selection and new-app CLI
 template now use wgpu. Explicit Skia selection remains supported; video examples
 that require Skia retain their explicit feature. Changing the default does not
 imply full renderer parity or Windows/macOS runtime acceptance.
+
+Shared Scene support in `plico-wgpu` is unconditional; the former `paint-scene`
+feature has been removed. `--no-default-features` disables system text but retains
+Scene preparation/rendering. `system-text`, `window` and `vello-compare` remain
+independent options. Remove explicit `paint-scene` entries from consumer manifests.
+
+wgpu windows now enable damage by default, following MyGO's default partial-redraw
+policy. Damage covering at least half the target falls back to a single full replay;
+smaller changes retain multi-rectangle replay and identical frames skip present.
+The scrolling benchmark returns to full-render CPU cost while local GPU gains remain.
+See [the baseline and post-fallback measurements](experiments/wgpu-damage.md).

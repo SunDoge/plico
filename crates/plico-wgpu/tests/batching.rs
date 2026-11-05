@@ -1,4 +1,3 @@
-#![cfg(feature = "paint-scene")]
 use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
 use plico_renderer::{PaintScene, Scene};
 use plico_wgpu::{Draw, Quad, Renderer, image::ImageQuad};
@@ -194,4 +193,42 @@ fn shared_mask_texture_can_vary_rect_but_mask_binding_changes_split_batches() {
     );
     assert_eq!(renderer.batch_stats().draw_calls, 3);
     assert_eq!(renderer.batch_stats().instances, 4);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn separate_damage_regions_do_not_replay_unrelated_image_batches() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    for scale in [1., 1.25, 2.] {
+        let size = [(160. * scale) as u32, (48. * scale) as u32];
+        partial.invalidate_scene_damage();
+        for frame in 0..5u8 {
+            let mut scene = Scene::new();
+            for (i, x) in [4., 64., 124.].into_iter().enumerate() {
+                let brush = ImageBrush::new(image([40 + frame * 20, 60 + i as u8 * 30, 180, 200]));
+                scene.draw_image(
+                    (&brush).into(),
+                    kurbo::Affine::scale(scale)
+                        * kurbo::Affine::translate((x, 8.))
+                        * kurbo::Affine::scale(16.),
+                );
+            }
+            let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
+            let expected = full.render_scene(&scene, size, [1.; 4], false).unwrap();
+            assert!(
+                actual == expected,
+                "batch replay mismatch: frame={frame}, scale={scale}"
+            );
+            if frame > 0 {
+                assert!(partial.scene_damage_coverage(size) < 0.5);
+                assert_eq!(partial.batch_stats().clears, 3);
+                assert_eq!(
+                    partial.batch_stats().draw_calls,
+                    3,
+                    "each image only meets its own damage rectangle"
+                );
+            }
+        }
+    }
 }

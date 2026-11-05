@@ -60,7 +60,12 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    mygo's `ClassOf`: adjacent plain solid fills (no border, gradient, material, image or
    mask) draw through a small dedicated fragment pipeline in their own instance runs;
    `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
-   comparison, and `FrameBatchStats::plain_draw_calls` reports the split.
+   comparison, and `FrameBatchStats::plain_draw_calls` reports the split. mygo's joinLast is
+   applied: adjacent runs that differ only in their class and each cover at most 128x128 pixels
+   (mygo's measured call-vs-specialization trade-off) merge into one general-pipeline call, so
+   class-interleaved scenes - a shadow then its fill per box - no longer pay one call per
+   instance; large runs keep their specialized shader, and texture/mask/plus boundaries never
+   join. tests/join.rs asserts the merged calls, the kept specialization, and pixel identity.
    Per-frame allocations continue to shrink via Rust-level moves rather than new abstractions:
    scene preparation shares the original command Arc instead of re-cloning every command
    when no retained fragments need expanding (animated frames that miss the prepared cache
@@ -106,7 +111,7 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    GPU scissored replacement clear/replay now preserves a retained color texture.
    A 12-frame text/alpha/clip/removal/resize sequence matches full redraw exactly,
    including background changes, unchanged frames and target replacement by raw
-   rendering. The shared window enables this experiment with `PLICO_WGPU_DAMAGE=1`.
+   rendering. The shared window enables damage by default; `PLICO_WGPU_DAMAGE=0` disables it.
    Physical-display/Wayland verification and representative performance are pending.
 6. **Replacement:** run representative gallery, editor, terminal, image/OCR and
    animation apps before changing defaults or removing the Vello implementation.

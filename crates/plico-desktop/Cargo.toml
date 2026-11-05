@@ -60,3 +60,7 @@ required-features=["wgpu"]
 [[example]]
 name = "wgpu-text"
 required-features = ["wgpu"]
+
+[[example]]
+name = "wgpu-damage-window"
+required-features = ["wgpu"]

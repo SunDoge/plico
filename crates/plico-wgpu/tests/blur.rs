@@ -1,4 +1,3 @@
-#![cfg(feature = "paint-scene")]
 use kurbo::{Affine, Rect};
 use peniko::{BlendMode, Color, Fill};
 use plico_renderer::{

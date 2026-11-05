@@ -39,6 +39,8 @@ pub(crate) struct ImageSampling {
 type Key = (u64, u32, u32, u8);
 pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
+    // Pass explicitly: WebGL2 GLSL ES 3.0 has no textureQueryLevels.
+    pub mip_levels: u32,
     // Retain the actual source allocation, not just its identity.
     _source: Option<ImageData>,
 }
@@ -336,6 +338,7 @@ impl TextureEntry {
 
         let image = Rc::new(GpuImage {
             bind,
+            mip_levels: self.texture.mip_level_count(),
             _source: Some(self.source.clone()),
         });
         if self.primary.is_none() {
@@ -381,6 +384,7 @@ impl GpuImage {
         });
         Rc::new(Self {
             bind,
+            mip_levels: 1,
             _source: None,
         })
     }
