@@ -2,7 +2,7 @@
 //!
 //! The shell is a reusable host: a [`source::FrameSource`] produces a flattened
 //! layout list each frame; [`shell::Shell`] owns the window and selected
-//! GPU backend (Skia by default). Plico supplies its immediate UI source through this boundary.
+//! GPU backend (wgpu by default). Plico supplies its immediate UI source through this boundary.
 
 #![warn(missing_docs)]
 

@@ -34,7 +34,7 @@ plico-skia = { path = "../plico-skia", optional = true, features = ["raster"] }
 skia = ["plico-shell/skia", "dep:plico-skia", "dep:image"]
 vello = ["plico-shell/vello"]
 wgpu = ["plico-shell/wgpu", "dep:plico-wgpu", "dep:pollster", "dep:image"]
-default = ["skia"]
+default = ["wgpu"]
 profiling = [
     "plico-runtime/profiling",
     "plico-renderer/profiling",

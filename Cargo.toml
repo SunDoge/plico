@@ -9,7 +9,7 @@ publish = false
 plico.workspace = true
 plico-dev.workspace = true
 plico-runtime.workspace = true
-plico-desktop = { path = "crates/plico-desktop", default-features = false, features = ["skia"] }
+plico-desktop = { path = "crates/plico-desktop", default-features = false, features = ["wgpu"] }
 serde = { workspace = true, features = ["derive"] }
 
 [workspace]

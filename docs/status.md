@@ -160,3 +160,23 @@ overlapping ranges with later-style precedence. Non-ellipsized line limits prese
 the original shaped prefix and constrain editing geometry; cross-paragraph ellipsis
 remains unsupported. Actual input-method candidate-window
 sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).
+
+## Renderer maintenance policy
+
+The independent `plico-wgpu` backend is the default desktop renderer and remains
+under active development. Skia is the primary rendering-quality reference.
+Vello receives minimal compatibility maintenance and may be removed: existing functionality
+is retained, but shared-interface changes receive only necessary compile fixes;
+new features and parity with Skia/wgpu are not promised. Mainline Linux/Windows
+CI checks Skia/wgpu; a separate Linux compile step keeps the optional Vello host
+compatible without GPU acceptance tests. Browser/WASM Vello integration remains
+in place; this policy does not remove the shared `vello_common` types.
+
+Historical Vello image comparisons remain available explicitly with
+`plico-wgpu/vello-compare` (including the `compare_quads` example); they are not
+part of default wgpu development checks.
+
+The default Cargo features, automatic window/capture selection and new-app CLI
+template now use wgpu. Explicit Skia selection remains supported; video examples
+that require Skia retain their explicit feature. Changing the default does not
+imply full renderer parity or Windows/macOS runtime acceptance.

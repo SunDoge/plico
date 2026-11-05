@@ -147,7 +147,7 @@ single-form measurements should not be compared directly to this larger view.
 
 
 Settings 应用统一使用 `apps/backend-settings/src/main.rs`。单后端通过 Cargo feature
-选择即可；同时启用多个后端时，默认依次选择 Vello、Skia、FLTK，也可显式指定：
+选择即可；同时启用多个后端时，默认依次选择 wgpu、Skia、Vello、egui、FLTK，也可显式指定：
 
 ```sh
 cargo run -p backend-settings --features vello,skia -- --backend skia

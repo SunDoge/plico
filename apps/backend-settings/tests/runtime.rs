@@ -1,4 +1,3 @@
-#![cfg(feature = "vello")]
 use backend_settings::{Page, Settings};
 use plico::VirtualClock;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
@@ -14,7 +13,7 @@ fn click(source: &mut Source<Settings>, label: &str) {
     assert!(source.handle_semantic_action(SemanticAction::Click { target: id }));
 }
 #[test]
-fn routed_workspace_uses_the_same_clock_and_grid_on_vello() {
+fn routed_workspace_uses_the_same_clock_and_grid() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(Settings::default(), clock.clone());
     let mut tcx = TextContext::new();

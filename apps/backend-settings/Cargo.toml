@@ -7,7 +7,7 @@ publish = false
 
 [features]
 profiling = ["plico-runtime/profiling", "dep:tracing", "dep:tracing-subscriber"]
-default = []
+default = ["wgpu"]
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
 # Keep Skia capture available for the existing Vello sidebar_capture example.
 vello = ["plico-desktop/vello", "plico-desktop/skia", "plico-shell/vello", "dep:plico-desktop", "dep:plico-shell"]

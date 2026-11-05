@@ -20,7 +20,7 @@ the optional text provider.
 From the repository root, on a machine with a working wgpu adapter:
 
 ```sh
-cargo run --locked -p plico-wgpu --example compare_quads
+cargo run --locked -p plico-wgpu --features vello-compare --example compare_quads
 ```
 
 Generated files live under ignored `reports/wgpu-quads/`:
@@ -66,7 +66,7 @@ The example loads `examples/materials/progress.wgsl` **from disk at runtime**, n
 via `include_str!`. To edit WGSL without rebuilding Rust:
 
 ```sh
-cargo build --locked -p plico-wgpu --example compare_quads
+cargo build --locked -p plico-wgpu --features vello-compare --example compare_quads
 PLICO_WGPU_WATCH=1 target/debug/examples/compare_quads
 ```
 
@@ -552,8 +552,7 @@ cover transparent output plus fractional motion/removal against full redraw.
 
 ## Real gallery host check
 
-The existing gallery can select the experimental renderer without pulling in its
-default Skia feature:
+The gallery now defaults to wgpu. The explicit renderer-only invocation remains:
 
 ```sh
 cargo run --locked -p gallery --no-default-features --features wgpu
@@ -798,7 +797,7 @@ combinations or changing the application's shaping and selection geometry.
 
 ## Terminal adoption and run-level affine text
 
-The terminal app now offers an opt-in wgpu feature while keeping Skia as default:
+The terminal app now defaults to wgpu; the explicit renderer-only invocation is:
 
 ```sh
 cargo run --locked -p terminal --no-default-features --features wgpu

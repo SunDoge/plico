@@ -23,10 +23,10 @@ serde = { workspace = true, features = ["derive"] }
 
 [features]
 default = ["desktop"]
-# Library-only host integration lets backend tests choose Vello without this
-# package's default Skia application feature winning Cargo feature unification.
+# Library-only integration lets backend tests choose their renderer explicitly.
 host = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
-desktop = ["host", "plico-desktop/skia"]
+desktop = ["wgpu"]
+skia = ["host", "plico-desktop/skia"]
 wgpu = ["host", "plico-desktop/wgpu", "dep:plico-wgpu", "dep:pollster"]
 profiling = ["plico-desktop/profiling"]
 

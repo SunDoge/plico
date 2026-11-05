@@ -9,6 +9,7 @@ description = "Experimental instanced-quad wgpu renderer for Plico"
 [features]
 default = ["system-text", "paint-scene"]
 system-text = ["dep:plico-native"]
+vello-compare = ["dep:plico-vello"]
 window = ["paint-scene", "dep:winit", "dep:raw-window-handle"]
 paint-scene = ["dep:plico-renderer", "dep:kurbo", "dep:peniko", "dep:resvg"]
 
@@ -22,6 +23,7 @@ plico-native = { path = "../plico-native", default-features = false, features = 
 plico-native = { path = "../plico-native", default-features = false, features = ["macos-text"], optional = true }
 
 [dependencies]
+plico-vello = { path = "../plico-vello", optional = true }
 resvg = { version = "0.48.1", default-features = false, features = ["raster-images"], optional = true }
 winit = {workspace=true,optional=true}
 raw-window-handle = {version="0.6",optional=true}
@@ -43,7 +45,6 @@ plico-runtime.workspace = true
 winit.workspace = true
 raw-window-handle = "0.6"
 plico-renderer.workspace = true
-plico-vello = { path = "../plico-vello" }
 kurbo.workspace = true
 peniko.workspace = true
 image = { workspace = true, features = ["png"] }
@@ -51,3 +52,7 @@ image = { workspace = true, features = ["png"] }
 [[example]]
 name = "image-minification"
 required-features = ["paint-scene"]
+
+[[example]]
+name = "compare_quads"
+required-features = ["vello-compare"]

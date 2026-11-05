@@ -8,11 +8,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         capture: Option<std::path::PathBuf>,
     }
     let options = Options::parse();
-    #[cfg(not(any(feature = "desktop", feature = "wgpu")))]
+    #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
     if options.capture.is_some() || options.scenario.is_some() {
-        return Err("scenario capture requires the gallery desktop (Skia) or wgpu feature".into());
+        return Err("scenario capture requires the gallery desktop, wgpu or skia feature".into());
     }
-    #[cfg(any(feature = "desktop", feature = "wgpu"))]
+    #[cfg(any(feature = "desktop", feature = "wgpu", feature = "skia"))]
     if let Some(output) = options.capture {
         let scenario = if let Some(path) = options.scenario {
             plico_desktop::PreviewScenario::<gallery::Gallery>::load(path)?

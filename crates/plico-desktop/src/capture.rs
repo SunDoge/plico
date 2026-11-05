@@ -87,10 +87,10 @@ impl CaptureRenderer {
         height: u32,
     ) -> Result<Self, CaptureError> {
         let backend = if matches!(backend, crate::RenderBackend::Auto) {
-            if cfg!(feature = "skia") {
-                crate::RenderBackend::Skia
-            } else {
+            if cfg!(feature = "wgpu") {
                 crate::RenderBackend::Wgpu
+            } else {
+                crate::RenderBackend::Skia
             }
         } else {
             backend
@@ -212,7 +212,7 @@ impl Capture<'_> {
         self.settle_passes = passes;
         self
     }
-    /// Auto prefers Skia when enabled, otherwise wgpu. An unavailable explicit backend errors.
+    /// Auto prefers wgpu when enabled, otherwise Skia. An unavailable explicit backend errors.
     pub fn renderer(mut self, backend: crate::RenderBackend) -> Self {
         self.backend = backend;
         self

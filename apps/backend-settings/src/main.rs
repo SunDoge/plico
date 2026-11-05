@@ -15,7 +15,7 @@ use snafu::Snafu;
     about = "Shared settings UI for Vello, Skia, wgpu, egui and FLTK"
 )]
 struct Options {
-    /// Renderer to use; defaults to the first enabled: vello, skia, wgpu, egui, fltk.
+    /// Renderer to use; defaults to the first enabled: wgpu, skia, vello, egui, fltk.
     #[usage(long)]
     backend: Option<String>,
 }
@@ -62,9 +62,9 @@ fn run() -> Result<(), Error> {
         .as_deref()
         .or_else(|| {
             [
-                (cfg!(feature = "vello"), "vello"),
-                (cfg!(feature = "skia"), "skia"),
                 (cfg!(feature = "wgpu"), "wgpu"),
+                (cfg!(feature = "skia"), "skia"),
+                (cfg!(feature = "vello"), "vello"),
                 (cfg!(feature = "egui"), "egui"),
                 (cfg!(feature = "fltk"), "fltk"),
             ]

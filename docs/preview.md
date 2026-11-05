@@ -40,14 +40,14 @@ frame.write_png(output)?;
 
 工厂可注入静态服务结果，避开网络、模型加载和真实账单。框架不猜测应用的异步完成条件，也不自动序列化宿主资源。资源路径由应用工厂解释；建议相对于工程目录或由工厂显式解析为场景相对路径。时钟能保证 UI 逻辑时间可重复，但跨机器的字体和 Skia 版本仍可能产生像素差异。
 
-目前正式支持 JSON；尚未引入 RON。离屏路径使用 Skia CPU，WGSL shader 仍只在 Vello 路径支持。真实窗口继续用于验证输入、剪贴板、IME、系统窗口行为与 GPU 显示。
+目前正式支持 JSON；尚未引入 RON。离屏预览默认使用 wgpu，也可显式选择 Skia CPU 对照；WGSL shader 由 wgpu 支持。真实窗口继续用于验证输入、剪贴板、IME、系统窗口行为与 GPU 显示。
 
 WASM 的 host/UI 拆分加载是独立能力，保留其值协议与检查点；这不表示桌面动态热重载仍存在。`plico-dev` 当前仍承载 App、服务、Task 和 WASM 值协议，包名暂不随本次迁移更改。
 
 ## wgpu 离屏预览
 
 `plico-desktop/wgpu` 现在也提供同一套 `capture` 与 `PreviewScenario`，不需要
-开启 Skia。默认 Auto 在启用 Skia 时继续选 Skia，否则选 wgpu；也可显式指定：
+开启 Skia。默认 Auto 优先选择 wgpu，仅启用 Skia 时选择 Skia；也可显式指定：
 
 ```rust,ignore
 let frame = scenario.render_with_backend(
@@ -74,7 +74,7 @@ cargo run --locked -p gallery --no-default-features --features wgpu -- \
 
 本机已实际生成并检查 Controls 截图，配置计数 4 加一次脚本点击后显示 5。
 GPU 测试验证 1.5× DPI 的重复像素、脚本点击与虚拟时钟 210ms；另验证 capture
-保持预乘 RGBA，而 PNG 写出为直通 alpha。默认 Skia 的七项 capture／preview
+保持预乘 RGBA，而 PNG 写出为直通 alpha。此前 Skia 配置的七项 capture／preview
 回归通过。生成图仍属本地产物，不提交到仓库。
 
 额外的 wgpu GPU 测试覆盖 hosted image canvas 的 1.25× 预览；Windows 仅验证

@@ -42,7 +42,7 @@ pub fn render_to_image(
         )
         .context(crate::error::InvalidImageBufferSnafu { width, height })
     }
-    #[cfg(all(feature = "wgpu", not(feature = "skia")))]
+    #[cfg(feature = "wgpu")]
     {
         let mut renderer = pollster::block_on(plico_wgpu::Renderer::new()).map_err(|e| {
             crate::Error::Renderer {
@@ -68,7 +68,7 @@ pub fn render_to_image(
         image::RgbaImage::from_raw(width, height, pixels)
             .context(crate::error::InvalidImageBufferSnafu { width, height })
     }
-    #[cfg(feature = "skia")]
+    #[cfg(all(feature = "skia", not(feature = "wgpu")))]
     {
         let mut surface =
             plico_skia::SkiaSurface::new(width, height).context(crate::error::SkiaSnafu)?;
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(image.get_pixel(4, 4).0, [0, 0, 0, 0]);
     }
 
-    #[cfg(feature = "skia")]
+    #[cfg(all(feature = "skia", not(feature = "wgpu")))]
     #[test]
     fn skia_readback_returns_straight_alpha() {
         let mut scene = Scene::new();

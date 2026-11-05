@@ -15,7 +15,7 @@ desktop = ["dep:plico-desktop"]
 plico.workspace = true
 plico-dev.workspace = true
 plico-runtime.workspace = true
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["wgpu"] }
 serde = { workspace = true, features = ["derive"] }
 
 [[bin]]

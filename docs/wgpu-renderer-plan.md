@@ -137,7 +137,7 @@ After tightening the WGSL vertex-input and fragment-output contracts, the local
 Linux regression passed 134 `plico-renderer` library tests, 82 `plico-wgpu` tests
 (including the explicit GPU tests, excluding two manual profiling cases), and
 four desktop/Vello shader tests. The desktop suite requires
-`--no-default-features --features vello`; with the default Skia feature that test
+`--no-default-features --features vello`; without the explicit Vello feature that test
 file is cfg-disabled and reports zero tests. These results cover the shared
 validation change, not Windows runtime quality or renderer replacement readiness.
 

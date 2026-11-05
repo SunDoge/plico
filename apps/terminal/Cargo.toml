@@ -6,7 +6,7 @@ publish = false
 description = "Plico native terminal application"
 
 [features]
-default = ["skia"]
+default = ["wgpu"]
 skia = ["plico-desktop/skia"]
 wgpu = ["plico-desktop/wgpu"]
 

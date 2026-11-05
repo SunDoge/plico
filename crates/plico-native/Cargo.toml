@@ -44,7 +44,7 @@ plico-skia = { path = "../plico-skia", default-features = false, features = ["ra
 kurbo.workspace = true
 peniko.workspace = true
 plico-renderer.workspace = true
-plico-shell = { workspace = true, features = ["vello"] }
+plico-shell = { workspace = true, features = ["skia"] }
 image = { workspace = true, features = ["png"] }
 
 [[example]]

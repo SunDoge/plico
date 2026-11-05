@@ -1,4 +1,19 @@
-# 原生依赖清理
+# 默认桌面后端的平台依赖
+
+默认桌面渲染器现为 wgpu，文字使用系统排版/光栅化接口。Linux 构建需要
+Pango/Cairo、Fontconfig 的开发包，运行时也需要相应动态库。Ubuntu/Debian：
+
+```sh
+sudo apt-get install pkg-config libpango1.0-dev libfontconfig1-dev libwayland-dev libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
+```
+
+Windows 使用 DirectWrite，macOS 使用 CoreText/CoreGraphics。GPU 呈现仍需要可用的
+wgpu 设备。Skia 是显式启用的主要质量对照后端；Vello 仅做最小兼容维护。
+
+以下是早期依赖清理记录，其中关于 stabby/native 热重载的保留结论已经过时；
+当前已删除 native 热重载与 stabby ABI。
+
+# 历史：原生依赖清理
 
 本轮确认并删除两条未使用的直接依赖：
 

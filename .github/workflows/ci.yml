@@ -64,7 +64,10 @@ jobs:
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
       - name: Lint the mainline without optional backend SDKs
-        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello,plico-shell/global-hotkeys --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-vello --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
+      # Maintenance-only backend: compile compatibility, no feature-parity or GPU tests.
+      - name: Check Vello compatibility
+        run: cargo check --locked -p plico-vello -p plico-desktop --no-default-features --features plico-desktop/vello --lib
       - name: Verify the semantic test protocol without a window
         run: cargo test --locked -p plico-runtime --test test_protocol
 
@@ -85,5 +88,5 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check Windows MSVC with Skia and Vello
-        run: cargo check --locked --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features plico-desktop/skia,backend-settings/vello,plico-shell/global-hotkeys --all-targets
+      - name: Check Windows MSVC with Skia and wgpu
+        run: cargo check --locked --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-vello --features plico-desktop/skia,backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets

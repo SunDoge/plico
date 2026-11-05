@@ -440,7 +440,7 @@ publish = false
 
 [features]
 default = ["desktop"]
-desktop = ["dep:plico-desktop", "plico-desktop/skia"]
+desktop = ["dep:plico-desktop", "plico-desktop/wgpu"]
 
 [[bin]]
 name = "{name}"

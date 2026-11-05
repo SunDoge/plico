@@ -154,11 +154,11 @@ impl WindowRenderer {
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {
             RenderBackend::Auto => {
-                #[cfg(all(not(feature = "skia"), feature = "wgpu"))]
+                #[cfg(feature = "wgpu")]
                 {
                     Self::new(RenderBackend::Wgpu, transparent)
                 }
-                #[cfg(feature = "skia")]
+                #[cfg(all(not(feature = "wgpu"), feature = "skia"))]
                 {
                     Self::new(RenderBackend::Skia, transparent)
                 }
@@ -548,9 +548,9 @@ mod tests {
     #[test]
     fn automatic_backend_prefers_enabled_renderer() {
         let result = WindowRenderer::new(RenderBackend::Auto, true);
-        #[cfg(feature = "skia")]
+        #[cfg(all(not(feature = "wgpu"), feature = "skia"))]
         assert!(matches!(result, Ok(WindowRenderer::Skia { .. })));
-        #[cfg(all(not(feature = "skia"), feature = "wgpu"))]
+        #[cfg(feature = "wgpu")]
         assert!(matches!(result, Ok(WindowRenderer::Wgpu { .. })));
         #[cfg(all(not(feature = "skia"), not(feature = "wgpu"), feature = "vello"))]
         assert!(matches!(result, Ok(WindowRenderer::Vello(_))));

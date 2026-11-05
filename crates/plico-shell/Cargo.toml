@@ -31,7 +31,7 @@ tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter
 url = { workspace = true }
 
 [features]
-default = ["skia"]
+default = ["wgpu"]
 vello = ["dep:plico-vello"]
 wgpu = ["dep:plico-wgpu", "dep:pollster"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
