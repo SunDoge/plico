@@ -3,6 +3,7 @@
 //! Native multiline geometry is available; rich text remains pending. The
 //! experimental shared renderer bridge lives in plico-wgpu.
 mod editing;
+mod fonts;
 mod intrinsic;
 mod paragraph;
 mod raster;
@@ -213,67 +214,7 @@ impl Line {
         if !request.valid() {
             return Err(Error::InvalidRequest);
         }
-        let name = CFString::from_str(request.family);
-        // SAFETY: CFString values and the null optional transform remain valid
-        // throughout each synchronous call. Returned create-rule objects are owned.
-        let font = unsafe {
-            if matches!(request.family, "" | "system-ui") {
-                CTFont::new_ui_font_for_language(CTFontUIFontType::System, request.size, None)
-                    .ok_or(Error::Allocation)?
-            } else {
-                CTFont::with_name(&name, request.size, std::ptr::null())
-            }
-        };
-        let font = if let Some(style) = request.style {
-            let mut traits = CTFontSymbolicTraits::empty();
-            if style.weight == FontWeight::Bold {
-                traits |= CTFontSymbolicTraits::TraitBold;
-            }
-            if style.italic {
-                traits |= CTFontSymbolicTraits::TraitItalic;
-            }
-            // SAFETY: The retained font is valid and the optional matrix is null.
-            // Mask both bits so regular/upright can remove a named face's traits.
-            let font = unsafe {
-                font.copy_with_symbolic_traits(
-                    0.,
-                    std::ptr::null(),
-                    traits,
-                    CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic,
-                )
-            }
-            .ok_or(Error::UnavailableStyle)?;
-            if let FontWeight::Normalized(weight) = style.weight {
-                let number = CFNumber::new_f64(weight);
-                // SAFETY: Framework constants are valid retained CFString keys;
-                // dictionaries retain their values for the synchronous font copy.
-                unsafe {
-                    let traits = CFDictionary::<CFString, CFType>::from_slices(
-                        &[kCTFontWeightTrait],
-                        &[&number],
-                    );
-                    let attributes = CFDictionary::<CFString, CFType>::from_slices(
-                        &[kCTFontTraitsAttribute],
-                        &[&traits],
-                    );
-                    let descriptor = CTFontDescriptor::with_attributes(attributes.as_ref());
-                    let selected =
-                        font.copy_with_attributes(0., std::ptr::null(), Some(&descriptor));
-                    if selected
-                        .symbolic_traits()
-                        .contains(CTFontSymbolicTraits::TraitItalic)
-                        != style.italic
-                    {
-                        return Err(Error::UnavailableStyle);
-                    }
-                    selected
-                }
-            } else {
-                font
-            }
-        } else {
-            font
-        };
+        let font = fonts::resolve(request)?;
         let string = CFString::from_str(request.text);
         let attributed = CFMutableAttributedString::new(None, 0).ok_or(Error::Allocation)?;
         let units = request.text.encode_utf16().count();
