@@ -206,6 +206,33 @@ square, `Color` carries no alpha, and the hex text is therefore read-only. The
 sliders are continuous rather than snapped, so deriving a color from its RGB
 does not drift it.
 
+### Form fields (MyGO port)
+
+`form`, `field` and `fieldset` port MyGO's `ui/form.go` composition:
+
+```rust
+form(cx, |cx| {
+    let _ = field(cx, "Email")
+        .description("For receipts.")
+        .error(if valid { "" } else { "Enter an email address." })
+        + |cx| { text_input_string(cx, "Email", &mut email); };
+    let _ = fieldset(cx, "Notifications", |cx| {
+        let _ = field(cx, "Sound") + |cx| { switch(cx, "Sound", &mut sound); };
+    });
+});
+```
+
+- `field(cx, label)` renders the label, the control its content callback builds
+  (preserving the callback's result) and the non-empty description/error texts
+  below it; the error uses `Color::Danger`.
+- `form` is the spaced column of fields; `fieldset` adds a bold legend.
+- MyGO puts a form's labels in a right-aligned column as wide as the widest
+  label. Plico's immediate API has no intrinsic measuring pass available to a
+  widget, so the port stacks labels above their controls (MyGO's standalone
+  `Field`) and does not implement the label column. A label click does not
+  focus its control, and the control is not marked invalid by its field's
+  error yet.
+
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized
 before the addition still deserialize with those defaults.

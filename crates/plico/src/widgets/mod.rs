@@ -229,6 +229,7 @@ mod calendar;
 mod colorpicker;
 mod composite;
 mod desktop;
+mod form;
 mod indicators;
 mod media;
 mod navigation;
@@ -244,6 +245,7 @@ pub use composite::{
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
+pub use form::{Field, field, fieldset, form};
 pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::{breadcrumbs, sidebar, sidebar_item, sidebar_section};
