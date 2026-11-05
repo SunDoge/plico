@@ -15,6 +15,31 @@ struct Instance {
     gradient: [f32; 4],
     clip_params: [f32; 4],
     mask_rect: [f32; 4],
+    radii: [f32; 4],
+}
+
+/// Per-corner radii as the shader draws them: nonnegative and shrunk so that
+/// adjacent corners on an edge never overlap (the CSS proportional rule).
+/// Uniform single-radius quads pass through unchanged.
+fn shrink_radii(size: [f32; 2], radii: [f32; 4]) -> [f32; 4] {
+    let factor = |sum: f32, edge: f32| {
+        if sum > edge && sum > 0. {
+            edge / sum
+        } else {
+            1.
+        }
+    };
+    let [width, height] = size;
+    let top = factor(radii[0] + radii[1], width);
+    let bottom = factor(radii[3] + radii[2], width);
+    let right = factor(radii[1] + radii[2], height);
+    let left = factor(radii[0] + radii[3], height);
+    [
+        radii[0] * top.min(left),
+        radii[1] * top.min(right),
+        radii[2] * bottom.min(right),
+        radii[3] * bottom.min(left),
+    ]
 }
 struct Target {
     texture: wgpu::Texture,
@@ -487,7 +512,7 @@ impl Renderer {
         shader: &wgpu::ShaderModule,
         blend: wgpu::BlendState,
     ) -> wgpu::RenderPipeline {
-        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4];
+        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4,10=>Float32x4];
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Plico SDF quads"),
@@ -1157,14 +1182,16 @@ impl Renderer {
                     if q.rect[2] <= 0. || q.rect[3] <= 0. {
                         continue;
                     }
+                    let radii = shrink_radii([q.rect[2], q.rect[3]], q.radii);
                     instances.push(Instance {
                         mask_rect: [0.; 4],
+                        radii,
                         rect: q.rect,
                         color: q.colors[0],
                         color2: q.colors[1],
                         border: q.border_color,
                         config: [
-                            q.radius,
+                            q.radii[0],
                             q.border_width,
                             if q.shadow_sigma > 0. {
                                 5.
@@ -1204,6 +1231,7 @@ impl Renderer {
                         let slot = self.intern_frame_image(resource);
                         instances.push(Instance {
                             mask_rect: [0.; 4],
+                            radii: [0.; 4],
                             rect: q.rect,
                             color: [0., 0., 0., 1.],
                             color2: [0.; 4],
@@ -1240,6 +1268,7 @@ impl Renderer {
                     let q = &layer.quad;
                     instances.push(Instance {
                         mask_rect: [0.; 4],
+                        radii: shrink_radii([q.rect[2], q.rect[3]], q.radii),
                         rect: q.rect,
                         color: [0., 0., 0., layer.alpha],
                         color2: [0.; 4],
@@ -1283,11 +1312,12 @@ impl Renderer {
                     let slot = self.intern_frame_image(resource);
                     instances.push(Instance {
                         mask_rect: [0.; 4],
+                        radii: shrink_radii([q.rect[2], q.rect[3]], q.radii),
                         rect: q.rect,
                         color: [0., 0., 0., image.alpha],
                         color2: [0.; 4],
                         border: [0.; 4],
-                        config: [q.radius, 0., 4., slot as f32],
+                        config: [q.radii[0], 0., 4., slot as f32],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: image
                             .uv_transform
@@ -1436,6 +1466,7 @@ impl Renderer {
             }
             instances.push(Instance {
                 mask_rect: [0.; 4],
+                radii: [0.; 4],
                 rect,
                 color: glyph
                     .foreground
@@ -2527,7 +2558,7 @@ mod tests {
     fn gpu_present_preserves_encoded_pixels_on_unorm_and_srgb_targets() {
         let mut renderer = pollster::block_on(Renderer::new()).unwrap();
         let mut q = Quad::new([2.25, 3.5, 24., 23.], [0.15, 0.35, 0.65, 0.7]);
-        q.radius = 5.;
+        q.radii = [5.; 4];
         q.colors[1] = [0.65, 0.2, 0.1, 0.3];
         let mut previous: Option<([u32; 2], wgpu::TextureView)> = None;
         for (index, (size, format)) in [

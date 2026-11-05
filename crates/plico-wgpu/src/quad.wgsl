@@ -37,6 +37,8 @@ struct Vertex {
     @location(9) clip_params: vec4f,
     @interpolate(flat)
     @location(10) mask_rect: vec4f,
+    @interpolate(flat)
+    @location(11) radii: vec4f,
 }
 @vertex
 fn vs_main(
@@ -51,6 +53,7 @@ fn vs_main(
     @location(7) gradient: vec4f,
     @location(8) clip_params: vec4f,
     @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
 ) -> Vertex {
     let corners = array<vec2f, 6>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(0, 1), vec2f(1, 0), vec2f(1, 1));
     // Include the 1px antialiasing fringe, rather than clipping it at the quad.
@@ -64,6 +67,7 @@ fn vs_main(
     out.color2 = color2;
     out.clip_params = clip_params;
     out.mask_rect = mask_rect;
+    out.radii = radii;
     out.gradient = gradient;
     out.uv = uv.xy + local / rect.zw * uv.zw;
     if config.z == 4. && clip_params.y > 0.5 {
@@ -74,18 +78,25 @@ fn vs_main(
     out.clip = clip;
     return out;
 }
-fn distance_to_round_rect(p: vec2f, size: vec2f, radius: f32) -> f32 {
-    let r = clamp(radius, 0., min(size.x, size.y) * 0.5);
+// Per-corner radius: top-left, top-right, bottom-right, bottom-left, selected
+// by the point's quadrant. The CPU shrinks overlapping adjacent corners first.
+fn corner_radius(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
+    let top = select(radii.x, radii.y, p.x >= size.x * 0.5);
+    let bottom = select(radii.w, radii.z, p.x >= size.x * 0.5);
+    return select(bottom, top, p.y < size.y * 0.5);
+}
+fn distance_to_round_rect(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
+    let r = clamp(corner_radius(p, size, radii), 0., min(size.x, size.y) * 0.5);
     let q = abs(p - size * 0.5) - size * 0.5 + r;
     return length(max(q, vec2f(0))) + min(max(q.x, q.y), 0.) - r;
 }
-fn coverage(p: vec2f, size: vec2f, radius: f32) -> f32 {
-    if radius <= 0. {
+fn coverage(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
+    if all(radii <= vec4f(0.)) {
         // Exact pixel-area coverage for an axis-aligned rectangle, including corners.
         let c = clamp(min(size, p + 0.5) - max(vec2f(0), p - 0.5), vec2f(0), vec2f(1));
         return c.x * c.y;
     }
-    return clamp(0.5 - distance_to_round_rect(p, size, radius), 0., 1.);
+    return clamp(0.5 - distance_to_round_rect(p, size, radii), 0., 1.);
 }
 // Normal CDF approximation (maximum absolute error below 8e-8).
 fn normal_cdf(x: f32) -> f32 {
@@ -187,7 +198,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
     // Clip rectangle is a hard scissor equivalent, in physical pixels.
     var clip_alpha = 1.;
     if input.clip_params.x > 0.5 {
-        clip_alpha = coverage(world - clip.xy, clip.zw, 0.);
+        clip_alpha = coverage(world - clip.xy, clip.zw, vec4f(0.));
         if clip_alpha <= 0. {
             discard;
         }
@@ -227,7 +238,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         } else {
             pixel = textureSampleLevel(glyph_atlas, glyph_sampler, uv, select(lod, 0., input.clip_params.w < -0.5));
         }
-        return pixel * input.color.a * coverage(input.local, input.size, input.config.x) * clip_alpha;
+        return pixel * input.color.a * coverage(input.local, input.size, input.radii) * clip_alpha;
     }
     if input.config.z >= 2. {
         let glyph = textureSampleLevel(glyph_atlas, glyph_sampler, input.uv, 0.);
@@ -236,12 +247,12 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         }
         return vec4f(input.color.rgb * glyph.a * input.color.a, glyph.a * input.color.a) * clip_alpha;
     }
-    let outer = coverage(input.local, input.size, input.config.x);
+    let outer = coverage(input.local, input.size, input.radii);
     let width = min(input.config.y, min(input.size.x, input.size.y) * 0.5);
     let inner_size = max(input.size - 2. * width, vec2f(0));
     var inner = 0.;
     if all(inner_size > vec2f(0)) {
-        inner = coverage(input.local - vec2f(width), inner_size, max(input.config.x - width, 0.));
+        inner = coverage(input.local - vec2f(width), inner_size, max(input.radii - vec4f(width), vec4f(0.)));
     }
     let border_coverage = max(outer - inner, 0.);
     let uv = input.local / input.size;

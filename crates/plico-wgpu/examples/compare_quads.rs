@@ -28,7 +28,7 @@ fn color(c: [f32; 4]) -> Color {
 fn fixture(scale: f32) -> Vec<Quad> {
     let mut quads = Vec::new();
     let mut panel = Quad::new([18., 18., 604., 404.], [0.98, 0.985, 0.99, 1.]);
-    panel.radius = 18.;
+    panel.radii = [18.; 4];
     panel.border_width = 1.;
     panel.border_color = [0.78, 0.81, 0.86, 1.];
     quads.push(panel);
@@ -37,7 +37,7 @@ fn fixture(scale: f32) -> Vec<Quad> {
             [40. + i as f32 * 145., 42., 125., 72.],
             [0.32, 0.54, 0.92, 1.],
         );
-        q.radius = radius;
+        q.radii = [radius; 4];
         q.colors[1] = [0.10, 0.27, 0.63, 1.];
         q.border_width = 1.;
         q.border_color = [0.06, 0.18, 0.44, 1.];
@@ -48,21 +48,21 @@ fn fixture(scale: f32) -> Vec<Quad> {
             [40.25 + i as f32 * 145., 140.25, 125., 64.],
             [0.97, 0.97, 0.97, 1.],
         );
-        q.radius = 14.;
+        q.radii = [14.; 4];
         q.border_width = width;
         q.border_color = [0.20, 0.24, 0.30, 1.];
         quads.push(q);
     }
     let mut clip = Quad::new([40., 230., 240., 72.], [0.95, 0.44, 0.34, 0.65]);
-    clip.radius = 24.;
+    clip.radii = [24.; 4];
     clip.clip = Some([72., 246., 170., 38.]);
     quads.push(clip);
     let mut overlap = Quad::new([180., 258., 155., 48.], [0.24, 0.69, 0.49, 0.65]);
-    overlap.radius = 16.;
+    overlap.radii = [16.; 4];
     quads.push(overlap);
     let mut progress = Quad::new([360., 242., 235., 40.], [0.22, 0.52, 0.86, 1.]);
     progress.colors[1] = [0.12, 0.34, 0.71, 1.];
-    progress.radius = 20.;
+    progress.radii = [20.; 4];
     progress.border_width = 1.;
     progress.border_color = [0.65, 0.73, 0.84, 1.];
     progress.material = true;
@@ -73,11 +73,11 @@ fn fixture(scale: f32) -> Vec<Quad> {
             [40. + i as f32 * 28., 340.25, size, 40.],
             [0.12, 0.16, 0.23, 1.],
         );
-        q.radius = size * 0.5;
+        q.radii = [size * 0.5; 4];
         quads.push(q);
     }
     let mut pill = Quad::new([300.25, 334.5, 295., 48.], [0.96, 0.96, 0.96, 1.]);
-    pill.radius = 100.;
+    pill.radii = [100.; 4];
     pill.border_width = 1.;
     pill.border_color = [0.70, 0.72, 0.76, 1.];
     quads.push(pill);
@@ -85,7 +85,9 @@ fn fixture(scale: f32) -> Vec<Quad> {
         for v in &mut q.rect {
             *v *= scale;
         }
-        q.radius *= scale;
+        for v in &mut q.radii {
+            *v *= scale;
+        }
         q.border_width *= scale;
         if let Some(clip) = &mut q.clip {
             for v in clip {
@@ -105,7 +107,7 @@ fn wabou_effect(uv:vec2f) -> vec4f {
     for q in quads {
         let [x, y, w, h] = q.rect.map(f64::from);
         let rect = Rect::new(x, y, x + w, y + h);
-        let radius = f64::from(q.radius).min(w.min(h) * 0.5);
+        let radius = f64::from(q.radii[0]).min(w.min(h) * 0.5);
         let rounded = rect.to_rounded_rect(radius);
         if let Some([x, y, w, h]) = q.clip {
             scene.push_clip_layer(

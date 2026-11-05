@@ -31,7 +31,7 @@ fn quads_alpha_clip_border_resize_and_runtime_material_are_correct() {
     near(pixel(&image, size, 10, 10), [127, 128, 0, 255]);
     near(pixel(&image, size, 20, 10), [255, 0, 0, 255]);
     let mut rounded = Quad::new([2., 2., 28., 28.], [1., 0., 0., 1.]);
-    rounded.radius = 8.;
+    rounded.radii = [8.; 4];
     rounded.border_width = 2.;
     rounded.border_color = [0., 0., 1., 1.];
     let image = renderer.render(&[rounded], size, [0.; 4], 0.).unwrap();

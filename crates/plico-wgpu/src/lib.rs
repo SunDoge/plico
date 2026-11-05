@@ -84,12 +84,14 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Physical-pixel quad. Colors are straight sRGB RGBA, channels in 0..=1.
-/// The border is inside the rectangle. All corners share a circular radius.
+/// The border is inside the rectangle.
 #[derive(Clone, Copy, Debug)]
 pub struct Quad {
     /// x, y, width, height; negative positions are allowed.
     pub rect: [f32; 4],
-    pub radius: f32,
+    /// Circular corner radii: top-left, top-right, bottom-right, bottom-left.
+    /// The renderer shrinks overlapping adjacent corners proportionally.
+    pub radii: [f32; 4],
     /// Gaussian shadow sigma. Positive values blur the inset rounded rectangle
     /// (the quad includes a four-sigma margin on every side).
     pub shadow_sigma: f32,
@@ -115,7 +117,7 @@ impl Quad {
     pub fn new(rect: [f32; 4], color: [f32; 4]) -> Self {
         Self {
             rect,
-            radius: 0.,
+            radii: [0.; 4],
             shadow_sigma: 0.,
             border_width: 0.,
             border_color: [0.; 4],
@@ -139,8 +141,7 @@ impl Quad {
                 && (self.material
                     || self.rect[2] < 8. * self.shadow_sigma
                     || self.rect[3] < 8. * self.shadow_sigma))
-            || !self.radius.is_finite()
-            || self.radius < 0.
+            || !self.radii.iter().all(|r| r.is_finite() && *r >= 0.)
             || !self.border_width.is_finite()
             || self.border_width < 0.
             || !self.gradient.iter().all(|v| v.is_finite())

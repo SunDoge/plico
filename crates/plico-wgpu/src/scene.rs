@@ -187,18 +187,22 @@ pub(crate) fn uniform(transform: Affine, index: usize) -> Result<(f64, [f64; 2])
     }
     Ok((a, [e, f]))
 }
-fn geometry(shape: &PaintShape, index: usize) -> Result<(Rect, f64)> {
+/// Corner radii in the shared Quad order: top-left, top-right, bottom-right,
+/// bottom-left. Uniform single-radius callers pass `[radius; 4]`.
+fn geometry(shape: &PaintShape, index: usize) -> Result<(Rect, [f64; 4])> {
     match shape.primitive() {
-        Some(PrimitiveShape::Rect(rect)) => Ok((rect, 0.)),
+        Some(PrimitiveShape::Rect(rect)) => Ok((rect, [0.; 4])),
         Some(PrimitiveShape::RoundedRect(round)) => {
             let radii = round.radii();
-            if [radii.top_right, radii.bottom_right, radii.bottom_left]
-                .iter()
-                .any(|r| (*r - radii.top_left).abs() > 1e-9)
-            {
-                return Err(unsupported(index, "nonuniform corner radii"));
-            }
-            Ok((round.rect(), radii.top_left))
+            Ok((
+                round.rect(),
+                [
+                    radii.top_left,
+                    radii.top_right,
+                    radii.bottom_right,
+                    radii.bottom_left,
+                ],
+            ))
         }
         None => Err(unsupported(
             index,
@@ -206,7 +210,7 @@ fn geometry(shape: &PaintShape, index: usize) -> Result<(Rect, f64)> {
         )),
     }
 }
-fn quad(rect: Rect, radius: f64, transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
+fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
     let (scale, [tx, ty]) = uniform(transform, index)?;
     let mut q = Quad::new(
         [
@@ -217,7 +221,7 @@ fn quad(rect: Rect, radius: f64, transform: Affine, clip: Rect, index: usize) ->
         ],
         [0.; 4],
     );
-    q.radius = (radius * scale) as f32;
+    q.radii = radii.map(|radius| (radius * scale) as f32);
     q.clip_antialias = true;
     q.clip = Some([
         clip.x0 as f32,
@@ -370,9 +374,9 @@ impl Renderer {
                         && c == 0.
                 };
                 let fast = !stroke
-                    && geometry(shape, index).is_ok_and(|(_, radius)| {
+                    && geometry(shape, index).is_ok_and(|(_, radii)| {
                         axis(*transform)
-                            && (radius == 0.
+                            && (radii.iter().all(|r| *r == 0.)
                                 || (transform.as_coeffs()[0] - transform.as_coeffs()[3]).abs()
                                     < 1e-9)
                     })
@@ -424,7 +428,7 @@ impl Renderer {
                     if let Some((coverage, bounds)) = coverage {
                         let mask = self.masks.intersect(coverage, bounds, parent.as_deref())?;
                         let bounds = mask.bounds();
-                        let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
+                        let q = quad(bounds, [0.; 4], Affine::IDENTITY, clip, index)?;
                         ink[index] = Some(bounds);
                         draws.push(PreparedDraw::SetMask(mask));
                         draws.push(image_draw(
@@ -493,7 +497,7 @@ impl Renderer {
                     other => other,
                 })?;
                 if let Some((image, bounds)) = raster {
-                    let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
+                    let q = quad(bounds, [0.; 4], Affine::IDENTITY, clip, index)?;
                     draws.push(image_draw(
                         &mut payloads,
                         crate::image::ImageQuad {
@@ -521,7 +525,7 @@ impl Renderer {
                         {
                             return Err(unsupported(index, "brush transform"));
                         }
-                        let (rect, radius) = geometry(shape, index)?;
+                        let (rect, radii) = geometry(shape, index)?;
                         if rect.width() <= 0. || rect.height() <= 0. {
                             continue;
                         }
@@ -532,21 +536,21 @@ impl Renderer {
                                 || d <= 0.
                                 || b != 0.
                                 || c != 0.
-                                || (radius > 0. && (a - d).abs() > 1e-9)
+                                || (radii.iter().any(|r| *r > 0.) && (a - d).abs() > 1e-9)
                             {
                                 return Err(unsupported(
                                     index,
                                     "rotated/sheared image or elliptical image corners",
                                 ));
                             }
-                            let mut q = quad(rect, radius, Affine::IDENTITY, clip, index)?;
+                            let mut q = quad(rect, radii, Affine::IDENTITY, clip, index)?;
                             q.rect = [
                                 (rect.x0 * a + e) as f32,
                                 (rect.y0 * d + f) as f32,
                                 (rect.width() * a) as f32,
                                 (rect.height() * d) as f32,
                             ];
-                            q.radius = (radius * a) as f32;
+                            q.radii = radii.map(|radius| (radius * a) as f32);
                             let [sx, by, cx, sy, tx, ty] =
                                 brush_transform.unwrap_or(Affine::IDENTITY).as_coeffs();
                             if ![sx, by, cx, sy, tx, ty].iter().all(|v| v.is_finite())
@@ -577,7 +581,7 @@ impl Renderer {
                                 },
                             ));
                         } else {
-                            let mut q = quad(rect, radius, *transform, clip, index)?;
+                            let mut q = quad(rect, radii, *transform, clip, index)?;
                             brush(&mut q, paint, rect, index)?;
                             draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                         }
@@ -597,16 +601,19 @@ impl Renderer {
                         let Brush::Solid(color) = paint else {
                             return Err(unsupported(index, "non-solid stroke"));
                         };
-                        let (rect, radius) = geometry(shape, index)?;
+                        let (rect, radii) = geometry(shape, index)?;
                         let half = style.width * 0.5;
-                        let outer_radius = if radius > 0. || style.join == kurbo::Join::Round {
-                            radius + half
+                        // The outer edge keeps the arc of every rounded corner.
+                        // A round join rounds the square corners too; a miter
+                        // join leaves them sharp. Bevels have no quad form.
+                        let outer_radii = if style.join == kurbo::Join::Round {
+                            radii.map(|radius| radius + half)
                         } else if style.join == kurbo::Join::Miter {
-                            0.
+                            radii.map(|radius| if radius > 0. { radius + half } else { 0. })
                         } else {
                             return Err(unsupported(index, "beveled rectangle stroke"));
                         };
-                        let mut q = quad(rect.inset(half), outer_radius, *transform, clip, index)?;
+                        let mut q = quad(rect.inset(half), outer_radii, *transform, clip, index)?;
                         q.border_width = (style.width * uniform(*transform, index)?.0) as f32;
                         q.border_color = color.components;
                         draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
@@ -686,7 +693,8 @@ impl Renderer {
                         let parent = masks.last().unwrap().clone();
                         let mut layer_clip = clip;
                         let mut composite_mask = parent.clone();
-                        if let Ok((rect, 0.)) = geometry(shape, index)
+                        if let Ok((rect, radii)) = geometry(shape, index)
+                            && radii.iter().all(|r| *r == 0.)
                             && uniform(*transform, index).is_ok()
                         {
                             layer_clip = layer_clip.intersect(transform.transform_rect_bbox(rect));
@@ -717,7 +725,7 @@ impl Renderer {
                                 layer_clip.x1.ceil() + reach,
                                 layer_clip.y1.ceil() + reach,
                             ),
-                            0.,
+                            [0.; 4],
                             Affine::IDENTITY,
                             layer_clip,
                             index,
@@ -745,7 +753,8 @@ impl Renderer {
                             return Err(unsupported(index, "clip depth exceeds 128"));
                         }
                         let previous = masks.last().unwrap().clone();
-                        if let Ok((rect, 0.)) = geometry(shape, index)
+                        if let Ok((rect, radii)) = geometry(shape, index)
+                            && radii.iter().all(|r| *r == 0.)
                             && uniform(*transform, index).is_ok()
                         {
                             clips.push(clip.intersect(transform.transform_rect_bbox(rect)));
@@ -802,7 +811,7 @@ impl Renderer {
                                 other => other,
                             })?
                         {
-                            let q = quad(bounds, 0., Affine::IDENTITY, clip, index)?;
+                            let q = quad(bounds, [0.; 4], Affine::IDENTITY, clip, index)?;
                             draws.push(image_draw(
                                 &mut payloads,
                                 crate::image::ImageQuad {
@@ -834,7 +843,7 @@ impl Renderer {
                         let (scale, _) = uniform(*transform, index)?;
                         let mut q = quad(
                             rect.inflate(4. * std_dev, 4. * std_dev),
-                            *radius,
+                            [*radius; 4],
                             *transform,
                             clip,
                             index,
@@ -847,7 +856,7 @@ impl Renderer {
                         let [w, h] = effect.logical_size();
                         let q = quad(
                             Rect::new(0., 0., w as f64, h as f64),
-                            0.,
+                            [0.; 4],
                             *transform,
                             clip,
                             index,
@@ -866,7 +875,7 @@ impl Renderer {
                         let size = document.0.size();
                         let q = quad(
                             Rect::new(0., 0., size.width() as f64, size.height() as f64),
-                            0.,
+                            [0.; 4],
                             Affine::new([scale, 0., 0., scale, tx, ty]),
                             clip,
                             index,
@@ -948,7 +957,7 @@ impl Renderer {
                                 if rect.intersect(clip).is_zero_area() {
                                     continue;
                                 }
-                                let q = quad(rect, 0., Affine::IDENTITY, clip, index)?;
+                                let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
                                     &mut payloads,
                                     crate::image::ImageQuad::new(q, image.clone()),
@@ -1002,7 +1011,7 @@ impl Renderer {
                                     base_x + f64::from(origin[0]) + f64::from(image.width),
                                     base_y + f64::from(origin[1]) + f64::from(image.height),
                                 );
-                                let q = quad(rect, 0., Affine::IDENTITY, clip, index)?;
+                                let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
                                     &mut payloads,
                                     crate::image::ImageQuad::new(q, image.clone()),

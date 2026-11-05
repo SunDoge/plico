@@ -52,6 +52,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
 2. **Shared paint bridge:** a supported subset is implemented; consume Plico's retained output with explicit supported
    operations. Preserve analytical box geometry rather than guessing rounded
    rectangles from arbitrary flattened Bezier paths. Report unsupported operations.
+   Quads carry per-corner radii in the GPU instance (mygo's `Instance.Radii` layout): fills,
+   borders, rounded image corners and mitered strokes keep every corner's own arc, adjacent
+   corners shrink proportionally on the CPU before upload, and nonuniform corner radii no
+   longer fall back to CPU raster. Gaussian box shadows stay on the uniform-radius path,
+   matching the single-radius shared command.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

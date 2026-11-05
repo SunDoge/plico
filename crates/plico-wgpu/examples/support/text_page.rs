@@ -41,7 +41,7 @@ impl Page {
         };
         let mut add_quad = |rect: [f32; 4], color: [f32; 4], radius: f32| {
             let mut q = Quad::new(rect.map(|v| v * scale as f32), color);
-            q.radius = radius * scale as f32;
+            q.radii = [radius * scale as f32; 4];
             q.border_width = scale as f32;
             q.border_color = border;
             page.quads.push(q);
