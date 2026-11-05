@@ -61,6 +61,12 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    mask) draw through a small dedicated fragment pipeline in their own instance runs;
    `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
    comparison, and `FrameBatchStats::plain_draw_calls` reports the split.
+   Per-frame allocations continue to shrink via Rust-level moves rather than new abstractions:
+   scene preparation shares the original command Arc instead of re-cloning every command
+   when no retained fragments need expanding (animated frames that miss the prepared cache
+   skip the flatten entirely), and the instance staging vector keeps its grown capacity
+   across frames through `std::mem::take`/write-back, so steady-state frames allocate nothing
+   for staging.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

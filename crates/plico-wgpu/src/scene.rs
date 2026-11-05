@@ -334,7 +334,21 @@ impl Renderer {
             return Ok(cached.clone());
         }
         let source = scene.clone();
-        let scene = scene.flattened();
+        // flattened() re-clones every command just to expand retained
+        // fragments. Scenes without fragments — the common case, and every
+        // animated frame that misses the prepared cache — share the original
+        // command stream instead: Scene clones the command Arc, not the
+        // commands, so both paths cost one reference bump per buffer.
+        let flattened = if scene
+            .commands
+            .iter()
+            .any(|command| matches!(command, PaintCommand::Fragment { .. }))
+        {
+            scene.flattened()
+        } else {
+            scene.clone()
+        };
+        let scene = &flattened;
         let mut clips = vec![root_clip];
         let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
@@ -1060,7 +1074,7 @@ impl Renderer {
             draws,
             payloads,
             source,
-            flattened: scene,
+            flattened,
             root_clip,
             ink,
         });

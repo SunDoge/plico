@@ -170,6 +170,10 @@ pub struct Renderer {
     target: Option<Target>,
     instances: wgpu::Buffer,
     capacity: usize,
+    /// Reused instance staging vector: every frame keeps the capacity the
+    /// previous frame grew instead of allocating from empty. Rust pattern:
+    /// std::mem::take + clear + write back on success.
+    instance_scratch: Vec<Instance>,
     compilations: usize,
     #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
@@ -422,6 +426,7 @@ impl Renderer {
             target: None,
             instances,
             capacity,
+            instance_scratch: Vec::new(),
             compilations: 0,
             #[cfg(all(feature = "paint-scene", target_os = "linux", feature = "system-text"))]
             paragraphs: None,
@@ -1016,6 +1021,9 @@ impl Renderer {
                 }
             }
         }
+        // Keep this frame's grown capacity for the next frame's staging vector.
+        // Error paths drop the buffer instead; the next frame simply reallocates.
+        self.instance_scratch = instances;
         Ok(encoder)
     }
     /// Offscreen readback; window submission uses render_to_view instead.
@@ -1120,7 +1128,8 @@ impl Renderer {
             {
                 // Reserve the complete graph's glyphs before submitting any
                 // child. A child must never recycle UVs already prepared in its parent.
-                let mut scratch = Vec::new();
+                let mut scratch = std::mem::take(&mut self.instance_scratch);
+                scratch.clear();
                 let warm = self.warm_layer_text(items, size, &mut scratch);
                 if matches!(
                     warm,
@@ -1134,6 +1143,7 @@ impl Renderer {
                 } else {
                     warm?;
                 }
+                self.instance_scratch = scratch;
             }
             let result = self.encode_items(items, size);
             let result = if matches!(
@@ -1226,7 +1236,8 @@ impl Renderer {
     }
     fn encode_items(&mut self, items: &[crate::Draw<'_>], size: [u32; 2]) -> Result<Vec<Instance>> {
         let [width, height] = size;
-        let mut instances = Vec::new();
+        let mut instances = std::mem::take(&mut self.instance_scratch);
+        instances.clear();
         #[cfg(feature = "paint-scene")]
         self.clear_frame_images();
         #[cfg(feature = "paint-scene")]
