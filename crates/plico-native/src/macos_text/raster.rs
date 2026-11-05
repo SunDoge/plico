@@ -1,5 +1,5 @@
 use super::{Error, Line, Result};
-use crate::raster_bounds::{raster_bounds, valid_sampling};
+use crate::raster_bounds::{raster_bounds, valid_clip, valid_sampling};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_core_graphics::{
     CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo, CGImageByteOrderInfo,
@@ -28,7 +28,29 @@ impl Line {
         phase: [f64; 2],
         foreground: [u8; 4],
     ) -> Result<Option<Rasterized>> {
-        if !valid_sampling(scale, phase) {
+        self.rasterize_region(scale, phase, foreground, None)
+    }
+    /// Raster only a physical, top-down clip rectangle `[left, top, right, bottom]`
+    /// relative to the same line baseline. It is rounded outward; consumers must
+    /// still apply their exact clip. Shaping/caret geometry remain complete.
+    /// Offscreen/empty ink returns None before allocating a CGContext bitmap.
+    pub fn rasterize_clipped(
+        &self,
+        scale: f64,
+        phase: [f64; 2],
+        foreground: [u8; 4],
+        clip: [f64; 4],
+    ) -> Result<Option<Rasterized>> {
+        self.rasterize_region(scale, phase, foreground, Some(clip))
+    }
+    fn rasterize_region(
+        &self,
+        scale: f64,
+        phase: [f64; 2],
+        foreground: [u8; 4],
+        clip: Option<[f64; 4]>,
+    ) -> Result<Option<Rasterized>> {
+        if !valid_sampling(scale, phase) || clip.is_some_and(|clip| !valid_clip(clip)) {
             return Err(Error::InvalidRequest);
         }
         if self.metrics.glyphs == 0 || foreground[3] == 0 {
@@ -40,7 +62,7 @@ impl Line {
         if ink.size.width == 0. || ink.size.height == 0. {
             return Ok(None);
         }
-        let bounds = raster_bounds(
+        let Some(bounds) = raster_bounds(
             [
                 ink.origin.x,
                 ink.origin.y,
@@ -49,8 +71,12 @@ impl Line {
             ],
             scale,
             phase,
+            clip,
         )
-        .ok_or(Error::InvalidRequest)?;
+        .map_err(|_| Error::InvalidRequest)?
+        else {
+            return Ok(None);
+        };
         let [width, height] = bounds.size;
         let mut pixels = vec![0u8; bounds.bytes];
         // SAFETY: A framework-owned constant denotes the standard sRGB space.
@@ -201,6 +227,69 @@ mod tests {
         assert!(
             rows[..third].iter().sum::<u64>() > rows[rows.len() - third..].iter().sum::<u64>(),
             "F's top bar is below its stem: bitmap row convention must be checked"
+        );
+    }
+    #[test]
+    fn clipped_native_rasters_match_full_image_crops_and_keep_long_line_geometry() {
+        let line = Line::new(&Request {
+            size: 28.,
+            ..Request::new("Sss 中文 日本語")
+        })
+        .unwrap();
+        for scale in [1., 1.25, 2.] {
+            let full = line
+                .rasterize(scale, [0.25, 0.], [20, 90, 180, 200])
+                .unwrap()
+                .unwrap();
+            let left = full.origin[0] + 2;
+            let top = full.origin[1] + 2;
+            let right = left + full.size[0] as i32 / 2;
+            let bottom = full.origin[1] + full.size[1] as i32 - 2;
+            let crop = line
+                .rasterize_clipped(
+                    scale,
+                    [0.25, 0.],
+                    [20, 90, 180, 200],
+                    [
+                        f64::from(left),
+                        f64::from(top),
+                        f64::from(right),
+                        f64::from(bottom),
+                    ],
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(crop.origin, [left, top]);
+            let dx = (left - full.origin[0]) as usize;
+            let dy = (top - full.origin[1]) as usize;
+            let width = crop.size[0] as usize * 4;
+            for y in 0..crop.size[1] as usize {
+                let source = ((dy + y) * full.size[0] as usize + dx) * 4;
+                assert_eq!(
+                    &crop.pixels[y * width..(y + 1) * width],
+                    &full.pixels[source..source + width]
+                );
+            }
+        }
+        let text = "W".repeat(10_000);
+        let long = Line::new(&Request::new(&text)).unwrap();
+        assert!(long.metrics().width > 16384.);
+        assert!(long.caret_offsets(text.len()).unwrap().primary > 16384.);
+        assert!(long.rasterize(1., [0.; 2], [255; 4]).is_err());
+        let visible = long
+            .rasterize_clipped(1., [0.; 2], [255; 4], [0., -64., 128., 16.])
+            .unwrap()
+            .unwrap();
+        assert!(visible.size[0] <= 128 && visible.size[1] <= 80);
+        assert!(visible.pixels.len() <= 128 * 80 * 4);
+        assert!(
+            long.rasterize_clipped(1., [0.; 2], [255; 4], [1e8, 0., 1e8 + 10., 10.])
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            long.rasterize_clipped(1., [0.; 2], [255; 4], [1., 0., 0., 1.])
+                .is_err()
         );
     }
 }

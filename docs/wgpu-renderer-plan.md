@@ -320,3 +320,9 @@ The CoreText foundation also has a bounded CGContext bitmap primitive using the
 retained line, with portable physical-bounds tests. Native raster tests only
 cross-compile; orientation, emoji and text quality remain unverified. No macOS
 renderer/capture capability is enabled by this step.
+
+CoreText's bitmap primitive now also clips physical raster bounds before its
+allocation limits, while retaining full line geometry. Portable tests cover
+bounded output for enormous ink; native crop-equivalence tests only cross-compile.
+This prepares viewport handling but does not establish actual CoreText glyph
+traversal performance or complete the paragraph/renderer integration gate.

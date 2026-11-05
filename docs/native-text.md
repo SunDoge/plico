@@ -469,11 +469,30 @@ delegated to CoreText. Font smoothing/LCD output is disabled for the transparent
 RGBA texture; native grayscale AA and subpixel positioning are enabled, with no
 synthetic weight expansion. No cross-platform gamma equivalence is asserted.
 
-Three portable index/geometry tests pass on Linux. Apple Silicon Clippy and both
+Portable index/geometry tests pass on Linux. Apple Silicon Clippy and both
 macOS architecture checks compile the native tests, which cover repeated bytes,
 DPI/phases, foreground, alpha, whitespace and an asymmetric F orientation check.
 **Those native tests have not executed here.** In particular, bitmap row order,
 color-emoji bounds/output and visual edge quality require macOS runtime proof
-before this primitive is wired into the main renderer. It currently has no atlas,
-viewport raster clipping or paragraph adapter; long-line raster requests can hit
-the explicit allocation limit even when their typographic metrics are valid.
+before this primitive is wired into the main renderer. It currently has no atlas or paragraph adapter. Full-line raster requests can hit
+the explicit allocation limit even when typographic metrics are valid; the clipped
+entry point below bounds the output bitmap for visible long-line segments.
+
+#### CoreText viewport raster bounds
+
+`Line::rasterize_clipped(scale, phase, foreground, clip)` accepts physical top-down
+`[left, top, right, bottom]` coordinates relative to the line baseline. The clip
+rounds outward to pixels and intersects the guarded native ink before bitmap
+size/byte limits or CGContext allocation. Completely offscreen or empty clips
+produce None. Nonfinite, inverted or excessive clip coordinates error. Exact
+fractional clipping remains the caller's responsibility; this is a bounded raster
+allocation rectangle, not an antialiased clip-mask implementation.
+
+The full CTLine, original UTF-8 map and caret metrics remain unchanged. Shaping
+still covers the complete line, and CoreText draw traversal cost is not measured.
+Four portable tests pass, including million-point ink cropped to a 101×40 bitmap,
+empty intersections and invalid clips. Native tests cross-compile for both Mac
+architectures and check cropped bytes against full-image crops at multiple DPI,
+plus a 10000-character line whose full bitmap exceeds the cap but whose visible
+region is bounded. These native pixel/long-line tests are not executed here;
+macOS runtime proof and main renderer integration remain outstanding.
