@@ -58,7 +58,7 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
 [LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
 不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
-尚未接入 Bevy、FLTK 或 no_std，也不承诺其他 ESP32 型号。
+Bevy 已有实验性 primary window 覆盖层插件，见 [Bevy 接入](bevy.md)；FLTK 保留实验性适配。尚未支持 no_std，也不承诺其他 ESP32 型号。
 
 ## 验证入口
 

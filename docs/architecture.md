@@ -60,7 +60,7 @@ arena of records 已足以验证重用和缓存，不预先引入完整 ECS sche
 
 目标是共享 API、状态、交互、布局与文字语义，再向桌面宿主或 Bevy 输出可呈现的场景/绘制数据。宿主输入包括窗口尺度、输入、时间和唤醒；输出包括绘制、重绘需求、光标、IME、语义树和平台请求。
 
-Bevy 是宿主集成目标，不强制把所有 Plico 控件映射成 bevy_ui Entity。使用 Bevy 原生 UI 可以作为另一条研究路径，但它会带来布局、文字与样式行为差异，不是当前优先路线。当前没有 Plico Bevy 插件。
+Bevy 是宿主集成目标，不强制把所有 Plico 控件映射成 bevy_ui Entity。使用 Bevy 原生 UI 可以作为另一条研究路径，但它会带来布局、文字与样式行为差异，不是当前优先路线。目前已有实验性 [Plico Bevy 插件](bevy.md)：复用 Source、Taffy 和系统文字，与 Bevy 共享 GPU，在相机提交后合成 primary window 的透明 UI 纹理；多窗口和世界空间 UI 尚未实现。
 
 布局引擎和 glyph 资源应位于可复用层；后端资源句柄不能反向污染 Ui API。不要现在就用一个巨大 Backend trait 锁死所有能力，也不要承诺抽象场景可以不经转换直接交给任意 GPU 后端。
 

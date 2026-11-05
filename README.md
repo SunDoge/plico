@@ -99,13 +99,14 @@ See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
 | Skia | Primary quality reference, CPU/Vulkan replay and Vulkan windows |
 | FLTK + Taffy | Experimental native widgets and shared settings app; limited styling/platform coverage |
 | LVGL | Experimental native-widget mapping, SDL2/offscreen validation, ESP32-P4 / ESP-IDF hardware tests |
+| Bevy | Experimental primary-window UI plugin, shared wgpu device and 3D scene overlay; [usage](docs/bevy.md) |
 | Web / WASM | Browser host and split host/UI loading experiments |
 
 Plico is **not** a fine-grained reactive runtime. A business declaration still
 executes view code and reconciles nodes; the entire pipeline is not O(changes).
 Caching and host-side animation reduce repeated work without changing that model.
 Native hot reload has been removed in favor of static rebuilds and scenario previews.
-Backends do not yet have feature parity; Bevy and `no_std` are not integrated.
+Backends do not yet have feature parity; `no_std` is not integrated.
 
 Desktop windows and captures prefer wgpu when enabled. Enable `plico-desktop/skia`
 for comparison and select Skia explicitly when both are enabled; use

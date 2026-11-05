@@ -162,9 +162,17 @@ impl PathCache {
             bounds.y1.ceil() + 2.,
         );
         let clipped = bounds.intersect(viewport);
-        if !clipped.is_zero_area() {
-            bounds = clipped;
+        if clipped.width() <= 0. || clipped.height() <= 0. {
+            return Ok(None);
         }
+        // A coverage image lives on the physical pixel grid, including when
+        // its viewport originates at a fractional HiDPI/filter boundary.
+        bounds = Rect::new(
+            clipped.x0.floor(),
+            clipped.y0.floor(),
+            clipped.x1.ceil(),
+            clipped.y1.ceil(),
+        );
         let (width, height) = (bounds.width(), bounds.height());
         if ![bounds.x0, bounds.y0, width, height]
             .iter()
@@ -175,6 +183,10 @@ impl PathCache {
         {
             return Err(invalid("path raster exceeds dimensions/64 MiB limit"));
         }
+        // Cropping the right/bottom edge changes the image but not the local
+        // transform. Extents therefore participate in cache identity as well.
+        width.to_bits().hash(&mut hash);
+        height.to_bits().hash(&mut hash);
         let local = Affine::new([a, b, c, d, e - bounds.x0, f - bounds.y0]);
         for v in local.as_coeffs() {
             v.to_bits().hash(&mut hash);
@@ -252,6 +264,8 @@ impl PathCache {
         let key = hash.finish();
         if let Some(entry) = self.entries.get(&key)
             && entry.command == normalized
+            && entry.image.width == width as u32
+            && entry.image.height == height as u32
         {
             return Ok(Some((entry.image.clone(), bounds)));
         }
@@ -612,6 +626,46 @@ fn radial_position(radial: peniko::RadialGradientPosition, point: kurbo::Point) 
 mod tests {
     use super::*;
     use peniko::{Color, Gradient, InterpolationAlphaSpace};
+    #[test]
+    fn clipped_raster_dimensions_follow_resize_and_fractional_viewports() {
+        use plico_renderer::PaintScene;
+        let mut scene = plico_renderer::Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &Rect::new(0., 0., 500., 500.),
+        );
+        let mut cache = PathCache::default();
+        for viewport in [
+            Rect::new(0., 0., 300., 200.),
+            Rect::new(0., 0., 120., 80.),
+            Rect::new(0., 0., 300., 200.),
+            Rect::new(0.25, 0.75, 120.5, 80.5),
+        ] {
+            let (image, bounds) = cache
+                .raster_clipped(&scene.commands[0], viewport)
+                .unwrap()
+                .unwrap();
+            assert_eq!(image.width as f64, bounds.width());
+            assert_eq!(image.height as f64, bounds.height());
+            assert_eq!(bounds.x0.fract(), 0.);
+            assert_eq!(bounds.y0.fract(), 0.);
+            let mask = crate::mask::MaskCache::default()
+                .intersect(image, bounds, None)
+                .unwrap();
+            assert_eq!(mask.rect[2], mask.image.width as f32);
+            assert_eq!(mask.rect[3], mask.image.height as f32);
+        }
+        assert!(
+            cache
+                .raster_clipped(&scene.commands[0], Rect::new(600., 600., 700., 700.))
+                .unwrap()
+                .is_none()
+        );
+    }
+
     #[test]
     fn linear_path_gradient_preserves_alpha_interpolation_and_extend() {
         let base = Gradient::new_linear((0., 0.), (10., 0.)).with_stops([

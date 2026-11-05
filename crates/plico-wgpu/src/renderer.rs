@@ -297,7 +297,7 @@ impl Renderer {
             INSTANCE.get_or_init(|| wgpu::Instance::new(crate::instance_descriptor()))
         };
         #[cfg(target_arch = "wasm32")]
-        let instance = wgpu::Instance::new(crate::instance_descriptor());
+        let instance = &wgpu::Instance::new(crate::instance_descriptor());
         Self::new_compatible(instance, None, false).await
     }
     /// Select an adapter compatible with the window surface before allocating resources.
@@ -338,6 +338,18 @@ impl Renderer {
             })
             .await
             .context(crate::DeviceSnafu)?;
+        Self::from_device(adapter, device, queue).await
+    }
+    /// Build GPU resources on a host-owned device and queue.
+    ///
+    /// All three handles must originate from the same adapter/device. The host
+    /// retains ownership of window acquisition, submission ordering and presentation.
+    pub async fn from_device(
+        adapter: wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> Result<Self> {
+        let info = adapter.get_info();
         let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("quad frame layout"),
             entries: &[wgpu::BindGroupLayoutEntry {

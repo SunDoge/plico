@@ -88,12 +88,13 @@ CLI 支持按需生成应用自有的 SVG 图标集合，普通构建不依赖�
 | Skia | 主要渲染质量对照，CPU/Vulkan 回放与 Vulkan 窗口 |
 | FLTK + Taffy | 实验性原生控件和共享设置页，样式与平台覆盖有限 |
 | LVGL | 实验性原生控件映射、SDL2/离屏验证，以及 ESP32-P4 / ESP-IDF 上板测试 |
+| Bevy | 实验性 primary window UI 插件，共享 wgpu 设备与 3D 场景覆盖层；[用法](docs/bevy.md) |
 | Web / WASM | 浏览器宿主与 host/UI 分离加载实验 |
 
 Plico **不是细粒度响应式 runtime**。业务声明仍会执行视图代码并协调节点，
 整条链路不保证 O(变化量)。缓存与宿主动效在保留这一简单模型的同时减少重复工作。
 开发重启会重建应用状态；持久化由应用正常管理。各后端尚未完全对齐，
-Bevy 和 `no_std` 尚未接入。
+`no_std` 尚未接入。
 
 桌面窗口和离屏截图默认优先使用 wgpu；启用 `plico-desktop/skia` 可做对照，同时启用时显式选择 Skia。
 关闭默认 feature 并单独启用 `skia`，可以只编译一个 renderer。
