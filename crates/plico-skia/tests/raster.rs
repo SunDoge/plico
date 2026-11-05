@@ -43,17 +43,13 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         1.,
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
-        Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_primitive(
-                vello_common::filter_effects::FilterPrimitive::Offset { dx: 1., dy: 1. },
-            ),
-        )),
+        Some(std::sync::Arc::new(plico_renderer::filter::Filter::identity())),
         None,
     );
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "layer filter primitive"
+            command: "layer filter graph"
         })
     ));
     assert!(matches!(
@@ -85,8 +81,11 @@ fn gaussian_layer_filter_blurs_contents_and_respects_clip() {
         Affine::IDENTITY,
         &Rect::new(2., 2., 14., 14.),
         Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_function(
-                vello_common::filter_effects::FilterFunction::Blur { radius: 2. },
+            plico_renderer::filter::Filter::from_primitive(
+                plico_renderer::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 2.,
+                    edge_mode: plico_renderer::filter::EdgeMode::None,
+                },
             ),
         )),
         None,

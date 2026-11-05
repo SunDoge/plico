@@ -13,7 +13,6 @@ peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
 plico = { workspace = true, features = ["experiment-patch"] }
-parley.workspace = true
 zeroize = "1.9"
 plico-renderer.workspace = true
 plico-motion.workspace = true

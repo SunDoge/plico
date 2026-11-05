@@ -48,11 +48,9 @@ url = "2.5.8"
 usvg = { version = "0.48.1", default-features = false, features = ["text"] }
 kurbo = "0.13.1"
 peniko = "0.6.1"
-vello-common = { package = "vello_common", version = "0.3.0" }
 zeroize = "1.9"
 plico-motion = { path = "crates/plico-motion" }
 wgpu = "30"
-wgpu-context = { package = "wgpu_context", version = "0.10.0" }
 winit = "=0.31.0-beta.3"
 
 plico = { path = "crates/plico" }

@@ -66,7 +66,7 @@ pub enum PaintCommand {
         /// Clip outline.
         clip: PaintShape,
         /// Optional Vello GPU filter.
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
     },
     /// Begin a clip-only scope.
     PushClip { transform: Affine, clip: PaintShape },
@@ -258,8 +258,8 @@ pub trait PaintScene {
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
-        backdrop_filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
+        backdrop_filter: Option<Arc<crate::filter::Filter>>,
     );
     /// Push a clip-only scope.
     fn push_clip_layer(&mut self, transform: Affine, clip: &impl Shape);
@@ -482,8 +482,8 @@ impl PaintScene for Scene {
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
-        _backdrop_filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
+        _backdrop_filter: Option<Arc<crate::filter::Filter>>,
     ) {
         self.commands.push(PaintCommand::PushLayer {
             blend: blend.into(),

@@ -585,8 +585,11 @@ mod tracker_tests {
             Affine::IDENTITY,
             &Rect::new(10., 10., 20., 20.),
             Some(std::sync::Arc::new(
-                vello_common::filter_effects::Filter::from_function(
-                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                crate::filter::Filter::from_primitive(
+                    crate::filter::FilterPrimitive::GaussianBlur {
+                        std_deviation: 1.,
+                        edge_mode: crate::filter::EdgeMode::None,
+                    },
                 ),
             )),
             None,
@@ -611,8 +614,11 @@ mod tracker_tests {
             Affine::IDENTITY,
             &Rect::new(0., 0., 10., 10.),
             Some(std::sync::Arc::new(
-                vello_common::filter_effects::Filter::from_function(
-                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
+                crate::filter::Filter::from_primitive(
+                    crate::filter::FilterPrimitive::GaussianBlur {
+                        std_deviation: 1.,
+                        edge_mode: crate::filter::EdgeMode::None,
+                    },
                 ),
             )),
             None,
