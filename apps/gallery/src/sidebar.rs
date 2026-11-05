@@ -58,6 +58,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                         Page::Motion,
                         Page::Glass,
                         Page::BlackHole,
+                        Page::Effects,
                         Page::Images,
                         Page::Markdown,
                         Page::Game2048,
