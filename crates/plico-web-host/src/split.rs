@@ -141,9 +141,10 @@ impl RemoteView {
                     } else if n.kind == plico::Kind::Text {
                         ui.rich_text_element(Key::Number(key), n.style, &n.text, &n.spans);
                     } else if n.kind == plico::Kind::Slider {
-                        if let Some(value) = n.numeric.and_then(|range| {
-                            ui.slider_element(Key::Number(key), n.style, &n.text, range)
-                        }) {
+                        if let Some(mut range) = n.numeric
+                            && let Some(value) =
+                                ui.slider_element(Key::Number(key), n.style, &n.text, &mut range)
+                        {
                             self.values.push((path.clone(), value));
                         }
                     } else {

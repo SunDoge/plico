@@ -227,6 +227,8 @@ pub struct Adapter {
     pub(super) popup_open_last: Option<Entity>,
     pub(super) tips: tooltip::Tooltips,
     pub(super) slider_drag: Option<Entity>,
+    /// Which thumb of a range slider the pointer/keyboard edits (0 low, 1 high).
+    pub(super) slider_thumb: usize,
     pub(super) focus_visible: bool,
     pub(super) scroll_offsets: HashMap<NodeId, [f32; 2]>,
     pub(super) scroll_dirty: bool,
@@ -304,6 +306,7 @@ impl Default for Adapter {
             popup_open_last: None,
             tips: Default::default(),
             slider_drag: None,
+            slider_thumb: 0,
             focus_visible: false,
             scroll_offsets: HashMap::new(),
             scroll_dirty: false,

@@ -29,6 +29,7 @@
 | Back/forward buttons | `back_button` / `forward_button` | 依赖 `Router`，两端禁用 |
 | Date input | `date_input` / `date_input_with` | ISO 显示 + 日历 popover |
 | Number input | `number_input` | 有界数字框 + 加减步进；Up/Down/失焦格式化未接入 |
+| Range slider | `range_slider` | 双 thumb 单轨道；共享一个焦点与一个语义值 |
 | Time input | `time_input` / `TimeOfDay` | 校验 HH:MM 文本框；非分段/12 小时制 |
 | Find bar | `find_bar` | 匹配计数、前后跳转、Done、打开聚焦 |
 | Alert dialog | `alert_dialog` | alert 角色、Escape dismissed、外部点击无效 |
@@ -66,7 +67,7 @@
 | MyGO | 阻塞原因 |
 |---|---|
 | Decimal input | 需要 decimal 类型与编辑结束格式化；Plico 没有 decimal，也没有公开的失焦钩子 |
-| Range slider | 双 thumb 需要每个 thumb 的焦点与局部指针坐标；当前 slider 是单值，组件也无法取得自身布局矩形 |
+
 | Token field | 需要在输入中捕获逗号/退格并驱动建议浮层；当前 Input 只暴露 changed/submitted |
 | Outline | 带列的层级虚拟化；现有 tree 构建全部可见项，virtual_list 是扁平行 |
 | Chart | 没有坐标轴/路径/图例层；适合作为宿主 widget 或独立 crate |

@@ -321,8 +321,10 @@ pub fn popover<'u, 'e, 's>(
 
 mod popup;
 mod radio;
+mod range;
 pub use popup::{MenuItem, Select, SelectOption, SelectResponse, menu, menu_item, select};
 pub use radio::{radio, radio_group};
+pub use range::range_slider;
 
 mod tooltip;
 pub use tooltip::{Tooltip, tooltip};

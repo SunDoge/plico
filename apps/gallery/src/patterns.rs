@@ -13,6 +13,8 @@ pub struct Patterns {
     dot: (f64, f64),
     crumb: usize,
     disk: f64,
+    price_low: f64,
+    price_high: f64,
     stars: u8,
     copies: f64,
     pane: f32,
@@ -47,6 +49,8 @@ impl Default for Patterns {
             dot: (0., 0.),
             crumb: 0,
             disk: 42.,
+            price_low: 200.,
+            price_high: 800.,
             stars: 3,
             copies: 1.,
             pane: 200.,
@@ -143,6 +147,10 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 critical: Some(95.),
             });
             let _ = slider(ui, "Disk used", &mut state.disk, 0.0..=100.0).step(1.);
+            if range_slider(ui, "Price", &mut state.price_low, &mut state.price_high, 0.0..=1000.0) {
+                ui.request_rebuild();
+            }
+            text!(ui, "${:.0} – ${:.0}", state.price_low, state.price_high).color(Color::Muted);
             row(ui).gap(8).align(Align::Center) + |ui| {
                 spinner(ui);
                 text(ui, "Loading messages…").color(Color::Muted);

@@ -160,12 +160,12 @@ pub mod prelude {
         color_picker, color_well, column, date_input, date_input_with, drag_area, field, fieldset,
         find_bar, form, forward_button, grid, icon, image, link, menu, menu_item, meter, modal,
         nav_item, nav_menu, number_input, panel, popover, progress, property_field, radio,
-        radio_group, rating, row, ruby_text, search_field, segmented, select, separator,
-        settings_row, settings_section, shader, sidebar, sidebar_item, sidebar_section, slider,
-        spinner, split, split_percent, split_vertical, split_vertical_percent, stat, stepper, svg,
-        svg_source, switch, table_header, table_row, tabs, text, text_empty, text_input,
-        text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer, tooltip, tree,
-        tree_item, virtual_list,
+        radio_group, range_slider, rating, row, ruby_text, search_field, segmented, select,
+        separator, settings_row, settings_section, shader, sidebar, sidebar_item, sidebar_section,
+        slider, spinner, split, split_percent, split_vertical, split_vertical_percent, stat,
+        stepper, svg, svg_source, switch, table_header, table_row, tabs, text, text_empty,
+        text_input, text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer,
+        tooltip, tree, tree_item, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, CalendarDate, Color, Direction, Display, Edges, FlexDirection,

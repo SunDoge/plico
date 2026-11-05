@@ -289,7 +289,22 @@ the regional hour cycle and formats on blur; Plico has no per-segment focus
 or blur hook, so the port is a single 24-hour field and invalid text stays
 visible until Enter.
 
+### Range slider (MyGO port)
+
+`range_slider(cx, label, &mut low, &mut high, range)` ports MyGO's
+`RangeSlider` on the shared slider core: one track with a low and a high
+thumb, the accent fill between them, and the thumbs cannot cross. Pressing
+the track picks the nearer thumb; arrows, PageUp/Down, Home and End move the
+thumb last touched, and Tab focuses the control.
+
+MyGO gives each knob its own focus stop and exposes two named sliders to
+assistive technology. Plico's slider core still has one focusable entity and
+one numeric semantic value per slider, so both thumbs share the focus and the
+semantic node reports the low bound; the high bound is painted but not yet a
+separate accessible slider.
+
 ### Number input (MyGO port)
+
 
 `number_input(cx, label, &mut f64, min, max, step)` ports MyGO's
 `NumberInput`: a bounded text field with − and + step buttons. Typed text
