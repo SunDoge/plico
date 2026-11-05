@@ -56,7 +56,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    borders, rounded image corners and mitered strokes keep every corner's own arc, adjacent
    corners shrink proportionally on the CPU before upload, and nonuniform corner radii no
    longer fall back to CPU raster. Gaussian box shadows stay on the uniform-radius path,
-   matching the single-radius shared command.
+   matching the single-radius shared command. Class specialization has begun following
+   mygo's `ClassOf`: adjacent plain solid fills (no border, gradient, material, image or
+   mask) draw through a small dedicated fragment pipeline in their own instance runs;
+   `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
+   comparison, and `FrameBatchStats::plain_draw_calls` reports the split.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

@@ -83,6 +83,8 @@ pub struct FrameBatchStats {
     pub instances: u64,
     /// Instanced scene draw calls (each damage scissor replay counts).
     pub draw_calls: u64,
+    /// Draw calls through the specialized plain-fill pipeline.
+    pub plain_draw_calls: u64,
     /// Scene color render passes, including isolated layers.
     pub passes: u64,
     /// Explicit partial-damage replacement clears (not load-op clears).
@@ -157,6 +159,11 @@ pub struct Renderer {
     bind: wgpu::BindGroup,
     pipeline: Option<wgpu::RenderPipeline>,
     plus_pipeline: Option<wgpu::RenderPipeline>,
+    /// Specialized pipeline for plain solid fills (mygo's ClassPlain). Static
+    /// source: it never recompiles and is not part of pipeline_compilations.
+    plain_pipeline: wgpu::RenderPipeline,
+    /// Comparison switch disabling class specialization (mygo's NoClasses).
+    force_general: bool,
     material_module: Option<wgpu::ShaderModule>,
     clear_pipeline: wgpu::RenderPipeline,
     source: String,
@@ -233,6 +240,38 @@ pub struct Renderer {
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     text_stats: crate::text::TextStats,
 }
+/// The specialized plain-fill fragment: the strict subset of the general
+/// fs_main that covers solid colors under the analytic SDF coverage and the
+/// hard or antialiased clip. mygo specializes the heaviest shader paths out
+/// of the instance stream most of a window is made of; this is Plico's first
+/// class. Drawn pixels must be identical to the general pipeline.
+const PLAIN_FRAGMENT: &str = r#"
+@fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip=input.clip;
+    var clip_alpha=1.;
+    if input.clip_params.x>0.5 {
+        clip_alpha=coverage(world-clip.xy,clip.zw,vec4f(0.));
+        if clip_alpha<=0. { discard; }
+    } else if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
+    let outer=coverage(input.local,input.size,input.radii);
+    let alpha=input.color.a*outer*clip_alpha;
+    return vec4f(input.color.rgb*alpha,alpha);
+}
+"#;
+
+/// A plain fill: solid color (equal endpoint colors make the gradient mix a
+/// no-op), no border, no material, not an image/glyph/shadow instance, and no
+/// coverage mask. Everything the general fragment does beyond the SDF and
+/// clip is absent, so the specialized pipeline draws the same pixels with a
+/// much smaller shader.
+fn is_plain(instance: &Instance) -> bool {
+    instance.config[2] == 0.
+        && instance.config[1] == 0.
+        && instance.clip_params[2] == 0.
+        && instance.color == instance.color2
+}
+
 impl Renderer {
     pub async fn new() -> Result<Self> {
         // Share the backend instance across default renderers. Besides avoiding
@@ -347,6 +386,23 @@ impl Renderer {
         });
         let capacity = 64;
         let instances = Self::instance_buffer(&device, capacity);
+        // Everything up to the general fragment entry point is shared vertex
+        // and SDF code; the plain fragment below is a strict subset of it.
+        let quad_source = include_str!("quad.wgsl");
+        let plain_common = &quad_source[..quad_source
+            .rfind("@fragment")
+            .expect("the quad shader defines one fragment entry point")];
+        let plain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Plico plain quads"),
+            source: wgpu::ShaderSource::Wgsl(format!("{plain_common}\n{PLAIN_FRAGMENT}").into()),
+        });
+        let plain_pipeline = Self::quad_pipeline(
+            &device,
+            &layout,
+            &plain_shader,
+            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            "Plico plain quads",
+        );
         let mut renderer = Self {
             device,
             queue,
@@ -358,6 +414,8 @@ impl Renderer {
             bind,
             pipeline: None,
             plus_pipeline: None,
+            plain_pipeline,
+            force_general: false,
             material_module: None,
             clear_pipeline,
             source: String::new(),
@@ -442,6 +500,12 @@ impl Renderer {
     pub fn pipeline_compilations(&self) -> usize {
         self.compilations
     }
+    /// Draw plain fills through the general shader instead of the specialized
+    /// plain pipeline, so tests and measurements can compare the two (mygo's
+    /// NoClasses). Pixels must be identical either way.
+    pub fn force_general_pipelines(&mut self, force: bool) {
+        self.force_general = force;
+    }
     /// Runtime shader replacement. Invalid input preserves the last working pipeline.
     /// Loading the same source again is a no-op. No Rust compilation is involved.
     pub async fn set_material(&mut self, material: &str) -> Result<bool> {
@@ -507,42 +571,56 @@ impl Renderer {
         }
         Ok(true)
     }
+    fn quad_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        shader: &wgpu::ShaderModule,
+        blend: &wgpu::BlendState,
+        label: &str,
+    ) -> wgpu::RenderPipeline {
+        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4,10=>Float32x4];
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Instance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &attributes,
+                })],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(*blend),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
     fn material_pipeline(
         &self,
         shader: &wgpu::ShaderModule,
         blend: wgpu::BlendState,
     ) -> wgpu::RenderPipeline {
-        let attributes = wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4,10=>Float32x4];
-        self.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Plico SDF quads"),
-                layout: Some(&self.layout),
-                vertex: wgpu::VertexState {
-                    module: shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Instance>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &attributes,
-                    })],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+        Self::quad_pipeline(
+            &self.device,
+            &self.layout,
+            shader,
+            &blend,
+            "Plico SDF quads",
+        )
     }
     fn ensure_plus_pipeline(&mut self) {
         if self.plus_pipeline.is_none() {
@@ -890,6 +968,10 @@ impl Renderer {
                     let texture = key(first);
                     #[cfg(not(feature = "paint-scene"))]
                     let _ = texture;
+                    // Class runs: adjacent plain fills share the specialized
+                    // pipeline, everything else keeps the general shader. The
+                    // run boundary never reorders painter sequence.
+                    let plain = !self.force_general && is_plain(&instances[first]);
                     let mut end = first + 1;
                     while end < instances.len()
                         && key(end) == texture
@@ -897,12 +979,18 @@ impl Renderer {
                         && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
                             == (instances[first].config[2] == 4.
                                 && instances[first].config[1] == 1.)
+                        && (!self.force_general && is_plain(&instances[end])) == plain
                     {
                         end += 1;
                     }
                     let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
+                    if plain {
+                        self.batch_stats.plain_draw_calls += 1;
+                    }
                     pass.set_pipeline(if plus {
                         self.plus_pipeline.as_ref().expect("plus pipeline prepared")
+                    } else if plain {
+                        &self.plain_pipeline
                     } else {
                         self.pipeline.as_ref().expect("material installed")
                     });
