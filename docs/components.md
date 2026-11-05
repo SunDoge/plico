@@ -252,6 +252,21 @@ form(cx, |cx| {
   history and step it on click. MyGO's right-click history menu and the
   Cmd+[ / Alt+Left shortcuts are not part of the widgets.
 
+### Date input (MyGO port)
+
+`date_input(cx, label, &mut CalendarDate, &mut PopoverState)` ports MyGO's
+`ui/dateinput.go`: a pop-up button showing `YYYY-MM-DD` whose popover holds the
+shared `calendar_content` widget. Opening it keeps the shown month; choosing a
+day writes the date and closes the popover, and the return value reports the
+change. `date_input_with` takes the first day of the week (the plain entry
+point uses ISO Monday). The calendar's month/day state is transient and never
+enters checkpoints.
+
+MyGO writes the user's regional numeric date and edits a `time.Time`, keeping
+the time of day; Plico dates carry no time and the localization layer exposes
+no numeric date order, so the field shows ISO and a time input would be
+composed separately.
+
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized
 before the addition still deserialize with those defaults.

@@ -228,6 +228,7 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
 mod calendar;
 mod colorpicker;
 mod composite;
+mod dateinput;
 mod desktop;
 mod form;
 mod indicators;
@@ -242,6 +243,7 @@ pub use composite::{
     Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
     stat,
 };
+pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };

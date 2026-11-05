@@ -267,7 +267,7 @@ pub type PopoverState = ModalState;
 pub struct Popover<'u, 'e, 's> {
     modal: Modal<'u, 'e, 's>,
     disabled: bool,
-    trigger_text: Option<&'s str>,
+    trigger_text: Option<Cow<'s, str>>,
 }
 impl<'e> UiContext<'e> {
     pub fn popover<'u, 's>(
@@ -310,8 +310,8 @@ impl<'s> Popover<'_, '_, 's> {
         self.modal = self.modal.motion(motion);
         self
     }
-    pub(crate) fn display_text(mut self, text: &'s str) -> Self {
-        self.trigger_text = Some(text);
+    pub(crate) fn display_text(mut self, text: impl Into<Cow<'s, str>>) -> Self {
+        self.trigger_text = Some(text.into());
         self
     }
     pub(crate) fn role(mut self, role: crate::WidgetRole) -> Self {
@@ -337,15 +337,16 @@ impl<'s> Popover<'_, '_, 's> {
             self.modal.state.close();
         }
         let metrics = ui.theme().metrics;
+        let trigger_text = self.trigger_text.take();
         let style = Style {
             anchor_id: Some(anchor),
-            width: self.trigger_text.map(|_| self.modal.width),
+            width: trigger_text.as_ref().map(|_| self.modal.width),
             gap: 8.,
             role: (self.modal.panel_role == Some(crate::WidgetRole::ListBox))
                 .then_some(crate::WidgetRole::ComboBox),
             expanded: Some(self.modal.state.is_open()),
             disabled,
-            styled_button: self.trigger_text.is_some(),
+            styled_button: trigger_text.is_some(),
             font_size: metrics.font_size,
             transition_ms: metrics.interaction_ms,
             padding_x: Some(metrics.spacing as f32 * 3.5),
@@ -358,7 +359,7 @@ impl<'s> Popover<'_, '_, 's> {
         };
         let (_, clicked) = ui.element(
             self.modal.key,
-            if self.trigger_text.is_some() {
+            if trigger_text.is_some() {
                 Kind::ButtonBase
             } else {
                 Kind::Button
@@ -366,7 +367,7 @@ impl<'s> Popover<'_, '_, 's> {
             style,
             self.modal.title.as_ref(),
             |cx| {
-                if let Some(shown) = self.trigger_text {
+                if let Some(shown) = trigger_text.as_deref() {
                     crate::widgets::text(cx, shown).grow(1.);
                     crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN).size(16., 16.);
                 }

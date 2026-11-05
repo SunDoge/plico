@@ -1,7 +1,7 @@
 //! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
 //! breadcrumbs, indicators, steppers, split panes, a source list, a search
-//! field, radios, links and router history (the shared widgets in
-//! plico::widgets, MyGO semantics).
+//! field, radios, links, router history and a date input (the shared widgets
+//! in plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
@@ -24,6 +24,8 @@ pub struct Patterns {
     tint: Color,
     email: String,
     size: String,
+    birthday: CalendarDate,
+    birthday_open: PopoverState,
 }
 
 impl Default for Patterns {
@@ -46,6 +48,8 @@ impl Default for Patterns {
             tint: Color::Literal(0x3b82f6),
             email: String::new(),
             size: "Medium".into(),
+            birthday: CalendarDate::new(2026, 11, 6).expect("demo date"),
+            birthday_open: PopoverState::default(),
         }
     }
 }
@@ -275,6 +279,18 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 back_button(ui, router);
                 forward_button(ui, router);
             };
+        };
+        panel(ui, "Date input").description("An ISO date field with a calendar popover, ported from MyGO.") + |ui| {
+            if date_input(ui, "Birthday", &mut state.birthday, &mut state.birthday_open) {
+                ui.request_rebuild();
+            }
+            text!(
+                ui,
+                "Chosen {}-{:02}-{:02}",
+                state.birthday.year(),
+                state.birthday.month(),
+                state.birthday.day()
+            ).color(Color::Muted);
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {
