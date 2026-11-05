@@ -51,6 +51,7 @@ jobs:
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
           components: rustfmt,clippy
+          target: wasm32-unknown-unknown
       - name: Check Rust and component formatting
         run: cargo run --locked -p plico-cli -- fmt --check
       - name: Guard application widget boundaries
@@ -65,6 +66,8 @@ jobs:
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
       - name: Lint the mainline without optional backend SDKs
         run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
+      - name: Check browser host and split UI with wgpu
+        run: cargo clippy --locked -p plico-web-host --features gallery,split --target wasm32-unknown-unknown -- -D warnings
       - name: Verify the semantic test protocol without a window
         run: cargo test --locked -p plico-runtime --test test_protocol
 

@@ -165,8 +165,6 @@ sessions and physical-display DPI transitions still need verification. See [expe
 
 The independent `plico-wgpu` backend is the default desktop renderer and remains
 under active development. Skia is the primary rendering-quality reference.
-Vello receives minimal compatibility maintenance and may be removed: existing functionality
-is retained, but shared-interface changes receive only necessary compile fixes;
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

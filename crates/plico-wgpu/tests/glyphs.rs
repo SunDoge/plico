@@ -257,14 +257,13 @@ fn emboldened_positioned_runs_render_wider_and_darker_than_plain() {
     let mut text = TextContext::new();
     let layout = plico_renderer::text::layout_text(&mut text, "Bold text bold 中文", 20.);
     let plain = text.glyph_scene(&layout);
-    let Some(run) = plain
-        .commands
-        .iter()
-        .find(|c| matches!(c, PaintCommand::GlyphRun { .. }))
-        .cloned()
-    else {
-        panic!("expected a positioned glyph run");
-    };
+    assert!(
+        plain
+            .commands
+            .iter()
+            .any(|c| matches!(c, PaintCommand::GlyphRun { .. })),
+        "expected a positioned glyph run"
+    );
     // Synthetic bold: the classic FreeType strength of about 1/24 em.
     let mut bold = plain.commands.clone();
     for command in bold.iter_mut() {

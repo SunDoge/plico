@@ -47,7 +47,7 @@ pub enum WindowBackground {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RenderBackend {
-    /// Prefer Skia, falling back to another compiled renderer.
+    /// Prefer wgpu, then Skia, among the compiled renderers.
     #[default]
     Auto,
     /// Independent wgpu consumer; requires the shell's `wgpu` feature.

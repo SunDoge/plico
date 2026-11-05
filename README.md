@@ -33,7 +33,7 @@ API with retained nodes, layout, text, and rendering caches underneath.
   and JSON scenarios with scripted input and a virtual clock for offscreen PNGs.
   App state needs no serialization unless the app chooses it for previews or storage.
   Async work stays in ordinary host tasks. See [preview development](docs/preview.md).
-- **Room for different backends.** wgpu is the default desktop renderer, with system text and WGSL effects. Skia is our primary rendering-quality reference; Vello receives minimal maintenance and may be removed. Optional
+- **Room for different backends.** wgpu is the default desktop renderer, with system text and WGSL effects. Skia is our primary rendering-quality reference. Optional
   FLTK + Taffy, LVGL, and browser/WASM paths explore the same declaration model.
   LVGL has been tested on an ESP32-P4 with ESP-IDF.
 
@@ -97,7 +97,6 @@ See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
 | --- | --- |
 | wgpu | Default desktop renderer, native system text, WGSL effects and adaptive damage redraw; still under active development |
 | Skia | Primary quality reference, CPU/Vulkan replay and Vulkan windows |
-| Vello | Minimal compatibility maintenance; no feature parity guarantees, may be removed |
 | FLTK + Taffy | Experimental native widgets and shared settings app; limited styling/platform coverage |
 | LVGL | Experimental native-widget mapping, SDL2/offscreen validation, ESP32-P4 / ESP-IDF hardware tests |
 | Web / WASM | Browser host and split host/UI loading experiments |

@@ -11,8 +11,8 @@ crate-type = ["rlib", "cdylib"]
 [features]
 default = ["wgpu"]
 wgpu = ["dep:plico-wgpu", "dep:wasm-bindgen-futures"]
-gallery = ["dep:gallery"]
-split = ["dep:js-sys"]
+gallery = ["dep:gallery", "wgpu"]
+split = ["dep:js-sys", "wgpu"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 plico-wgpu = { path = "../plico-wgpu", default-features = false, features = ["web"], optional = true }

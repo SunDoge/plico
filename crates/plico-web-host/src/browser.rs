@@ -4,15 +4,11 @@ use plico_runtime::{HostView, Source};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
-enum BrowserRenderer {
-    #[cfg(feature = "wgpu")]
-    Wgpu(Box<plico_wgpu::web::WebRenderer>),
-}
 /// Owns layout, retained scene and a browser renderer; the browser drives time/events.
 pub struct WebHost<V: HostView> {
     pub source: Source<V>,
     canvas: web_sys::HtmlCanvasElement,
-    renderer: BrowserRenderer,
+    renderer: Box<plico_wgpu::web::WebRenderer>,
     pub(crate) text: TextContext,
     scene: Scene,
     clock: VirtualClock,
@@ -33,16 +29,12 @@ impl<V: HostView> WebHost<V> {
         let renderer = plico_wgpu::web::WebRenderer::new(canvas.clone(), backend)
             .await
             .map_err(|e| error(e.to_string()))?;
-        Ok(Self::with_renderer(
-            canvas,
-            view,
-            BrowserRenderer::Wgpu(Box::new(renderer)),
-        ))
+        Ok(Self::with_renderer(canvas, view, Box::new(renderer)))
     }
     fn with_renderer(
         canvas: web_sys::HtmlCanvasElement,
         view: V,
-        renderer: BrowserRenderer,
+        renderer: Box<plico_wgpu::web::WebRenderer>,
     ) -> Self {
         let clock = VirtualClock::default();
         let mut source = Source::with_clock(view, clock.clone());
@@ -63,11 +55,9 @@ impl<V: HostView> WebHost<V> {
         }
     }
     pub fn renderer_name(&self) -> &'static str {
-        match &self.renderer {
-            #[cfg(feature = "wgpu")]
-            BrowserRenderer::Wgpu(renderer) => renderer.backend_name(),
-        }
+        self.renderer.backend_name()
     }
+
     pub fn load_font(&mut self, bytes: Vec<u8>) {
         self.text.load_font(bytes);
         self.source.request_rebuild();
@@ -98,12 +88,9 @@ impl<V: HostView> WebHost<V> {
             return Err(error("invalid canvas viewport"));
         }
         self.source.poll_async();
-        #[cfg(feature = "wgpu")]
-        if let BrowserRenderer::Wgpu(renderer) = &mut self.renderer {
-            renderer
-                .configure_text(&mut self.text)
-                .map_err(|e| error(e.to_string()))?;
-        }
+        self.renderer
+            .configure_text(&mut self.text)
+            .map_err(|e| error(e.to_string()))?;
         self.source
             .render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale);
         if let Some(e) = &self.source.last_error {
@@ -113,12 +100,9 @@ impl<V: HostView> WebHost<V> {
             (f64::from(width) * scale).ceil() as u32,
             (f64::from(height) * scale).ceil() as u32,
         ];
-        #[cfg(feature = "wgpu")]
-        if let BrowserRenderer::Wgpu(renderer) = &mut self.renderer {
-            renderer
-                .render(&self.scene, size, self.source.base_color().components)
-                .map_err(|e| error(e.to_string()))?;
-        }
+        self.renderer
+            .render(&self.scene, size, self.source.base_color().components)
+            .map_err(|e| error(e.to_string()))?;
         Ok(self.source.has_anim())
     }
     /// Flush the previous discrete input before routing the next one.

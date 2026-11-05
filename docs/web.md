@@ -41,7 +41,7 @@ WebHost<V: HostView> 是可复用 Rust 宿主，不要求应用使用 gallery：
 - `WebHost::new_wgpu(canvas, view, BrowserBackend::Auto).await` 创建 wgpu 宿主；
   `WebGpu` / `WebGl` 可显式选择后端，需要默认启用的 `wgpu` feature。
 - wgpu 使用 CSS/FontFace 加载字体，
-  不通过该入口注册二进制字体。动态替换字体后需清理文字缓存并重新声明。
+  不通过 `load_font` 入口注册二进制字体。动态替换字体后需清理文字缓存并重新声明。
 - frame(timestamp_ms, logical_width, logical_height, device_scale) 提交帧，
   返回是否还有动画需要继续调度。
 - dispatch(timestamp_ms, UiEvent) 在分发输入前消费上一操作并刷新必要几何。
@@ -78,8 +78,6 @@ Glass 页的模糊与移动背景交互在 WebGL2 上实测通过；CPU path/cli
 - 新 wgpu 路径暂不支持 rich text spans、双向文字编辑、positioned glyph runs
   或自定义 widget 的字形绘制（如 editor/terminal）；普通段落支持换行、基础省略、
   对齐和 LTR 选区几何。
-- 新 wgpu WebGL2 路径的模糊 layer 需要 compute，目前明确报不支持，尚无 fragment
-  fallback。
 - 新 wgpu 浏览器路径尚未开放自定义 WGSL widget effects。
 
 - WebGL2 不执行 custom WGSL shader；gallery 的 Motion 页显示限制提示。
@@ -105,3 +103,19 @@ NODE_PATH=/tmp/plico-web-host-qa/node_modules node crates/plico-web-host/web/smo
 测试在 1x/2x DPI 下通过真实指针/按键执行三次计数、主题切换、2048、虚拟滚动、
 Motion 页 fallback 和 resize，检查空闲 rAF 停止及 100 次唤醒只产生一帧。
 本机 Chromium 的 WebGL2 软件渲染验证通过，不代表跨浏览器/移动设备的完整兼容证明。
+
+## Split host 的异步初始化
+
+删除旧 Vello 路径后，split host 同样通过 wgpu 创建 Canvas surface：
+
+```js
+await init();
+await document.fonts.ready;
+const host = await SplitHost.create(canvas, renderModule);
+```
+
+`create` 返回 Promise，替代旧同步 `new SplitHost(...)`。字体使用浏览器系统字体
+或应用自己的 CSS/FontFace；示例不再把 TTF 交给旧的 Parley 字体加载入口。
+`gallery` 和 `split` features 均会启用 `wgpu`；WASM 无默认 feature 的构建只提供空壳，
+不导出 Canvas host。Linux CI 对 gallery/split 组合做 WASM Clippy；浏览器交互
+测试保留为本地按需验证，不加入常规 CI。
