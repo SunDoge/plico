@@ -68,10 +68,6 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
             }
         };
     };
-    // The viewport shows the toolbar's toasts; declared after the content
-    // so toasts layer over it (a real app declares this once at the root).
-    let showing = toast_viewport(ui, &mut state.toasts);
-    let _ = showing;
     column(ui).padding(12).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
         text(ui, "Drag surface").font_size(16).weight(650);
         text(ui, "Hold the pointer down in the panel and move it: the dot follows the drag.").color(Color::Muted);
@@ -89,4 +85,6 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
             };
         };
     };
+    // Overlay after the page so retiring cards remain above the content.
+    toast_viewport(ui, &mut state.toasts);
 }

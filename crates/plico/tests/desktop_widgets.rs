@@ -212,13 +212,10 @@ fn toast_time_stops_while_the_pointer_rests_on_it() {
     frame(&mut engine, |cx| {
         toast_viewport(cx, &mut host);
     });
-    // Hold the toast: hover what the viewport actually reports hovered,
-    // the toast card (the text inside is a child of it). The first frame
-    // ran without the hold, so the countdown must also survive that.
-    // The viewport is the outermost column of toast_viewport: the toast
-    // test frame declares nothing else, so it is the root's first child.
-    let viewport = engine.node(engine.root()).unwrap().children[0];
-    engine.set_hovered(Some(viewport));
+    // Observe the actual card group, including its noninteractive content.
+    toast_frame(&mut engine, &mut host, 140);
+    let card = toast_card(&engine).unwrap();
+    engine.set_hovered(Some(card));
     for elapsed in [1000, 2000, 3000, 5000, 8000] {
         engine.set_time(FrameTime {
             now: Duration::from_millis(elapsed),
@@ -229,15 +226,9 @@ fn toast_time_stops_while_the_pointer_rests_on_it() {
         });
     }
     assert_eq!(host.len(), 1, "the held toast's time does not run");
-    // Release: the countdown resumes from what it banked before the hold -
-    // a hold freezes the remaining time, it does not renew it (MyGO pauses
-    // the time, it does not reset it). The hold applies frame-granularly:
-    // the frame that ends the hold still reads the held state, so the gap
-    // starts counting on the frame after it.
+    // Charge each interval according to its previous hover state. Entering
+    // banks the preceding second; leaving skips the entire idle hover gap.
     engine.set_hovered(None);
-    // The hold applied from its own frame, so only the first frame banked
-    // 1s of the 4s life; the release frame counts its own gap and the
-    // remaining 3s expire within it (resume-from-banked, not reset).
     engine.set_time(FrameTime {
         now: Duration::from_secs(11),
         delta: Duration::from_secs(3),
@@ -251,11 +242,168 @@ fn toast_time_stops_while_the_pointer_rests_on_it() {
         "the release frame banks its gap without over-running the life"
     );
     engine.set_time(FrameTime {
-        now: Duration::from_secs(12),
-        delta: Duration::from_secs(1),
+        now: Duration::from_secs(14),
+        delta: Duration::from_secs(3),
     });
     frame(&mut engine, |cx| {
         toast_viewport(cx, &mut host);
     });
     assert_eq!(host.len(), 0, "released, the remaining time expires it");
+}
+
+fn toast_card(engine: &Engine) -> Option<Entity> {
+    fn walk(engine: &Engine, entity: Entity) -> Option<Entity> {
+        let node = engine.node(entity)?;
+        if node.style.max_width == Some(360.) && node.style.background == Some(Color::Panel) {
+            return Some(entity);
+        }
+        node.children.iter().find_map(|child| walk(engine, *child))
+    }
+    walk(engine, engine.root())
+}
+fn toast_frame(engine: &mut Engine, host: &mut ToastHost, millis: u64) {
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(millis),
+        delta: Duration::ZERO,
+    });
+    frame(engine, |cx| {
+        toast_viewport(cx, host);
+    });
+}
+
+#[test]
+fn toast_presence_retains_identity_and_closes_from_its_current_position() {
+    let mut host = ToastHost::default();
+    host.toast(Toast::message("Animated").sticky());
+    let mut engine = Engine::default();
+    toast_frame(&mut engine, &mut host, 0);
+    let card = toast_card(&engine).unwrap();
+    assert_eq!(engine.node(card).unwrap().style.opacity, 0.);
+    assert!(engine.changes().contains(plico::Changes::ANIMATE));
+    toast_frame(&mut engine, &mut host, 70);
+    let halfway = engine.node(card).unwrap().style.opacity;
+    assert!(halfway > 0. && halfway < 1.);
+    host.close("Animated");
+    assert!(host.is_empty(), "dismissal is immediate for logical state");
+    toast_frame(&mut engine, &mut host, 70);
+    assert_eq!(toast_card(&engine), Some(card));
+    assert_eq!(
+        engine.node(card).unwrap().style.opacity,
+        halfway,
+        "exit must not jump back to full opacity"
+    );
+    assert!(engine.node(card).unwrap().style.disabled);
+    toast_frame(&mut engine, &mut host, 105);
+    assert!(engine.node(card).unwrap().style.opacity < halfway);
+    toast_frame(&mut engine, &mut host, 210);
+    assert!(toast_card(&engine).is_none());
+    assert!(
+        !engine.changes().contains(plico::Changes::ANIMATE),
+        "finished presence must stop requesting frames"
+    );
+}
+
+#[test]
+fn renewing_a_retiring_toast_reverses_without_remounting() {
+    let mut host = ToastHost::default();
+    host.toast(Toast::message("Retry").sticky());
+    let mut engine = Engine::default();
+    toast_frame(&mut engine, &mut host, 0);
+    toast_frame(&mut engine, &mut host, 140);
+    let card = toast_card(&engine).unwrap();
+    host.close("Retry");
+    toast_frame(&mut engine, &mut host, 140);
+    toast_frame(&mut engine, &mut host, 210);
+    let before = engine.node(card).unwrap().style.opacity;
+    assert!(before > 0. && before < 1.);
+    host.toast(Toast::message("Retry").sticky());
+    toast_frame(&mut engine, &mut host, 210);
+    assert_eq!(toast_card(&engine), Some(card));
+    assert_eq!(engine.node(card).unwrap().style.opacity, before);
+    assert!(!engine.node(card).unwrap().style.disabled);
+    toast_frame(&mut engine, &mut host, 350);
+    assert_eq!(engine.node(card).unwrap().style.opacity, 1.);
+    assert_eq!(host.len(), 1);
+    assert!(
+        !engine.changes().contains(plico::Changes::ANIMATE),
+        "a settled sticky toast should idle"
+    );
+}
+
+#[test]
+fn new_toasts_do_not_inherit_idle_time_and_timeout_animates_out() {
+    let mut engine = Engine::default();
+    let mut host = ToastHost::default();
+    toast_frame(&mut engine, &mut host, 0);
+    host.toast(Toast::message("New"));
+    toast_frame(&mut engine, &mut host, 60_000);
+    assert_eq!(host.len(), 1);
+    toast_frame(&mut engine, &mut host, 63_999);
+    assert_eq!(host.len(), 1);
+    toast_frame(&mut engine, &mut host, 64_000);
+    assert!(host.is_empty());
+    assert!(
+        toast_card(&engine).is_some(),
+        "expired content remains for its exit animation"
+    );
+    toast_frame(&mut engine, &mut host, 64_140);
+    assert!(toast_card(&engine).is_none());
+}
+
+#[test]
+fn retiring_action_cannot_fire_again_and_zero_motion_removes_immediately() {
+    use std::{cell::Cell, rc::Rc};
+    let fired = Rc::new(Cell::new(0));
+    let counter = fired.clone();
+    let mut host = ToastHost::default();
+    host.toast(
+        Toast::message("Action")
+            .sticky()
+            .with_action("Undo", move || counter.set(counter.get() + 1)),
+    );
+    let mut engine = Engine::default();
+    toast_frame(&mut engine, &mut host, 0);
+    toast_frame(&mut engine, &mut host, 140);
+    let action = named(&engine, "Undo");
+    engine.queue_click(action);
+    toast_frame(&mut engine, &mut host, 140);
+    assert_eq!(fired.get(), 1);
+    engine.queue_click(action);
+    toast_frame(&mut engine, &mut host, 141);
+    assert_eq!(fired.get(), 1);
+    assert!(engine.node(action).unwrap().style.disabled);
+    let mut theme = Theme::default();
+    theme.metrics.interaction_ms = 0;
+    engine.set_theme(theme);
+    toast_frame(&mut engine, &mut host, 300);
+    host.toast(Toast::message("Instant").sticky());
+    toast_frame(&mut engine, &mut host, 301);
+    assert_eq!(
+        engine
+            .node(toast_card(&engine).unwrap())
+            .unwrap()
+            .style
+            .opacity,
+        1.
+    );
+    host.close("");
+    toast_frame(&mut engine, &mut host, 301);
+    assert!(toast_card(&engine).is_none());
+}
+
+#[test]
+fn dismissing_after_idle_starts_exit_on_the_next_frame() {
+    let mut engine = Engine::default();
+    let mut host = ToastHost::default();
+    host.toast(Toast::message("Idle").sticky());
+    toast_frame(&mut engine, &mut host, 0);
+    toast_frame(&mut engine, &mut host, 140);
+    host.close("Idle");
+    toast_frame(&mut engine, &mut host, 60_000);
+    let card = toast_card(&engine).unwrap();
+    assert_eq!(engine.node(card).unwrap().style.opacity, 1.);
+    toast_frame(&mut engine, &mut host, 60_070);
+    assert!(engine.node(card).unwrap().style.opacity < 1.);
+    toast_frame(&mut engine, &mut host, 60_140);
+    assert!(toast_card(&engine).is_none());
 }

@@ -140,13 +140,43 @@ struct ToastEntry {
     toast: Toast,
     /// Show time accumulated so far; the pause skips advancing it.
     shown: Duration,
+    counted_at: Option<Duration>,
+    key: u64,
+    motion: Option<ToastMotion>,
+}
+
+// A small component-local presence tween, sampled only from the injected clock.
+// Retargeting starts at the displayed value, so closing/reopening never jumps.
+struct ToastMotion {
+    from: f32,
+    to: f32,
+    start: Option<Duration>,
+    duration: Duration,
+}
+impl ToastMotion {
+    fn value(&self, now: Duration) -> f32 {
+        let t = if self.duration.is_zero() {
+            1.
+        } else {
+            (now.saturating_sub(self.start.unwrap_or(now)).as_secs_f32()
+                / self.duration.as_secs_f32())
+            .min(1.)
+        };
+        self.from + (self.to - self.from) * (1. - (1. - t).powi(3))
+    }
+    fn active(&self, now: Duration) -> bool {
+        self.from != self.to
+            && !self.duration.is_zero()
+            && self
+                .start
+                .is_none_or(|start| now.saturating_sub(start) < self.duration)
+    }
 }
 
 /// The toast host's state: the toasts in flight, oldest first. Own it near
 /// the application root; it is host-local by construction (the action is a
 /// boxed callback and the countdown runs on the frame clock) and never
 /// enters checkpoints.
-#[derive(Default)]
 pub struct ToastHost {
     entries: Vec<ToastEntry>,
     /// Frame time of the last viewport pass; the gap advances the countdown.
@@ -154,6 +184,21 @@ pub struct ToastHost {
     /// Whether the pointer rested on the toasts last frame (MyGO pauses
     /// while hovered): the current pass holds the time still meanwhile.
     held: bool,
+    exiting: Vec<ToastEntry>,
+    next_key: u64,
+    motion_duration: Duration,
+}
+impl Default for ToastHost {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            exiting: Vec::new(),
+            last_tick: None,
+            held: false,
+            next_key: 0,
+            motion_duration: Duration::from_millis(180),
+        }
+    }
 }
 
 impl ToastHost {
@@ -164,18 +209,48 @@ impl ToastHost {
         if toast.id.is_empty() {
             return;
         }
-        match self.entries.iter_mut().find(|e| e.toast.id == toast.id) {
-            Some(entry) => {
-                *entry = ToastEntry {
-                    toast,
-                    shown: Duration::ZERO,
-                };
-            }
-            None => self.entries.push(ToastEntry {
-                toast,
-                shown: Duration::ZERO,
-            }),
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.toast.id == toast.id)
+        {
+            entry.toast = toast;
+            entry.shown = Duration::ZERO;
+            entry.counted_at = None;
+            return;
         }
+        if let Some(index) = self
+            .exiting
+            .iter()
+            .position(|entry| entry.toast.id == toast.id)
+        {
+            let mut entry = self.exiting.remove(index);
+            let now = self.last_tick.unwrap_or_default();
+            let from = entry.motion.as_ref().map_or(0., |motion| motion.value(now));
+            entry.motion = Some(ToastMotion {
+                from,
+                to: 1.,
+                start: None,
+                duration: self.motion_duration,
+            });
+            entry.toast = toast;
+            entry.shown = Duration::ZERO;
+            entry.counted_at = None;
+            self.entries.push(entry);
+            return;
+        }
+        let key = self.next_key;
+        self.next_key = self
+            .next_key
+            .checked_add(1)
+            .expect("toast identity exhausted");
+        self.entries.push(ToastEntry {
+            toast,
+            shown: Duration::ZERO,
+            counted_at: None,
+            key,
+            motion: None,
+        });
     }
     /// `host.toast(Toast::message("Saved"))` shorthand.
     pub fn toast(&mut self, toast: Toast) {
@@ -184,17 +259,36 @@ impl ToastHost {
     /// Close the toast with `id`; an empty `id` closes every toast
     /// (MyGO CloseToast).
     pub fn close(&mut self, id: &str) {
-        if id.is_empty() {
-            self.entries.clear();
-        } else {
-            self.entries.retain(|e| e.toast.id != id);
+        self.close_at(id, None);
+    }
+    fn close_at(&mut self, id: &str, start: Option<Duration>) {
+        let now = start.or(self.last_tick).unwrap_or_default();
+        let mut index = 0;
+        while index < self.entries.len() {
+            if !id.is_empty() && self.entries[index].toast.id != id {
+                index += 1;
+                continue;
+            }
+            let mut entry = self.entries.remove(index);
+            // A queued toast that has never appeared has no pixels to retire.
+            if let Some(motion) = &entry.motion {
+                let from = motion.value(now);
+                entry.motion = Some(ToastMotion {
+                    from,
+                    to: 0.,
+                    start,
+                    duration: self.motion_duration,
+                });
+                entry.toast.on_action = None;
+                self.exiting.push(entry);
+            }
         }
     }
-    /// The number of toasts in flight.
+    /// The number of active toasts, excluding retained exit animations.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
-    /// Whether no toast is in flight.
+    /// Whether there are no active toasts; exit animations may still be mounted.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -249,45 +343,73 @@ impl<'de> serde::Deserialize<'de> for ToastHost {
 /// time is over. Declare once in the view, wherever; the frame clock drives
 /// the countdown, and the pointer resting on a toast holds its time (MyGO
 /// toastTime semantics). Returns whether any toast still shows; animation
-/// frames keep coming while one does.
+/// frames keep coming while a lifetime or presence animation is active.
+/// Closed toasts stop accepting input immediately; their pixels remain until
+/// fade/slide-out completes. Theme `interaction_ms = 0` disables the tween.
 pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
+    // Like modals, a toast viewport is a window portal, not a percentage-height
+    // child of whichever (possibly auto-sized or clipped) page called it.
+    let key = cx.engine.auto_key(cx.parent);
+    let mut hash = crate::macro_support::StableHasher::new();
+    hash.write(b"plico.toast.viewport");
+    hash.write_u64(cx.scope);
+    hash.write_u64(crate::macro_support::key_seed(key));
+    let mut ancestor = cx.parent;
+    while ancestor != cx.engine.root {
+        let identity = cx.engine.nodes.get(ancestor).unwrap().identity;
+        hash.write_u64(crate::macro_support::key_seed(identity.key));
+        hash.write_u64(identity.scope);
+        ancestor = identity.parent;
+    }
+    let mut portal = UiContext {
+        parent: cx.engine.root,
+        scope: hash.finish(),
+        inherited: cx.inherited,
+        localizer: cx.localizer,
+        in_button: false,
+        engine: &mut *cx.engine,
+    };
+    let cx = &mut portal;
     let now = cx.now();
-    let tick = host.last_tick.replace(now);
-    // The frame gap applies once the frame's hold state is known (the draw
-    // reports it), so neither the hold frame nor the release frame loses
-    // its gap to the one-frame-old snapshot (MyGO pauses by rebuilding the
-    // same frame, where the hold reads current).
-    let gap = tick
-        .filter(|before| now > *before)
-        .map(|before| now - before);
-    // Expire what the accumulated time finished on an earlier pass.
-    host.entries
-        .retain(|entry| entry.toast.life().is_none_or(|life| entry.shown < life));
-    // The newest three show, oldest first (MyGO toastLimit).
+    host.last_tick = Some(now);
+    let metrics = cx.theme().metrics;
+    host.motion_duration = Duration::from_millis(u64::from(metrics.interaction_ms));
+    for entry in host.entries.iter_mut().chain(&mut host.exiting) {
+        if let Some(motion) = &mut entry.motion {
+            motion.start.get_or_insert(now);
+            if host.motion_duration.is_zero() {
+                motion.duration = Duration::ZERO;
+            }
+        }
+    }
+    host.exiting.retain(|entry| {
+        entry
+            .motion
+            .as_ref()
+            .is_some_and(|motion| motion.active(now))
+    });
     let hidden = host.entries.len().saturating_sub(3);
-    let showing: Vec<usize> = (hidden..host.entries.len()).collect();
-    if showing.is_empty() {
+    for entry in &mut host.entries[..hidden] {
+        entry.counted_at = None;
+    }
+    for entry in &mut host.entries[hidden..] {
+        entry.motion.get_or_insert(ToastMotion {
+            from: 0.,
+            to: 1.,
+            start: Some(now),
+            duration: host.motion_duration,
+        });
+    }
+    if host.entries.is_empty() && host.exiting.is_empty() {
         host.held = false;
         return false;
     }
-    let metrics = cx.theme().metrics;
-    // Clicked ids collect during the draw; the host mutates after it.
-    let mut close_ids: Vec<String> = Vec::new();
-    let mut action_ids: Vec<String> = Vec::new();
+    let mut close_ids = Vec::new();
+    let mut action_ids = Vec::new();
     let mut held_now = false;
-    let titles: Vec<(String, Option<String>, ToastKind, Option<String>)> = showing
-        .iter()
-        .map(|&index| {
-            let toast = &host.entries[index].toast;
-            (
-                toast.title.clone(),
-                toast.description.clone(),
-                toast.kind,
-                toast.action.clone(),
-            )
-        })
-        .collect();
     column(cx)
+        .position(crate::Position::Absolute)
+        .inset(0.)
         .gap(8.)
         .padding(16.)
         .width_percent(100.)
@@ -295,40 +417,55 @@ pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
         .justify(Justify::End)
         .align(Align::End)
         .children(|cx| {
-            // MyGO holds the toasts' time from the whole viewport (its
-            // viewport.Hovered()): any card nesting depth reports here,
-            // where the parent is the viewport column itself.
-            held_now |= cx.hovered();
-            for (index, (title, description, kind, action)) in showing.iter().zip(&titles) {
-                let id = &host.entries[*index].toast.id;
+            let mut showing: Vec<_> = host.entries[hidden..]
+                .iter()
+                .map(|entry| (entry, false))
+                .chain(host.exiting.iter().map(|entry| (entry, true)))
+                .collect();
+            showing.sort_by_key(|(entry, _)| entry.key);
+            for (entry, exiting) in showing {
+                let toast = &entry.toast;
+                let value = entry.motion.as_ref().map_or(1., |motion| motion.value(now));
                 column(cx)
+                    .key(entry.key)
+                    .opacity(value)
+                    .translate(0., 16. * (1. - value))
+                    .disabled(exiting || value <= 0.)
                     .gap(4.)
                     .padding_y(10.)
                     .padding_x(14.)
                     .radius(10.)
                     .background(Color::Panel)
                     .border(1., Color::Border)
+                    .width_percent(100.)
                     .max_width(360.)
                     .children(|cx| {
+                        if !exiting {
+                            held_now |= cx.hovered_within();
+                        }
                         row(cx).gap(8.).align(Align::Center).children(|cx| {
                             column(cx)
                                 .width(3.)
-                                .height(if description.is_some() { 32. } else { 16. })
-                                .background(kind.accent());
+                                .height(if toast.description.is_some() {
+                                    32.
+                                } else {
+                                    16.
+                                })
+                                .background(toast.kind.accent());
                             column(cx).gap(2.).grow(1.).children(|cx| {
-                                text(cx, title.as_str())
+                                text(cx, toast.title.as_str())
                                     .font_size(metrics.font_size)
                                     .weight(600);
-                                if let Some(description) = description {
+                                if let Some(description) = &toast.description {
                                     text(cx, description.as_str())
                                         .font_size(metrics.font_size - 1)
                                         .color(Color::Muted);
                                 }
                             });
-                            if let Some(label) = action
+                            if let Some(label) = &toast.action
                                 && button(cx).text(label.as_str()).clicked()
                             {
-                                action_ids.push(id.clone());
+                                action_ids.push(toast.id.clone());
                             }
                             if button_base(cx, "Close toast")
                                 .width(22.)
@@ -341,41 +478,54 @@ pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
                                 .response
                                 .clicked()
                             {
-                                close_ids.push(id.clone());
+                                close_ids.push(toast.id.clone());
                             }
                         });
                     });
             }
         });
+    let was_held = host.held;
     host.held = held_now;
-    if !held_now && let Some(gap) = gap {
-        for entry in &mut host.entries {
-            if entry.toast.life().is_some() {
-                entry.shown += gap;
+    for entry in &mut host.entries[hidden..] {
+        let gap = entry
+            .counted_at
+            .replace(now)
+            .map_or(Duration::ZERO, |before| now.saturating_sub(before));
+        if !was_held {
+            entry.shown = entry.shown.saturating_add(gap);
+            if entry.toast.life().is_some_and(|life| entry.shown >= life) {
+                close_ids.push(entry.toast.id.clone());
             }
         }
-        // What the applied gap finished is gone within this same pass;
-        // the early retain above only pruned earlier-finished toasts.
-        host.entries
-            .retain(|entry| entry.toast.life().is_none_or(|life| entry.shown < life));
     }
-    // Apply the clicks outside the draw: an action runs, then closes.
+    if !action_ids.is_empty() || !close_ids.is_empty() {
+        cx.request_rebuild();
+    }
     for id in action_ids {
-        if let Some(entry) = host.entries.iter_mut().find(|e| e.toast.id == id)
+        if let Some(entry) = host.entries.iter_mut().find(|entry| entry.toast.id == id)
             && let Some(action) = entry.toast.on_action.take()
         {
             action();
         }
-        host.close(&id);
+        host.close_at(&id, Some(now));
     }
     for id in close_ids {
-        host.close(&id);
+        host.close_at(&id, Some(now));
     }
-    // Keep frames coming while a toast counts down.
-    if host.entries.iter().any(|e| e.toast.life().is_some()) {
+    if host.entries[host.entries.len().saturating_sub(3)..]
+        .iter()
+        .any(|entry| {
+            (!host.held && entry.toast.life().is_some())
+                || entry
+                    .motion
+                    .as_ref()
+                    .is_some_and(|motion| motion.active(now))
+        })
+        || !host.exiting.is_empty()
+    {
         cx.request_animation_frame();
     }
-    !host.entries.is_empty()
+    !host.entries.is_empty() || !host.exiting.is_empty()
 }
 
 /// A toolbar row: a horizontal strip of controls spaced by the theme

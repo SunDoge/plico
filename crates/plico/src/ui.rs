@@ -394,6 +394,11 @@ impl<'e> UiContext<'e> {
     pub fn hovered(&self) -> bool {
         self.engine.hovered(self.parent)
     }
+    /// Whether the pointer is inside this group's visible bounds, including
+    /// noninteractive content and descendant controls. Hosts resolve geometry.
+    pub fn hovered_within(&self) -> bool {
+        self.engine.hovered_within(self.parent)
+    }
     /// Whether the primary pointer press started on the current parent
     /// control and the button is still down. Drag surfaces use this to
     /// anchor a drag at the press and track it across frames.

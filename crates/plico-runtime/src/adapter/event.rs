@@ -2,6 +2,17 @@
 use super::*;
 
 impl Adapter {
+    pub(crate) fn update_hover_regions(&self, engine: &Engine) -> bool {
+        engine.update_hover_regions(|entity| {
+            self.pointer_position.is_some_and(|(x, y)| {
+                self.modal_allows(engine, entity)
+                    && self
+                        .nodes
+                        .get(&entity)
+                        .is_some_and(|node| self.visual_contains(node.id, x, y))
+            })
+        })
+    }
     pub fn event(&mut self, engine: &mut Engine, event: UiEvent) -> EventResponse {
         self.event_with_invalidation(engine, event).0
     }
@@ -32,6 +43,10 @@ impl Adapter {
         engine.set_pressed(self.pressed);
         engine.set_pointer_position(self.pointer_position);
         if previous_pointer != self.pointer_position && engine.observes_pointer_position() {
+            response.request_redraw = true;
+            declare = true;
+        }
+        if self.update_hover_regions(engine) {
             response.request_redraw = true;
             declare = true;
         }

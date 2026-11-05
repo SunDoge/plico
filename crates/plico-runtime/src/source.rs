@@ -341,6 +341,7 @@ impl<V: HostView> Source<V> {
         now: Instant,
         force_declaration: bool,
     ) {
+        self.pending |= self.adapter.update_hover_regions(&self.engine);
         let mut fonts_changed = false;
         for font in &self.fonts {
             fonts_changed |= tcx.register_font(font);

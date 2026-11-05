@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "viewport": { "width": 1120, "height": 820, "scale": 1.0 },
+  "steps": [
+    { "command": { "action": "click", "role": "button", "label": "Patterns" } },
+    { "command": { "action": "click", "role": "button", "label": "Toast" } }
+  ],
+  "time_ms": 70
+}
