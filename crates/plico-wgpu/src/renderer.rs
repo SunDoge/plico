@@ -148,6 +148,12 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
 }
 /// Owns an independent wgpu device, a persistent render target and instance buffer.
 /// CPU readback is for experiments; it is not the future window submission path.
+/// Prepared scenes retained for replay, keyed by (frame size, exact root-clip
+/// bits). Each key holds the root scene plus rebuilt isolated-layer variants,
+/// distinguished by command identity rather than the key itself.
+pub(crate) type PreparedCache =
+    std::collections::HashMap<([u32; 2], [u64; 4]), Vec<std::rc::Rc<crate::scene::PreparedScene>>>;
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -188,7 +194,7 @@ pub struct Renderer {
     pub(crate) macos_paragraphs:
         Option<std::rc::Rc<std::cell::RefCell<crate::macos_paragraph::Cache>>>,
     #[cfg(feature = "paint-scene")]
-    pub(crate) prepared_cache: Option<([u32; 2], std::rc::Rc<crate::scene::PreparedScene>)>,
+    pub(crate) prepared_cache: PreparedCache,
     #[cfg(feature = "paint-scene")]
     pub(crate) scene_preparations: u64,
     #[cfg(feature = "paint-scene")]
@@ -439,7 +445,7 @@ impl Renderer {
             #[cfg(all(feature = "paint-scene", target_os = "macos", feature = "system-text"))]
             macos_paragraphs: None,
             #[cfg(feature = "paint-scene")]
-            prepared_cache: None,
+            prepared_cache: std::collections::HashMap::new(),
             #[cfg(feature = "paint-scene")]
             scene_preparations: 0,
             #[cfg(feature = "paint-scene")]
@@ -500,6 +506,17 @@ impl Renderer {
     }
     pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
         &self.info
+    }
+    /// Total prepared scenes retained across cache keys.
+    pub(crate) fn prepared_len(&self) -> usize {
+        #[cfg(feature = "paint-scene")]
+        {
+            self.prepared_cache.values().map(Vec::len).sum()
+        }
+        #[cfg(not(feature = "paint-scene"))]
+        {
+            0
+        }
     }
     /// Successful pipeline compilations, for checking that frames do not recompile shaders.
     pub fn pipeline_compilations(&self) -> usize {
@@ -1710,7 +1727,7 @@ impl Renderer {
     /// Release CPU path/SVG/clip rasters and the local prepared-scene snapshot.
     /// Retained final pixels remain valid; subsequent changes rebuild derived data.
     pub fn trim_raster_cache(&mut self) {
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.paths = Default::default();
         self.svgs = Default::default();
         self.masks = Default::default();

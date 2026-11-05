@@ -283,7 +283,7 @@ impl Renderer {
             cache.borrow_mut().clear_entries();
         }
         self.trim_native_atlas();
-        self.prepared_cache = None;
+        self.prepared_cache.clear();
         self.invalidate_scene_damage();
     }
 
@@ -305,7 +305,7 @@ impl Renderer {
         }
         #[cfg(feature = "paint-scene")]
         {
-            self.prepared_cache = None;
+            self.prepared_cache.clear();
             self.invalidate_scene_damage();
         }
         text.set_paragraph_engine(Box::new(Engine {

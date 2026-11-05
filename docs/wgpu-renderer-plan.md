@@ -66,7 +66,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    when no retained fragments need expanding (animated frames that miss the prepared cache
    skip the flatten entirely), and the instance staging vector keeps its grown capacity
    across frames through `std::mem::take`/write-back, so steady-state frames allocate nothing
-   for staging.
+   for staging. The prepared-scene cache is now keyed by (size, exact root-clip bits) with a
+   short list of prepared variants per key, and identity falls back to full command equality
+   for isolated-layer children that are rebuilt every frame; a single-entry cache ping-ponged
+   between the root scene and its layers, so frames containing isolated groups never hit at
+   all and re-prepared the whole tree every frame.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

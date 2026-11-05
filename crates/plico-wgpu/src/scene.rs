@@ -10,7 +10,6 @@ pub struct PreparedScene {
     payloads: Payloads,
     source: Scene,
     flattened: Scene,
-    root_clip: Rect,
     ink: Vec<Option<Rect>>,
 }
 /// An isolated source-over or additive group. Children are drawn into a transparent GPU
@@ -166,6 +165,15 @@ impl PreparedScene {
             .collect()
     }
 }
+fn root_clip_key(rect: Rect) -> [u64; 4] {
+    [
+        rect.x0.to_bits(),
+        rect.y0.to_bits(),
+        rect.x1.to_bits(),
+        rect.y1.to_bits(),
+    ]
+}
+
 fn unsupported(index: usize, reason: impl Into<String>) -> Error {
     Error::Unsupported {
         command: index,
@@ -325,11 +333,23 @@ impl Renderer {
         size: [u32; 2],
         root_clip: Rect,
     ) -> Result<std::rc::Rc<PreparedScene>> {
-        if let Some((cached_size, cached)) = &self.prepared_cache
-            && *cached_size == size
-            && cached.root_clip == root_clip
-            && cached.source.shares_commands_with(scene)
-        {
+        // Keyed by (size, root clip). The root scene and an unfiltered
+        // layer's child share that key, so each key holds a short list of
+        // prepared variants and identity is still `shares_commands_with`;
+        // a single value per key would ping-pong between them and frames
+        // with layers would never hit.
+        let key = (size, root_clip_key(root_clip));
+        // Identity is Arc equality for the retained scene itself (the common
+        // fast path) and full command equality for rebuilt slices: PushLayer
+        // children are reassembled every frame, so their Arc identity changes
+        // even when the content does not. Commands hold internal Arcs, so
+        // element comparison is cheap and clone-stable.
+        if let Some(cached) = self.prepared_cache.get(&key).and_then(|entries| {
+            entries.iter().find(|prepared| {
+                prepared.source.shares_commands_with(scene)
+                    || prepared.source.commands[..] == scene.commands[..]
+            })
+        }) {
             self.scene_cache_hits += 1;
             return Ok(cached.clone());
         }
@@ -1075,13 +1095,25 @@ impl Renderer {
             payloads,
             source,
             flattened,
-            root_clip,
             ink,
         });
         let storage = prepared.storage_stats();
         tracing::trace!(target:"plico::perf",draws=storage.draws,order_bytes=storage.order_bytes,payload_bytes=storage.payload_bytes,ink_bytes=storage.ink_bytes,"wgpu prepared scene storage");
         self.scene_preparations += 1;
-        self.prepared_cache = Some((size, prepared.clone()));
+        // Bounded by clearing: normal frames hold a root scene plus a few
+        // isolated layers; anything past these bounds is churn, not reuse.
+        if self.prepared_len() >= 16
+            || self
+                .prepared_cache
+                .get(&key)
+                .is_some_and(|entries| entries.len() >= 4)
+        {
+            self.prepared_cache.clear();
+        }
+        self.prepared_cache
+            .entry(key)
+            .or_default()
+            .push(prepared.clone());
         Ok(prepared)
     }
 }
@@ -1267,7 +1299,6 @@ mod storage_profile {
             payloads,
             source: Scene::new(),
             flattened: Scene::new(),
-            root_clip: Rect::new(0., 0., 100., 100.),
             ink: Vec::new(),
         };
         eprintln!(
