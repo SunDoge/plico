@@ -43,6 +43,14 @@ and cannot be overwritten by `.values(...)`. This function interface differs
 from complete modules, whose authored buffer starts at offset zero and whose
 first three floats are overwritten with width, height and time.
 
+Complete-module uniform buffers must contain only `f32` scalars, vectors,
+matrices, arrays and nested structs. Integer members (`u32`/`i32`) are rejected
+before GPU pipeline creation: `.values(&[1.0])` uploads float bits, not the integer
+one. Declare the parameter as `f32` and explicitly convert it in WGSL, for example
+`let count = u32(u.count);`. WGSL uniform padding/strides still apply; this is a
+flat-word transport, not automatic struct serialization. Local integers and
+builtin vertex indices remain supported.
+
 Do not upload an arbitrary Rust struct as these parameters: Rust layout and
 WGSL uniform alignment are different contracts. Until a typed parameter API is
 provided, explicitly flatten fields into scalar values and document their order

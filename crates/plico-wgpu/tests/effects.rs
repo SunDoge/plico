@@ -38,7 +38,18 @@ impl plico::View for Demo {
         self.shows += 1;
         if self.present {
             let asset = if self.invalid {
-                &ShaderAsset::new("invalid WGSL")
+                &ShaderAsset::module(
+                    r#"
+struct Uniforms { header: vec4f, enabled: u32 };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    let points = array<vec2f, 3>(vec2f(-1.,-1.), vec2f(3.,-1.), vec2f(-1.,3.));
+    return vec4f(points[i], 0., 1.);
+}
+@fragment fn fs_main() -> @location(0) vec4f { return vec4f(f32(u.enabled), 0., 1., 1.); }
+"#,
+                )
+                .with_source_path("effects/invalid-uniform.wgsl")
             } else {
                 &EFFECT
             };
@@ -115,6 +126,12 @@ fn public_effect_api_uses_virtual_time_pause_values_and_last_valid_source() {
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
     source.update(|view| view.0.invalid = true);
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
+    let diagnostic = source.adapter.shader_diagnostics().next().unwrap();
+    assert!(
+        diagnostic.starts_with("effects/invalid-uniform.wgsl:"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("only f32"), "{diagnostic}");
     assert_eq!(source.adapter.shader_diagnostics().count(), 1);
     renderer.configure_text(&mut text, 1.25).unwrap();
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.25)[1], 191);

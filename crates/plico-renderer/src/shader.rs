@@ -26,6 +26,40 @@ const PIPELINE_CACHE_SIZE: usize = 16;
 #[cfg(not(target_arch = "wasm32"))]
 const EFFECT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
+/// `.values()` carries finite f32 words, not arbitrary host-shared bytes. Validate
+/// nested members too: accepting integer fields would reinterpret float bits.
+fn validate_float_uniform(
+    module: &naga::Module,
+    root: naga::Handle<naga::Type>,
+) -> Result<(), String> {
+    let mut pending = vec![root];
+    let mut visited = vec![false; module.types.len()];
+    while let Some(ty) = pending.pop() {
+        if std::mem::replace(&mut visited[ty.index()], true) {
+            continue;
+        }
+        match &module.types[ty].inner {
+            naga::TypeInner::Scalar(scalar)
+            | naga::TypeInner::Vector { scalar, .. }
+            | naga::TypeInner::Matrix { scalar, .. }
+                if scalar.kind == naga::ScalarKind::Float && scalar.width == 4 => {}
+            naga::TypeInner::Array { base, .. } => pending.push(*base),
+            naga::TypeInner::Struct { members, .. } => {
+                pending.extend(members.iter().map(|member| member.ty));
+            }
+            _ => {
+                return Err(concat!(
+                    "custom shader uniform data must contain only f32 scalars, vectors, ",
+                    "matrices, arrays or structs; .values() uploads f32 words, ",
+                    "so use explicit WGSL conversion for integer parameters"
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
+}
+
 const SHADER_PREFIX: &str = r#"
 struct WabouShaderUniforms {
     // x/y: physical output size, z: elapsed seconds, w: device scale.
@@ -172,8 +206,10 @@ impl ShaderEffectSource {
     /// Validate a complete single-pass WGSL module.
     ///
     /// The module must expose `vs_main` and `fs_main`. Binding zero may contain
-    /// an application-defined uniform struct backed by up to 256 scalar values.
-    /// Wabou overwrites floats 0, 1, and 2 with physical width, physical height,
+    /// an application-defined uniform struct backed by up to 256 f32 words.
+    /// Scalars in nested arrays/structs, vectors and matrices must all be f32;
+    /// explicit padding follows WGSL layout, not Rust struct layout.
+    /// Plico overwrites floats 0, 1, and 2 with physical width, physical height,
     /// and native animation time. Textures and additional bindings remain
     /// unsupported so resource ownership stays inside the renderer. Vertex
     /// entry points must generate geometry without `@location` vertex inputs;
@@ -202,7 +238,7 @@ impl ShaderEffectSource {
                 && (binding.group != 0 || binding.binding != 0)
             {
                 return Err(format!(
-                    "custom shader binding @group({}) @binding({}) is unsupported; use wabou.values",
+                    "custom shader binding @group({}) @binding({}) is unsupported; use the f32 uniform parameter buffer",
                     binding.group, binding.binding
                 ));
             }
@@ -210,11 +246,12 @@ impl ShaderEffectSource {
                 return Err("custom shader @group(0) @binding(0) must be a uniform buffer".into());
             }
             if variable.binding.is_some() {
+                validate_float_uniform(&module, variable.ty)?;
                 let size = module.types[variable.ty].inner.size(module.to_ctx()) as usize;
                 let capacity = UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>();
                 if size > capacity {
                     return Err(format!(
-                        "custom shader uniform buffer uses {size} bytes; Wabou provides {capacity}"
+                        "custom shader uniform buffer uses {size} bytes; Plico provides {capacity}"
                     ));
                 }
             }
@@ -763,6 +800,45 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
         }
         let fragment = "struct Output { @location(0) color: vec4<f32> }; @fragment fn fs_main() -> Output { return Output(vec4(1.0)); }";
         ShaderEffectSource::new_module(&format!("{vertex}\n{fragment}")).unwrap();
+    }
+
+    #[test]
+    fn uniform_transport_rejects_integer_members_and_accepts_float_layouts() {
+        let module = |payload: &str| {
+            format!(
+                r#"
+struct Inner {{ value: vec4<i32> }};
+struct FloatInner {{ value: vec4f }};
+struct Uniforms {{ header: vec4f, payload: {payload} }};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@vertex fn vs_main() -> @builtin(position) vec4f {{ return vec4f(0.); }}
+@fragment fn fs_main() -> @location(0) vec4f {{ return vec4f(1.); }}
+"#
+            )
+        };
+        for payload in [
+            "i32",
+            "u32",
+            "vec2u",
+            "vec4<i32>",
+            "array<vec4u, 2>",
+            "Inner",
+        ] {
+            let error = ShaderEffectSource::new_module(&module(payload)).unwrap_err();
+            assert!(error.contains("only f32"), "{payload}: {error}");
+        }
+        for payload in [
+            "f32",
+            "vec2f",
+            "vec3f",
+            "mat3x3f",
+            "array<vec4f, 3>",
+            "FloatInner",
+            "array<FloatInner, 2>",
+        ] {
+            ShaderEffectSource::new_module(&module(payload))
+                .unwrap_or_else(|error| panic!("{payload}: {error}"));
+        }
     }
 
     #[test]

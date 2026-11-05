@@ -29,6 +29,8 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
 
 `shader_asset!(module, "effect.wgsl")`（或 `ShaderAsset::module(include_str!(...))`）接受包含 vs_main / fs_main 的完整模块，并使用 raw-uniform ABI：values 从 buffer 偏移 0 写入，前三个 float 总会被宿主覆盖为 physical width、physical height、time，其余布局由模块定义。它与普通函数模式的四 float header + 256 scalar payload 不同；raw values 仍最多 256 个标量。只允许 group(0) binding(0) 的 uniform buffer，不提供自定义纹理、sampler、storage buffer 或 scene/backdrop 输入。顶点入口不能要求 `@location` 顶点缓冲输入，应通过 `@builtin(vertex_index)` 生成全屏三角形；片元入口必须输出单个 `@location(0) vec4<f32>`，可包装在单字段 struct 内。多颜色目标、深度和 sample-mask 输出不属于效果接口。
 
+完整模块的 uniform 字段（含嵌套结构、数组、向量、矩阵）仅支持 `f32`。`values` 上传的是浮点字节，`u32/i32` 字段会被提前拒绝，避免把 `1.0` 误读成整数位模式。整数用途请声明 `f32` 字段后在 WGSL 中显式转换，如 `u32(u.count)`；WGSL 的 padding/stride 仍需按实际字节槽位处理。局部整数和顶点 builtin 不受此限制。
+
 WGSL 经 Naga 解析与接口验证，源码上限 64KiB；参数必须有限、speed 非负。每个已挂载节点保留 ShaderEffectId、有效程序和 uniform 数据。源码错误保留上一个有效程序，首次编译错误则不绘制效果；Adapter::shader_diagnostics() 提供诊断。GPU pipeline 和输出纹理由 renderer 管理、复用及回收。卸载或暂停不会继续请求 shader 动画帧。
 
 核心只保存可序列化源码与 ShaderParams，不携带 GPU handle。修改源文件后重新编译应用；静态资源只 include 实际使用的 WGSL 文件。控件身份稳定时，宿主播放进度和 GPU surface 可以保留。当前是 native GPU 接口，不宣称 WebGL/Bevy 后端已接好。
