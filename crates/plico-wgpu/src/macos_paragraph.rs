@@ -13,6 +13,7 @@ use plico_renderer::{
 };
 use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
 const LIMIT: usize = 64 * 1024 * 1024;
+const INTRINSIC_LIMIT: usize = 8 * 1024 * 1024;
 type Images = Vec<(peniko::ImageData, [i32; 2])>;
 fn rejected(message: impl Into<String>) -> ParagraphError {
     ParagraphError {
@@ -26,7 +27,7 @@ struct Paragraph {
     ink: [f64; 4],
     line_inks: Vec<Option<[f64; 4]>>,
     bytes: usize,
-    intrinsic_width: f32,
+    intrinsic: [f32; 2],
 }
 impl NativeParagraph for Paragraph {
     fn metrics(&self) -> ParagraphMetrics {
@@ -35,9 +36,7 @@ impl NativeParagraph for Paragraph {
         ParagraphMetrics {
             width: size[0] as f32,
             height: size[1] as f32,
-            // The minimum is a lower bound until native min-content breaking is
-            // implemented. No invented word-width metric is presented as exact.
-            intrinsic: [0., self.intrinsic_width],
+            intrinsic: self.intrinsic,
             baselines: [
                 lines.first().map(|l| l.baseline[1] as f32),
                 lines.last().map(|l| l.baseline[1] as f32),
@@ -75,6 +74,11 @@ struct RasterKey {
     clip: [i32; 4],
     color: [u8; 4],
 }
+struct Intrinsic {
+    request: Arc<ParagraphRequest>,
+    widths: [f32; 2],
+    bytes: usize,
+}
 struct Raster {
     paragraph: Rc<Paragraph>,
     image: peniko::ImageData,
@@ -95,6 +99,12 @@ pub struct MacosTextCacheStats {
     pub raster_bytes: usize,
     /// Native bitmap generation calls since provider creation.
     pub rasterizations: u64,
+    /// Width-only measurement cache entries, shared across wrapping constraints.
+    pub intrinsic_entries: usize,
+    /// Accounted retained width-measurement source payload.
+    pub intrinsic_bytes: usize,
+    /// Native intrinsic measurement calls since provider creation.
+    pub intrinsic_measurements: u64,
 }
 pub(crate) struct Cache {
     layouts: lru::LruCache<u64, Rc<Paragraph>>,
@@ -103,6 +113,9 @@ pub(crate) struct Cache {
     raster_bytes: usize,
     rasterizations: u64,
     font_error: bool,
+    intrinsic: lru::LruCache<u64, Intrinsic>,
+    intrinsic_bytes: usize,
+    intrinsic_measurements: u64,
 }
 impl Cache {
     fn new() -> Self {
@@ -113,6 +126,9 @@ impl Cache {
             raster_bytes: 0,
             rasterizations: 0,
             font_error: false,
+            intrinsic: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
+            intrinsic_bytes: 0,
+            intrinsic_measurements: 0,
         }
     }
     fn clear(&mut self) {
@@ -120,6 +136,8 @@ impl Cache {
         self.rasters.clear();
         self.layout_bytes = 0;
         self.raster_bytes = 0;
+        self.intrinsic.clear();
+        self.intrinsic_bytes = 0;
     }
     #[tracing::instrument(name = "plico_wgpu.coretext_layout", skip_all, fields(text_bytes = request.text.len()))]
     fn layout(
@@ -196,12 +214,47 @@ impl Cache {
             Layout::without_wrapping(&native, width, height, align)
         }
         .map_err(|e| rejected(e.to_string()))?;
-        let intrinsic_width = if request.wrap && width.is_some() {
-            Layout::new(&native, None, height)
-                .map_err(|e| rejected(e.to_string()))?
-                .size()[0] as f32
+        let mut source = geometry.clone();
+        source.width = None;
+        source.wrap = false;
+        source.align = TextAlign::Start;
+        source.line_height = None;
+        let source_key = source.fingerprint();
+        let intrinsic = if let Some(cached) = self.intrinsic.get(&source_key)
+            && *cached.request == source
+        {
+            cached.widths
         } else {
-            layout.size()[0] as f32
+            let widths = Layout::measure_intrinsic(&native)
+                .map_err(|e| rejected(e.to_string()))?
+                .map(|v| v as f32);
+            self.intrinsic_measurements += 1;
+            let bytes = std::mem::size_of::<Intrinsic>()
+                + std::mem::size_of::<ParagraphRequest>()
+                + source.text.len()
+                + source.family.len()
+                + 64;
+            if bytes <= INTRINSIC_LIMIT {
+                if let Some((_, old)) = self.intrinsic.push(
+                    source_key,
+                    Intrinsic {
+                        request: Arc::new(source),
+                        widths,
+                        bytes,
+                    },
+                ) {
+                    self.intrinsic_bytes -= old.bytes;
+                }
+                self.intrinsic_bytes += bytes;
+                while self.intrinsic_bytes > INTRINSIC_LIMIT {
+                    if let Some((_, old)) = self.intrinsic.pop_lru() {
+                        self.intrinsic_bytes -= old.bytes;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            widths
         };
         let mut ink: Option<[f64; 4]> = None;
         let mut line_inks = Vec::with_capacity(layout.lines().len());
@@ -240,7 +293,7 @@ impl Cache {
             ink: ink.unwrap_or([0.; 4]),
             line_inks,
             bytes,
-            intrinsic_width,
+            intrinsic,
         });
         if bytes <= LIMIT {
             if let Some((_, old)) = self.layouts.push(key, p.clone()) {
@@ -486,6 +539,9 @@ impl Renderer {
                     rasters: c.rasters.len(),
                     raster_bytes: c.raster_bytes,
                     rasterizations: c.rasterizations,
+                    intrinsic_entries: c.intrinsic.len(),
+                    intrinsic_bytes: c.intrinsic_bytes,
+                    intrinsic_measurements: c.intrinsic_measurements,
                 }
             })
     }
@@ -576,6 +632,32 @@ mod tests {
         let mut bad = (*request()).clone();
         bad.family = "Definitely Not A Font, sans-serif".into();
         assert!(c.layout(Arc::new(bad)).is_ok());
+    }
+    #[test]
+    fn native_intrinsic_measurements_survive_constraint_and_color_changes() {
+        let mut c = Cache::new();
+        let mut r = (*request()).clone();
+        r.text = "Hello world".into();
+        r.width = Some(100.);
+        let first = c.layout(Arc::new(r.clone())).unwrap();
+        let widths = first.metrics().intrinsic;
+        assert!(widths[0] > 0. && widths[1] > widths[0]);
+        assert_eq!(c.intrinsic_measurements, 1);
+        r.width = Some(180.);
+        r.align = TextAlign::End;
+        r.color = [200, 100, 0, 255];
+        r.line_height = Some((2., true));
+        let resized = c.layout(Arc::new(r.clone())).unwrap();
+        assert_eq!(resized.metrics().intrinsic, widths);
+        assert_eq!(c.intrinsic_measurements, 1);
+        assert_eq!(c.intrinsic.len(), 1);
+        r.letter_spacing = 1.;
+        let spaced = c.layout(Arc::new(r)).unwrap();
+        assert!(spaced.metrics().intrinsic[1] > widths[1]);
+        assert_eq!(c.intrinsic_measurements, 2);
+        c.clear();
+        assert!(c.intrinsic.is_empty());
+        assert_eq!(c.intrinsic_bytes, 0);
     }
     #[test]
     fn no_wrap_keeps_alignment_without_introducing_soft_lines() {

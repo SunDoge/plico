@@ -321,9 +321,8 @@ progress, not macOS runtime/visual acceptance.
 
 The bridge resolves unquoted family preference lists, maps CSS weights through
 AppKit named constants and explicitly rejects unavailable families, application
-font registration, rich spans, ellipsis and line limits. Min-content width is
-currently reported as a zero lower bound; exact native min-content measurement
-is still needed. Positioned editor/terminal glyphs are not implemented on macOS.
+font registration, rich spans, ellipsis and line limits. Intrinsic widths now use native line-break tokenization and CoreText segment
+measurement, with a bounded source cache shared across layout constraints. Positioned editor/terminal glyphs are not implemented on macOS.
 
 Geometry is color/scale-independent. Per-line RGBA images are clipped before
 allocation and keyed by retained paragraph identity, line, scale, phase, color
@@ -344,3 +343,10 @@ compiler/SDK. No physical-display, macOS IME or color-emoji acceptance is claime
 Linux regression after this bridge: all 96 wgpu tests (including GPU tests,
 excluding the five manual profiling cases) and eight portable native tests pass.
 See `docs/native-text.md` for the exact API and remaining native text gates.
+
+Intrinsic measurement update: the zero lower bound is removed. CoreFoundation
+line-break tokens and CoreText advances supply minimum/maximum widths without
+Rust word slicing. A 128-entry/8 MiB cache reuses measurements across viewport,
+alignment and line-height changes; text/font/tracking changes invalidate them.
+Native tests only cross-compile, so macOS layout/locale behavior is still an open
+runtime acceptance gate.

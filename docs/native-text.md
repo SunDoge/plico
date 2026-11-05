@@ -654,10 +654,10 @@ Supported geometry includes native hard/soft wrapping, explicit line height,
 Start/Center/End/Justify, letter spacing, italic and original UTF-8 editing ranges.
 No-wrap text keeps its alignment width without introducing soft lines. Rich spans,
 ellipsis, line limits, quoted/escaped family lists and application font registration
-are explicitly rejected. Min-content width is currently a zero lower bound,
-while max-content is measured using native unwrapped lines. Accurate native
-min-content width, private fonts and positioned editor/terminal glyphs are still
-needed before treating this as a complete replacement.
+are explicitly rejected. Native intrinsic measurement now uses CoreFoundation
+line-break opportunities and CoreText segment advances (see below). Private fonts
+and positioned editor/terminal glyphs are still needed before treating this as a
+complete replacement.
 
 Native ink bounds are retained with each layout. Painting clips each visible line
 before bitmap allocation; fully offscreen lines generate no coverage. Keys include
@@ -687,3 +687,26 @@ Apple Silicon/Intel renderer checks and Apple Silicon Clippy pass on this Linux
 host. Full desktop cross-check is blocked in the existing mac-notification-sys
 Objective-C build without Apple's SDK/toolchain. Actual native tests, real window
 DPI/scrolling/IME, emoji and visual quality remain unverified.
+
+#### CoreText intrinsic content widths
+
+`Paragraph::measure_intrinsic` returns word-wrap minimum and unwrapped maximum
+advances. Each hard paragraph is tokenized with CoreFoundation's line-break unit,
+using automatic locale inference. Each token and any omitted gap is measured
+through one attributed CTTypesetter for that hard paragraph; Rust whitespace
+splitting and independently re-shaped word substrings are not used. Minimum
+width excludes native trailing whitespace; maximum retains the full native line
+advance. Results are finite/nonnegative/ordered and retain existing request and
+4096-hard-line budgets. Hyphenation, custom locales and browser-specific CSS line
+break policy equivalence are not claimed.
+
+The wgpu provider now reports these widths instead of a zero min-content lower
+bound. A separate 128-entry/8 MiB source cache reuses intrinsic measurements across
+width, alignment, line-height and color changes. Text/font revision, face, size
+and tracking remain in the cache identity; hits verify the full normalized request.
+Trim clears entries while preserving cumulative measurement counters. Public
+CoreText stats and frame tracing include cache entries/bytes/measurement calls.
+
+Native regressions cover ordinary words, CJK, NBSP, combining/bidi content,
+tracking, hard/empty lines, max-width agreement and reuse during constraint changes.
+They cross-compile only; actual macOS intrinsic-layout behavior remains to be run.

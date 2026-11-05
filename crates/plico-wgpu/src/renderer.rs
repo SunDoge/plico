@@ -720,7 +720,8 @@ impl Renderer {
             let stats = self.macos_text_cache_stats();
             tracing::trace!(target: "plico::perf", paragraphs=stats.layouts, paragraph_rust_bytes=stats.layout_bytes,
                 rasters=stats.rasters, raster_payload_bytes=stats.raster_bytes, rasterizations_total=stats.rasterizations,
-                "wgpu CoreText resources");
+                intrinsic_entries=stats.intrinsic_entries, intrinsic_bytes=stats.intrinsic_bytes,
+                intrinsic_measurements_total=stats.intrinsic_measurements, "wgpu CoreText resources");
         }
         result
     }

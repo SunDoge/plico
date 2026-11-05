@@ -3,6 +3,7 @@
 //! Native multiline geometry is available; rich text remains pending. The
 //! experimental shared renderer bridge lives in plico-wgpu.
 mod editing;
+mod intrinsic;
 mod paragraph;
 mod raster;
 mod wrapping;
