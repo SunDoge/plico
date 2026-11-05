@@ -36,6 +36,7 @@ pub struct ParagraphLine {
 /// Multiline CoreText geometry with retained lines and no second shaping pass.
 /// Rich runs, ellipsis and a renderer-provider bridge are pending.
 pub struct Paragraph {
+    text: Box<str>,
     lines: Vec<ParagraphLine>,
     size: [f64; 2],
     alignment_width: f64,
@@ -159,6 +160,7 @@ impl Paragraph {
             placed.baseline[0] = x;
         }
         Ok(Self {
+            text: request.text.into(),
             lines,
             size: [max_width, y],
             alignment_width,
@@ -176,6 +178,64 @@ impl Paragraph {
     /// Glyph ink/overhang can extend outside these typographic bounds.
     pub fn size(&self) -> [f64; 2] {
         self.size
+    }
+    /// Primary and secondary caret rectangles at an original UTF-8 boundary.
+    /// Rectangles are [left, top, right, bottom], with one logical point width.
+    /// At soft-wrap boundaries the following line is selected. A boundary inside
+    /// CRLF maps to the preceding content edge; multibyte interiors are rejected.
+    pub fn caret_rects(&self, byte: usize) -> Result<[[f64; 4]; 2]> {
+        if !self.text.is_char_boundary(byte) {
+            return Err(Error::InvalidRequest);
+        }
+        let index = self
+            .lines
+            .partition_point(|line| line.range.start <= byte)
+            .saturating_sub(1);
+        let placed = self.lines.get(index).ok_or(Error::Metrics)?;
+        let local = byte
+            .saturating_sub(placed.range.start)
+            .min(placed.line.text().len());
+        let caret = placed.line.caret_offsets(local)?;
+        let rect = |x| {
+            [
+                placed.baseline[0] + x,
+                placed.vertical_bounds[0],
+                placed.baseline[0] + x + 1.,
+                placed.vertical_bounds[1],
+            ]
+        };
+        Ok([rect(caret.primary), rect(caret.secondary)])
+    }
+    /// Selection rectangles in paragraph-local logical coordinates. Each native
+    /// direction run is clipped separately, preserving visual gaps through bidi
+    /// text. Hard separators have no glyph rectangle; empty ranges return none.
+    pub fn selection_rects(&self, range: Range<usize>) -> Result<Vec<[f64; 4]>> {
+        if range.start > range.end
+            || !self.text.is_char_boundary(range.start)
+            || !self.text.is_char_boundary(range.end)
+        {
+            return Err(Error::InvalidRequest);
+        }
+        let mut rectangles = Vec::new();
+        for placed in &self.lines {
+            let start = range.start.max(placed.range.start);
+            let end = range.end.min(placed.range.end);
+            if start >= end {
+                continue;
+            }
+            for span in placed
+                .line
+                .selection_spans(start - placed.range.start..end - placed.range.start)?
+            {
+                rectangles.push([
+                    span[0] + placed.baseline[0],
+                    placed.vertical_bounds[0],
+                    span[1] + placed.baseline[0],
+                    placed.vertical_bounds[1],
+                ]);
+            }
+        }
+        Ok(rectangles)
     }
     /// Hit-test paragraph-relative coordinates to an original UTF-8 byte boundary.
     /// Y selects the nearest line box; native x failure returns None. Hard
@@ -322,5 +382,49 @@ mod alignment_tests {
             }
         }
         assert!(expanded);
+    }
+}
+
+#[cfg(test)]
+mod editing_tests {
+    use super::*;
+    #[test]
+    fn selection_and_carets_include_alignment_and_line_positions() {
+        let text = "NNN NNN NNN NNN\r\n\n中文🙂";
+        let paragraph =
+            Paragraph::with_alignment(&Request::new(text), Some(70.), Some(24.), Alignment::Center)
+                .unwrap();
+        let rectangles = paragraph.selection_rects(0..text.len()).unwrap();
+        assert!(!rectangles.is_empty());
+        for line in paragraph.lines() {
+            let caret = paragraph.caret_rects(line.range.start).unwrap();
+            assert_eq!(caret[0][1], line.vertical_bounds[0]);
+            assert_eq!(caret[0][3], line.vertical_bounds[1]);
+            assert_eq!(
+                caret[0][0],
+                line.baseline[0] + line.line.caret_offsets(0).unwrap().primary
+            );
+            if !line.range.is_empty() {
+                assert!(rectangles.iter().any(|r| r[1] == line.vertical_bounds[0]
+                    && r[3] == line.vertical_bounds[1]
+                    && r[2] > r[0]));
+            }
+        }
+        let crlf = text.find('\r').unwrap();
+        assert_eq!(
+            paragraph.caret_rects(crlf).unwrap(),
+            paragraph.caret_rects(crlf + 1).unwrap()
+        );
+        assert!(
+            paragraph
+                .selection_rects(crlf..crlf + 2)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(paragraph.selection_rects(0..0).unwrap().is_empty());
+        assert!(paragraph.caret_rects(text.len() + 1).is_err());
+        let cjk = text.find('中').unwrap();
+        assert!(paragraph.caret_rects(cjk + 1).is_err());
+        assert!(paragraph.selection_rects(cjk + 1..text.len()).is_err());
     }
 }

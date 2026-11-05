@@ -356,3 +356,10 @@ CoreText paragraph baselines now use direction-aware native flush offsets, with
 independent bidi base direction per hard paragraph and native justification for
 eligible soft lines. Portable direction tests run; native geometry tests only
 cross-compile. No macOS renderer/window gate is claimed from these checks.
+
+CoreText lines now expose run-based visual selection spans; paragraphs expose
+aligned multiline selection rectangles and primary/secondary caret boxes at
+original UTF-8 offsets. Portable merge tests preserve bidi gaps and reuse storage;
+native selection/ligature/CRLF tests only cross-compile. Grapheme navigation,
+upstream wrap affinity, rich runs/truncation and macOS provider/window acceptance
+remain open.

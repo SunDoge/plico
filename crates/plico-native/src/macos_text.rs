@@ -2,6 +2,7 @@
 //! metrics and editing offsets; no second shaping pass or raster approximation.
 //! Native multiline geometry is available; rich text and renderer integration
 //! are pending.
+mod editing;
 mod paragraph;
 mod raster;
 mod wrapping;

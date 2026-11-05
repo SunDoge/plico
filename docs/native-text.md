@@ -553,8 +553,8 @@ invent a scalar boundary inside a linguistic cluster to force progress.
 
 This is a single-logical-paragraph primitive: hard newline input remains rejected
 by `Line::wrap`. Use `Paragraph` below for hard breaks, vertical placement and
-explicit line height. Direction-aware alignment is described below; ellipsis,
-paragraph selection and the shared wgpu provider are still pending. Native tests
+explicit line height. Direction-aware alignment and paragraph editing are described
+below; ellipsis and the shared wgpu provider are still pending. Native tests
 cover multilingual/combining/bidi text conservation, later-line local offsets,
 fractional-DPI raster repeatability, empty input and line-budget enforcement.
 These tests only cross-compile here; macOS runtime behavior is not verified.
@@ -574,8 +574,7 @@ uses that same line at its supplied baseline. `Paragraph::size()` reports maximu
 native advance and total line-box height; ink overhang is not clipped to these
 bounds. Paragraph hit testing chooses the nearest vertical line box, then uses
 native line hit testing and converts to an original UTF-8 offset. Empty lines
-resolve to their original insertion point. It is not yet a grapheme-navigation
-or selection API.
+resolve to their original insertion point. It is not a grapheme-navigation API; selection geometry is described below.
 
 Requests retain the 1 MiB/100,000-scalar bound, with at most 4096 visual lines and
 1e9 points of total height. Invalid dimensions and limits fail explicitly rather
@@ -604,3 +603,29 @@ justification, in which case the original line is retained.
 Native tests cover alignment/hit consistency, independent LTR/RTL paragraphs and
 justification range preservation. They cross-compile only; the shared direction
 rules run as portable tests. Runtime macOS visual acceptance is still pending.
+
+#### CoreText caret and selection geometry
+
+`Line::selection_spans` returns visual horizontal intervals for a local UTF-8
+range. It intersects the range independently with each native direction run,
+uses native caret offsets for interior boundaries, and uses run advance extents
+at direction-run edges. Selected intervals are sorted and merged in place only
+when overlapping/adjacent, preserving unselected visual gaps in bidi text. The
+function rejects invalid byte boundaries and non-identity run matrices rather
+than inventing transformed selection geometry. Glyph buffers are bounded by the
+existing 100,000-glyph limit; they are temporary, not cached.
+
+`Paragraph::selection_rects` adds each line's aligned baseline and line-box height
+to those intervals, returning paragraph-local `[left, top, right, bottom]` boxes.
+Hard separators have no glyph rectangles. `caret_rects` returns primary and
+secondary native bidi carets as one-point-wide boxes; soft-wrap boundaries prefer
+the following line. A boundary inside CRLF maps to the preceding content edge,
+and invalid UTF-8 interiors are errors. Visual navigation, grapheme-stop
+snapshots and explicit upstream wrap affinity are not implemented.
+
+Paragraphs now retain a bounded copy of original text to validate global byte
+ranges, in addition to per-line content. The portable interval merge test verifies
+that disjoint gaps remain and storage is reused. Native tests cover mixed LTR/RTL
+gaps, native ligature carets, aligned multiline rectangles and CRLF mapping;
+they only cross-compile here. Actual macOS selection behavior and the shared
+provider/window bridge still require runtime acceptance.

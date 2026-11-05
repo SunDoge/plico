@@ -97,3 +97,34 @@ mod tests {
         assert!(line_box(0., [f64::NAN, 3., 0.], None).is_none());
     }
 }
+
+/// Merge visual overlap/adjacency without filling an unselected bidi gap.
+pub(crate) fn merge_spans(mut spans: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
+    spans.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    let mut written = 0;
+    for read in 0..spans.len() {
+        let span = spans[read];
+        if written > 0 && span[0] <= spans[written - 1][1] + 1e-6 {
+            spans[written - 1][1] = spans[written - 1][1].max(span[1]);
+        } else {
+            spans[written] = span;
+            written += 1;
+        }
+    }
+    spans.truncate(written);
+    spans
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    #[test]
+    fn visual_selection_merges_overlap_but_preserves_gaps_and_reuses_storage() {
+        let spans = vec![[50., 60.], [0., 10.], [5., 15.], [15., 20.], [70., 80.]];
+        let original = spans.as_ptr();
+        let merged = merge_spans(spans);
+        assert_eq!(merged, vec![[0., 20.], [50., 60.], [70., 80.]]);
+        assert_eq!(merged.as_ptr(), original);
+        assert!(merge_spans(Vec::new()).is_empty());
+    }
+}
