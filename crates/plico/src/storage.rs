@@ -60,6 +60,9 @@ impl<T: Serialize + 'static> Stored for Value<T> {
 enum Slot {
     Saved(Vec<u8>),
     Live(Box<dyn Stored>),
+    /// Never encoded into snapshots: transient frame-to-frame host state
+    /// (toasts, drag gestures) that checkpoint/restore must not resurrect.
+    Transient(Box<dyn Any>),
 }
 #[derive(Default)]
 pub(crate) struct StateStorage {
@@ -93,11 +96,36 @@ impl StateStorage {
                 self.resets.push(format!("{}: Rust type changed", key.name));
                 init()
             }
-            None => init(),
+            // A serialized get under a transient key starts fresh; transient
+            // values never restore.
+            Some(Slot::Transient(_)) | None => init(),
         };
         let value = Rc::new(RefCell::new(value));
         self.slots
             .insert(key, Slot::Live(Box::new(Value(Rc::clone(&value)))));
+        LocalState {
+            value,
+            changed: Rc::clone(&self.changed),
+        }
+    }
+    /// A frame-to-frame value outside snapshots entirely. Toasts and drag
+    /// gestures live here: they die with the process and never restore.
+    pub fn transient<T: 'static>(
+        &mut self,
+        key: StorageKey,
+        init: impl FnOnce() -> T,
+    ) -> LocalState<T> {
+        if let Some(Slot::Transient(value)) = self.slots.get(&key)
+            && let Some(value) = value.downcast_ref::<Rc<RefCell<T>>>()
+        {
+            return LocalState {
+                value: Rc::clone(value),
+                changed: Rc::clone(&self.changed),
+            };
+        }
+        let value = Rc::new(RefCell::new(init()));
+        self.slots
+            .insert(key, Slot::Transient(Box::new(Rc::clone(&value))));
         LocalState {
             value,
             changed: Rc::clone(&self.changed),
@@ -110,14 +138,15 @@ impl StateStorage {
         let entries = self
             .slots
             .iter()
-            .map(|(key, slot)| {
+            .filter_map(|(key, slot)| {
                 let bytes = match slot {
                     Slot::Saved(bytes) => bytes.clone(),
-                    Slot::Live(value) => value.encode()?,
+                    Slot::Live(value) => value.encode().ok()?,
+                    Slot::Transient(_) => return None,
                 };
-                Ok((key.clone(), bytes))
+                Some((key.clone(), bytes))
             })
-            .collect::<Result<_, StorageError>>()?;
+            .collect::<Vec<_>>();
         Ok(StateStorageSnapshot {
             version: 1,
             entries,

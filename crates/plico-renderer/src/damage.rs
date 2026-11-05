@@ -1,6 +1,17 @@
 //! Optional redraw information, independent of layout and window APIs.
 use kurbo::Rect;
 
+/// Conservative locality contract shared by flattened commands and fragments.
+/// Additive source pixels affect only their own coverage, like source-over.
+pub(crate) fn layer_requires_full_damage(blend: peniko::BlendMode, filtered: bool) -> bool {
+    filtered
+        || blend.mix != peniko::Mix::Normal
+        || !matches!(
+            blend.compose,
+            peniko::Compose::SrcOver | peniko::Compose::Plus | peniko::Compose::PlusLighter
+        )
+}
+
 /// Damage in physical surface pixels, relative to the last successful draw.
 /// Consumers may always promote a region to `Full`. Producers must include
 /// both old and new ink bounds, including effects and overlapping content.
@@ -284,8 +295,9 @@ impl SceneDamageTracker {
     /// `ink` returns physical-pixel ink bounds *after* the command transform.
     /// Return `None` for unknown bounds. The tracker adds a one-pixel guard
     /// around bounds for raster edge coverage and intersects enclosing clips.
-    /// Filters and custom shaders force full damage because they may depend on
-    /// pixels outside their own output or on time not reflected in commands.
+    /// Filters force full damage. ShaderEffect surfaces have sealed uniform-only
+    /// inputs (including time) and a bounded output; an ink consumer can provide
+    /// that output rectangle. Unknown bounds still fall back conservatively.
     pub fn update(
         &mut self,
         scene: &crate::Scene,
@@ -293,9 +305,20 @@ impl SceneDamageTracker {
         height: u32,
         mut ink: impl FnMut(&crate::PaintCommand) -> Option<Rect>,
     ) -> DamageRegion {
+        self.update_indexed(scene, width, height, |_, command| ink(command))
+    }
+
+    /// Like [`Self::update`], with the command index for consumers retaining
+    /// native ink bounds alongside a prepared command stream.
+    pub fn update_indexed(
+        &mut self,
+        scene: &crate::Scene,
+        width: u32,
+        height: u32,
+        mut ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+    ) -> DamageRegion {
         use crate::PaintCommand;
         use kurbo::Shape;
-        use peniko::BlendMode;
         self.regions.clear();
         if self.previous.is_none() || self.size != Some((width, height)) || self.nonlocal {
             self.regions.add(DamageRegion::Full);
@@ -315,7 +338,7 @@ impl SceneDamageTracker {
                     blend,
                     ..
                 } => {
-                    if filter.is_some() || *blend != BlendMode::default() {
+                    if layer_requires_full_damage(*blend, filter.is_some()) {
                         self.regions.add(DamageRegion::Full);
                         self.nonlocal = true;
                     }
@@ -346,7 +369,10 @@ impl SceneDamageTracker {
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
                 }
-                PaintCommand::Shader { .. } => {
+                // Backdrop readers sample everything painted before them:
+                // any earlier change must reach them, so they are never
+                // damage-skipped (mygo's scene.Effect.Backdrop contract).
+                PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
                     self.nonlocal = true;
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
@@ -357,7 +383,7 @@ impl SceneDamageTracker {
                 {
                     self.bounds[index]
                 }
-                _ => match ink(command) {
+                _ => match ink(index, command) {
                     Some(r) if finite(r) => {
                         let r = r.inflate(1., 1.);
                         clip_region(Some(clip.map_or(r, |outer| r.intersect(outer))))
@@ -505,6 +531,59 @@ mod tracker_tests {
         );
     }
     #[test]
+    fn additive_layers_and_fragments_are_local_but_other_blends_remain_conservative() {
+        for compose in [peniko::Compose::Plus, peniko::Compose::PlusLighter] {
+            let make = |x| {
+                let mut layer = Scene::new();
+                layer.push_layer(
+                    compose,
+                    0.5,
+                    Affine::IDENTITY,
+                    &Rect::new(0., 0., 40., 40.),
+                    None,
+                    None,
+                );
+                layer.append_scene(scene(x), Affine::IDENTITY);
+                layer.pop_layer();
+                layer
+            };
+            let mut tracker = SceneDamageTracker::default();
+            let first = make(10.);
+            assert!(!first.has_nonlocal_effects());
+            assert_eq!(tracker.update(&first, 100, 100, bounds), DamageRegion::Full);
+            assert_eq!(
+                tracker.update(&first, 100, 100, bounds),
+                DamageRegion::Empty
+            );
+            assert!(matches!(
+                tracker.update(&make(12.), 100, 100, bounds),
+                DamageRegion::Rect(_)
+            ));
+            let mut fragment = Scene::new();
+            fragment.append_cached_scene(first, Affine::IDENTITY);
+            assert!(!fragment.has_nonlocal_effects());
+        }
+        let mut multiply = Scene::new();
+        multiply.push_layer(
+            peniko::Mix::Multiply,
+            1.,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 40., 40.),
+            None,
+            None,
+        );
+        multiply.pop_layer();
+        assert!(multiply.has_nonlocal_effects());
+        let mut tracker = SceneDamageTracker::default();
+        for _ in 0..2 {
+            assert_eq!(
+                tracker.update(&multiply, 100, 100, bounds),
+                DamageRegion::Full
+            );
+        }
+    }
+
+    #[test]
     fn resized_and_filtered_frames_invalidate_including_filter_removal() {
         let mut tracker = SceneDamageTracker::default();
         let mut s = scene(10.);
@@ -513,11 +592,12 @@ mod tracker_tests {
             1.,
             Affine::IDENTITY,
             &Rect::new(10., 10., 20., 20.),
-            Some(std::sync::Arc::new(
-                vello_common::filter_effects::Filter::from_function(
-                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
-                ),
-            )),
+            Some(std::sync::Arc::new(crate::filter::Filter::from_primitive(
+                crate::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 1.,
+                    edge_mode: crate::filter::EdgeMode::None,
+                },
+            ))),
             None,
         );
         s.pop_layer();
@@ -539,11 +619,12 @@ mod tracker_tests {
             1.,
             Affine::IDENTITY,
             &Rect::new(0., 0., 10., 10.),
-            Some(std::sync::Arc::new(
-                vello_common::filter_effects::Filter::from_function(
-                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
-                ),
-            )),
+            Some(std::sync::Arc::new(crate::filter::Filter::from_primitive(
+                crate::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 1.,
+                    edge_mode: crate::filter::EdgeMode::None,
+                },
+            ))),
             None,
         );
         filtered.pop_layer();

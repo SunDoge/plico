@@ -71,27 +71,55 @@ impl Adapter {
                     now.saturating_sub(surface.sampled).as_secs_f32() * surface.params.speed;
             }
             surface.sampled = now;
-            if surface.authored != logical.text
+            let program_changed = surface.authored != logical.text
+                || surface.params.source_path != params.source_path
                 || surface.params.module != params.module
+                || surface.params.reads_backdrop != params.reads_backdrop
                 || surface.params.sksl != params.sksl
-                || surface.source.is_none() && surface.error.is_none()
-            {
-                let result = if params.module {
-                    ShaderEffectSource::new_module(logical.text)
+                || surface.source.is_none() && surface.error.is_none();
+            let values_changed = surface.params.values != params.values
+                || surface.params.parameters != params.parameters;
+            if program_changed || values_changed {
+                let result = if program_changed || surface.error.is_some() {
+                    if params.module {
+                        ShaderEffectSource::new_module(logical.text)
+                    } else {
+                        ShaderEffectSource::with_backdrop(logical.text, params.reads_backdrop)
+                    }
+                    .and_then(|source| match &params.sksl {
+                        Some(sksl) => source.with_sksl(sksl),
+                        None => Ok(source),
+                    })
                 } else {
-                    ShaderEffectSource::new(logical.text)
+                    surface
+                        .source
+                        .clone()
+                        .ok_or_else(|| "shader has no valid program".to_owned())
                 };
-                let result = result.and_then(|source| match &params.sksl {
-                    Some(sksl) => source.with_sksl(sksl),
-                    None => Ok(source),
+                let result = result.and_then(|source| {
+                    if !params.parameters.is_empty() && !params.values.is_empty() {
+                        return Err(
+                            "choose named shader parameters or raw values(), not both".into()
+                        );
+                    }
+                    let values = if params.parameters.is_empty() {
+                        params.values.clone()
+                    } else {
+                        source.encode_parameters(&params.parameters)?
+                    };
+                    Ok((source, values))
                 });
                 match result {
-                    Ok(source) => {
+                    Ok((source, values)) => {
                         surface.source = Some(source);
+                        surface.values = values.into();
                         surface.error = None;
                     }
                     Err(error) => {
-                        surface.error = Some(error);
+                        surface.error = Some(match &params.source_path {
+                            Some(path) => format!("{path}: {error}"),
+                            None => error,
+                        });
                     }
                 }
                 surface.authored.clear();
@@ -100,7 +128,6 @@ impl Adapter {
             }
             if &surface.params != params {
                 surface.params.clone_from(params);
-                surface.values = params.values.clone().into();
                 surface.painted = None;
             }
             let time = params.time + surface.elapsed;

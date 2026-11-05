@@ -1,7 +1,7 @@
 # Skia / Vello 绘制对照实验
 
 状态：`plico-skia` 已提供 CPU raster 和 Ganesh Vulkan 离屏 GPU consumer；
-另提供 Vulkan 桌面窗口后端，桌面默认优先使用 Skia；Vello 可单独启用。
+另提供 Vulkan 桌面窗口后端，桌面默认使用 wgpu，Skia 作为主要渲染质量对照；Vello 仅保留最小兼容维护。
 
 ## 已实现
 
@@ -20,7 +20,7 @@ BlurredRoundedRectangle 语义一致，sigma 即 std_dev，退化与反向矩形
 导出为 PNG；下一帧可以正常重试。像素 API 返回 tightly packed premultiplied
 RGBA，PNG 由 Skia 编码。
 
-`plico-skia` 自身只在启用 `raster` 或 `vulkan` 时加载 skia-safe；桌面宿主默认启用 Skia。
+`plico-skia` 自身只在启用 `raster` 或 `vulkan` 时加载 skia-safe；桌面宿主显式启用 `skia` feature 时才引入 Skia。
 项目固定使用 rust-skia 0.153.3，并启用 `no-compile`：只允许使用匹配 target 和 feature 的
 预编译库，下载失败或缺包时立即报错，绝不自动从源码构建。首次构建需要能访问预编译包，
 之后可复用本机缓存；`SKIA_BINARIES_URL` 可配置可信镜像。

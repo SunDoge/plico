@@ -43,10 +43,8 @@ async function activate(version) {
 }
 try {
   await init();
-  host=new SplitHost(canvas, await load("v1"));
-  const font=await fetch("./DejaVuSans.ttf");
-  if(!font.ok) throw new Error("font load failed");
-  host.load_font(new Uint8Array(await font.arrayBuffer()));
+  await document.fonts.ready;
+  host=await SplitHost.create(canvas, await load("v1"));
   window.split={host,activate,schedule,frames:0,stats:null,error:null,transport,
     semantics:()=>JSON.parse(host.semantics()),
     benchmark:()=>{

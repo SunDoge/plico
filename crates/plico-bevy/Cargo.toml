@@ -1,0 +1,28 @@
+[package]
+name = "plico-bevy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Plico immediate UI as a Bevy plugin, sharing Bevy's GPU and window"
+
+[features]
+default = ["clipboard"]
+clipboard = ["bevy/system_clipboard"]
+
+[dependencies]
+bevy = { version = "0.20.1", default-features = false, features = ["std", "bevy_render", "bevy_window"] }
+plico.workspace = true
+plico-renderer.workspace = true
+plico-runtime.workspace = true
+plico-wgpu = { path = "../plico-wgpu" }
+peniko.workspace = true
+wgpu.workspace = true
+pollster = "1.0"
+snafu.workspace = true
+tracing.workspace = true
+smallvec = "1"
+
+[dev-dependencies]
+bevy = { version = "0.20.1", default-features = false, features = ["std", "async_executor", "bevy_log", "bevy_winit", "bevy_core_pipeline", "bevy_pbr", "bevy_light", "multi_threaded", "x11", "wayland", "png"] }
+kurbo.workspace = true

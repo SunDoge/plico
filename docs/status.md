@@ -58,7 +58,7 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
 [LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
 不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
-尚未接入 Bevy、FLTK 或 no_std，也不承诺其他 ESP32 型号。
+Bevy 已有实验性 primary window 覆盖层插件，见 [Bevy 接入](bevy.md)；FLTK 保留实验性适配。尚未支持 no_std，也不承诺其他 ESP32 型号。
 
 ## 验证入口
 
@@ -89,7 +89,11 @@ FLTK 共享工作台现包含 Router 前进/后退、响应式 Grid、固定表�
 
 ## Optional native text
 
-Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). Ordinary widget/editor integration, desktop font settings, CoreText and DirectWrite are not implemented.
+Implemented in `plico-native` behind Linux `linux-text`: Pango/Cairo layout and rasterization, system font listing, metrics, bitmap caching and GPU comparison tests. See [native text](native-text.md). The experimental wgpu host now uses native ordinary text and single-line editing geometry. Desktop font settings and CoreText are not implemented. Optional `windows-text`
+now provides a DirectWrite layout/editing service with cross-compiled tests;
+raw grayscale glyph-run masks now cross-compile as well. CPU coverage correction/colorization now follows the MIT-licensed Microsoft
+Terminal algorithm with portable reference tests. wgpu integration, color glyphs
+and Windows runtime validation remain pending.
 
 ## Widget input capabilities
 
@@ -121,3 +125,66 @@ clear probe passes, while its normal window renderer remains unchanged. See
 ## Wabou gallery 对照页
 
 现有 gallery 增加 Data table / Tree navigation：从本地 Wabou 迁移项目数据、筛选/排序/选择与树形展开/选择交互。使用普通 immediate 函数和组件级持久状态；中英文、窄窗口和键盘输入有离屏/语义协议验证。表头与滚动行共享 Grid 列定义。树形页是按钮组合示例，不是完整 ARIA Tree 控件。来源和许可证见 `apps/gallery/reference/README.md`。
+
+## Experimental wgpu quad renderer
+
+`plico-wgpu` independently draws physical-pixel rounded rectangles, vertical gradients,
+inside borders, hard rectangular clips and runtime-loaded WGSL materials. The
+headless example compares identical quad inputs against Vello at four scales.
+It also supports Linux Pango/Cairo text, ordered shape/text draws, bounded glyph
+cache recycling and a GPU-only winit window demo. It supports analytical shared paint and an optional `plico-desktop/wgpu` host path.
+Default shared-scene damage replay (`PLICO_WGPU_DAMAGE=0` disables it) preserves its color
+target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
+window exercise pass. A controlled [Linux damage benchmark](experiments/wgpu-damage.md) now records local GPU gains and a scrolling CPU regression; broader application performance and physical-display verification remain pending.
+Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
+sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
+geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG
+uses a cached resvg fallback. Shared native WGSL
+effect surfaces use the public shader widget, injected time and bounded local
+damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
+complete Scene backend: solid/linear/radial/sweep gradient paths use a bounded tiny-skia
+fallback, including affine linear-brush transforms and multi-stop primitive
+fills/strokes; nested clip masks preserve native text drawing. Gaussian box shadows
+and Gaussian filtered layers are implemented, with pooled GPU workspaces; general
+filter graphs, non-default blends and
+Windows/macOS text remain unfinished. Isolated source-over groups use cropped
+GPU intermediates. Externally positioned glyph runs use shared memory-font
+Cairo/FreeType rasterization, including normalized variable coordinates and
+per-glyph/run affine matrices; editor and ANSI terminal fixtures display, with
+editor insertion and terminal resize locally verified.
+Geometric emboldening, stroke and non-solid glyph brushes remain unsupported. Single-line
+editing uses Pango caret/selection geometry. Native paragraphs support
+private application fonts and family aliases, and UTF-8
+range overrides for size, weight, italic, line height and RGBA color, including
+overlapping ranges with later-style precedence. Non-ellipsized line limits preserve
+the original shaped prefix and constrain editing geometry; cross-paragraph ellipsis
+remains unsupported. Actual input-method candidate-window
+sessions and physical-display DPI transitions still need verification. See [experiment and verification](wgpu-backend-experiment.md).
+
+## Renderer maintenance policy
+
+The independent `plico-wgpu` backend is the default desktop renderer and remains
+under active development. Skia is the primary rendering-quality reference.
+The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
+path and the `vello-compare` tooling are deleted; wgpu is the default desktop
+renderer and Skia remains the quality comparison target. The browser Gallery
+uses wgpu (WebGPU adapter detection with WebGL2 fallback), with Canvas2D
+ordinary text and a render-pass Gaussian blur on WebGL2. WebGL2 interaction
+tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU, rich text and
+full IME are not yet accepted. See [browser scope](web.md).
+
+The default Cargo features, automatic window/capture selection and new-app CLI
+template now use wgpu. Explicit Skia selection remains supported; video examples
+that require Skia retain their explicit feature. Changing the default does not
+imply full renderer parity or Windows/macOS runtime acceptance.
+
+Shared Scene support in `plico-wgpu` is unconditional; the former `paint-scene`
+feature has been removed. `--no-default-features` disables system text but retains
+Scene preparation/rendering. `system-text` and `window` remain
+independent options. Remove explicit `paint-scene` entries from consumer manifests.
+
+wgpu windows now enable damage by default, following MyGO's default partial-redraw
+policy. Damage covering at least half the target falls back to a single full replay;
+smaller changes retain multi-rectangle replay and identical frames skip present.
+The scrolling benchmark returns to full-render CPU cost while local GPU gains remain.
+See [the baseline and post-fallback measurements](experiments/wgpu-damage.md).

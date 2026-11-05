@@ -1138,25 +1138,22 @@ fn paint(
 }
 
 fn layer_image_filter(
-    filter: &vello_common::filter_effects::Filter,
+    filter: &plico_renderer::filter::Filter,
     transform: Affine,
 ) -> Result<Option<skia_safe::ImageFilter>, Error> {
-    use vello_common::filter_effects::{EdgeMode, FilterPrimitive};
+    use plico_renderer::filter::{EdgeMode, FilterPrimitive};
 
-    if filter.graph.output.0 != 0 || filter.graph.primitives.len() != 1 {
-        return unsupported("layer filter graph");
-    }
     let FilterPrimitive::GaussianBlur {
         std_deviation,
         edge_mode,
-    } = filter.graph.primitives[0]
-    else {
-        return unsupported("layer filter primitive");
+    } = match filter.single() {
+        Some(primitive) => primitive,
+        None => return unsupported("layer filter graph"),
     };
-    if !std_deviation.is_finite() || std_deviation < 0. {
+    if !std_deviation.is_finite() || *std_deviation < 0. {
         return unsupported("layer blur sigma");
     }
-    if std_deviation == 0. {
+    if *std_deviation == 0. {
         return Ok(None);
     }
     let tile_mode = match edge_mode {

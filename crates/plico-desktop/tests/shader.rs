@@ -1,12 +1,12 @@
-#![cfg(all(feature = "vello", not(feature = "skia")))]
+#![cfg(not(feature = "skia"))]
 use plico::prelude::*;
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::Duration;
 static EFFECT: ShaderAsset = ShaderAsset::new(
     r#"
-fn wabou_effect(_uv: vec2<f32>) -> vec4<f32> {
-    return vec4<f32>(clamp(wabou.resolution_time_scale.z, 0.0, 1.0), wabou.values[0].y, 0.0, 1.0);
+fn plico_effect(_uv: vec2<f32>) -> vec4<f32> {
+    return vec4<f32>(clamp(plico.resolution_time_scale.z, 0.0, 1.0), plico.values[0].y, 0.0, 1.0);
 }
 "#,
 );
@@ -180,7 +180,7 @@ struct Uniforms { header: vec4<f32>, values: array<vec4<f32>,64> };
 #[test]
 fn theme_reveal_keeps_old_and_new_shader_uniforms_independent() {
     static SOLID: ShaderAsset =
-        ShaderAsset::new("fn wabou_effect(_uv:vec2<f32>)->vec4<f32>{return wabou.values[0];}");
+        ShaderAsset::new("fn plico_effect(_uv:vec2<f32>)->vec4<f32>{return plico.values[0];}");
     #[derive(Default)]
     struct Themed {
         dark: bool,

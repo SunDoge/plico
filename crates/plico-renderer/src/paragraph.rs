@@ -113,15 +113,41 @@ pub trait NativeParagraph {
     fn metrics(&self) -> ParagraphMetrics;
     /// UTF-8 insertion boundary nearest a local point.
     fn hit_test(&self, x: f32, y: f32) -> usize;
+    /// Logical caret bounds [x0,y0,x1,y1] at a UTF-8 insertion boundary.
+    /// Providers without editing geometry may return None.
+    fn caret_rect(&self, _byte: usize) -> Option<[f32; 4]> {
+        None
+    }
     /// Selection rectangles for a UTF-8 byte range.
     fn selection_rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]>;
 }
+/// Native text providers report rejected declarations instead of inventing metrics.
+#[derive(Clone, Debug, snafu::Snafu)]
+#[snafu(display("native paragraph rejected: {message}"))]
+pub struct ParagraphError {
+    /// Backend explanation, without logging document contents.
+    pub message: String,
+}
 /// Installed by a host; renderer-neutral crates do not depend on Skia.
 pub trait ParagraphEngine {
+    /// Opt into native single-line editing. Returned paragraphs must provide
+    /// caret geometry at every valid UTF-8 insertion boundary.
+    fn supports_editing(&self) -> bool {
+        false
+    }
+    /// Update the physical raster scale before layout, including application zoom.
+    /// Return true only when geometry-dependent caches must be invalidated.
+    /// Scale-independent providers keep the default implementation.
+    fn set_device_scale(&mut self, _scale: f64) -> bool {
+        false
+    }
     /// Stable diagnostic name.
     fn name(&self) -> &'static str;
     /// Shape, lay out and cache a complete declaration.
-    fn layout(&mut self, request: Arc<ParagraphRequest>) -> Rc<dyn NativeParagraph>;
+    fn layout(
+        &mut self,
+        request: Arc<ParagraphRequest>,
+    ) -> Result<Rc<dyn NativeParagraph>, ParagraphError>;
     /// Register an application font before layout.
     fn register_font(&mut self, asset: &FontAsset);
     /// Release derived paragraph caches.
@@ -165,6 +191,17 @@ impl ParagraphLayout {
         match self {
             Self::Native(p) => p.hit_test(x, y),
             Self::Parley(p) => parley::Cursor::from_point(p, x, y).index(),
+        }
+    }
+    /// Caret bounds from the selected provider, in logical coordinates.
+    pub fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
+        match self {
+            Self::Native(p) => p.caret_rect(byte),
+            Self::Parley(p) => {
+                let r = parley::Cursor::from_byte_index(p, byte, parley::Affinity::Downstream)
+                    .geometry(p, 1.);
+                Some([r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
+            }
         }
     }
     /// Selection rectangles in paragraph coordinates.

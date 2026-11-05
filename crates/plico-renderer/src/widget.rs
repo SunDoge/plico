@@ -388,7 +388,7 @@ impl<'a> PaintContext<'a> {
 
     /// Draw a validated custom WGSL effect into the complete widget content box.
     ///
-    /// `values` exposes up to 256 scalar parameters through `wabou.values`.
+    /// `values` exposes up to 256 scalar parameters through `plico.values`.
     /// Animation time is supplied by the native widget, so a running effect does
     /// not require JavaScript mutations every frame.
     pub fn draw_shader_effect(

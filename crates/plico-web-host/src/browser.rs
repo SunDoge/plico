@@ -1,21 +1,41 @@
 use plico::{Clock, VirtualClock};
-use plico_renderer::{FrameSource, Scene, TextContext, UiEvent, web::WebRenderer};
+use plico_renderer::{FrameSource, Scene, TextContext, UiEvent};
 use plico_runtime::{HostView, Source};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
-/// Owns the layout, scene and WebGL renderer. The browser drives time and events.
+/// Owns layout, retained scene and a browser renderer; the browser drives time/events.
 pub struct WebHost<V: HostView> {
     pub source: Source<V>,
     canvas: web_sys::HtmlCanvasElement,
-    renderer: WebRenderer,
+    renderer: Box<plico_wgpu::web::WebRenderer>,
     pub(crate) text: TextContext,
     scene: Scene,
     clock: VirtualClock,
 }
 impl<V: HostView> WebHost<V> {
-    pub fn new(canvas: web_sys::HtmlCanvasElement, view: V) -> Result<Self, JsValue> {
-        let renderer = WebRenderer::new(canvas.clone()).map_err(error)?;
+    #[cfg(feature = "wgpu")]
+    pub async fn new_wgpu(
+        canvas: web_sys::HtmlCanvasElement,
+        view: V,
+        backend: plico_wgpu::web::BrowserBackend,
+    ) -> Result<Self, JsValue> {
+        static HOOK: std::sync::Once = std::sync::Once::new();
+        HOOK.call_once(|| {
+            std::panic::set_hook(Box::new(|info| {
+                web_sys::console::error_1(&JsValue::from_str(&info.to_string()));
+            }))
+        });
+        let renderer = plico_wgpu::web::WebRenderer::new(canvas.clone(), backend)
+            .await
+            .map_err(|e| error(e.to_string()))?;
+        Ok(Self::with_renderer(canvas, view, Box::new(renderer)))
+    }
+    fn with_renderer(
+        canvas: web_sys::HtmlCanvasElement,
+        view: V,
+        renderer: Box<plico_wgpu::web::WebRenderer>,
+    ) -> Self {
         let clock = VirtualClock::default();
         let mut source = Source::with_clock(view, clock.clone());
         source.set_wake_callback(std::sync::Arc::new(|| {
@@ -25,15 +45,19 @@ impl<V: HostView> WebHost<V> {
                 let _ = window.dispatch_event(&event);
             }
         }));
-        Ok(Self {
+        Self {
             source,
             canvas,
             renderer,
             text: TextContext::new(),
             scene: Scene::new(),
             clock,
-        })
+        }
     }
+    pub fn renderer_name(&self) -> &'static str {
+        self.renderer.backend_name()
+    }
+
     pub fn load_font(&mut self, bytes: Vec<u8>) {
         self.text.load_font(bytes);
         self.source.request_rebuild();
@@ -64,18 +88,21 @@ impl<V: HostView> WebHost<V> {
             return Err(error("invalid canvas viewport"));
         }
         self.source.poll_async();
+        self.renderer
+            .configure_text(&mut self.text)
+            .map_err(|e| error(e.to_string()))?;
         self.source
             .render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale);
         if let Some(e) = &self.source.last_error {
             return Err(error(e.to_string()));
         }
+        let size = [
+            (f64::from(width) * scale).ceil() as u32,
+            (f64::from(height) * scale).ceil() as u32,
+        ];
         self.renderer
-            .render(
-                &self.scene,
-                (f64::from(width) * scale).ceil() as u32,
-                (f64::from(height) * scale).ceil() as u32,
-            )
-            .map_err(error)?;
+            .render(&self.scene, size, self.source.base_color().components)
+            .map_err(|e| error(e.to_string()))?;
         Ok(self.source.has_anim())
     }
     /// Flush the previous discrete input before routing the next one.
@@ -232,14 +259,29 @@ pub struct Gallery {
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
 impl Gallery {
-    #[wasm_bindgen(constructor)]
-    pub fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Self, JsValue> {
+    #[cfg(feature = "wgpu")]
+    pub async fn create_wgpu(
+        canvas: web_sys::HtmlCanvasElement,
+        backend: String,
+    ) -> Result<Self, JsValue> {
+        use plico_wgpu::web::BrowserBackend;
+        let backend = match backend.as_str() {
+            "auto" => BrowserBackend::Auto,
+            "webgpu" => BrowserBackend::WebGpu,
+            "webgl" | "webgl2" => BrowserBackend::WebGl,
+            _ => return Err(error("unknown browser renderer")),
+        };
         Ok(Self {
-            host: WebHost::new(
+            host: WebHost::new_wgpu(
                 canvas,
                 plico_runtime::NativeApp(gallery::Gallery::default()),
-            )?,
+                backend,
+            )
+            .await?,
         })
+    }
+    pub fn renderer_name(&self) -> String {
+        self.host.renderer_name().into()
     }
     pub fn load_font(&mut self, bytes: Vec<u8>) {
         self.host.load_font(bytes);

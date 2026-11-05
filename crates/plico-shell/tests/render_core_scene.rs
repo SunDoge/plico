@@ -180,7 +180,7 @@ mod tests {
                 f64::from(scale),
             );
             let path = std::env::temp_dir().join(format!(
-                "wabou-scrollbar-pixel-{}-{scale}.png",
+                "plico-scrollbar-pixel-{}-{scale}.png",
                 std::process::id()
             ));
             plico_shell::renderer::render_to_png(
@@ -248,7 +248,7 @@ mod tests {
             1.0,
         );
         let path =
-            std::env::temp_dir().join(format!("wabou-scene-{name}-{}.png", std::process::id()));
+            std::env::temp_dir().join(format!("plico-scene-{name}-{}.png", std::process::id()));
         plico_shell::renderer::render_to_png(
             &scene,
             100,

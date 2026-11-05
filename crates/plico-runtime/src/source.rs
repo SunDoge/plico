@@ -64,6 +64,7 @@ pub struct Source<V: HostView> {
     revision: u64,
     semantics_enabled: bool,
     pending: bool,
+    text_generation: Option<usize>,
     viewport: Option<(u32, u32)>,
     transition: transition::ThemeTransition,
     declarations_reused: bool,
@@ -73,6 +74,7 @@ pub struct Source<V: HostView> {
     last_tick: Option<Instant>,
     requests: plico::Changes,
     target_scene: Option<(Scene, u64, u64)>,
+    background: Option<Color>,
     scene_cache: plico_renderer::scene::SceneCache,
     scene_roots: HashSet<NodeId>,
     scene_revisions: HashMap<NodeId, u64>,
@@ -105,6 +107,7 @@ impl<V: HostView> Source<V> {
             revision: 0,
             semantics_enabled: false,
             pending: false,
+            text_generation: None,
             viewport: None,
             transition: Default::default(),
             declarations_reused: false,
@@ -114,6 +117,7 @@ impl<V: HostView> Source<V> {
             last_tick: None,
             requests: plico::Changes::empty(),
             target_scene: None,
+            background: None,
             scene_cache: Default::default(),
             scene_roots: HashSet::new(),
             scene_revisions: HashMap::new(),
@@ -126,6 +130,12 @@ impl<V: HostView> Source<V> {
             declared_changes: plico::Changes::empty(),
             declarations_pending: false,
         }
+    }
+    /// Override the window backdrop, e.g. transparent for an embedded game HUD.
+    /// Widget theme colors and hit testing remain unchanged.
+    pub fn with_background(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        self
     }
     /// Attach a resident font asset, shared across frames and captures.
     pub fn with_font(mut self, font: FontAsset) -> Self {
@@ -172,6 +182,11 @@ impl<V: HostView> Source<V> {
     /// Set to Duration::ZERO for instant/reduced-motion theme changes.
     pub fn set_theme_transition_duration(&mut self, duration: std::time::Duration) {
         self.transition.set_duration(duration);
+    }
+    /// Hit-test an interactive control in window-logical coordinates.
+    /// Embedded hosts use this to arbitrate UI and game input.
+    pub fn hit_test(&self, point: plico_renderer::Point) -> Option<Entity> {
+        self.adapter.hit(&self.engine, point.x, point.y)
     }
     /// Mutate application state on the UI thread and invalidate declarations.
     /// Repeated updates before a frame coalesce; the closures themselves all run.
@@ -330,6 +345,10 @@ impl<V: HostView> Source<V> {
         for font in &self.fonts {
             fonts_changed |= tcx.register_font(font);
         }
+        fonts_changed |= self
+            .text_generation
+            .is_some_and(|generation| generation != tcx.cache_generation());
+        self.text_generation = Some(tcx.cache_generation());
         if fonts_changed {
             self.adapter.font_dirty = true;
             self.pending = true;
@@ -380,6 +399,7 @@ impl<V: HostView> Source<V> {
                 || tooltip_active
                 || scroll.changed
                 || self.adapter.scroll_dirty
+                || self.adapter.selection_dirty
                 || self.declarations_pending
             {
                 self.update_backend(tcx, width, height);
@@ -474,6 +494,18 @@ impl<V: HostView> Source<V> {
             self.revision += 1;
         }
     }
+    /// Rebuild device-sized shader fragments when the host's DPI changes.
+    pub(crate) fn update_shader_scale(&mut self, tcx: &mut TextContext, scale: f64) -> bool {
+        if self.adapter.shader_scale == scale {
+            return false;
+        }
+        self.adapter.shader_scale = scale;
+        let updated = self.adapter.update_shaders(&self.engine, tcx);
+        if updated {
+            self.revision += 1;
+        }
+        updated
+    }
     fn paint_frame_scene(
         &mut self,
         scene: &mut Scene,
@@ -482,12 +514,7 @@ impl<V: HostView> Source<V> {
         size: (u32, u32),
         scale: f64,
     ) {
-        if self.adapter.shader_scale != scale {
-            self.adapter.shader_scale = scale;
-            if self.adapter.update_shaders(&self.engine, tcx) {
-                self.revision += 1;
-            }
-        }
+        self.update_shader_scale(tcx, scale);
         if let Some((cached, cached_scale, _)) = &self.target_scene
             && self
                 .target_scene
@@ -635,7 +662,7 @@ impl<V: HostView> Source<V> {
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.
         #[cfg(feature = "profiling")]
-        let span = tracing::trace_span!(target: "wabou::perf", "frame.declare");
+        let span = tracing::trace_span!(target: "plico::perf", "frame.declare");
         #[cfg(feature = "profiling")]
         let _guard = span.enter();
         let passes = self
@@ -724,6 +751,7 @@ impl<V: HostView> FrameSource for Source<V> {
         size: (u32, u32),
         scale: f64,
     ) -> Option<(usize, f64, f64)> {
+        tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         if let Some(now) = self.clock_instant() {
             self.prepare_frame_at(tcx, size.0, size.1, now, false);
@@ -751,6 +779,7 @@ impl<V: HostView> FrameSource for Source<V> {
         // Same frame pipeline as build_frame_at, but the scene is encoded
         // straight from the adapter's retained state: the per-node placed
         // list is never materialized for the host.
+        tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         if let Some(now) = self.clock_instant() {
             self.prepare_frame_at(tcx, width, height, now, true);
@@ -768,7 +797,8 @@ impl<V: HostView> FrameSource for Source<V> {
         )
     }
     fn base_color(&self) -> Color {
-        rgb(self.engine.theme().surface)
+        self.background
+            .unwrap_or_else(|| rgb(self.engine.theme().surface))
     }
     fn has_anim(&self) -> bool {
         self.transition.active()

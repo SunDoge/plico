@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cross-backend pixel parity for the shared settings app.
 
-Drives the settings app with --backend vello and --backend skia through the same route/theme state
+Drives the settings app with --backend wgpu and --backend skia through the same route/theme state
 machine on one Xvfb display and captures each state twice. The assertion is
 self-calibrating rather than a magic absolute tolerance: rendering the *same*
 state on both backends must be closer (RMSE) than rendering *different* states
@@ -30,7 +30,7 @@ STATES = [
 SAME_STATE_MAX_FACTOR = 0.5  # same-state cross-backend RMSE must stay under half the baseline
 
 subprocess.run(
-    ["cargo", "build", "--locked", "-p", "backend-settings", "--features", "skia,vello", "--bins"],
+    ["cargo", "build", "--locked", "-p", "backend-settings", "--features", "skia,wgpu", "--bins"],
     cwd=ROOT, check=True,
 )
 REPORT.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,7 @@ REPORT.mkdir(parents=True, exist_ok=True)
 def drive(backend, server):
     env = server.env(
         PLICO_SKIA_DEVICE="llvmpipe" if backend == "skia" else None,
-        PLICO_COMPARE_VELLO=None,
+        
         PLICO_PERFORMANCE_HUD=None,  # HUD text timings would add pixel noise
         WGPU_BACKEND="vulkan",
     )
@@ -71,14 +71,14 @@ def rmse(a, b):
 
 
 with Xvfb() as server:
-    vello = drive("vello", server)
+    wgpu = drive("wgpu", server)
     skia = drive("skia", server)
 
 # Same state across backends: the parity signal. Different states on Vello: the
 # baseline that separates "same UI, other rasterizer" from "different UI".
-same_state = {name: rmse(REPORT / f"vello-{name}.png", REPORT / f"skia-{name}.png") for name, _ in STATES}
+same_state = {name: rmse(REPORT / f"wgpu-{name}.png", REPORT / f"skia-{name}.png") for name, _ in STATES}
 baseline_pairs = [("overview", "activity"), ("overview", "preferences"), ("details", "dark"), ("preferences", "dark")]
-baseline = {f"{a}~{b}": rmse(REPORT / f"vello-{a}.png", REPORT / f"vello-{b}.png") for a, b in baseline_pairs}
+baseline = {f"{a}~{b}": rmse(REPORT / f"wgpu-{a}.png", REPORT / f"wgpu-{b}.png") for a, b in baseline_pairs}
 
 report = {
     "same_state_cross_backend_rmse": same_state,

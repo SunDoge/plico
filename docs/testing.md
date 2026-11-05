@@ -72,3 +72,11 @@ mainline with Clippy. A separate Windows job checks that the mainline compiles;
 it does not run tests or window automation. Optional backend SDK checks are local tasks.
 
 For JSON fixture state, scripted commands and virtual-time screenshots, use [scenario previews](preview.md). Native hot reload has been removed; tests drive statically linked views.
+
+Pointer commands use window-logical coordinates: `{"action":"pointer_move","x":675,"y":480}`
+and `{"action":"pointer_leave"}`. They travel through the runtime's normal pointer event path,
+including hover and `UiContext::pointer_position()`, without moving the OS cursor.
+Invalid non-finite coordinates from Rust callers return `Error::PointerPosition`.
+
+The runtime redeclares on pointer movement only when the current UI declaration reads
+`cx.pointer_position()`. Removing that read restores idle behavior for otherwise unchanged views.

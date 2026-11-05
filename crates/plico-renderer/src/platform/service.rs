@@ -42,7 +42,7 @@ impl HostServiceContext {
         self.app_directories.as_ref()
     }
 
-    /// Return whether `wabou test` controls this host run.
+    /// Return whether `plico test` controls this host run.
     pub fn is_behavior_test(&self) -> bool {
         self.behavior_test
     }

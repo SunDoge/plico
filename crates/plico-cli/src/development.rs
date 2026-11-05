@@ -440,7 +440,7 @@ publish = false
 
 [features]
 default = ["desktop"]
-desktop = ["dep:plico-desktop", "plico-desktop/skia"]
+desktop = ["dep:plico-desktop", "plico-desktop/wgpu"]
 
 [[bin]]
 name = "{name}"
@@ -460,6 +460,8 @@ incremental = true
 
 [profile.dev.package."*"]
 opt-level = 2
+debug = 0
+strip = "debuginfo"
 "#
     );
     std::fs::write(path.join("Cargo.toml"), manifest).context(IoSnafu)?;

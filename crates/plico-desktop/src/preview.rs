@@ -109,13 +109,30 @@ impl<S> PreviewScenario<S> {
         self,
         create: impl FnOnce(S) -> V,
     ) -> Result<CapturedFrame, PreviewError> {
-        self.render_source(|state, clock| Source::with_clock(create(state), clock))
+        self.render_with_backend(crate::RenderBackend::Auto, create)
+    }
+    /// Select the same backend for scenario layout, input geometry and final capture.
+    pub fn render_with_backend<V: HostView>(
+        self,
+        backend: crate::RenderBackend,
+        create: impl FnOnce(S) -> V,
+    ) -> Result<CapturedFrame, PreviewError> {
+        self.render_source_with_backend(backend, |state, clock| {
+            Source::with_clock(create(state), clock)
+        })
     }
     /// Native surfaces use the supplied clock when constructing their source.
     /// Scripted commands target Plico controls; native widget internals remain
     /// the widget's own testing contract.
     pub fn render_source<F: PreviewSource>(
         self,
+        create: impl FnOnce(S, VirtualClock) -> F,
+    ) -> Result<CapturedFrame, PreviewError> {
+        self.render_source_with_backend(crate::RenderBackend::Auto, create)
+    }
+    pub fn render_source_with_backend<F: PreviewSource>(
+        self,
+        backend: crate::RenderBackend,
         create: impl FnOnce(S, VirtualClock) -> F,
     ) -> Result<CapturedFrame, PreviewError> {
         if self.version != 1 {
@@ -138,11 +155,13 @@ impl<S> PreviewScenario<S> {
         let clock = VirtualClock::default();
         let mut source = create(self.state, clock.clone());
         let mut text = TextContext::new();
-        let surface =
-            plico_skia::SkiaSurface::new(1, 1).map_err(|source| PreviewError::Capture {
-                source: source.into(),
-            })?;
-        surface.configure_text(&mut text);
+        let (width, height) = crate::capture::dimensions(v.width, v.height, v.scale)
+            .map_err(|source| PreviewError::Capture { source })?;
+        let mut renderer = crate::capture::CaptureRenderer::new(backend, width, height)
+            .map_err(|source| PreviewError::Capture { source })?;
+        renderer
+            .configure_text(&mut text, v.scale)
+            .map_err(|source| PreviewError::Capture { source })?;
         let frame = |source: &mut F, text: &mut TextContext| -> Result<(), PreviewError> {
             source.build_frame(text, v.width, v.height);
             if let Some(error) = &source.ui_source().last_error {
@@ -175,7 +194,7 @@ impl<S> PreviewScenario<S> {
         let image = crate::capture(&mut source)
             .size(v.width, v.height)
             .scale(v.scale)
-            .render()
+            .render_with(renderer, text)
             .map_err(|source| PreviewError::Capture { source })?;
         if let Some(error) = &source.ui_source().last_error {
             return Err(PreviewError::Input {

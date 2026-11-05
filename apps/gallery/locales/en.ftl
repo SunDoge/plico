@@ -212,3 +212,10 @@ tree-api = API service
 tree-worker = Background worker
 tree-preview = Preview
 table-show-all = Show all projects
+
+workspace-preferences-description = Changes apply only to the selected project.
+workspace-selected-project = Selected project
+workspace-updates = Updates
+workspace-updates-description = Activity and important changes in this project.
+workspace-editing = Editing
+workspace-editing-description = Allow this project to save automatically.

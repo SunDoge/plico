@@ -135,6 +135,7 @@ pub trait FrameSource {
         height: u32,
         scale: f64,
     ) -> (usize, f64, f64) {
+        tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         let nodes = self.build_frame(tcx, width, height);
         let build_ms = start.elapsed().as_secs_f64() * 1000.;

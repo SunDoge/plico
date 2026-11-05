@@ -6,7 +6,7 @@ fn retained_and_snapshot_paths_render_identical_pixels_for_widgets() {
     check(Page::Controls);
 }
 
-#[cfg(all(feature = "vello", not(feature = "skia")))]
+#[cfg(not(feature = "skia"))]
 #[test]
 fn retained_and_snapshot_paths_render_identical_pixels_for_shader_and_theme_retarget() {
     check(Page::Motion);

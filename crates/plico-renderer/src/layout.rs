@@ -216,30 +216,33 @@ pub fn compute_layout_with_widgets(
                                 let mut intrinsic_request = request.clone();
                                 intrinsic_request.max_lines = 0;
                                 intrinsic_request.ellipsis = false;
-                                let intrinsic = measure
+                                if let Some(intrinsic_paragraph) = measure
                                     .text()
                                     .native_paragraph(std::sync::Arc::new(intrinsic_request))
-                                    .unwrap()
-                                    .metrics()
-                                    .intrinsic;
-                                let intrinsic = if wraps { intrinsic } else { [intrinsic[1]; 2] };
-                                let (width, layout_width) = text_measurement_width(
-                                    known.width,
-                                    avail.width,
-                                    wraps,
-                                    intrinsic,
-                                );
-                                let mut request = request;
-                                request.width = layout_width;
-                                let metrics = measure
-                                    .text()
-                                    .native_paragraph(std::sync::Arc::new(request))
-                                    .unwrap()
-                                    .metrics();
-                                return Size {
-                                    width,
-                                    height: known.height.unwrap_or(metrics.height),
-                                };
+                                {
+                                    let intrinsic = intrinsic_paragraph.metrics().intrinsic;
+                                    let intrinsic =
+                                        if wraps { intrinsic } else { [intrinsic[1]; 2] };
+                                    let (width, layout_width) = text_measurement_width(
+                                        known.width,
+                                        avail.width,
+                                        wraps,
+                                        intrinsic,
+                                    );
+                                    let mut request = request;
+                                    request.width = layout_width;
+                                    if let Some(paragraph) = measure
+                                        .text()
+                                        .native_paragraph(std::sync::Arc::new(request))
+                                    {
+                                        return Size {
+                                            width,
+                                            height: known
+                                                .height
+                                                .unwrap_or(paragraph.metrics().height),
+                                        };
+                                    }
+                                }
                             }
                             let intrinsic = if known.width.is_none() {
                                 let [min_content, max_content] =
@@ -319,7 +322,7 @@ pub fn compute_layout_with_widgets(
                 let width =
                     (result.size.width - padding.left - padding.right - border.left - border.right)
                         .max(0.);
-                if tcx.has_native_paragraphs() {
+                let native_metrics = if tcx.has_native_paragraphs() {
                     let request = tcx
                         .paragraph_request(
                             paint,
@@ -327,10 +330,12 @@ pub fn compute_layout_with_widgets(
                                 .then_some(width),
                         )
                         .unwrap();
-                    let metrics = tcx
-                        .native_paragraph(std::sync::Arc::new(request))
-                        .unwrap()
-                        .metrics();
+                    tcx.native_paragraph(std::sync::Arc::new(request))
+                        .map(|p| p.metrics())
+                } else {
+                    None
+                };
+                if let Some(metrics) = native_metrics {
                     let top = padding.top + border.top;
                     result.baselines = taffy::tree::Baselines {
                         first: metrics.baselines[0].map(|b| top + b),

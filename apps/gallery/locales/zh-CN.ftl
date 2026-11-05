@@ -209,3 +209,10 @@ tree-api = API 服务
 tree-worker = 后台任务
 tree-preview = 预览环境
 table-show-all = 显示全部项目
+
+workspace-preferences-description = 更改仅应用于当前选中的项目。
+workspace-selected-project = 当前项目
+workspace-updates = 动态通知
+workspace-updates-description = 接收此项目的动态和重要变更。
+workspace-editing = 编辑与保存
+workspace-editing-description = 允许此项目自动保存编辑内容。

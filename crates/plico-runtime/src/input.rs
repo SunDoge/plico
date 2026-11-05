@@ -1,9 +1,9 @@
 //! Native single-line editing and masked-only password shaping.
 use super::*;
 use kurbo::{Affine, Rect};
-use parley::{Affinity, Cursor, Selection};
-use peniko::{BlendMode, Fill};
+use peniko::Fill;
 use plico::{InputEdit, StandardShortcut};
+use plico_renderer::paragraph::ParagraphLayout;
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
 use zeroize::Zeroizing;
 
@@ -22,7 +22,7 @@ struct GeometryKey {
 pub(super) struct Geometry {
     key: GeometryKey,
     placeholder: Arc<str>,
-    layout: Arc<parley::Layout<[u8; 4]>>,
+    layout: ParagraphLayout,
     offset: f32,
     y: f32,
     caret: [f64; 4],
@@ -74,21 +74,53 @@ impl Adapter {
             node.paint.text_color
         };
         let rgba = color.to_rgba8();
-        let layout = plico_renderer::text::layout_text_styled(
-            tcx,
-            text,
-            node.paint.font_size,
-            node.paint.font_weight,
-            false,
-            None,
-            plico_renderer::style::TextAlign::Start,
-            [rgba.r, rgba.g, rgba.b, rgba.a],
-            Arc::from([]),
-            node.paint.font_family.as_ref(),
-            None,
-        );
-        let head = Cursor::from_byte_index(&layout, input.head, Affinity::Downstream);
-        let caret = head.geometry(&layout, 1.);
+        let request = tcx.has_native_editing().then(|| {
+            Arc::new(
+                tcx.paragraph_request(
+                    &plico_renderer::style::Paint {
+                        text: Some(text.clone()),
+                        font_size: node.paint.font_size,
+                        font_weight: node.paint.font_weight,
+                        font_family: node.paint.font_family.clone(),
+                        text_color: color,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .expect("input always has presentation text"),
+            )
+        });
+        let native = if let Some(request) = &request {
+            let Some(paragraph) = tcx.native_paragraph(request.clone()) else {
+                return;
+            };
+            paragraph
+                .caret_rect(input.head)
+                .is_some()
+                .then_some(ParagraphLayout::Native(paragraph))
+        } else {
+            None
+        };
+        let layout = native.unwrap_or_else(|| {
+            ParagraphLayout::Parley(plico_renderer::text::layout_text_styled(
+                tcx,
+                text,
+                node.paint.font_size,
+                node.paint.font_weight,
+                false,
+                None,
+                plico_renderer::style::TextAlign::Start,
+                [rgba.r, rgba.g, rgba.b, rgba.a],
+                Arc::from([]),
+                node.paint.font_family.as_ref(),
+                None,
+            ))
+        });
+        let [x0, y0, x1, y1] = layout
+            .caret_rect(input.head)
+            .expect("editing provider has caret geometry");
+        let caret = Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64);
+        let metrics = layout.metrics();
         let width = node.content_size[0].max(1.);
         let height = node.content_size[1].max(1.);
         let mut offset = self.input_layouts.get(&entity).map_or(0., |g| g.offset);
@@ -102,38 +134,40 @@ impl Adapter {
         } else {
             offset = 0.;
         }
-        offset = offset.clamp(0., (layout.width() - width + 1.).max(0.));
-        let y = ((height - layout.height()) / 2.).max(0.);
+        offset = offset.clamp(0., (metrics.width - width + 1.).max(0.));
+        let y = ((height - metrics.height) / 2.).max(0.);
         let mut scene = Scene::default();
-        scene.push_layer(
-            BlendMode::default(),
-            1.,
+        scene.push_clip_layer(
             Affine::IDENTITY,
             &Rect::new(0., 0., width as f64, height as f64),
-            None,
-            None,
         );
         let transform = Affine::translate((-(offset as f64), y as f64));
         if focused && !empty {
-            let anchor = Cursor::from_byte_index(&layout, input.anchor, Affinity::Downstream);
-            for (rect, _) in Selection::new(anchor, head).geometry(&layout) {
+            for [x0, y0, x1, y1] in
+                layout.selection_rects(input.anchor.min(input.head)..input.anchor.max(input.head))
+            {
                 scene.fill(
                     Fill::NonZero,
                     transform,
                     Color::from_rgba8(59, 130, 246, 90),
                     None,
-                    &Rect::new(rect.x0, rect.y0, rect.x1, rect.y1),
+                    &Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64),
                 );
             }
         }
-        plico_renderer::scene::draw_text_layout_into(
-            &mut scene,
-            tcx,
-            &layout,
-            Affine::IDENTITY,
-            transform,
-            1.,
-        );
+        match &layout {
+            ParagraphLayout::Native(_) => {
+                scene.draw_paragraph(request.expect("native editing request"), transform)
+            }
+            ParagraphLayout::Parley(layout) => plico_renderer::scene::draw_text_layout_into(
+                &mut scene,
+                tcx,
+                layout,
+                Affine::IDENTITY,
+                transform,
+                1.,
+            ),
+        }
         if focused {
             scene.fill(
                 Fill::NonZero,
@@ -183,12 +217,11 @@ impl Adapter {
             let Some(point) = self.layout_point(p.node_id, point.x, point.y) else {
                 return;
             };
-            let cursor = Cursor::from_point(
-                &geometry.layout,
+            let byte = geometry.layout.hit_test(
                 point.x as f32 - p.content_origin[0] + geometry.offset,
                 point.y as f32 - p.content_origin[1] - geometry.y,
             );
-            buffer.edit(InputEdit::Select(cursor.index(), shift));
+            buffer.edit(InputEdit::Select(byte, shift));
         }
     }
     pub(super) fn input_event(

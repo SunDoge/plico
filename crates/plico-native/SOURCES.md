@@ -19,3 +19,28 @@ is required at build or runtime. The following local code was read as reference:
 
 Pango, Cairo and gtk-rs are linked dependencies under their respective licenses;
 these attribution notes do not relicense them.
+- cairo-rs 0.22.9, MIT, `src/font/font_face.rs` (`create_from_ft`):
+  the positioned-font bridge follows its FreeType reference/user-data ownership
+  pattern, generalized to a shared font-byte owner so font collections are not
+  copied. The native wrapper is narrowly unsafe at Cairo's FFI face constructor;
+  the cloned FreeType face and shared byte owner remain attached to Cairo user
+  data. Copyright/license notices are retained in `licenses/cairo-rs-MIT.txt`.
+
+- GPUI Windows `direct_write.rs` was consulted for DirectWrite factory/font API
+  usage while implementing the optional Windows layout prototype. No GPUI Rust
+  source is copied. COM signatures and ownership wrappers come from the linked
+  `windows` crate; UTF-8 indexing, validation and the public service are local.
+- GPUI Windows glyph analysis was also consulted for DirectWrite grayscale texture
+  format selection and scale handling. The new collector/range/budget code is local.
+  No GPUI alpha-correction shader source is copied. The correction port below
+  instead follows the original Microsoft Terminal implementation.
+
+- Microsoft Terminal, MIT, commit `1283c0f5b99a2961673249fa77c6b986efb5086c`:
+  [dwrite.cpp](https://github.com/microsoft/terminal/blob/1283c0f5b99a2961673249fa77c6b986efb5086c/src/renderer/atlas/dwrite.cpp)
+  and [dwrite.hlsl](https://github.com/microsoft/terminal/blob/1283c0f5b99a2961673249fa77c6b986efb5086c/src/renderer/atlas/dwrite.hlsl).
+  Gamma coefficients and grayscale blend equations are ported into
+  `src/directwrite_correction.rs`; original functions are retained in the optional
+  portable C++ reference fixture under `tests/assets/`. Microsoft copyright and
+  MIT notices remain in those files and `licenses/microsoft-terminal-MIT.txt`.
+  The fixed legacy thin-family list/detection is not copied; callers explicitly
+  choose the thin-family contrast policy.

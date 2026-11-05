@@ -560,11 +560,11 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let [x0, y0, x1, y1] = node.rect.map(f64::from);
     let clip = Rect::new(x0, y0, x1, y1).to_rounded_rect(node.paint.border_radii.as_f64_tuple());
     scene.push_layer(BlendMode::default(), 1., transform, &clip, None, None);
-    let filter = vello_common::filter_effects::Filter::from_function(
-        vello_common::filter_effects::FilterFunction::Blur {
-            radius: sigma.min(64.),
-        },
-    );
+    let filter =
+        crate::filter::Filter::from_primitive(crate::filter::FilterPrimitive::GaussianBlur {
+            std_deviation: sigma.min(64.),
+            edge_mode: crate::filter::EdgeMode::None,
+        });
     // Filter only the card's own extent: the output is confined by the outer
     // rounded clip anyway, so a viewport-wide filter layer would blur the whole
     // frame at vsync cost for a panel-sized result.

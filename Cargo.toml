@@ -9,7 +9,7 @@ publish = false
 plico.workspace = true
 plico-dev.workspace = true
 plico-runtime.workspace = true
-plico-desktop = { path = "crates/plico-desktop", default-features = false, features = ["skia"] }
+plico-desktop = { path = "crates/plico-desktop", default-features = false, features = ["wgpu"] }
 serde = { workspace = true, features = ["derive"] }
 
 [workspace]
@@ -48,12 +48,9 @@ url = "2.5.8"
 usvg = { version = "0.48.1", default-features = false, features = ["text"] }
 kurbo = "0.13.1"
 peniko = "0.6.1"
-vello-common = { package = "vello_common", version = "0.3.0" }
 zeroize = "1.9"
-vello-gpu = { package = "vello_gpu", version = "0.3.0", default-features = false }
 plico-motion = { path = "crates/plico-motion" }
 wgpu = "30"
-wgpu-context = { package = "wgpu_context", version = "0.10.0" }
 winit = "=0.31.0-beta.3"
 
 plico = { path = "crates/plico" }
@@ -70,3 +67,18 @@ usage-rs = "7.0.0"
 [profile.dev]
 opt-level = 1
 incremental = true
+
+# Optimize dependencies for runtime performance without generating their debug info.
+[profile.dev.package."*"]
+opt-level = 2
+
+# CI executes correctness checks, not performance benchmarks. Avoid optimizing
+# formatter/test dependencies; normal development keeps its optimized runtime.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+debug = 0
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0

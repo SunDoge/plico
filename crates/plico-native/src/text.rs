@@ -3,6 +3,10 @@
 //! Inspired by MyGO's Linux text backend; see SOURCES.md. Contexts stay on their
 //! creating thread; returned bitmaps contain no platform objects and can be sent
 //! to the UI. Grayscale AA works on transparent surfaces without LCD fringes.
+pub mod atlas;
+mod fonts;
+pub mod positioned;
+
 use cairo::{Antialias, Context, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use lru::LruCache;
 use pango::prelude::*;
@@ -68,6 +72,27 @@ pub struct TextBitmap {
 /// Errors are explicit; a caller may fall back to its ordinary text backend.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Creating private backing storage for an application font failed.
+    #[snafu(display("Application font storage failed: {source}"))]
+    FontIo {
+        /// Operating-system error.
+        source: std::io::Error,
+    },
+    /// Fontconfig rejected a private font collection operation.
+    #[snafu(display("Private font collection rejected: {reason}"))]
+    FontCollection {
+        /// Failure category, without font contents.
+        reason: &'static str,
+    },
+    /// FreeType rejected a font resource or face index.
+    #[snafu(display("Native font loading failed: {source}"))]
+    FreeType {
+        /// Native FreeType error.
+        source: cairo::freetype::Error,
+    },
+    /// The bounded glyph atlas has no room for another glyph.
+    #[snafu(display("System glyph atlas is full"))]
+    AtlasFull,
     /// Invalid sizes, excessive input or excessive output allocation.
     #[snafu(display("Invalid or oversized system text request"))]
     InvalidRequest,

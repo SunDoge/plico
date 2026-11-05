@@ -2,12 +2,15 @@
 #![warn(missing_docs)]
 pub mod animated_image;
 pub mod damage;
+pub mod filter;
 pub use damage::DamageRegion;
 pub mod image;
 pub mod layout;
 /// Renderer and value animation algorithms shared by native and web hosts.
 pub use plico_motion as motion;
 pub mod paint;
+mod paint_shape;
+pub use paint_shape::{PaintShape, PrimitiveShape};
 pub mod paragraph;
 pub mod platform;
 pub mod scene;
@@ -19,8 +22,6 @@ pub mod style;
 pub mod svg;
 pub mod text;
 pub mod vector_path;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
 pub mod widget;
 pub use crate::platform::{EffectCompletion, EffectRequest};
 pub use paint::{Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, SvgDocument};

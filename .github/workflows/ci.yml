@@ -46,27 +46,34 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@b328d6be848e9b620901df2e49d27ad7e5536c0b # v2
         with:
           toolchain: stable
-          cache-key: workspace-v1
+          cache-key: workspace-ci-v2
           cache-workspace-crates: true
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
           components: rustfmt,clippy
+          target: wasm32-unknown-unknown
       - name: Check Rust and component formatting
-        run: cargo run --locked -p plico-cli -- fmt --check
+        run: cargo run --locked --profile ci -p plico-cli -- fmt --check
       - name: Guard application widget boundaries
         run: python3 scripts/check-widget-boundary.py
       - name: Test the renderer-independent packages
-        run: cargo test --locked -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
+        run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
       - name: Install desktop compile dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libwayland-dev libxkbcommon-dev \
+            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
       - name: Lint the mainline without optional backend SDKs
-        run: cargo clippy --locked --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features backend-settings/vello,plico-shell/global-hotkeys --all-targets -- -D warnings
+        run: cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
+      # The optional Bevy adapter is checked as a library. Do not pull its PBR
+      # example/test dependency graph into every workspace Clippy invocation.
+      - name: Check the Bevy plugin library
+        run: cargo clippy --locked --profile ci -p plico-bevy --lib -- -D warnings
+      - name: Check browser host and split UI with wgpu
+        run: cargo clippy --locked --profile ci -p plico-web-host --features gallery,split --target wasm32-unknown-unknown -- -D warnings
       - name: Verify the semantic test protocol without a window
-        run: cargo test --locked -p plico-runtime --test test_protocol
+        run: cargo test --locked --profile ci -p plico-runtime --test test_protocol
 
   windows:
     name: Windows MSVC compile
@@ -81,9 +88,11 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-pc-windows-msvc
-          cache-key: workspace-v1
+          cache-key: workspace-ci-v2
           cache-workspace-crates: true
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check Windows MSVC with Skia and Vello
-        run: cargo check --locked --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --features plico-desktop/skia,backend-settings/vello,plico-shell/global-hotkeys --all-targets
+      - name: Check Windows MSVC with Skia and wgpu
+        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features plico-desktop/skia,backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
+      - name: Check the Bevy plugin on Windows MSVC
+        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p plico-bevy --lib

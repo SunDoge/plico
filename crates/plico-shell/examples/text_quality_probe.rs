@@ -346,12 +346,12 @@ fn main() {
                     transform, shape, ..
                 } = command
                 {
-                    let physical = *transform * shape.clone();
+                    let physical = *transform * shape.clone().into_bez_path();
                     let mut flattened = kurbo::BezPath::new();
                     kurbo::flatten(physical.iter(), tolerance, |element| {
                         flattened.push(element)
                     });
-                    *shape = flattened;
+                    *shape = flattened.into();
                     *transform = kurbo::Affine::IDENTITY;
                 }
             }
@@ -371,7 +371,7 @@ fn main() {
                     else {
                         return None;
                     };
-                    let path = *transform * shape.clone();
+                    let path = *transform * shape.clone().into_bez_path();
                     Some(
                         path.elements()
                             .iter()

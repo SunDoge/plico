@@ -210,6 +210,8 @@ pub struct Adapter {
     pub placed: Vec<PlacedNode>,
     pub stats: BackendStats,
     pub(super) hovered: Option<Entity>,
+    /// Latest pointer position in window logical pixels; None outside.
+    pub(super) pointer_position: Option<(f64, f64)>,
     pub(super) pressed: Option<Entity>,
     pub(super) presentation: HashMap<NodeId, presentation::Presentation>,
     pub(super) presentation_dirty: bool,
@@ -286,6 +288,7 @@ impl Default for Adapter {
             placed: Vec::new(),
             stats: BackendStats::default(),
             hovered: None,
+            pointer_position: None,
             pressed: None,
             presentation: HashMap::new(),
             presentation_dirty: false,
@@ -390,6 +393,21 @@ impl Adapter {
         self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
         self.anchor_motion_dirty = false;
         self.geometry_dirty = std::mem::take(&mut self.font_dirty);
+        if self.geometry_dirty {
+            // Font/provider/DPI changes can alter advances without changing
+            // Paint. Invalidate Taffy's leaf measurement cache explicitly;
+            // merely running layout again can reuse stale min/max-content sizes.
+            for node in self.nodes.values() {
+                if self
+                    .tree
+                    .get_node_context(node.id)
+                    .is_some_and(|paint| paint.text.is_some())
+                {
+                    self.tree.mark_dirty(node.id).unwrap();
+                    self.stats.text_measure_invalidations += 1;
+                }
+            }
+        }
         self.paint_dirty.clear();
         self.geometry_roots.clear();
         self.topology_roots.clear();

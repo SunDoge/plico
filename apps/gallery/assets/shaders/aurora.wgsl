@@ -1,6 +1,6 @@
-fn wabou_effect(uv: vec2<f32>) -> vec4<f32> {
-    let time = wabou.resolution_time_scale.z;
-    let strength = wabou.values[0].x;
+fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+    let time = plico.resolution_time_scale.z;
+    let strength = plico.values[0].x;
     let wave = 0.5 + 0.5 * sin(uv.x * 8.0 - uv.y * 4.0 + time);
     let glow = exp(-abs(uv.y - 0.5 - 0.18 * sin(uv.x * 6.0 + time * 0.6)) * 9.0);
     let base = mix(vec3<f32>(0.035, 0.06, 0.14), vec3<f32>(0.12, 0.2, 0.36), uv.x);

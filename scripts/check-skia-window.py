@@ -18,7 +18,7 @@ subprocess.run(
 )
 REPORT.mkdir(parents=True, exist_ok=True)
 with Xvfb() as server:
-    env = server.env(PLICO_SKIA_DEVICE="llvmpipe", PLICO_COMPARE_VELLO=None)
+    env = server.env(PLICO_SKIA_DEVICE="llvmpipe")
     with WindowApp(BINARY, env, REPORT / "window.log") as app:
         app.window("no native window")
         app.wait(lambda: "Skia Vulkan window renderer initialized" in app.log_text, "renderer not initialized")

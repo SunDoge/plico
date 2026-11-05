@@ -41,7 +41,7 @@ fn pty_spawn_injects_terminal_capabilities_without_mutating_parent_environment()
         assert_eq!(command, "/usr/bin/env");
         assert!(args.iter().any(|arg| arg == "TERM=xterm-256color"));
         assert!(args.iter().any(|arg| arg == "COLORTERM=truecolor"));
-        assert!(args.iter().any(|arg| arg == "TERM_PROGRAM=wabou"));
+        assert!(args.iter().any(|arg| arg == "TERM_PROGRAM=plico"));
         assert!(
             args.iter()
                 .any(|arg| arg == concat!("TERM_PROGRAM_VERSION=", env!("CARGO_PKG_VERSION")))
@@ -212,7 +212,7 @@ fn invalid_lazy_terminal_args_block_launch_until_corrected() {
 #[test]
 fn failed_terminal_spawn_can_be_reconfigured_without_retrying_each_frame() {
     let mut widget = TerminalWidget::lazy_default_shell();
-    widget.attribute_changed("command", "/wabou/definitely/missing-terminal-command");
+    widget.attribute_changed("command", "/plico/definitely/missing-terminal-command");
     widget.ensure_launched();
 
     assert!(widget.launch_started);
@@ -229,7 +229,7 @@ fn failed_terminal_spawn_can_be_reconfigured_without_retrying_each_frame() {
 #[test]
 fn missing_working_directory_reports_the_path_before_spawning_env() {
     let missing =
-        std::env::temp_dir().join(format!("wabou-terminal-missing-cwd-{}", std::process::id()));
+        std::env::temp_dir().join(format!("plico-terminal-missing-cwd-{}", std::process::id()));
     let mut widget = TerminalWidget::lazy_default_shell();
     widget.attribute_changed("cwd", &missing.display().to_string());
     widget.ensure_launched();

@@ -108,3 +108,61 @@ fn package_selection_and_rustfmt_configuration_are_respected() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("no workspace package"));
 }
+
+#[test]
+fn wgsl_is_discovered_with_rust_and_check_is_read_only() {
+    let directory = fixture();
+    let shaders = directory.path().join("assets/shaders");
+    fs::create_dir_all(&shaders).unwrap();
+    let path = shaders.join("test.wgsl");
+    let shader = "// Keep this comment.\nfn  shade( x:f32)->f32{return x+1.0;}";
+    fs::write(&path, shader).unwrap();
+    let output = command(&directory).arg("--check").output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("test.wgsl"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), shader);
+    let output = command(&directory)
+        .args(["-p", "formatter-fixture"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let once = fs::read_to_string(&path).unwrap();
+    assert!(once.contains("// Keep this comment."));
+    assert!(once.contains("fn shade(x: f32) -> f32"), "{once}");
+    assert!(once.ends_with('\n'));
+    assert!(
+        command(&directory)
+            .arg("--check")
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        command(&directory)
+            .arg("assets/shaders/test.wgsl")
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(fs::read_to_string(path).unwrap(), once);
+}
+
+#[test]
+fn invalid_wgsl_prevents_writes_to_rust_and_other_shaders() {
+    let directory = fixture();
+    let path = directory.path().join("src/broken.wgsl");
+    let invalid = "fn broken( {";
+    fs::write(&path, invalid).unwrap();
+    let output = command(&directory).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("WGSL syntax error"));
+    assert_eq!(fs::read_to_string(path).unwrap(), invalid);
+    assert_eq!(
+        fs::read_to_string(directory.path().join("src/lib.rs")).unwrap(),
+        SOURCE
+    );
+}

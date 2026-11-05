@@ -25,9 +25,15 @@ impl Adapter {
                 true,
             );
         }
+        let previous_pointer = self.pointer_position;
         let mut declare = true;
         let mut response = self.event_inner(engine, event, &mut declare);
         engine.set_hovered(self.hovered);
+        engine.set_pointer_position(self.pointer_position);
+        if previous_pointer != self.pointer_position && engine.observes_pointer_position() {
+            response.request_redraw = true;
+            declare = true;
+        }
         response.request_redraw |= self.tips.needs_frame();
         (response, declare)
     }
@@ -46,7 +52,11 @@ impl Adapter {
         if let Some(response) = self.input_event(engine, &mut event) {
             return response;
         }
+        let had_focus = self.focused.is_some();
         if let Some(response) = self.selection_event(engine, &event) {
+            // Read-only selection is backend presentation state. Losing an
+            // input focus can still require the application's normal settlement.
+            *declare = had_focus;
             return response;
         }
         let old_focus = self.focused;
@@ -54,6 +64,12 @@ impl Adapter {
         match event {
             UiEvent::Pointer(p) => {
                 use plico_renderer::scrollbar::{self, ScrollAxis, ScrollbarPart};
+                // Persistent input snapshot for declaration-time queries;
+                // pointer movement outside any control still redeclares.
+                self.pointer_position = match p.phase {
+                    PointerPhase::Leave | PointerPhase::Cancel => None,
+                    _ => Some((p.position.x, p.position.y)),
+                };
                 let scrollbar_hit = if p.phase == PointerPhase::Down
                     && p.button == Some(PointerButton::Primary)
                 {

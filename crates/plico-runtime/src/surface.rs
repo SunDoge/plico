@@ -267,6 +267,20 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     ) {
         self.scale = scale;
         let mut nodes = nodes.to_vec();
+        if self.source.update_shader_scale(text, scale) {
+            // The snapshot predates DPI-dependent shader rebuilding. Refresh only
+            // shader fragments, preserving this wrapper's hosted widget painting.
+            for entity in &self.source.adapter.shader_nodes {
+                let Some(logical) = self.source.adapter.nodes.get(entity) else {
+                    continue;
+                };
+                if let Some(&index) = self.source.adapter.placed_indices.get(&logical.id)
+                    && let Some(slot) = nodes.iter_mut().find(|node| node.node_id == logical.id)
+                {
+                    slot.paint.widget = self.source.adapter.placed[index].paint.widget.clone();
+                }
+            }
+        }
         if let Some(slot) = self
             .node
             .filter(|_| self.visible)
@@ -426,5 +440,58 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
         .into_iter()
         .flatten()
         .min()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plico::prelude::*;
+    use plico_renderer::PaintCommand;
+
+    struct EmptyWidget;
+    impl plico_renderer::Widget for EmptyWidget {
+        fn paint(&mut self, _: &mut PaintContext<'_>) {}
+    }
+    struct ShaderView;
+    impl HostView for ShaderView {
+        fn show(&mut self, cx: &mut UiContext) {
+            static EFFECT: plico::ShaderAsset = plico::ShaderAsset::new(
+                "fn plico_effect(uv: vec2f) -> vec4f { return vec4f(uv, 0., 1.); }",
+            );
+            plico::widgets::shader(cx, &EFFECT).width(320.).height(200.);
+        }
+    }
+
+    #[test]
+    fn hosted_surface_rebuilds_shader_textures_at_device_scale() {
+        let mut source = SurfaceSource::new(ShaderView, EmptyWidget, "unused-slot");
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
+        // Includes fractional DPI, returning to 100%, and a later increase.
+        for scale in [1., 1.75, 1., 2.] {
+            source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
+            let flattened = scene.flattened();
+            let effects: Vec<_> = flattened
+                .commands
+                .iter()
+                .filter_map(|command| {
+                    if let PaintCommand::Shader { effect, .. } = command {
+                        Some(effect)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                effects.len(),
+                1,
+                "shader must survive hosted surface painting"
+            );
+            assert_eq!(
+                effects[0].physical_size(),
+                [(320. * scale) as u16, (200. * scale) as u16]
+            );
+        }
     }
 }

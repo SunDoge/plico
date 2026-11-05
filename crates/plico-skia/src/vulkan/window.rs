@@ -800,11 +800,12 @@ mod tests {
             1.,
             kurbo::Affine::IDENTITY,
             &Rect::new(0., 0., 10., 10.),
-            Some(Arc::new(
-                vello_common::filter_effects::Filter::from_function(
-                    vello_common::filter_effects::FilterFunction::Blur { radius: 1. },
-                ),
-            )),
+            Some(Arc::new(plico_renderer::filter::Filter::from_primitive(
+                plico_renderer::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 1.,
+                    edge_mode: plico_renderer::filter::EdgeMode::None,
+                },
+            ))),
             None,
         );
         filtered.pop_layer();

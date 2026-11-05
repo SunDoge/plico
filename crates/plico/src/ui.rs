@@ -64,6 +64,17 @@ impl<'e> UiContext<'e> {
             name: name.to_owned(),
         }
     }
+    /// Frame-to-frame state outside checkpoints entirely: toasts, drag
+    /// gestures and other ephemeral host state that must not resurrect on
+    /// restore. The value is never serialized, unlike `persisted_state`.
+    pub fn transient_state<T: 'static>(
+        &mut self,
+        name: &str,
+        init: impl FnOnce() -> T,
+    ) -> crate::LocalState<T> {
+        let key = self.storage_key(name);
+        self.engine.storage.transient(key, init)
+    }
     pub fn remove_persisted_state(&mut self, name: &str) -> bool {
         let key = self.storage_key(name);
         self.engine.storage.remove(&key)
@@ -382,6 +393,12 @@ impl<'e> UiContext<'e> {
     /// composed framework controls and logical-path replay adapters.
     pub fn hovered(&self) -> bool {
         self.engine.hovered(self.parent)
+    }
+    /// Current host pointer position in window logical pixels, when the
+    /// pointer is inside the window. Read during declarations; pointer
+    /// movement triggers a settling re-declaration like other input state.
+    pub fn pointer_position(&self) -> Option<(f64, f64)> {
+        self.engine.pointer_position()
     }
     /// Request another declaration for a non-event update performed during show.
     pub fn request_rebuild(&mut self) {
@@ -1961,8 +1978,10 @@ impl<'e> UiContext<'e> {
         Shader {
             inner,
             params: crate::ShaderParams {
+                source_path: asset.source_path().map(str::to_owned),
                 module: asset.is_module(),
                 sksl: asset.sksl().map(str::to_owned),
+                reads_backdrop: asset.reads_backdrop(),
                 ..Default::default()
             },
         }
@@ -2018,6 +2037,23 @@ impl Shader<'_, '_, '_> {
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();
         self.params.values.extend_from_slice(values);
+        self
+    }
+    /// Set a complete WGSL module's top-level f32/vec2/vec3/vec4 uniform field.
+    /// The host checks WGSL types/offsets; repeated names replace earlier values.
+    /// Reserved width/height/time fields cannot be written. Do not mix with values().
+    pub fn param(mut self, name: &str, value: impl Into<crate::ShaderValue>) -> Self {
+        let value = value.into();
+        if let Some((_, existing)) = self
+            .params
+            .parameters
+            .iter_mut()
+            .find(|(key, _)| key == name)
+        {
+            *existing = value;
+        } else {
+            self.params.parameters.push((name.to_owned(), value));
+        }
         self
     }
     #[inline(always)]

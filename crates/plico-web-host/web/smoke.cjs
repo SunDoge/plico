@@ -28,19 +28,26 @@ const { chromium } = require("playwright");
       }
       await healthy();
       await click("Controls");
-      await page.waitForFunction(() => window.plico.state.page === "Controls");
+      await page.waitForFunction(() => window.plico.state.router.current === "Controls");
       for (let i=0;i<3;i++) await click("Increment");
       await page.waitForFunction(() => window.plico.state.count === 3);
       await click("Dark theme");
       await page.waitForFunction(() => window.plico.state.dark);
+      await click("Data table");
+      await page.waitForFunction(() => window.plico.state.router.current === "DataTable");
+      await click("Filter projects");
+      await page.keyboard.type("Plico");
+      await page.waitForFunction(() => window.plico.semantics().some(n => n.label === "Clear filter"));
+      await click("Clear filter");
+      await healthy();
       await click("2048");
-      await page.waitForFunction(() => window.plico.state.page === "Game2048");
+      await page.waitForFunction(() => window.plico.state.router.current === "Game2048");
       await page.keyboard.press("ArrowLeft");
       await page.keyboard.press("ArrowDown");
       await page.keyboard.press("ArrowRight");
       await page.waitForFunction(() => window.plico.state.game2048.tiles.length > 2);
       await click("Lists");
-      await page.waitForFunction(() => window.plico.state.page === "Lists");
+      await page.waitForFunction(() => window.plico.state.router.current === "Lists");
       const row = await page.evaluate(() => window.plico.semantics().find(n => n.label === "Record 00001"));
       assert.ok(row, "first virtual row");
       await page.mouse.move(row.bounds[0]+30, row.bounds[1]+12);
@@ -50,10 +57,10 @@ const { chromium } = require("playwright");
         return labels.length && !labels.includes("Record 00001");
       });
       await click("Motion");
-      await page.waitForFunction(() => window.plico.state.page === "Motion");
+      await page.waitForFunction(() => window.plico.state.router.current === "Motion");
       await healthy(); // WGSL fallback must not break the WebGL frame.
       await click("Layout");
-      await page.waitForFunction(() => window.plico.state.page === "Layout");
+      await page.waitForFunction(() => window.plico.state.router.current === "Layout");
       const mainX = await page.evaluate(() => window.plico.semantics().find(n=>n.label === "The remaining space").bounds[0]);
       await click("Animate layout");
       await page.waitForFunction(x => {
@@ -68,19 +75,22 @@ const { chromium } = require("playwright");
       await click("Animate layout");
       await page.waitForFunction(() => !window.plico.state.expanded);
       await healthy();
-      await click("Glass");
-      await page.waitForFunction(() => window.plico.state.page === "Glass");
-      await click("Move background");
-      await page.waitForTimeout(500); // let checkbox feedback settle, then compare a fixed panel
-      await healthy();
-      const glass = await page.screenshot({clip:{x:230,y:340,width:300,height:190}});
-      await click("Blur background");
-      await page.waitForTimeout(300);
-      await healthy();
-      const clear = await page.screenshot({clip:{x:230,y:340,width:300,height:190}});
-      assert.ok(!glass.equals(clear), "WebGL backdrop blur changes panel pixels");
+      const backend = await page.evaluate(() => window.plico.backend);
+      if (backend === "webgl2") {
+        await click("Glass");
+        await page.waitForFunction(() => window.plico.state.router.current === "Glass");
+        await click("Move background");
+        await page.waitForTimeout(500); // let checkbox feedback settle, then compare a fixed panel
+        await healthy();
+        const glass = await page.screenshot({clip:{x:230,y:340,width:300,height:190}});
+        await click("Blur background");
+        await page.waitForTimeout(300);
+        await healthy();
+        const clear = await page.screenshot({clip:{x:230,y:340,width:300,height:190}});
+        assert.ok(!glass.equals(clear), "WebGL backdrop blur changes panel pixels");
+      }
       await click("Controls");
-      await page.waitForFunction(() => window.plico.state.page === "Controls");
+      await page.waitForFunction(() => window.plico.state.router.current === "Controls");
       await page.setViewportSize({width:900,height:700});
       await page.waitForFunction(scale => {
         const c=document.querySelector("canvas");
@@ -98,7 +108,7 @@ const { chromium } = require("playwright");
       await page.waitForTimeout(200);
       assert.equal(await page.evaluate(()=>window.plico.frames), frames+1, "wake burst rAF");
       await healthy();
-      console.log(JSON.stringify({scale,frames,page:"Controls",counter:3,checks:["pointer","theme","keyboard2048","virtual-scroll","shader-fallback","backdrop-blur","grid-layout","resize","idle"]}));
+      console.log(JSON.stringify({scale,backend,frames,page:"Controls",counter:3,checks:["pointer","theme","text-input","keyboard2048","virtual-scroll","shader-fallback",...(backend === "webgl2" ? ["backdrop-blur"] : []),"grid-layout","resize","idle"]}));
       await context.close();
     }
   } finally { await browser.close(); }

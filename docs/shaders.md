@@ -1,6 +1,6 @@
 # Custom WGSL surfaces
 
-Plico 的 shader 是普通声明叶子，使用已内置的 Wabou GPU 管线，不通过 JavaScript、图片预生成或软件颜色模拟。
+Plico 的 shader 是普通声明叶子。`plico-wgpu` 承载 WGSL 校验及效果管线；Skia 可使用资源附带的独立 SkSL 实现。shader 不替代布局、文字或输入节点。
 
 ```rust
 static AURORA: ShaderAsset = plico::shader_asset!("aurora.wgsl");
@@ -13,9 +13,9 @@ shader(cx, &AURORA)
 ```
 
 ```wgsl
-fn wabou_effect(uv: vec2<f32>) -> vec4<f32> {
-    let time = wabou.resolution_time_scale.z;
-    let strength = wabou.values[0].x;
+fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+    let time = plico.resolution_time_scale.z;
+    let strength = plico.values[0].x;
     let wave = 0.5 + 0.5 * sin(uv.x * 8.0 + time);
     return vec4<f32>(uv.x, wave * strength, 0.7, 1.0);
 }
@@ -25,13 +25,15 @@ fn wabou_effect(uv: vec2<f32>) -> vec4<f32> {
 
 ## Uniform 与资源边界
 
-普通 effect 函数共享后端 prelude：resolution_time_scale 的 xy 是物理纹理尺寸、z 是秒、w 是 DPI scale；values 是 64 个 vec4，最多 256 个标量。返回 RGBA。ShaderAsset::new / shader_asset! 使用此模式。
+普通 effect 函数共享后端 prelude：resolution_time_scale 的 xy 是物理纹理尺寸、z 是秒、w 是 DPI scale；values 是 64 个 vec4，最多 256 个标量。返回预乘 RGBA（半透明输出须将 RGB 乘以 alpha）。ShaderAsset::new / shader_asset! 使用此模式。
 
-ShaderAsset::module(include_str!(...)) 接受包含 vs_main / fs_main 的完整模块，并沿用 Wabou 的 raw-uniform ABI：values 从 buffer 偏移 0 写入，前三个 float 总会被宿主覆盖为 physical width、physical height、time，其余布局由模块定义。它与普通函数模式的四 float header + 256 scalar payload 不同；raw values 仍最多 256 个标量。只允许 group(0) binding(0) 的 uniform buffer，不提供自定义纹理、sampler、storage buffer 或 scene/backdrop 输入。
+`shader_asset!(module, "effect.wgsl")`（或 `ShaderAsset::module(include_str!(...))`）接受包含 vs_main / fs_main 的完整模块，并使用 raw-uniform ABI：values 从 buffer 偏移 0 写入，前三个 float 总会被宿主覆盖为 physical width、physical height、time，其余布局由模块定义。它与普通函数模式的四 float header + 256 scalar payload 不同；raw values 仍最多 256 个标量。只允许 group(0) binding(0) 的 uniform buffer，不提供自定义纹理、sampler、storage buffer 或 scene/backdrop 输入。顶点入口不能要求 `@location` 顶点缓冲输入，应通过 `@builtin(vertex_index)` 生成全屏三角形；片元入口必须输出单个 `@location(0) vec4<f32>`，可包装在单字段 struct 内。多颜色目标、深度和 sample-mask 输出不属于效果接口。
+
+完整模块的 uniform 字段（含嵌套结构、数组、向量、矩阵）仅支持 `f32`。`values` 上传的是浮点字节，`u32/i32` 字段会被提前拒绝，避免把 `1.0` 误读成整数位模式。整数用途请声明 `f32` 字段后在 WGSL 中显式转换，如 `u32(u.count)`；WGSL 的 padding/stride 仍需按实际字节槽位处理。局部整数和顶点 builtin 不受此限制。
 
 WGSL 经 Naga 解析与接口验证，源码上限 64KiB；参数必须有限、speed 非负。每个已挂载节点保留 ShaderEffectId、有效程序和 uniform 数据。源码错误保留上一个有效程序，首次编译错误则不绘制效果；Adapter::shader_diagnostics() 提供诊断。GPU pipeline 和输出纹理由 renderer 管理、复用及回收。卸载或暂停不会继续请求 shader 动画帧。
 
-核心只保存可序列化源码与 ShaderParams，不携带 GPU handle。ViewNode 和开发宿主 replay 已支持此载荷，修改源文件可随应用重新编译；静态资源只 include 实际使用的 WGSL 文件。控件身份稳定时，宿主播放进度和 GPU surface 可以保留。当前是 native GPU 接口，不宣称 WebGL/Bevy 后端已接好。
+核心只保存可序列化源码与 ShaderParams，不携带 GPU handle。修改源文件后重新编译应用；静态资源只 include 实际使用的 WGSL 文件。控件身份稳定时，宿主播放进度和 GPU surface 可以保留。当前是 native GPU 接口，不宣称 WebGL/Bevy 后端已接好。
 
 values(&[...]) 在应用声明时创建拥有所有权的参数 Vec；动画中间帧不执行应用声明，也不重复创建这份参数。还没有共享 uniform block API，不宣称多 surface 的所有分配已优化。
 
@@ -43,11 +45,33 @@ Gallery 的 Motion 页包含实时 WGSL aurora 和暂停按钮。shader 集成�
 
 ```sh
 cargo run -p gallery
-cargo test -p plico-desktop --test shader
+cargo test --locked -p plico-desktop --no-default-features --features vello --test shader
 cargo run -p gallery --example capture -- --page motion --out /tmp/shader.png
 ```
 
-真实 cdylib 验证复用 scripts/check-modal-reload.py：在打开的弹窗内更新持续动画的 WGSL 程序，保留应用计数并回放 uniform，再关闭并卸载。此测试也修复了 headless 激活新模块后未请求声明的问题。证据见 reports/modal/reload.json 与 reports/shaders/reload.png。
+## wgpu 窗口验证
+
+仓库已提供文件资源与共享窗口接入的最小示例：
+
+```sh
+cargo run --locked -p plico-desktop --no-default-features --features wgpu --example wgpu-window
+```
+
+示例通过 `shader_asset!("assets/progress.wgsl")` 嵌入 WGSL，计数按钮修改
+`values[0].x`，动画按钮显式控制持续请求帧。默认静态效果不会因为 prelude 中
+存在时间字段而持续唤醒。动画时间来自注入时钟，不在组件中读取系统时间。
+
+GPU 回归测试覆盖虚拟时间、暂停、参数、预乘输出、非矩形裁剪、独立透明层、
+多个快照及 damage 缓存生命周期：
+
+```sh
+cargo test --locked -p plico-renderer --lib shader::tests
+cargo test --locked -p plico-wgpu --test effects -- --include-ignored
+```
+
+后一条需要可用的 GPU adapter。Naga 注册校验不代替设备管线验证：例如顶点与
+片元阶段的接口不匹配仍可能由设备拒绝，renderer 将其报告为 shader 错误，
+测试检查随后有效效果能够恢复绘制。未实现源码文件监听或动态热重载。
 
 ## 同一 surface 的多个场景版本
 
@@ -65,7 +89,7 @@ static EFFECT: plico::ShaderAsset =
         .with_sksl(include_str!("effect.sksl"));
 ```
 
-WGSL defines `fn wabou_effect(uv: vec2<f32>) -> vec4<f32>`;
+WGSL defines `fn plico_effect(uv: vec2<f32>) -> vec4<f32>`;
 SkSL defines `half4 plico_effect(float2 uv)`. Both receive normalized local
 coordinates and the same injected clock and parameters. SkSL returns
 premultiplied RGBA (multiply RGB by alpha for translucent output).
@@ -73,15 +97,33 @@ premultiplied RGBA (multiply RGB by alpha for translucent output).
 The SkSL prelude declares `uniform float4 resolution_time_scale` (physical
 width, physical height, seconds, device scale), and `uniform float4 values[64]`
 (up to 256 scalars, zero-filled when absent). WGSL exposes the same fields
-through `wabou`. These names are reserved; additional uniforms and child
+through `plico`. These names are reserved; additional uniforms and child
 shaders are not part of this interface. This is not a WGSL-to-SkSL translator.
 
 Skia compiles RuntimeEffects on first use and reuses them across frames with
 a cache limited to 64 sources per rendering resource context. Its CPU raster
 and Vulkan paths consume the same effects. Invalid SkSL produces a diagnostic
-error; a WGSL-only asset still requires Vello. WGSL validation remains part of
+error; a WGSL-only asset requires the wgpu or Vello backend. WGSL validation remains part of
 asset preparation on both paths. Browser WebGL2 does not support these effects.
 
 The gallery Motion page's Aurora effect supplies both implementations.
 Tests cover time/parameter pixels, compilation errors and recovery, and
 rendering the complete page with Skia at two viewport sizes.
+
+## 后续扩展边界
+
+当前参数是最多 256 个 `f32`，不是任意 Rust struct 的内存映射。类型化参数布局、
+图片／sampler 输入和多 pass 渲染图尚未实现；不能将 `.values()` 解释为这些能力。
+效果输出裁剪在节点表面内，外扩阴影或 backdrop 读取也没有单独的 damage 契约。
+WGSL 入口为 `plico_effect` / `plico`；历史 `wabou` 拼写已随 Vello 后端一并移除。
+
+## 具名模块参数
+
+完整模块现在可写 `.param("progress", 0.5).param("color", [r, g, b])`。
+宿主从 WGSL 解析顶层 `f32/vec2f/vec3f/vec4f` 字段的真实偏移和分量数，
+不上传 Rust struct 内存。`vec3f` 后的标量也能正确打包。重复调用同名 setter
+以后一次为准；字段名、类型不匹配或覆盖宿主 width/height/time 会产生诊断。
+
+不能与 `.values(...)` 混用。函数模式、嵌套字段、数组和矩阵仍使用原始浮点
+参数接口。错误更新同时保留上一份有效程序和参数；JSON 场景兼容旧配置。
+完整例子与限制见 [WGSL effects](wgsl-effects.md#named-module-parameters)。

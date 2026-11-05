@@ -164,11 +164,7 @@ impl App {
             return;
         };
         let cursor = self.custom_resize_direction().map_or_else(
-            || match shell
-                .renderer
-                .pointer_cursor()
-                .unwrap_or_else(|| self.source.pointer_cursor())
-            {
+            || match self.source.pointer_cursor() {
                 CursorStyle::Default => CursorIcon::Default,
                 CursorStyle::Pointer => CursorIcon::Pointer,
                 CursorStyle::Text => CursorIcon::Text,
@@ -312,16 +308,18 @@ impl App {
     /// Build one frame into `shell.scene` from the source. Returns
     /// `(node_count, build_frame_ms, scene_ms)` so the caller can fold the
     /// timings (plus its own present timing) into the EMA perf stats.
-    fn build(shell: &mut Shell, source: &mut dyn FrameSource, parent: u64) -> (usize, f64, f64) {
+    fn build(
+        shell: &mut Shell,
+        source: &mut dyn FrameSource,
+        parent: u64,
+    ) -> crate::Result<(usize, f64, f64)> {
+        shell.renderer.configure_text(&mut shell.tcx)?;
         let (w, h) = shell.logical_size();
         let scale = shell.scale_factor();
         source.set_device_scale(scale);
-        if let Some(timings) = shell.renderer.build_native(source, [w, h], scale) {
-            return timings;
-        }
         let retained = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.retained");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.retained");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "retained.cpu");
@@ -329,36 +327,28 @@ impl App {
             source.render_retained_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
         };
         if let Some(timings) = retained {
-            return timings;
+            return match shell.tcx.take_native_paragraph_error() {
+                None => Ok(timings),
+                Some(message) => Err(crate::Error::Renderer { message }),
+            };
         }
         let (node_count, build_frame_ms, scene_ms) = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.build");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.build");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "build.cpu");
             phase.attribute("parent", parent);
             source.build_and_paint(&mut shell.scene, &mut shell.tcx, w, h, scale)
         };
-        (node_count, build_frame_ms, scene_ms)
+        if let Some(message) = shell.tcx.take_native_paragraph_error() {
+            return Err(crate::Error::Renderer { message });
+        }
+        Ok((node_count, build_frame_ms, scene_ms))
     }
 
     fn route_event(&mut self, event: UiEvent) -> EventResponse {
-        if let Some(mut response) = self
-            .state
-            .as_mut()
-            .and_then(|shell| shell.renderer.event(&event))
-        {
-            if !response.handled {
-                let fallback = self.source.handle_event(event);
-                response.handled |= fallback.handled;
-                response.request_redraw |= fallback.request_redraw;
-                response.consume_key_text |= fallback.consume_key_text;
-                response.clipboard = response.clipboard.or(fallback.clipboard);
-                response.text_input = response.text_input.or(fallback.text_input);
-            }
-            return response;
-        }
+        // Renderer backends no longer intercept events; the source owns routing.
         self.source.handle_event(event)
     }
     fn dispatch_event(&mut self, event: UiEvent) -> EventResponse {
@@ -453,7 +443,7 @@ impl App {
             }
             Err(error) => {
                 tracing::warn!(
-                    target: "wabou::ime",
+                    target: "plico::ime",
                     %error,
                     "failed to reset IME before pointer selection"
                 );
@@ -500,16 +490,12 @@ impl App {
         );
         if shell.window().request_ime_update(request).is_ok() {
             self.ime_enabled = true;
-            tracing::debug!(target: "wabou::ime", "enabled IME for focused editor");
+            tracing::debug!(target: "plico::ime", "enabled IME for focused editor");
         }
     }
 
     fn update_ime_state(&mut self) {
-        let state = self
-            .state
-            .as_ref()
-            .and_then(|shell| shell.renderer.ime_state())
-            .or_else(|| self.source.ime_state());
+        let state = self.source.ime_state();
         // A declarative autofocus can establish a text client before any key or
         // pointer event has supplied EventResponse::text_input.
         if state.is_some() {
@@ -536,13 +522,13 @@ impl App {
                 Ok(()) => {
                     self.ime_enabled = false;
                     tracing::debug!(
-                        target: "wabou::ime",
+                        target: "plico::ime",
                         "restarting IME after focused text client changed"
                     );
                 }
                 Err(error) => {
                     tracing::warn!(
-                        target: "wabou::ime",
+                        target: "plico::ime",
                         %error,
                         "failed to reset IME after focused text client changed"
                     );
@@ -579,7 +565,7 @@ impl App {
                 .is_ok()
             {
                 tracing::debug!(
-                    target: "wabou::ime",
+                    target: "plico::ime",
                     x = position.x,
                     y = position.y,
                     width = size.width,
@@ -632,12 +618,7 @@ impl App {
 
     fn drain_host_actions(&mut self) -> bool {
         let mut handled = false;
-        while let Some(action) = self
-            .state
-            .as_mut()
-            .and_then(|shell| shell.renderer.take_host_action())
-            .or_else(|| self.source.take_host_action())
-        {
+        while let Some(action) = self.source.take_host_action() {
             handled = true;
             match action {
                 HostAction::Window(command) => apply_window_command(self, command),
@@ -859,7 +840,7 @@ impl App {
         self.performance_hud.begin_frame(Instant::now());
         #[cfg(feature = "profiling")]
         let frame_span = tracing::trace_span!(
-            target: "wabou::perf",
+            target: "plico::perf",
             "frame",
             window_id = %self.window_key,
             node_count = tracing::field::Empty,
@@ -879,7 +860,17 @@ impl App {
             self.source.handle_semantic_action(action);
         }
         let (node_count, build_frame_ms, scene_ms) =
-            Self::build(shell, self.source.as_mut(), frame_measurement.id());
+            match Self::build(shell, self.source.as_mut(), frame_measurement.id()) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    crate::telemetry::report_error("frame construction rejected", &error);
+                    if let Some(request) = self.source.take_screenshot_request() {
+                        self.source
+                            .complete_screenshot(&request.path, Err(error.to_string()));
+                    }
+                    return;
+                }
+            };
         let base_color = self.source.base_color();
         self.update_ime_state();
         // Immediate views may produce actions while consuming events during build.
@@ -905,23 +896,21 @@ impl App {
         let base_color = shell.prepare_window_frame(base_color);
         if let Some(mut request) = self.source.take_screenshot_request() {
             let (width, height) = shell.size();
-            let result = crate::renderer::render_to_png_file(
-                &shell.scene,
-                width,
-                height,
-                base_color,
-                &mut request.file,
-                &request.path,
-            )
-            .map(|_| request.path.clone())
-            .map_err(|error| error.to_string());
+            let result = shell
+                .renderer
+                .capture(&shell.scene, width, height, base_color)
+                .and_then(|image| {
+                    crate::renderer::write_png_file(&image, &mut request.file, &request.path)
+                })
+                .map(|_| request.path.clone())
+                .map_err(|error| error.to_string());
             drop(request.file);
             self.source.complete_screenshot(&request.path, result);
         }
         let t2 = Instant::now();
         let presented = {
             #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "wabou::perf", "frame.present");
+            let span = tracing::trace_span!(target: "plico::perf", "frame.present");
             #[cfg(feature = "profiling")]
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "present.cpu");
@@ -950,7 +939,7 @@ impl App {
         frame_span.record("present_ms", present_ms);
         #[cfg(feature = "profiling")]
         tracing::trace!(
-            target: "wabou::perf",
+            target: "plico::perf",
             window_id = %self.window_key,
             node_count,
             build_ms = build_frame_ms,
@@ -1608,17 +1597,14 @@ impl ExtensionContext<'_> {
         let base_color = app.source.base_color();
         let shell = app
             .state
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "native window has no render surface".to_owned())?;
         let (width, height) = shell.size();
-        crate::renderer::render_to_png(
-            &shell.scene,
-            width,
-            height,
-            base_color,
-            &path.to_string_lossy(),
-        )
-        .map_err(|error| error.to_string())
+        shell
+            .renderer
+            .capture(&shell.scene, width, height, base_color)
+            .and_then(|image| crate::renderer::save_png(&image, &path.to_string_lossy()))
+            .map_err(|error| error.to_string())
     }
 
     /// Return the latest logical and physical metrics for a visible window.
@@ -2746,6 +2732,7 @@ pub fn run_window_with_options(
     // PLICO_TRACE_FILE, stderr otherwise); the guard flushes on drop, which
     // is why it lives for the whole event loop.
     let _tracing = crate::telemetry::init_tracing();
+    let _telemetry_export = crate::telemetry::ExportOnDrop;
     let event_loop: EventLoop = EventLoop::new().context(crate::error::CreateEventLoopSnafu)?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
@@ -2793,6 +2780,8 @@ pub fn run_windows_with_factory_and_extensions(
     if windows.is_empty() {
         return Ok(RunOutcome::Exit);
     }
+    let _tracing = crate::telemetry::init_tracing();
+    let _telemetry_export = crate::telemetry::ExportOnDrop;
     let event_loop: EventLoop = EventLoop::new().context(crate::error::CreateEventLoopSnafu)?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();

@@ -44,16 +44,14 @@ fn failures_are_explicit_and_do_not_poison_the_next_frame() {
         Affine::IDENTITY,
         &Rect::new(0., 0., 1., 1.),
         Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_primitive(
-                vello_common::filter_effects::FilterPrimitive::Offset { dx: 1., dy: 1. },
-            ),
+            plico_renderer::filter::Filter::identity(),
         )),
         None,
     );
     assert!(matches!(
         surface.render_scene(&scene, Color::WHITE),
         Err(Error::Unsupported {
-            command: "layer filter primitive"
+            command: "layer filter graph"
         })
     ));
     assert!(matches!(
@@ -85,8 +83,11 @@ fn gaussian_layer_filter_blurs_contents_and_respects_clip() {
         Affine::IDENTITY,
         &Rect::new(2., 2., 14., 14.),
         Some(std::sync::Arc::new(
-            vello_common::filter_effects::Filter::from_function(
-                vello_common::filter_effects::FilterFunction::Blur { radius: 2. },
+            plico_renderer::filter::Filter::from_primitive(
+                plico_renderer::filter::FilterPrimitive::GaussianBlur {
+                    std_deviation: 2.,
+                    edge_mode: plico_renderer::filter::EdgeMode::None,
+                },
             ),
         )),
         None,
@@ -995,7 +996,7 @@ fn tracked_damage_crossing_unchanged_nested_text_fragment_matches_full_pixels() 
 fn sksl_uses_injected_time_parameters_and_reports_compile_errors() {
     use plico_renderer::{ShaderEffectId, ShaderEffectSource, TextContext, widget::PaintContext};
     use std::sync::Arc;
-    let wgsl = "fn wabou_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv,0.,1.); }";
+    let wgsl = "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv,0.,1.); }";
     let mut surface = SkiaSurface::new(16, 16).unwrap();
     let mut text = TextContext::new();
     let mut render = |source: &str, time| {

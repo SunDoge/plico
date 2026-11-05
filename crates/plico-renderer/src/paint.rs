@@ -7,10 +7,10 @@
 
 use std::sync::Arc;
 
-use kurbo::{Affine, BezPath, Rect, Shape, Stroke, Vec2};
+use kurbo::{Affine, Rect, Shape, Stroke, Vec2};
 use peniko::{BlendMode, Brush, BrushRef, Color, Fill, FontData, ImageBrushRef, Style, StyleRef};
 
-use crate::ShaderEffect;
+use crate::{PaintShape, ShaderEffect};
 
 /// Font variation coordinate in normalized OpenType representation.
 pub type NormalizedCoord = i16;
@@ -64,12 +64,12 @@ pub enum PaintCommand {
         /// Clip transform.
         transform: Affine,
         /// Clip outline.
-        clip: BezPath,
+        clip: PaintShape,
         /// Optional Vello GPU filter.
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
     },
     /// Begin a clip-only scope.
-    PushClip { transform: Affine, clip: BezPath },
+    PushClip { transform: Affine, clip: PaintShape },
     /// End the most recent layer or clip.
     PopLayer,
     /// Stroke a path.
@@ -78,7 +78,7 @@ pub enum PaintCommand {
         transform: Affine,
         brush: Brush,
         brush_transform: Option<Affine>,
-        shape: BezPath,
+        shape: PaintShape,
     },
     /// Fill a path.
     Fill {
@@ -86,7 +86,7 @@ pub enum PaintCommand {
         transform: Affine,
         brush: Brush,
         brush_transform: Option<Affine>,
-        shape: BezPath,
+        shape: PaintShape,
     },
     /// Draw positioned glyphs.
     GlyphRun {
@@ -206,7 +206,13 @@ impl Default for Scene {
 }
 
 impl Scene {
-    /// Whether shaders, filters, or non-default blends require conservative redraw.
+    /// Whether two retained snapshots share the immutable command storage.
+    /// Retain the snapshot itself when caching: a bare pointer is not a version.
+    pub fn shares_commands_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.commands.0, &other.commands.0)
+    }
+
+    /// Whether shaders, filters, or unclassified blends require conservative redraw.
     /// Retained fragments are inspected recursively; command equality alone does
     /// not prove that these effects are independent of external pixels or time.
     pub fn has_nonlocal_effects(&self) -> bool {
@@ -214,7 +220,7 @@ impl Scene {
             PaintCommand::Fragment { scene, .. } => scene.has_nonlocal_effects(),
             PaintCommand::Shader { .. } => true,
             PaintCommand::PushLayer { filter, blend, .. } => {
-                filter.is_some() || *blend != BlendMode::default()
+                crate::damage::layer_requires_full_damage(*blend, filter.is_some())
             }
             _ => false,
         })
@@ -252,8 +258,8 @@ pub trait PaintScene {
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
-        backdrop_filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
+        backdrop_filter: Option<Arc<crate::filter::Filter>>,
     );
     /// Push a clip-only scope.
     fn push_clip_layer(&mut self, transform: Affine, clip: &impl Shape);
@@ -476,14 +482,14 @@ impl PaintScene for Scene {
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
-        filter: Option<Arc<vello_common::filter_effects::Filter>>,
-        _backdrop_filter: Option<Arc<vello_common::filter_effects::Filter>>,
+        filter: Option<Arc<crate::filter::Filter>>,
+        _backdrop_filter: Option<Arc<crate::filter::Filter>>,
     ) {
         self.commands.push(PaintCommand::PushLayer {
             blend: blend.into(),
             alpha,
             transform,
-            clip: clip.into_path(self.tolerance),
+            clip: PaintShape::record(clip, self.tolerance),
             filter,
         });
     }
@@ -491,7 +497,7 @@ impl PaintScene for Scene {
     fn push_clip_layer(&mut self, transform: Affine, clip: &impl Shape) {
         self.commands.push(PaintCommand::PushClip {
             transform,
-            clip: clip.into_path(self.tolerance),
+            clip: PaintShape::record(clip, self.tolerance),
         });
     }
 
@@ -512,7 +518,7 @@ impl PaintScene for Scene {
             transform,
             brush: own_brush(brush.into()),
             brush_transform,
-            shape: shape.into_path(self.tolerance),
+            shape: PaintShape::record(shape, self.tolerance),
         });
     }
 
@@ -529,7 +535,7 @@ impl PaintScene for Scene {
             transform,
             brush: own_brush(brush.into()),
             brush_transform,
-            shape: shape.into_path(self.tolerance),
+            shape: PaintShape::record(shape, self.tolerance),
         });
     }
 

@@ -2,3 +2,4 @@
 cocogitto = "latest"
 release-plz = "0.4.0"
 "github:bnjbvr/cargo-machete" = "latest"
+"github:wgsl-analyzer/wgsl-analyzer" = "latest"

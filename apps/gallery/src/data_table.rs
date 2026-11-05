@@ -263,7 +263,7 @@ fn sort_header(cx: &mut UiContext, state: &mut TableState, column: Sort, label: 
         if active {
             svg(
                 cx,
-                if state.descending { &crate::wabou_icons::ARROW_DOWN } else { &crate::wabou_icons::ARROW_UP },
+                if state.descending { &crate::legacy_icons::ARROW_DOWN } else { &crate::legacy_icons::ARROW_UP },
             ).size(14., 14.).color(Color::Accent);
         }
     }).response.clicked();

@@ -1,11 +1,11 @@
 //! Desktop window host for the Plico runtime. The declaration runtime lives in
 //! `plico-runtime`; this crate keeps the native launchers, the development CLI
-//! binary, and the Skia/Vello backend selection through plico-shell.
+//! binary, and desktop renderer selection through plico-shell.
 pub use plico_runtime::*;
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 mod capture;
-#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 pub use capture::{Capture, CaptureError, CapturedFrame, capture};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -88,7 +88,7 @@ mod services_host {
 #[cfg(not(target_arch = "wasm32"))]
 pub use services_host::{ServiceDesktopError, run_service_app_with_options};
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 mod preview;
-#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 pub use preview::{PreviewError, PreviewScenario, PreviewSource, PreviewStep, PreviewViewport};

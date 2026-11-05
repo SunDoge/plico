@@ -6,13 +6,13 @@ license.workspace = true
 description = "Host-agnostic declaration runtime for Plico: adapter, source, view and motion"
 
 [dependencies]
+unicode-segmentation = "1.12"
 elsa = "1.11.2"
 slotmap.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
 plico = { workspace = true, features = ["experiment-patch"] }
-parley.workspace = true
 zeroize = "1.9"
 plico-renderer.workspace = true
 plico-motion.workspace = true

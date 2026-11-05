@@ -180,6 +180,7 @@ pub struct TextContext {
     #[cfg(feature = "profiling")]
     profile: TextProfile,
     native: Option<Box<dyn crate::paragraph::ParagraphEngine>>,
+    native_error: Option<String>,
     font_assets: Vec<FontAsset>,
     paragraph_revision: u64,
     cache_generation: usize,
@@ -278,18 +279,6 @@ impl TextContext {
         Self::with_font_context(FontContext::new())
     }
 
-    /// Empty placeholder for native-widget hosts whose text system is external.
-    /// Does not enumerate system fonts or prepare a second fallback database.
-    pub fn without_system_fonts() -> Self {
-        Self::with_font_context(FontContext {
-            collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
-                system_fonts: false,
-                ..Default::default()
-            }),
-            source_cache: Default::default(),
-        })
-    }
-
     fn with_font_context(mut font_cx: FontContext) -> Self {
         // Parley prunes SourceCache as new layouts are built. The secondary
         // weak cache reuses a Blob still owned by older layouts instead of
@@ -306,6 +295,7 @@ impl TextContext {
                 }
             },
             native: None,
+            native_error: None,
             font_assets: Vec::new(),
             paragraph_revision: 0,
             cache_generation: next_cache_generation(),
@@ -350,14 +340,52 @@ impl TextContext {
     pub fn has_native_paragraphs(&self) -> bool {
         self.native.is_some()
     }
+    /// Whether the native provider also supplies caret geometry for editors.
+    pub fn has_native_editing(&self) -> bool {
+        self.native
+            .as_ref()
+            .is_some_and(|engine| engine.supports_editing())
+    }
+    /// Synchronize native measurement with the scale used for scene painting.
+    /// Scale-dependent hinting can alter logical advances; invalidate layout
+    /// caches only when the provider reports a change.
+    pub fn set_native_paragraph_scale(&mut self, scale: f64) -> bool {
+        if !scale.is_finite() || scale <= 0. {
+            return false;
+        }
+        let changed = self
+            .native
+            .as_mut()
+            .is_some_and(|engine| engine.set_device_scale(scale));
+        if changed {
+            self.clear_caches();
+            self.paragraph_revision = self.paragraph_revision.wrapping_add(1);
+        }
+        changed
+    }
     /// Lay out an ordinary text request with the selected host engine.
     pub fn native_paragraph(
         &mut self,
         request: Arc<crate::paragraph::ParagraphRequest>,
     ) -> Option<std::rc::Rc<dyn crate::paragraph::NativeParagraph>> {
-        Some(self.native.as_mut()?.layout(request))
+        match self.native.as_mut()?.layout(request) {
+            Ok(paragraph) => Some(paragraph),
+            Err(error) => {
+                tracing::warn!(%error,"native paragraph layout failed; host must handle fallback paint");
+                self.native_error = Some(error.to_string());
+                None
+            }
+        }
     }
 
+    /// Last native provider rejection, consumed by the host before submitting a frame.
+    pub fn take_native_paragraph_error(&mut self) -> Option<String> {
+        self.native_error.take()
+    }
+    /// Application font data already registered with this context.
+    pub fn registered_font_assets(&self) -> &[FontAsset] {
+        &self.font_assets
+    }
     /// Stable diagnostic name for the platform outline fallback policy.
     pub fn outline_fallback_name(&self) -> &'static str {
         // Fontique recommends geometric emboldening whenever a fallback face
@@ -448,6 +476,7 @@ impl TextContext {
     /// Release derived text layouts and encoded glyph scenes while retaining
     /// the discovered and application-provided font collection.
     pub fn clear_caches(&mut self) {
+        self.native_error = None;
         self.cache_generation = next_cache_generation();
         #[cfg(feature = "profiling")]
         {
@@ -504,7 +533,7 @@ impl TextContext {
         }
         #[cfg(feature = "profiling")]
         let span = tracing::trace_span!(
-            target: "wabou::perf",
+            target: "plico::perf",
             "text.glyph_encode.cache_miss",
             lines = layout.len() as u64,
             device_scale,
@@ -726,7 +755,7 @@ pub fn layout_text_styled_with_spacing(
     }
     #[cfg(feature = "profiling")]
     let span = tracing::trace_span!(
-        target: "wabou::perf",
+        target: "plico::perf",
         "text.shape.cache_miss",
         bytes = text.len() as u64,
         styled_runs = runs.len() as u64,

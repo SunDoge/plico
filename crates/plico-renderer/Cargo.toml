@@ -7,17 +7,16 @@ publish = false
 
 [features]
 profiling = []
-
 [dependencies]
 peniko.workspace = true
 kurbo.workspace = true
 gif = "0.14"
+wgpu.workspace = true
 plico.workspace = true
 web-time = "1.1"
 directories.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
 bytemuck.workspace = true
-glifo = { workspace = true, features = ["png"] }
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp", "gif"] }
 lru = "0.19.0"
 naga.workspace = true
@@ -30,14 +29,9 @@ taffy = { workspace = true, features = ["content_size", "parse"] }
 tracing = { workspace = true }
 unicode-segmentation = "1.13"
 usvg.workspace = true
-vello-common.workspace = true
-vello-gpu = { workspace = true, features = ["text"] }
 plico-motion = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
-vello-gpu = { workspace = true, features = ["webgl", "text"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wgpu.workspace = true
-vello-gpu = { workspace = true, features = ["wgpu", "text"] }

@@ -55,8 +55,7 @@ Windows 等 Linux 检查成功后再执行。纯文档与发布配置改动通�
 - 检查 Rust 与 component 格式和 Widget 边界；所有 Cargo 命令使用 `--locked`。
 - 测试 `plico`、`plico-macros`、`plico-motion`、`plico-dev`、
   `plico-cli`、`plico-markdown`、`plico-i18n`，以及无窗口的 runtime 语义协议测试。
-- 其余主线代码通过 workspace Clippy 检查（默认 feature）；不启用 Skia SDK、
-  FLTK、LVGL、ESP-IDF 等可选后端。`backend-settings` 使用 Vello feature 参与编译；全局热键启用 `plico-shell/global-hotkeys` 做编译检查，不运行 OS 自动化。
+- 其余主线代码通过 workspace Clippy 检查，默认使用 wgpu，并启用 Skia 对照与全局热键；不启用 FLTK、LVGL、ESP-IDF。额外对 WASM host 的 gallery/split 组合运行 Clippy，避免浏览器专属代码被 native 构建跳过。不运行 OS 自动化。
 - formatter、测试与 Clippy 在同一 runner 复用缓存；取消同分支的过期运行，15 分钟超时。
 
 Windows 只运行同一主线默认 feature 的 `cargo check --all-targets`，不运行测试或桌面自动化，20 分钟超时。
@@ -129,3 +128,19 @@ git diff -- Cargo.toml Cargo.lock CHANGELOG.md
 
 普通 CI 不运行桌面自动化。这些 Python 窗口脚本只保留为本地验收工具，
 不提供额外的全量 CI 开关。
+
+## Development build profiles
+
+Workspace development builds keep `opt-level = 1` and incremental compilation.
+Non-workspace dependencies use `opt-level = 2`, `debug = 0` and
+`strip = "debuginfo"`; workspace crates retain their existing debug information.
+The `plico new` template uses the same dependency settings. The wildcard package
+rule does not affect workspace members; build scripts/proc macros keep Cargo's
+normal build-override defaults unless a package override takes precedence.
+
+Dependency optimization prioritizes runtime performance and can increase the first
+build time compared with opt-level 1. Disabling debug-info generation can reduce compile/link work and disk
+usage. Stripping is primarily an artifact-size setting, not a measured compile-time
+speedup. Dependency stack traces lose source lines/local variables; use a temporary
+package-specific profile override when debugging a dependency. The first build
+after changing profile settings must rebuild affected dependencies.

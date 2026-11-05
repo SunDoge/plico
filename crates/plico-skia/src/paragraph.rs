@@ -290,8 +290,11 @@ impl ParagraphEngine for Engine {
     fn name(&self) -> &'static str {
         "skparagraph"
     }
-    fn layout(&mut self, request: Arc<ParagraphRequest>) -> Rc<dyn NativeParagraph> {
-        self.0.borrow_mut().layout(request)
+    fn layout(
+        &mut self,
+        request: Arc<ParagraphRequest>,
+    ) -> Result<Rc<dyn NativeParagraph>, plico_renderer::paragraph::ParagraphError> {
+        Ok(self.0.borrow_mut().layout(request))
     }
     fn register_font(&mut self, asset: &FontAsset) {
         self.0.borrow_mut().register(asset);

@@ -11,6 +11,7 @@
 | [Viewport 与缩放](viewport.md) | 宿主尺寸输入、响应式布局、百分比宽度与新桌面 zoom 示例 |
 | [System-wide hotkeys](global-hotkeys.md) | 可选全局热键、平台注册、Wayland portal 与宿主生命周期 |
 | [Window-local shortcuts](shortcuts.md) | 完整组合键、作用域 action 表、输入法优先级与热重载事件传递 |
+| [文字选择](text-selection.md) | 按词/段落拖选、Unicode 边界、复制与原生绘制验证 |
 | [Rust 测试协议](testing.md) | 共享语义命令、虚拟时钟、离屏应用测试与窗口验收边界 |
 | [Route enum 元信息](router.md) | Route derive、静态导航列表、标签、图标与稳定逻辑 ID |
 | [Gallery 与路由](gallery.md) | 页面状态、flex 展台、基础 motion 与 SVG 边界 |
@@ -20,6 +21,7 @@
 | [架构与后端边界](architecture.md) | 节点身份、保留存储、声明协调、Wabou 与 Bevy |
 | [egui 原生控件后端](egui.md) | Plico 声明、Taffy 外部布局与 egui 文字/控件，替代 Scene 回放实验 |
 | [FLTK + Taffy 后端实验](fltk.md) | 相同设置页、原生控件复用、输入回传与 Linux 开销对照 |
+| [Bevy plugin](bevy.md) | 共享 GPU 的 3D 场景覆盖层、输入桥接和透明 UI 纹理 |
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
 | [NSH 最小后端实验](nsh.md) | NSH element 投影、自带 Taffy/原生文字与 Entity 事件回传 |
 | [同步 local state 与宿主任务](local-state-and-tasks.md) | 组件局部状态、按需重建、宿主任务取消与迟到结果隔离 |
@@ -64,6 +66,8 @@
 | [代码编辑器](code-editor.md) | Floem 编辑核心、Parley 可见行、native surface 示例与接入边界 |
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
+| [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
+| [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |
 | [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
 | [API、宏与格式化](authoring.md) | chain、component、LSP、rustfmt 与专用 formatter |
@@ -113,3 +117,13 @@
 ## Widget capabilities
 
 [Input capabilities and backend support](widget-capabilities.md): static input flags, explicit native projection, type-change remounting and declaration-cost validation.
+
+[System text + independent wgpu compositor](system-text-wgpu.md): Linux glyph-atlas, blend-space and motion-cache experiment; not a production backend.
+
+[Independent wgpu quad backend](wgpu-backend-experiment.md): rounded fills, borders, Vello image comparisons and runtime WGSL material editing; experimental offscreen renderer.
+
+[wgpu renderer direction](wgpu-renderer-plan.md): replacement goal, mature-library reuse boundaries and remaining integration gates.
+
+[wgpu 窗口 CPU 采样](wgpu-profiling.md)：阶段 span、退出导出、真实设置页采样及解释边界。
+
+- [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.

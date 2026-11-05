@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1120,
+    "height": 820,
+    "scale": 1.0
+  },
+  "state": {},
+  "time_ms": 200,
+  "steps": [
+    {
+      "command": {
+        "action": "click",
+        "role": "checkbox",
+        "label": "Save automatically"
+      }
+    }
+  ]
+}

@@ -15,3 +15,5 @@
 
 # Lucide SVGs are a local generator cache; Rust, LICENSE and hashes are committed.
 crates/plico/assets/lucide/icons/
+.review-target/
+.review-head/

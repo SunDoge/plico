@@ -27,11 +27,10 @@ function invoke(fn) { try { fn(); schedule(); } catch(e) { fail(e); } }
 try {
   await init();
   window.addEventListener("plico-wake", schedule);
-  app = new Gallery(canvas);
-  const response = await fetch("./DejaVuSans.ttf");
-  if (!response.ok) throw new Error("Cannot load bundled demo font");
-  app.load_font(new Uint8Array(await response.arrayBuffer()));
-  window.plico = { frames: 0, state: null, semantics: () => JSON.parse(app.semantics()), schedule };
+  const renderer = new URL(location.href).searchParams.get("renderer") || "auto";
+  await document.fonts.ready;
+  app = await Gallery.create_wgpu(canvas, renderer);
+  window.plico = { backend: app.renderer_name(), frames: 0, state: null, semantics: () => JSON.parse(app.semantics()), schedule };
   for (const type of ["pointerdown", "pointerup", "pointermove", "pointercancel", "pointerleave"]) {
     canvas.addEventListener(type, e => invoke(() => {
       if (type === "pointerdown") { canvas.focus(); canvas.setPointerCapture(e.pointerId); }

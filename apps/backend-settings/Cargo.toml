@@ -7,21 +7,15 @@ publish = false
 
 [features]
 profiling = ["plico-runtime/profiling", "dep:tracing", "dep:tracing-subscriber"]
-default = []
+default = ["wgpu"]
 fltk = ["dep:plico-fltk", "plico-fltk/native", "dep:fltk-native"]
-vello = ["plico-desktop/vello", "plico-shell/vello", "dep:plico-desktop", "dep:plico-shell"]
+# Offline capture uses the shell's headless offscreen renderer (wgpu by default).
+wgpu = ["dep:plico-desktop", "plico-desktop/wgpu", "dep:tracing-subscriber"]
 skia = ["dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-subscriber"]
-egui = [
-    "dep:plico-egui",
-    "dep:plico-shell",
-    "plico-shell/egui",
-    "dep:tracing-subscriber",
-]
 
 [dependencies]
 tracing = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
-plico-egui = { path = "../../crates/plico-egui", optional = true, features = ["widgets"] }
 usage-rs.workspace = true
 snafu.workspace = true
 plico.workspace = true
@@ -31,13 +25,13 @@ plico-renderer.workspace = true
 plico-motion.workspace = true
 fltk-native = { package = "fltk", version = "1.5", optional = true }
 plico-fltk = { path = "../../crates/plico-fltk", optional = true }
-plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["skia"] }
+plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false }
 plico-runtime = { path = "../../crates/plico-runtime" }
 plico-shell = { path = "../../crates/plico-shell", optional = true }
 
 [[example]]
 name = "sidebar_capture"
-required-features = ["vello"]
+required-features = ["wgpu"]
 
 [[example]]
 name = "fltk_probe"
@@ -49,6 +43,7 @@ required-features = ["fltk"]
 
 [dev-dependencies]
 peniko.workspace = true
+plico-shell = { path = "../../crates/plico-shell" }
 
 [[example]]
 name = "damage_probe"

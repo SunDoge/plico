@@ -311,10 +311,17 @@ pub struct SplitHost {
 }
 #[wasm_bindgen]
 impl SplitHost {
-    #[wasm_bindgen(constructor)]
-    pub fn new(canvas: web_sys::HtmlCanvasElement, module: Function) -> Result<Self, JsValue> {
+    pub async fn create(
+        canvas: web_sys::HtmlCanvasElement,
+        module: Function,
+    ) -> Result<Self, JsValue> {
         Ok(Self {
-            host: WebHost::new(canvas, RemoteView::new(module)?)?,
+            host: WebHost::new_wgpu(
+                canvas,
+                RemoteView::new(module)?,
+                plico_wgpu::web::BrowserBackend::Auto,
+            )
+            .await?,
             font_loads: 0,
             service_ticks: 0,
         })
