@@ -499,14 +499,23 @@ macOS runtime proof and main renderer integration remain outstanding.
 
 #### CoreText face styles
 
-`Request::style: Option<FontStyle>` selects native bold/italic faces within the
-resolved family using CoreText symbolic traits. `None` preserves a named face’s
+`Request::style: Option<FontStyle>` selects native weight/italic faces within the
+resolved family. `FontWeight::Regular` and `Bold` use CoreText symbolic traits. `None` preserves a named face’s
 style; `Some(FontStyle::default())` explicitly requests regular/upright and can
 remove traits from a named bold face. A missing match returns `UnavailableStyle`;
 there is no synthetic outline expansion or skew fallback. `font_style()` and
 `font_postscript_name()` expose the resolved base face, not every fallback run.
-Continuous CSS weights and per-span styling are not implemented yet.
+`FontWeight::Normalized(f64)` uses a native font descriptor weight in `[-1, 1]`,
+with zero regular/medium. CoreText chooses the closest available face; this value
+is neither CSS weight nor an OpenType variation-axis coordinate. The actual
+`ResolvedFontStyle::normalized_weight` is read from the selected native font via
+a checked numeric downcast, and can be absent. Invalid/nonfinite requests are
+rejected. A separate CSS-to-native mapping and per-span styling are pending.
 
 Native tests cover the four Helvetica bold/italic combinations, regular face
 selection from a bold name, repeatable raster pixels and unchanged line metrics.
 They cross-compile on Apple Silicon/Intel; they have not run on macOS here.
+
+Normalized-weight tests additionally compile requests across the native range,
+read back actual traits and rasterize the retained line. These remain native
+macOS tests, cross-compiled here rather than executed on Linux.

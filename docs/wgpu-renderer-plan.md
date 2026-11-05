@@ -330,5 +330,7 @@ traversal performance or complete the paragraph/renderer integration gate.
 CoreText now also supports explicit native bold/italic face selection, preserving
 named styles by default and reporting unavailable family traits instead of
 synthesizing them. Resolved base-face style/PostScript identity is observable.
-The native style/raster regressions only cross-compile; continuous weights and
-macOS runtime/window acceptance remain open.
+The native style/raster regressions only cross-compile; macOS runtime/window
+acceptance remains open. Normalized native descriptor weights are now accepted
+and their resolved values observable; the Plico CSS-weight mapping is pending.
+The foundation does not guess a CSS/native equivalence or synthesize weight.

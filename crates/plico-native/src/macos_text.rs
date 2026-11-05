@@ -4,11 +4,12 @@
 mod raster;
 use crate::text_indices::TextIndices;
 use objc2_core_foundation::{
-    CFBoolean, CFMutableAttributedString, CFRange, CFRetained, CFString, CGPoint,
+    CFBoolean, CFDictionary, CFMutableAttributedString, CFNumber, CFRange, CFRetained, CFString,
+    CFType, CGPoint,
 };
 use objc2_core_text::{
-    CTFont, CTFontSymbolicTraits, CTFontUIFontType, CTLine, kCTFontAttributeName,
-    kCTForegroundColorFromContextAttributeName,
+    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, kCTFontAttributeName,
+    kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorFromContextAttributeName,
 };
 pub use raster::Rasterized;
 use snafu::Snafu;
@@ -32,13 +33,35 @@ pub enum Error {
 }
 /// Results returned by the CoreText foundation.
 pub type Result<T> = std::result::Result<T, Error>;
-/// Native symbolic face selection; no synthetic emboldening or skew is applied.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Native face weight selection; CoreText chooses the closest available face.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum FontWeight {
+    /// Select the family's regular face using symbolic traits.
+    #[default]
+    Regular,
+    /// Select the family's bold face using symbolic traits.
+    Bold,
+    /// CoreText normalized weight in `[-1, 1]`, with zero regular/medium.
+    /// This is not a CSS weight or an OpenType `wght` axis coordinate.
+    Normalized(f64),
+}
+/// Native face selection; no synthetic emboldening or skew is applied.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FontStyle {
-    /// Request the family’s bold face.
-    pub bold: bool,
+    /// Native symbolic or normalized face weight.
+    pub weight: FontWeight,
     /// Request the family’s italic face.
     pub italic: bool,
+}
+/// Actual base-face traits, which may differ from a normalized weight request.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ResolvedFontStyle {
+    /// Whether CoreText identifies the selected face as bold.
+    pub bold: bool,
+    /// Whether CoreText identifies the selected face as italic.
+    pub italic: bool,
+    /// Native normalized weight, if the font reports a finite numeric trait.
+    pub normalized_weight: Option<f64>,
 }
 /// A single-font request in logical macOS points.
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +99,12 @@ impl<'a> Request<'a> {
             && self.size.is_finite()
             && self.size > 0.
             && self.size <= 4096.
+            && self.style.is_none_or(|style| match style.weight {
+                FontWeight::Normalized(weight) => {
+                    weight.is_finite() && (-1. ..=1.).contains(&weight)
+                }
+                _ => true,
+            })
     }
 }
 /// Native typographic metrics; none are physical-pixel raster bounds.
@@ -129,7 +158,7 @@ impl Line {
         };
         let font = if let Some(style) = request.style {
             let mut traits = CTFontSymbolicTraits::empty();
-            if style.bold {
+            if style.weight == FontWeight::Bold {
                 traits |= CTFontSymbolicTraits::TraitBold;
             }
             if style.italic {
@@ -137,7 +166,7 @@ impl Line {
             }
             // SAFETY: The retained font is valid and the optional matrix is null.
             // Mask both bits so regular/upright can remove a named face's traits.
-            unsafe {
+            let font = unsafe {
                 font.copy_with_symbolic_traits(
                     0.,
                     std::ptr::null(),
@@ -145,7 +174,35 @@ impl Line {
                     CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic,
                 )
             }
-            .ok_or(Error::UnavailableStyle)?
+            .ok_or(Error::UnavailableStyle)?;
+            if let FontWeight::Normalized(weight) = style.weight {
+                let number = CFNumber::new_f64(weight);
+                // SAFETY: Framework constants are valid retained CFString keys;
+                // dictionaries retain their values for the synchronous font copy.
+                unsafe {
+                    let traits = CFDictionary::<CFString, CFType>::from_slices(
+                        &[kCTFontWeightTrait],
+                        &[&number],
+                    );
+                    let attributes = CFDictionary::<CFString, CFType>::from_slices(
+                        &[kCTFontTraitsAttribute],
+                        &[&traits],
+                    );
+                    let descriptor = CTFontDescriptor::with_attributes(attributes.as_ref());
+                    let selected =
+                        font.copy_with_attributes(0., std::ptr::null(), Some(&descriptor));
+                    if selected
+                        .symbolic_traits()
+                        .contains(CTFontSymbolicTraits::TraitItalic)
+                        != style.italic
+                    {
+                        return Err(Error::UnavailableStyle);
+                    }
+                    selected
+                }
+            } else {
+                font
+            }
         } else {
             font
         };
@@ -208,10 +265,23 @@ impl Line {
         })
     }
     /// Resolved base face style; fallback runs can use other faces.
-    pub fn font_style(&self) -> FontStyle {
+    pub fn font_style(&self) -> ResolvedFontStyle {
         // SAFETY: This line retains a valid immutable native font.
         let traits = unsafe { self.font.symbolic_traits() };
-        FontStyle {
+        // SAFETY: Valid retained native font and framework key. Downcasting is
+        // checked: malformed/missing native traits are observable as None.
+        let normalized_weight = unsafe {
+            // CTFontCopyTraits returns an immutable CFType dictionary whose
+            // documented trait keys are CFStrings; values are checked below.
+            let dictionary =
+                CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(self.font.traits());
+            dictionary.get(kCTFontWeightTrait)
+        }
+        .and_then(|value| value.downcast::<CFNumber>().ok())
+        .and_then(|value| value.as_f64())
+        .filter(|value| value.is_finite());
+        ResolvedFontStyle {
+            normalized_weight,
             bold: traits.contains(CTFontSymbolicTraits::TraitBold),
             italic: traits.contains(CTFontSymbolicTraits::TraitItalic),
         }
@@ -289,7 +359,14 @@ mod tests {
     fn symbolic_styles_select_native_faces_and_share_raster_geometry() {
         for bold in [false, true] {
             for italic in [false, true] {
-                let style = FontStyle { bold, italic };
+                let style = FontStyle {
+                    weight: if bold {
+                        FontWeight::Bold
+                    } else {
+                        FontWeight::Regular
+                    },
+                    italic,
+                };
                 let line = Line::new(&Request {
                     family: "Helvetica",
                     size: 24.,
@@ -297,7 +374,8 @@ mod tests {
                     ..Request::new("Office S 中文")
                 })
                 .unwrap();
-                assert_eq!(line.font_style(), style);
+                assert_eq!(line.font_style().bold, bold);
+                assert_eq!(line.font_style().italic, italic);
                 assert!(!line.font_postscript_name().is_empty());
                 let before = line.metrics();
                 let a = line
@@ -318,9 +396,56 @@ mod tests {
                         ..Request::new("text")
                     })
                     .unwrap();
-                    assert_eq!(regular.font_style(), FontStyle::default());
+                    assert!(!regular.font_style().bold);
+                    assert!(!regular.font_style().italic);
                 }
             }
+        }
+    }
+    #[test]
+    fn normalized_weights_are_native_bounded_and_observable() {
+        for weight in [-1., -0.4, 0., 0.23, 0.3, 0.4, 1.] {
+            let line = Line::new(&Request {
+                style: Some(FontStyle {
+                    weight: FontWeight::Normalized(weight),
+                    italic: false,
+                }),
+                ..Request::new("Weight S 中文")
+            })
+            .unwrap();
+            let resolved = line.font_style();
+            assert!(!resolved.italic);
+            assert!(resolved.normalized_weight.is_some_and(|w| w.is_finite()));
+            assert!(!line.font_postscript_name().is_empty());
+            assert!(
+                line.rasterize(1.25, [0.5, 0.], [0, 0, 0, 255])
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        for weight in [0., 0.4] {
+            let line = Line::new(&Request {
+                family: "Helvetica",
+                style: Some(FontStyle {
+                    weight: FontWeight::Normalized(weight),
+                    italic: true,
+                }),
+                ..Request::new("Italic")
+            })
+            .unwrap();
+            assert!(line.font_style().italic);
+        }
+        for weight in [-1.01, 1.01, f64::NAN, f64::INFINITY] {
+            assert!(matches!(
+                Line::new(&Request {
+                    style: Some(FontStyle {
+                        weight: FontWeight::Normalized(weight),
+                        italic: false
+                    }),
+                    ..Request::new("text")
+                }),
+                Err(Error::InvalidRequest)
+            ));
         }
     }
     #[test]
