@@ -168,14 +168,14 @@ impl Gallery {
         let l = ui.localizer();
         let m = ui.theme().metrics;
         row(ui).width_percent(100.).height_percent(100.).align(Align::Stretch) + |ui| {
-            column(ui).width(192.).shrink(0.).padding(12).gap(12).background(Color::Panel) + |ui| {
+            column(ui).width(220.).shrink(0.).padding(10).gap(8).background(Color::Panel) + |ui| {
                 row(ui).gap(8) + |ui| {
                     svg(ui, &LOGO).size(26., 26.);
                     text(ui, "plico").font_size(23).weight(750);
                 };
                 text(ui, l.text("interface-lab", "INTERFACE LAB")).font_size(10).weight(600)
                     .color(Color::Muted);
-                column(ui).height(0.).grow(1.).scroll_y(true).gap(6).padding(0) + |ui| {
+                column(ui).height(0.).grow(1.).scroll_y(true).gap(2).padding(0) + |ui| {
                     nav_menu(ui, &mut self.router);
                 };
                 row(ui).gap(6).wrap(true) + |ui| {

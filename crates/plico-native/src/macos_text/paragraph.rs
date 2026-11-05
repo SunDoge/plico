@@ -34,7 +34,8 @@ pub struct ParagraphLine {
     pub line: Line,
 }
 /// Multiline CoreText geometry with retained lines and no second shaping pass.
-/// Rich runs and ellipsis are pending; plico-wgpu hosts the shared renderer bridge.
+/// Rich runs use one attributed typesetter per hard paragraph; multiline
+/// ellipsis remains pending in the shared renderer bridge.
 pub struct Paragraph {
     text: Box<str>,
     lines: Vec<ParagraphLine>,
@@ -63,7 +64,17 @@ impl Paragraph {
         line_height: Option<f64>,
         alignment: Alignment,
     ) -> Result<Self> {
-        Self::layout(request, width, line_height, alignment, true)
+        Self::with_alignment_styled(request, &[], width, line_height, alignment)
+    }
+    /// Lay out rich spans while preserving one native shaping context per hard line.
+    pub fn with_alignment_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+        width: Option<f64>,
+        line_height: Option<f64>,
+        alignment: Alignment,
+    ) -> Result<Self> {
+        Self::layout(request, spans, width, line_height, alignment, true)
     }
     /// Preserve hard lines without soft wrapping while retaining an alignment width.
     pub fn without_wrapping(
@@ -72,16 +83,28 @@ impl Paragraph {
         line_height: Option<f64>,
         alignment: Alignment,
     ) -> Result<Self> {
-        Self::layout(request, width, line_height, alignment, false)
+        Self::without_wrapping_styled(request, &[], width, line_height, alignment)
+    }
+    /// Preserve hard lines and rich spans without soft wrapping.
+    pub fn without_wrapping_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+        width: Option<f64>,
+        line_height: Option<f64>,
+        alignment: Alignment,
+    ) -> Result<Self> {
+        Self::layout(request, spans, width, line_height, alignment, false)
     }
     fn layout(
         request: &Request<'_>,
+        spans: &[StyleSpan],
         width: Option<f64>,
         line_height: Option<f64>,
         alignment: Alignment,
         wrap: bool,
     ) -> Result<Self> {
         if !request.valid_paragraph()
+            || !valid_style_spans(request.text, spans)
             || width.is_some_and(|w| !w.is_finite() || w <= 0. || w > 1e9)
             || line_height.is_some_and(|h| !h.is_finite() || h <= 0. || h > 1e9)
         {
@@ -102,12 +125,25 @@ impl Paragraph {
                 text: &request.text[content.clone()],
                 ..*request
             };
+            let part_spans = spans
+                .iter()
+                .filter_map(|span| {
+                    let start = span.range.start.max(content.start);
+                    let end = span.range.end.min(content.end);
+                    (start < end).then(|| StyleSpan {
+                        range: start - content.start..end - content.start,
+                        size: span.size,
+                        style: span.style,
+                        color: span.color,
+                    })
+                })
+                .collect::<Vec<_>>();
             let right_to_left = crate::text_direction::paragraph_is_rtl(part.text);
             let wrapped = match width.filter(|_| wrap) {
-                Some(width) => Line::wrap(&part, width)?,
+                Some(width) => Line::wrap_styled(&part, &part_spans, width)?,
                 None => vec![WrappedLine {
                     range: 0..part.text.len(),
-                    line: Line::new(&part)?,
+                    line: Line::new_styled(&part, &part_spans)?,
                 }],
             };
             if lines.len() + wrapped.len() > 4096 {

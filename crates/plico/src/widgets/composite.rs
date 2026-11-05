@@ -128,12 +128,15 @@ pub fn nav_item(
         })
         .selected(selected)
         .transition(m.interaction_ms)
-        .gap(m.spacing)
+        .gap(m.space(2))
         .children(|cx| {
             if let Some(icon) = icon {
                 crate::widgets::icon(cx, icon);
             }
             text(cx, label)
+                .width(0.)
+                .grow(1.)
+                .min_width(0.)
                 .weight(if selected { 600 } else { 400 })
                 .font_size(m.font_size)
                 .ellipsis(true);

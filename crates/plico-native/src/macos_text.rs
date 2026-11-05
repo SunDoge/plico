@@ -1,7 +1,7 @@
 //! Experimental CoreText foundation. One retained native line supplies both
 //! metrics and editing offsets; no second shaping pass or raster approximation.
-//! Native multiline geometry is available; rich text remains pending. The
-//! experimental shared renderer bridge lives in plico-wgpu.
+//! Native multiline geometry and UTF-8 rich spans share retained attributed
+//! lines. The experimental renderer bridge lives in plico-wgpu.
 mod editing;
 mod fonts;
 mod intrinsic;
@@ -13,15 +13,17 @@ use objc2_core_foundation::{
     CFBoolean, CFDictionary, CFMutableAttributedString, CFNumber, CFRange, CFRetained, CFString,
     CFType, CGPoint,
 };
+use objc2_core_graphics::CGColor;
 use objc2_core_text::{
-    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, kCTFontAttributeName,
-    kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorFromContextAttributeName,
+    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, CTTypesetter,
+    kCTFontAttributeName, kCTFontTraitsAttribute, kCTFontWeightTrait,
+    kCTForegroundColorAttributeName, kCTForegroundColorFromContextAttributeName,
     kCTTrackingAttributeName,
 };
 pub use paragraph::{Alignment, Paragraph, ParagraphLine};
 pub use raster::Rasterized;
 use snafu::Snafu;
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, ops::Range, rc::Rc};
 pub use wrapping::WrappedLine;
 
 /// Invalid requests and native service failures are observable to the caller.
@@ -102,6 +104,37 @@ pub struct FontStyle {
     pub weight: FontWeight,
     /// Request the family’s italic face.
     pub italic: bool,
+}
+/// A complete style override over a UTF-8 byte range. Later overlapping spans
+/// win because CoreText attributes are applied in declaration order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StyleSpan {
+    /// UTF-8 byte range in the associated request text.
+    pub range: Range<usize>,
+    /// Logical font size in macOS points.
+    pub size: f64,
+    /// Native face selection within the request family.
+    pub style: FontStyle,
+    /// Straight sRGB foreground color.
+    pub color: [u8; 4],
+}
+fn valid_style_spans(text: &str, spans: &[StyleSpan]) -> bool {
+    spans.len() <= 4096
+        && spans.iter().all(|span| {
+            span.range.start <= span.range.end
+                && span.range.end <= text.len()
+                && text.is_char_boundary(span.range.start)
+                && text.is_char_boundary(span.range.end)
+                && span.size.is_finite()
+                && span.size > 0.
+                && span.size <= 4096.
+                && match span.style.weight {
+                    FontWeight::Regular | FontWeight::Bold => true,
+                    FontWeight::Normalized(weight) => {
+                        weight.is_finite() && (-1. ..=1.).contains(&weight)
+                    }
+                }
+        })
 }
 /// Actual base-face traits, which may differ from a normalized weight request.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -208,10 +241,69 @@ impl Line {
         let native = unsafe { CTLine::with_attributed_string(&attributed) };
         Self::from_native(native, font, request.text, 0)
     }
+    /// Shape a line once with native font and foreground overrides.
+    pub fn new_styled(request: &Request<'_>, spans: &[StyleSpan]) -> Result<Self> {
+        let (font, attributed) = Self::attributed_styled(request, spans)?;
+        // SAFETY: The attributed string is valid and no longer being mutated.
+        let native = unsafe { CTLine::with_attributed_string(&attributed) };
+        Self::from_native(native, font, request.text, 0)
+    }
+    /// Return the source prefix plus a native ellipsis when the complete line
+    /// exceeds `width`. The byte endpoint always lies on a CoreText cluster
+    /// boundary in the original UTF-8 string. `None` means no truncation is
+    /// necessary.
+    pub fn ellipsized_text(request: &Request<'_>, width: f64) -> Result<Option<(String, usize)>> {
+        Self::ellipsized_text_styled(request, &[], width)
+    }
+    /// Styled equivalent of [`Self::ellipsized_text`].
+    pub fn ellipsized_text_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+        width: f64,
+    ) -> Result<Option<(String, usize)>> {
+        snafu::ensure!(
+            request.valid() && width.is_finite() && width > 0. && width <= 1e9,
+            InvalidRequestSnafu
+        );
+        if Self::new_styled(request, spans)?.metrics().width <= width {
+            return Ok(None);
+        }
+        let token_request = Request {
+            text: "…",
+            ..*request
+        };
+        let token_width = Self::new(&token_request)?.metrics().width;
+        if token_width > width {
+            return Ok(Some((String::new(), 0)));
+        }
+        let (_, attributed) = Self::attributed_styled(request, spans)?;
+        // SAFETY: The valid attributed string is immutable after construction.
+        let typesetter = unsafe { CTTypesetter::with_attributed_string(&attributed) };
+        let available = (width - token_width).max(0.);
+        // SAFETY: The request starts at UTF-16 offset zero and `available` is a
+        // finite nonnegative width. CoreText returns a cluster boundary count.
+        let units = unsafe { typesetter.suggest_cluster_break(0, available) };
+        let units = u32::try_from(units).map_err(|_| Error::Wrapping)?;
+        let indices = TextIndices::new(request.text);
+        let end = indices.byte(units).ok_or(Error::Wrapping)?;
+        let mut text = String::with_capacity(end + '…'.len_utf8());
+        text.push_str(&request.text[..end]);
+        text.push('…');
+        Ok(Some((text, end)))
+    }
     fn attributed(
         request: &Request<'_>,
     ) -> Result<(CFRetained<CTFont>, CFRetained<CFMutableAttributedString>)> {
+        Self::attributed_styled(request, &[])
+    }
+    fn attributed_styled(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+    ) -> Result<(CFRetained<CTFont>, CFRetained<CFMutableAttributedString>)> {
         if !request.valid() {
+            return Err(Error::InvalidRequest);
+        }
+        if !valid_style_spans(request.text, spans) {
             return Err(Error::InvalidRequest);
         }
         let font = fonts::resolve(request)?;
@@ -249,6 +341,52 @@ impl Line {
                     CFRange::new(0, units as isize),
                     Some(kCTTrackingAttributeName),
                     Some(&spacing),
+                );
+            }
+        }
+        let indices = TextIndices::new(request.text);
+        for span in spans {
+            let start = indices
+                .utf16(span.range.start)
+                .ok_or(Error::InvalidRequest)?;
+            let end = indices.utf16(span.range.end).ok_or(Error::InvalidRequest)?;
+            if start == end {
+                continue;
+            }
+            let span_request = Request {
+                size: span.size,
+                style: Some(span.style),
+                ..*request
+            };
+            let span_font = fonts::resolve(&span_request)?;
+            let color = CGColor::new_srgb(
+                f64::from(span.color[0]) / 255.,
+                f64::from(span.color[1]) / 255.,
+                f64::from(span.color[2]) / 255.,
+                f64::from(span.color[3]) / 255.,
+            );
+            let range = CFRange::new(start as isize, (end - start) as isize);
+            // SAFETY: UTF-8 endpoints were mapped to valid UTF-16 boundaries.
+            // CoreFoundation retains each value after this scope. Sequential
+            // writes intentionally give later overlapping spans precedence.
+            unsafe {
+                CFMutableAttributedString::set_attribute(
+                    Some(&attributed),
+                    range,
+                    Some(kCTFontAttributeName),
+                    Some(&span_font),
+                );
+                CFMutableAttributedString::set_attribute(
+                    Some(&attributed),
+                    range,
+                    Some(kCTForegroundColorFromContextAttributeName),
+                    Some(CFBoolean::new(false)),
+                );
+                CFMutableAttributedString::set_attribute(
+                    Some(&attributed),
+                    range,
+                    Some(kCTForegroundColorAttributeName),
+                    Some(&color),
                 );
             }
         }
@@ -406,6 +544,36 @@ mod tests {
             }
             assert!(line.hit_test_x(f64::NAN).is_none());
         }
+    }
+    #[test]
+    fn native_ellipsis_uses_a_source_cluster_boundary_and_fits() {
+        let request = Request::new("Office 中文🙂 e\u{301} and more text");
+        let full = Line::new(&request).unwrap().metrics().width;
+        let width = full * 0.55;
+        let (text, end) = Line::ellipsized_text(&request, width).unwrap().unwrap();
+        assert!(request.text.is_char_boundary(end));
+        assert!(end < request.text.len());
+        assert_eq!(&text[..end], &request.text[..end]);
+        assert!(text.ends_with('…'));
+        assert!(
+            Line::new(&Request {
+                text: &text,
+                ..request
+            })
+            .unwrap()
+            .metrics()
+            .width
+                <= width + 0.01
+        );
+        assert!(
+            Line::ellipsized_text(&request, full + 1.)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            Line::ellipsized_text(&request, 0.5).unwrap(),
+            Some((String::new(), 0))
+        );
     }
     #[test]
     fn symbolic_styles_select_native_faces_and_share_raster_geometry() {

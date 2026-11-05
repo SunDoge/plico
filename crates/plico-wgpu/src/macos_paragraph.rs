@@ -1,7 +1,7 @@
 //! Experimental retained CoreText geometry and bounded per-line RGBA cache.
 use crate::{Error, Renderer, Result};
 use plico_native::macos_text::{
-    Alignment, FontStyle, FontWeight, Line, Paragraph as Layout, Request,
+    Alignment, FontStyle, FontWeight, Line, Paragraph as Layout, Request, StyleSpan,
 };
 use plico_renderer::{
     TextContext,
@@ -75,7 +75,7 @@ impl NativeParagraph for Paragraph {
         if !self.request.text.is_char_boundary(byte) {
             return None;
         }
-        if self.visible_lines < self.layout.lines().len() && byte >= self.visible_end {
+        if self.visible_end < self.request.text.len() && byte >= self.visible_end {
             // Native paragraph carets prefer the next soft line at a boundary;
             // use the final visible line directly to avoid entering hidden text.
             let last = &self.layout.lines()[self.visible_lines - 1];
@@ -198,13 +198,40 @@ impl Cache {
                 "CoreText application font registration is not implemented",
             ));
         }
-        if !request.runs.is_empty() || request.ellipsis {
+        if request.runs.len() > 4096 {
+            return Err(rejected("too many CoreText rich spans"));
+        }
+        if request.runs.iter().any(|run| {
+            run.range.start > run.range.end
+                || run.range.end > request.text.len()
+                || !request.text.is_char_boundary(run.range.start)
+                || !request.text.is_char_boundary(run.range.end)
+                || !run.font_size.is_finite()
+                || run.font_size <= 0.
+                || run.font_size > 4096.
+                || run.line_height.is_some()
+        }) {
             return Err(rejected(
-                "CoreText rich spans and ellipsis are not implemented",
+                "invalid CoreText rich span or per-span line height",
             ));
+        }
+        if request.ellipsis
+            && (request.wrap
+                || request.max_lines > 0
+                || request
+                    .text
+                    .contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']))
+        {
+            return Err(rejected("CoreText multiline ellipsis is not implemented"));
         }
         if request.family.len() > 4096 || request.family.contains(['\'', '"', '\\']) {
             return Err(rejected("invalid/unsupported CoreText family list"));
+        }
+        if request
+            .width
+            .is_some_and(|width| width.is_nan() || width < 0.)
+        {
+            return Err(rejected("invalid CoreText paragraph width"));
         }
         let mut geometry = (*request).clone();
         geometry.color = [0; 4];
@@ -234,23 +261,73 @@ impl Cache {
             }
         }
         let family = family.ok_or_else(|| rejected("no requested CoreText family is installed"))?;
-        let mut native = Request::new(&request.text);
-        native.family = family;
-        native.size = request.font_size as f64;
-        native.letter_spacing = request.letter_spacing as f64;
-        native.style = Some(FontStyle {
+        let mut source_native = Request::new(&request.text);
+        source_native.family = family;
+        source_native.size = request.font_size as f64;
+        source_native.letter_spacing = request.letter_spacing as f64;
+        source_native.style = Some(FontStyle {
             weight: FontWeight::from_css(request.font_weight as f64)
                 .map_err(|e| rejected(e.to_string()))?,
             italic: request.italic,
         });
+        let source_spans = request
+            .runs
+            .iter()
+            .map(|run| {
+                Ok(StyleSpan {
+                    range: run.range.clone(),
+                    size: f64::from(run.font_size),
+                    style: FontStyle {
+                        weight: FontWeight::from_css(f64::from(run.font_weight))?,
+                        italic: run.font_italic,
+                    },
+                    color: run.color,
+                })
+            })
+            .collect::<plico_native::macos_text::Result<Vec<_>>>()
+            .map_err(|error| rejected(error.to_string()))?;
         let height = request.line_height.map(|(h, relative)| {
             if relative {
-                h as f64 * native.size
+                h as f64 * source_native.size
             } else {
                 h as f64
             }
         });
-        let width = request.width.filter(|w| *w != f32::INFINITY).map(f64::from);
+        let requested_width = request.width.map(f64::from);
+        let ellipsized = match (request.ellipsis, requested_width) {
+            // Intrinsic measurement has no constraint. Preserve the full text;
+            // the final layout pass supplies the resolved content-box width.
+            (true, None) | (true, Some(f64::INFINITY)) => None,
+            // A collapsed flex item has no visible text area. Keep the request
+            // valid and clamp its editing geometry to the source start.
+            (true, Some(width)) if width == 0. => Some((String::new(), 0)),
+            (true, Some(width)) => {
+                Line::ellipsized_text_styled(&source_native, &source_spans, width)
+                    .map_err(|e| rejected(e.to_string()))?
+            }
+            (false, _) => None,
+        };
+        let width = requested_width.filter(|width| width.is_finite() && *width > 0.);
+        let visible_end_override = ellipsized.as_ref().map(|(_, end)| *end);
+        let native = Request {
+            text: ellipsized
+                .as_ref()
+                .map_or(source_native.text, |(text, _)| text.as_str()),
+            ..source_native
+        };
+        let native_spans = if let Some((_, end)) = &ellipsized {
+            source_spans
+                .iter()
+                .filter_map(|span| {
+                    (span.range.start < *end).then(|| StyleSpan {
+                        range: span.range.start..span.range.end.min(*end),
+                        ..span.clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        } else {
+            source_spans.clone()
+        };
         let align = match request.align {
             TextAlign::Start => Alignment::Start,
             TextAlign::Center => Alignment::Center,
@@ -258,9 +335,9 @@ impl Cache {
             TextAlign::Justify => Alignment::Justify,
         };
         let layout = if request.wrap {
-            Layout::with_alignment(&native, width, height, align)
+            Layout::with_alignment_styled(&native, &native_spans, width, height, align)
         } else {
-            Layout::without_wrapping(&native, width, height, align)
+            Layout::without_wrapping_styled(&native, &native_spans, width, height, align)
         }
         .map_err(|e| rejected(e.to_string()))?;
         let mut source = geometry.clone();
@@ -275,7 +352,7 @@ impl Cache {
         {
             cached.widths
         } else {
-            let widths = Layout::measure_intrinsic(&native)
+            let widths = Layout::measure_intrinsic_styled(&source_native, &source_spans)
                 .map_err(|e| rejected(e.to_string()))?
                 .map(|v| v as f32);
             self.intrinsic_measurements += 1;
@@ -311,7 +388,8 @@ impl Cache {
         } else {
             layout.lines().len().min(request.max_lines)
         };
-        let visible_end = layout.lines()[visible_lines - 1].range.end;
+        let visible_end =
+            visible_end_override.unwrap_or_else(|| layout.lines()[visible_lines - 1].range.end);
         let visible_size = [
             layout.lines()[..visible_lines]
                 .iter()
@@ -695,12 +773,13 @@ mod tests {
         assert!(c.rasterizations > calls);
     }
     #[test]
-    fn clipped_native_images_stay_bounded_and_unsupported_declarations_reject() {
+    fn clipped_native_images_stay_bounded_and_rich_spans_render() {
         let mut c = Cache::new();
         let mut declaration = (*request()).clone();
         declaration.text = "W".repeat(10000).into();
         declaration.wrap = false;
         let p = c.layout(Arc::new(declaration.clone())).unwrap();
+        let natural_height = p.metrics().height;
         let images = c
             .images(p, declaration.color, 1., 0., [0., 0., 120., 80.])
             .unwrap();
@@ -708,7 +787,32 @@ mod tests {
         for (image, _) in images.iter() {
             assert!(image.width <= 120 && image.height <= 80);
         }
-        declaration.ellipsis = true;
+        let mut run = plico_renderer::text::TextRun {
+            range: 0..1,
+            font_size: declaration.font_size * 1.5,
+            font_weight: 700.,
+            font_italic: false,
+            line_height: None,
+            color: [255, 0, 0, 255],
+        };
+        declaration.runs = Arc::from([run.clone()]);
+        let styled = c.layout(Arc::new(declaration.clone())).unwrap();
+        assert!(styled.metrics().height > natural_height);
+        let rich_images = c
+            .images(styled, declaration.color, 1., 0., [0., 0., 120., 80.])
+            .unwrap();
+        assert!(!rich_images.is_empty());
+        assert!(rich_images.iter().any(|(image, _)| {
+            image
+                .data
+                .data()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] > 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] > 0)
+        }));
+        run.line_height = Some((1.5, true));
+        declaration.runs = Arc::from([run]);
         assert!(c.layout(Arc::new(declaration)).is_err());
         let mut bad = (*request()).clone();
         bad.font_weight = f32::NAN;
@@ -716,6 +820,35 @@ mod tests {
         let mut bad = (*request()).clone();
         bad.family = "Definitely Not A Font, sans-serif".into();
         assert!(c.layout(Arc::new(bad)).is_ok());
+    }
+    #[test]
+    fn single_line_ellipsis_keeps_source_intrinsics_and_clamps_editing() {
+        let mut c = Cache::new();
+        let mut r = (*request()).clone();
+        r.text = "A long native label that must be shortened".into();
+        r.width = Some(90.);
+        r.wrap = false;
+        r.ellipsis = true;
+        let p = c.layout(Arc::new(r.clone())).unwrap();
+        assert_eq!(p.layout.lines().len(), 1);
+        assert!(p.layout.lines()[0].line.text().ends_with('…'));
+        assert!(p.visible_end < r.text.len());
+        assert!(p.metrics().width <= r.width.unwrap() + 0.01);
+        assert!(p.metrics().intrinsic[1] > p.metrics().width);
+        let edge = p.caret_rect(p.visible_end).unwrap();
+        assert_eq!(p.caret_rect(r.text.len()), Some(edge));
+        assert_eq!(p.hit_test(1000., 0.), p.visible_end);
+        assert!(p.selection_rects(p.visible_end..r.text.len()).is_empty());
+
+        r.width = None;
+        let unconstrained = c.layout(Arc::new(r.clone())).unwrap();
+        assert_eq!(unconstrained.visible_end, r.text.len());
+        assert!(!unconstrained.layout.lines()[0].line.text().ends_with('…'));
+
+        r.width = Some(0.);
+        let collapsed = c.layout(Arc::new(r)).unwrap();
+        assert_eq!(collapsed.visible_end, 0);
+        assert_eq!(collapsed.metrics().width, 0.);
     }
     #[test]
     fn native_intrinsic_measurements_survive_constraint_and_color_changes() {
