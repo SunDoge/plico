@@ -15,6 +15,7 @@
 | [Rust 测试协议](testing.md) | 共享语义命令、虚拟时钟、离屏应用测试与窗口验收边界 |
 | [Route enum 元信息](router.md) | Route derive、静态导航列表、标签、图标与稳定逻辑 ID |
 | [Gallery 与路由](gallery.md) | 页面状态、flex 展台、基础 motion 与 SVG 边界 |
+| [Lavapipe / tiny-skia 对照](lavapipe-comparison.md) | 软件 Vulkan 与 CPU 2D 后端的真实窗口、CPU、内存及帧率对照 |
 | [Desktop widgets](desktop-widgets.md) | Toast 入退场、悬停暂停、窗口 portal 与虚拟时钟验证 |
 | [动机与开发体验](vision.md) | 为什么选择 immediate API、预期优势和实际代价 |
 | [后端清理](backend-cleanup.md) | 当前 crate 划分、删除的旧协议与保留边界 |

@@ -314,7 +314,7 @@ impl TextContext {
     pub fn raster_backend_name(&self) -> &'static str {
         self.native
             .as_ref()
-            .map_or("vello-outline", |engine| engine.name())
+            .map_or("parley-outline", |engine| engine.name())
     }
 
     /// Install the host's ordinary paragraph engine before layout.
@@ -1258,7 +1258,7 @@ mod tests {
     #[test]
     fn text_backend_uses_xilem_style_vello_glyph_runs() {
         let context = TextContext::new();
-        assert_eq!(context.raster_backend_name(), "vello-outline");
+        assert_eq!(context.raster_backend_name(), "parley-outline");
         assert_eq!(context.outline_fallback_name(), "direct-native-weight");
     }
 
