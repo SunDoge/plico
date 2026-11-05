@@ -30,6 +30,9 @@ pub struct Patterns {
     find_query: String,
     find_current: usize,
     tint_open: bool,
+    alert: ModalState,
+    deleted: usize,
+    dismissed: usize,
 }
 
 impl Default for Patterns {
@@ -58,6 +61,9 @@ impl Default for Patterns {
             find_query: String::new(),
             find_current: 0,
             tint_open: false,
+            alert: ModalState::default(),
+            deleted: 0,
+            dismissed: 0,
         }
     }
 }
@@ -320,6 +326,17 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 text!(ui, "Match {} of {matches}", state.find_current + 1).color(Color::Muted);
             }
         };
+        panel(ui, "Alert dialog").description("A modal alert returning the chosen button, ported from MyGO.") + |ui| {
+            if button(ui).text("Delete notes…").ghost().clicked() {
+                state.alert.open();
+            }
+            text!(
+                ui,
+                "Deleted {} times; dismissed {} times",
+                state.deleted,
+                state.dismissed
+            ).color(Color::Muted);
+        };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {
             row(ui).height(120.) + |ui| {
@@ -354,4 +371,9 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
     };
     // Overlay after the page so retiring cards remain above the content.
     toast_viewport(ui, &mut state.toasts);
+    match alert_dialog(ui, &mut state.alert, "Delete notes?", "You can't undo this.", &["Cancel", "Delete"]) {
+        1 => state.deleted += 1,
+        ALERT_DISMISSED => state.dismissed += 1,
+        _ => {}
+    }
 }

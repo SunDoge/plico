@@ -225,6 +225,7 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
     cx.svg(asset).size(size, size)
 }
 
+mod alert;
 mod calendar;
 mod colorpicker;
 mod composite;
@@ -238,6 +239,7 @@ mod navigation;
 mod search;
 mod split;
 mod tree;
+pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use colorpicker::{color_picker, color_well};
 pub use composite::{

@@ -239,6 +239,8 @@ pub enum WidgetRole {
     Toolbar,
     /// A color swatch that opens a picker (mygo ColorWell).
     ColorWell,
+    /// A modal alert that needs an explicit answer (mygo AlertDialog).
+    AlertDialog,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {

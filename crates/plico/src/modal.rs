@@ -36,6 +36,7 @@ pub struct Modal<'u, 'e, 's> {
     anchor: Option<u64>,
     panel_role: Option<crate::WidgetRole>,
     max_height: Option<f32>,
+    header: bool,
 }
 impl<'e> UiContext<'e> {
     pub fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
@@ -52,6 +53,7 @@ impl<'e> UiContext<'e> {
             anchor: None,
             panel_role: None,
             max_height: None,
+            header: true,
         }
     }
     /// Close the innermost popover containing this declaration.
@@ -113,6 +115,17 @@ impl<'s> Modal<'_, '_, 's> {
         self.escape = enabled;
         self
     }
+    /// Show the title row and its close button. Alerts turn it off and put the
+    /// title and message in their own content.
+    pub(crate) fn header(mut self, enabled: bool) -> Self {
+        self.header = enabled;
+        self
+    }
+    /// The semantic role of the dialog panel, such as an alert dialog.
+    pub(crate) fn panel_role(mut self, role: crate::WidgetRole) -> Self {
+        self.panel_role = Some(role);
+        self
+    }
     pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> ModalResponse<R> {
         let Self {
             ui,
@@ -126,6 +139,7 @@ impl<'s> Modal<'_, '_, 's> {
             anchor,
             panel_role,
             max_height,
+            header,
         } = self;
         let now = ui.now().as_millis().min(u64::MAX as u128) as u64;
         if ui.inherited.disabled {
@@ -230,7 +244,7 @@ impl<'s> Modal<'_, '_, 's> {
                 ..Default::default()
             };
             cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
-                if anchor.is_none() {
+                if anchor.is_none() && header {
                     let _ = crate::widgets::row(cx)
                         .gap(12)
                         .align(Align::Center)

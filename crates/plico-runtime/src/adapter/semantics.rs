@@ -91,6 +91,7 @@ impl Adapter {
                             Some(plico::WidgetRole::RadioButton) => Role::RadioButton,
                             Some(plico::WidgetRole::Toolbar) => Role::Toolbar,
                             Some(plico::WidgetRole::ColorWell) => Role::ColorWell,
+                            Some(plico::WidgetRole::AlertDialog) => Role::AlertDialog,
                             None => match n.kind {
                                 Kind::Button | Kind::ButtonBase => Role::Button,
                                 Kind::Slider => Role::Slider,

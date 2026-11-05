@@ -259,6 +259,21 @@ form(cx, |cx| {
   history and step it on click. MyGO's right-click history menu and the
   Cmd+[ / Alt+Left shortcuts are not part of the widgets.
 
+### Alert dialog (MyGO port)
+
+`alert_dialog(cx, &mut ModalState, title, message, buttons)` ports MyGO's
+`AlertDialog`: while the state is open it renders a modal alert with the
+title, message and buttons, the last of which is the accent-colored default.
+It returns the clicked button's index, `ALERT_DISMISSED` (-2) in the frame
+Escape closes it, and -1 otherwise; a click outside does nothing. The panel
+carries the alert-dialog role and is named by its title.
+
+Two differences: Plico cannot move the keyboard focus onto the default button,
+so Enter only answers after Tab reaches it; and because Plico may run a
+settlement declaration pass after the modal closes, the returned index must be
+handled in the same declaration pass (`match` in the view), not stored for
+later.
+
 ### Date input (MyGO port)
 
 `date_input(cx, label, &mut CalendarDate, &mut PopoverState)` ports MyGO's
