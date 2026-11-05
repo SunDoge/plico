@@ -313,7 +313,7 @@ The optional native `macos-text` feature now cross-compiles single-line CoreText
 metrics and UTF-8/scalar editing offsets on Apple Silicon and Intel. It retains
 the actual shaped CTLine, with bounded requests and UI-thread ownership. See
 `docs/native-text.md` for the exact supported API and native-test commands.
-Rasterization, paragraph layout and wgpu integration are still missing; this is
+Paragraph layout and wgpu integration are still missing; this is
 progress toward the macOS gate, not evidence that the gate has passed.
 
 The CoreText foundation also has a bounded CGContext bitmap primitive using the
@@ -326,3 +326,9 @@ allocation limits, while retaining full line geometry. Portable tests cover
 bounded output for enormous ink; native crop-equivalence tests only cross-compile.
 This prepares viewport handling but does not establish actual CoreText glyph
 traversal performance or complete the paragraph/renderer integration gate.
+
+CoreText now also supports explicit native bold/italic face selection, preserving
+named styles by default and reporting unavailable family traits instead of
+synthesizing them. Resolved base-face style/PostScript identity is observable.
+The native style/raster regressions only cross-compile; continuous weights and
+macOS runtime/window acceptance remain open.

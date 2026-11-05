@@ -76,8 +76,8 @@ cost more memory and cache invalidation work than reusable glyphs, and changing
 color invalidates a bitmap. Rebuilding at target scale is required after DPI changes;
 rotated/continuously scaled text remains better suited to the outline path.
 
-macOS CoreText remains unimplemented; the experimental Windows DirectWrite service
-and wgpu bridge are described below. No GTK window or main loop is introduced. `linux-text` is off
+The experimental macOS CoreText single-line foundation and Windows DirectWrite
+service/wgpu bridge are described below. macOS wgpu integration remains pending. No GTK window or main loop is introduced. `linux-text` is off
 by default and target-gated; default builds, WASM and ESP-IDF do not link Pango/Cairo.
 
 See [source and license notes](../crates/plico-native/SOURCES.md) for the local
@@ -420,7 +420,7 @@ Windows-only colorization and COM tests cross-compile but have not run here.
 ### CoreText single-line foundation (macOS)
 
 `plico-native/macos-text` now exposes an experimental retained `macos_text::Line`.
-It selects a regular UI font (or named CoreText font), shapes one immutable line,
+It selects a UI font (or named CoreText font), shapes one immutable line,
 and reads typographic width/ascent/descent/leading and glyph count from that same
 native result. The base font family is observable; CoreText may select fallback
 fonts for individual runs or unknown requested names. Sizes are logical points,
@@ -496,3 +496,17 @@ architectures and check cropped bytes against full-image crops at multiple DPI,
 plus a 10000-character line whose full bitmap exceeds the cap but whose visible
 region is bounded. These native pixel/long-line tests are not executed here;
 macOS runtime proof and main renderer integration remain outstanding.
+
+#### CoreText face styles
+
+`Request::style: Option<FontStyle>` selects native bold/italic faces within the
+resolved family using CoreText symbolic traits. `None` preserves a named face’s
+style; `Some(FontStyle::default())` explicitly requests regular/upright and can
+remove traits from a named bold face. A missing match returns `UnavailableStyle`;
+there is no synthetic outline expansion or skew fallback. `font_style()` and
+`font_postscript_name()` expose the resolved base face, not every fallback run.
+Continuous CSS weights and per-span styling are not implemented yet.
+
+Native tests cover the four Helvetica bold/italic combinations, regular face
+selection from a bold name, repeatable raster pixels and unchanged line metrics.
+They cross-compile on Apple Silicon/Intel; they have not run on macOS here.

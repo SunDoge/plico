@@ -7,7 +7,7 @@ use objc2_core_foundation::{
     CFBoolean, CFMutableAttributedString, CFRange, CFRetained, CFString, CGPoint,
 };
 use objc2_core_text::{
-    CTFont, CTFontUIFontType, CTLine, kCTFontAttributeName,
+    CTFont, CTFontSymbolicTraits, CTFontUIFontType, CTLine, kCTFontAttributeName,
     kCTForegroundColorFromContextAttributeName,
 };
 pub use raster::Rasterized;
@@ -23,13 +23,24 @@ pub enum Error {
     /// A native font, attributed string or bitmap resource could not be allocated.
     #[snafu(display("CoreText/CoreGraphics resource allocation failed"))]
     Allocation,
+    /// The requested family has no face matching the requested symbolic style.
+    #[snafu(display("CoreText font family has no matching bold/italic face"))]
+    UnavailableStyle,
     /// Native metrics were nonfinite, excessive or otherwise inconsistent.
     #[snafu(display("invalid CoreText line metrics"))]
     Metrics,
 }
 /// Results returned by the CoreText foundation.
 pub type Result<T> = std::result::Result<T, Error>;
-/// A single regular-font line in logical macOS points.
+/// Native symbolic face selection; no synthetic emboldening or skew is applied.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FontStyle {
+    /// Request the family’s bold face.
+    pub bold: bool,
+    /// Request the family’s italic face.
+    pub italic: bool,
+}
+/// A single-font request in logical macOS points.
 #[derive(Clone, Copy, Debug)]
 pub struct Request<'a> {
     /// Original UTF-8 text, at most 1 MiB and 100,000 scalar values.
@@ -39,6 +50,9 @@ pub struct Request<'a> {
     pub family: &'a str,
     /// Logical font size, finite and in `(0, 4096]`.
     pub size: f64,
+    /// Select a face within the resolved family. `None` preserves a named face's
+    /// style; `Some(FontStyle::default())` explicitly requests regular/upright.
+    pub style: Option<FontStyle>,
 }
 impl<'a> Request<'a> {
     /// Use the regular system UI font at 14 logical points.
@@ -47,6 +61,7 @@ impl<'a> Request<'a> {
             text,
             family: "system-ui",
             size: 14.,
+            style: None,
         }
     }
     fn valid(&self) -> bool {
@@ -112,6 +127,28 @@ impl Line {
                 CTFont::with_name(&name, request.size, std::ptr::null())
             }
         };
+        let font = if let Some(style) = request.style {
+            let mut traits = CTFontSymbolicTraits::empty();
+            if style.bold {
+                traits |= CTFontSymbolicTraits::TraitBold;
+            }
+            if style.italic {
+                traits |= CTFontSymbolicTraits::TraitItalic;
+            }
+            // SAFETY: The retained font is valid and the optional matrix is null.
+            // Mask both bits so regular/upright can remove a named face's traits.
+            unsafe {
+                font.copy_with_symbolic_traits(
+                    0.,
+                    std::ptr::null(),
+                    traits,
+                    CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic,
+                )
+            }
+            .ok_or(Error::UnavailableStyle)?
+        } else {
+            font
+        };
         let string = CFString::from_str(request.text);
         let attributed = CFMutableAttributedString::new(None, 0).ok_or(Error::Allocation)?;
         let units = request.text.encode_utf16().count();
@@ -169,6 +206,20 @@ impl Line {
             metrics,
             _thread: PhantomData,
         })
+    }
+    /// Resolved base face style; fallback runs can use other faces.
+    pub fn font_style(&self) -> FontStyle {
+        // SAFETY: This line retains a valid immutable native font.
+        let traits = unsafe { self.font.symbolic_traits() };
+        FontStyle {
+            bold: traits.contains(CTFontSymbolicTraits::TraitBold),
+            italic: traits.contains(CTFontSymbolicTraits::TraitItalic),
+        }
+    }
+    /// Resolved base font's PostScript name, useful when diagnosing substitution.
+    pub fn font_postscript_name(&self) -> String {
+        // SAFETY: This line retains a valid immutable native font.
+        unsafe { self.font.post_script_name() }.to_string()
     }
     /// Original UTF-8 contents.
     pub fn text(&self) -> &str {
@@ -232,6 +283,44 @@ mod tests {
                 }
             }
             assert!(line.hit_test_x(f64::NAN).is_none());
+        }
+    }
+    #[test]
+    fn symbolic_styles_select_native_faces_and_share_raster_geometry() {
+        for bold in [false, true] {
+            for italic in [false, true] {
+                let style = FontStyle { bold, italic };
+                let line = Line::new(&Request {
+                    family: "Helvetica",
+                    size: 24.,
+                    style: Some(style),
+                    ..Request::new("Office S 中文")
+                })
+                .unwrap();
+                assert_eq!(line.font_style(), style);
+                assert!(!line.font_postscript_name().is_empty());
+                let before = line.metrics();
+                let a = line
+                    .rasterize(1.5, [0.25, 0.], [30, 50, 70, 255])
+                    .unwrap()
+                    .unwrap();
+                let b = line
+                    .rasterize(1.5, [0.25, 0.], [30, 50, 70, 255])
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(a, b);
+                assert_eq!(line.metrics().width, before.width);
+                // Explicit regular style also removes a named bold face's trait.
+                if bold && !italic {
+                    let regular = Line::new(&Request {
+                        family: "Helvetica-Bold",
+                        style: Some(FontStyle::default()),
+                        ..Request::new("text")
+                    })
+                    .unwrap();
+                    assert_eq!(regular.font_style(), FontStyle::default());
+                }
+            }
         }
     }
     #[test]
