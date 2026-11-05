@@ -4698,6 +4698,8 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
+ "plico-wgpu",
+ "pollster 1.0.1",
  "serde",
  "serde_json",
  "snafu",

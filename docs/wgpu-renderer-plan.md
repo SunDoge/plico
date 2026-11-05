@@ -288,3 +288,21 @@ it is not a claim that ordinary scene commands currently use custom materials.
 Regression evidence: 135 shared-renderer library tests, 96 wgpu tests (five manual
 profiles excluded), 23 existing Skia raster tests (one ignored), shared/wgpu Clippy,
 and Windows/WASM checks passed. Windows runtime behavior remains unverified.
+
+## Shared scenario capture integration
+
+`plico-desktop` capture/preview now supports its wgpu-only feature configuration.
+`capture(...).renderer(RenderBackend::Wgpu)`,
+`PreviewScenario::render_with_backend`, and `render_source_with_backend` select
+one renderer/text service for declaration, scripted input and final offscreen
+pixels. Auto continues to prefer Skia when enabled. Unsupported explicit choices
+error instead of silently selecting another backend. No second preview protocol
+or dynamic reload path is introduced; see `docs/preview.md` for commands.
+
+Four wgpu capture tests passed, covering repeatable state/click/clock at 1.5×,
+premultiplied capture versus straight-alpha PNG, unavailable backend errors, and
+a hosted image canvas at 1.25×. Seven existing Skia capture/preview tests passed;
+wgpu-only, Skia-only and combined library Clippy plus Windows cross-compilation
+passed. The actual gallery Controls JSON scenario produced and visually verified
+count 5 from seeded count 4 plus one scripted click. Generated PNG is local only.
+macOS native wgpu text capture remains unsupported; Windows runtime is unverified.
