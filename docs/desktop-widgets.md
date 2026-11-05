@@ -75,3 +75,24 @@ step 网格并夹在范围内，按下立即步进，按住 400 ms 后每 80 ms 
 - 两个箭头是独立焦点，名称分别为 Increase 和 Decrease；容器带 spinbutton 角色。
   MyGO 用一个 `.Label` 命名整个 stepper，并支持 Up/Down/Home/End，尚未移植。
 - 吸附同时清除 0.1 这类步长的浮点误差，显示值仍是普通 `f64`。
+
+## Source list 与搜索框
+
+`sidebar(cx)` 参考 MyGO `ui/sidebar.go`，返回一个带 tree 角色的滚动列；调用方用
+`.width(...)` / `.height(...)` 或 `.grow(1.)` 给出边界，然后在内容闭包里声明 section
+和 item。
+
+- `sidebar_section(cx, title, open, content)`：标题是 treeitem，带 `expanded` 状态；
+  点击或 Enter/Space 切换 `open`，关闭时子项卸载。`open` 为 `None` 时标题是纯文本，
+  内容始终显示。切换经过 `clicked()`，展开状态在下一帧声明中生效。
+- `sidebar_item(cx, label, selected, icon)`：可选图标加单行标签，选中态使用 Selection
+  背景和 Accent 前景，悬停使用 ControlHover；返回普通 `Response`，选择由调用方保存。
+- 尚未移植 MyGO 的单 Tab stop、Up/Down/Home/End 与首字母选择：当前每个条目和 section
+  标题都是独立焦点，指针负责选择。
+
+`search_field(cx, label, placeholder, value)` 参考 MyGO `ui/search.go`：放大镜、原生
+文本输入和清空按钮。清空按钮只在文本非空时挂载，清空与键入一样上报 `changed`；Enter
+通过 `submitted` 上报。尚未移植 Escape 清空和搜索框专用语义角色，字段按普通文本输入
+（标签即其可访问名）暴露。
+
+两者都只读取调用方状态，不新增持久 callback；清空和选择都会让调用方在同一帧拿到结果。

@@ -1,7 +1,9 @@
 //! The MyGO ports must project their roles into the semantic tree, where the
 //! native accessibility bridges read them.
 use plico::UiContext;
-use plico::widgets::{MeterLevels, breadcrumbs, meter, split, stepper};
+use plico::widgets::{
+    MeterLevels, breadcrumbs, meter, sidebar, sidebar_item, sidebar_section, split, stepper,
+};
 use plico_renderer::{FrameSource, SemanticRole, TextContext};
 use plico_runtime::{HostView, Source};
 
@@ -34,6 +36,13 @@ impl HostView for Trails {
                 cx.text("Right");
             },
         );
+        let mut open = true;
+        let _ = sidebar(cx).width(200.).height(120.)
+            + |cx| {
+                sidebar_section(cx, "Section", Some(&mut open), |cx| {
+                    let _ = sidebar_item(cx, "Item", true, None);
+                });
+            };
     }
 }
 
@@ -41,7 +50,7 @@ impl HostView for Trails {
 fn breadcrumbs_and_meter_project_their_semantic_roles() {
     let mut source = Source::new(Trails);
     let mut text = TextContext::new();
-    let _ = source.build_frame(&mut text, 500, 200);
+    let _ = source.build_frame(&mut text, 500, 500);
     let semantics = source.adapter.semantics(&source.engine, 0);
     let count = |role: SemanticRole| semantics.nodes.iter().filter(|n| n.role == role).count();
     assert_eq!(count(SemanticRole::Navigation), 1);
@@ -49,6 +58,8 @@ fn breadcrumbs_and_meter_project_their_semantic_roles() {
     assert_eq!(count(SemanticRole::Meter), 1);
     assert!(count(SemanticRole::SpinButton) >= 1);
     assert_eq!(count(SemanticRole::Separator), 1);
+    assert_eq!(count(SemanticRole::Tree), 1);
+    assert!(count(SemanticRole::TreeItem) >= 2);
     assert!(
         semantics
             .nodes

@@ -151,15 +151,16 @@ pub mod macro_support {
 /// Recommended imports for application and custom widget modules.
 pub mod prelude {
     pub use crate::widgets::{
-        Avatar, Button, CalendarResponse, Checkbox, MeterLevels, Panel, RubyText, Switch,
-        TableColumn, Toast, ToastHost, ToastKind, avatar, badge, breadcrumbs, button, button_base,
-        calendar, calendar_content, calendar_with, checkbox, choice, collapsible, column,
-        drag_area, grid, icon, image, menu, menu_item, meter, modal, nav_item, nav_menu, panel,
-        popover, progress, property_field, rating, row, ruby_text, segmented, select, separator,
-        settings_row, settings_section, shader, slider, spinner, split, split_percent,
-        split_vertical, split_vertical_percent, stat, stepper, svg, svg_source, switch,
-        table_header, table_row, tabs, text, text_empty, text_input, text_input_string,
-        toast_viewport, toolbar, toolbar_spacer, tooltip, virtual_list,
+        Avatar, Button, CalendarResponse, Checkbox, MeterLevels, Panel, RubyText, SearchResponse,
+        Switch, TableColumn, Toast, ToastHost, ToastKind, avatar, badge, breadcrumbs, button,
+        button_base, calendar, calendar_content, calendar_with, checkbox, choice, collapsible,
+        column, drag_area, grid, icon, image, menu, menu_item, meter, modal, nav_item, nav_menu,
+        panel, popover, progress, property_field, rating, row, ruby_text, search_field, segmented,
+        select, separator, settings_row, settings_section, shader, sidebar, sidebar_item,
+        sidebar_section, slider, spinner, split, split_percent, split_vertical,
+        split_vertical_percent, stat, stepper, svg, svg_source, switch, table_header, table_row,
+        tabs, text, text_empty, text_input, text_input_string, toast_viewport, toolbar,
+        toolbar_spacer, tooltip, virtual_list,
     };
     pub use crate::{
         AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,

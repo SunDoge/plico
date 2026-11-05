@@ -83,3 +83,72 @@ fn breadcrumbs_leave_an_empty_path_alone() {
     });
     assert_eq!(chosen, 2);
 }
+
+fn optional(engine: &Engine, label: &str) -> Option<Entity> {
+    let mut found = None;
+    walk(engine, engine.root(), &mut |entity, node| {
+        if node.text == label && found.is_none() {
+            found = Some(entity);
+        }
+    });
+    found
+}
+
+#[test]
+fn sidebar_sections_toggle_and_items_report_their_choice() {
+    let mut open = true;
+    let mut chosen = "inbox".to_string();
+    let mut engine = Engine::default();
+    let section = |cx: &mut UiContext, chosen: &mut String, open: &mut bool| {
+        let _ = sidebar(cx).width(220.).height(320.)
+            + |cx| {
+                sidebar_section(cx, "Mailboxes", Some(open), |cx| {
+                    if sidebar_item(cx, "Inbox", chosen == "inbox", None).clicked() {
+                        *chosen = "inbox".into();
+                    }
+                    if sidebar_item(cx, "Sent", chosen == "sent", None).clicked() {
+                        *chosen = "sent".into();
+                    }
+                });
+            };
+    };
+    frame(&mut engine, |cx| {
+        section(cx, &mut chosen, &mut open);
+    });
+    let inbox = named(&engine, "Inbox");
+    assert_eq!(engine.node(inbox).unwrap().style.selected, Some(true));
+    assert_eq!(
+        engine.node(inbox).unwrap().style.role,
+        Some(WidgetRole::TreeItem)
+    );
+    let mut trees = 0;
+    walk(&engine, engine.root(), &mut |_, node| {
+        if node.style.role == Some(WidgetRole::Tree) {
+            trees += 1;
+        }
+    });
+    assert_eq!(trees, 1, "the sidebar is the tree landmark");
+
+    engine.queue_click(named(&engine, "Sent"));
+    frame(&mut engine, |cx| {
+        section(cx, &mut chosen, &mut open);
+    });
+    assert_eq!(chosen, "sent");
+
+    engine.queue_click(named(&engine, "Mailboxes"));
+    frame(&mut engine, |cx| {
+        section(cx, &mut chosen, &mut open);
+    });
+    assert!(!open, "the section title toggles the disclosure");
+    assert!(
+        optional(&engine, "Inbox").is_none(),
+        "closed sections unmount their items"
+    );
+    // The toggle lands through clicked(), evaluated after the header is
+    // declared, so the expanded state appears on the next declaration.
+    frame(&mut engine, |cx| {
+        section(cx, &mut chosen, &mut open);
+    });
+    let header = engine.node(named(&engine, "Mailboxes")).unwrap();
+    assert_eq!(header.style.expanded, Some(false));
+}

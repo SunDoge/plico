@@ -1,6 +1,6 @@
 //! Desktop paradigms demo: tab strips, toolbars, toasts, drag surfaces,
-//! breadcrumbs, indicators, steppers and split panes (the shared widgets in
-//! plico::widgets, MyGO semantics).
+//! breadcrumbs, indicators, steppers, split panes, a source list and a search
+//! field (the shared widgets in plico::widgets, MyGO semantics).
 use crate::heading;
 use plico::prelude::*;
 
@@ -15,6 +15,9 @@ pub struct Patterns {
     stars: u8,
     copies: f64,
     pane: f32,
+    mailbox: String,
+    mail_open: bool,
+    query: String,
 }
 
 impl Default for Patterns {
@@ -29,6 +32,9 @@ impl Default for Patterns {
             stars: 3,
             copies: 1.,
             pane: 200.,
+            mailbox: "inbox".into(),
+            mail_open: true,
+            query: String::new(),
         }
     }
 }
@@ -134,6 +140,51 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns) {
                     };
                 },
             );
+        };
+        panel(ui, "Source list and search").description(
+            "A sidebar of sections with icon items and a search field, ported from MyGO.") + |ui|
+        {
+            row(ui).gap(16).align(Align::Start) + |ui| {
+                let _ = sidebar(ui).width(220.).height(200.) + |ui| {
+                    sidebar_section(
+                        ui,
+                        "Mailboxes",
+                        Some(&mut state.mail_open),
+                        |ui| {
+                            if sidebar_item(ui, "Inbox", state.mailbox == "inbox",
+                                Some(&crate::icons::FOLDER)).clicked()
+                            {
+                                state.mailbox = "inbox".into();
+                            }
+                            if sidebar_item(ui, "Sent", state.mailbox == "sent",
+                                Some(&crate::icons::MESSAGE_SQUARE)).clicked()
+                            {
+                                state.mailbox = "sent".into();
+                            }
+                            if sidebar_item(ui, "Archive", state.mailbox == "archive",
+                                Some(&crate::icons::ARCHIVE)).clicked()
+                            {
+                                state.mailbox = "archive".into();
+                            }
+                        },
+                    );
+                    sidebar_section(ui, "Tags", None, |ui| {
+                        if sidebar_item(ui, "Work", state.mailbox == "work", None).clicked() {
+                            state.mailbox = "work".into();
+                        }
+                        if sidebar_item(ui, "Receipts", state.mailbox == "receipts", None).clicked() {
+                            state.mailbox = "receipts".into();
+                        }
+                    });
+                };
+                column(ui).gap(8.).grow(1.) + |ui| {
+                    search_field(ui, "Search mail", "Search mail", &mut state.query);
+                    text!(ui, "Query: {}", state.query).color(Color::Muted);
+                    text!(ui, "Mailbox: {}", state.mailbox).color(Color::Muted);
+                    text(ui, "Click a sidebar item, collapse Mailboxes, or clear the search text.")
+                        .color(Color::Muted);
+                };
+            };
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

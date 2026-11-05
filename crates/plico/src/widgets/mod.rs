@@ -231,6 +231,7 @@ mod desktop;
 mod indicators;
 mod media;
 mod navigation;
+mod search;
 mod split;
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use composite::{
@@ -242,7 +243,8 @@ pub use desktop::{
 };
 pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
-pub use navigation::breadcrumbs;
+pub use navigation::{breadcrumbs, sidebar, sidebar_item, sidebar_section};
+pub use search::{SearchResponse, search_field};
 pub use split::{split, split_percent, split_vertical, split_vertical_percent};
 
 /// A native single-line editor. Secret buffers expose only masked presentation.

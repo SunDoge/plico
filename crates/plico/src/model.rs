@@ -227,6 +227,10 @@ pub enum WidgetRole {
     SpinButton,
     /// An adjustable divider between regions (mygo Split).
     Separator,
+    /// A hierarchical collection of expandable items (mygo Tree/Sidebar).
+    Tree,
+    /// One item in a tree or source list.
+    TreeItem,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {
