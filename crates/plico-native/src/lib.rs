@@ -19,7 +19,11 @@ pub mod capture;
 
 #[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
 mod text_direction;
-#[cfg(all(feature = "windows-text", any(target_os = "windows", test)))]
+#[cfg(any(
+    all(target_os = "windows", feature = "windows-text"),
+    all(target_os = "macos", feature = "macos-text"),
+    all(test, any(feature = "windows-text", feature = "macos-text"))
+))]
 mod text_indices;
 /// DirectWrite layout and UTF-8 editing geometry (experimental Windows service).
 #[cfg(all(target_os = "windows", feature = "windows-text"))]
@@ -28,3 +32,7 @@ pub mod windows_text;
 /// Microsoft Terminal-compatible grayscale coverage correction (experimental).
 #[cfg(feature = "windows-text")]
 pub mod directwrite_correction;
+
+/// Experimental CoreText single-line metrics and scalar-index geometry.
+#[cfg(all(target_os = "macos", feature = "macos-text"))]
+pub mod macos_text;

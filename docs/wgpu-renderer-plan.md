@@ -306,3 +306,12 @@ wgpu-only, Skia-only and combined library Clippy plus Windows cross-compilation
 passed. The actual gallery Controls JSON scenario produced and visually verified
 count 5 from seeded count 4 plus one scripted click. Generated PNG is local only.
 macOS native wgpu text capture remains unsupported; Windows runtime is unverified.
+
+## CoreText foundation progress
+
+The optional native `macos-text` feature now cross-compiles single-line CoreText
+metrics and UTF-8/scalar editing offsets on Apple Silicon and Intel. It retains
+the actual shaped CTLine, with bounded requests and UI-thread ownership. See
+`docs/native-text.md` for the exact supported API and native-test commands.
+Rasterization, paragraph layout and wgpu integration are still missing; this is
+progress toward the macOS gate, not evidence that the gate has passed.

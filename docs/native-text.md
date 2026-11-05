@@ -416,3 +416,40 @@ c++ -std=c++17 -O2 crates/plico-native/tests/assets/directwrite-correction-refer
 This verifies the coverage math against the published implementation, not native
 Windows coverage quality, per-monitor settings or actual GPU/window parity. The
 Windows-only colorization and COM tests cross-compile but have not run here.
+
+### CoreText single-line foundation (macOS)
+
+`plico-native/macos-text` now exposes an experimental retained `macos_text::Line`.
+It selects a regular UI font (or named CoreText font), shapes one immutable line,
+and reads typographic width/ascent/descent/leading and glyph count from that same
+native result. The base font family is observable; CoreText may select fallback
+fonts for individual runs or unknown requested names. Sizes are logical points,
+not pre-scaled bitmap pixels.
+
+Caret offsets expose native primary/secondary bidi positions at validated UTF-8
+scalar boundaries. Hit testing converts CoreText UTF-16 indices back through the
+shared scalar-boundary map; invalid indices/surrogate interiors return None.
+This is not yet a grapheme-stop/selection/IME implementation. Requests reject
+multiline input, nonfinite/oversized sizes, over-1-MiB text, over-100000 scalars,
+and invalid family strings. Native metrics/glyph counts are checked too. Retained
+objects are deliberately UI-thread-local and own their native references.
+
+The local GPUI Apple text implementation was read as an API/design reference:
+it uses CTLine shaping, UTF-16/UTF-8 index conversion and CGContext rasterization.
+This foundation does not depend on GPUI or font-kit. CoreText rasterization,
+multiline wrapping, font style spans, selection rectangles, private fonts and
+wgpu provider integration remain to be implemented. In particular, enabling the
+native feature does not yet enable macOS wgpu window/capture text.
+
+```sh
+# On macOS: execute native font/geometry tests.
+cargo test --locked -p plico-native --no-default-features --features macos-text --lib
+# Cross-check both supported macOS architectures without linking/running:
+cargo check --locked -p plico-native --no-default-features --features macos-text --tests --target aarch64-apple-darwin
+cargo check --locked -p plico-native --no-default-features --features macos-text --tests --target x86_64-apple-darwin
+```
+
+Both architecture cross-checks and Apple Silicon Clippy passed locally. On Linux,
+the shared scalar-index test passed with macos-text; the five Windows portable
+correction/index tests also passed. Native macOS tests were only compiled, never
+executed here. There is no macOS rendered-quality or runtime claim yet.

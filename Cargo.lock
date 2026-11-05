@@ -4843,6 +4843,8 @@ dependencies = [
  "image",
  "kurbo 0.13.1",
  "lru",
+ "objc2-core-foundation",
+ "objc2-core-text",
  "pango",
  "pangocairo",
  "peniko",
