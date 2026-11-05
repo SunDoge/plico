@@ -33,6 +33,8 @@ pub struct Patterns {
     alert: ModalState,
     deleted: usize,
     dismissed: usize,
+    general_open: bool,
+    privacy_open: bool,
 }
 
 impl Default for Patterns {
@@ -64,6 +66,8 @@ impl Default for Patterns {
             alert: ModalState::default(),
             deleted: 0,
             dismissed: 0,
+            general_open: true,
+            privacy_open: false,
         }
     }
 }
@@ -336,6 +340,16 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 state.deleted,
                 state.dismissed
             ).color(Color::Muted);
+        };
+        panel(ui, "Accordion").description("A bordered stack of collapsible sections, ported from MyGO.") + |ui| {
+            accordion(ui, |ui| {
+                let _ = collapsible(ui, "General", &mut state.general_open, |ui| {
+                    text(ui, "General settings live here.").color(Color::Muted);
+                });
+                let _ = collapsible(ui, "Privacy", &mut state.privacy_open, |ui| {
+                    text(ui, "Privacy settings live here.").color(Color::Muted);
+                });
+            });
         };
         crate::shader_demo(ui);
         panel(ui, "Drag surface").description("Hold the pointer down and move it: the dot follows the drag.") + |ui| {

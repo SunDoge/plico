@@ -186,6 +186,31 @@ pub fn nav_menu<Route: crate::Route + Copy + Eq>(
     }
 }
 
+/// A bordered box of collapsible sections (MyGO `Accordion`): each item opens
+/// and closes on its own, and `collapsible` is the item (MyGO `AccordionItem`).
+///
+/// MyGO makes the headers one Tab stop with Up/Down/Home/End; Plico has no
+/// per-container focus action wiring, so each header is its own stop and Enter
+/// or Space toggles it.
+///
+/// ```text
+/// accordion(cx, |cx| {
+///     collapsible(cx, "General", general_open, |cx| general(cx));
+///     collapsible(cx, "Privacy", privacy_open, |cx| privacy(cx));
+/// });
+/// ```
+pub fn accordion(cx: &mut UiContext, content: impl FnOnce(&mut UiContext)) {
+    let m = cx.theme().metrics;
+    column(cx)
+        .width_percent(100.)
+        .padding(m.space(1))
+        .gap(m.space(1))
+        .radius(m.radius as f32 + 4.)
+        .background(Color::Panel)
+        .border(1., Color::Border)
+        .children(|cx| content(cx));
+}
+
 /// A horizontal divider that stretches to the available width.
 #[component]
 pub fn separator(cx: &mut UiContext) {
