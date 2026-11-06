@@ -48,12 +48,9 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     w = w + (0.22 + 0.25 * energy) * vec2<f32>(sin(w.y * 2.7 + t * 1.1), cos(w.x * 2.3 - t * 0.9));
     w = w + 0.12 * vec2<f32>(sin(w.y * 5.1 - t * 1.7), cos(w.x * 4.7 + t * 1.3));
     var color = vec3<f32>(0.07, 0.04, 0.18);
-    for (var i = 0; i < 5; i = i + 1) {
+    for(var i = 0; i < 5; i = i + 1) {
         let f = f32(i);
-        let blob = 0.6 * vec2<f32>(
-            sin(t * (0.5 + 0.13 * f) + f * 2.1),
-            cos(t * (0.43 + 0.11 * f) + f * 1.3),
-        );
+        let blob = 0.6 * vec2<f32>(sin(t * (0.5 + 0.13 * f) + f * 2.1), cos(t * (0.43 + 0.11 * f) + f * 1.3));
         let k = exp(-dot(w - blob, w - blob) * 3.4);
         color = color + palette(f / 5.0 + t * 0.03) * k * 0.85;
     }

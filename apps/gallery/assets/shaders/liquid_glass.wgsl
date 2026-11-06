@@ -41,10 +41,10 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     // The rim acts as a weak lens: it pulls the backdrop inward near the edge.
     let displacement = direction * bend * (1.0 - inside) * (1.0 - inside) * scale;
     let lens_uv = clamp(
-        uv + displacement / resolution,
-        vec2<f32>(0.5) / resolution,
-        (resolution - vec2<f32>(0.5)) / resolution,
-    );
+            uv + displacement / resolution,
+            vec2<f32>(0.5) / resolution,
+            (resolution - vec2<f32>(0.5)) / resolution,
+        );
     let spread = vec2<f32>(frost * 22.0 * scale, frost * 22.0 * scale) / resolution;
     let glass = glass_blur(lens_uv, spread);
     // Chromatic fringing grows toward the rim and with frost.

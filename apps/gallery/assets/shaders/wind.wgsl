@@ -22,7 +22,7 @@ fn wind_fbm(p0: vec2<f32>) -> f32 {
     var p = p0;
     var value = 0.0;
     var amplitude = 0.5;
-    for (var i = 0; i < 4; i = i + 1) {
+    for(var i = 0; i < 4; i = i + 1) {
         value = value + amplitude * wind_noise(p);
         p = p * 2.03 + vec2<f32>(1.7, 9.2);
         amplitude = amplitude * 0.5;
@@ -40,20 +40,16 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     // Two slow warps fold the noise into long, breathing gusts.
     let flow = q * vec2<f32>(2.4, 3.0) + vec2<f32>(time * 0.12, -time * 0.08);
     let warp = vec2<f32>(
-        wind_fbm(flow + vec2<f32>(0.0, time * 0.15)),
-        wind_fbm(flow + vec2<f32>(4.7, 2.3) - time * 0.1),
-    );
+            wind_fbm(flow + vec2<f32>(0.0, time * 0.15)),
+            wind_fbm(flow + vec2<f32>(4.7, 2.3) - time * 0.1),
+        );
     let n = wind_fbm(flow + warp * 1.8);
     let bands = sin((q.y * 7.0 + n * 4.0 - time * 0.6) * 3.14159265);
     let ribbon = pow(abs(bands), 6.0);
     let streak = pow(0.5 + 0.5 * sin(q.x * 18.0 + n * 10.0 - time * 1.2), 12.0);
     let light = smoothstep(0.2, 1.0, n * 0.7 + ribbon * 0.6 + streak * 0.35);
     let base = mix(vec3<f32>(0.02, 0.03, 0.08), vec3<f32>(0.05, 0.12, 0.22), uv.y);
-    let tint = mix(
-        vec3<f32>(0.15, 0.75, 0.85),
-        vec3<f32>(0.62, 0.35, 0.95),
-        clamp(n + hue, 0.0, 1.0),
-    );
+    let tint = mix(vec3<f32>(0.15, 0.75, 0.85), vec3<f32>(0.62, 0.35, 0.95), clamp(n + hue, 0.0, 1.0));
     var color = base + tint * light * (0.45 + 0.75 * glow);
     // Sparse sparkles drift with the flow.
     let cell = floor(q * vec2<f32>(120.0, 90.0));
