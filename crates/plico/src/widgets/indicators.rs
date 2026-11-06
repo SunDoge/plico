@@ -312,6 +312,7 @@ struct StepperHolds {
 ///     stepper(cx, &mut copies, 1.0..=99.0, 1.0);
 /// };
 /// ```
+#[track_caller]
 pub fn stepper(
     cx: &mut UiContext,
     value: &mut f64,
@@ -334,11 +335,9 @@ pub fn stepper(
     let (low, high) = (start.min(end), start.max(end));
     *value = snap_value(*value, low, high, step);
     let m = cx.theme().metrics;
-    let holds = cx.transient_state("plico.stepper", StepperHolds::default);
-    // Stable per-frame identity for each arrow's hold, distinct from other
-    // steppers under the same parent.
-    let up_id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let down_id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
+    // Two arrow slots inside this stepper's component-local state.
+    let up_id = 0;
+    let down_id = 1;
     let height = m.space(4) as f32;
     column(cx)
         .width(m.space(5) as f32)
@@ -348,6 +347,7 @@ pub fn stepper(
         .clip(true)
         .semantic_role(WidgetRole::SpinButton)
         .children(|cx| {
+            let holds = cx.state(StepperHolds::default);
             stepper_arrow(cx, value, low, high, step, true, height, up_id, &holds);
             stepper_arrow(cx, value, low, high, step, false, height, down_id, &holds);
         });

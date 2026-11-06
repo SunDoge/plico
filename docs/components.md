@@ -452,3 +452,14 @@ ruby_text(cx, "へ").font_size(28);
 高度随注音字号变化，也可用 `annotation_height` 固定。正文 `.spans()` 的范围
 是当前片段的本地 UTF-8 字节偏移；歌词解析、全行到片段的范围转换仍留在应用。
 支持单独配置注音字号、字重和颜色，不绑定歌曲时间轴或特定业务模型。
+
+### Internal widget state
+
+Number, date, time and color inputs retain their edit state in `cx.state` slots,
+identified by the caller and component scope. Drag surfaces, split dividers and
+stepper holds keep local slots under their control node. These slots are not
+serialized and are reclaimed when no longer declared. Repeated controls in a
+loop require `cx.keyed` with a stable item key, as do other stateful components.
+Range sliders retain their active thumb per control; removing a slider also
+removes its thumb selection. The two thumbs still share one focus stop and
+only the low value is exposed in the accessibility tree.

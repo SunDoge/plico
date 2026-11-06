@@ -29,11 +29,6 @@ impl std::fmt::Debug for TimeEntry {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct TimeInputStates {
-    entries: std::collections::HashMap<u64, TimeEntry>,
-}
-
 /// A time-of-day field (MyGO `TimeInput`): a text field showing and accepting
 /// `HH:MM`. Typed text applies as soon as it is a valid time of day; Enter
 /// also rewrites the field in canonical `HH:MM` form, and Enter with invalid
@@ -50,11 +45,10 @@ struct TimeInputStates {
 ///     save(meeting);
 /// }
 /// ```
+#[track_caller]
 pub fn time_input(cx: &mut UiContext, label: &str, time: &mut TimeOfDay) -> bool {
     let before = *time;
-    let id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let states = cx.transient_state("plico.time_input", TimeInputStates::default);
-    let mut entry = states.read().entries.get(&id).cloned().unwrap_or_else(|| {
+    let state = cx.state(|| {
         let buffer = TextBuffer::new();
         buffer.set(time.to_string().into());
         TimeEntry {
@@ -62,6 +56,7 @@ pub fn time_input(cx: &mut UiContext, label: &str, time: &mut TimeOfDay) -> bool
             last: *time,
         }
     });
+    let mut entry = state.get();
     if entry.last != *time {
         entry.buffer.set(time.to_string().into());
         entry.last = *time;
@@ -88,9 +83,7 @@ pub fn time_input(cx: &mut UiContext, label: &str, time: &mut TimeOfDay) -> bool
             None => entry.buffer.set(time.to_string().into()),
         }
     }
-    states.update(|states| {
-        states.entries.insert(id, entry);
-    });
+    state.set(entry);
     *time != before
 }
 

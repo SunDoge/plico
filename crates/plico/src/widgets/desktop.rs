@@ -566,13 +566,14 @@ pub fn toolbar_spacer(cx: &mut UiContext) {
 /// drag is active this frame, so callers can keep the frame running while
 /// it lasts. The drag anchor never enters checkpoints: an in-flight drag
 /// releases on a restore.
+#[track_caller]
 pub fn drag_area(cx: &mut UiContext, on_drag: &mut dyn FnMut(f64, f64)) -> bool {
-    let drag = cx.transient_state("plico.drag_area", DragState::default);
     let mut dragging = false;
     button_base(cx, "Drag surface")
         .width_percent(100.)
         .height_percent(100.)
         .children(|cx| {
+            let drag = cx.state(DragState::default);
             // Inside the button's scope the pressed query reports this node.
             if cx.pressed()
                 && let Some((x, y)) = cx.pointer_position()

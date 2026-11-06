@@ -91,11 +91,6 @@ struct PickerEntry {
     last: u32,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct PickerStates {
-    entries: std::collections::HashMap<u64, PickerEntry>,
-}
-
 /// A picker for an RGB [`Color`] (MyGO `ColorPicker`): a preview swatch and
 /// its hex value, Hue/Saturation/Brightness sliders and twelve named swatch
 /// buttons. Returns whether the color changed this frame.
@@ -112,12 +107,15 @@ struct PickerStates {
 ///     save(tint);
 /// }
 /// ```
+#[track_caller]
 pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
     let m = cx.theme().metrics;
     let current = cx.theme().resolve(*color);
-    let id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let states = cx.transient_state("plico.color_picker", PickerStates::default);
-    let mut entry = states.read().entries.get(&id).copied().unwrap_or_default();
+    let state = cx.state(|| PickerEntry {
+        hsv: Hsva::from_rgb(current),
+        last: current,
+    });
+    let mut entry = state.get();
     if entry.last != current {
         entry = PickerEntry {
             hsv: Hsva::from_rgb(current),
@@ -185,9 +183,7 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
         entry.last = next;
         changed = true;
     }
-    states.update(|states| {
-        states.entries.insert(id, entry);
-    });
+    state.set(entry);
     changed
 }
 

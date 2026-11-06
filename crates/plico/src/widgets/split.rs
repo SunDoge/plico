@@ -30,6 +30,7 @@ struct SplitDrags {
 /// ```text
 /// split(cx, &mut sidebar, |cx| sidebar_view(cx), |cx| editor(cx));
 /// ```
+#[track_caller]
 pub fn split<F, S>(cx: &mut UiContext, size: &mut f32, first: F, second: S) -> bool
 where
     F: FnOnce(&mut UiContext),
@@ -39,6 +40,7 @@ where
 }
 
 /// [`split`] with the first pane above the second; `size` is its height.
+#[track_caller]
 pub fn split_vertical<F, S>(cx: &mut UiContext, size: &mut f32, first: F, second: S) -> bool
 where
     F: FnOnce(&mut UiContext),
@@ -49,6 +51,7 @@ where
 
 /// A proportional [`split`]: `percent` is the first pane's share of the room,
 /// 0 to 100, so both panes grow and shrink with the window.
+#[track_caller]
 pub fn split_percent<F, S>(cx: &mut UiContext, percent: &mut f32, first: F, second: S) -> bool
 where
     F: FnOnce(&mut UiContext),
@@ -59,6 +62,7 @@ where
 
 /// [`split_percent`] with the first pane above the second; `percent` is its
 /// share of the height.
+#[track_caller]
 pub fn split_vertical_percent<F, S>(
     cx: &mut UiContext,
     percent: &mut f32,
@@ -72,6 +76,7 @@ where
     split_impl(cx, percent, true, true, first, second)
 }
 
+#[track_caller]
 fn split_impl<F, S>(
     cx: &mut UiContext,
     size: &mut f32,
@@ -95,11 +100,11 @@ where
     } else {
         0.
     };
-    let drag_id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let drags = cx.transient_state("plico.split", SplitDrags::default);
+    let drag_id = 0;
     let mut container = if vertical { column(cx) } else { row(cx) };
     container = container.align(Align::Stretch);
     container.children(|cx| {
+        let drags = cx.state(SplitDrags::default);
         let mut pane = column(cx)
             .clip(true)
             .shrink(1.)

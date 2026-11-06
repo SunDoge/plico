@@ -11,11 +11,6 @@ struct DateEntry {
     last: CalendarDate,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct DateInputStates {
-    entries: std::collections::HashMap<u64, DateEntry>,
-}
-
 /// A date field (MyGO `DateInput`): a pop-up button showing the date as
 /// `YYYY-MM-DD`, whose calendar below it chooses a day. A click, Enter or
 /// Space opens the calendar; choosing a day sets `date` and closes it.
@@ -34,6 +29,7 @@ struct DateInputStates {
 ///     save(birthday);
 /// }
 /// ```
+#[track_caller]
 pub fn date_input<'s>(
     cx: &mut UiContext,
     label: &'s str,
@@ -44,6 +40,7 @@ pub fn date_input<'s>(
 }
 
 /// [`date_input`] with an explicit first day of the week.
+#[track_caller]
 pub fn date_input_with<'s>(
     cx: &mut UiContext,
     label: &'s str,
@@ -52,11 +49,15 @@ pub fn date_input_with<'s>(
     state: &'s mut PopoverState,
 ) -> bool {
     let before = *date;
-    let id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let states = cx.transient_state("plico.date_input", DateInputStates::default);
-    let mut calendar_state = match states.read().entries.get(&id).copied() {
-        Some(entry) if entry.last == *date => entry.calendar,
-        _ => CalendarState::new(*date).with_selected(*date),
+    let local = cx.state(|| DateEntry {
+        calendar: CalendarState::new(*date).with_selected(*date),
+        last: *date,
+    });
+    let entry = local.get();
+    let mut calendar_state = if entry.last == *date {
+        entry.calendar
+    } else {
+        CalendarState::new(*date).with_selected(*date)
     };
     let shown = format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day());
     let mut chosen = None;
@@ -74,14 +75,9 @@ pub fn date_input_with<'s>(
     if let Some(chosen) = chosen {
         *date = chosen;
     }
-    states.update(|states| {
-        states.entries.insert(
-            id,
-            DateEntry {
-                calendar: calendar_state,
-                last: *date,
-            },
-        );
+    local.set(DateEntry {
+        calendar: calendar_state,
+        last: *date,
     });
     *date != before
 }

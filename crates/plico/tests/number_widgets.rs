@@ -116,18 +116,6 @@ fn number_input_formats_fractional_steps() {
     };
     frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
     assert_eq!(text(&engine, "Opacity"), "0.5");
-    fn dump(engine: &Engine, id: Entity) {
-        let node = engine.node(id).unwrap();
-        eprintln!(
-            "node {:?} kind={:?} text={:?} children={:?}",
-            id, node.kind, node.text, node.children
-        );
-        let children = node.children.to_vec();
-        for c in children {
-            dump(engine, c);
-        }
-    }
-    dump(&engine, engine.root());
     engine.queue_click(button(&engine, "+"));
     frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
     assert_eq!(text(&engine, "Opacity"), "0.55");
@@ -141,4 +129,41 @@ fn number_input_formats_fractional_steps() {
     buffer.edit(InputEdit::Submit);
     frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
     assert_eq!(text(&engine, "Opacity"), "0.03");
+}
+
+#[test]
+fn number_input_edit_state_survives_sibling_insertion_and_resets_on_unmount() {
+    fn view(cx: &mut UiContext, prefix: bool, visible: bool, value: &mut f64) {
+        if prefix {
+            plico::widgets::text(cx, "Extra sibling");
+        }
+        if visible {
+            number_input(cx, "Copies", value, 1., 99., 1.);
+        }
+    }
+    let mut engine = Engine::default();
+    let mut value = 5.;
+    frame(&mut engine, |cx| view(cx, false, true, &mut value));
+    let buffer = engine.input(named(&engine, "Copies")).unwrap().0.clone();
+    buffer.edit(InputEdit::SelectAll);
+    buffer.edit(InputEdit::Insert("invalid".to_owned().into()));
+    frame(&mut engine, |cx| view(cx, true, true, &mut value));
+    assert_eq!(text(&engine, "Copies"), "invalid");
+    frame(&mut engine, |cx| view(cx, true, false, &mut value));
+    frame(&mut engine, |cx| view(cx, true, true, &mut value));
+    assert_eq!(text(&engine, "Copies"), "5");
+}
+
+#[test]
+fn number_input_rejects_nonfinite_bounds_and_recovers_nonfinite_values() {
+    let mut engine = Engine::default();
+    let mut value = f64::NAN;
+    frame(&mut engine, |cx| {
+        number_input(cx, "Copies", &mut value, 1., 99., 1.);
+    });
+    assert_eq!(value, 1.);
+    frame(&mut engine, |cx| {
+        assert!(!number_input(cx, "Copies", &mut value, f64::NAN, 99., 1.));
+    });
+    assert_eq!(value, 1.);
 }

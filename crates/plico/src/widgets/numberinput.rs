@@ -25,16 +25,13 @@ impl std::fmt::Debug for NumberEntry {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct NumberInputStates {
-    entries: std::collections::HashMap<u64, NumberEntry>,
-}
-
 /// A bounded number field (MyGO `NumberInput`): a text field between two
 /// bounds with − and + buttons changing it by `step`. Typed text applies as
 /// soon as it parses to a number inside the bounds; Enter rewrites it in
 /// canonical form, and Enter with invalid text restores the current value.
 /// Returns whether the value changed.
+/// Non-finite bounds skip the control without changing the value. Non-finite
+/// values reset to the lower bound; reversed finite bounds are accepted.
 ///
 /// Values are formatted with the decimals implied by `step` (at most six
 /// decimals); a zero step leaves the buttons at one whole unit. MyGO moves the
@@ -46,6 +43,7 @@ struct NumberInputStates {
 ///     update(copies);
 /// }
 /// ```
+#[track_caller]
 pub fn number_input(
     cx: &mut UiContext,
     label: &str,
@@ -54,6 +52,9 @@ pub fn number_input(
     max: f64,
     step: f64,
 ) -> bool {
+    if !min.is_finite() || !max.is_finite() {
+        return false;
+    }
     let before = *value;
     let (min, max) = if min <= max { (min, max) } else { (max, min) };
     let step = if step.is_finite() && step > 0. {
@@ -62,10 +63,12 @@ pub fn number_input(
         1.
     };
     let decimals = decimals(step);
-    *value = value.clamp(min, max);
-    let id = crate::macro_support::key_seed(cx.engine.auto_key(cx.parent));
-    let states = cx.transient_state("plico.number_input", NumberInputStates::default);
-    let mut entry = states.read().entries.get(&id).cloned().unwrap_or_else(|| {
+    *value = if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        min
+    };
+    let state = cx.state(|| {
         let buffer = TextBuffer::new();
         buffer.set(format_number(*value, decimals).into());
         NumberEntry {
@@ -73,6 +76,7 @@ pub fn number_input(
             last: *value,
         }
     });
+    let mut entry = state.get();
     if entry.last != *value {
         entry.buffer.set(format_number(*value, decimals).into());
         entry.last = *value;
@@ -125,9 +129,7 @@ pub fn number_input(
             None => entry.buffer.set(format_number(*value, decimals).into()),
         }
     }
-    states.update(|states| {
-        states.entries.insert(id, entry);
-    });
+    state.set(entry);
     *value != before
 }
 

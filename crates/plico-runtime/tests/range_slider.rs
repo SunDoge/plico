@@ -102,3 +102,49 @@ fn pressing_picks_the_nearer_thumb_and_keys_move_it() {
     );
     assert_eq!(source.view.high, before - 1.);
 }
+
+#[test]
+fn keyboard_thumb_selection_is_local_to_each_slider() {
+    struct Pair {
+        a: Demo,
+        b: Demo,
+    }
+    impl HostView for Pair {
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).children(|cx| {
+                range_slider(cx, "Price", &mut self.a.low, &mut self.a.high, 0.0..=100.0);
+                range_slider(cx, "Other", &mut self.b.low, &mut self.b.high, 0.0..=100.0);
+            });
+        }
+    }
+    let mut source = Source::new(Pair {
+        a: Demo {
+            low: 20.,
+            high: 80.,
+        },
+        b: Demo {
+            low: 30.,
+            high: 70.,
+        },
+    });
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 400, 160);
+    let snapshot = source.adapter.semantics(&source.engine, 0);
+    let first = snapshot
+        .node_by_role(SemanticRole::Slider, "Price", None)
+        .unwrap();
+    let [x0, y0, x1, y1] = first.bounds;
+    let other = snapshot
+        .node_by_role(SemanticRole::Slider, "Other", None)
+        .unwrap()
+        .id;
+    let x = f64::from(x0 + (x1 - x0) * 0.9);
+    let y = f64::from(y0 + y1) / 2.;
+    source.handle_event(pointer(PointerPhase::Down, x, y));
+    source.handle_event(pointer(PointerPhase::Up, x, y));
+    source.build_frame(&mut text, 400, 160);
+    source.handle_semantic_action(SemanticAction::Focus { target: other });
+    source.handle_event(key("ArrowRight"));
+    source.build_frame(&mut text, 400, 160);
+    assert_eq!((source.view.b.low, source.view.b.high), (31., 70.));
+}

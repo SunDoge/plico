@@ -208,9 +208,10 @@ impl Adapter {
                         if start {
                             let d_low = (t - range.fraction_of(low)).abs();
                             let d_high = (t - range.fraction_of(high)).abs();
-                            self.slider_thumb = usize::from(d_high < d_low);
+                            self.slider_thumbs
+                                .insert(entity, usize::from(d_high < d_low));
                         }
-                        if self.slider_thumb == 0 {
+                        if self.slider_thumbs.get(&entity).copied().unwrap_or(0) == 0 {
                             engine
                                 .queue_value(entity, range.normalize(value).clamp(range.min, high));
                         } else {
@@ -234,7 +235,9 @@ impl Adapter {
                 let range = engine.node(entity)?.numeric?;
                 let low = engine.pending_value(entity).unwrap_or(range.value);
                 let high = engine.pending_high_value(entity).or(range.high);
-                let thumb = high.map_or(0, |_| self.slider_thumb.min(1));
+                let thumb = high.map_or(0, |_| {
+                    self.slider_thumbs.get(&entity).copied().unwrap_or(0).min(1)
+                });
                 let value = if thumb == 0 { low } else { high.unwrap_or(low) };
                 let delta = range.increment();
                 let value = match key.key.as_str() {
