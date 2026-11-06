@@ -408,6 +408,7 @@ impl DeclaredPaint {
             outline_color: self.outline_color,
             cursor: inherited.cursor,
             backdrop_blur: 0.,
+            sticky_top: None,
             text: host.text,
             text_runs: host.text_runs,
             selection_rects: host.selection_rects,
@@ -553,6 +554,8 @@ pub struct HostPaint {
 pub struct Paint {
     /// Host-requested backdrop Gaussian sigma in logical pixels.
     pub backdrop_blur: f32,
+    /// Top inset for a sticky-scroll node; `None` is not sticky.
+    pub sticky_top: Option<f32>,
     /// Resolved background fill.
     pub background: Option<Color>,
     /// Node opacity before ancestor composition.
@@ -647,6 +650,7 @@ impl Clone for Paint {
     fn clone(&self) -> Self {
         Self {
             backdrop_blur: self.backdrop_blur,
+            sticky_top: self.sticky_top,
             background: self.background,
             opacity: self.opacity,
             transform: self.transform.clone(),
@@ -695,6 +699,7 @@ impl Clone for Paint {
         // when rebuilding the same output slot; all values still come from source.
         let Self {
             backdrop_blur,
+            sticky_top,
             background,
             opacity,
             transform,
@@ -736,6 +741,7 @@ impl Clone for Paint {
             widget,
             intrinsic_size,
         } = self;
+        self.sticky_top = *sticky_top;
         *backdrop_blur = source.backdrop_blur;
         *background = source.background;
         *opacity = source.opacity;

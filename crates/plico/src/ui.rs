@@ -892,6 +892,15 @@ impl Layout<'_, '_> {
         self.style.backdrop_blur = sigma;
         self
     }
+    /// Keep this container at least `top` logical pixels below the top of its
+    /// nearest scrollable ancestor while its containing block is visible.
+    /// This is CSS `position: sticky` for the top edge; the node still
+    /// participates in normal flow.
+    #[inline(always)]
+    pub fn sticky(mut self, top: f32) -> Self {
+        self.style.sticky_top = Some(top.max(0.));
+        self
+    }
     /// Tint only the background; text and child controls remain opaque.
     #[inline(always)]
     pub fn background_alpha(mut self, alpha: f32) -> Self {

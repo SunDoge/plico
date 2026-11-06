@@ -287,6 +287,11 @@ pub struct Style {
     /// Gaussian backdrop sigma in logical pixels, capped at 64.
     #[invalidates(PAINT)]
     pub backdrop_blur: f32,
+    /// Keep this node at least this far below its scroll port's top while its
+    /// containing block is in view (CSS sticky, top inset). `None` is static.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(LAYOUT, PAINT)]
+    pub sticky_top: Option<f32>,
     /// Background tint alpha, independent of child opacity.
     #[invalidates(PAINT)]
     pub background_alpha: f32,
@@ -426,6 +431,7 @@ impl Default for Style {
             layout: Default::default(),
             selectable: false,
             backdrop_blur: 0.,
+            sticky_top: None,
             background_alpha: 1.,
             width: None,
             height: None,

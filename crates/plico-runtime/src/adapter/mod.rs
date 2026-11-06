@@ -670,6 +670,7 @@ impl Adapter {
                 self.stats.flatten_visits = self.placed.len();
                 self.cache_all_layouts();
                 self.reindex_placed();
+                self.apply_sticky();
             } else {
                 if self.stats.flatten_patches > 0 {
                     self.reindex_placed();
@@ -698,6 +699,7 @@ impl Adapter {
             );
             self.stats.flatten_visits = self.placed.len();
             self.reindex_placed();
+            self.apply_sticky();
         } else {
             for id in &self.paint_dirty {
                 if let Some(index) = self.placed_indices.get(id) {
@@ -748,6 +750,7 @@ impl Adapter {
                 );
                 self.stats.flatten_visits += self.placed.len();
                 self.reindex_placed();
+                self.apply_sticky();
             }
             self.scroll_dirty = false;
             {
@@ -821,6 +824,7 @@ impl Adapter {
                     );
                     self.stats.flatten_visits += self.placed.len();
                     self.reindex_placed();
+                    self.apply_sticky();
                 }
             }
         }

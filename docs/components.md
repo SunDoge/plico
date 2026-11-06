@@ -289,7 +289,20 @@ the regional hour cycle and formats on blur; Plico has no per-segment focus
 or blur hook, so the port is a single 24-hour field and invalid text stays
 visible until Enter.
 
+### Sticky header (core extension)
+
+`Layout::sticky(top)` ports MyGO's sticky-scroll behavior for the top edge:
+the node stays in normal flow, but after layout the runtime keeps its top at
+least `top` logical pixels below the nearest scrollable ancestor's port,
+bounded by its containing block. Its descendants move with it, and hit
+testing, semantics and painting read the shifted geometry.
+
+This is a top-edge sticky constraint only. MyGO's layout also covers other
+edges and offsets; Plico currently implements top only, and a sticky node
+still occupies its flow slot (as CSS sticky does).
+
 ### Range slider (MyGO port)
+
 
 `range_slider(cx, label, &mut low, &mut high, range)` ports MyGO's
 `RangeSlider` on the shared slider core: one track with a low and a high

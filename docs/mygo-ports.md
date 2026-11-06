@@ -30,6 +30,7 @@
 | Date input | `date_input` / `date_input_with` | ISO 显示 + 日历 popover |
 | Number input | `number_input` | 有界数字框 + 加减步进；Up/Down/失焦格式化未接入 |
 | Range slider | `range_slider` | 双 thumb 单轨道；共享一个焦点与一个语义值 |
+| Sticky | `Layout::sticky` | 仅顶部吸附；滚动/包含块后处理 |
 | Time input | `time_input` / `TimeOfDay` | 校验 HH:MM 文本框；非分段/12 小时制 |
 | Find bar | `find_bar` | 匹配计数、前后跳转、Done、打开聚焦 |
 | Alert dialog | `alert_dialog` | alert 角色、Escape dismissed、外部点击无效 |
@@ -72,7 +73,7 @@
 | Outline | 带列的层级虚拟化；现有 tree 构建全部可见项，virtual_list 是扁平行 |
 | Chart | 没有坐标轴/路径/图例层；适合作为宿主 widget 或独立 crate |
 | Diff viewer | 需要 diff 算法与行内标记；可由文本行组合，但尚未确定 MyGO 对齐的算法 |
-| Sticky | 布局只有 static/relative/absolute，没有 sticky 定位 |
+
 
 这些项需要先补核心输入/布局/浮层能力，或作为独立 crate/宿主 widget 实现；在核心能力就位前
 不建议用近似控件冒充。

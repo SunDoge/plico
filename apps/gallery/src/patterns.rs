@@ -165,6 +165,24 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 stepper(ui, &mut state.copies, 1.0..=99.0, 1.0);
             };
         };
+        panel(ui, "Sticky header").description(
+            "The header stays at the scroll port's top until its parent scrolls away.") + |ui|
+        {
+            let _ = column(ui).width_percent(100.).height(150.).scroll_y(true).clip(true) + |ui| {
+                let _ = column(ui).sticky(0.).height(28.).shrink(0.).width_percent(100.)
+                    .background(Color::Panel).padding_x(8).align(Align::Center) + |ui|
+                {
+                    text(ui, "Pinned section").weight(650);
+                };
+                for index in 0..12 {
+                    let _ = row(ui).height(26.).shrink(0.).width_percent(100.).padding_x(8).align(Align::Center)
+                    + |ui|
+                    {
+                        plico::text!(ui, "Scrollable row {}", index + 1);
+                    };
+                }
+            };
+        };
         panel(ui, "Resizable split")
             .description("Drag the divider: the sidebar width lives in the application state.") + |ui|
         {

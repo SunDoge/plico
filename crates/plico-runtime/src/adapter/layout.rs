@@ -178,6 +178,64 @@ impl Adapter {
         Some(true)
     }
 
+    /// Shift sticky nodes within their scroll port after each fresh flatten.
+    /// Taffy lays them out in normal flow; this pass applies the CSS sticky
+    /// top constraint and its containing-block limit.
+    pub(super) fn apply_sticky(&mut self) {
+        let mut index = 0;
+        while index < self.placed.len() {
+            let Some(top) = self.placed[index].paint.sticky_top else {
+                index += 1;
+                continue;
+            };
+            let parent = self.placed[index].parent_node_id;
+            let mut cursor = parent;
+            let mut port_top = None;
+            while let Some(id) = cursor {
+                let Some(&placed) = self.placed_indices.get(&id) else {
+                    break;
+                };
+                let node = &self.placed[placed];
+                if node.scroll.scrollable[1] {
+                    port_top = Some(node.scroll.port[1]);
+                    break;
+                }
+                cursor = node.parent_node_id;
+            }
+            let parent_bottom = parent
+                .and_then(|id| self.placed_indices.get(&id))
+                .map(|&placed| self.placed[placed].rect[3])
+                .unwrap_or(f32::INFINITY);
+            let node = &self.placed[index];
+            let natural = node.rect[1];
+            let height = node.rect[3] - natural;
+            let Some(port_top) = port_top else {
+                index += 1;
+                continue;
+            };
+            let maximum = (parent_bottom - height - natural).max(0.);
+            let delta = (port_top + top - natural).clamp(0., maximum);
+            let depth = node.depth;
+            let mut end = index + 1;
+            while end < self.placed.len() && self.placed[end].depth > depth {
+                end += 1;
+            }
+            if delta > 0.01 {
+                for node in &mut self.placed[index..end] {
+                    node.rect[1] += delta;
+                    node.rect[3] += delta;
+                    node.content_origin[1] += delta;
+                    if let Some(clip) = &mut node.own_clip {
+                        clip[1] += delta;
+                        clip[3] += delta;
+                    }
+                    node.scroll.port[1] += delta;
+                    node.scroll.port[3] += delta;
+                }
+            }
+            index = end;
+        }
+    }
     pub(super) fn reindex_placed(&mut self) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
