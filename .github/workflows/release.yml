@@ -37,10 +37,10 @@ jobs:
           persist-credentials: false
       - name: Keep the validated commit on the main branch
         run: git checkout -B main
-      - uses: actions-rust-lang/setup-rust-toolchain@b328d6be848e9b620901df2e49d27ad7e5536c0b # v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
         with:
           toolchain: stable
-      - uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5
+      - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release
           version: 0.4.0
@@ -64,10 +64,10 @@ jobs:
           persist-credentials: false
       - name: Keep the validated commit on the main branch
         run: git checkout -B main
-      - uses: actions-rust-lang/setup-rust-toolchain@b328d6be848e9b620901df2e49d27ad7e5536c0b # v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
         with:
           toolchain: stable
-      - uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5
+      - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release-pr
           version: 0.4.0
