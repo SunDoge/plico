@@ -175,11 +175,13 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                     text(ui, "Pinned section").weight(650);
                 };
                 for index in 0..12 {
-                    let _ = row(ui).height(26.).shrink(0.).width_percent(100.).padding_x(8).align(Align::Center)
-                    + |ui|
-                    {
-                        plico::text!(ui, "Scrollable row {}", index + 1);
-                    };
+                    ui.keyed(index as u64, |ui| {
+                        let _ = row(ui).height(26.).shrink(0.).width_percent(100.).padding_x(8)
+                            .align(Align::Center) + |ui|
+                        {
+                            plico::text!(ui, "Scrollable row {}", index + 1);
+                        };
+                    });
                 }
             };
         };
@@ -312,9 +314,11 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
         {
             radio_group(ui, |ui| {
                 for size in ["Small", "Medium", "Large"] {
-                    if radio(ui, size, state.size == size).clicked() {
-                        state.size = size.into();
-                    }
+                    ui.keyed(size, |ui| {
+                        if radio(ui, size, state.size == size).clicked() {
+                            state.size = size.into();
+                        }
+                    });
                 }
             });
             if link(ui, "Open the workspace").clicked() {
