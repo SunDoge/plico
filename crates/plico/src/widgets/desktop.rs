@@ -21,40 +21,44 @@ use std::time::Duration;
 pub fn tabs(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> bool {
     let before = *selected;
     let metrics = cx.theme().metrics;
-    row(cx).gap(2).width_percent(100.).children(|cx| {
-        for (index, label) in labels.iter().enumerate() {
-            let on = index == *selected;
-            let response = button_base(cx, *label)
-                .padding_x(metrics.space(3))
-                .padding_y(metrics.space(2))
-                .radius(metrics.radius as f32)
-                .hover_background(Color::ControlHover)
-                .pressed_background(Color::ControlPressed)
-                .selected(on)
-                .semantic_role(crate::WidgetRole::Tab)
-                .children(|cx| {
-                    column(cx).gap(2).children(|cx| {
-                        text(cx, *label)
-                            .font_size(metrics.font_size)
-                            .weight(if on { 600 } else { 400 })
-                            .color(if on { Color::Foreground } else { Color::Muted });
-                        // The accent underline keeps its slot in every
-                        // tab, painted only on the chosen one, so the strip
-                        // stays aligned (MyGO draws the line under the
-                        // chosen tab).
-                        let mut underline = column(cx).width_percent(100.).height(2.);
-                        if on {
-                            underline = underline.background(Color::Accent);
-                        }
-                        underline.children(|_| {});
-                    });
-                })
-                .response;
-            if response.clicked() {
-                *selected = index;
+    row(cx)
+        .gap(2)
+        .width_percent(100.)
+        .semantic_role(crate::WidgetRole::TabList)
+        .children(|cx| {
+            for (index, label) in labels.iter().enumerate() {
+                let on = index == *selected;
+                let response = button_base(cx, *label)
+                    .padding_x(metrics.space(3))
+                    .padding_y(metrics.space(2))
+                    .radius(metrics.radius as f32)
+                    .hover_background(Color::ControlHover)
+                    .pressed_background(Color::ControlPressed)
+                    .selected(on)
+                    .semantic_role(crate::WidgetRole::Tab)
+                    .children(|cx| {
+                        column(cx).gap(2).children(|cx| {
+                            text(cx, *label)
+                                .font_size(metrics.font_size)
+                                .weight(if on { 600 } else { 400 })
+                                .color(if on { Color::Foreground } else { Color::Muted });
+                            // The accent underline keeps its slot in every
+                            // tab, painted only on the chosen one, so the strip
+                            // stays aligned (MyGO draws the line under the
+                            // chosen tab).
+                            let mut underline = column(cx).width_percent(100.).height(2.);
+                            if on {
+                                underline = underline.background(Color::Accent);
+                            }
+                            underline.children(|_| {});
+                        });
+                    })
+                    .response;
+                if response.clicked() {
+                    *selected = index;
+                }
             }
-        }
-    });
+        });
     *selected != before
 }
 
@@ -73,8 +77,9 @@ pub enum ToastKind {
 impl ToastKind {
     fn accent(self) -> Color {
         match self {
-            Self::Info | Self::Success => Color::Accent,
-            Self::Error => Color::Focus,
+            Self::Info => Color::Accent,
+            Self::Success => Color::Success,
+            Self::Error => Color::Danger,
         }
     }
 }
@@ -561,13 +566,14 @@ pub fn toolbar_spacer(cx: &mut UiContext) {
 /// drag is active this frame, so callers can keep the frame running while
 /// it lasts. The drag anchor never enters checkpoints: an in-flight drag
 /// releases on a restore.
+#[track_caller]
 pub fn drag_area(cx: &mut UiContext, on_drag: &mut dyn FnMut(f64, f64)) -> bool {
-    let drag = cx.transient_state("plico.drag_area", DragState::default);
     let mut dragging = false;
     button_base(cx, "Drag surface")
         .width_percent(100.)
         .height_percent(100.)
         .children(|cx| {
+            let drag = cx.state(DragState::default);
             // Inside the button's scope the pressed query reports this node.
             if cx.pressed()
                 && let Some((x, y)) = cx.pointer_position()

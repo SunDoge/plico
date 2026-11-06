@@ -4,6 +4,8 @@ pub struct NumericRange {
     pub min: f64,
     pub max: f64,
     pub value: f64,
+    /// The upper thumb of a range slider; `None` for a single-value slider.
+    pub high: Option<f64>,
     /// Zero means continuous pointer input, arrows use 1/100 of the range.
     pub step: f64,
     pub vertical: bool,
@@ -17,6 +19,9 @@ impl NumericRange {
             && self.min <= self.max
             && (self.max - self.min).is_finite()
             && self.step >= 0.
+            && self.high.is_none_or(|high| {
+                high.is_finite() && self.min <= self.value && self.value <= high && high <= self.max
+            })
     }
     pub fn normalize(self, value: f64) -> f64 {
         if !self.valid() {
@@ -36,11 +41,18 @@ impl NumericRange {
         (self.min + steps.round() * self.step).clamp(self.min, self.max)
     }
     pub fn fraction(self) -> f64 {
+        self.fraction_of(self.value)
+    }
+    pub fn fraction_of(self, value: f64) -> f64 {
         if self.max == self.min {
             0.
         } else {
-            ((self.value - self.min) / (self.max - self.min)).clamp(0., 1.)
+            ((value - self.min) / (self.max - self.min)).clamp(0., 1.)
         }
+    }
+    /// Snap a value to the step grid and clamp it into the range.
+    pub fn normalized(self, value: f64) -> f64 {
+        self.normalize(value)
     }
     pub fn increment(self) -> f64 {
         if self.step > 0. {
@@ -54,4 +66,6 @@ impl NumericRange {
 pub struct SliderResponse {
     pub changed: bool,
     pub value: f64,
+    /// The upper thumb value for a range slider.
+    pub high: Option<f64>,
 }

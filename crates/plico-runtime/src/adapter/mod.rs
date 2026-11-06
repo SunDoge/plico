@@ -227,6 +227,8 @@ pub struct Adapter {
     pub(super) popup_open_last: Option<Entity>,
     pub(super) tips: tooltip::Tooltips,
     pub(super) slider_drag: Option<Entity>,
+    /// Which thumb of a range slider the pointer/keyboard edits (0 low, 1 high).
+    pub(super) slider_thumbs: HashMap<Entity, usize>,
     pub(super) focus_visible: bool,
     pub(super) scroll_offsets: HashMap<NodeId, [f32; 2]>,
     pub(super) scroll_dirty: bool,
@@ -304,6 +306,7 @@ impl Default for Adapter {
             popup_open_last: None,
             tips: Default::default(),
             slider_drag: None,
+            slider_thumbs: HashMap::new(),
             focus_visible: false,
             scroll_offsets: HashMap::new(),
             scroll_dirty: false,
@@ -568,6 +571,7 @@ impl Adapter {
                 self.input_align_nodes.remove(&e);
                 self.selection_dirty |= self.selectable_nodes.remove(&e);
                 self.slider_nodes.remove(&e);
+                self.slider_thumbs.remove(&e);
                 self.shader_nodes.remove(&e);
                 self.tooltip_nodes.remove(&e);
                 self.reverse.remove(&n.id);
@@ -667,6 +671,7 @@ impl Adapter {
                 self.stats.flatten_visits = self.placed.len();
                 self.cache_all_layouts();
                 self.reindex_placed();
+                self.apply_sticky();
             } else {
                 if self.stats.flatten_patches > 0 {
                     self.reindex_placed();
@@ -695,6 +700,7 @@ impl Adapter {
             );
             self.stats.flatten_visits = self.placed.len();
             self.reindex_placed();
+            self.apply_sticky();
         } else {
             for id in &self.paint_dirty {
                 if let Some(index) = self.placed_indices.get(id) {
@@ -745,6 +751,7 @@ impl Adapter {
                 );
                 self.stats.flatten_visits += self.placed.len();
                 self.reindex_placed();
+                self.apply_sticky();
             }
             self.scroll_dirty = false;
             {
@@ -818,6 +825,7 @@ impl Adapter {
                     );
                     self.stats.flatten_visits += self.placed.len();
                     self.reindex_placed();
+                    self.apply_sticky();
                 }
             }
         }

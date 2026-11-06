@@ -159,3 +159,32 @@ fn panel_stat_and_nav_item_mount_with_expected_structure() {
     );
     assert_eq!(styled(&e, "Activity").background, Some(plico::Color::Panel));
 }
+
+#[test]
+fn accordion_frames_collapsible_sections() {
+    let mut e = Engine::default();
+    let mut open = true;
+    e.frame_declarations(|cx| {
+        accordion(cx, |cx| {
+            let _ = collapsible(cx, "General", &mut open, |cx| {
+                text(cx, "General content");
+            });
+        });
+    })
+    .unwrap();
+    assert!(e.node(named(&e, "General")).is_some());
+    assert!(e.node(named(&e, "General content")).is_some());
+    let frame = e.node(e.root()).unwrap().children[0];
+    assert_eq!(e.node(frame).unwrap().style.background, Some(Color::Panel));
+    assert_eq!(e.node(frame).unwrap().style.border_width, 1.);
+    e.queue_click(named(&e, "General"));
+    e.frame_declarations(|cx| {
+        accordion(cx, |cx| {
+            let _ = collapsible(cx, "General", &mut open, |cx| {
+                text(cx, "General content");
+            });
+        });
+    })
+    .unwrap();
+    assert!(!open);
+}

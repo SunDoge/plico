@@ -341,6 +341,9 @@ impl<V: HostView> Source<V> {
         now: Instant,
         force_declaration: bool,
     ) {
+        // Declarations such as Response::focused read the previous frame's
+        // backend focus before this frame's traversal moves it.
+        self.engine.set_focused(self.adapter.focused());
         self.pending |= self.adapter.update_hover_regions(&self.engine);
         let mut fonts_changed = false;
         for font in &self.fonts {

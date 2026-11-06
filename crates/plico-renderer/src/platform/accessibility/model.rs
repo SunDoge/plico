@@ -127,6 +127,12 @@ semantic_roles! {
     Grid => "grid",
     /// One cell in an interactive grid.
     GridCell => "gridcell",
+    /// Landmark holding a navigation path or set of links.
+    Navigation => "navigation",
+    /// Read-only value within a bounded range, as a level indicator.
+    Meter => "meter",
+    /// A swatch that opens a color picker.
+    ColorWell => "colorwell",
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

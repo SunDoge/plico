@@ -144,6 +144,12 @@ pub enum Color {
     AccentHover,
     AccentPressed,
     Focus,
+    /// A good or complete state, as a meter below its warning level.
+    Success,
+    /// A level that calls for attention, as a meter at its warning level.
+    Warning,
+    /// A level that needs action, as a meter at its critical level.
+    Danger,
 }
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +215,32 @@ pub enum WidgetRole {
     TabList,
     /// One tab within a tab strip.
     Tab,
+    /// A navigation landmark holding a path of links (mygo Breadcrumbs).
+    Navigation,
+    /// A hyperlink-like control inside a navigation path.
+    Link,
+    /// A read-only level indicator with a bounded value (mygo Meter).
+    Meter,
+    /// A work indicator, determinate or not (mygo Spinner).
+    ProgressBar,
+    /// A pair of arrows stepping a bounded value (mygo Stepper).
+    SpinButton,
+    /// An adjustable divider between regions (mygo Split).
+    Separator,
+    /// A hierarchical collection of expandable items (mygo Tree/Sidebar).
+    Tree,
+    /// One item in a tree or source list.
+    TreeItem,
+    /// A group of mutually exclusive radio buttons.
+    RadioGroup,
+    /// One radio button in a radio group.
+    RadioButton,
+    /// A compact horizontal strip of related controls (mygo FindBar).
+    Toolbar,
+    /// A color swatch that opens a picker (mygo ColorWell).
+    ColorWell,
+    /// A modal alert that needs an explicit answer (mygo AlertDialog).
+    AlertDialog,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {
@@ -255,6 +287,11 @@ pub struct Style {
     /// Gaussian backdrop sigma in logical pixels, capped at 64.
     #[invalidates(PAINT)]
     pub backdrop_blur: f32,
+    /// Keep this node at least this far below its scroll port's top while its
+    /// containing block is in view (CSS sticky, top inset). `None` is static.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(LAYOUT, PAINT)]
+    pub sticky_top: Option<f32>,
     /// Background tint alpha, independent of child opacity.
     #[invalidates(PAINT)]
     pub background_alpha: f32,
@@ -394,6 +431,7 @@ impl Default for Style {
             layout: Default::default(),
             selectable: false,
             backdrop_blur: 0.,
+            sticky_top: None,
             background_alpha: 1.,
             width: None,
             height: None,

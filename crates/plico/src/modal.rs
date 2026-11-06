@@ -36,6 +36,7 @@ pub struct Modal<'u, 'e, 's> {
     anchor: Option<u64>,
     panel_role: Option<crate::WidgetRole>,
     max_height: Option<f32>,
+    header: bool,
 }
 impl<'e> UiContext<'e> {
     pub fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
@@ -52,6 +53,7 @@ impl<'e> UiContext<'e> {
             anchor: None,
             panel_role: None,
             max_height: None,
+            header: true,
         }
     }
     /// Close the innermost popover containing this declaration.
@@ -113,6 +115,17 @@ impl<'s> Modal<'_, '_, 's> {
         self.escape = enabled;
         self
     }
+    /// Show the title row and its close button. Alerts turn it off and put the
+    /// title and message in their own content.
+    pub(crate) fn header(mut self, enabled: bool) -> Self {
+        self.header = enabled;
+        self
+    }
+    /// The semantic role of the dialog panel, such as an alert dialog.
+    pub(crate) fn panel_role(mut self, role: crate::WidgetRole) -> Self {
+        self.panel_role = Some(role);
+        self
+    }
     pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> ModalResponse<R> {
         let Self {
             ui,
@@ -126,6 +139,7 @@ impl<'s> Modal<'_, '_, 's> {
             anchor,
             panel_role,
             max_height,
+            header,
         } = self;
         let now = ui.now().as_millis().min(u64::MAX as u128) as u64;
         if ui.inherited.disabled {
@@ -230,7 +244,7 @@ impl<'s> Modal<'_, '_, 's> {
                 ..Default::default()
             };
             cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
-                if anchor.is_none() {
+                if anchor.is_none() && header {
                     let _ = crate::widgets::row(cx)
                         .gap(12)
                         .align(Align::Center)
@@ -267,7 +281,7 @@ pub type PopoverState = ModalState;
 pub struct Popover<'u, 'e, 's> {
     modal: Modal<'u, 'e, 's>,
     disabled: bool,
-    trigger_text: Option<&'s str>,
+    trigger_text: Option<Cow<'s, str>>,
 }
 impl<'e> UiContext<'e> {
     pub fn popover<'u, 's>(
@@ -310,8 +324,8 @@ impl<'s> Popover<'_, '_, 's> {
         self.modal = self.modal.motion(motion);
         self
     }
-    pub(crate) fn display_text(mut self, text: &'s str) -> Self {
-        self.trigger_text = Some(text);
+    pub(crate) fn display_text(mut self, text: impl Into<Cow<'s, str>>) -> Self {
+        self.trigger_text = Some(text.into());
         self
     }
     pub(crate) fn role(mut self, role: crate::WidgetRole) -> Self {
@@ -337,15 +351,16 @@ impl<'s> Popover<'_, '_, 's> {
             self.modal.state.close();
         }
         let metrics = ui.theme().metrics;
+        let trigger_text = self.trigger_text.take();
         let style = Style {
             anchor_id: Some(anchor),
-            width: self.trigger_text.map(|_| self.modal.width),
+            width: trigger_text.as_ref().map(|_| self.modal.width),
             gap: 8.,
             role: (self.modal.panel_role == Some(crate::WidgetRole::ListBox))
                 .then_some(crate::WidgetRole::ComboBox),
             expanded: Some(self.modal.state.is_open()),
             disabled,
-            styled_button: self.trigger_text.is_some(),
+            styled_button: trigger_text.is_some(),
             font_size: metrics.font_size,
             transition_ms: metrics.interaction_ms,
             padding_x: Some(metrics.spacing as f32 * 3.5),
@@ -358,7 +373,7 @@ impl<'s> Popover<'_, '_, 's> {
         };
         let (_, clicked) = ui.element(
             self.modal.key,
-            if self.trigger_text.is_some() {
+            if trigger_text.is_some() {
                 Kind::ButtonBase
             } else {
                 Kind::Button
@@ -366,7 +381,7 @@ impl<'s> Popover<'_, '_, 's> {
             style,
             self.modal.title.as_ref(),
             |cx| {
-                if let Some(shown) = self.trigger_text {
+                if let Some(shown) = trigger_text.as_deref() {
                     crate::widgets::text(cx, shown).grow(1.);
                     crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN).size(16., 16.);
                 }

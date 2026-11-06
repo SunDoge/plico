@@ -178,6 +178,11 @@ impl<'e> UiContext<'e> {
     pub fn theme(&self) -> Theme {
         self.engine.theme()
     }
+    /// The entity the backend focused at the end of the previous frame.
+    /// Controls also report this through `Response::focused`.
+    pub fn focused(&self) -> Option<Entity> {
+        self.engine.focused()
+    }
     #[inline(always)]
     fn inherited_style(&self) -> Style {
         Style {
@@ -887,6 +892,15 @@ impl Layout<'_, '_> {
         self.style.backdrop_blur = sigma;
         self
     }
+    /// Keep this container at least `top` logical pixels below the top of its
+    /// nearest scrollable ancestor while its containing block is visible.
+    /// This is CSS `position: sticky` for the top edge; the node still
+    /// participates in normal flow.
+    #[inline(always)]
+    pub fn sticky(mut self, top: f32) -> Self {
+        self.style.sticky_top = Some(top.max(0.));
+        self
+    }
     /// Tint only the background; text and child controls remain opaque.
     #[inline(always)]
     pub fn background_alpha(mut self, alpha: f32) -> Self {
@@ -920,6 +934,14 @@ impl Layout<'_, '_> {
     #[inline(always)]
     pub fn disabled(mut self, value: bool) -> Self {
         self.style.disabled |= value;
+        self
+    }
+    /// Expose a semantic role for this container, such as a navigation
+    /// landmark, a meter bar or a progress indicator. Composed widgets use
+    /// it; interactive roles belong on the control that handles the input.
+    #[inline(always)]
+    pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
+        self.style.role = Some(role);
         self
     }
 
@@ -1018,6 +1040,7 @@ impl Leaf<'_, '_, '_> {
             hovered: !style.disabled && ui.engine.hovered(entity),
             clicked: !style.disabled && ui.engine.clicked(entity),
             enabled: !style.disabled,
+            focused: ui.engine.focused() == Some(entity),
         };
         ui.engine.set_grid(entity, None);
         ui.engine.set_spans(entity, &[]);
@@ -1456,12 +1479,14 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     fn finish_target(&mut self) -> (Response, crate::Entity) {
         if !self.composable {
             let enabled = !self.inner.style.disabled;
+            let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
             let (entity, clicked) = self.inner.finish();
             return (
                 Response {
                     clicked,
                     enabled,
                     hovered: self.inner.hovered,
+                    focused: focused == Some(entity),
                 },
                 entity,
             );
@@ -1469,6 +1494,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         let text = std::mem::take(&mut self.inner.text);
         let name = self.accessible_name.take();
         let icon = self.icon.take();
+        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
         let mut entity = None;
         let response = self
             .inner
@@ -1487,7 +1513,8 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                 }
             })
             .response;
-        (response, entity.expect("button declaration"))
+        let entity = entity.expect("button declaration");
+        (response.with_focused(focused == Some(entity)), entity)
     }
     /// Finish this control and retain its identity for a property subscription.
     #[doc(hidden)]
@@ -1604,11 +1631,13 @@ impl Toggle<'_, '_, '_> {
     #[inline(always)]
     fn finish(&mut self) -> ToggleResponse {
         let enabled = !self.inner.style.disabled;
-        let changed = self.inner.finish_controlled(Some(&mut *self.value)).1;
+        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
+        let (entity, changed) = self.inner.finish_controlled(Some(&mut *self.value));
         ToggleResponse {
             changed,
             checked: *self.value,
             enabled,
+            focused: focused == Some(entity),
         }
     }
     pub fn response(mut self) -> ToggleResponse {
@@ -1631,6 +1660,7 @@ pub struct ToggleResponse {
     changed: bool,
     checked: bool,
     enabled: bool,
+    focused: bool,
 }
 impl ToggleResponse {
     pub const fn changed(self) -> bool {
@@ -1641,6 +1671,10 @@ impl ToggleResponse {
     }
     pub const fn enabled(self) -> bool {
         self.enabled
+    }
+    /// Whether the backend had this control focused when it was declared.
+    pub const fn focused(self) -> bool {
+        self.focused
     }
 }
 
@@ -1735,6 +1769,7 @@ pub struct Response {
     hovered: bool,
     clicked: bool,
     enabled: bool,
+    focused: bool,
 }
 impl Response {
     pub(crate) const fn new(clicked: bool, enabled: bool, hovered: bool) -> Self {
@@ -1742,7 +1777,12 @@ impl Response {
             clicked,
             enabled,
             hovered,
+            focused: false,
         }
+    }
+    pub(crate) const fn with_focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
     }
     pub const fn clicked(self) -> bool {
         self.clicked
@@ -1754,6 +1794,10 @@ impl Response {
     }
     pub const fn enabled(self) -> bool {
         self.enabled
+    }
+    /// Whether the backend had this control focused when it was declared.
+    pub const fn focused(self) -> bool {
+        self.focused
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1842,6 +1886,8 @@ pub struct InputResponse {
     pub changed: bool,
     pub submitted: bool,
     pub navigation: Option<crate::InputNavigation>,
+    /// Whether the backend focused this field when it was declared.
+    pub focused: bool,
 }
 impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
     fn key_of(&self) -> Key {
@@ -1908,14 +1954,17 @@ impl<'t> Input<'_, '_, 't> {
             ui.engine.focus_request = Some(entity);
         }
         let counters = self.buffer.counters();
+        let focused = ui.engine.focused() == Some(entity);
         let mut response = ui.engine.inputs.get(&entity).map_or(
             InputResponse::default(),
             |(buffer, _, previous)| InputResponse {
                 changed: buffer.same_storage(&self.buffer) && previous.0 != counters.0,
                 submitted: buffer.same_storage(&self.buffer) && previous.1 != counters.1,
                 navigation: None,
+                focused,
             },
         );
+        response.focused = focused;
         match ui.engine.inputs.entry(entity) {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
                 let binding = entry.get_mut();
@@ -2105,6 +2154,7 @@ impl Drop for Shader<'_, '_, '_> {
 pub struct Slider<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
     value: &'t mut f64,
+    high: Option<&'t mut f64>,
     range: crate::NumericRange,
 }
 common!(Slider);
@@ -2128,6 +2178,7 @@ impl<'e> UiContext<'e> {
             min: *range.start(),
             max: *range.end(),
             value: *value,
+            high: None,
             step: 0.,
             vertical: false,
             reversed: false,
@@ -2135,8 +2186,24 @@ impl<'e> UiContext<'e> {
         Slider {
             inner,
             value,
+            high: None,
             range,
         }
+    }
+    pub fn range_slider<'u, 't>(
+        &'u mut self,
+        label: impl Into<Cow<'t, str>>,
+        low: &'t mut f64,
+        high: &'t mut f64,
+        range: std::ops::RangeInclusive<f64>,
+    ) -> Slider<'u, 'e, 't> {
+        let mut slider = self.slider(label, low, range);
+        if *high < *slider.value {
+            *high = *slider.value;
+        }
+        slider.range.high = Some(*high);
+        slider.high = Some(high);
+        slider
     }
     /// Numeric-event replay entry point for a portable declaration.
     pub fn slider_element(
@@ -2144,13 +2211,16 @@ impl<'e> UiContext<'e> {
         key: Key,
         mut style: Style,
         label: &str,
-        mut range: crate::NumericRange,
+        range: &mut crate::NumericRange,
     ) -> Option<f64> {
         style.disabled |= self.inherited.disabled;
         if !range.valid() {
             self.engine.error.get_or_insert(FrameError::InvalidStyle);
         } else {
             range.value = range.normalize(range.value);
+            if let Some(high) = range.high {
+                range.high = Some(range.normalize(high).max(range.value));
+            }
         }
         let identity = Identity {
             parent: self.parent,
@@ -2173,14 +2243,26 @@ impl<'e> UiContext<'e> {
         } else {
             self.engine.value(entity)
         };
+        let high_input = if style.disabled {
+            None
+        } else {
+            self.engine.high_value(entity)
+        };
         if let Some(value) = input
             && range.valid()
         {
             range.value = range.normalize(value);
         }
+        if let Some(high) = high_input
+            && range.valid()
+        {
+            let high = range.normalize(high).max(range.value);
+            range.value = range.value.min(high);
+            range.high = Some(high);
+        }
         let node = self.engine.nodes.get_mut(entity).unwrap();
-        if node.numeric != Some(range) {
-            node.numeric = Some(range);
+        if node.numeric != Some(*range) {
+            node.numeric = Some(*range);
             node.style.numeric_revision = node.style.numeric_revision.wrapping_add(1);
             node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
         }
@@ -2228,31 +2310,45 @@ impl Slider<'_, '_, '_> {
             return crate::SliderResponse::default();
         };
         let before = *self.value;
-        let range = &mut self.range;
-        if range.valid() {
-            *self.value = range.normalize(*self.value);
-            range.value = *self.value;
+        if let Some(high) = self.high.as_deref_mut()
+            && *high < *self.value
+        {
+            *self.value = *high;
+        }
+        if self.range.valid() {
+            *self.value = self.range.normalize(*self.value);
+            self.range.value = *self.value;
+            if let Some(high) = self.range.high {
+                self.range.high = Some(self.range.normalize(high).max(*self.value));
+            }
         }
         let normalized = *self.value;
+        let normalized_high = self.range.high;
         let input = ui.slider_element(
             self.inner.key,
             self.inner.style,
             &self.inner.text,
-            self.range,
+            &mut self.range,
         );
-        if let Some(value) = input {
-            let range = self.range;
-            if range.valid() {
-                *self.value = range.normalize(value);
-            }
+        if let Some(value) = input
+            && self.range.valid()
+        {
+            *self.value = self.range.normalize(value);
         }
-        let changed = input.is_some() && normalized != *self.value;
+        if let Some(high) = self.high.as_deref_mut()
+            && let Some(current) = self.range.high
+        {
+            *high = current;
+        }
+        let changed = (input.is_some() && normalized != *self.value)
+            || (normalized_high.is_some() && normalized_high != self.range.high);
         if before != *self.value {
             ui.request_rebuild();
         }
         crate::SliderResponse {
             changed,
             value: *self.value,
+            high: self.range.high,
         }
     }
     pub fn response(mut self) -> crate::SliderResponse {

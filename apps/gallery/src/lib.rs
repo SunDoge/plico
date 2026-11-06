@@ -2,6 +2,7 @@ mod black_hole;
 mod calendar;
 mod color_icons;
 pub mod data_table;
+mod effects;
 pub mod i18n;
 pub mod icons;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -65,6 +66,8 @@ pub enum Page {
     BlackHole,
     #[route(label = "Patterns", icon = color_icons::SETTINGS)]
     Patterns,
+    #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
+    Effects,
 }
 
 /// A spring-driven demo chip on the Motion page. The value samples purely
@@ -98,6 +101,7 @@ pub struct Gallery {
     pub black_hole: bool,
     /// The desktop-patterns page's local demo state.
     pub patterns: patterns::Patterns,
+    pub effects: effects::Effects,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -193,7 +197,10 @@ impl Gallery {
                     Page::Localization => i18n::page(ui, self.language),
                     Page::Images => self.images_page(ui),
                     Page::BlackHole => black_hole::page(ui, &mut self.black_hole),
-                    Page::Patterns => patterns::page(ui, &mut self.patterns),
+                    Page::Patterns => {
+                        patterns::page(ui, &mut self.patterns, &mut self.router)
+                    }
+                    Page::Effects => effects::page(ui, &mut self.effects),
                 }
             })
         };

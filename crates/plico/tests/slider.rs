@@ -40,6 +40,7 @@ fn range_endpoints_extreme_steps_and_invalid_configuration_are_defined() {
         min: 0.,
         max: 10.,
         value: 0.,
+        high: None,
         step: 3.,
         vertical: false,
         reversed: false,

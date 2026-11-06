@@ -138,6 +138,242 @@ for slider and progress controls. Plico's simple meter currently needs only
 layout primitives; slider dragging, text editing, scrolling and overlays still
 need dedicated input/layout infrastructure. No source was copied for this batch.
 
+### Navigation and indicators (MyGO ports)
+
+`breadcrumbs`, `meter`, `spinner` and `rating` port the local MyGO
+`ui/feedback.go` breadcrumb path and `ui/indicators.go` Meter, Spinner and
+Rating. They are ordinary context-first functions over public constructors;
+there is no new renderer kind or persistent callback.
+
+```rust
+use plico::prelude::*;
+#[component]
+fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) {
+    breadcrumbs(cx, &["Home", "Users", "Documents"], path);
+    meter(cx, "Disk", *disk, 0.0..=100.0, MeterLevels {
+        warning: Some(80.),
+        critical: Some(95.),
+    });
+    spinner(cx);
+    rating(cx, stars, 5);
+}
+```
+
+- `breadcrumbs(cx, items, &mut chosen)` renders a path with chevron
+  separators: every item but the last is a link and sets `chosen` on click;
+  the last item is plain text. It returns whether the choice changed, clamps
+  out-of-range choices and leaves an empty path alone. The row carries the
+  navigation role and the parents the link role.
+- `meter(cx, label, value, range, levels)` shows a labeled percentage bar.
+  Below `warning` it is success colored, from `warning` warning colored and
+  from `critical` danger colored; a critical level below the warning level
+  makes low values the bad ones, as a battery's. Non-finite values show an
+  empty bar. The container carries the meter role; the numeric value is not
+  projected to assistive technology yet.
+- `spinner(cx)` draws twelve muted dots fading in turn every 900 ms sized from
+  the theme's font size, and requests animation frames while declared. MyGO
+  strokes rotated spokes and names the control with `.Label(...)`; Plico has no
+  per-container accessible-name API yet, so place explanatory text beside it.
+- `rating(cx, &mut value, max)` renders `max` stars, `value` filled in the
+  warning color. A click sets that star and a click on the set star clears the
+  rating; each star is a button named "N of MAX stars". Values above `max` are
+  clamped and the clamp is reported as a change. MyGO's hover preview and its
+  arrow/Home/End handling on a single slider are not ported: Plico has no
+  per-widget focus action wiring, and every star is its own focus stop.
+- `stepper(cx, &mut value, range, step)` puts two arrow buttons in a bordered
+  column, snapping the value to a step grid anchored at the low bound and
+  clamping it to the range. A press steps once, and holding repeats after
+  400 ms every 80 ms; the release adds no extra step, while keyboard activation
+  steps once. The container carries the spin-button role and the arrows are
+  named "Increase" and "Decrease". MyGO's single `.Label` name and its
+  Up/Down/Home/End handling are not ported.
+
+The split panes (`split`, `split_vertical`, `split_percent`,
+`split_vertical_percent`) are documented in [desktop widgets](desktop-widgets.md).
+
+### Color picker (MyGO port)
+
+`color_picker(cx, &mut Color)` ports MyGO's `ui/colorpicker.go`: a preview
+swatch with its hex value, Hue/Saturation/Brightness sliders and twelve named
+swatch buttons. It returns whether the color changed and writes
+`Color::Literal` on the first edit; theme tokens are edited from the color they
+currently resolve to. The hue of a gray is remembered in transient state, as
+MyGO does, so saturation can return to the last hue.
+
+MyGO's saturation/brightness square, opacity slider and editable hex field are
+not ported: Plico exposes no local pointer coordinates for a custom-painted
+square, `Color` carries no alpha, and the hex text is therefore read-only. The
+sliders are continuous rather than snapped, so deriving a color from its RGB
+does not drift it.
+
+`color_well(cx, label, &mut Color, &mut open)` adds MyGO's `ColorWell`: a
+swatch button showing the color and its hex value, with the color-well role and
+expanded state, that unfolds the picker below itself while `open`. It returns
+whether the picker changed the color. MyGO floats the picker in a popover and
+exposes the hex as the well's value; Plico has no custom popover trigger, so
+the picker unfolds in place and the hex stays visible text.
+
+### Form fields (MyGO port)
+
+`form`, `field` and `fieldset` port MyGO's `ui/form.go` composition:
+
+```rust
+form(cx, |cx| {
+    let _ = field(cx, "Email")
+        .description("For receipts.")
+        .error(if valid { "" } else { "Enter an email address." })
+        + |cx| { text_input_string(cx, "Email", &mut email); };
+    let _ = fieldset(cx, "Notifications", |cx| {
+        let _ = field(cx, "Sound") + |cx| { switch(cx, "Sound", &mut sound); };
+    });
+});
+```
+
+- `field(cx, label)` renders the label, the control its content callback builds
+  (preserving the callback's result) and the non-empty description/error texts
+  below it; the error uses `Color::Danger`.
+- `form` is the spaced column of fields; `fieldset` adds a bold legend.
+- MyGO puts a form's labels in a right-aligned column as wide as the widest
+  label. Plico's immediate API has no intrinsic measuring pass available to a
+  widget, so the port stacks labels above their controls (MyGO's standalone
+  `Field`) and does not implement the label column. A label click does not
+  focus its control, and the control is not marked invalid by its field's
+  error yet.
+
+### Radios, links and history (MyGO port)
+
+`radio`, `radio_group`, `link`, `back_button` and `forward_button` port MyGO's
+`Radio`/`RadioGroup` (`ui/widgets.go`), `Link` and the router history buttons.
+
+- `radio(cx, label, selected)` draws the dot and label and returns the normal
+  response; the caller owns the chosen value and sets it on `clicked`. The
+  button carries the radio-button role and its selected state.
+- `radio_group(cx, content)` is the column with the radio-group role. MyGO
+  makes the group one Tab stop whose arrows and Home/End move the choice;
+  Plico has no per-container focus action wiring, so every radio is its own
+  focus stop and Enter/Space activates it.
+- `link(cx, label)` is accent-colored text with the link role; the declaration
+  site decides what a click does, because Plico core does not open URLs. Plico
+  text has no underline, so the hover background is the affordance.
+- `back_button` / `forward_button` take a `Router`, disable at the ends of the
+  history and step it on click. MyGO's right-click history menu and the
+  Cmd+[ / Alt+Left shortcuts are not part of the widgets.
+
+### Alert dialog (MyGO port)
+
+`alert_dialog(cx, &mut ModalState, title, message, buttons)` ports MyGO's
+`AlertDialog`: while the state is open it renders a modal alert with the
+title, message and buttons, the last of which is the accent-colored default.
+It returns the clicked button's index, `ALERT_DISMISSED` (-2) in the frame
+Escape closes it, and -1 otherwise; a click outside does nothing. The panel
+carries the alert-dialog role and is named by its title.
+
+Two differences: Plico cannot move the keyboard focus onto the default button,
+so Enter only answers after Tab reaches it; and because Plico may run a
+settlement declaration pass after the modal closes, the returned index must be
+handled in the same declaration pass (`match` in the view), not stored for
+later.
+
+### Time input (MyGO port)
+
+`time_input(cx, label, &mut TimeOfDay)` ports MyGO's `TimeInput` as a
+validated `HH:MM` text field over the new `TimeOfDay` value
+(`TimeOfDay::new`/`from_minutes`/`minutes`, chronologically ordered and
+serde-validated). Typed text applies as soon as it parses (`15:04`, `9:5`,
+`1504` and `904` are accepted); Enter rewrites it in canonical form, and
+Enter with invalid text restores the current value. An application change
+rewrites the field.
+
+MyGO edits hours, minutes and AM/PM as separately focused segments, follows
+the regional hour cycle and formats on blur; Plico has no per-segment focus
+or blur hook, so the port is a single 24-hour field and invalid text stays
+visible until Enter.
+
+### Sticky header (core extension)
+
+`Layout::sticky(top)` ports MyGO's sticky-scroll behavior for the top edge:
+the node stays in normal flow, but after layout the runtime keeps its top at
+least `top` logical pixels below the nearest scrollable ancestor's port,
+bounded by its containing block. Its descendants move with it, and hit
+testing, semantics and painting read the shifted geometry.
+
+This is a top-edge sticky constraint only. MyGO's layout also covers other
+edges and offsets; Plico currently implements top only, and a sticky node
+still occupies its flow slot (as CSS sticky does).
+
+### Range slider (MyGO port)
+
+
+`range_slider(cx, label, &mut low, &mut high, range)` ports MyGO's
+`RangeSlider` on the shared slider core: one track with a low and a high
+thumb, the accent fill between them, and the thumbs cannot cross. Pressing
+the track picks the nearer thumb; arrows, PageUp/Down, Home and End move the
+thumb last touched, and Tab focuses the control.
+
+MyGO gives each knob its own focus stop and exposes two named sliders to
+assistive technology. Plico's slider core still has one focusable entity and
+one numeric semantic value per slider, so both thumbs share the focus and the
+semantic node reports the low bound; the high bound is painted but not yet a
+separate accessible slider.
+
+### Number input (MyGO port)
+
+
+`number_input(cx, label, &mut f64, min, max, step)` ports MyGO's
+`NumberInput`: a bounded text field with − and + step buttons. Typed text
+applies as soon as it parses inside the bounds; Enter rewrites it with the
+decimals implied by the step, and Enter with invalid or out-of-range text
+restores the current value. Values clamp to the bounds, and an application
+change rewrites the field.
+
+MyGO moves the value with Up/Down and formats on blur; Plico has no blur
+hook here, so the buttons are the stepping path and formatting happens on
+Enter. Decimal amounts still need a decimal type, as in MyGO.
+
+### Focus traversal
+
+The runtime now exposes the backend focus to declarations: `UiContext::focused()`
+returns the focused entity, and `Response::focused()` /
+`InputResponse::focused()` report it for the control just declared. Controls
+inside a tab strip, radio group, toolbar, tree, list box or menu move focus with
+the arrow keys, Home and End; Tab keeps the sequential traversal. The focused
+entity is synchronized from the backend at the start of each frame, so a
+declaration reads the previous frame's focus.
+
+### Date input (MyGO port)
+
+
+`date_input(cx, label, &mut CalendarDate, &mut PopoverState)` ports MyGO's
+`ui/dateinput.go`: a pop-up button showing `YYYY-MM-DD` whose popover holds the
+shared `calendar_content` widget. Opening it keeps the shown month; choosing a
+day writes the date and closes the popover, and the return value reports the
+change. `date_input_with` takes the first day of the week (the plain entry
+point uses ISO Monday). The calendar's month/day state is transient and never
+enters checkpoints.
+
+MyGO writes the user's regional numeric date and edits a `time.Time`, keeping
+the time of day; Plico dates carry no time and the localization layer exposes
+no numeric date order, so the field shows ISO and a time input would be
+composed separately.
+
+### Find bar (MyGO port)
+
+`find_bar(cx, &mut open, &mut query, matches, &mut current)` ports MyGO's
+`FindBar` while `open`: a toolbar-role bar holding the search field (with the
+magnifier and clear button), the "N of M" status, previous/next buttons and
+Done. The application owns the query and counts the matches; `current` is
+clamped to them and moves round the ends, and the return value reports that
+movement. Opening the bar focuses its field; Enter in the field moves to the
+next match.
+
+Escape and Cmd+G / F3 (Shift variants for the previous match) are not wired:
+Plico does not route those shortcuts out of the text input yet. A closed bar
+declares nothing, so the caller's `open` flag is the single source of truth.
+
+Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
+follow MyGO's theme) for the meter fill and filled stars. Themes serialized
+before the addition still deserialize with those defaults.
+
 ### Desktop style geometry
 
 `padding_x` and `padding_y` override their respective axis; a later `padding`
@@ -216,3 +452,14 @@ ruby_text(cx, "へ").font_size(28);
 高度随注音字号变化，也可用 `annotation_height` 固定。正文 `.spans()` 的范围
 是当前片段的本地 UTF-8 字节偏移；歌词解析、全行到片段的范围转换仍留在应用。
 支持单独配置注音字号、字重和颜色，不绑定歌曲时间轴或特定业务模型。
+
+### Internal widget state
+
+Number, date, time and color inputs retain their edit state in `cx.state` slots,
+identified by the caller and component scope. Drag surfaces, split dividers and
+stepper holds keep local slots under their control node. These slots are not
+serialized and are reclaimed when no longer declared. Repeated controls in a
+loop require `cx.keyed` with a stable item key, as do other stateful components.
+Range sliders retain their active thumb per control; removing a slider also
+removes its thumb selection. The two thumbs still share one focus stop and
+only the low value is exposed in the accessibility tree.

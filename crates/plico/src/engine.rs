@@ -50,9 +50,11 @@ pub struct Engine {
     clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
+    high_values: Vec<(Entity, f64)>,
     value_paths: Vec<(Vec<crate::PathKey>, f64)>,
     pub(crate) inputs: HashMap<Entity, (crate::TextBuffer, String, (u64, u64))>,
     pub(crate) focus_request: Option<Entity>,
+    focused: Option<Entity>,
     pub(crate) scroll_requests: HashMap<Entity, f32>,
     scroll_viewports: HashMap<Entity, [f32; 2]>,
     scroll_paths: Vec<(Vec<crate::PathKey>, [f32; 2])>,
@@ -109,9 +111,11 @@ impl Default for Engine {
             clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
+            high_values: Vec::new(),
             value_paths: Vec::new(),
             inputs: HashMap::new(),
             focus_request: None,
+            focused: None,
             scroll_requests: HashMap::new(),
             scroll_viewports: HashMap::new(),
             scroll_paths: Vec::new(),
@@ -190,6 +194,16 @@ impl Engine {
         (!text.is_empty()).then_some(Cow::Owned(text))
     }
 
+    /// The focus the backend last synchronized, for widgets and tests that
+    /// report a focused state in the same frame.
+    pub fn focused(&self) -> Option<Entity> {
+        self.focused
+    }
+    /// Synchronize the backend-owned focus into the declaration engine.
+    #[doc(hidden)]
+    pub fn set_focused(&mut self, focused: Option<Entity>) {
+        self.focused = focused;
+    }
     /// Consume a one-shot native focus request. Invalid/unmounted targets are ignored.
     pub fn take_focus_request(&mut self) -> Option<Entity> {
         self.focus_request
@@ -460,6 +474,24 @@ impl Engine {
             self.values.push((entity, value));
         }
     }
+    /// Set the upper value of a range slider.
+    pub fn queue_high_value(&mut self, entity: Entity, value: f64) {
+        if !value.is_finite() {
+            return;
+        }
+        if let Some((_, previous)) = self.high_values.iter_mut().find(|(id, _)| *id == entity) {
+            *previous = value;
+        } else {
+            self.high_values.push((entity, value));
+        }
+    }
+    /// The queued upper range value for this entity, if any.
+    pub fn pending_high_value(&self, entity: Entity) -> Option<f64> {
+        self.high_values
+            .iter()
+            .find(|(id, _)| *id == entity)
+            .map(|(_, value)| *value)
+    }
     pub fn queue_value_path(&mut self, path: Vec<crate::PathKey>, value: f64) {
         if value.is_finite() {
             if let Some((_, previous)) = self
@@ -471,6 +503,13 @@ impl Engine {
             } else {
                 self.value_paths.push((path, value));
             }
+        }
+    }
+    pub(crate) fn high_value(&mut self, entity: Entity) -> Option<f64> {
+        if let Some(index) = self.high_values.iter().position(|(id, _)| *id == entity) {
+            Some(self.high_values.swap_remove(index).1)
+        } else {
+            None
         }
     }
     pub(crate) fn value(&mut self, entity: Entity) -> Option<f64> {
@@ -1103,6 +1142,7 @@ impl Engine {
         // keep them observable instead of silently discarding them.
         self.unmatched_clicks.append(&mut self.click_paths);
         self.values.clear();
+        self.high_values.clear();
         self.unmatched_values.append(&mut self.value_paths);
         Ok(self.stats)
     }

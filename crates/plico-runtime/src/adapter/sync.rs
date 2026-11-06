@@ -530,6 +530,7 @@ pub(crate) fn make_paint(
         font_family: Some(font_family),
         text_color: resolve(style.foreground, theme),
         backdrop_blur: style.backdrop_blur,
+        sticky_top: style.sticky_top,
         background: style
             .background
             .map(|c| resolve(c, theme).with_alpha(style.background_alpha)),

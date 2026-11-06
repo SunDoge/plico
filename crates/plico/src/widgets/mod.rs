@@ -225,21 +225,48 @@ pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate
     cx.svg(asset).size(size, size)
 }
 
+mod alert;
 mod calendar;
+mod colorpicker;
 mod composite;
+mod dateinput;
 mod desktop;
+mod find;
+mod form;
+mod indicators;
 mod media;
+mod navigation;
+mod numberinput;
+mod search;
+mod split;
+mod timeinput;
+mod tree;
+pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
+pub use colorpicker::{color_picker, color_well};
 pub use composite::{
-    Panel, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented, separator,
-    stat,
+    Panel, accordion, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented,
+    separator, stat,
 };
+pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
     Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
 };
+pub use find::{FindResponse, find_bar};
+pub use form::{Field, field, fieldset, form};
+pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
+pub use navigation::{
+    back_button, breadcrumbs, forward_button, link, sidebar, sidebar_item, sidebar_section,
+};
+pub use numberinput::number_input;
+pub use search::{SearchResponse, search_field};
+pub use split::{split, split_percent, split_vertical, split_vertical_percent};
+pub use timeinput::time_input;
+pub use tree::{tree, tree_item};
 
-/// A native single-line editor. Secret buffers expose only masked presentation.
+/// A native editor. `TextBuffer::multiline()` enables wrapped, top-aligned text;
+/// ordinary and secret buffers remain single-line.
 pub fn text_input<'u, 'e, 't>(
     cx: &'u mut crate::UiContext<'e>,
     label: impl Into<Cow<'t, str>>,
@@ -293,7 +320,11 @@ pub fn popover<'u, 'e, 's>(
 }
 
 mod popup;
+mod radio;
+mod range;
 pub use popup::{MenuItem, Select, SelectOption, SelectResponse, menu, menu_item, select};
+pub use radio::{radio, radio_group};
+pub use range::range_slider;
 
 mod tooltip;
 pub use tooltip::{Tooltip, tooltip};

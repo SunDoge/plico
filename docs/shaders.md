@@ -41,7 +41,7 @@ values(&[...]) 在应用声明时创建拥有所有权的参数 Vec；动画中�
 
 只读参考本机 Wabou 的 shader_layer.rs / renderer shader.rs，复用本仓库中已经复制的 ShaderEffectSource、PaintContext 和 GPU renderer。没有改动原 Wabou。MyGO 的 Context-first 控件及行为/样式分层继续用于组件 API，shader 不替代常规布局、文本和语义节点。
 
-Gallery 的 Motion 页包含实时 WGSL aurora 和暂停按钮。shader 集成测试实际检查 GPU 像素，覆盖参数、虚拟时钟、暂停/恢复、reduced-motion、2× DPI、静态帧复用、完整模块、源码错误和卸载；不是仅检查 display-list 中出现字符串。
+Gallery 的 Motion 页包含实时 WGSL aurora 和暂停按钮，Effects 页提供三个参考 MyGO 的 WGSL 效果研究。shader 集成测试实际检查 GPU 像素，覆盖参数、虚拟时钟、暂停/恢复、reduced-motion、2× DPI、静态帧复用、完整模块、源码错误和卸载；不是仅检查 display-list 中出现字符串。
 
 ```sh
 cargo run -p gallery
@@ -109,6 +109,28 @@ asset preparation on both paths. Browser WebGL2 does not support these effects.
 The gallery Motion page's Aurora effect supplies both implementations.
 Tests cover time/parameter pixels, compilation errors and recovery, and
 rendering the complete page with Skia at two viewport sizes.
+
+## MyGO 效果研究（Effects 页）
+
+`apps/gallery/src/effects.rs` 与 `apps/gallery/assets/shaders/` 下的三个
+WGSL 效果参考本机 MyGO 的示例，全部通过 `ShaderEffectSource` 的 Naga
+校验，并由 Effects 页实时绘制；三个效果共用一个暂停开关。
+
+| 文件 | 参考 | 参数（`values` 顺序） | 说明 |
+|---|---|---|---|
+| `liquid_glass.wgsl` | `examples/liquid-glass` | `frost`、`bend`（像素）、`sheen` | 必须 `read_backdrop()`：九点模糊、圆角边缘折射、色散边缘、内圈高光与缓慢扫过的高光带 |
+| `orb.wgsl` | `examples/chat-glow/orb.kage` | `energy` 0..1 | 玻璃球体：五团流动色光、rim、镜面高光与外部光晕；输出预乘 alpha |
+| `wind.wgsl` | `examples/wind/wind.kage` | `glow` 0..1、`hue` | domain-warped value noise 的发光风带、漂移星点与暗角 |
+
+差异与边界：MyGO 的效果是跨 Metal/D3D11/OpenGL/WebGL2 与 CPU 的同一份
+shader 源；这里只提供 WGSL，因此仅在 native wgpu（以及支持 effect 的后端）
+上绘制，Skia 需要另行提供 SkSL。`liquid_glass` 读取 backdrop，宿主对它使用
+full-damage 语义；orb 与 wind 不读 backdrop。三者都是单 pass，不接收纹理
+或 storage buffer。Effects 页可在无窗口下捕获：
+
+```sh
+cargo run -p gallery --example capture -- --page effects --out reports/effects.png
+```
 
 ## 后续扩展边界
 

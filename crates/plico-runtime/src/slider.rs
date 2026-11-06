@@ -28,13 +28,17 @@ impl Adapter {
             let cross = if vertical { w } else { h };
             let margin = 8_f32.min(length / 2.);
             let available = (length - margin * 2.).max(0.);
-            let at = margin
-                + available
-                    * (if vertical {
-                        1. - range.fraction() as f32
-                    } else {
-                        range.fraction() as f32
-                    });
+            let position = |value: f64| {
+                margin
+                    + available
+                        * (if vertical {
+                            1. - range.fraction_of(value) as f32
+                        } else {
+                            range.fraction_of(value) as f32
+                        })
+            };
+            let at = position(range.value);
+            let high_at = range.high.map(position);
             let center = cross / 2.;
             let thickness = 4_f32.min(cross);
             let pressed = self.motions.checked(entity, false) as f64;
@@ -66,11 +70,15 @@ impl Adapter {
                 None,
                 &rect(margin, length - margin).to_rounded_rect(2.),
             );
-            let from_max = range.reversed ^ vertical;
-            let fill = if from_max {
-                rect(at, length - margin)
+            let fill = if let Some(high_at) = high_at {
+                rect(at.min(high_at), at.max(high_at))
             } else {
-                rect(margin, at)
+                let from_max = range.reversed ^ vertical;
+                if from_max {
+                    rect(at, length - margin)
+                } else {
+                    rect(margin, at)
+                }
             };
             scene.fill(
                 Fill::NonZero,
@@ -79,21 +87,27 @@ impl Adapter {
                 None,
                 &fill.to_rounded_rect(2.),
             );
-            let (x, y) = if vertical { (center, at) } else { (at, center) };
-            scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                rgb(engine.theme().accent),
-                None,
-                &Circle::new((x as f64, y as f64), knob),
-            );
-            scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                rgb(engine.theme().panel),
-                None,
-                &Circle::new((x as f64, y as f64), knob * 0.625),
-            );
+            let mut knob_at = |at: f32| {
+                let (x, y) = if vertical { (center, at) } else { (at, center) };
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    rgb(engine.theme().accent),
+                    None,
+                    &Circle::new((x as f64, y as f64), knob),
+                );
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    rgb(engine.theme().panel),
+                    None,
+                    &Circle::new((x as f64, y as f64), knob * 0.625),
+                );
+            };
+            knob_at(at);
+            if let Some(high_at) = high_at {
+                knob_at(high_at);
+            }
             let fragment = Arc::new(scene);
             node.paint.widget = Some(fragment.clone());
             self.tree.get_node_context_mut(node.node_id).unwrap().widget = Some(fragment);
@@ -162,8 +176,7 @@ impl Adapter {
                     pointer.phase,
                     PointerPhase::Down | PointerPhase::Move | PointerPhase::Up
                 ) {
-                    let n = engine.node(entity)?;
-                    let range = n.numeric?;
+                    let range = engine.node(entity)?.numeric?;
                     let placed = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
                     let vertical = range.vertical;
                     let length = if vertical {
@@ -188,10 +201,28 @@ impl Adapter {
                     if vertical {
                         t = 1. - t;
                     }
-                    engine.queue_value(
-                        entity,
-                        range.normalize(range.min + t.clamp(0., 1.) * (range.max - range.min)),
-                    );
+                    let value = range.min + t.clamp(0., 1.) * (range.max - range.min);
+                    if let Some(high) = range.high {
+                        let low = engine.pending_value(entity).unwrap_or(range.value);
+                        let high = engine.pending_high_value(entity).unwrap_or(high);
+                        if start {
+                            let d_low = (t - range.fraction_of(low)).abs();
+                            let d_high = (t - range.fraction_of(high)).abs();
+                            self.slider_thumbs
+                                .insert(entity, usize::from(d_high < d_low));
+                        }
+                        if self.slider_thumbs.get(&entity).copied().unwrap_or(0) == 0 {
+                            engine
+                                .queue_value(entity, range.normalize(value).clamp(range.min, high));
+                        } else {
+                            engine.queue_high_value(
+                                entity,
+                                range.normalize(value).max(low).clamp(range.min, range.max),
+                            );
+                        }
+                    } else {
+                        engine.queue_value(entity, range.normalize(value));
+                    }
                 }
                 if pointer.phase == PointerPhase::Up {
                     self.slider_drag = None;
@@ -202,7 +233,12 @@ impl Adapter {
             UiEvent::Key(key) if key.phase == KeyPhase::Down => {
                 let entity = self.focused.filter(|e| enabled(self, *e))?;
                 let range = engine.node(entity)?.numeric?;
-                let value = engine.pending_value(entity).unwrap_or(range.value);
+                let low = engine.pending_value(entity).unwrap_or(range.value);
+                let high = engine.pending_high_value(entity).or(range.high);
+                let thumb = high.map_or(0, |_| {
+                    self.slider_thumbs.get(&entity).copied().unwrap_or(0).min(1)
+                });
+                let value = if thumb == 0 { low } else { high.unwrap_or(low) };
                 let delta = range.increment();
                 let value = match key.key.as_str() {
                     "ArrowRight" | "ArrowUp" => value + delta,
@@ -215,7 +251,18 @@ impl Adapter {
                     _ => return None,
                 };
                 self.focus_visible = true;
-                engine.queue_value(entity, range.normalize(value));
+                if let Some(high) = high {
+                    if thumb == 0 {
+                        engine.queue_value(entity, range.normalize(value).clamp(range.min, high));
+                    } else {
+                        engine.queue_high_value(
+                            entity,
+                            range.normalize(value).max(low).clamp(range.min, range.max),
+                        );
+                    }
+                } else {
+                    engine.queue_value(entity, range.normalize(value));
+                }
                 Some(response())
             }
             _ => None,

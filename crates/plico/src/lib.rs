@@ -37,6 +37,8 @@ mod shader;
 pub use shader::{ShaderAsset, ShaderParams, ShaderValue};
 mod snapshot;
 mod text_style;
+mod time;
+pub use time::TimeOfDay;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -151,22 +153,29 @@ pub mod macro_support {
 /// Recommended imports for application and custom widget modules.
 pub mod prelude {
     pub use crate::widgets::{
-        Avatar, Button, CalendarResponse, Checkbox, Panel, RubyText, Switch, TableColumn, Toast,
-        ToastHost, ToastKind, avatar, badge, button, button_base, calendar, calendar_content,
-        calendar_with, checkbox, choice, collapsible, column, drag_area, grid, icon, image, menu,
-        menu_item, modal, nav_item, nav_menu, panel, popover, progress, property_field, row,
-        ruby_text, segmented, select, separator, settings_row, settings_section, shader, slider,
-        stat, svg, svg_source, switch, table_header, table_row, tabs, text, text_empty, text_input,
-        text_input_string, toast_viewport, toolbar, toolbar_spacer, tooltip, virtual_list,
+        ALERT_DISMISSED, Avatar, Button, CalendarResponse, Checkbox, Field, FindResponse,
+        MeterLevels, Panel, RubyText, SearchResponse, Switch, TableColumn, Toast, ToastHost,
+        ToastKind, accordion, alert_dialog, avatar, back_button, badge, breadcrumbs, button,
+        button_base, calendar, calendar_content, calendar_with, checkbox, choice, collapsible,
+        color_picker, color_well, column, date_input, date_input_with, drag_area, field, fieldset,
+        find_bar, form, forward_button, grid, icon, image, link, menu, menu_item, meter, modal,
+        nav_item, nav_menu, number_input, panel, popover, progress, property_field, radio,
+        radio_group, range_slider, rating, row, ruby_text, search_field, segmented, select,
+        separator, settings_row, settings_section, shader, sidebar, sidebar_item, sidebar_section,
+        slider, spinner, split, split_percent, split_vertical, split_vertical_percent, stat,
+        stepper, svg, svg_source, switch, table_header, table_row, tabs, text, text_empty,
+        text_input, text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer,
+        tooltip, tree, tree_item, virtual_list,
     };
     pub use crate::{
-        AUTO, Align, BoxSizing, Color, Direction, Display, Edges, FlexDirection, FlexWrap,
-        FontFamily, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
-        InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, Metrics, ModalState,
-        Modifiers, Motion, PopoverState, Position, Response, Route, Router, SelectOption,
-        SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut,
-        SvgAsset, TextBuffer, Theme, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
-        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
+        AUTO, Align, BoxSizing, CalendarDate, Color, Direction, Display, Edges, FlexDirection,
+        FlexWrap, FontFamily, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse,
+        InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, Metrics,
+        ModalState, Modifiers, Motion, PopoverState, Position, Response, Route, Router,
+        SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse,
+        StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize,
+        UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax,
+        percent, px, text,
     };
 }
 
