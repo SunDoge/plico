@@ -20,7 +20,7 @@ The effect samples only content already painted behind the pane. Paint a backgro
 first; it cannot read the desktop, another window or content painted afterwards.
 
 Parameters are validated before declaring the pane. Frost/Tint/Highlight are 0–1,
-Refraction is 0–16 logical pixels, Saturation is 0–2 and Radius is 0–256 logical
+Refraction is 0–64 logical pixels, Bezel is 0–128 logical pixels, Saturation is 0–2 and Radius is 0–256 logical
 pixels. TintColor is RGB. Children remain normal sharp, interactive widgets.
 
 The authoritative asset is `crates/plico-renderer/assets/liquid_glass.wgsl`.
@@ -32,7 +32,7 @@ For Rust/custom effect clients, enable backdrop input and provide these vec4 slo
 | Slot | x | y | z | w |
 | --- | --- | --- | --- | --- |
 | 0 | radius | frost | tint amount | reflection motion multiplier (0/1) |
-| 1 | refraction | saturation | highlight strength | reserved (0) |
+| 1 | refraction | saturation | highlight strength | bezel width |
 | 2 | tint red | tint green | tint blue | reserved (0) |
 
 This is a wgpu scene effect, not an OS compositor API or a SkSL implementation.
@@ -45,3 +45,7 @@ Do not infer universal clipping or power-efficiency guarantees from this demo.
 The C# gallery's shader page demonstrates controls and an interactive pane. Pure
 managed checks cover composition/fallback/validation without loading Rust; native
 application checks cover shader validation and native-only animated frames.
+
+The quartic/Snell lens and smoothed normals follow MyGO (MIT attribution is in
+`crates/plico-renderer/third_party`). This does not yet port its blur pyramid,
+light/dark material calibration or native NSGlassEffectView bridge.

@@ -54,7 +54,7 @@ internal sealed partial class GalleryModel
 internal sealed partial class GalleryModel
 {
     private bool liquidEnabled = true, liquidAnimated, liquidReduceMotion;
-    private double liquidFrost = .18, liquidTint = .16, liquidRefraction = 8;
+    private double liquidFrost = .18, liquidTint = .16, liquidRefraction = 28;
     private static readonly WgslProgram GlassBackdrop = new("""
         fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
             let stripe = 0.5 + 0.5 * sin((uv.x + uv.y * 0.45) * 34.0);
@@ -77,7 +77,7 @@ internal sealed partial class GalleryModel
             {
                 using (ui.Column().Gap(6)) { ui.Text($"Frost · {liquidFrost:P0}").Color(T.Muted); ui.Slider("Glass frost", ref liquidFrost, 0, 1).Width(240); }
                 using (ui.Column().Gap(6)) { ui.Text($"Tint · {liquidTint:P0}").Color(T.Muted); ui.Slider("Glass tint", ref liquidTint, 0, 1).Width(240); }
-                using (ui.Column().Gap(6)) { ui.Text($"Refraction · {liquidRefraction:0} px").Color(T.Muted); ui.Slider("Glass refraction", ref liquidRefraction, 0, 16).Width(240); }
+                using (ui.Column().Gap(6)) { ui.Text($"Refraction · {liquidRefraction:0} px").Color(T.Muted); ui.Slider("Glass refraction", ref liquidRefraction, 0, 64).Width(240); }
             }
             using (ui.Box().FillWidth().Height(240).Radius(16).Background(0xd0e9f2))
             {

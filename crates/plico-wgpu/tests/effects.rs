@@ -653,7 +653,7 @@ fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
         ShaderEffectId::new(),
         source,
         0.,
-        vec![18., 0., 0., 0., 8., 1., 0., 0., 1., 1., 1., 0.].into(),
+        vec![18., 0., 0., 0., 8., 1., 0., 36., 1., 1., 1., 0.].into(),
     );
     base.append_scene(paint.finish(), Affine::IDENTITY);
     let actual = renderer

@@ -13,7 +13,8 @@ public readonly record struct LiquidGlassOptions
     public float Frost { get; init; } = .18f;
     public float Tint { get; init; } = .16f;
     public uint TintColor { get; init; } = 0xf9fcff;
-    public float Refraction { get; init; } = 8;
+    public float Refraction { get; init; } = 28;
+    public float Bezel { get; init; } = 36;
     public float Saturation { get; init; } = 1.24f;
     public float Highlight { get; init; } = 1;
     internal void Validate()
@@ -21,7 +22,7 @@ public readonly record struct LiquidGlassOptions
         static void Range(float value, float max, string name)
         { if (!float.IsFinite(value) || value < 0 || value > max) throw new ArgumentOutOfRangeException(name); }
         Range(Radius, 256, nameof(Radius)); Range(Frost, 1, nameof(Frost)); Range(Tint, 1, nameof(Tint));
-        Range(Refraction, 16, nameof(Refraction)); Range(Saturation, 2, nameof(Saturation)); Range(Highlight, 1, nameof(Highlight));
+        Range(Bezel, 128, nameof(Bezel)); Range(Refraction, 64, nameof(Refraction)); Range(Saturation, 2, nameof(Saturation)); Range(Highlight, 1, nameof(Highlight));
         if (TintColor > 0xffffff) throw new ArgumentOutOfRangeException(nameof(TintColor));
     }
 }
@@ -35,7 +36,7 @@ public static class LiquidGlassEffect
         options.Validate();
         uint color = options.TintColor;
         return surface.Uniform(0, new Vector4(options.Radius, options.Frost, options.Tint, options.Animated && !options.ReduceMotion ? 1 : 0))
-            .Uniform(1, new Vector4(options.Refraction, options.Saturation, options.Highlight, 0))
+            .Uniform(1, new Vector4(options.Refraction, options.Saturation, options.Highlight, options.Bezel))
             .Uniform(2, new Vector3((color >> 16) / 255f, ((color >> 8) & 255) / 255f, (color & 255) / 255f));
     }
 }
