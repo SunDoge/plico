@@ -143,3 +143,5 @@
 - [C# / native boundary](csharp-boundary.md): feature ownership and native-free test/build tiers.
 
 - [Liquid Glass](liquid-glass.md): shared WGSL, C# composition API, parameters and backend limits.
+
+- [Native vertical text](native-vertical-text.md): system-owned vertical layout and rasterization, with platform verification limits.

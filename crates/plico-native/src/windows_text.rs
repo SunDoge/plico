@@ -4,6 +4,8 @@
 mod color;
 mod fonts;
 mod raster;
+#[cfg(feature = "vertical-text")]
+pub(crate) mod vertical;
 pub use crate::text_direction::paragraph_is_rtl;
 use crate::text_indices::TextIndices;
 pub use raster::{ColorMask, GlyphMask, Rasterized};

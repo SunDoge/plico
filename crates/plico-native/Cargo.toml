@@ -7,6 +7,8 @@ publish = false
 
 [features]
 default = []
+# Native vertical-rl layout and rasterization on the current desktop OS.
+vertical-text = ["linux-text", "macos-text", "windows-text"]
 screen-capture = ["dep:ashpd", "ashpd/screenshot", "dep:tokio"]
 global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
 macos-text = ["dep:objc2-app-kit", "dep:unicode-bidi", "dep:objc2-core-foundation", "dep:objc2-core-text", "dep:objc2-core-graphics"]
@@ -63,5 +65,5 @@ windows-core = { version = "0.62.2", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSFontDescriptor", "objc2-core-foundation"] }
 objc2-core-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CFAttributedString", "CFString", "CFNumber", "CFCGTypes", "CFStringTokenizer", "CFLocale"] }
-objc2-core-text = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CTFont", "CTFontTraits", "CTFontDescriptor", "CTLine", "CTRun", "CTTypesetter", "CTStringAttributes", "objc2-core-graphics"] }
-objc2-core-graphics = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGAffineTransform"] }
+objc2-core-text = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CTFrame", "CTFramesetter", "CTFont", "CTFontTraits", "CTFontDescriptor", "CTLine", "CTRun", "CTTypesetter", "CTStringAttributes", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGAffineTransform", "CGPath"] }
