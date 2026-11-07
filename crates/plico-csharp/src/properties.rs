@@ -4,6 +4,7 @@ use serde::Deserialize;
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Properties {
+    pub keys: Vec<String>,
     pub absolute: Option<[f32; 2]>,
     pub translate: Option<[f32; 2]>,
     pub blur: f32,
@@ -75,6 +76,13 @@ impl Properties {
     pub fn parse(json: &str, text: &str) -> Result<Self, String> {
         let p: Self =
             serde_json::from_str(json).map_err(|e| format!("invalid primitive properties: {e}"))?;
+        if p.keys.len() > 32
+            || p.keys
+                .iter()
+                .any(|key| key.is_empty() || key.len() > 64 || key.contains('\0'))
+        {
+            return Err("invalid unhandled-key bindings".into());
+        }
         if [p.padding_x, p.padding_y, p.max_width, p.max_height]
             .into_iter()
             .flatten()
@@ -195,5 +203,22 @@ mod tests {
         assert!(Properties::parse(r#"{"blur":65}"#, "").is_err());
         assert!(Properties::parse(r#"{"alpha":2}"#, "").is_err());
         assert!(Properties::parse(r#"{"unknown":true}"#, "").is_err());
+    }
+}
+
+#[cfg(test)]
+mod key_binding_tests {
+    use super::*;
+    #[test]
+    fn key_bindings_are_bounded_before_crossing_the_event_bridge() {
+        assert!(Properties::parse(r#"{"keys":["ArrowLeft","ArrowRight"]}"#, "").is_ok());
+        for keys in [
+            vec!["".to_owned()],
+            vec!["x".repeat(65)],
+            vec!["ArrowLeft".to_owned(); 33],
+        ] {
+            let json = serde_json::json!({"keys": keys}).to_string();
+            assert!(Properties::parse(&json, "").is_err());
+        }
     }
 }

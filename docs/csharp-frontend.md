@@ -109,3 +109,12 @@ Private members use generated access bridges; method groups produce a bypass
 warning. The Body mode remains the default. See
 `experiments/csharp-interceptors.md` for the real LSP/rename/hot-reload findings
 and explicit project opt-in; this does not establish production-wide coverage.
+
+### Unhandled component keys
+
+Inside a container, `ui.KeyPressed("ArrowLeft")` registers an unmodified key for
+that mounted container and returns true on its routed event. Focused controls,
+IME and modals retain priority. Disabled ancestors block the binding; unmounting
+removes it. This is not a system-global hotkey or a modifier-chord parser. The
+C# gallery's 2048 now tests all four arrows through the native input route, rather
+than only invoking its move function. This requires native/managed protocol 4.

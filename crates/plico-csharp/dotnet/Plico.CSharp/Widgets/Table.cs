@@ -29,7 +29,7 @@ public sealed unsafe partial class Ui
                     using (Scope(columns[i].Id))
                     {
                         string text = columns[i].Label + (sortColumn == i ? descending ? " ↓" : " ↑" : "");
-                        if (Button(text).AriaLabel(columns[i].Label).Ghost().JustifyStart().Width(0).Grow(columns[i].Grow).Clicked()) clicked = i;
+                        if (Button(text).AriaLabel(columns[i].Label).Ghost().Padding(0).JustifyStart().Width(0).Grow(columns[i].Grow).Clicked()) clicked = i;
                     }
             Divider();
             using var viewport = VirtualList(rows.Count, rowHeight, height, key: "rows");

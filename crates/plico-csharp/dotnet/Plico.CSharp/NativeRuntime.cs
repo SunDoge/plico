@@ -6,7 +6,7 @@ namespace Plico;
 public static class NativeRuntime
 {
     public const uint AbiVersion = 5;
-    public const uint ProtocolRevision = 3;
+    public const uint ProtocolRevision = 4;
     public static string? LibraryPath { get; private set; }
     private static readonly object loadGate = new();
     private static IntPtr libraryHandle;

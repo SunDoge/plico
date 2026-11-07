@@ -88,7 +88,7 @@ pub type Build = unsafe extern "C" fn(*mut c_void, *const Frame, *mut Batch) -> 
 /// managed widget edits do not change this revision or require a Rust build.
 #[unsafe(no_mangle)]
 pub extern "C" fn plico_protocol_revision() -> u32 {
-    3
+    4
 }
 
 /// ABI/size handshake before the first callback.

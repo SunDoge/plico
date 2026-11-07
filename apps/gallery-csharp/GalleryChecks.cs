@@ -71,9 +71,24 @@ internal static class GalleryChecks
         Check(app.Stats.Callbacks == callbacks, "Native-only frames unnecessarily reentered C#");
         app.Click("button", "Expand"); app.Step(1280, 900); Check(model.Expanded, "Motion target did not change");
         model.Current = Page.Game2048; app.Invalidate(); app.Step(1280, 900);
-        model.Board = [2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        model.Move(0);
-        Check(model.Board[0] == 4 && model.Board[1] == 4 && model.Score == 8, "2048 merge semantics failed");
+        foreach (var (key, second, destination) in new[] { ("ArrowLeft", 1, 0), ("ArrowRight", 1, 3), ("ArrowUp", 4, 0), ("ArrowDown", 4, 12) })
+        {
+            model.Board = new int[16]; model.Board[0] = model.Board[second] = 2; model.Score = 0;
+            app.Invalidate(); app.Step(1280, 900);
+            app.KeyPress(key); app.Step(1280, 900);
+            Check(model.Board[destination] == 4 && model.Score == 4, $"2048 key {key} did not merge through the native event route");
+        }
+        model.Board = [2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; model.Score = 0;
+        app.Invalidate(); app.Step(1280, 900); app.Click("button", "← Left"); app.Step(1280, 900);
+        Check(model.Board[0] == 4 && model.Board[1] == 4 && model.Score == 8, "2048 button merge semantics failed");
+        app.Click("button", "New game"); app.Step(1280, 900);
+        Check(model.Score == 0 && model.Board.Count(value => value != 0) == 3, "2048 restart failed");
+        int[] pausedBoard = (int[])model.Board.Clone();
+        model.Current = Page.Controls; app.Invalidate(); app.Step(1280, 900); app.KeyPress("ArrowDown"); app.Step(1280, 900);
+        Check(model.Board.SequenceEqual(pausedBoard), "An unmounted game still consumed keys");
+        model.Current = Page.DataTable; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Size"); app.Step(1280, 900); Check(model.SortBy == "Size" && !model.SortDescending, "Table sorting failed");
+        app.Click("button", "Size"); app.Step(1280, 900); Check(model.SortDescending, "Table descending sort failed");
         model.Current = Page.Glass; app.Invalidate(); app.Step(1280, 900);
         app.Click("button", "Save mix"); app.Step(1280, 900); Check(model.SavedMix, "Glass card action failed");
         app.SetValue("Backdrop blur", 24); app.Step(1280, 900); Check(model.GlassBlur == 24, "Backdrop property did not update");

@@ -28,6 +28,8 @@ public sealed unsafe partial class Ui
         int start = Math.Clamp(range.Item1, 0, count), end = Math.Clamp(range.Item2, start, count);
         var encoded = Encode(JsonSerializer.Serialize(new ListPayload(count, rowHeight, start, end), PayloadJsonContext.Default.ListPayload));
         commands[index].value_start = encoded.Item1; commands[index].value_len = encoded.Item2;
+        commands[index].flags |= 1; // Fill the available cross-axis; cells may have zero basis.
+        commands[index].shrink = 0;
         commands[index].height = height; commands[index].grow = fill ? 1 : 0;
         return new VirtualListScope(new Container(this, index), start, end);
     }

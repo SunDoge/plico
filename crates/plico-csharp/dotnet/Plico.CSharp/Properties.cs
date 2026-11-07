@@ -13,6 +13,7 @@ public sealed unsafe partial class Ui
     {
         public float[]? Absolute { get; set; }
         public float[]? Translate { get; set; }
+        public List<string>? Keys { get; set; }
         public float Blur { get; set; }
         public float ForegroundBlur { get; set; }
         public float CornerSmoothing { get; set; }

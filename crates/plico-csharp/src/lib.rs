@@ -236,6 +236,51 @@ impl HostView for ManagedView {
             false
         }
     }
+    fn on_unhandled_key(&mut self, key: &plico::KeyEvent) -> bool {
+        if key.phase != plico::KeyPhase::Down
+            || key.synthetic
+            || key.modifiers.control()
+            || key.modifiers.meta()
+            || key.modifiers.alt()
+            || key.modifiers.shift()
+        {
+            return false;
+        }
+        let Some(batch) = &self.batch else {
+            return false;
+        };
+        let target = batch.commands.iter().find(|command| {
+            if !batch
+                .properties
+                .get(&command.id)
+                .is_some_and(|properties| properties.keys.contains(&key.key))
+            {
+                return false;
+            }
+            let mut node = *command;
+            loop {
+                if node.flags & DISABLED != 0 {
+                    return false;
+                }
+                if node.parent == batch::ROOT {
+                    break;
+                }
+                node = &batch.commands[node.parent as usize];
+            }
+            true
+        });
+        let Some(target) = target else {
+            return false;
+        };
+        self.pending_replies.push(Reply {
+            id: target.id,
+            kind: 8,
+            value: 0.,
+            text: key.key.clone(),
+        });
+        self.dirty = true;
+        true
+    }
     fn theme(&self) -> Theme {
         if self.batch.as_ref().is_some_and(|b| b.dark) {
             Theme::dark()
@@ -452,8 +497,14 @@ impl Render<'_> {
                 if c.grow > 0. || c.flags & HEIGHT_FILL != 0 {
                     list = list.fill();
                 }
-                if c.width >= 0. {
-                    list = list.width(c.width);
+                if c.flags & WIDTH_FILL != 0 {
+                    list = list.width_percent(100.);
+                } else if c.width >= 0. {
+                    list = if c.flags & (1 << 16) != 0 {
+                        list.width_percent(c.width)
+                    } else {
+                        list.width(c.width)
+                    };
                 }
                 let response = list.rows(
                     |i| {
