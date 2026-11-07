@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/SunDoge/plico/compare/v0.3.0...v0.3.1) - 2026-11-07
+
+### Added
+
+- *(runtime)* support sticky top headers
+- *(widgets)* port MyGO color well
+- *(widgets)* port MyGO breadcrumbs, meter, spinner and rating
+- *(widgets)* add dual-thumb range slider
+- *(widgets)* add focus traversal and number input
+- *(widgets)* port MyGO alert dialog
+- *(widgets)* port MyGO find bar
+- *(widgets)* port MyGO radios, link and history buttons
+- *(widgets)* port MyGO sidebar and search field
+- *(widgets)* port MyGO stepper and split panes
+
+### Fixed
+
+- *(widgets)* scope edit and interaction state to control lifetimes
+
 ## [0.3.0](https://github.com/SunDoge/plico/compare/v0.2.1...v0.3.0) - 2026-11-05
 
 ### Added
