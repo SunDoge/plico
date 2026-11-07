@@ -1018,6 +1018,10 @@ fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
     uniforms
 }
 
+/// Built-in Liquid Glass effect body, shared with the managed SDK.
+/// Requires backdrop input; see docs/liquid-glass.md for uniform slots.
+pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,6 +1254,3 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
     }
 }
 
-/// Built-in Liquid Glass effect body, shared with the managed SDK.
-/// Requires backdrop input; see docs/liquid-glass.md for uniform slots.
-pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");
