@@ -97,13 +97,13 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
             continue; // state-only field: no invalidation
         }
         let field_name = field.ident.as_ref().unwrap();
-        if index >= 64 {
-            return syn::Error::new(field.span(), "property masks support up to 64 fields")
+        if index >= 128 {
+            return syn::Error::new(field.span(), "property masks support up to 128 fields")
                 .into_compile_error()
                 .into();
         }
         let property = format_ident!("{}", field_name.to_string().to_uppercase());
-        let bit = 1u64 << index;
+        let bit = 1u128 << index;
         property_constants.push(quote!(const #property = #bit;));
         let mut parsed_rows = Vec::new();
         let mut row_errors = Vec::new();
@@ -188,7 +188,7 @@ pub fn expand_derive(input: TokenStream) -> TokenStream {
         #runtime::macro_support::bitflags! {
             /// Exact style inputs changed; generated from the same field marks as work channels.
             #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-            pub struct #properties_name: u64 { #( #property_constants )* }
+            pub struct #properties_name: u128 { #( #property_constants )* }
         }
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
         pub struct #diff_name {

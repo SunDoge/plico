@@ -27,7 +27,9 @@ else if (args.Length > 0 && args[0] == "--self-test")
     LocalStateChecks.Run();
     SdkChecks.Run();
     PrimitiveChecks.Run();
+    WgslChecks.Run();
     FrameworkWidgetChecks.Run();
+    ComponentKitChecks.Run();
     IdentityChecks.Run();
     app.Step();
     Require(model.Count == 0, "initial count");

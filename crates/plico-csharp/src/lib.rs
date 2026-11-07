@@ -1142,6 +1142,20 @@ fn release_image(host: u64, resource: u64) -> i32 {
     })
 }
 
+fn validate_shader(source: *const u8, len: u32, flags: u32) -> i32 {
+    status(|| {
+        if len > 65536 || flags > 3 || flags == 3 {
+            return Err("invalid WGSL source length or mode flags".into());
+        }
+        let source = utf8(source, len)?;
+        if flags & 1 != 0 {
+            plico_renderer::ShaderEffectSource::new_module(source).map(|_| ())
+        } else {
+            plico_renderer::ShaderEffectSource::with_backdrop(source, flags & 2 != 0).map(|_| ())
+        }
+    })
+}
+
 #[cfg(test)]
 mod dispatcher_tests {
     use super::*;

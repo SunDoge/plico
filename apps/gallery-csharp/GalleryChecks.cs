@@ -97,6 +97,36 @@ internal static class GalleryChecks
         app.Click("button", "Increase Copies"); app.Step(1280, 2400); Check(model.Copies == 2, "Stepper failed");
         app.Click("button", "Toggle navigation"); app.Step(1280, 2400); Check(model.Collapsed, "Sidebar collapse failed");
         app.Click("button", "Toggle navigation"); app.Step(1280, 2400); Check(!model.Collapsed, "Sidebar expand failed");
+        model.Current = Page.ComponentKit; app.Invalidate(); app.Step(1280, 1200);
+        app.Click("button", "Navigation"); app.Step(1280, 1200);
+        app.Click("button", "Recent"); app.Step(1280, 1200); Check(model.KitSegment == 1, "Kit segment failed");
+        app.Click("button", "Next page"); app.Step(1280, 1200); Check(model.KitPage == 2, "Kit pagination failed");
+        app.Click("button", "Actions…"); app.Step(1280, 1200);
+        app.Click("button", "Archive"); app.Step(1280, 1200); Check(model.KitMenuResult == "Archive", "Kit menu failed");
+        app.Click("button", "Forms"); app.Step(1280, 1200);
+        app.SetText("Kit receipt email", "kit@example.com"); app.Step(1280, 1200); Check(model.KitEmail == "kit@example.com", "Kit field failed");
+        app.Click("button", "Corners"); app.Step(1280, 1200);
+        app.SetValue("Corner smoothing", .5); app.Step(1280, 1200);
+        Check(model.KitTab == 3 && model.CornerAmount == .5, "Corner smoothing control failed");
+        using (var lyrics = new GalleryModel { Current = Page.Lyrics, LyricStart = 10 })
+        using (var player = new Application(lyrics.Show, virtualTime: true))
+        {
+            lyrics.Attach(player);
+            player.SetTime(0); player.Step(1280, 900);
+            player.SetTime(500); player.Step(1280, 900);
+            Check(Math.Abs(lyrics.LyricPosition - 10.5) < .001, "Lyrics did not follow virtual clock");
+            player.Click("button", "Pause lyrics"); player.Step(1280, 900);
+            double paused = lyrics.LyricPosition;
+            player.SetTime(2000); player.Step(1280, 900);
+            Check(!lyrics.LyricPlaying && lyrics.LyricPosition == paused, "Paused lyrics advanced");
+            player.SetValue("Lyric playback position", 7); player.Step(1280, 900);
+            Check(lyrics.LyricPosition == 7, "Lyric seeking failed");
+            player.Click("button", "Replay"); player.Step(1280, 900);
+            Check(lyrics.LyricPosition == 0, "Lyric replay failed");
+            player.Click("button", "Play lyrics"); player.Step(1280, 900);
+            player.SetTime(3000); player.Step(1280, 900);
+            Check(Math.Abs(lyrics.LyricPosition - 1) < .001, "Lyrics did not resume from current position");
+        }
         Console.WriteLine("Gallery interaction checks passed");
     }
 }

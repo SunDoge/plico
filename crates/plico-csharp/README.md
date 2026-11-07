@@ -417,3 +417,31 @@ The older Body-wrapper probe remains a regression fixture. Explicitly setting
 `PlicoComponentInterceptors=false` selects that legacy generator mode. See
 [the interceptor validation](../../docs/experiments/csharp-interceptors.md) for
 LSP, hot reload and NativeAOT results and current limitations.
+
+## Component kit
+
+The managed SDK now includes themed surfaces/fields, badges/avatars/alerts,
+segmented selection, breadcrumbs/pagination/disclosure, command popups, typed
+number/time fields, RGB/range editors, confirmation/notification/find controls,
+WGSL skeletons and a virtualized `Table<T>`. See the
+[component inventory and behavioral limits](../../docs/csharp-components.md).
+Gallery's Component kit page and existing Desktop patterns/Data table pages
+exercise these APIs.
+
+`Radius(28).CornerSmoothing(1)` enables continuous-corner easing on composed
+surfaces, including their border and content clip. Zero keeps existing circular
+corners. See [geometry, constraints and cost](../../docs/corner-smoothing.md);
+Gallery's Component kit → Corners compares both shapes.
+
+## Daily managed development
+
+Use `dotnet msbuild dotnet/Plico.proj -t:Test` for native-free component/task
+checks, `-t:Watch` for Gallery edits, and `-t:NativeTest` to reuse the existing
+native library. Only `-t:Native` invokes Cargo. The SDK now checks property/event
+protocol revision 3 as well as ABI/size before host creation. See the
+[development commands and UiHarness examples](../../dotnet/README.md) and
+[ownership boundary](../../docs/csharp-boundary.md).
+
+C# can author WGSL directly using `WgslProgram`, typed vec4 `Uniform` slots, and
+`WgslFile` background file reload. See [the shader contract](../../docs/shaders.md)
+and Gallery → Effects. Shader edits invoke neither Cargo nor the C# compiler.

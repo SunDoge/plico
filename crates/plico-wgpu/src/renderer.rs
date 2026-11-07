@@ -2309,6 +2309,16 @@ fn encode_backdrop_step<'p>(
             region.width,
             region.height,
         );
+        // The source is a local region, not a full-window texture. Map its
+        // UVs into the destination rectangle rather than sampling window coords.
+        pass.set_viewport(
+            x.max(0.),
+            y.max(0.),
+            region.width as f32,
+            region.height as f32,
+            0.,
+            1.,
+        );
         blitter.encode_scissored(device, &output, pass);
     }
     // Continue the frame in a fresh pass over the same target.

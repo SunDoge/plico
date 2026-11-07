@@ -9,6 +9,7 @@ internal sealed partial class GalleryModel
     internal void Attach(Application application)
     {
         App = application;
+        InitializeEffects();
         Request = new(application);
         ImageRequest = new(application);
     }

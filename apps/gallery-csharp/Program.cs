@@ -6,6 +6,11 @@ namespace Gallery;
 
 internal sealed record Scene
 {
+    public uint Width { get; set; } = 1280;
+    public uint Height { get; set; } = 900;
+    public double LyricTimeMs { get; set; } = 10000;
+    public bool LyricPlaying { get; set; } = true;
+    public int ComponentTab { get; set; }
     public string Page { get; set; } = "Workspace";
     public bool Dark { get; set; }
     public bool Chinese { get; set; }
@@ -36,6 +41,9 @@ internal static class Program
                 ?? throw new ArgumentException("Empty scene");
             using var model = new GalleryModel
             {
+                LyricStart = double.IsFinite(scene.LyricTimeMs) ? Math.Clamp(scene.LyricTimeMs / 1000, 0, GalleryModel.LyricDuration - .001) : 0,
+                LyricPlaying = scene.LyricPlaying,
+                KitTab = Math.Clamp(scene.ComponentTab, 0, 3),
                 Current = ParsePage(Option(args, "--page") ?? scene.Page),
                 Dark = args.Contains("--dark") || scene.Dark,
                 Chinese = args.Contains("--zh") || scene.Chinese,
@@ -67,7 +75,7 @@ internal static class Program
                 {
                     model.Current = page; app.Invalidate();
                     if (page == Page.Markdown) { model.ChatShown = int.MaxValue; model.ChatPaused = true; }
-                    app.Capture(Path.Combine(all, $"{page}.png"), 1280, 900);
+                    app.Capture(Path.Combine(all, $"{page}.png"), scene.Width, scene.Height);
                     Console.WriteLine($"Captured {page}");
                 }
                 model.Current = Page.Controls; model.Dark = true; app.Invalidate();
@@ -78,8 +86,8 @@ internal static class Program
             else if (capture is not null)
             {
                 if (model.Current == Page.Images) { model.StartSample(); Pump(app, () => model.ImageRequest.Status != UiTaskStatus.Running); }
-                if (scene.PointerX is double px && scene.PointerY is double py) { app.Step(1280, 900); app.PointerMove(px, py); app.Step(1280, 900); }
-                app.Capture(capture, 1280, 900);
+                if (scene.PointerX is double px && scene.PointerY is double py) { app.Step(scene.Width, scene.Height); app.PointerMove(px, py); app.Step(scene.Width, scene.Height); }
+                app.Capture(capture, scene.Width, scene.Height);
                 Console.WriteLine($"Captured {capture}");
             }
             else

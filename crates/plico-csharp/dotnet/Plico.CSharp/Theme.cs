@@ -17,10 +17,15 @@ public sealed record Theme
     public uint AccentPressed { get; init; } = 0x1e40af;
     public uint OnAccent { get; init; } = 0xffffff;
     public uint Selection { get; init; } = 0xdde9ff;
+    public uint Info { get; init; } = 0x1d4ed8;
+    public uint Success { get; init; } = 0x15803d;
+    public uint Warning { get; init; } = 0x92400e;
+    public uint Danger { get; init; } = 0xb91c1c;
     public uint FontSize { get; init; } = 14;
     public static Theme Light { get; } = new();
     public static Theme Dark { get; } = new() { IsDark = true, Surface = 0x18181b, Panel = 0x202023,
         Foreground = 0xf4f4f5, Muted = 0xa1a1aa, Border = 0x3f3f46, Control = 0x27272a,
+        Info = 0x93c5fd, Success = 0x86efac, Warning = 0xfcd34d, Danger = 0xfca5a5,
         Hover = 0x3f3f46, Pressed = 0x52525b, Selection = 0x263d65 };
 }
 

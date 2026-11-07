@@ -288,6 +288,7 @@ impl<V: HostView> Source<V> {
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         self.adapter.motions.set_enabled(!reduced);
         self.adapter.smooth_scroll_enabled = !reduced;
+        self.adapter.scrollbars.reduced_motion = reduced;
         if reduced {
             self.adapter.finish_scroll();
         }
@@ -314,7 +315,9 @@ impl<V: HostView> Source<V> {
             if let Some((w, h)) = self.viewport {
                 self.update_backend(tcx, w, h);
             }
-        } else if (scroll.changed || self.adapter.scroll_dirty)
+        } else if (scroll.changed
+            || self.adapter.scroll_dirty
+            || self.adapter.scrollbars.needs_frame())
             && let Some((w, h)) = self.viewport
         {
             // Event targeting must use the presented scroll position even when
@@ -386,6 +389,7 @@ impl<V: HostView> Source<V> {
         }
         let shader_active = self.adapter.shader_active();
         let tooltip_active = self.adapter.tips.needs_frame();
+        let scrollbar_active = self.adapter.scrollbars.needs_frame();
         // A surface redraw is not itself an application-state change. Native
         // sampling can keep the declaration tree when all invalidation sources
         // are clean. The snapshot API deliberately still evaluates the view.
@@ -401,6 +405,7 @@ impl<V: HostView> Source<V> {
             if motion_dirty
                 || shader_active
                 || tooltip_active
+                || scrollbar_active
                 || scroll.changed
                 || self.adapter.scroll_dirty
                 || self.adapter.selection_dirty
@@ -410,21 +415,25 @@ impl<V: HostView> Source<V> {
             }
             return;
         }
-        self.declarations_reused =
-            (self.transition.active() || motion_dirty || shader_active || tooltip_active)
-                && !self.requests.contains(plico::Changes::ANIMATE)
-                && !self.pending
-                && self.viewport == Some((width, height))
-                && self.engine.theme() == self.view.theme()
-                && (motion_dirty
-                    || shader_active
-                    || tooltip_active
-                    || self
-                        .target_scene
-                        .as_ref()
-                        .is_some_and(|(_, _, revision)| *revision == self.revision));
+        self.declarations_reused = (self.transition.active()
+            || motion_dirty
+            || shader_active
+            || tooltip_active
+            || scrollbar_active)
+            && !self.requests.contains(plico::Changes::ANIMATE)
+            && !self.pending
+            && self.viewport == Some((width, height))
+            && self.engine.theme() == self.view.theme()
+            && (motion_dirty
+                || shader_active
+                || tooltip_active
+                || scrollbar_active
+                || self
+                    .target_scene
+                    .as_ref()
+                    .is_some_and(|(_, _, revision)| *revision == self.revision));
         if self.declarations_reused {
-            if motion_dirty || shader_active || tooltip_active {
+            if motion_dirty || shader_active || tooltip_active || scrollbar_active {
                 self.update_backend(tcx, width, height);
                 return;
             }
@@ -812,6 +821,7 @@ impl<V: HostView> FrameSource for Source<V> {
             || self.requests.contains(plico::Changes::ANIMATE)
             || self.engine.presence_deadline().is_some()
             || self.adapter.tips.needs_frame()
+            || self.adapter.scrollbars.needs_frame()
     }
     fn paint_debug_overlay(
         &mut self,

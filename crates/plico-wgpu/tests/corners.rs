@@ -163,3 +163,46 @@ fn overlapping_adjacent_corners_shrink_proportionally_instead_of_inverting() {
     assert_eq!(pixel(&image, size, 8, 31), 255, "bottom edge straight");
     assert_eq!(pixel(&image, size, 0, 31), 255, "bottom-left stays square");
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn continuous_fill_and_content_clip_use_identical_coverage() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let size = [160, 120];
+    let rect = kurbo::Rect::new(8.25, 8.25, 144.25, 108.25);
+    let shape = plico_renderer::corner_shape::corner_shape(
+        rect,
+        plico_renderer::style::CornerRadii::uniform(18.),
+        1.,
+    );
+    let mut filled = Scene::new();
+    filled.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, &shape);
+    let expected = renderer
+        .render_scene(&filled, size, [0.; 4], false)
+        .unwrap();
+    let mut clipped = Scene::new();
+    clipped.push_clip_layer(Affine::IDENTITY, &shape);
+    clipped.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::WHITE,
+        None,
+        &kurbo::Rect::new(0., 0., 160., 120.),
+    );
+    clipped.pop_layer();
+    let actual = renderer
+        .render_scene(&clipped, size, [0.; 4], false)
+        .unwrap();
+    let maximum = expected
+        .iter()
+        .zip(&actual)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(
+        maximum <= 2,
+        "continuous fill/clip coverage differs by {maximum}"
+    );
+    assert_eq!(pixel(&actual, size, 8, 8), 0);
+    assert_eq!(pixel(&actual, size, 80, 60), 255);
+}

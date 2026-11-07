@@ -3,8 +3,9 @@ namespace Plico;
 public enum UiTaskStatus { Idle, Running, Succeeded, Failed, Cancelled }
 
 /// <summary>Application-owned task snapshot. Start/Cancel/Dispose on the UI thread.</summary>
-public sealed class UiTask<T>(Application application) : IDisposable
+public sealed class UiTask<T>(IUiDispatcher application) : IDisposable
 {
+    private readonly IUiDispatcher dispatcher = application ?? throw new ArgumentNullException(nameof(application));
     private readonly int ownerThread = Environment.CurrentManagedThreadId;
     private CancellationTokenSource? cancellation;
     private int version;
@@ -22,7 +23,7 @@ public sealed class UiTask<T>(Application application) : IDisposable
         cancellation = source;
         int current = ++version;
         Status = UiTaskStatus.Running; Result = default; Error = null;
-        application.Invalidate();
+        dispatcher.Invalidate();
         Completion = Execute(operation, source, current);
     }
     private async Task Execute(Func<CancellationToken, Task<T>> operation, CancellationTokenSource source, int current)
@@ -34,7 +35,7 @@ public sealed class UiTask<T>(Application application) : IDisposable
         catch (Exception exception) { error = exception; }
         try
         {
-            await application.InvokeAsync(() =>
+            await dispatcher.InvokeAsync(() =>
             {
                 if (disposed || version != current) return;
                 cancellation = null;
@@ -52,7 +53,7 @@ public sealed class UiTask<T>(Application application) : IDisposable
         if (Status == UiTaskStatus.Running)
         {
             Status = UiTaskStatus.Cancelled;
-            if (!disposed) application.Invalidate();
+            if (!disposed) dispatcher.Invalidate();
         }
     }
     private void Verify()

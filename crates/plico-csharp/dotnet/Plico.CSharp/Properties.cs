@@ -14,6 +14,9 @@ public sealed unsafe partial class Ui
         public float[]? Absolute { get; set; }
         public float[]? Translate { get; set; }
         public float Blur { get; set; }
+        public float ForegroundBlur { get; set; }
+        public float CornerSmoothing { get; set; }
+        public ShadowProperties? Shadow { get; set; }
         public float? PaddingX { get; set; }
         public float? PaddingY { get; set; }
         public float? MaxWidth { get; set; }
@@ -33,6 +36,22 @@ public sealed unsafe partial class Ui
         public ushort TransitionMs { get; set; }
         public IReadOnlyList<RichTextSpan>? Spans { get; set; }
         public ShaderProperties? Shader { get; set; }
+    }
+    // All fields are required on the wire, including zero offsets/spread.
+    internal sealed record ShadowProperties(
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] float OffsetX,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] float OffsetY,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] float Blur,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] float Spread,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] uint Color,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] float Opacity);
+    private void SetShadow(int index, float x, float y, float blur, float spread, uint color, float opacity)
+    {
+        if (!float.IsFinite(x) || Math.Abs(x) > 16384 || !float.IsFinite(y) || Math.Abs(y) > 16384
+            || !float.IsFinite(spread) || Math.Abs(spread) > 16384 || !float.IsFinite(blur) || blur < 0 || blur > 128
+            || color > 0xffffff || !float.IsFinite(opacity) || opacity < 0 || opacity > 1)
+            throw new ArgumentOutOfRangeException(nameof(blur), "Invalid outer shadow parameters");
+        Properties(index).Shadow = new(x, y, blur, spread, color, opacity);
     }
     internal sealed class ShaderProperties
     {
@@ -58,6 +77,13 @@ public sealed unsafe partial class Ui
     }
     public readonly partial struct Builder
     {
+        /// Set one outer shadow (last call wins). Blur is CSS radius, not sigma.
+        public Builder Shadow(float x = 0, float y = 2, float blur = 8, float spread = 0, uint color = 0, float opacity = .10f)
+        { _ = Current; ui.SetShadow(index, x, y, blur, spread, color, opacity); return this; }
+        public Builder NoShadow() { _ = Current; ui.Properties(index).Shadow = null; return this; }
+
+        public Builder CornerSmoothing(float amount = 1) { _ = Current; if (!float.IsFinite(amount) || amount < 0 || amount > 1) throw new ArgumentOutOfRangeException(nameof(amount)); ui.Properties(index).CornerSmoothing = amount; return this; }
+        public Builder Blur(float sigma) { _ = Current; if (!float.IsFinite(sigma) || sigma < 0 || sigma > 64) throw new ArgumentOutOfRangeException(nameof(sigma)); ui.Properties(index).ForegroundBlur = sigma; return this; }
         public Builder PaddingX(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).PaddingX = value; return this; }
         public Builder PaddingY(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).PaddingY = value; return this; }
         public Builder MaxWidth(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).MaxWidth = value; return this; }
@@ -79,6 +105,13 @@ public sealed unsafe partial class Ui
     }
     public readonly partial struct Container
     {
+        /// Set one outer shadow (last call wins). Blur is CSS radius, not sigma.
+        public Container Shadow(float x = 0, float y = 2, float blur = 8, float spread = 0, uint color = 0, float opacity = .10f)
+        { _ = Current; ui.SetShadow(index, x, y, blur, spread, color, opacity); return this; }
+        public Container NoShadow() { _ = Current; ui.Properties(index).Shadow = null; return this; }
+
+        public Container CornerSmoothing(float amount = 1) { _ = Current; if (!float.IsFinite(amount) || amount < 0 || amount > 1) throw new ArgumentOutOfRangeException(nameof(amount)); ui.Properties(index).CornerSmoothing = amount; return this; }
+        public Container Blur(float sigma) { _ = Current; if (!float.IsFinite(sigma) || sigma < 0 || sigma > 64) throw new ArgumentOutOfRangeException(nameof(sigma)); ui.Properties(index).ForegroundBlur = sigma; return this; }
         public Container PaddingX(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).PaddingX = value; return this; }
         public Container PaddingY(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).PaddingY = value; return this; }
         public Container MaxWidth(float value) { _ = Current; if (!float.IsFinite(value) || value < 0 || value > 16384) throw new ArgumentOutOfRangeException(nameof(value)); ui.Properties(index).MaxWidth = value; return this; }

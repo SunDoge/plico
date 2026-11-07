@@ -118,6 +118,9 @@ pub fn thumb(node: &PlacedNode, axis: ScrollAxis) -> Option<Rect> {
 
 /// Hit-test visible scrollbar parts, preferring vertical at an overlap corner.
 pub fn hit(node: &PlacedNode, point: Point) -> Option<ScrollbarTarget> {
+    if node.scroll.opacity <= 0. {
+        return None;
+    }
     for axis in [ScrollAxis::Vertical, ScrollAxis::Horizontal] {
         let Some(thumb) = thumb(node, axis) else {
             continue;
@@ -209,6 +212,23 @@ mod tests {
             },
             paint: Paint::default(),
         }
+    }
+
+    #[test]
+    fn invisible_overlay_keeps_geometry_but_cannot_capture_pointer() {
+        let mut node = node(0.);
+        let thumb = thumb(&node, ScrollAxis::Vertical).unwrap();
+        node.scroll.opacity = 0.;
+        assert!(hit(&node, thumb.center()).is_none());
+        assert!(
+            track(&node, ScrollAxis::Vertical).is_some(),
+            "edge hover can still reveal an invisible bar"
+        );
+        node.scroll.opacity = 0.1;
+        assert_eq!(
+            hit(&node, thumb.center()).unwrap().part,
+            ScrollbarPart::Thumb
+        );
     }
 
     #[test]

@@ -19,6 +19,14 @@ namespace Plico.Interop
 
 
         /// <summary>
+        ///  Managed property/event schema revision, independent from memory layout ABI.
+        ///  Increment for schema/behavior changes required by the managed SDK. App and
+        ///  managed widget edits do not change this revision or require a Rust build.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "plico_protocol_revision", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern uint plico_protocol_revision();
+
+        /// <summary>
         ///  ABI/size handshake before the first callback.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "plico_abi_version", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -183,6 +191,15 @@ namespace Plico.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "plico_run_options", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern int plico_run_options(ulong handle, byte* json, uint len);
+
+        /// <summary>
+        ///  Validate WGSL on the calling thread without a window or GPU. Flags: bit 0
+        ///  complete module, bit 1 backdrop effect. Errors use plico_last_error.
+        ///  # Safety
+        ///  Source must reference len readable bytes for this call.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "plico_validate_shader", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int plico_validate_shader(byte* source, uint len, uint flags);
 
 
     }

@@ -17,6 +17,10 @@ copy before the call returns. Pixels are resources, not payloads re-sent with
 every declaration. Node-addressed event batches return through the managed build
 callback. No per-widget managed closure is retained by Rust.
 
+The enforced development workflow and feature-placement rules are in
+[the C# / native boundary](csharp-boundary.md). Daily commands are documented in
+[the native-free frontend entry](../dotnet/README.md).
+
 ## Implemented boundary
 
 `plico-csharp` ABI v5 rejects the old button, checkbox, switch, slider, spinner
@@ -53,8 +57,8 @@ distinguishes the architecture direction from complete API/product maturity.
 
 ## Gallery alignment
 
-The managed gallery covers the Rust gallery's sixteen destinations and an extra
-async-task page. The shared shell uses the same spacing/color direction and
+The managed gallery covers the Rust gallery destinations and adds component-kit,
+lyrics and async-task pages. The shared shell uses the same spacing/color direction and
 repository-owned icon assets. C# composes calendar/date popups, tabs, meters,
 ratings, steppers and dialogs. `SunDoge.Plico.Markdown` is an optional managed
 Markdig-based package; it sends rich paragraph spans to the system text engine.

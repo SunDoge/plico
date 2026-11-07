@@ -2,7 +2,7 @@ using Plico;
 
 namespace Gallery;
 
-internal enum Page { Workspace, Layout, Controls, Motion, Lists, DataTable, Tree, Calendar, Images, Tasks, Effects, Game2048, Markdown, Glass, Localization, BlackHole, Patterns }
+internal enum Page { Workspace, Layout, Controls, Motion, Lists, DataTable, Tree, Calendar, Images, Tasks, Effects, Game2048, Markdown, Glass, Localization, BlackHole, Patterns, ComponentKit, Lyrics }
 
 internal readonly record struct Palette(uint Surface, uint Panel, uint Foreground, uint Muted, uint Border, uint Control, uint Accent, uint Selection)
 {
@@ -23,7 +23,9 @@ internal sealed partial class GalleryModel : IDisposable
         (Page.Layout, "Layout", "布局", "home"), (Page.Controls, "Controls", "控件", "settings"),
         (Page.Lists, "Lists", "列表", "text_bullet_list_square"), (Page.DataTable, "Data table", "数据表格", "text_bullet_list_square"),
         (Page.Tree, "Tree navigation", "树形导航", "home"), (Page.Calendar, "Calendar", "日历", "calendar"),
+        (Page.ComponentKit, "Component kit", "组件集", "settings"),
         (Page.Localization, "Localization", "本地化", "chat"), (Page.Patterns, "Desktop patterns", "桌面模式", "settings"),
+        (Page.Lyrics, "Lyrics", "歌词", "chat"),
         (Page.Motion, "Motion", "动效", "design_ideas"), (Page.Glass, "Glass", "毛玻璃", "image"),
         (Page.BlackHole, "Black hole", "黑洞", "image"), (Page.Effects, "Effects", "特效", "design_ideas"),
         (Page.Images, "Images", "图片", "image"), (Page.Markdown, "Markdown chat", "Markdown 聊天", "chat"),
@@ -102,6 +104,8 @@ internal sealed partial class GalleryModel : IDisposable
                             case Page.Localization: Localization(ui); break;
                             case Page.BlackHole: BlackHole(ui); break;
                             case Page.Patterns: Patterns(ui); break;
+                            case Page.ComponentKit: ComponentKit(ui); break;
+                            case Page.Lyrics: Lyrics(ui); break;
                         }
                     }
                 }
@@ -115,6 +119,8 @@ internal sealed partial class GalleryModel : IDisposable
         Page.Glass => Tr("A soft backdrop. A clear foreground.", "柔和的背景，清晰的前景。"),
         Page.Localization => Tr("Messages, plurals, numbers and dates follow the selected language.", "消息、复数、数字和日期随所选语言变化。"),
         Page.BlackHole => Tr("A small lens at your pointer. Toggle it on, then move across any page.", "鼠标位置的小型引力透镜，可在任意页面启用。"),
+        Page.Lyrics => Tr("Follow every word. Let the rest fall away.", "逐词点亮，让其他声音慢下来。"),
+        Page.ComponentKit => Tr("Reusable C# components, inspired by MyGO.", "参考 MyGO 的可复用 C# 组件。"),
         Page.Patterns => Tr("Tabs, toolbars, toasts and desktop interactions.", "标签页、工具栏、通知与桌面交互。"),
         Page.Workspace => Tr("A small workspace, built with ordinary C# components.", "使用普通 C# 组件构建的工作区。"),
         Page.Layout => Tr("Flexible columns, wrapping rows, and nested scrolling.", "弹性分栏、自动换行和嵌套滚动。"),
@@ -133,7 +139,7 @@ internal sealed partial class GalleryModel : IDisposable
     {
         using (ui.Column().Width(Collapsed ? 64 : 224).Shrink().FillHeight().Padding(10).Gap(12).Background(T.Panel).Clip().Motion(milliseconds: 240))
         {
-            using (ui.Row().FillWidth().Height(36).Gap(8).AlignCenter())
+            using (ui.Row().FillWidth().Height(36).Shrink().Gap(8).AlignCenter())
             {
                 if (!Collapsed) { ui.Svg(Resource("Logo.svg"), 24); ui.Text("plico").FontSize(20).Weight(650).Grow(); }
                 if (ui.Button(Collapsed ? "›" : "‹").AriaLabel("Toggle navigation").Ghost().Clicked()) Collapsed = !Collapsed;
@@ -144,9 +150,9 @@ internal sealed partial class GalleryModel : IDisposable
                     {
                         if (!Collapsed && route.Page is Page.Workspace or Page.Layout or Page.Motion)
                             ui.Text(route.Page == Page.Workspace ? Tr("Workspace", "工作区") : route.Page == Page.Layout ? Tr("Components", "组件") : Tr("Experiments", "实验"))
-                                .FontSize(12).Weight(600).Color(T.Muted).Padding(8);
+                                .FontSize(12).Weight(600).Color(T.Muted).Padding(8).Shrink();
                         string label = Chinese ? route.Chinese : route.Label;
-                        using var item = ui.Box(key: "navigate").Interactive(label).FillWidth().Height(34).Padding(8).Gap(8).AlignCenter()
+                        using var item = ui.Box(key: "navigate").Interactive(label).FillWidth().Height(34).Shrink().Padding(8).Gap(8).AlignCenter()
                             .Radius(6).Background(Current == route.Page ? T.Selection : T.Panel).Color(Current == route.Page ? T.Accent : T.Foreground)
                             .HoverBackground(T.Control).PressedBackground(T.Selection);
                         ui.Svg(Resource("Icons." + route.Icon + ".svg"), 18);
@@ -194,5 +200,5 @@ internal sealed partial class GalleryModel : IDisposable
             }
         }
     }
-    public void Dispose() { Request?.Dispose(); ImageRequest?.Dispose(); }
+    public void Dispose() { foreach (var effect in effectPrograms) effect.Dispose(); Request?.Dispose(); ImageRequest?.Dispose(); }
 }

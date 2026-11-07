@@ -83,6 +83,14 @@ pub struct Stats {
 }
 pub type Build = unsafe extern "C" fn(*mut c_void, *const Frame, *mut Batch) -> i32;
 
+/// Managed property/event schema revision, independent from memory layout ABI.
+/// Increment for schema/behavior changes required by the managed SDK. App and
+/// managed widget edits do not change this revision or require a Rust build.
+#[unsafe(no_mangle)]
+pub extern "C" fn plico_protocol_revision() -> u32 {
+    3
+}
+
 /// ABI/size handshake before the first callback.
 #[unsafe(no_mangle)]
 pub extern "C" fn plico_abi_version() -> u32 {
@@ -329,4 +337,13 @@ pub unsafe extern "C" fn plico_test_decode_batch(batch: Batch) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn plico_run_options(handle: u64, json: *const u8, len: u32) -> i32 {
     crate::run_configured(handle, json, len)
+}
+
+/// Validate WGSL on the calling thread without a window or GPU. Flags: bit 0
+/// complete module, bit 1 backdrop effect. Errors use plico_last_error.
+/// # Safety
+/// Source must reference len readable bytes for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plico_validate_shader(source: *const u8, len: u32, flags: u32) -> i32 {
+    crate::validate_shader(source, len, flags)
 }

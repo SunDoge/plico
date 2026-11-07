@@ -1,0 +1,51 @@
+<Project DefaultTargets="Build">
+  <!-- Deliberately not an SDK project: there is no restore/build hook for Cargo.
+       Only the explicit Native target invokes Rust. All other targets reuse a DLL. -->
+  <PropertyGroup>
+    <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepoRoot>
+    <SdkRoot>$(RepoRoot)/crates/plico-csharp/dotnet</SdkRoot>
+    <Gallery>$(RepoRoot)/apps/gallery-csharp/Gallery.csproj</Gallery>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Scene Condition="'$(Scene)' == ''">$(RepoRoot)/apps/gallery-csharp/scenes/components.json</Scene>
+    <PreviewOutput Condition="'$(PreviewOutput)' == ''">$(RepoRoot)/reports/csharp/preview.png</PreviewOutput>
+  </PropertyGroup>
+  <ItemGroup>
+    <Frontend Include="$(Gallery)" />
+    <ManagedCheck Include="$(SdkRoot)/ManagedChecks/ManagedChecks.csproj" />
+    <NativeCheck Include="$(SdkRoot)/Demo/Demo.csproj;$(SdkRoot)/InterceptorProbe/InterceptorProbe.csproj;$(Gallery)" />
+  </ItemGroup>
+  <Target Name="Build">
+    <Exec Command="dotnet build &quot;%(Frontend.Identity)&quot; --configuration $(Configuration) --nologo -m:1" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="BuildManagedChecks">
+    <Exec Command="dotnet build &quot;%(ManagedCheck.Identity)&quot; --configuration $(Configuration) --nologo -m:1" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Test" DependsOnTargets="BuildManagedChecks">
+    <Exec Command="dotnet &quot;$(SdkRoot)/ManagedChecks/bin/$(Configuration)/net10.0/Plico.ManagedChecks.dll&quot;" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Doctor" DependsOnTargets="BuildManagedChecks">
+    <Exec Command="dotnet &quot;$(SdkRoot)/ManagedChecks/bin/$(Configuration)/net10.0/Plico.ManagedChecks.dll&quot; --native" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="NativeTest" DependsOnTargets="Doctor">
+    <Exec Command="dotnet build &quot;%(NativeCheck.Identity)&quot; --configuration $(Configuration) --nologo -m:1" WorkingDirectory="$(RepoRoot)" />
+    <Exec Command="dotnet &quot;$(SdkRoot)/Demo/bin/$(Configuration)/net10.0/Demo.dll&quot; --self-test" WorkingDirectory="$(RepoRoot)" />
+    <Exec Command="dotnet &quot;$(SdkRoot)/InterceptorProbe/bin/$(Configuration)/net10.0/InterceptorProbe.dll&quot; --self-test" WorkingDirectory="$(RepoRoot)" />
+    <Exec Command="dotnet &quot;$(RepoRoot)/apps/gallery-csharp/bin/$(Configuration)/net10.0/Gallery.dll&quot; --self-test" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="CompilerTest">
+    <Exec Command="dotnet build &quot;$(SdkRoot)/ComponentGeneratorChecks/ComponentGeneratorChecks.csproj&quot; --configuration $(Configuration) --nologo -m:1" WorkingDirectory="$(RepoRoot)" />
+    <Exec Command="dotnet &quot;$(SdkRoot)/ComponentGeneratorChecks/bin/$(Configuration)/net10.0/ComponentGeneratorChecks.dll&quot;" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Run" DependsOnTargets="Build">
+    <Exec Command="dotnet &quot;$(RepoRoot)/apps/gallery-csharp/bin/$(Configuration)/net10.0/Gallery.dll&quot;" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Watch">
+    <Exec Command="dotnet watch --project &quot;$(Gallery)&quot; run --configuration $(Configuration)" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Preview" DependsOnTargets="Build">
+    <Exec Command="dotnet &quot;$(RepoRoot)/apps/gallery-csharp/bin/$(Configuration)/net10.0/Gallery.dll&quot; --scene &quot;$(Scene)&quot; --capture &quot;$(PreviewOutput)&quot;" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+  <Target Name="Native">
+    <Exec Command="cargo build --locked --release -p plico-csharp" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+</Project>

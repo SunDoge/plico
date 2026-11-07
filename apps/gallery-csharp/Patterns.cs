@@ -45,22 +45,11 @@ internal sealed partial class GalleryModel
             Hint(ui, new[] { "Click a tab above to switch this panel.", "Each page keeps its application state while another tab is shown.", "Use the toolbar to try transient messages, errors and persistent notifications." }[PatternTab]);
         using (Card(ui, "Navigation and indicators"))
         {
-            using (ui.Row().Gap(4).Wrap())
-            {
-                string[] crumbs = ["Macintosh HD", "Users", "ada", "Documents"];
-                for (int i = 0; i < crumbs.Length; i++)
-                    using (ui.Scope(i))
-                    {
-                        if (ui.Button(crumbs[i]).Ghost().Clicked()) Crumb = i;
-                        if (i < crumbs.Length - 1) ui.Text("›").Color(T.Muted);
-                    }
-            }
+            ui.Breadcrumbs(["Macintosh HD", "Users", "ada", "Documents"], ref Crumb);
             ui.Text($"Chosen: {Crumb}").Color(T.Muted);
             ui.Meter("Disk", Disk);
             ui.Slider("Disk used", ref Disk, 0, 100).FillWidth();
-            ui.Slider("Minimum price", ref PriceLow, 0, PriceHigh).FillWidth();
-            ui.Slider("Maximum price", ref PriceHigh, PriceLow, 1000).FillWidth();
-            ui.Text($"${PriceLow:0} – ${PriceHigh:0}").Color(T.Muted);
+            ui.RangeSlider("Price", ref PriceLow, ref PriceHigh, 0, 1000);
             using (ui.Row().Gap(8).AlignCenter()) { ui.Spinner(); ui.Text("Loading messages…").Color(T.Muted); }
             ui.Rating(ref Stars);
             ui.Text($"{Stars} of 5 stars").Color(T.Muted);
@@ -109,9 +98,8 @@ internal sealed partial class GalleryModel
         }
         using (Card(ui, "Form fields"))
         {
-            ui.Text("Email").Weight(650);
-            ui.TextInput("Receipt email", ref PatternEmail).FillWidth();
-            ui.Text(PatternEmail.Length > 0 && !PatternEmail.Contains('@') ? "Enter an email address." : "For receipts.").Color(PatternEmail.Length > 0 && !PatternEmail.Contains('@') ? 0xdc2626U : T.Muted);
+            using (ui.Field("Email", "For receipts.", PatternEmail.Length > 0 && !PatternEmail.Contains('@') ? "Enter an email address." : null))
+                ui.TextInput("Receipt email", ref PatternEmail).FillWidth();
             ui.Stepper("Print copies", ref Copies, 1, 99);
         }
         using (Card(ui, "Links and history"))
@@ -152,17 +140,7 @@ internal sealed partial class GalleryModel
             if (ui.Button("Delete notes…").Ghost().Clicked()) alertOpen = true;
             ui.Text($"Deleted {DeletedNotes} times").Color(T.Muted);
         }
-        if (alertOpen)
-            using (ui.Modal(ref alertOpen))
-            {
-                ui.Text("Delete notes?").FontSize(20).Weight(650);
-                ui.Text("You can't undo this.").Color(T.Muted);
-                using (ui.Row().FillWidth().JustifyEnd().Gap(8))
-                {
-                    if (ui.Button("Cancel deletion").Clicked()) alertOpen = false;
-                    if (ui.Button("Confirm deletion").Primary().Clicked()) { DeletedNotes++; alertOpen = false; }
-                }
-            }
+        if (ui.AlertDialog(ref alertOpen, "Delete notes?", "You can't undo this.", ["Cancel deletion", "Confirm deletion"]) == 1) DeletedNotes++;
         using (Card(ui, "Find bar"))
         {
             if (ui.Button(Finding ? "Close find bar" : "Open find bar").Ghost().Clicked()) Finding = !Finding;
@@ -193,10 +171,10 @@ internal sealed partial class GalleryModel
         }
         using (Card(ui, "Disclosure groups"))
         {
-            ui.Checkbox("General", ref GeneralOpen);
-            if (GeneralOpen) ui.Text("Application preferences and appearance.");
-            ui.Checkbox("Privacy", ref PrivacyOpen);
-            if (PrivacyOpen) ui.Text("Your files stay on this device.");
+            using (var general = ui.Collapsible("General", ref GeneralOpen))
+                if (general.IsOpen) ui.Text("Application preferences and appearance.");
+            using (var privacy = ui.Collapsible("Privacy", ref PrivacyOpen))
+                if (privacy.IsOpen) ui.Text("Your files stay on this device.");
         }
     }
 }

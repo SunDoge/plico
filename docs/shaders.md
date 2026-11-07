@@ -2,6 +2,36 @@
 
 Plico 的 shader 是普通声明叶子。`plico-wgpu` 承载 WGSL 校验及效果管线；Skia 可使用资源附带的独立 SkSL 实现。shader 不替代布局、文字或输入节点。
 
+## C#：直接编写与热更新 WGSL
+
+C# 前端使用同一个 wgpu 效果管线。WGSL 源码通过 batch 传到 Rust，由 Naga 校验、wgpu 创建 GPU pipeline；修改效果无需 rustc，也无需重新编译 C#。
+
+在应用启动时加载文件，组件声明只消费快照：
+
+```csharp
+// app 是 Application / IUiDispatcher。关闭 app 前 Dispose 文件监视器。
+using var effect = new WgslFile("assets/aurora.wgsl", app, watch: true);
+
+// 在 Show(Ui ui) 内：
+if (effect.Current is { } program)
+    ui.Shader(program, animated: true)
+        .Uniform(0, 0.8f)
+        .Uniform(1, new Vector2(0.5f, 0.5f))
+        .FillWidth().Height(240);
+if (effect.Error is { } error)
+    ui.Text(error);
+```
+
+`Uniform` 以 **vec4 槽位**寻址，范围 0–63；标量写 x，其余分量清零，Vector2/3/4 对应写入分量。上例读取 `plico.values[0].x` 和 `plico.values[1].xy`。返回预乘 RGBA。`animated: true` 让宿主更新时间并重绘 shader，动画中间帧无需重新执行 C# 声明。
+
+`WgslProgram` 也可由源码字符串、`Load` 或 `Embedded` 创建。`Validate()` 在无窗口、无 GPU 时进行 Naga 语法/接口校验，返回诊断或 null；它不证明某台 GPU 的 pipeline 一定创建成功。`Uniform` 用于 effect/backdrop prelude；完整 `WgslMode.Module` 使用现有 `ShaderValues` 原始布局，前三个 float 由宿主写入宽、高、时间。Backdrop 模式属于高级接口，本地子区域的采样坐标已修复并有 GPU 回归测试；任意 clip mask、变换和部分移出视口仍需补充验证。通用液态玻璃接口见 [Liquid Glass](liquid-glass.md)。
+
+`WgslFile` 首次读取和校验同步进行，应放在启动阶段。后续监视变更以 80ms 合并保存事件，在后台读取、校验，再通过 UI dispatcher 发布。错误保留上一版通过校验的源码，首次失败时 Current 为 null；恢复后清除 Error。Revision 只在有效程序变化时增加。Dispose/新请求使过期结果失效。输入限制为严格 UTF-8、64KiB。诊断携带文件名；Naga 的位置可能包含注入 prelude 的偏移。
+
+运行 C# Gallery 的 **Effects / Shader studio** 页，直接编辑 `apps/gallery-csharp/assets/shaders/*.wgsl` 即可。发布时文件复制到 `assets/shaders`；这些文件不触发 `.NET watch` 重编译。原生库需支持协议 revision 3（升级后重启一次）；普通 shader 编辑不改变 ABI 或协议。
+
+## Rust 静态资源
+
 ```rust
 static AURORA: ShaderAsset = plico::shader_asset!("aurora.wgsl");
 shader(cx, &AURORA)
@@ -33,7 +63,7 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
 
 WGSL 经 Naga 解析与接口验证，源码上限 64KiB；参数必须有限、speed 非负。每个已挂载节点保留 ShaderEffectId、有效程序和 uniform 数据。源码错误保留上一个有效程序，首次编译错误则不绘制效果；Adapter::shader_diagnostics() 提供诊断。GPU pipeline 和输出纹理由 renderer 管理、复用及回收。卸载或暂停不会继续请求 shader 动画帧。
 
-核心只保存可序列化源码与 ShaderParams，不携带 GPU handle。修改源文件后重新编译应用；静态资源只 include 实际使用的 WGSL 文件。控件身份稳定时，宿主播放进度和 GPU surface 可以保留。当前是 native GPU 接口，不宣称 WebGL/Bevy 后端已接好。
+核心只保存可序列化源码与 ShaderParams，不携带 GPU handle。Rust 的 include 静态资源修改后重新编译应用；静态资源只 include 实际使用的 WGSL 文件。控件身份稳定时，宿主播放进度和 GPU surface 可以保留。当前是 native GPU 接口，不宣称 WebGL/Bevy 后端已接好。
 
 values(&[...]) 在应用声明时创建拥有所有权的参数 Vec；动画中间帧不执行应用声明，也不重复创建这份参数。还没有共享 uniform block API，不宣称多 surface 的所有分配已优化。
 

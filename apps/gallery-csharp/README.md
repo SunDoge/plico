@@ -29,6 +29,10 @@ restarting; the selected page and counter value 101 survived. This is one warm
 observation, not a performance guarantee. Runtime validation so far is Linux;
 Windows/macOS window behavior is not claimed as tested.
 
+## WGSL live editing
+
+Open **Effects / Shader studio** and edit `assets/shaders/*.wgsl`. The file watcher reads and validates in the background; errors are shown while retaining the last good program. No C# or Rust rebuild occurs. `Uniform(0, strength)` sets `plico.values[0].x`; animated shader frames use the native clock without managed UI callbacks. See [the shader contract](../../docs/shaders.md).
+
 ## Components
 
 Gallery uses the SDK Interceptors configuration. `[Component]` methods retain
@@ -44,6 +48,8 @@ method groups that bypass component identity. Component body edits can use
 
 ## Pages
 
+- Lyrics: original timed lyrics, word reveal, gentle lift, continuous line follow and a WGSL ambient backdrop; simulated playback with seek/pause/replay.
+- Component kit: themed cards, badges, avatars, alerts, skeletons, navigation, command popup, typed value fields and RGB editing.
 - Workspace: project rows, two scoped `ui.State` counters and an app-owned counter; navigation demonstrates unmount/reset versus retained app state.
 - Layout: grow ratios, wrapping, nested scroll viewports.
 - Controls: button variants, switches, checkboxes, Unicode text fields, sliders.
@@ -133,3 +139,31 @@ Images use host-owned IDs wrapped by disposable `ImageResource`; native release
 waits until the current batch no longer references them. Video-player bindings
 are still separate work. Advanced primitive attributes and the animation-request
 flag require ABI v5: rebuild the native library and managed SDK together.
+
+Component-kit preview fixtures: `scenes/components.json`,
+`scenes/components-navigation.json`, `scenes/components-forms.json` and
+`scenes/components-narrow.json`. Scene `width`/`height` set the offscreen viewport;
+`componentTab` selects a kit section. See the
+[SDK component inventory](../../docs/csharp-components.md) for supported behavior
+and differences from MyGO.
+
+The lyric preview is reproducible with `--scene scenes/lyrics.json` (relative to
+this directory). `lyricTimeMs` chooses the simulated playhead and `lyricPlaying`
+controls playback. There is no audio/network dependency. Text reveal uses fixed
+word layouts and clipped copies; this version rebuilds the C# page during playback
+for timing and line positions, rather than claiming a GPU-only text effect.
+
+The lyric glow is a blurred duplicate of the revealed glyphs, painted beneath
+the sharp text. The native foreground Gaussian filter is exposed as `Blur(sigma)`
+on C# builders/containers. The reveal clip is inside the blur layer, so light
+can expand past the sung strokes. It does not sample the backdrop. Rebuild the
+native library after updating this API.
+
+Continuous-corner comparisons live in Component kit → Corners, with the preview
+fixture `scenes/components-corners.json`. The slider changes easing without
+changing radius or layout dimensions. The lyric panel opts into smoothing too.
+
+For the usual source-checkout loop, `dotnet msbuild dotnet/Plico.proj -t:Watch`
+(from the repository root) reuses the existing native library automatically.
+`-t:Test` is native-free; `-t:NativeTest` runs Gallery and other integration
+checks using the existing artifact. See [frontend development](../../dotnet/README.md).

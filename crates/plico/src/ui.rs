@@ -957,6 +957,11 @@ impl Layout<'_, '_> {
         self
     }
     #[inline(always)]
+    pub fn corner_smoothing(mut self, value: f32) -> Self {
+        self.style.corner_smoothing = value;
+        self
+    }
+    #[inline(always)]
     pub fn radius(mut self, px: f32) -> Self {
         self.style.radius = px;
         self
@@ -1451,6 +1456,11 @@ macro_rules! common {
             #[inline(always)]
             pub fn scale(mut self, x: f32, y: f32) -> Self {
                 self.inner.style.scale = [x, y];
+                self
+            }
+            #[inline(always)]
+            pub fn corner_smoothing(mut self, value: f32) -> Self {
+                self.inner.style.corner_smoothing = value;
                 self
             }
             #[inline(always)]

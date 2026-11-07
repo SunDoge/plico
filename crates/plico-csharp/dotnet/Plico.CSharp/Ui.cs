@@ -28,6 +28,23 @@ public sealed unsafe partial class Ui
     private static readonly UTF8Encoding eventEncoding = new(false, true);
     private readonly record struct InputEvent(uint Kind, double Value, string Text);
 
+    internal int LastPassCount { get; private set; }
+    // Production and managed-only tests use exactly the same event-settling path.
+    internal Batch Declare(Frame* frame, Action<Ui> build)
+    {
+        LastPassCount = 0;
+        try
+        {
+            Begin(frame, acceptEvents: true); LastPassCount++; build(this);
+            if (frame->event_count != 0)
+            {
+                Begin(frame, acceptEvents: false); LastPassCount++; build(this);
+            }
+            return Finish();
+        }
+        finally { EndBuild(); }
+    }
+
     internal void Begin(Frame* frame, bool acceptEvents)
     {
         if (frame is null || frame->version != 5 || !float.IsFinite(frame->width) || !float.IsFinite(frame->height)
@@ -264,9 +281,10 @@ public sealed unsafe partial class Ui
         public Container AlignCenter() { Current.flags = (Current.flags & ~((3U << 9) | 256U)) | (1U << 9); return this; }
         public Container AlignEnd() { Current.flags = (Current.flags & ~((3U << 9) | 256U)) | (2U << 9); return this; }
         public Container AlignStretch() { Current.flags = (Current.flags & ~((3U << 9) | 256U)) | (3U << 9); return this; }
-        public Container JustifyCenter() { Current.flags = (Current.flags & ~(3U << 11)) | (1U << 11); return this; }
-        public Container JustifyEnd() { Current.flags = (Current.flags & ~(3U << 11)) | (2U << 11); return this; }
-        public Container SpaceBetween() { Current.flags = (Current.flags & ~(3U << 11)) | (3U << 11); return this; }
+        public Container JustifyStart() { Current.flags = (Current.flags & ~((3U << 11) | (1U << 17))) | (1U << 17); return this; }
+        public Container JustifyCenter() { Current.flags = (Current.flags & ~((3U << 11) | (1U << 17))) | (1U << 11); return this; }
+        public Container JustifyEnd() { Current.flags = (Current.flags & ~((3U << 11) | (1U << 17))) | (2U << 11); return this; }
+        public Container SpaceBetween() { Current.flags = (Current.flags & ~((3U << 11) | (1U << 17))) | (3U << 11); return this; }
         public Container Wrap(bool value = true) { if (value) Current.flags |= 1U << 13; else Current.flags &= ~(1U << 13); return this; }
         public Container Gap(float value) { Current.gap = value; return this; }
         public Container Radius(float value) { Current.radius = value; return this; }

@@ -108,6 +108,7 @@ impl Adapter {
         event: UiEvent,
     ) -> (EventResponse, bool) {
         self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
+        self.scrollbars.event(&event);
         if self.tooltip_event(engine, &event) {
             return (
                 EventResponse {
@@ -132,6 +133,10 @@ impl Adapter {
         if self.update_hover_regions(engine) {
             response.request_redraw = true;
             declare = true;
+        }
+        if self.scrollbar_pointer_changed(engine) && !response.request_redraw {
+            response.request_redraw = true;
+            declare = false;
         }
         response.request_redraw |= self.tips.needs_frame();
         (response, declare)
@@ -188,6 +193,7 @@ impl Adapter {
                     None
                 };
                 if let Some((id, part)) = scrollbar_hit {
+                    *declare = false;
                     let node = &self.placed[self.placed_indices[&id]];
                     if part == ScrollbarPart::Thumb {
                         self.scroll_motions.remove(&id);
@@ -209,6 +215,9 @@ impl Adapter {
                         let smooth = engine
                             .node(self.reverse[&id])
                             .is_some_and(|n| n.style.smooth_scroll);
+                        *declare = engine.observes_scroll(self.reverse[&id])
+                            && !(smooth && self.smooth_scroll_enabled)
+                            && next != node.scroll.offset[1];
                         self.scroll_to(id, next, smooth, engine.time().now);
                     }
                     self.pressed = None;
@@ -221,6 +230,7 @@ impl Adapter {
                     };
                 }
                 if let Some((id, start, offset)) = self.scrollbar_drag {
+                    *declare = false;
                     if p.phase == PointerPhase::Move
                         && let Some(&index) = self.placed_indices.get(&id)
                     {
@@ -231,6 +241,8 @@ impl Adapter {
                         let delta =
                             (local_y - start) * scrollbar::drag_ratio(node, ScrollAxis::Vertical);
                         let next = (offset + delta as f32).clamp(0., node.scroll.range[1]);
+                        *declare = next != node.scroll.offset[1]
+                            && engine.observes_scroll(self.reverse[&id]);
                         self.scroll_offsets.insert(id, [0., next]);
                         self.scroll_dirty = true;
                         return EventResponse {
@@ -308,6 +320,7 @@ impl Adapter {
                     .map(|p| p.node_id);
                 let mut remaining = w.delta_y.clamp(-1.0e6, 1.0e6) as f32;
                 if let Some(start) = start {
+                    self.scrollbars.reveal(start, engine.time().now);
                     // Scrolling mutates offsets and motions; collect the chain
                     // so the lazy ancestor iterator is not held across it.
                     let chain: Vec<NodeId> = self.placed_chain(start).map(|p| p.node_id).collect();

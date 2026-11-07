@@ -49,38 +49,26 @@ internal sealed partial class GalleryModel
             }
         }
     }
+    private static readonly TableColumn<WorkItem>[] FileColumns = [
+        new("name", "Name", item => item.Name + ".png", 2),
+        new("size", "Size", item => $"{(item.Id * 137) % 900 + 100} KB"),
+        new("status", "Status", item => item.Done ? "Translated" : "Ready")
+    ];
     private void DataTable(Ui ui)
     {
-        using (Card(ui, Tr("Recent files", "最近文件")))
+        using (ui.Card(Tr("Recent files", "最近文件")))
         {
-            using (ui.Row().FillWidth().Gap(8).AlignCenter())
+            IEnumerable<WorkItem> rows = SortBy switch
             {
-                foreach (string column in new[] { "Name", "Size", "Status" })
-                    using (ui.Scope(column))
-                        if (ui.Button(column + (SortBy == column ? SortDescending ? " ↓" : " ↑" : "")).Ghost().Width(column == "Name" ? 300 : 150).Clicked())
-                        { SortDescending = SortBy == column && !SortDescending; SortBy = column; }
-            }
-            Rule(ui);
-            using (ui.Column().FillWidth().Height(400).ScrollY().Gap(2))
-            {
-                IEnumerable<WorkItem> rows = SortBy switch
-                {
-                    "Size" => Items.OrderBy(i => (i.Id * 137) % 900),
-                    "Status" => Items.OrderBy(i => i.Done),
-                    _ => Items.OrderBy(i => i.Name, StringComparer.Ordinal)
-                };
-                if (SortDescending) rows = rows.Reverse();
-                foreach (var item in rows)
-                {
-                    using (ui.Scope(item.Id))
-                    using (ui.Row().FillWidth().Padding(10).Gap(8).Background(item.Id % 2 == 0 ? T.Panel : T.Surface))
-                    {
-                        ui.Text(item.Name + ".png").Width(280);
-                        ui.Text($"{(item.Id * 137) % 900 + 100} KB").Width(150).Color(T.Muted);
-                        ui.Text(item.Done ? "Translated" : "Ready").Width(130).Color(item.Done ? 0x16a34a : T.Muted);
-                    }
-                }
-            }
+                "Size" => Items.OrderBy(i => (i.Id * 137) % 900),
+                "Status" => Items.OrderBy(i => i.Done),
+                _ => Items.OrderBy(i => i.Name, StringComparer.Ordinal)
+            };
+            if (SortDescending) rows = rows.Reverse();
+            int sorted = Array.FindIndex(FileColumns, column => column.Label == SortBy);
+            int chosen = ui.Table(rows.ToArray(), FileColumns, item => item.Id.ToString(), height: 400, sortColumn: sorted, descending: SortDescending);
+            if (chosen >= 0)
+            { SortDescending = chosen == sorted && !SortDescending; SortBy = FileColumns[chosen].Label; }
         }
     }
     private void Tree(Ui ui)

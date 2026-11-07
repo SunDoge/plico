@@ -135,3 +135,11 @@
 - [C# gallery：运行、热重载和截图验证](../apps/gallery-csharp/README.md)
 
 - [C# / Rust interaction benchmarks](experiments/csharp-interop.md)
+
+- [C# component kit](csharp-components.md): public inventory, MyGO references, lifecycle and interaction boundaries.
+
+- [Continuous corners](corner-smoothing.md): shared eased fill/border/clip geometry and renderer cost boundaries.
+
+- [C# / native boundary](csharp-boundary.md): feature ownership and native-free test/build tiers.
+
+- [Liquid Glass](liquid-glass.md): shared WGSL, C# composition API, parameters and backend limits.

@@ -5,8 +5,9 @@ use std::{
     sync::Arc,
 };
 
+use crate::corner_shape::corner_shape;
 use crate::{PaintScene, Scene};
-use kurbo::{Affine, Rect, Stroke};
+use kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, Color, Fill};
 
 use crate::layout::PlacedNode;
@@ -118,6 +119,13 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
         let blur_extent = std_dev * 3.0;
         bounds = bounds.union(shadow_rect.inflate(blur_extent, blur_extent));
     }
+    let sigma = node.paint.foreground_blur;
+    if sigma.is_finite() && sigma > 0. {
+        bounds = bounds.inflate(
+            f64::from(sigma.min(64.)) * 3.,
+            f64::from(sigma.min(64.)) * 3.,
+        );
+    }
     bounds
 }
 
@@ -215,7 +223,27 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let radii = node.paint.border_radii;
     for shadow in &node.paint.shadows {
         let (shadow_rect, radius, std_dev) = shadow_geometry(rect, f64::from(radii.max()), shadow);
+        if (shadow_rect.width() <= 0. || shadow_rect.height() <= 0.)
+            || shadow.color.components[3] <= 0.
+        {
+            continue;
+        }
+        // CSS/MyGO outer shadows never darken translucent content. A reversed
+        // inner contour makes a nonzero-winding hole, following continuous corners.
+        let extent = shadow_rect
+            .inflate(4. * std_dev + 1., 4. * std_dev + 1.)
+            .union(rect.inflate(1., 1.));
+        let mut outside = extent.to_path(0.1);
+        let hole = corner_shape(rect, radii, node.paint.corner_smoothing).to_path(0.1);
+        let hole = if hole.area().signum() == outside.area().signum() {
+            hole.reverse_subpaths()
+        } else {
+            hole
+        };
+        outside.extend(hole.elements().iter().copied());
+        scene.push_clip_layer(transform, &outside);
         scene.draw_box_shadow(transform, shadow_rect, shadow.color, radius, std_dev);
+        scene.pop_layer();
     }
     if let Some(background) = node.paint.background {
         scene.fill(
@@ -223,7 +251,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             transform,
             background,
             None,
-            &rect.to_rounded_rect(radii.as_f64_tuple()),
+            &corner_shape(rect, radii, node.paint.corner_smoothing),
         );
     }
     if node.paint.outline_width > 0.0
@@ -242,7 +270,11 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             transform,
             color,
             None,
-            &outline.to_rounded_rect(radii.expand(expansion as f32).as_f64_tuple()),
+            &corner_shape(
+                outline,
+                radii.expand(expansion as f32),
+                node.paint.corner_smoothing,
+            ),
         );
     }
     let Some((_, border_color)) = node.paint.border else {
@@ -251,6 +283,23 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let [top, right, bottom, left] = node.border_widths;
     if top > 0.0 && top == right && top == bottom && top == left {
         let width = f64::from(top);
+        if node.paint.corner_smoothing > 0. {
+            // An even-odd ring keeps the outer contour identical to the fill,
+            // and the inner contour identical to the content clip.
+            let mut ring = corner_shape(rect, radii, node.paint.corner_smoothing).into_bez_path();
+            let inner = Rect::new(
+                rect.x0 + width,
+                rect.y0 + width,
+                (rect.x1 - width).max(rect.x0 + width),
+                (rect.y1 - width).max(rect.y0 + width),
+            );
+            if inner.width() > 0. && inner.height() > 0. {
+                let shape = corner_shape(inner, radii.inset(top), node.paint.corner_smoothing);
+                ring.extend(shape.elements().iter().copied());
+            }
+            scene.fill(Fill::EvenOdd, transform, border_color, None, &ring);
+            return;
+        }
         let half = width / 2.0;
         let inset = Rect::new(
             f64::from(x0) + half,
@@ -263,7 +312,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             transform,
             border_color,
             None,
-            &inset.to_rounded_rect(radii.inset(half as f32).as_f64_tuple()),
+            &corner_shape(inset, radii.inset(half as f32), node.paint.corner_smoothing),
         );
         return;
     }
@@ -273,7 +322,10 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     // though the node background and contents follow `border-radius`.
     let clips_to_rounded_border = radii.max() > 0.0;
     if clips_to_rounded_border {
-        scene.push_clip_layer(transform, &rect.to_rounded_rect(radii.as_f64_tuple()));
+        scene.push_clip_layer(
+            transform,
+            &corner_shape(rect, radii, node.paint.corner_smoothing),
+        );
     }
     let sides = [
         (top, (x0, y0 + top * 0.5), (x1, y0 + top * 0.5)),
@@ -558,7 +610,11 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
         background.pop_layer();
     }
     let [x0, y0, x1, y1] = node.rect.map(f64::from);
-    let clip = Rect::new(x0, y0, x1, y1).to_rounded_rect(node.paint.border_radii.as_f64_tuple());
+    let clip = corner_shape(
+        Rect::new(x0, y0, x1, y1),
+        node.paint.border_radii,
+        node.paint.corner_smoothing,
+    );
     scene.push_layer(BlendMode::default(), 1., transform, &clip, None, None);
     let filter =
         crate::filter::Filter::from_primitive(crate::filter::FilterPrimitive::GaussianBlur {
@@ -905,7 +961,25 @@ fn encode_node(
     // node's own visual bounds are offscreen: a transformed descendant can
     // still enter the viewport. Only node-owned paint is culled here.
     let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
-    if opacity < 1.0 {
+    let sigma = n.paint.foreground_blur;
+    if sigma.is_finite() && sigma > 0. {
+        let filter = crate::filter::GaussianBlur {
+            sigma: sigma.min(64.),
+            edge: crate::filter::BlurEdge::Transparent,
+        }
+        .into_filter();
+        // Filtering and opacity share one isolated layer. Expanded bounds keep
+        // the halo outside the source box instead of clipping it at the glyph edge.
+        scene.push_layer(
+            BlendMode::default(),
+            opacity,
+            *node_transform,
+            &visual_bounds(n),
+            Some(Arc::new(filter)),
+            None,
+        );
+        layers.push(Layer::Opacity);
+    } else if opacity < 1.0 {
         scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
         layers.push(Layer::Opacity);
     }
@@ -929,7 +1003,7 @@ fn encode_node(
         let clip_rect = Rect::new(finite(cx0), finite(cy0), finite(cx1), finite(cy1));
         scene.push_clip_layer(
             *node_transform,
-            &clip_rect.to_rounded_rect(n.own_clip_radii.as_f64_tuple()),
+            &corner_shape(clip_rect, n.own_clip_radii, n.paint.corner_smoothing),
         );
         layers.push(Layer::Clip);
     }
@@ -945,7 +1019,9 @@ fn encode_node(
         // GPU backends do not reliably carry a parent clip across an
         // appended scene at HiDPI; local encoding also avoids mixing
         // absolute logical and fragment coordinates.
-        let outer_widget_clip = (!has_rounded_corners).then(|| widget_clip(n)).flatten();
+        let outer_widget_clip = (!has_rounded_corners || n.paint.corner_smoothing > 0.)
+            .then(|| widget_clip(n))
+            .flatten();
         if let Some(([cx0, cy0, cx1, cy1], radii)) = outer_widget_clip {
             let widget_clip = Rect::new(
                 cx0.max(0.0) as f64,
@@ -955,7 +1031,7 @@ fn encode_node(
             );
             scene.push_clip_layer(
                 *node_transform,
-                &widget_clip.to_rounded_rect(radii.as_f64_tuple()),
+                &corner_shape(widget_clip, radii, n.paint.corner_smoothing),
             );
         }
         append_widget(
@@ -978,6 +1054,49 @@ fn encode_node(
 mod tests {
     use super::*;
     use crate::style::Shadow;
+
+    #[test]
+    fn outer_shadow_excludes_translucent_continuous_panel_interior() {
+        let mut node = test_node(0, [32., 32., 96., 96.]);
+        node.paint.background = Some(Color::from_rgba8(255, 255, 255, 128));
+        node.paint.border_radii = CornerRadii::uniform(16.);
+        node.paint.corner_smoothing = 1.;
+        node.paint.shadows.push(Shadow {
+            offset_x: 0.,
+            offset_y: 4.,
+            spread: -1.,
+            std_dev: 6.,
+            color: Color::BLACK,
+            radius: None,
+        });
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        let crate::PaintCommand::PushClip { clip, .. } = &scene.commands[0] else {
+            panic!("outer shadow must be cut out");
+        };
+        assert_eq!(clip.winding((64., 64.).into()), 0);
+        assert_ne!(clip.winding((64., 102.).into()), 0);
+        assert_ne!(
+            clip.winding((33., 33.).into()),
+            0,
+            "continuous corner cutout preserves the exposed corner shadow"
+        );
+        assert!(matches!(
+            scene.commands[1],
+            crate::PaintCommand::BoxShadow { .. }
+        ));
+        assert!(matches!(scene.commands[2], crate::PaintCommand::PopLayer));
+        assert!(visual_bounds(&node).y1 > 96.);
+        node.paint.shadows[0].spread = -40.;
+        scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        assert!(
+            !scene
+                .commands
+                .iter()
+                .any(|c| matches!(c, crate::PaintCommand::BoxShadow { .. }))
+        );
+    }
 
     #[test]
     fn native_motion_replaces_the_authored_target_transform() {
@@ -1289,6 +1408,47 @@ mod tests {
             1.0,
         );
         scene
+    }
+
+    #[test]
+    fn foreground_blur_expands_bounds_and_shares_opacity_layer() {
+        let mut node = test_node(0, [20., 20., 40., 40.]);
+        node.paint.foreground_blur = 3.;
+        node.paint.opacity = 0.5;
+        assert_eq!(visual_bounds(&node), Rect::new(11., 11., 49., 49.));
+        let scene = encoded(&[node]);
+        let filters: Vec<_> = scene
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                crate::PaintCommand::PushLayer {
+                    alpha,
+                    filter: Some(filter),
+                    ..
+                } => Some((*alpha, filter)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].0, 0.5);
+        assert_eq!(
+            crate::filter::GaussianBlur::from_filter(filters[0].1)
+                .unwrap()
+                .sigma,
+            3.
+        );
+        let mut edge = test_node(0, [-9., 20., -1., 40.]);
+        assert!(!paints_viewport(
+            &edge,
+            Affine::IDENTITY,
+            Rect::new(0., 0., 100., 100.)
+        ));
+        edge.paint.foreground_blur = 3.;
+        assert!(paints_viewport(
+            &edge,
+            Affine::IDENTITY,
+            Rect::new(0., 0., 100., 100.)
+        ));
     }
 
     #[test]

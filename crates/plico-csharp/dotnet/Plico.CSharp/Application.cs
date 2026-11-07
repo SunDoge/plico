@@ -8,7 +8,7 @@ namespace Plico;
 
 public readonly record struct BridgeStats(ulong Callbacks, ulong Batches, ulong Declarations, ulong Commands, ulong CallbackMicroseconds, ulong DecodeMicroseconds, ulong DeclarationMicroseconds, long ManagedAllocatedBytes);
 
-public sealed unsafe class Application : IDisposable
+public sealed unsafe class Application : IDisposable, IUiDispatcher
 {
     private ulong handle;
     private readonly object dispatchGate = new();
@@ -27,19 +27,11 @@ public sealed unsafe class Application : IDisposable
     public ulong NativeHandle { get { EnsureThread(); ObjectDisposedException.ThrowIf(closed, this); return handle; } }
     public int NodeCount => ui.NodeCount;
     public int Utf8Bytes => ui.ByteCount;
-    static Application()
-    {
-        NativeLibrary.SetDllImportResolver(typeof(Application).Assembly, (name, assembly, searchPath) =>
-        {
-            string? path = Environment.GetEnvironmentVariable("PLICO_NATIVE_LIBRARY");
-            return name == "plico_csharp" && path is not null ? NativeLibrary.Load(Path.GetFullPath(path)) : IntPtr.Zero;
-        });
-    }
     public Application(Action<Ui> build, bool virtualTime = false)
     {
         this.build = build;
-        if (Native.plico_abi_version() != 5 || Native.plico_command_size() != sizeof(Command))
-            throw new InvalidOperationException("Plico native/managed ABI mismatch; rebuild the native library and bindings");
+        ArgumentNullException.ThrowIfNull(build);
+        NativeRuntime.CheckCompatibility();
         root = GCHandle.Alloc(this);
         handle = virtualTime
             ? Native.plico_create_virtual(&Build, (void*)GCHandle.ToIntPtr(root))
@@ -58,18 +50,9 @@ public sealed unsafe class Application : IDisposable
             try
             {
                 app.DrainPosted();
-                app.ui.Begin(frame, acceptEvents: true);
-                app.build(app.ui);
-                if (frame->event_count != 0)
-                {
-                    // Inline handlers may run after labels were declared. Rebuild
-                    // once without consuming the event again, to submit coherent UI.
-                    app.ui.Begin(frame, acceptEvents: false);
-                    app.build(app.ui);
-                }
-                *batch = app.ui.Finish();
+                *batch = app.ui.Declare(frame, app.build);
             }
-            finally { app.ui.EndBuild(); app.inBuild = false; }
+            finally { app.inBuild = false; }
             app.allocatedBytes += GC.GetAllocatedBytesForCurrentThread() - before;
             return 0;
         }

@@ -276,6 +276,28 @@ impl SliderSpec {
         })
     }
 }
+/// One outer box shadow. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
+/// The shadow is excluded from the node interior, including translucent fills.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BoxShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur: f32,
+    pub spread: f32,
+    pub color: Color,
+    pub opacity: f32,
+}
+impl BoxShadow {
+    pub fn valid(self) -> bool {
+        [self.offset_x, self.offset_y, self.spread]
+            .into_iter()
+            .all(|v| v.is_finite() && v.abs() <= 16384.)
+            && self.blur.is_finite()
+            && (0. ..=128.).contains(&self.blur)
+            && self.opacity.is_finite()
+            && (0. ..=1.).contains(&self.opacity)
+    }
+}
 #[derive(
     Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, InvalidateChannels,
 )]
@@ -290,6 +312,15 @@ pub struct Style {
     /// Gaussian backdrop sigma in logical pixels, capped at 64.
     #[invalidates(PAINT)]
     pub backdrop_blur: f32,
+    /// Gaussian foreground sigma in logical pixels; zero disables filtering.
+    #[invalidates(PAINT)]
+    pub foreground_blur: f32,
+    /// Continuous-corner easing in 0..=1; zero keeps circular corners.
+    #[invalidates(PAINT)]
+    pub corner_smoothing: f32,
+    /// Optional outer shadow; changing it only invalidates paint.
+    #[invalidates(PAINT)]
+    pub shadow: Option<BoxShadow>,
     /// Keep this node at least this far below its scroll port's top while its
     /// containing block is in view (CSS sticky, top inset). `None` is static.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -442,6 +473,9 @@ impl Default for Style {
             layout: Default::default(),
             selectable: false,
             backdrop_blur: 0.,
+            foreground_blur: 0.,
+            corner_smoothing: 0.,
+            shadow: None,
             sticky_top: None,
             background_alpha: 1.,
             width: None,
@@ -537,6 +571,11 @@ impl Style {
             && (100..=900).contains(&self.font_weight)
             && self.backdrop_blur.is_finite()
             && (0. ..=64.).contains(&self.backdrop_blur)
+            && self.foreground_blur.is_finite()
+            && (0. ..=64.).contains(&self.foreground_blur)
+            && self.corner_smoothing.is_finite()
+            && (0. ..=1.).contains(&self.corner_smoothing)
+            && self.shadow.is_none_or(BoxShadow::valid)
             && self.background_alpha.is_finite()
             && (0. ..=1.).contains(&self.background_alpha)
             && self.opacity.is_finite()

@@ -8,6 +8,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="assets/shaders/*.wgsl" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Watch="false" />
+    <None Update="assets/shaders/*.wgsl" Watch="false" />
     <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.CSharp/Plico.CSharp.csproj" />
     <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.Generators/Plico.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.Markdown/Plico.Markdown.csproj" />
