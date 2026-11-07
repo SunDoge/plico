@@ -120,6 +120,7 @@ struct Key {
     width: Option<u64>,
     scale: u64,
     color: [u8; 4],
+    vertical: bool,
 }
 
 /// Thread-confined system layout engine with a byte-bounded LRU bitmap cache.
@@ -172,6 +173,22 @@ impl SystemText {
     /// Shape, measure and rasterize using the same native layout. Repeated requests
     /// return the same resource. Decode/rasterize on the host, not every UI declaration.
     pub fn rasterize(&mut self, request: &TextRequest<'_>) -> Result<Arc<TextBitmap>, Error> {
+        self.rasterize_direction(request, false)
+    }
+    /// Native vertical-rl layout: glyph orientation and mixed scripts come from
+    /// Pango gravity. `width` is the maximum column height; output is y-down.
+    /// The result shares the same bounded cache, with a distinct direction key.
+    pub fn rasterize_vertical(
+        &mut self,
+        request: &TextRequest<'_>,
+    ) -> Result<Arc<TextBitmap>, Error> {
+        self.rasterize_direction(request, true)
+    }
+    fn rasterize_direction(
+        &mut self,
+        request: &TextRequest<'_>,
+        vertical: bool,
+    ) -> Result<Arc<TextBitmap>, Error> {
         validate(request)?;
         let key = Key {
             text: request.text.into(),
@@ -182,11 +199,12 @@ impl SystemText {
             width: request.width.map(f64::to_bits),
             scale: request.scale.to_bits(),
             color: request.color,
+            vertical,
         };
         if let Some(bitmap) = self.cache.get(&key) {
             return Ok(bitmap.clone());
         }
-        let bitmap = Arc::new(self.render(request)?);
+        let bitmap = Arc::new(self.render(request, vertical)?);
         let bytes = bitmap.rgba.len() + key.text.len() + key.family.len();
         if bytes <= self.budget {
             while self.retained > self.budget.saturating_sub(bytes)
@@ -203,7 +221,13 @@ impl SystemText {
         }
         Ok(bitmap)
     }
-    fn render(&self, request: &TextRequest<'_>) -> Result<TextBitmap, Error> {
+    fn render(&self, request: &TextRequest<'_>, vertical: bool) -> Result<TextBitmap, Error> {
+        self.context.set_base_gravity(if vertical {
+            pango::Gravity::East
+        } else {
+            pango::Gravity::South
+        });
+        self.context.set_gravity_hint(pango::GravityHint::Natural);
         let layout = pango::Layout::new(&self.context);
         let mut font = pango::FontDescription::new();
         font.set_family(request.family);
@@ -228,6 +252,11 @@ impl SystemText {
         let y = ink.y().min(logical.y());
         let right = (ink.x() + ink.width()).max(logical.x() + logical.width());
         let bottom = (ink.y() + ink.height()).max(logical.y() + logical.height());
+        let (x, y, right, bottom) = if vertical {
+            (-bottom, x, -y, right)
+        } else {
+            (x, y, right, bottom)
+        };
         let width = (right - x).max(1);
         let height = (bottom - y).max(1);
         if width > 16384
@@ -241,6 +270,9 @@ impl SystemText {
         {
             let cr = Context::new(&surface).context(CairoSnafu)?;
             cr.translate(f64::from(-x), f64::from(-y));
+            if vertical {
+                cr.rotate(std::f64::consts::FRAC_PI_2);
+            }
             let [r, g, b, a] = request.color.map(|v| f64::from(v) / 255.);
             cr.set_source_rgba(r, g, b, a);
             pangocairo::functions::show_layout(&cr, &layout);
@@ -274,6 +306,11 @@ impl SystemText {
             }
         }
         let (logical_w, logical_h) = layout.size();
+        let (logical_w, logical_h) = if vertical {
+            (logical_h, logical_w)
+        } else {
+            (logical_w, logical_h)
+        };
         Ok(TextBitmap {
             pixels: [width as u32, height as u32],
             pixel_origin: [x, y],

@@ -1249,3 +1249,7 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
         assert_eq!(&uniforms[..4], &[640.0, 360.0, 2.5, 0.75]);
     }
 }
+
+/// Built-in Liquid Glass effect body, shared with the managed SDK.
+/// Requires backdrop input; see docs/liquid-glass.md for uniform slots.
+pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");

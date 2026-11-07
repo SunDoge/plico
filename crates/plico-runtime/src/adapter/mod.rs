@@ -1,7 +1,7 @@
 //! Retained Engine projection, layout, painting, hit testing and semantics.
 use crate::{
-    button_state, input, layout_style, modal, presentation, scroll_motion, selection, shader,
-    style_motion, toggle, tooltip,
+    button_state, input, layout_style, modal, presentation, scroll_motion, scrollbar_visibility,
+    selection, shader, style_motion, toggle, tooltip,
 };
 use peniko::Color;
 use plico::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
@@ -235,6 +235,7 @@ pub struct Adapter {
     pub(super) scroll_motions: HashMap<NodeId, scroll_motion::ScrollMotion>,
     pub(super) smooth_scroll_enabled: bool,
     pub(super) reveal_focus: bool,
+    pub(super) scrollbars: scrollbar_visibility::Scrollbars,
     pub(super) scrollbar_drag: Option<(NodeId, f64, f32)>,
     pub(super) input_layouts: HashMap<Entity, input::Geometry>,
     pub(super) control_metrics: HashMap<Entity, ControlMetrics>,
@@ -313,6 +314,7 @@ impl Default for Adapter {
             scroll_motions: HashMap::new(),
             smooth_scroll_enabled: true,
             reveal_focus: false,
+            scrollbars: Default::default(),
             scrollbar_drag: None,
             input_layouts: HashMap::new(),
             control_metrics: HashMap::new(),
@@ -579,6 +581,7 @@ impl Adapter {
                 self.removed_node_ids.push(n.id);
                 self.scroll_offsets.remove(&n.id);
                 self.scroll_motions.remove(&n.id);
+                self.scrollbars.states.remove(&n.id);
                 if self.scrollbar_drag.is_some_and(|(id, ..)| id == n.id) {
                     self.scrollbar_drag = None;
                 }
@@ -835,16 +838,7 @@ impl Adapter {
             let _span = tracing::trace_span!(target: "plico::layout", "backend.align").entered();
             self.align_controls(tcx, engine);
         }
-        for &index in &self.scroll_indices {
-            let p = &mut self.placed[index];
-            self.stats.scroll_visits += 1;
-            p.scroll.opacity = if p.scroll.range[1] > 0. { 1. } else { 0. };
-            p.scroll.interaction = if self.scrollbar_drag.is_some_and(|(id, ..)| id == p.node_id) {
-                2
-            } else {
-                0
-            };
-        }
+        self.update_scrollbars(engine);
         let moved_anchor = self.anchor_motion_dirty && !self.geometry_dirty;
         if self.presentation_dirty {
             // Transform/opacity motion changes Scene output without necessarily

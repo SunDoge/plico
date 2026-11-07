@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PlicoComponentInterceptors>true</PlicoComponentInterceptors>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Plico.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+  <ItemGroup>
+    <CompilerVisibleProperty Include="PlicoComponentInterceptors" />
+    <ProjectReference Include="../Plico.CSharp/Plico.CSharp.csproj" />
+    <ProjectReference Include="../Plico.Generators/Plico.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

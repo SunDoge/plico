@@ -96,3 +96,28 @@ fn invalidation_is_specific_and_journal_is_per_node() {
     }
     assert!(engine.node_changes().is_empty());
 }
+
+#[test]
+fn shadow_changes_are_paint_only_and_do_not_alias_high_property_bits() {
+    use plico::{BoxShadow, Color, StyleProperties as P};
+    let base = Style::default();
+    let changed = Style {
+        shadow: Some(BoxShadow {
+            offset_x: 0.,
+            offset_y: 2.,
+            blur: 12.,
+            spread: -1.,
+            color: Color::Literal(0),
+            opacity: 0.08,
+        }),
+        ..base
+    };
+    assert!(changed.valid());
+    let diff = changed.diff(base);
+    assert_eq!(diff.changes, Changes::PAINT);
+    assert_eq!(diff.properties, P::SHADOW);
+    assert!(changed.layout_eq(base));
+    assert!(!P::EXPANDED.intersects(P::SHADOW));
+    assert!(P::EXPANDED.bits() > u64::MAX as u128);
+    assert_eq!(base.diff(changed).properties, P::SHADOW);
+}

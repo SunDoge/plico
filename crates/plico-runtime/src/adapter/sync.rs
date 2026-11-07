@@ -530,6 +530,8 @@ pub(crate) fn make_paint(
         font_family: Some(font_family),
         text_color: resolve(style.foreground, theme),
         backdrop_blur: style.backdrop_blur,
+        foreground_blur: style.foreground_blur,
+        corner_smoothing: style.corner_smoothing,
         sticky_top: style.sticky_top,
         background: style
             .background
@@ -550,6 +552,16 @@ pub(crate) fn make_paint(
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
     };
+    if let Some(shadow) = style.shadow.filter(|s| s.opacity > 0.) {
+        p.shadows.push(plico_renderer::style::Shadow {
+            offset_x: shadow.offset_x,
+            offset_y: shadow.offset_y,
+            spread: shadow.spread,
+            std_dev: shadow.blur / 2.,
+            color: resolve(shadow.color, theme).with_alpha(shadow.opacity),
+            radius: None,
+        });
+    }
     if style.scroll_y {
         let muted = theme.muted;
         p.scrollbar = Some(Arc::new(plico_renderer::style::ScrollbarStyle {

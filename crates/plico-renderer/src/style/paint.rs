@@ -408,6 +408,8 @@ impl DeclaredPaint {
             outline_color: self.outline_color,
             cursor: inherited.cursor,
             backdrop_blur: 0.,
+            foreground_blur: 0.,
+            corner_smoothing: 0.,
             sticky_top: None,
             text: host.text,
             text_runs: host.text_runs,
@@ -554,6 +556,10 @@ pub struct HostPaint {
 pub struct Paint {
     /// Host-requested backdrop Gaussian sigma in logical pixels.
     pub backdrop_blur: f32,
+    /// Gaussian filter over this node and its descendants.
+    pub foreground_blur: f32,
+    /// Continuous-corner easing, shared by fill/stroke/clip geometry.
+    pub corner_smoothing: f32,
     /// Top inset for a sticky-scroll node; `None` is not sticky.
     pub sticky_top: Option<f32>,
     /// Resolved background fill.
@@ -650,6 +656,8 @@ impl Clone for Paint {
     fn clone(&self) -> Self {
         Self {
             backdrop_blur: self.backdrop_blur,
+            foreground_blur: self.foreground_blur,
+            corner_smoothing: self.corner_smoothing,
             sticky_top: self.sticky_top,
             background: self.background,
             opacity: self.opacity,
@@ -699,6 +707,8 @@ impl Clone for Paint {
         // when rebuilding the same output slot; all values still come from source.
         let Self {
             backdrop_blur,
+            foreground_blur,
+            corner_smoothing,
             sticky_top,
             background,
             opacity,
@@ -743,6 +753,8 @@ impl Clone for Paint {
         } = self;
         self.sticky_top = *sticky_top;
         *backdrop_blur = source.backdrop_blur;
+        *foreground_blur = source.foreground_blur;
+        *corner_smoothing = source.corner_smoothing;
         *background = source.background;
         *opacity = source.opacity;
         transform.clone_from(&source.transform);

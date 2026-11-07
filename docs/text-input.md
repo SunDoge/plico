@@ -1,4 +1,4 @@
-# 原生单行输入
+# 原生文字输入
 
 
 
@@ -35,3 +35,18 @@ Engine 的输入绑定独立于 ViewNode：显示树只包含 accessible label�
 Warden Desktop 是实际调用方：原生输入 → Rust 队列 → Tokio SDK worker → reply + wake → UI 投影。请求带 generation，取消/锁定后丢弃旧回复；UI 线程不等待网络。这是应用侧 actor，尚不是框架通用异步任务 API。
 
 验证见核心和后端 text_input 集成测试，以及 `reports/macros/lsp.json` 中两个输入 builder 的真实 rust-analyzer 补全用例。测试使用合成值。
+
+
+## 多行模式
+
+使用 `TextBuffer::multiline()` 声明多行缓冲，继续复用相同的 `text_input` builder：
+
+```rust
+let notes = TextBuffer::multiline();
+notes.set("第一行\n第二行".to_owned().into());
+text_input(cx, "Notes", &notes).width(320.).height(120.);
+```
+
+模式由缓冲明确声明，不根据控件高度猜测。普通/secret 缓冲仍垂直居中并过滤换行；多行缓冲保留 LF、粘贴 CRLF 时去掉 CR、按内容宽度折行，正文和占位符顶端对齐。Enter 插入换行，主快捷键+Enter 保持提交行为；组合输入期间仍优先交给 IME。上下键与行首/行尾通过同一段落布局的光标/命中接口定位，纵向跟随光标，失焦恢复顶部。选择、绘制和 IME 候选窗共用相同的布局偏移。
+
+这不是完整代码编辑器：拖选、撤销、单词导航等既有限制仍存在。单行 String binding 未改为多行；多行编辑应显式持有多行 TextBuffer，避免初始化时的单行过滤丢掉换行。

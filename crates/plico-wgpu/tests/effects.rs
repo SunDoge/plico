@@ -546,3 +546,79 @@ fn backdrop_copy_preserves_orientation_batch_boundaries_and_following_draws() {
         assert!(a.abs_diff(*b) <= 1, "{a} != {b}");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_subregion_uses_local_coordinates() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill, Gradient};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    let gradient = Gradient::new_linear((0., 0.), (64., 48.)).with_stops([
+        Color::from_rgba8(240, 30, 40, 255),
+        Color::from_rgba8(20, 60, 230, 255),
+    ]);
+    base.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &gradient,
+        None,
+        &Rect::new(0., 0., 64., 48.),
+    );
+    let expected = renderer
+        .render_scene(&base, [64, 48], [0.; 4], false)
+        .unwrap();
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv: vec2f) -> vec4f { return plico_backdrop_at(uv); }",
+        true,
+    )
+    .unwrap();
+    base.append_scene(
+        effect_scene(&mut text, source, ShaderEffectId::new(), &[]),
+        Affine::translate((23., 11.)),
+    );
+    let actual = renderer
+        .render_scene(&base, [64, 48], [0.; 4], false)
+        .unwrap();
+    for (index, (a, b)) in actual.iter().zip(&expected).enumerate() {
+        assert!(a.abs_diff(*b) <= 1, "channel {index}: {a} != {b}");
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn builtin_liquid_glass_renders_a_local_pane() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgba8(30, 90, 140, 255),
+        None,
+        &Rect::new(0., 0., 64., 48.),
+    );
+    let source =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
+    scene.append_scene(
+        effect_scene(
+            &mut text,
+            source,
+            ShaderEffectId::new(),
+            &[6., 0.78, 0.48, 0., 2., 1.24, 1., 0., 0.975, 0.988, 1., 0.],
+        ),
+        Affine::translate((23., 11.)),
+    );
+    let pixels = renderer
+        .render_scene(&scene, [64, 48], [0.; 4], false)
+        .unwrap();
+    assert_eq!(&pixels[..4], &[30, 90, 140, 255]);
+    let center = (19 * 64 + 31) * 4;
+    assert!(pixels[center] > 30 && pixels[center + 1] > 90 && pixels[center + 2] > 140);
+    assert_eq!(pixels[center + 3], 255);
+}

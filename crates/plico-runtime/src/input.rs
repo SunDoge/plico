@@ -1,4 +1,4 @@
-//! Native single-line editing and masked-only password shaping.
+//! Native single/multiline editing and masked-only password shaping.
 use super::*;
 use kurbo::{Affine, Rect};
 use peniko::Fill;
@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 #[derive(PartialEq)]
 struct GeometryKey {
     revision: u64,
+    multiline: bool,
     epoch: usize,
     size: [f32; 2],
     font_family: Option<Arc<str>>,
@@ -38,6 +39,7 @@ impl Adapter {
         let focused = self.focused == Some(entity) && !engine.node(entity).unwrap().style.disabled;
         let key = GeometryKey {
             revision: buffer.revision(),
+            multiline: buffer.is_multiline(),
             epoch: tcx.cache_generation(),
             size: node.content_size,
             font_family: node.paint.font_family.clone(),
@@ -74,6 +76,8 @@ impl Adapter {
             node.paint.text_color
         };
         let rgba = color.to_rgba8();
+        let multiline = buffer.is_multiline();
+        let wrap_width = multiline.then_some(node.content_size[0].max(1.));
         let request = tcx.has_native_editing().then(|| {
             Arc::new(
                 tcx.paragraph_request(
@@ -85,7 +89,7 @@ impl Adapter {
                         text_color: color,
                         ..Default::default()
                     },
-                    None,
+                    wrap_width,
                 )
                 .expect("input always has presentation text"),
             )
@@ -113,7 +117,7 @@ impl Adapter {
                 [rgba.r, rgba.g, rgba.b, rgba.a],
                 Arc::from([]),
                 node.paint.font_family.as_ref(),
-                None,
+                wrap_width,
             ))
         });
         let [x0, y0, x1, y1] = layout
@@ -124,7 +128,7 @@ impl Adapter {
         let width = node.content_size[0].max(1.);
         let height = node.content_size[1].max(1.);
         let mut offset = self.input_layouts.get(&entity).map_or(0., |g| g.offset);
-        if focused {
+        if focused && !multiline {
             if caret.x0 < offset as f64 {
                 offset = caret.x0 as f32;
             }
@@ -135,7 +139,26 @@ impl Adapter {
             offset = 0.;
         }
         offset = offset.clamp(0., (metrics.width - width + 1.).max(0.));
-        let y = ((height - metrics.height) / 2.).max(0.);
+        let y = if multiline {
+            let mut scroll = if focused {
+                self.input_layouts
+                    .get(&entity)
+                    .map_or(0., |g| (-g.y).max(0.))
+            } else {
+                0.
+            };
+            if focused {
+                if caret.y0 < f64::from(scroll) {
+                    scroll = caret.y0 as f32;
+                }
+                if caret.y1 > f64::from(scroll + height) {
+                    scroll = caret.y1 as f32 - height;
+                }
+            }
+            -scroll.clamp(0., (metrics.height - height).max(0.))
+        } else {
+            ((height - metrics.height) / 2.).max(0.)
+        };
         let mut scene = Scene::default();
         scene.push_clip_layer(
             Affine::IDENTITY,
@@ -316,8 +339,38 @@ impl Adapter {
                     "Delete" => buffer.edit(InputEdit::Delete),
                     "ArrowLeft" => buffer.edit(InputEdit::Left(shift)),
                     "ArrowRight" => buffer.edit(InputEdit::Right(shift)),
+                    "Home" | "End" if buffer.is_multiline() && !command => {
+                        if let Some(geometry) = self.input_layouts.get(&entity)
+                            && let Some([_, y0, _, y1]) =
+                                geometry.layout.caret_rect(buffer.presentation().head)
+                        {
+                            let x = if editing_key == "Home" {
+                                -1.
+                            } else {
+                                geometry.layout.metrics().width + 1.
+                            };
+                            let at = geometry.layout.hit_test(x, (y0 + y1) * 0.5);
+                            buffer.edit(InputEdit::Select(at, shift));
+                        }
+                    }
                     "Home" => buffer.edit(InputEdit::Home(shift)),
                     "End" => buffer.edit(InputEdit::End(shift)),
+                    "Enter" if buffer.is_multiline() && !command => {
+                        buffer.edit(InputEdit::Insert(Zeroizing::new("\n".into())));
+                    }
+                    "ArrowUp" | "ArrowDown" if buffer.is_multiline() => {
+                        if let Some(geometry) = self.input_layouts.get(&entity) {
+                            let head = buffer.presentation().head;
+                            if let Some([x0, y0, _, y1]) = geometry.layout.caret_rect(head) {
+                                let direction = if editing_key == "ArrowUp" { -1. } else { 1. };
+                                let line = geometry.layout.metrics().first_line_height;
+                                let at = geometry
+                                    .layout
+                                    .hit_test(x0, (y0 + y1) * 0.5 + direction * line);
+                                buffer.edit(InputEdit::Select(at, shift));
+                            }
+                        }
+                    }
                     "Enter" if !key.repeat => buffer.edit(InputEdit::Submit),
                     "Escape" => buffer.edit(InputEdit::ClearPreedit),
                     "Tab" => return None,
@@ -415,5 +468,73 @@ mod shortcut_tests {
         assert_eq!(buffer.with_value(|v| v.to_owned()), "test-key");
         assert!(!buffer.is_composing());
         assert!(buffer.text().is_none());
+    }
+}
+
+#[cfg(test)]
+mod multiline_tests {
+    use super::*;
+    use plico_renderer::FrameSource;
+    struct View(plico::TextBuffer);
+    impl crate::HostView for View {
+        fn show(&mut self, cx: &mut plico::UiContext) {
+            plico::widgets::text_input(cx, "Editor", &self.0)
+                .key("editor")
+                .width(120.)
+                .height(100.);
+        }
+    }
+    #[test]
+    fn multiline_wraps_at_top_and_enter_inserts_without_submitting() {
+        let buffer = plico::TextBuffer::multiline();
+        buffer.set("first".to_owned().into());
+        let mut source = crate::Source::new(View(buffer.clone()));
+        let mut text = TextContext::new();
+        source.build_frame(&mut text, 240, 180);
+        let entity = source.engine.find(source.engine.root(), "editor").unwrap();
+        assert_eq!(source.adapter.input_layouts[&entity].y, 0.);
+        source.adapter.focused = Some(entity);
+        let mut enter = UiEvent::Key(plico_renderer::KeyEvent {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            phase: KeyPhase::Down,
+            key_without_modifiers: "Enter".into(),
+            text: None,
+            text_with_all_modifiers: None,
+            location: plico_renderer::KeyLocation::Standard,
+            modifiers: Default::default(),
+            repeat: false,
+            synthetic: false,
+        });
+        source
+            .adapter
+            .input_event(&source.engine, &mut enter)
+            .unwrap();
+        source
+            .adapter
+            .input_event(&source.engine, &mut UiEvent::Paste("second\nthird".into()))
+            .unwrap();
+        assert_eq!(buffer.text().as_deref(), Some("first\nsecond\nthird"));
+        assert_eq!(buffer.submitted_count(), 0);
+        buffer.set("word ".repeat(60).into());
+        source.build_frame(&mut text, 240, 180);
+        let geometry = &source.adapter.input_layouts[&entity];
+        assert!(geometry.layout.metrics().height > geometry.key.size[1]);
+        assert!(geometry.y < 0., "caret should scroll into view");
+        assert!(
+            geometry.caret[1] >= 0. && geometry.caret[3] <= f64::from(geometry.key.size[1]) + 1.
+        );
+        source.adapter.focused = None;
+        source.build_frame(&mut text, 240, 180);
+        assert_eq!(source.adapter.input_layouts[&entity].y, 0.);
+    }
+    #[test]
+    fn single_line_retains_vertical_centering() {
+        let buffer = plico::TextBuffer::new();
+        buffer.set("first".to_owned().into());
+        let mut source = crate::Source::new(View(buffer));
+        source.build_frame(&mut TextContext::new(), 240, 180);
+        let entity = source.engine.find(source.engine.root(), "editor").unwrap();
+        assert!(source.adapter.input_layouts[&entity].y > 20.);
     }
 }

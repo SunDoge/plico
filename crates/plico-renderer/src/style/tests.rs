@@ -3,8 +3,10 @@ use super::*;
 #[test]
 fn retained_paint_records_stay_compact() {
     if usize::BITS == 64 {
+        // Foreground Gaussian sigma and corner easing add two inline f32s.
+        // Including alignment, the measured budget rises from 400 to 416 bytes.
         assert!(
-            std::mem::size_of::<Paint>() <= 400,
+            std::mem::size_of::<Paint>() <= 416,
             "Paint grew to {} bytes",
             std::mem::size_of::<Paint>()
         );
