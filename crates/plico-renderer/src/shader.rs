@@ -1022,8 +1022,17 @@ fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
 /// Requires backdrop input; see docs/liquid-glass.md for uniform slots.
 pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");
 
+/// Progressive backdrop blur body shared with the managed SDK.
+pub const BACKDROP_BLUR_WGSL: &str = include_str!("../assets/backdrop_blur.wgsl");
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn built_in_backdrop_sources_validate_without_a_gpu() {
+        super::ShaderEffectSource::with_backdrop(super::LIQUID_GLASS_WGSL, true).unwrap();
+        super::ShaderEffectSource::with_backdrop(super::BACKDROP_BLUR_WGSL, true).unwrap();
+    }
+
     use super::*;
 
     #[test]
@@ -1253,4 +1262,3 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
         assert_eq!(&uniforms[..4], &[640.0, 360.0, 2.5, 0.75]);
     }
 }
-

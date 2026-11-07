@@ -49,3 +49,34 @@ application checks cover shader validation and native-only animated frames.
 The quartic/Snell lens and smoothed normals follow MyGO (MIT attribution is in
 `crates/plico-renderer/third_party`). This does not yet port its blur pyramid,
 light/dark material calibration or native NSGlassEffectView bridge.
+
+## Scroll-edge and independent backdrop blur
+
+The managed SDK also offers noninteractive surfaces for already-painted content:
+
+```csharp
+// Declare scrolling content first, then the overlay, then the sharp heading.
+ui.ScrollEdge(ScrollEdgeSide.Top, new BackdropBlurOptions {
+    Radius = 8, Tint = .65f, TintColor = ui.Theme.Panel,
+}).Absolute(0, 0).FillWidth().Height(86);
+ui.Text("Workspace").Absolute(20, 16);
+
+// Uniform rather than progressively masked blur:
+ui.BackdropBlur(new BackdropBlurOptions { Radius = 6 })
+    .Absolute(0, 0).Width(200).Height(80);
+```
+
+Top/Bottom/Left/Right choose which side is strongest. The opposite side preserves
+the original scene; a zero-radius, untinted uniform surface is an identity pass.
+Radius is a finite logical value in 0–64, Tint in 0–1. Theme tint must be supplied
+by the caller; the shader does not read application/theme state.
+
+The APIs borrow the scroll-edge composition idea from MyGO's `ui` and
+`plugins/glass`, but use Plico's own bounded 5×5 single-pass sampling approximation.
+They do not implement MyGO's blur pyramid, automatic focus-aware material policy,
+per-platform native materials or arbitrary clip masks. Position these rectangular
+surfaces explicitly; only scene pixels in the effect surface are sampled. They
+share the same conservative backdrop damage and clipping limits as Liquid Glass.
+Rust clients can reuse `plico_renderer::shader::BACKDROP_BLUR_WGSL`; vec4 slot 0 is
+`[radius, mode, tint, 0]` (mode 0 uniform, 1 top, 2 bottom, 3 left, 4 right) and
+slot 1 is tint RGB. No additional Rust ABI or package dependency is required.

@@ -142,6 +142,26 @@ internal static class GalleryChecks
             player.SetTime(3000); player.Step(1280, 900);
             Check(Math.Abs(lyrics.LyricPosition - 1) < .001, "Lyrics did not resume from current position");
         }
+        int selectedOverlayRow = -1;
+        using (var overlay = new Application(ui => {
+            using (ui.Box().Width(300).Height(200))
+            {
+                using (ui.Column().FillWidth().FillHeight().ScrollY())
+                    for (int i = 0; i < 20; i++)
+                        using (ui.Scope(i))
+                            if (ui.Button("Scroll edge row " + i).FillWidth().Height(40).Shrink().Clicked()) selectedOverlayRow = i;
+                ui.ScrollEdge().Absolute(0, 0).FillWidth().Height(86);
+            }
+        }, virtualTime: true))
+        {
+            overlay.Step(320, 240);
+            overlay.PointerDown(40, 20); overlay.PointerUp(40, 20); overlay.Step(320, 240);
+            Check(selectedOverlayRow == 0, "Scroll-edge surface blocked pointer input");
+            selectedOverlayRow = -1;
+            overlay.Scroll(40, 20, 160); overlay.Step(320, 240);
+            overlay.PointerDown(40, 20); overlay.PointerUp(40, 20); overlay.Step(320, 240);
+            Check(selectedOverlayRow > 0, "Scroll-edge surface blocked scrolling");
+        }
         Console.WriteLine("Gallery interaction checks passed");
     }
 }

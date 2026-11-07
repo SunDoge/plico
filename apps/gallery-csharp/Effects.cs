@@ -18,6 +18,7 @@ internal sealed partial class GalleryModel
     private void Effects(Ui ui)
     {
         LiquidGlassDemo(ui);
+        ScrollEdgeDemo(ui);
         var asset = effectPrograms[EffectIndex];
         using (Card(ui, Tr("Shader studio", "着色器工作室")))
         {
@@ -93,6 +94,36 @@ internal sealed partial class GalleryModel
                 }
             }
             Hint(ui, "ui.LiquidGlass(options) · app-local backdrop · opaque fallback · animations off by default");
+        }
+    }
+}
+
+internal sealed partial class GalleryModel
+{
+    private double edgeBlur = 8;
+    private bool softenScrollEdge = true;
+    private void ScrollEdgeDemo(Ui ui)
+    {
+        using (Card(ui, Tr("Scroll edge", "滚动边缘")))
+        {
+            ui.Switch("Soften scroll edge", ref softenScrollEdge);
+            using (ui.Row().FillWidth().Gap(12).AlignCenter())
+            { ui.Text($"Blur · {edgeBlur:0} px").Color(T.Muted); ui.Slider("Scroll edge blur", ref edgeBlur, 0, 20).Width(260); }
+            using (ui.Box().FillWidth().Height(250).Clip().Background(T.Control))
+            {
+                using (ui.Column().FillWidth().FillHeight().ScrollY().Gap(8).Padding(20))
+                    for (int i = 1; i <= 24; i++)
+                        using (ui.Scope(i))
+                        using (ui.Row().FillWidth().Height(34).Shrink().AlignCenter().Gap(14))
+                        { ui.Badge(i.ToString("00"), Tone.Info); ui.Text($"{Tr("A note in your workspace", "工作区中的一条笔记")} {i:00}").Width(0).Grow().MinWidth(0); }
+                if (softenScrollEdge)
+                    ui.ScrollEdge(ScrollEdgeSide.Top, new BackdropBlurOptions { Radius = (float)edgeBlur, Tint = .75f, TintColor = T.Panel })
+                        .Absolute(0, 0).FillWidth().Height(86);
+                else
+                    using (ui.Box().Absolute(0, 0).FillWidth().Height(52).Background(T.Panel)) { }
+                ui.Text(Tr("Workspace notes", "工作区笔记")).Absolute(20, 16).FontSize(18).Weight(650).Color(T.Foreground);
+            }
+            Hint(ui, "Scroll the content under the fixed heading. The overlay does not consume input.");
         }
     }
 }

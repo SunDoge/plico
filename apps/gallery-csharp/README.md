@@ -167,3 +167,23 @@ For the usual source-checkout loop, `dotnet msbuild dotnet/Plico.proj -t:Watch`
 (from the repository root) reuses the existing native library automatically.
 `-t:Test` is native-free; `-t:NativeTest` runs Gallery and other integration
 checks using the existing artifact. See [frontend development](../../dotnet/README.md).
+
+## Fast launch versus build-and-run
+
+`dotnet run` evaluates/restores/builds the project before launch. To reopen a
+previous build without that work, use:
+
+```sh
+dotnet run --no-build --project apps/gallery-csharp
+# Or bypass the dotnet run command itself:
+dotnet apps/gallery-csharp/bin/Debug/net10.0/Gallery.dll
+```
+
+Build explicitly with `dotnet build apps/gallery-csharp/Gallery.csproj`.
+For ongoing edits, `dotnet watch --project apps/gallery-csharp run` reuses the process
+when the edit can be hot-reloaded. C# does not inherently reduce native GPU/font
+startup work. See [the measured startup paths](../../docs/experiments/csharp-startup.md).
+
+The Effects page now also demonstrates `ui.ScrollEdge()` and `ui.BackdropBlur()`.
+The former progressively frosts the content under a fixed heading; neither
+surface is an input handler.

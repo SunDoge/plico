@@ -21,6 +21,7 @@ try
 {
     WgslChecks.Run();
     LiquidGlassChecks.Run();
+    BackdropBlurChecks.Run();
     ShadowChecks.Run();
     bool ticked = true;
     using (var h = new UiHarness(ui => ui.Checkbox("Vector check", ref ticked)))

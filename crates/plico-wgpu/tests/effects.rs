@@ -673,3 +673,76 @@ fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
         "the flat center must not zoom the whole scene"
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn scroll_edge_blurs_the_selected_edge_and_preserves_the_far_edge() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    for x in 0..16 {
+        let color = if x % 2 == 0 {
+            Color::from_rgba8(255, 80, 0, 255)
+        } else {
+            Color::from_rgba8(0, 80, 255, 255)
+        };
+        base.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            color,
+            None,
+            &Rect::new(x as f64, 0., x as f64 + 1., 16.),
+        );
+    }
+    let expected = renderer
+        .render_scene(&base, [16, 16], [0.; 4], false)
+        .unwrap();
+    let source =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::BACKDROP_BLUR_WGSL, true)
+            .unwrap();
+    let mut actual = base.clone();
+    actual.append_scene(
+        effect_scene(
+            &mut text,
+            source.clone(),
+            ShaderEffectId::new(),
+            &[2.5, 1., 0., 0., 1., 1., 1., 0.],
+        ),
+        Affine::IDENTITY,
+    );
+    let pixels = renderer
+        .render_scene(&actual, [16, 16], [0.; 4], false)
+        .unwrap();
+    let top = (16 + 8) * 4;
+    assert!(
+        pixels[top] < expected[top] - 10 && pixels[top + 2] > expected[top + 2] + 10,
+        "top edge did not blur"
+    );
+    let bottom = (15 * 16 + 8) * 4;
+    assert!(
+        pixels[bottom].abs_diff(expected[bottom]) <= 1,
+        "far edge changed"
+    );
+    assert!(
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255),
+        "overlay punched transparent holes"
+    );
+    let mut zero = base;
+    zero.append_scene(
+        effect_scene(&mut text, source, ShaderEffectId::new(), &[0.; 8]),
+        Affine::IDENTITY,
+    );
+    let unchanged = renderer
+        .render_scene(&zero, [16, 16], [0.; 4], false)
+        .unwrap();
+    for (a, b) in unchanged.iter().zip(&expected) {
+        assert!(a.abs_diff(*b) <= 1);
+    }
+}
