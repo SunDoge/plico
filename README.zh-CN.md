@@ -122,3 +122,14 @@ Plico **不是细粒度响应式 runtime**。业务声明仍会执行视图代�
 
 [文档索引](docs/README.md) · [实现状态](docs/status.md) ·
 [架构](docs/architecture.md) · [贡献指南](docs/contributing.md)
+
+### C# 前端 Gallery（实验性）
+
+复用现有 Rust、系统文字与 wgpu 底座，提供十七个交互页面和 .NET 热重载。
+参见[运行与截图验证说明](apps/gallery-csharp/README.md)：
+
+```sh
+cargo build --locked -p plico-csharp
+export PLICO_NATIVE_LIBRARY="$PWD/target/debug/libplico_csharp.so"
+dotnet watch --project apps/gallery-csharp run
+```

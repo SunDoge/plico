@@ -124,6 +124,28 @@ impl<'e> UiContext<'e> {
         (result, clicked)
     }
 
+    /// Low-level backend entry point for a root portal. Widget composition and
+    /// open/close policy stay with the caller; IDs must be globally namespaced.
+    pub fn portal_element<R>(
+        &mut self,
+        key: Key,
+        kind: Kind,
+        style: Style,
+        text: &str,
+        children: impl FnOnce(&mut UiContext<'_>) -> R,
+    ) -> (R, bool) {
+        let root = self.engine.root;
+        let mut portal = UiContext {
+            engine: self.engine,
+            localizer: self.localizer,
+            parent: root,
+            scope: 0,
+            inherited: Style::default(),
+            in_button: false,
+        };
+        portal.element(key, kind, style, text, children)
+    }
+
     /// Portable rich paragraph entry point; applications normally use `text(...).spans(...)`.
     pub fn rich_text_element(
         &mut self,
@@ -273,6 +295,28 @@ impl<'e> UiContext<'e> {
             focus: false,
         }
     }
+    /// Backend text-editing surface with caller-owned appearance. Retains only
+    /// editor mechanics (selection, caret, IME and platform text operations).
+    pub fn text_edit_surface<'u, 't>(
+        &'u mut self,
+        key: Key,
+        style: Style,
+        label: &'t str,
+        buffer: &crate::TextBuffer,
+    ) -> Input<'u, 'e, 't> {
+        let mut inner = self.leaf(Kind::TextInput, Cow::Borrowed(label));
+        inner.key = key;
+        inner.style = style;
+        Input {
+            inner,
+            buffer: buffer.clone(),
+            string: None,
+            placeholder: Cow::Borrowed(""),
+            autofocus: false,
+            focus: false,
+        }
+    }
+
     /// Edit an ordinary string while retaining caret, selection, and IME state
     /// at this call site. External replacements reset the editor without
     /// reporting a synthetic user `changed` response. Secret values must use
@@ -1354,6 +1398,11 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
+            pub fn shrink(mut self, value: f32) -> Self {
+                self.inner.style.shrink = value;
+                self
+            }
+            #[inline(always)]
             pub fn padding(mut self, value: impl Into<crate::Length>) -> Self {
                 self.inner.style.set_spacing("padding", value.into());
                 self
@@ -1437,6 +1486,11 @@ common!(Button);
 common!(ButtonBase);
 common!(Toggle);
 impl<'u, 'e, 't> Button<'u, 'e, 't> {
+    /// Alignment of shortcut text/icon content along the button's main axis.
+    pub fn justify(mut self, value: Justify) -> Self {
+        self.inner.style.justify = Some(value);
+        self
+    }
     #[inline(always)]
     pub(crate) fn composable(mut self) -> Self {
         self.composable = true;

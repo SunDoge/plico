@@ -224,8 +224,16 @@ pub fn rating(cx: &mut UiContext, value: &mut u8, max: u8) -> bool {
 /// };
 /// ```
 pub fn spinner(cx: &mut UiContext) {
-    let m = cx.theme().metrics;
-    let size = m.font_size as f32 * 1.25;
+    spinner_sized(cx, cx.theme().metrics.font_size as f32 * 1.25);
+}
+
+/// A spinner with an explicit logical-pixel diameter.
+pub fn spinner_sized(cx: &mut UiContext, size: f32) {
+    let size = if size.is_finite() {
+        size.clamp(4., 256.)
+    } else {
+        18.
+    };
     let dot = (size * 0.16).max(2.);
     let radius = size * 0.38;
     let turn_ms = 900_u128;
@@ -244,12 +252,13 @@ pub fn spinner(cx: &mut UiContext) {
                 let age = (lead + 12 - index) % 12;
                 let opacity = 1. - age as f32 / 12. * 0.85;
                 let _ = column(cx)
+                    .key(index as u64)
                     .absolute(x, y)
                     .width(dot)
                     .height(dot)
                     .radius(dot / 2.)
                     .background(Color::Muted)
-                    .opacity(opacity)
+                    .background_alpha(opacity)
                     .children(|_cx| {});
             }
         });

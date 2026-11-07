@@ -205,6 +205,9 @@ impl FontFamily {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidgetRole {
+    /// Toggle semantics independent of the visual primitive.
+    CheckBox,
+    Switch,
     ComboBox,
     ListBox,
     Option,
@@ -403,6 +406,11 @@ pub struct Style {
     /// Styled composite button; native hosts may animate its disabled attenuation.
     #[invalidates(PAINT)]
     pub styled_button: bool,
+    /// Retain native input semantics without built-in control painting.
+    /// Frontends can supply their own visuals around a range editing surface.
+    #[serde(default = "control_chrome_default")]
+    #[invalidates(PAINT)]
+    pub control_chrome: bool,
     #[invalidates(PAINT, SEMANTICS)]
     pub checked: bool,
     #[invalidates(PAINT, SEMANTICS)]
@@ -424,6 +432,9 @@ pub struct Style {
     pub selected: Option<bool>,
     #[invalidates(SEMANTICS)]
     pub expanded: Option<bool>,
+}
+fn control_chrome_default() -> bool {
+    true
 }
 impl Default for Style {
     fn default() -> Self {
@@ -480,6 +491,7 @@ impl Default for Style {
             background: None,
             disabled: false,
             styled_button: false,
+            control_chrome: true,
             checked: false,
             input_revision: 0,
             input_navigation: false,

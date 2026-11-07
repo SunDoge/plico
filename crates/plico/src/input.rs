@@ -18,6 +18,7 @@ struct State {
     value: Zeroizing<String>,
     preedit: Zeroizing<String>,
     secret: bool,
+    multiline: bool,
     head: usize,
     anchor: usize,
     revision: u64,
@@ -70,16 +71,25 @@ impl Default for TextBuffer {
 }
 impl TextBuffer {
     pub fn new() -> Self {
-        Self::create(false)
+        Self::create(false, false)
     }
     pub fn secret() -> Self {
-        Self::create(true)
+        Self::create(true, false)
     }
-    fn create(secret: bool) -> Self {
+    /// Plain-text editor storage that preserves line breaks and wraps in the host.
+    /// Secret buffers remain single-line.
+    pub fn multiline() -> Self {
+        Self::create(false, true)
+    }
+    pub fn is_multiline(&self) -> bool {
+        self.0.lock().unwrap().multiline
+    }
+    fn create(secret: bool, multiline: bool) -> Self {
         Self(Arc::new(Mutex::new(State {
             value: Zeroizing::new(String::new()),
             preedit: Zeroizing::new(String::new()),
             secret,
+            multiline,
             head: 0,
             anchor: 0,
             revision: next_revision(),
@@ -228,9 +238,12 @@ impl TextBuffer {
             InputEdit::Preedit(value) => s.preedit = value,
             InputEdit::ClearPreedit => s.preedit.zeroize(),
             InputEdit::Insert(value) => {
-                // Reject line breaks/control characters in single-line editors.
+                // Multiline plaintext preserves LF. CR is removed to normalize CRLF paste.
                 let mut filtered = Zeroizing::new(String::new());
-                for ch in value.chars().filter(|ch| !ch.is_control()) {
+                for ch in value
+                    .chars()
+                    .filter(|ch| !ch.is_control() || (s.multiline && *ch == '\n'))
+                {
                     filtered.push(ch);
                 }
                 s.replace(&filtered);

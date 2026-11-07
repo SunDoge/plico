@@ -71,6 +71,8 @@ impl Adapter {
                     SemanticNode {
                         id: semantic_id(e),
                         role: match n.style.role {
+                            Some(plico::WidgetRole::CheckBox) => Role::CheckBox,
+                            Some(plico::WidgetRole::Switch) => Role::Switch,
                             Some(plico::WidgetRole::ComboBox) => Role::ComboBox,
                             Some(plico::WidgetRole::ListBox) => Role::ListBox,
                             Some(plico::WidgetRole::Option) => Role::Option,
@@ -125,13 +127,16 @@ impl Adapter {
                         states: SemanticStates {
                             selected: n.style.selected,
                             expanded: n.style.expanded,
-                            checked: matches!(n.kind, Kind::Switch | Kind::Checkbox).then_some(
-                                if n.style.checked {
-                                    SemanticToggleState::On
-                                } else {
-                                    SemanticToggleState::Off
-                                },
-                            ),
+                            checked: (matches!(n.kind, Kind::Switch | Kind::Checkbox)
+                                || matches!(
+                                    n.style.role,
+                                    Some(plico::WidgetRole::CheckBox | plico::WidgetRole::Switch)
+                                ))
+                            .then_some(if n.style.checked {
+                                SemanticToggleState::On
+                            } else {
+                                SemanticToggleState::Off
+                            }),
                             ..Default::default()
                         },
                     }

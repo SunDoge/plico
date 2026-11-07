@@ -254,7 +254,7 @@ pub use desktop::{
 };
 pub use find::{FindResponse, find_bar};
 pub use form::{Field, field, fieldset, form};
-pub use indicators::{MeterLevels, meter, rating, spinner, stepper};
+pub use indicators::{MeterLevels, meter, rating, spinner, spinner_sized, stepper};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::{
     back_button, breadcrumbs, forward_button, link, sidebar, sidebar_item, sidebar_section,

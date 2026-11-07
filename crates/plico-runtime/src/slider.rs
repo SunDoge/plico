@@ -16,7 +16,7 @@ impl Adapter {
             self.stats.slider_visits += 1;
             let node = &mut self.placed[index];
             let n = engine.node(entity).unwrap();
-            if n.kind != Kind::Slider || node.paint.widget.is_some() {
+            if n.kind != Kind::Slider || !n.style.control_chrome || node.paint.widget.is_some() {
                 continue;
             }
             let Some(range) = n.numeric else {

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>SunDoge.Plico</PackageId>
+    <AssemblyName>SunDoge.Plico</AssemblyName>
+    <RootNamespace>Plico</RootNamespace>
+    <Version>0.1.0</Version>
+    <Authors>SunDoge</Authors>
+    <Description>C# widgets over Plico's native Rust layout and rendering foundation.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Plico.Generators/Plico.Generators.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../Plico.Generators/bin/$(Configuration)/netstandard2.0/Plico.Generators.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Update="buildTransitive/SunDoge.Plico.props" Pack="true" PackagePath="buildTransitive/SunDoge.Plico.props" />
+  </ItemGroup>
+</Project>

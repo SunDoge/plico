@@ -70,6 +70,7 @@
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
 | [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
+| [C# batch frontend 实验](experiments/csharp-batch.md) | csbindgen、原生批量提交、事件回传与编辑反馈耗时 |
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |
 | [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
@@ -130,3 +131,7 @@
 [wgpu 窗口 CPU 采样](wgpu-profiling.md)：阶段 span、退出导出、真实设置页采样及解释边界。
 
 - [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.
+
+- [C# gallery：运行、热重载和截图验证](../apps/gallery-csharp/README.md)
+
+- [C# / Rust interaction benchmarks](experiments/csharp-interop.md)

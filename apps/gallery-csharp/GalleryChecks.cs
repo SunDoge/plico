@@ -1,0 +1,102 @@
+using Plico;
+namespace Gallery;
+
+internal static class GalleryChecks
+{
+    private static void Check(bool value, string message)
+    {
+        if (!value) throw new InvalidOperationException(message);
+    }
+    internal static void Run(Application app, GalleryModel model)
+    {
+        var scene = System.Text.Json.JsonSerializer.Deserialize("{\"page\":\"Markdown\"}", GalleryJsonContext.Default.Scene)!;
+        Check(scene.SelectedDate == "2026-11-07" && scene.TimeMs == 1200 && scene.AnimateEffects && scene.Filter == "", "Scene defaults were lost during generated deserialization");
+        app.Step(1280, 900);
+        foreach (var route in GalleryModel.Routes)
+        {
+            app.Click("button", route.Label); app.Step(1280, 900);
+            Check(model.Current == route.Page, $"Navigation failed for {route.Page}");
+        }
+        model.Current = Page.Workspace; app.Invalidate(); app.Step(1280, 900);
+        // The repeated counters have distinct scopes. Test them via unique labels on Controls.
+        model.Current = Page.Controls; app.Invalidate(); app.Step(1280, 900);
+        int before = model.Counts[3]; app.Click("button", "Primary"); app.Step(1280, 900);
+        Check(model.Counts[3] == before + 1, "Button event was lost or duplicated");
+        app.SetText("Full name", "测试・Alex"); app.Step(1280, 900);
+        Check(model.Name == "测试・Alex", "Unicode editing failed");
+        app.SetValue("Volume", 22); app.Step(1280, 900); Check(model.Volume == 22, "Slider failed");
+        app.Click("switch", "Notifications"); app.Step(1280, 900); Check(!model.Notifications, "Switch failed");
+        app.Click("switch", "Dark theme"); app.Step(1280, 900); Check(model.Dark, "Theme switch failed");
+        app.Click("button", "中文"); app.Step(1280, 900); Check(model.Chinese, "Language toggle failed");
+        model.Dark = model.Chinese = false; model.Current = Page.Lists; app.Invalidate(); app.Step(1280, 900);
+        app.SetText("Filter documents", "Document 010"); app.Step(1280, 900);
+        app.Click("checkbox", "Document 010"); app.Step(1280, 900);
+        Check(model.Items.Single(i => i.Id == 10).Done, "Filtered row event reached wrong item");
+        app.Click("button", "Descending"); app.Step(1280, 900);
+        app.Click("checkbox", "Document 010"); app.Step(1280, 900);
+        Check(!model.Items.Single(i => i.Id == 10).Done, "Reordered row lost identity");
+        model.Current = Page.Calendar; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Next month"); app.Step(1280, 900);
+        Check(model.Month.Month == 12, "Month navigation failed");
+        app.Click("button", "15"); app.Step(1280, 900);
+        Check(model.SelectedDate == new DateOnly(2026, 12, 15), "Date selection failed");
+        model.Current = Page.Tasks; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Start request"); app.Step(1280, 900);
+        Check(model.Request.Status == UiTaskStatus.Running, "Task did not start");
+        Program.Pump(app, () => model.Request.Status != UiTaskStatus.Running);
+        Check(model.Request.Status == UiTaskStatus.Succeeded, "Task result did not return to UI");
+        app.Click("button", "Start request"); app.Step(1280, 900);
+        app.Click("button", "Cancel request"); app.Step(1280, 900);
+        Check(model.Request.Status == UiTaskStatus.Cancelled, "Task did not cancel");
+        model.SimulateFailure = true; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Start request"); app.Step(1280, 900);
+        Program.Pump(app, () => model.Request.Status != UiTaskStatus.Running);
+        Check(model.Request.Status == UiTaskStatus.Failed && model.Request.Error is not null, "Task error was lost");
+        using var started = new ManualResetEventSlim();
+        var oldResult = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.Request.Start(_ => { started.Set(); return oldResult.Task; });
+        var obsolete = model.Request.Completion;
+        Check(started.Wait(TimeSpan.FromSeconds(2)), "Previous request did not start");
+        model.Request.Start(_ => Task.FromResult("current"));
+        Program.Pump(app, () => model.Request.Status == UiTaskStatus.Succeeded);
+        oldResult.SetResult("obsolete");
+        Program.Pump(app, () => obsolete.IsCompleted);
+        Check(model.Request.Result == "current", "A late previous task overwrote the current result");
+        model.Current = Page.Images; model.StartSample(); app.Invalidate();
+        Program.Pump(app, () => model.ImageRequest.Status != UiTaskStatus.Running);
+        Check(model.ImageRequest.Status == UiTaskStatus.Succeeded && model.ImageRequest.Result != 0, "Image resource did not load");
+        model.Current = Page.Motion; app.Invalidate(); app.Step(1280, 900);
+        ulong callbacks = app.Stats.Callbacks;
+        for (int i = 0; i < 20; i++) app.Step(1280, 900);
+        Check(app.Stats.Callbacks == callbacks, "Native-only frames unnecessarily reentered C#");
+        app.Click("button", "Expand"); app.Step(1280, 900); Check(model.Expanded, "Motion target did not change");
+        model.Current = Page.Game2048; app.Invalidate(); app.Step(1280, 900);
+        model.Board = [2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        model.Move(0);
+        Check(model.Board[0] == 4 && model.Board[1] == 4 && model.Score == 8, "2048 merge semantics failed");
+        model.Current = Page.Glass; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Save mix"); app.Step(1280, 900); Check(model.SavedMix, "Glass card action failed");
+        app.SetValue("Backdrop blur", 24); app.Step(1280, 900); Check(model.GlassBlur == 24, "Backdrop property did not update");
+        model.Current = Page.Localization; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Add one"); app.Step(1280, 900); Check(model.GreetingCount == 2, "Localized plural count failed");
+        model.Current = Page.BlackHole; app.Invalidate(); app.Step(1280, 900);
+        app.Click("switch", "Gravitational lens"); app.Step(1280, 900); Check(model.Lens, "Backdrop lens did not enable");
+        app.Click("switch", "Gravitational lens"); app.Step(1280, 900); Check(!model.Lens, "Backdrop lens blocked input");
+        model.Current = Page.Markdown; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Pause arrival"); app.Step(1280, 900); Check(model.ChatPaused, "Streaming pause failed");
+        callbacks = app.Stats.Callbacks; app.Step(1280, 900); app.Step(1280, 900);
+        Check(app.Stats.Callbacks == callbacks, "Paused stream continued rebuilding");
+        app.Click("button", "Send remaining"); app.Step(1280, 900); Check(model.ChatShown > 700, "Streaming burst failed");
+        model.Current = Page.Calendar; app.Invalidate(); app.Step(1280, 900);
+        app.Click("button", "Choose a date"); app.Step(1280, 900);
+        app.Click("button", "2026-12-18"); app.Step(1280, 900);
+        Check(model.SelectedDate == new DateOnly(2026, 12, 18), "Calendar popup selection failed");
+        model.Current = Page.Patterns; app.Invalidate(); app.Step(1280, 2400);
+        app.Click("button", "Details"); app.Step(1280, 2400); Check(model.PatternTab == 1, "Tabs failed");
+        app.Click("button", "Rate 4"); app.Step(1280, 2400); Check(model.Stars == 4, "Rating failed");
+        app.Click("button", "Increase Copies"); app.Step(1280, 2400); Check(model.Copies == 2, "Stepper failed");
+        app.Click("button", "Toggle navigation"); app.Step(1280, 2400); Check(model.Collapsed, "Sidebar collapse failed");
+        app.Click("button", "Toggle navigation"); app.Step(1280, 2400); Check(!model.Collapsed, "Sidebar expand failed");
+        Console.WriteLine("Gallery interaction checks passed");
+    }
+}
