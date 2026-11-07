@@ -22,6 +22,15 @@ try
     WgslChecks.Run();
     LiquidGlassChecks.Run();
     ShadowChecks.Run();
+    bool ticked = true;
+    using (var h = new UiHarness(ui => ui.Checkbox("Vector check", ref ticked)))
+    {
+        h.Render();
+        Check(h.Nodes.Any(n => n.Text.Contains("viewBox='0 0 16 16'", StringComparison.Ordinal)), "Checkbox must render its SVG checkmark");
+        Check(!h.Nodes.Any(n => n.Role == TestRole.Text && n.Text == "✓"), "Checkbox must not depend on a font check glyph");
+        h.Click("Vector check"); h.Render();
+        Check(!ticked && !h.Nodes.Any(n => n.Text.Contains("viewBox='0 0 16 16'", StringComparison.Ordinal)), "Unchecked box retained checkmark");
+    }
     int left = 0, right = 0; bool mounted = true;
     using (var h = new UiHarness(ui => { if (mounted) { Views.Counter(ui, ref left, "Left"); Views.Counter(ui, ref right, "Right"); } }))
     {

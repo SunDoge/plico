@@ -32,6 +32,7 @@ public sealed unsafe partial class Ui
         finally { parents.Pop(); }
         return new Builder(this, index);
     }
+    private const string CheckmarkSvg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='m3.25 8.25 3 3 6.5-6.5' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
     public Builder Checkbox(string label, ref bool value, string? key = null, [CallerFilePath] string file = "", [CallerLineNumber] int line = 0) => Toggle(label, ref value, false, key, file, line);
     public Builder Svg(string source, float size = 18, string? key = null, [CallerFilePath] string file = "", [CallerLineNumber] int line = 0) =>
         Leaf(11, source, file, line, key).Width(size).Height(size).Shrink();
@@ -57,7 +58,11 @@ public sealed unsafe partial class Ui
                     if (value) mark.JustifyEnd();
                     using (Box(key: "knob", file: file, line: line).Width(16).Height(16).Radius(8).Background(Theme.OnAccent)) { }
                 }
-                else if (value) Text("✓", key: "check", file: file, line: line).Color(Theme.OnAccent).FontSize(14);
+                else
+                {
+                    mark.JustifyCenter();
+                    if (value) Svg(CheckmarkSvg, 14, key: "check", file: file, line: line).Color(Theme.OnAccent);
+                }
             }
             Text(label, key: "label", file: file, line: line).Shrink();
         }
