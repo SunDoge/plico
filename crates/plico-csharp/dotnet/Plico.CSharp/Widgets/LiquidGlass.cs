@@ -10,10 +10,10 @@ public readonly record struct LiquidGlassOptions
     public bool Animated { get; init; }
     public bool ReduceMotion { get; init; }
     public float Radius { get; init; } = 18;
-    public float Frost { get; init; } = .78f;
-    public float Tint { get; init; } = .48f;
+    public float Frost { get; init; } = .18f;
+    public float Tint { get; init; } = .16f;
     public uint TintColor { get; init; } = 0xf9fcff;
-    public float Refraction { get; init; } = 2;
+    public float Refraction { get; init; } = 8;
     public float Saturation { get; init; } = 1.24f;
     public float Highlight { get; init; } = 1;
     internal void Validate()
