@@ -15,6 +15,7 @@ pub struct Chat {
     pub paused: bool,
     pub follow: bool,
     previous_offset: f32,
+    previous_shown: usize,
     mode: usize,
 }
 impl Default for Chat {
@@ -27,6 +28,7 @@ impl Default for Chat {
             paused: false,
             follow: true,
             previous_offset: 0.,
+            previous_shown: 0,
             mode: 0,
         }
     }
@@ -42,6 +44,7 @@ impl Chat {
     pub fn show(&mut self, cx: &mut UiContext) {
         let l = cx.localizer();
         let now = cx.now();
+        let mut resume_follow = false;
         if let Some(last) = self.last
             && !self.paused
         {
@@ -85,14 +88,16 @@ impl Chat {
                 RevealUnit::Line,
                 RevealUnit::AtOnce,
             ][self.mode];
-            checkbox(cx, l.text("follow-reply", "Follow reply"), &mut self.follow);
+            resume_follow =
+                checkbox(cx, l.text("follow-reply", "Follow reply"), &mut self.follow).response().changed()
+                    && self.follow;
         };
         separator(cx);
         column(cx).height(0.).grow(1.).scroll_y(true).smooth_scroll(true).gap(20).padding(16).radius(14.)
             .background(Color::Surface) + |cx|
         {
             if let Some([offset, _]) = cx.scroll_viewport() {
-                if offset + 2. < self.previous_offset {
+                if !resume_follow && offset < self.previous_offset {
                     self.follow = false;
                 }
                 self.previous_offset = offset;
@@ -114,9 +119,11 @@ impl Chat {
                 };
                 self.stream.show(cx);
             };
-            if self.follow {
+            let shown = self.stream.shown().len();
+            if self.follow && (shown != self.previous_shown || resume_follow) {
                 cx.scroll_to_y(1_000_000.);
             }
+            self.previous_shown = shown;
         };
         if !self.paused && self.sent < REPLY.len() {
             cx.request_animation_frame();
