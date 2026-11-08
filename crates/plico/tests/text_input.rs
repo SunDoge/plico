@@ -203,3 +203,18 @@ fn text_input_has_quiet_hover_and_pressed_feedback() {
     assert_eq!(style.pressed_background, Some(Color::ControlHover));
     assert_eq!(style.transition_ms, engine.theme().metrics.interaction_ms);
 }
+
+#[test]
+fn multiline_preserves_newlines_while_single_line_and_secret_keep_filtering() {
+    let buffer = TextBuffer::multiline();
+    buffer.set("原文\r\n译文\n第三行\u{7}".to_owned().into());
+    assert!(buffer.is_multiline());
+    assert_eq!(buffer.text().as_deref(), Some("原文\n译文\n第三行"));
+    buffer.edit(InputEdit::Insert("\n第四行".to_owned().into()));
+    assert_eq!(buffer.text().as_deref(), Some("原文\n译文\n第三行\n第四行"));
+    for input in [TextBuffer::new(), TextBuffer::secret()] {
+        input.set("a\r\nb".to_owned().into());
+        assert!(!input.is_multiline());
+        assert_eq!(input.with_value(str::to_owned), "ab");
+    }
+}

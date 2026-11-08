@@ -91,3 +91,26 @@ patch。没有增加新的应用 API、计时器或独立动画循环。
 `cargo test -p plico-runtime --test scroll_layout_motion` 使用虚拟时钟覆盖应用逐帧
 修改尺寸，以及宿主 `Motion::Smooth` 两种路径。修复前两者第一帧均冻结；修复后
 每个采样的偏移持续前进并准确到达目标，宿主动效也不会额外执行 show。
+
+## Overlay 滚动条自动隐藏
+
+默认初始隐藏。滚动（包括程序设置的实际偏移变化）或鼠标进入滚动区时显示；
+鼠标在区域内部停留不会无限延长可见时间。空闲 800ms 后以 smoothstep 曲线在
+200ms 内淡出。鼠标停在滚动条轨道/滑块上或正在拖动时保持显示；离开/释放后
+重新开始空闲计时。到达边界的滚轮输入也能重新显示滚动条。
+
+可见性是 Adapter 按 NodeId 管理的表现状态，不写入应用状态，不使 C#/Rust show
+为淡出动画重新声明，不需要 Signal 或应用级计时器。只遍历已索引的 scroll ports；
+透明度变化标记对应 scene 节点和绘制修订，不触发布局。等待阶段复用同一 scene，
+淡出结束或稳定悬停后不再因滚动条请求动画帧。当前空闲等待沿用宿主已有的
+animation-frame 调度；没有增加线程/定时器，也尚未改为 deadline-only 唤醒。
+
+隐藏后的滚动条不参与点击命中；几何仍可供边缘 hover 唤醒使用。已有 transform、
+clip、modal 边界继续约束 hover。关闭容器滚动能力或卸载节点时清除计时状态。
+reduced-motion 下保留 800ms 等待，之后直接隐藏，跳过淡出过渡。
+
+时间来自注入的 Clock/FrameTime。虚拟时钟测试覆盖初始隐藏、进入、半程透明度、
+结束后停帧、悬停/拖动、关闭滚动和卸载；同时验证缓存 scene 改变而 show 次数及
+layout 次数不增加。C# Warden 的 self-test 还验证原生淡出采样没有额外进入 C#。
+离屏 Capture 是冻结动画的状态快照，不用于检验半程淡出；中间帧由 runtime 的
+retained-frame 测试检查。

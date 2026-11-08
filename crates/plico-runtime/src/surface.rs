@@ -75,6 +75,10 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
             on_event: None,
         }
     }
+    /// Current native slot origin and size in window-logical coordinates.
+    pub fn viewport_rect(&self) -> Option<[f32; 4]> {
+        self.visible.then_some(self.rect)
+    }
     pub fn with_events(mut self, handler: fn(&mut V, WidgetNodeEvent) -> bool) -> Self {
         self.on_event = Some(handler);
         self

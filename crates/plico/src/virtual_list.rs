@@ -79,6 +79,11 @@ impl<'u, 'e> VirtualList<'u, 'e> {
         self.layout = self.layout.width(width);
         self
     }
+    /// Size the viewport across its parent, including zero-basis growing cells.
+    pub fn width_percent(mut self, width: f32) -> Self {
+        self.layout = self.layout.width_percent(width);
+        self
+    }
     /// Business keys must be unique among siblings. The row callback runs only
     /// for the rendered range; each row has a clipped, non-shrinking fixed box.
     pub fn rows<K: Into<Key>>(
@@ -144,6 +149,7 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                         column(cx)
                             .key(key(index))
                             .height(row_height)
+                            .width_percent(100.)
                             .shrink(0.)
                             .clip(true)
                             .motion(Motion::None)

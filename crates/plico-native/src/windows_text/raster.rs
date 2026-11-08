@@ -135,7 +135,7 @@ struct Output {
     glyphs: usize,
 }
 // The collector owns thread-local Rc/RefCell state; do not advertise COM agility.
-#[implement(IDWriteTextRenderer, Agile = false)]
+#[implement(IDWriteTextRenderer1, Agile = false)]
 struct Collector {
     factory: IDWriteFactory2,
     params: IDWriteRenderingParams,
@@ -145,6 +145,7 @@ struct Collector {
     visible_units: Option<u32>,
     ellipsis: Option<IDWriteInlineObject>,
     in_ellipsis: Cell<bool>,
+    orientation: Cell<DWRITE_GLYPH_ORIENTATION_ANGLE>,
     output: Rc<RefCell<Output>>,
 }
 fn native_error(code: windows::core::HRESULT) -> windows::core::Error {
@@ -235,11 +236,7 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
             .as_ref()
             .ok_or_else(|| native_error(E_INVALIDARG))?;
         let face2: IDWriteFontFace2 = face.cast()?;
-        let transform = DWRITE_MATRIX {
-            m11: self.scale,
-            m22: self.scale,
-            ..Default::default()
-        };
+        let transform = self.run_transform(x, y, run.isSideways.as_bool())?;
         // A color-capable face can also contain ordinary monochrome glyphs.
         // Only the documented NOCOLOR result permits the original run to use
         // this grayscale path. Otherwise preserve the enumerated layer order.
@@ -348,7 +345,7 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
             }
         }
         let _guard = Guard(&self.in_ellipsis);
-        let renderer: IDWriteTextRenderer = self.to_interface();
+        let renderer: IDWriteTextRenderer1 = self.to_interface();
         // SAFETY: only our factory-created ellipsis may reenter the renderer;
         // callbacks synchronously copy glyph pixels and no RefCell borrow is held.
         unsafe {
@@ -364,7 +361,109 @@ impl IDWriteTextRenderer_Impl for Collector_Impl {
         }
     }
 }
+#[allow(non_snake_case)]
+impl IDWriteTextRenderer1_Impl for Collector_Impl {
+    fn DrawGlyphRun(
+        &self,
+        context: *const c_void,
+        x: f32,
+        y: f32,
+        angle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        measuring: DWRITE_MEASURING_MODE,
+        run: *const DWRITE_GLYPH_RUN,
+        description: *const DWRITE_GLYPH_RUN_DESCRIPTION,
+        effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        let old = self.orientation.replace(angle);
+        let result = IDWriteTextRenderer_Impl::DrawGlyphRun(
+            self,
+            context,
+            x,
+            y,
+            measuring,
+            run,
+            description,
+            effect,
+        );
+        self.orientation.set(old);
+        result
+    }
+    fn DrawUnderline(
+        &self,
+        context: *const c_void,
+        x: f32,
+        y: f32,
+        angle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        underline: *const DWRITE_UNDERLINE,
+        effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        if angle != DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES {
+            return Err(native_error(E_NOTIMPL));
+        }
+        IDWriteTextRenderer_Impl::DrawUnderline(self, context, x, y, underline, effect)
+    }
+    fn DrawStrikethrough(
+        &self,
+        context: *const c_void,
+        x: f32,
+        y: f32,
+        angle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        strike: *const DWRITE_STRIKETHROUGH,
+        effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        if angle != DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES {
+            return Err(native_error(E_NOTIMPL));
+        }
+        IDWriteTextRenderer_Impl::DrawStrikethrough(self, context, x, y, strike, effect)
+    }
+    fn DrawInlineObject(
+        &self,
+        context: *const c_void,
+        x: f32,
+        y: f32,
+        angle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        object: Ref<IDWriteInlineObject>,
+        sideways: BOOL,
+        rtl: BOOL,
+        effect: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        if angle != DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES {
+            return Err(native_error(E_NOTIMPL));
+        }
+        IDWriteTextRenderer_Impl::DrawInlineObject(
+            self, context, x, y, object, sideways, rtl, effect,
+        )
+    }
+}
 impl Collector {
+    fn run_transform(
+        &self,
+        x: f32,
+        y: f32,
+        sideways: bool,
+    ) -> windows::core::Result<DWRITE_MATRIX> {
+        let angle = self.orientation.get();
+        if angle == DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES && !sideways {
+            return Ok(DWRITE_MATRIX {
+                m11: self.scale,
+                m22: self.scale,
+                ..Default::default()
+            });
+        }
+        // Let DirectWrite choose the per-run orientation around its own baseline;
+        // do not infer CJK/Latin orientation or manually rotate character bitmaps.
+        let analyzer: IDWriteTextAnalyzer2 =
+            unsafe { self.factory.CreateTextAnalyzer() }?.cast()?;
+        let mut transform = DWRITE_MATRIX::default();
+        unsafe { analyzer.GetGlyphOrientationTransform(angle, sideways, x, y, &mut transform) }?;
+        transform.m11 *= self.scale;
+        transform.m12 *= self.scale;
+        transform.m21 *= self.scale;
+        transform.m22 *= self.scale;
+        transform.dx *= self.scale;
+        transform.dy *= self.scale;
+        Ok(transform)
+    }
     fn capture_run(
         &self,
         run: &DWRITE_GLYPH_RUN,
@@ -392,11 +491,7 @@ impl Collector {
             .as_ref()
             .ok_or_else(|| native_error(E_INVALIDARG))?;
         let face2: IDWriteFontFace2 = face.cast()?;
-        let transform = DWRITE_MATRIX {
-            m11: self.scale,
-            m22: self.scale,
-            ..Default::default()
-        };
+        let transform = self.run_transform(x, y, run.isSideways.as_bool())?;
         let mut rendering = DWRITE_RENDERING_MODE_DEFAULT;
         let mut grid = DWRITE_GRID_FIT_MODE_DEFAULT;
         // SAFETY: typed live font/parameter interfaces and writable enum outputs.
@@ -518,7 +613,7 @@ impl Paragraph {
             return Err(Error::InvalidRequest);
         }
         let output = Rc::new(RefCell::new(Output::default()));
-        let renderer: IDWriteTextRenderer = Collector {
+        let renderer: IDWriteTextRenderer1 = Collector {
             factory: self._factory.clone(),
             params,
             scale,
@@ -527,6 +622,7 @@ impl Paragraph {
             visible_units: self.visible_units,
             ellipsis: self.ellipsis.clone(),
             in_ellipsis: Cell::new(false),
+            orientation: Cell::new(DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES),
             output: output.clone(),
         }
         .into();
@@ -745,7 +841,7 @@ mod tests {
     #[test]
     fn collector_does_not_expose_agile_object_for_thread_local_state() {
         let context = Context::new().unwrap();
-        let renderer: IDWriteTextRenderer = Collector {
+        let renderer: IDWriteTextRenderer1 = Collector {
             factory: context.factory.clone(),
             // SAFETY: a live factory returns an owned rendering-parameter interface.
             params: unsafe { context.factory.CreateRenderingParams() }.unwrap(),
@@ -755,6 +851,7 @@ mod tests {
             visible_units: None,
             ellipsis: None,
             in_ellipsis: Cell::new(false),
+            orientation: Cell::new(DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES),
             output: Rc::new(RefCell::new(Output::default())),
         }
         .into();

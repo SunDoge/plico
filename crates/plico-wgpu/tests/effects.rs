@@ -546,3 +546,203 @@ fn backdrop_copy_preserves_orientation_batch_boundaries_and_following_draws() {
         assert!(a.abs_diff(*b) <= 1, "{a} != {b}");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_subregion_uses_local_coordinates() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill, Gradient};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    let gradient = Gradient::new_linear((0., 0.), (64., 48.)).with_stops([
+        Color::from_rgba8(240, 30, 40, 255),
+        Color::from_rgba8(20, 60, 230, 255),
+    ]);
+    base.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &gradient,
+        None,
+        &Rect::new(0., 0., 64., 48.),
+    );
+    let expected = renderer
+        .render_scene(&base, [64, 48], [0.; 4], false)
+        .unwrap();
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv: vec2f) -> vec4f { return plico_backdrop_at(uv); }",
+        true,
+    )
+    .unwrap();
+    base.append_scene(
+        effect_scene(&mut text, source, ShaderEffectId::new(), &[]),
+        Affine::translate((23., 11.)),
+    );
+    let actual = renderer
+        .render_scene(&base, [64, 48], [0.; 4], false)
+        .unwrap();
+    for (index, (a, b)) in actual.iter().zip(&expected).enumerate() {
+        assert!(a.abs_diff(*b) <= 1, "channel {index}: {a} != {b}");
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn builtin_liquid_glass_renders_a_local_pane() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgba8(30, 90, 140, 255),
+        None,
+        &Rect::new(0., 0., 64., 48.),
+    );
+    let source =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
+    scene.append_scene(
+        effect_scene(
+            &mut text,
+            source,
+            ShaderEffectId::new(),
+            &[6., 0.78, 0.48, 0., 2., 1.24, 1., 0., 0.975, 0.988, 1., 0.],
+        ),
+        Affine::translate((23., 11.)),
+    );
+    let pixels = renderer
+        .render_scene(&scene, [64, 48], [0.; 4], false)
+        .unwrap();
+    assert_eq!(&pixels[..4], &[30, 90, 140, 255]);
+    let center = (19 * 64 + 31) * 4;
+    assert!(pixels[center] > 30 && pixels[center + 1] > 90 && pixels[center + 2] > 140);
+    assert_eq!(pixels[center + 3], 255);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill, Gradient};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    let ramp = Gradient::new_linear((0., 0.), (160., 0.)).with_stops([
+        Color::from_rgba8(0, 80, 120, 255),
+        Color::from_rgba8(255, 80, 120, 255),
+    ]);
+    base.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &ramp,
+        None,
+        &Rect::new(0., 0., 160., 120.),
+    );
+    let expected = renderer
+        .render_scene(&base, [160, 120], [0.; 4], false)
+        .unwrap();
+    let source =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
+    let mut paint = plico_renderer::widget::PaintContext::new(160., 120., 1., &mut text);
+    paint.draw_shader_effect(
+        ShaderEffectId::new(),
+        source,
+        0.,
+        vec![18., 0., 0., 0., 8., 1., 0., 36., 1., 1., 1., 0.].into(),
+    );
+    base.append_scene(paint.finish(), Affine::IDENTITY);
+    let actual = renderer
+        .render_scene(&base, [160, 120], [0.; 4], false)
+        .unwrap();
+    let red = |pixels: &[u8], x: usize, y: usize| pixels[(y * 160 + x) * 4];
+    assert!(
+        red(&actual, 80, 3).abs_diff(red(&expected, 80, 3)) <= 1,
+        "the top edge must refract vertically, without shifting the horizontal ramp"
+    );
+    assert!(
+        red(&actual, 4, 60) > red(&expected, 4, 60) + 4,
+        "the left edge must visibly bend the horizontal ramp inward"
+    );
+    assert!(
+        red(&actual, 80, 60).abs_diff(red(&expected, 80, 60)) <= 1,
+        "the flat center must not zoom the whole scene"
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn scroll_edge_blurs_the_selected_edge_and_preserves_the_far_edge() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut base = Scene::new();
+    for x in 0..16 {
+        let color = if x % 2 == 0 {
+            Color::from_rgba8(255, 80, 0, 255)
+        } else {
+            Color::from_rgba8(0, 80, 255, 255)
+        };
+        base.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            color,
+            None,
+            &Rect::new(x as f64, 0., x as f64 + 1., 16.),
+        );
+    }
+    let expected = renderer
+        .render_scene(&base, [16, 16], [0.; 4], false)
+        .unwrap();
+    let source =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::BACKDROP_BLUR_WGSL, true)
+            .unwrap();
+    let mut actual = base.clone();
+    actual.append_scene(
+        effect_scene(
+            &mut text,
+            source.clone(),
+            ShaderEffectId::new(),
+            &[2.5, 1., 0., 0., 1., 1., 1., 0.],
+        ),
+        Affine::IDENTITY,
+    );
+    let pixels = renderer
+        .render_scene(&actual, [16, 16], [0.; 4], false)
+        .unwrap();
+    let top = (16 + 8) * 4;
+    assert!(
+        pixels[top] < expected[top] - 10 && pixels[top + 2] > expected[top + 2] + 10,
+        "top edge did not blur"
+    );
+    let bottom = (15 * 16 + 8) * 4;
+    assert!(
+        pixels[bottom].abs_diff(expected[bottom]) <= 1,
+        "far edge changed"
+    );
+    assert!(
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255),
+        "overlay punched transparent holes"
+    );
+    let mut zero = base;
+    zero.append_scene(
+        effect_scene(&mut text, source, ShaderEffectId::new(), &[0.; 8]),
+        Affine::IDENTITY,
+    );
+    let unchanged = renderer
+        .render_scene(&zero, [16, 16], [0.; 4], false)
+        .unwrap();
+    for (a, b) in unchanged.iter().zip(&expected) {
+        assert!(a.abs_diff(*b) <= 1);
+    }
+}

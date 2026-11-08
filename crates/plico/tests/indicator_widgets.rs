@@ -154,7 +154,7 @@ fn spinner_animates_its_trail_with_the_injected_clock() {
             engine.root(),
             &mut |_, node| {
                 (node.style.background == Some(Color::Muted) && node.style.width.is_some())
-                    .then_some(node.style.opacity)
+                    .then_some(node.style.background_alpha)
             },
             &mut out,
         );
@@ -332,4 +332,42 @@ fn stepper_holds_to_repeat_faster_after_the_delay() {
         stepper(cx, &mut value, 0.0..=100.0, 1.0);
     });
     assert_eq!(value, 7.0, "the release adds no extra step");
+}
+
+#[test]
+fn sized_spinners_do_not_require_per_dot_opacity_layers() {
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        for index in 0..4 {
+            cx.keyed(index as u64, |cx| {
+                plico::widgets::spinner_sized(cx, 20. + index as f32 * 5.);
+            });
+        }
+    });
+    let mut dots = Vec::new();
+    collect(
+        &engine,
+        engine.root(),
+        &mut |_, node| {
+            (node.style.background == Some(Color::Muted))
+                .then_some((node.style.opacity, node.style.background_alpha))
+        },
+        &mut dots,
+    );
+    assert_eq!(dots.len(), 48);
+    assert!(
+        dots.iter()
+            .all(|(opacity, alpha)| *opacity == 1. && (0. ..=1.).contains(alpha))
+    );
+    assert!(dots.iter().any(|(_, alpha)| *alpha < 1.));
+}
+
+#[test]
+fn adjacent_unkeyed_spinners_remain_independent() {
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        spinner(cx);
+        spinner(cx);
+    });
+    assert_eq!(engine.node(engine.root()).unwrap().children.len(), 2);
 }

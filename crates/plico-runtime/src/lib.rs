@@ -27,6 +27,7 @@ mod popover;
 mod presentation;
 pub mod regions;
 mod scroll_motion;
+mod scrollbar_visibility;
 mod selection;
 mod services;
 mod shader;

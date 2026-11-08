@@ -138,3 +138,16 @@ Plico maintains the reused Wabou code here; normal builds do not require a Wabou
 
 [Documentation](docs/README.md) · [Implementation status](docs/status.md) ·
 [Architecture](docs/architecture.md) · [Contributing](docs/contributing.md)
+
+### C# frontend gallery (experimental)
+
+The same Rust/native-text/wgpu foundation can be driven from C#, with nineteen
+interactive pages and .NET hot reload. See [run and preview instructions](apps/gallery-csharp/README.md):
+
+```sh
+cargo build --locked -p plico-csharp
+export PLICO_NATIVE_LIBRARY="$PWD/target/debug/libplico_csharp.so"
+dotnet watch --project apps/gallery-csharp run
+```
+
+For C# development and native-free component tests, see the [fast frontend entry](dotnet/README.md). Only the explicit `Native` target invokes Cargo.

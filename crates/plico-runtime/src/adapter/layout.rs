@@ -248,7 +248,7 @@ impl Adapter {
             self.placed_indices.insert(node.node_id, index);
             // Reset all scroll projections while already rebuilding this index.
             // Later paint-only updates need to visit actual scroll ports only.
-            node.scroll.opacity = if node.scroll.range[1] > 0. { 1. } else { 0. };
+            node.scroll.opacity = 0.;
             node.scroll.interaction = if self
                 .scrollbar_drag
                 .is_some_and(|(id, ..)| id == node.node_id)
@@ -261,6 +261,11 @@ impl Adapter {
                 self.scroll_indices.push(index);
             }
         }
+        self.scrollbars.states.retain(|id, _| {
+            self.placed_indices
+                .get(id)
+                .is_some_and(|&index| self.placed[index].scroll.scrollable[1])
+        });
         // Membership is maintained by targeted sync. Do not fetch the large
         // retained record for every placed label/container just to classify it.
         for (members, indices) in [

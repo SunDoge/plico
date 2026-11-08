@@ -7,6 +7,8 @@ mod fonts;
 mod intrinsic;
 mod paragraph;
 mod raster;
+#[cfg(feature = "vertical-text")]
+pub(crate) mod vertical;
 mod wrapping;
 use crate::text_indices::TextIndices;
 use objc2_core_foundation::{
@@ -300,7 +302,18 @@ impl Line {
         request: &Request<'_>,
         spans: &[StyleSpan],
     ) -> Result<(CFRetained<CTFont>, CFRetained<CFMutableAttributedString>)> {
-        if !request.valid() {
+        Self::attributed_text(request, spans, false)
+    }
+    fn attributed_text(
+        request: &Request<'_>,
+        spans: &[StyleSpan],
+        paragraph: bool,
+    ) -> Result<(CFRetained<CTFont>, CFRetained<CFMutableAttributedString>)> {
+        if !(if paragraph {
+            request.valid_paragraph()
+        } else {
+            request.valid()
+        }) {
             return Err(Error::InvalidRequest);
         }
         if !valid_style_spans(request.text, spans) {

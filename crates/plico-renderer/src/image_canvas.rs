@@ -122,14 +122,22 @@ impl ImageCanvasState {
     pub fn tool(&self) -> CanvasTool {
         self.0.lock().unwrap().tool
     }
-    /// Replace overlays after a host-side edit/undo. Cancels an in-progress edit.
+    /// Replace overlays after a host-side edit/undo. A changed snapshot cancels
+    /// an in-progress edit; replaying the identical snapshot leaves it untouched.
     pub fn set_regions(&self, regions: Vec<CanvasRegion>, selected: Option<u64>) {
-        self.update(|s| {
+        let wake = {
+            let mut s = self.0.lock().unwrap();
+            if s.regions == regions && s.selected == selected {
+                return;
+            }
             s.regions = regions;
             s.selected = selected;
-            sanitize(s);
+            sanitize(&mut s);
             s.document += 1;
-        });
+            s.revision += 1;
+            s.wake.clone()
+        };
+        wake();
     }
     /// Set the tool; changing tools cancels an uncommitted drag.
     pub fn set_tool(&self, tool: CanvasTool) {
@@ -297,6 +305,50 @@ mod tests {
             &image,
             state.0.lock().unwrap().image.as_ref().unwrap()
         ));
+    }
+    #[test]
+    fn identical_overlay_snapshot_preserves_drag_without_waking_or_dirtying() {
+        let (state, mut widget) = fixture();
+        widget.poll_async_changes();
+        pointer(&mut widget, PointerPhase::Down, 20., 20.);
+        let before = {
+            let shared = state.0.lock().unwrap();
+            (shared.document, shared.revision)
+        };
+        let wakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = wakes.clone();
+        state.0.lock().unwrap().wake = Arc::new(move || {
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+        state.set_regions(vec![], None);
+        {
+            let shared = state.0.lock().unwrap();
+            assert_eq!((shared.document, shared.revision), before);
+        }
+        assert_eq!(wakes.load(std::sync::atomic::Ordering::Relaxed), 0);
+        pointer(&mut widget, PointerPhase::Up, 100., 100.);
+        assert_eq!(
+            state.take_event(),
+            Some(CanvasEvent::Added([10., 10., 50., 50.]))
+        );
+        pointer(&mut widget, PointerPhase::Down, 20., 20.);
+        let before_change = wakes.load(std::sync::atomic::Ordering::Relaxed);
+        state.set_regions(
+            vec![CanvasRegion {
+                id: 7,
+                rect: [60., 80., 90., 120.],
+            }],
+            Some(7),
+        );
+        assert_eq!(
+            wakes.load(std::sync::atomic::Ordering::Relaxed),
+            before_change + 1
+        );
+        pointer(&mut widget, PointerPhase::Up, 100., 100.);
+        assert!(
+            state.take_event().is_none(),
+            "a genuinely changed overlay must cancel the drag"
+        );
     }
     #[test]
     fn document_replacement_and_focus_loss_cancel_uncommitted_drag() {

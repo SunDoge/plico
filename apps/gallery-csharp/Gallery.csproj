@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../crates/plico-csharp/dotnet/Plico.CSharp/buildTransitive/SunDoge.Plico.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="assets/shaders/*.wgsl" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Watch="false" />
+    <None Update="assets/shaders/*.wgsl" Watch="false" />
+    <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.CSharp/Plico.CSharp.csproj" />
+    <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.Generators/Plico.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../crates/plico-csharp/dotnet/Plico.Markdown/Plico.Markdown.csproj" />
+    <EmbeddedResource Include="../gallery/assets/fluent/*.svg" LogicalName="Plico.Gallery.Icons.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../gallery/assets/plico.svg" LogicalName="Plico.Gallery.Logo.svg" />
+    <EmbeddedResource Include="../gallery/assets/shaders/black_hole.wgsl" LogicalName="Plico.Gallery.BlackHole.wgsl" />
+  </ItemGroup>
+</Project>

@@ -45,3 +45,7 @@ mod raster_bounds;
 
 #[cfg(all(feature = "macos-text", any(target_os = "macos", test)))]
 mod paragraph_geometry;
+
+/// System-owned vertical-rl layout/rasterization for bounded document text.
+#[cfg(feature = "vertical-text")]
+pub mod vertical;
