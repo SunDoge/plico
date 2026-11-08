@@ -243,3 +243,22 @@ therefore has no demonstrated benefit here and is not adopted. Reused upload
 pools, other drivers, release profiles and real app concurrency are not evaluated
 by this experiment. The diagnostic remains ignored by default, with no timing
 threshold; Clippy passed.
+
+## Scene and image residency
+
+Prepared snapshots retain only the graph reachable from the current root. Image
+cache preflight marks sources across the complete graph, including damage-skipped
+subtrees; successful encoding releases textures from removed pages/viewport
+variants. Explicitly retained external snapshots still own their resources.
+Coverage masks use R8 GPU storage; shared CPU vector/mask raster data stays RGBA.
+Image pixel payload statistics therefore count one GPU byte per coverage pixel.
+
+Backdrop preflight reservations and actual draws are separate states. One live
+occurrence reserves one cached output, and a later draw may claim that reserved
+output. Marking all historical outputs as used before forbidding their reuse
+caused linear growth while scrolling. A 96-frame regression checks exact output
+counts, bytes and pixels, including two occurrences of one effect ID.
+
+These counters describe owned texture payload and caches, not process RSS or
+Metal driver allocation. Plicowarden's independent `memory_probe` example records
+both cache counters and RSS for synthetic scrolling and resize/page stress.

@@ -210,7 +210,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         if any(world < m.xy) || any(world >= m.xy + m.zw) {
             discard;
         }
-        clip_alpha *= textureSampleLevel(clip_mask, clip_sampler, (world - m.xy) / m.zw, 0.).a;
+        clip_alpha *= textureSampleLevel(clip_mask, clip_sampler, (world - m.xy) / m.zw, 0.).r;
         if clip_alpha <= 0. {
             discard;
         }

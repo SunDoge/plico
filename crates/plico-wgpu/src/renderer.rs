@@ -771,12 +771,17 @@ impl Renderer {
             && self.target.as_ref().is_some_and(|t| t.size == size);
         let counters = (self.layer_allocations, self.layer_reuses);
         if !unchanged {
+            self.images.begin_frame();
+            visit_images(items, &mut |image| self.images.retain_source(image));
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
         // Encoded commands retain their own GPU references. The pass-local
         // interning table must not keep evicted textures alive until another frame.
         self.clear_frame_images();
+        if !unchanged && result.is_ok() {
+            self.images.finish_frame();
+        }
         if !unchanged {
             if result.is_err() {
                 self.effects = None;
@@ -1423,16 +1428,11 @@ impl Renderer {
                             reason: "invalid mask rectangle".into(),
                         });
                     }
-                    let image = self.images.get(
+                    let image = self.images.get_mask(
                         &self.device,
                         &self.queue,
                         &self.atlas_texture.layout,
                         &mask.image,
-                        crate::image::ImageSampling {
-                            quality: peniko::ImageQuality::Low,
-                            extend: [peniko::Extend::Pad; 2],
-                            mipmaps: false,
-                        },
                     )?;
                     let slot = self.intern_frame_image(image);
                     active_mask = Some((slot, mask.rect));
@@ -2105,6 +2105,17 @@ impl Renderer {
     }
 }
 
+fn visit_images(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&peniko::ImageData)) {
+    for draw in items {
+        match draw {
+            crate::Draw::Image(image) => visit(&image.image),
+            crate::Draw::SetMask(mask) => visit(&mask.image),
+            crate::Draw::Layer(layer) => visit_images(&layer.scene.draws(), visit),
+            _ => {}
+        }
+    }
+}
+
 fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
     for draw in items {
         match draw {
@@ -2343,6 +2354,51 @@ fn encode_backdrop_step<'p>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn coverage_masks_use_one_gpu_byte_per_pixel_without_aliasing_rgba_images() {
+        use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let image = ImageData {
+            data: Blob::new(std::sync::Arc::new(vec![10, 20, 30, 40, 50, 60, 70, 80])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+            width: 2,
+            height: 1,
+        };
+        renderer
+            .images
+            .get_mask(
+                &renderer.device,
+                &renderer.queue,
+                &renderer.atlas_texture.layout,
+                &image,
+            )
+            .unwrap();
+        assert_eq!(renderer.image_cache_stats().1, 2);
+        renderer
+            .images
+            .get(
+                &renderer.device,
+                &renderer.queue,
+                &renderer.atlas_texture.layout,
+                &image,
+                crate::image::ImageSampling {
+                    quality: peniko::ImageQuality::Low,
+                    extend: [peniko::Extend::Pad; 2],
+                    mipmaps: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                renderer.image_cache_stats().0,
+                renderer.image_cache_stats().1
+            ),
+            (2, 10)
+        );
+    }
+
     use super::*;
     #[test]
     #[ignore = "requires a working wgpu adapter"]

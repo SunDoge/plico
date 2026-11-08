@@ -354,11 +354,31 @@ impl Renderer {
         size: [u32; 2],
     ) -> Result<std::rc::Rc<PreparedScene>> {
         self.validate_frame(0, size, [0.; 4], 0.)?;
-        self.prepare_scene_with_clip(
+        let prepared = self.prepare_scene_with_clip(
             scene,
             size,
             Rect::new(0., 0., size[0] as f64, size[1] as f64),
-        )
+        )?;
+        // Keep reusable subtrees of the current graph, not historical pages
+        // and viewport sizes whose rasters may otherwise outlive LRU eviction.
+        fn collect(
+            scene: &std::rc::Rc<PreparedScene>,
+            live: &mut std::collections::HashSet<*const PreparedScene>,
+        ) {
+            if !live.insert(std::rc::Rc::as_ptr(scene)) {
+                return;
+            }
+            for layer in &scene.payloads.layers {
+                collect(&layer.scene, live);
+            }
+        }
+        let mut live = std::collections::HashSet::new();
+        collect(&prepared, &mut live);
+        self.prepared_cache.retain(|_, entries| {
+            entries.retain(|entry| live.contains(&std::rc::Rc::as_ptr(entry)));
+            !entries.is_empty()
+        });
+        Ok(prepared)
     }
     fn prepare_scene_with_clip(
         &mut self,
