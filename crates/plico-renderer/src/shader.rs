@@ -557,6 +557,7 @@ struct EffectTarget {
     bind_group: BindGroup,
     size: [u16; 2],
     used_in_frame: u64,
+    rendered_in_frame: u64,
     texture_id: ShaderTextureId,
     effect: Option<ShaderEffect>,
 }
@@ -599,6 +600,7 @@ impl EffectTarget {
             bind_group,
             size,
             used_in_frame: 0,
+            rendered_in_frame: 0,
             texture_id: ShaderTextureId(ShaderEffectId::new().0),
             effect: None,
         }
@@ -787,10 +789,12 @@ impl ShaderRenderer {
     /// Keep an unchanged surface alive when a damage consumer skips its draw.
     pub fn retain_effect(&mut self, effect: &ShaderEffect) {
         if let Some(targets) = self.targets.get_mut(&effect.id) {
-            for target in targets {
-                if target.effect.as_ref() == Some(effect) {
-                    target.used_in_frame = self.frame;
-                }
+            // Reserve one matching output per live occurrence. Marking every
+            // historical duplicate would keep the whole allocation history alive.
+            if let Some(target) = targets.iter_mut().find(|target| {
+                target.used_in_frame != self.frame && target.effect.as_ref() == Some(effect)
+            }) {
+                target.used_in_frame = self.frame;
             }
         }
     }
@@ -831,6 +835,7 @@ impl ShaderRenderer {
             target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
+        target.rendered_in_frame = self.frame;
         if target.effect.as_ref() == Some(effect) && !effect.reads_backdrop() {
             return (target.texture_id, target.view.clone());
         }
@@ -878,7 +883,16 @@ impl ShaderRenderer {
         let targets = self.targets.entry(effect.id).or_default();
         let index = targets
             .iter()
-            .position(|target| target.used_in_frame != self.frame)
+            // A preflight reservation is reusable by its actual draw. Only
+            // another draw already encoded this frame makes an output busy.
+            .position(|target| {
+                target.rendered_in_frame != self.frame && target.effect.as_ref() == Some(effect)
+            })
+            .or_else(|| {
+                targets
+                    .iter()
+                    .position(|target| target.used_in_frame != self.frame)
+            })
             .unwrap_or_else(|| {
                 targets.push(EffectTarget::new(
                     device,
@@ -894,6 +908,7 @@ impl ShaderRenderer {
             target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
+        target.rendered_in_frame = self.frame;
         let uniforms = effect_uniforms(effect);
         queue.write_buffer(&target.uniforms, 0, bytemuck::cast_slice(&uniforms));
         let bind = target.bind_group.clone();

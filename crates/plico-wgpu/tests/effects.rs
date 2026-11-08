@@ -823,3 +823,65 @@ fn backdrop_markers_survive_recursive_opacity_layers() {
         assert!(a.abs_diff(b) <= 1, "{a} != {b}");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn repeated_backdrop_preflight_reuses_only_live_targets() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f {return plico_backdrop_at(uv);}",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..96 {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(frame, 0, 0),
+            None,
+            &Rect::new(0., 0., 16., 16.),
+        );
+        scene.append_scene(effect.clone(), Affine::IDENTITY);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(0, 0, frame),
+            None,
+            &Rect::new(16., 0., 32., 16.),
+        );
+        scene.append_scene(effect.clone(), Affine::translate((16., 0.)));
+        let pixels = renderer
+            .render_scene(&scene, [32, 16], [0.; 4], false)
+            .unwrap();
+        assert_eq!(
+            &pixels[(8 * 32 + 8) * 4..(8 * 32 + 8) * 4 + 4],
+            &[frame, 0, 0, 255]
+        );
+        assert_eq!(
+            &pixels[(8 * 32 + 24) * 4..(8 * 32 + 24) * 4 + 4],
+            &[0, 0, frame, 255]
+        );
+        let stats = renderer.effect_cache_stats();
+        assert_eq!(
+            (stats.0, stats.1),
+            (2, 2 * 16 * 16 * 4),
+            "backdrop output retention grew at frame {frame}"
+        );
+    }
+    renderer
+        .render_scene(&Scene::new(), [32, 16], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        (
+            renderer.effect_cache_stats().0,
+            renderer.effect_cache_stats().1
+        ),
+        (0, 0)
+    );
+}
