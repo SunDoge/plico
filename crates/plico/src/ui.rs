@@ -553,6 +553,7 @@ impl<'e> UiContext<'e> {
             hovered: false,
             recycle_text: false,
             spans: Vec::new(),
+            material: None,
         }
     }
 }
@@ -1119,6 +1120,7 @@ struct Leaf<'u, 'e, 't> {
     hovered: bool,
     recycle_text: bool,
     spans: Vec<crate::TextSpan>,
+    material: Option<crate::LiquidGlass>,
 }
 impl Leaf<'_, '_, '_> {
     #[inline(always)]
@@ -1138,6 +1140,19 @@ impl Leaf<'_, '_, '_> {
         }
         style.disabled |= ui.inherited.disabled;
         style.styled_button = styled;
+        let mut material = self.material;
+        if let Some(ref mut glass) = material {
+            if style.background == Some(Color::Accent) {
+                glass.tint = Color::Accent;
+                glass.tint_opacity = glass.tint_opacity.max(0.88);
+                glass.fallback = Color::Accent;
+            }
+            style.background = None;
+            style.border_width = 0.;
+            if style.layout.position == crate::Position::Static {
+                style.layout.position = crate::Position::Relative;
+            }
+        }
         if styled && style.disabled {
             style.opacity *= 0.45;
         }
@@ -1157,7 +1172,21 @@ impl Leaf<'_, '_, '_> {
         };
         ui.engine.set_grid(entity, None);
         ui.engine.set_spans(entity, &[]);
-        let inner = ui.with_parent(entity, style, true, build);
+        let inner = ui.with_parent(entity, style, true, |cx| {
+            if let Some(mut glass) = material {
+                if !style.disabled {
+                    if cx.pressed() {
+                        glass.tint_opacity = (glass.tint_opacity + 0.12).min(1.);
+                        glass.rim *= 0.65;
+                    } else if response.hovered {
+                        glass.tint_opacity = (glass.tint_opacity + 0.06).min(1.);
+                        glass.rim = (glass.rim + 0.15).min(1.);
+                    }
+                }
+                glass.show(cx, style.radius, style.corner_smoothing);
+            }
+            build(cx)
+        });
         InnerResponse { inner, response }
     }
     #[inline(always)]
@@ -1603,6 +1632,14 @@ common!(Button);
 common!(ButtonBase);
 common!(Toggle);
 impl<'u, 'e, 't> Button<'u, 'e, 't> {
+    /// Paint scene-backed glass beneath sharp button content. Primary buttons
+    /// tint the material with the accent; disabled materials use an opaque fallback.
+    /// Hover and press adjust the material without changing layout or hit testing.
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.inner.material = Some(material);
+        self.composable = true;
+        self
+    }
     /// Alignment of shortcut text/icon content along the button's main axis.
     pub fn justify(mut self, value: Justify) -> Self {
         self.inner.style.justify = Some(value);
@@ -1982,6 +2019,11 @@ pub struct ButtonBase<'u, 'e, 't> {
     styled: bool,
 }
 impl ButtonBase<'_, '_, '_> {
+    /// Scene-backed glass for custom button content, with native button semantics.
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.inner.material = Some(material);
+        self
+    }
     #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);

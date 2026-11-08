@@ -214,3 +214,52 @@ fn progressive_blur_entry_points_pack_typed_parameters_without_renderer_dependen
     .validated();
     assert_eq!((options.radius, options.tint_opacity), (8., 0.));
 }
+
+#[test]
+fn glass_buttons_keep_semantics_and_paint_material_before_sharp_content() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            button(cx)
+                .text("Save")
+                .primary()
+                .radius(20.)
+                .material(LiquidGlass::default());
+            button_base(cx, "Custom glass")
+                .material(LiquidGlass::default())
+                .children(|cx| {
+                    text(cx, "Custom");
+                });
+        })
+        .unwrap();
+    let nodes = descendants(&engine, engine.root());
+    for label in ["Save", "Custom glass"] {
+        let node = nodes
+            .iter()
+            .map(|&id| engine.node(id).unwrap())
+            .find(|node| node.kind == Kind::ButtonBase && node.text == label)
+            .unwrap();
+        assert_eq!(node.style.background, None);
+        assert_eq!(node.style.layout.position, Position::Relative);
+        let material = engine.node(node.children[0]).unwrap();
+        assert_eq!(material.kind, Kind::Shader);
+        assert!(node.children.len() >= 2);
+        if label == "Save" {
+            assert_eq!(node.style.foreground, Color::OnAccent);
+            assert_eq!(material.shader.as_ref().unwrap().values[2], 0.88);
+        }
+    }
+    engine
+        .frame_declarations(|cx| {
+            button(cx).text("Save").primary().material(LiquidGlass {
+                enabled: false,
+                ..Default::default()
+            });
+        })
+        .unwrap();
+    assert!(
+        descendants(&engine, engine.root())
+            .iter()
+            .all(|&id| engine.node(id).unwrap().kind != Kind::Shader)
+    );
+}
