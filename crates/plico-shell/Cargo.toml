@@ -32,6 +32,7 @@ url = { workspace = true }
 [features]
 default = ["wgpu"]
 wgpu = ["dep:plico-wgpu", "dep:pollster"]
+desktop-integration = ["dep:tray-icon", "dep:zbus"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 skia = ["dep:plico-skia"]
 profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
@@ -42,6 +43,7 @@ pollster = {version="1.0",optional=true}
 accesskit_xplat = "=0.1.1"
 arboard = { workspace = true }
 notify-rust = { workspace = true }
+tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"], optional = true }
 open = { workspace = true }
 rfd = { workspace = true }
 winit = { workspace = true }
@@ -60,3 +62,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 [[example]]
 name = "global_hotkeys"
 required-features = ["global-hotkeys"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "=5.19.0", features = ["blocking-api"], optional = true }

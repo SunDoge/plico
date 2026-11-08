@@ -10,6 +10,17 @@
 启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。Skia 材质、原生系统玻璃与模糊金字塔尚未实现。
 见 [Liquid Glass](liquid-glass.md)。
 
+## 原生桌面服务
+
+可选 `plico-desktop/desktop-integration` 提供声明式托盘菜单、菜单事件、
+关闭后隐藏／恢复、Linux StatusNotifier 宿主探测和消失恢复、可点击系统通知，
+通过 `run_source_with_extensions` 接入同一原生事件循环。
+普通 NotificationShow effect 与可点击通知共享系统通知构造逻辑。
+通知监听最多一个；应用拥有通知内容、偏好存储与业务动作。
+已有独立桌面示例和框架单元测试；Linux X11/D-Bus 原生路径由独立消费应用回归。
+macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
+详见 [桌面集成](desktop-integration.md)。
+
 ## C# MyGO 改进的 Rust 入口
 
 已补齐 progressive BackdropBlur / 四方向 ScrollEdge、前景 `.blur` / `.no_shadow`、

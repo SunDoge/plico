@@ -16,6 +16,8 @@ pub mod accessibility;
 pub mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod app_dirs;
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop-integration"))]
+pub mod desktop;
 pub mod effect;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod error;
