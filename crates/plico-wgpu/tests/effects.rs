@@ -927,3 +927,41 @@ fn backdrop_inside_cropped_opacity_layer_uses_local_texture_coordinates() {
     );
     assert!(renderer.layer_frame_bytes() < 4096);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn glass_corners_preserve_transparent_backdrop_inside_opacity_layers() {
+    use kurbo::{Affine, Rect};
+    use peniko::BlendMode;
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let glass =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(
+        &mut text,
+        glass,
+        ShaderEffectId::new(),
+        &[8., 0.42, 0.26, 0., 1.6, 1.12, 0.5, 8., 0.97, 0.98, 1.],
+    );
+    let mut scene = Scene::new();
+    scene.push_layer(
+        BlendMode::default(),
+        0.45,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 512., 256.),
+        None,
+        None,
+    );
+    scene.append_scene(effect, Affine::translate((320., 128.)));
+    scene.pop_layer();
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [512, 256], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        pixels[(128 * 512 + 320) * 4 + 3],
+        0,
+        "glass corner must remain transparent"
+    );
+    assert!(pixels[(136 * 512 + 328) * 4 + 3] > 100);
+}

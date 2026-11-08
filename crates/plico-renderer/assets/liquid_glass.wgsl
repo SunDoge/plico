@@ -3,11 +3,14 @@
 // See ../third_party/mygo-LICENSE and ../third_party/README.md.
 // Local scene-backed glass. Parameters: radius, frost, tint, animation.
 // The exterior returns the untouched scene, preserving rounded pane corners.
-fn glass_sample(uv: vec2<f32>) -> vec3<f32> {
+fn glass_backdrop(uv: vec2<f32>) -> vec4<f32> {
     let pixel = 0.5 / max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
-    return plico_backdrop_at(clamp(uv, pixel, vec2<f32>(1.0) - pixel)).rgb;
+    return plico_backdrop_at(clamp(uv, pixel, vec2<f32>(1.0) - pixel));
 }
 // Snell refraction through a quartic/squircle bezel, normalized to 0..1.
+fn glass_sample(uv: vec2<f32>) -> vec3<f32> {
+    return glass_backdrop(uv).rgb;
+}
 fn glass_lens(depth: f32, bezel: f32) -> f32 {
     if bezel <= 0.0 || depth >= bezel {
         return 0.0;
@@ -80,5 +83,5 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     // Stable grain: no full-window animation or temporal noise when idle.
     let grain = fract(sin(dot(floor(uv * resolution), vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
     color += vec3<f32>(grain / 1600.0);
-    return vec4<f32>(mix(glass_sample(uv), clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), coverage), 1.0);
+    return mix(glass_backdrop(uv), vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0), coverage);
 }
