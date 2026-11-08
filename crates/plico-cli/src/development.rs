@@ -455,13 +455,13 @@ serde = {{ version = "1", features = ["derive"] }}
 usage-rs = "7"
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
 incremental = true
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 2
-debug = 0
-strip = "debuginfo"
+debug = false
 "#
     );
     std::fs::write(path.join("Cargo.toml"), manifest).context(IoSnafu)?;

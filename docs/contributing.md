@@ -131,16 +131,20 @@ git diff -- Cargo.toml Cargo.lock CHANGELOG.md
 
 ## Development build profiles
 
-Workspace development builds keep `opt-level = 1` and incremental compilation.
-Non-workspace dependencies use `opt-level = 2`, `debug = 0` and
-`strip = "debuginfo"`; workspace crates retain their existing debug information.
-The `plico new` template uses the same dependency settings. The wildcard package
-rule does not affect workspace members; build scripts/proc macros keep Cargo's
-normal build-override defaults unless a package override takes precedence.
+Workspace framework crates keep `opt-level = 1` and incremental compilation.
+Gallery and Warden use application-only `opt-level = 0` for faster UI iteration.
+Workspace debug information is `line-tables-only`; non-workspace dependencies keep
+`opt-level = 2` with `debug = false`. The `plico new` template uses opt 0 for its
+application, optimized dependencies, and the same debug-information policy.
+The wildcard package rule does not affect workspace members.
 
-Dependency optimization prioritizes runtime performance and can increase the first
-build time compared with opt-level 1. Disabling debug-info generation can reduce compile/link work and disk
-usage. Stripping is primarily an artifact-size setting, not a measured compile-time
-speedup. Dependency stack traces lose source lines/local variables; use a temporary
-package-specific profile override when debugging a dependency. The first build
-after changing profile settings must rebuild affected dependencies.
+The measured Gallery edit/build median fell from about 3.74 s to 1.25 s with this
+combination; see [build experiments](experiments/rust-build-latency.md). These are
+warm UI edits, not first-build or release-performance guarantees. Changing a
+profile rebuilds affected crates. Release settings are unchanged.
+
+Line tables retain useful source locations in backtraces, but inspecting local
+variables and complex types requires full debug information. Temporarily set
+`--config 'profile.dev.debug=2'` for workspace debugging, and add a package-specific
+`debug=2` override when debugging a third-party dependency. Dependency optimization
+can increase first-build time compared with opt level 1.
