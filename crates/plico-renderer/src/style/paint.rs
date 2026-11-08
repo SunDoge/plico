@@ -178,8 +178,10 @@ impl PaintTransform {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// Resolved outer box shadow rendered behind a node.
+/// Resolved box shadow: outer behind the node, inset above its background.
 pub struct Shadow {
+    /// Paint the complement of the blurred hole inside the node.
+    pub inset: bool,
     /// Horizontal offset in logical pixels.
     pub offset_x: f32,
     /// Vertical offset in logical pixels.
@@ -204,6 +206,7 @@ impl Shadow {
             _ => None,
         };
         Some(Self {
+            inset: false,
             offset_x: px("x")?,
             offset_y: px("y")?,
             spread: px("spread")?,

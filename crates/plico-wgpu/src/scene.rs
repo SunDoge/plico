@@ -955,6 +955,36 @@ impl Renderer {
                             ));
                         }
                     }
+                    PaintCommand::InsetBoxShadow {
+                        transform,
+                        bounds,
+                        hole,
+                        brush,
+                        radius,
+                        std_dev,
+                    } => {
+                        if !std_dev.is_finite()
+                            || *std_dev < 0.
+                            || !radius.is_finite()
+                            || *radius < 0.
+                            || ![hole.x0, hole.y0, hole.x1, hole.y1]
+                                .iter()
+                                .all(|v| v.is_finite())
+                        {
+                            return Err(unsupported(index, "invalid inset shadow geometry"));
+                        }
+                        let (scale, _) = uniform(*transform, index)?;
+                        let mut q = quad(*bounds, [*radius; 4], *transform, clip, index)?;
+                        q.shadow_sigma = (std_dev * scale) as f32;
+                        q.shadow_hole = Some([
+                            ((hole.x0 - bounds.x0) * scale) as f32,
+                            ((hole.y0 - bounds.y0) * scale) as f32,
+                            (hole.width() * scale) as f32,
+                            (hole.height() * scale) as f32,
+                        ]);
+                        q.colors = [brush.components; 2];
+                        draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
+                    }
                     PaintCommand::BoxShadow {
                         transform,
                         rect,

@@ -215,6 +215,19 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
             discard;
         }
     }
+    if input.config.z >= 6. {
+        let hole = input.gradient;
+        var covered = 0.;
+        if all(hole.zw > vec2f(0.)) {
+            if input.config.y > 0. {
+                covered = shadow_coverage(input.local - hole.xy, hole.zw, input.config.x, input.config.y);
+            } else {
+                covered = coverage(input.local - hole.xy, hole.zw, vec4f(input.config.x));
+            }
+        }
+        let alpha = input.color.a * (1. - covered) * clip_alpha;
+        return vec4f(input.color.rgb * alpha, alpha);
+    }
     if input.config.z >= 5. {
         let alpha = input.color.a * shadow_coverage(
                 input.local - vec2f(input.gradient.x),

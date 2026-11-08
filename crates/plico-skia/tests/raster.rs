@@ -1020,3 +1020,39 @@ fn sksl_uses_injected_time_parameters_and_reports_compile_errors() {
     ));
     assert!(render(source, 0.).is_ok());
 }
+
+#[test]
+fn inset_shadow_complement_preserves_hole_and_caster_clip() {
+    for sigma in [0., 3.] {
+        for spread in [0., 40.] {
+            let mut surface = SkiaSurface::new(100, 100).unwrap();
+            let caster = Rect::new(20., 20., 80., 80.);
+            let mut scene = Scene::new();
+            scene.push_clip_layer(Affine::IDENTITY, &caster.to_rounded_rect(12.));
+            scene.draw_inset_box_shadow(
+                Affine::IDENTITY,
+                caster,
+                Rect::new(20. + spread, 26. + spread, 80. - spread, 86. - spread),
+                Color::BLACK,
+                12.,
+                sigma,
+            );
+            scene.pop_layer();
+            let bytes = surface.render_scene(&scene, Color::WHITE).unwrap();
+            let pixel = |x: usize, y: usize| {
+                <[u8; 4]>::try_from(&bytes[(y * 100 + x) * 4..(y * 100 + x + 1) * 4]).unwrap()
+            };
+            assert_eq!(pixel(10, 50), [255; 4]);
+            assert_eq!(pixel(20, 20), [255; 4]);
+            assert!(pixel(50, 21)[0] < 240);
+            assert_eq!(
+                pixel(50, 50),
+                if spread == 0. {
+                    [255; 4]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            );
+        }
+    }
+}

@@ -128,3 +128,10 @@ Gallery 示例含明／暗／clear 可重建场景及模式与清晰度交互测
 
 原生输入、retained clock／反向／组合目标、idle／reduced motion、焦点和 GPU 外扩／裁剪像素均验证。
 inset shadow、解析连续 caster 阴影和 blur pyramid 仍待实现；本批不声称与原生 macOS 像素一致。
+
+### 第三批：内阴影
+
+参考 MyGO scene 的 inset shadow 孔洞补集定义，新增共享内阴影命令与控件／布局 builder。
+wgpu 以 Gaussian coverage 的补集着色，Skia 以反向轮廓模糊；两者均在 caster 轮廓和祖先裁剪内绘制。
+内阴影不扩大布局或外部 visual bounds，清除阴影 API 同时清除它。Gallery 提供凹陷表面对照。
+孔洞模糊仍使用圆弧近似；解析连续 caster 与完整 blur pyramid 继续保留为未实现项。

@@ -254,3 +254,26 @@ Rust `Style::default()` 的 `corner_smoothing` 现在为 1，普通按钮、输�
 圆形与完全圆角胶囊例外：统一半径达到短边一半时，CPU fill/border/clip 使用精确 RoundedRect 圆弧，
 玻璃 WGSL 使用相同的 circular 场，保留真圆和标准胶囊，并避免为这些形状创建连续轮廓路径。
 API 默认、显式选择、圆／胶囊几何相等及 GPU cramped-corner／滚动裁剪都有回归。
+
+## 内阴影
+
+控件与布局支持 `.inset_shadow(BoxShadow { .. })`，参数仍是逻辑像素，`blur / 2` 为高斯 sigma。
+正 spread 收缩孔洞，offset 移动孔洞；孔洞完全收缩时填满 caster。内阴影在普通背景上、
+子内容与边框下绘制，`no_shadow()` 同时清除内外阴影。它不增加布局尺寸或外部绘制范围。
+
+参考 MyGO `internal/scene/scene.go` 的 inset 定义，Plico 的共享 Scene 新增原生补集 primitive；
+wgpu 复用解析高斯积分，Skia 使用相反轮廓的模糊。caster clip 采用完整连续圆角，
+孔洞的模糊目前仍是圆弧近似，与现有外阴影 caster 一致。不要将其视为连续轮廓模糊已完成。
+材质是子级 shader 时仍按通常子内容顺序覆盖背景及内阴影；玻璃自身的内缘由材质 rim 控制。
+
+Gallery Effects 提供 Soft inset 与 Recessed surface 示例。
+
+```sh
+cargo test -p plico --test inset_shadow
+cargo test -p plico-renderer --lib scene::tests
+cargo test -p plico-wgpu --test inset_shadows -- --ignored
+cargo test -p plico-skia --features raster --test raster inset_shadow
+```
+
+GPU 回归覆盖 1/1.5/2 倍缩放、零及非零 blur、正负 spread、空孔洞、连续边缘外部裁剪与父级 scroll clip。
+Skia 有独立补集像素检查；这些是 Linux 渲染测试，不是 macOS 原生玻璃等效性验证。

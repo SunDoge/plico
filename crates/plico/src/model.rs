@@ -278,8 +278,8 @@ impl SliderSpec {
         })
     }
 }
-/// One outer box shadow. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
-/// The shadow is excluded from the node interior, including translucent fills.
+/// Box shadow parameters. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
+/// Outer shadows exclude the node interior; inset shadows stay inside its contour.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoxShadow {
     pub offset_x: f32,
@@ -327,6 +327,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[invalidates(PAINT)]
     pub ambient_shadow: Option<BoxShadow>,
+    /// Inner shadow above the background, clipped to the continuous border contour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(PAINT)]
+    pub inset_shadow: Option<BoxShadow>,
     /// Keep this node at least this far below its scroll port's top while its
     /// containing block is in view (CSS sticky, top inset). `None` is static.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -487,6 +491,7 @@ impl Default for Style {
             corner_smoothing: 1.,
             shadow: None,
             ambient_shadow: None,
+            inset_shadow: None,
             sticky_top: None,
             background_alpha: 1.,
             width: None,
@@ -589,6 +594,7 @@ impl Style {
             && (0. ..=1.).contains(&self.corner_smoothing)
             && self.shadow.is_none_or(BoxShadow::valid)
             && self.ambient_shadow.is_none_or(BoxShadow::valid)
+            && self.inset_shadow.is_none_or(BoxShadow::valid)
             && self.background_alpha.is_finite()
             && (0. ..=1.).contains(&self.background_alpha)
             && self.opacity.is_finite()

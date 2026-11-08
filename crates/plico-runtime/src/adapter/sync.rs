@@ -552,12 +552,17 @@ pub(crate) fn make_paint(
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
     };
-    for shadow in [style.ambient_shadow, style.shadow]
-        .into_iter()
-        .flatten()
-        .filter(|s| s.opacity > 0.)
+    for (shadow, inset) in [
+        (style.ambient_shadow, false),
+        (style.shadow, false),
+        (style.inset_shadow, true),
+    ]
+    .into_iter()
+    .filter_map(|(shadow, inset)| shadow.map(|shadow| (shadow, inset)))
+    .filter(|(s, _)| s.opacity > 0.)
     {
         p.shadows.push(plico_renderer::style::Shadow {
+            inset,
             offset_x: shadow.offset_x,
             offset_y: shadow.offset_y,
             spread: shadow.spread,

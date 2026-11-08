@@ -977,11 +977,17 @@ impl Layout<'_, '_> {
         self.style.ambient_shadow = Some(shadow);
         self
     }
-    /// Clear both contact and ambient shadows.
+    /// Add an inner shadow clipped to the container contour.
+    pub fn inset_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+        self.style.inset_shadow = Some(shadow);
+        self
+    }
+    /// Clear contact, ambient and inset shadows.
     #[inline(always)]
     pub fn no_shadow(mut self) -> Self {
         self.style.shadow = None;
         self.style.ambient_shadow = None;
+        self.style.inset_shadow = None;
         self
     }
     /// Blur this container and its content, in logical Gaussian sigma units.
@@ -1584,11 +1590,17 @@ macro_rules! common {
                 elevation.apply(&mut self.inner.style);
                 self
             }
-            /// Clear both contact and ambient shadows.
+            /// Add an inner shadow clipped to the control contour.
+            pub fn inset_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+                self.inner.style.inset_shadow = Some(shadow);
+                self
+            }
+            /// Clear contact, ambient and inset shadows.
             #[inline(always)]
             pub fn no_shadow(mut self) -> Self {
                 self.inner.style.shadow = None;
                 self.inner.style.ambient_shadow = None;
+                self.inner.style.inset_shadow = None;
                 self
             }
             /// Blur this node and its content, in logical Gaussian sigma units.

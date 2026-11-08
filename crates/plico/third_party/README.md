@@ -24,3 +24,7 @@ Elevation presets separate contact and ambient shadows, following the two-shadow
 treatment of MyGO `examples/effort-slider/effort.go`. MyGO's glass material itself
 casts no shadow. The preset values are Plico's design tokens, not an assertion of
 pixel equality with native macOS materials.
+
+Inset shadow semantics follow `internal/scene/scene.go`: clip to the caster and
+paint the complement of a blurred hole. The shared command, Gaussian evaluation
+and Skia replay are Plico implementations.

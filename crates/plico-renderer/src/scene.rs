@@ -125,7 +125,7 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
                 ),
         );
     }
-    for shadow in &node.paint.shadows {
+    for shadow in node.paint.shadows.iter().filter(|s| !s.inset) {
         let (shadow_rect, _, std_dev) =
             shadow_geometry(border_box, f64::from(node.paint.border_radii.max()), shadow);
         let blur_extent = std_dev * 3.0;
@@ -233,7 +233,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let [x0, y0, x1, y1] = node.rect;
     let rect = Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1));
     let radii = node.paint.border_radii;
-    for shadow in &node.paint.shadows {
+    for shadow in node.paint.shadows.iter().filter(|s| !s.inset) {
         let (shadow_rect, radius, std_dev) = shadow_geometry(rect, f64::from(radii.max()), shadow);
         if (shadow_rect.width() <= 0. || shadow_rect.height() <= 0.)
             || shadow.color.components[3] <= 0.
@@ -265,6 +265,39 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             None,
             &corner_shape(rect, radii, node.paint.corner_smoothing),
         );
+    }
+    for shadow in node
+        .paint
+        .shadows
+        .iter()
+        .filter(|s| s.inset && s.color.components[3] > 0.)
+    {
+        // MyGO/CSS inset: positive spread contracts the hole, then blur its
+        // complement. Clip to the same contour as the background.
+        let spread = f64::from(shadow.spread);
+        let hole = Rect::new(
+            rect.x0 + f64::from(shadow.offset_x) + spread,
+            rect.y0 + f64::from(shadow.offset_y) + spread,
+            rect.x1 + f64::from(shadow.offset_x) - spread,
+            rect.y1 + f64::from(shadow.offset_y) - spread,
+        );
+        let radius = shadow
+            .radius
+            .map(f64::from)
+            .unwrap_or_else(|| (f64::from(radii.max()) - spread).max(0.));
+        scene.push_clip_layer(
+            transform,
+            &corner_shape(rect, radii, node.paint.corner_smoothing),
+        );
+        scene.draw_inset_box_shadow(
+            transform,
+            rect,
+            hole,
+            shadow.color,
+            radius,
+            f64::from(shadow.std_dev),
+        );
+        scene.pop_layer();
     }
     if node.paint.outline_width > 0.0
         && let Some(color) = node.paint.outline_color
@@ -1068,12 +1101,49 @@ mod tests {
     use crate::style::Shadow;
 
     #[test]
+    fn inset_shadow_follows_background_and_continuous_clip_without_expanding_bounds() {
+        let mut node = test_node(0, [20., 20., 80., 80.]);
+        node.paint.background = Some(Color::WHITE);
+        node.paint.border_radii = CornerRadii::uniform(16.);
+        node.paint.corner_smoothing = 1.;
+        node.paint.shadows.push(Shadow {
+            inset: true,
+            offset_x: 2.,
+            offset_y: 3.,
+            spread: 4.,
+            std_dev: 5.,
+            color: Color::BLACK,
+            radius: None,
+        });
+        assert_eq!(visual_bounds(&node), Rect::new(20., 20., 80., 80.));
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        assert!(matches!(
+            scene.commands[0],
+            crate::PaintCommand::Fill { .. }
+        ));
+        let crate::PaintCommand::PushClip { clip, .. } = &scene.commands[1] else {
+            panic!("inset requires contour clip");
+        };
+        assert_eq!(
+            clip.to_path(0.1),
+            corner_shape(Rect::new(20., 20., 80., 80.), node.paint.border_radii, 1.).to_path(0.1)
+        );
+        let crate::PaintCommand::InsetBoxShadow { hole, std_dev, .. } = &scene.commands[2] else {
+            panic!("missing inset");
+        };
+        assert_eq!(*hole, Rect::new(26., 27., 78., 79.));
+        assert_eq!(*std_dev, 5.);
+    }
+
+    #[test]
     fn outer_shadow_excludes_translucent_continuous_panel_interior() {
         let mut node = test_node(0, [32., 32., 96., 96.]);
         node.paint.background = Some(Color::from_rgba8(255, 255, 255, 128));
         node.paint.border_radii = CornerRadii::uniform(16.);
         node.paint.corner_smoothing = 1.;
         node.paint.shadows.push(Shadow {
+            inset: false,
             offset_x: 0.,
             offset_y: 4.,
             spread: -1.,
@@ -1143,6 +1213,7 @@ mod tests {
     #[test]
     fn shadow_geometry_preserves_vello_parameters() {
         let shadow = Shadow {
+            inset: false,
             offset_x: 6.0,
             offset_y: -4.0,
             spread: 3.0,
@@ -1363,6 +1434,7 @@ mod tests {
     #[test]
     fn shadow_radius_can_be_independent_from_node_radius_and_spread() {
         let shadow = Shadow {
+            inset: false,
             offset_x: 0.0,
             offset_y: 0.0,
             spread: -20.0,

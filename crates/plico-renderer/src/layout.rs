@@ -1271,6 +1271,7 @@ mod tests {
                 if frame % 2 == 0 {
                     paint.transform.push(PaintTransform::Scale(0.95, 1.));
                     paint.shadows.push(Shadow {
+                        inset: false,
                         offset_x: 1.,
                         offset_y: 2.,
                         spread: 1.,

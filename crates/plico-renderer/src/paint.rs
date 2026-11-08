@@ -110,6 +110,15 @@ pub enum PaintCommand {
         radius: f64,
         std_dev: f64,
     },
+    /// Paint the complement of a blurred rounded hole within bounds.
+    InsetBoxShadow {
+        transform: Affine,
+        bounds: Rect,
+        hole: Rect,
+        brush: Color,
+        radius: f64,
+        std_dev: f64,
+    },
     /// Draw an already parsed SVG document.
     Svg {
         document: SvgDocument,
@@ -132,6 +141,7 @@ impl PaintCommand {
             | Self::Fill { transform, .. }
             | Self::GlyphRun { transform, .. }
             | Self::BoxShadow { transform, .. }
+            | Self::InsetBoxShadow { transform, .. }
             | Self::Svg { transform, .. }
             | Self::Shader { transform, .. }
             | Self::Paragraph { transform, .. } => transform,
@@ -342,6 +352,16 @@ pub trait PaintScene {
         radius: f64,
         std_dev: f64,
     );
+    /// Paint the blurred complement of a rounded hole inside bounds.
+    fn draw_inset_box_shadow(
+        &mut self,
+        transform: Affine,
+        bounds: Rect,
+        hole: Rect,
+        brush: Color,
+        radius: f64,
+        std_dev: f64,
+    );
     /// Draw a retained SVG document.
     fn draw_svg(&mut self, document: SvgDocument, transform: Affine);
     /// Draw a retained custom WGSL effect.
@@ -431,6 +451,23 @@ pub trait PaintScene {
                     radius,
                     std_dev,
                 } => self.draw_box_shadow(transform * local, rect, brush, radius, std_dev),
+                PaintCommand::InsetBoxShadow {
+                    transform: local,
+                    bounds,
+                    hole,
+                    brush,
+                    radius,
+                    std_dev,
+                } => {
+                    self.draw_inset_box_shadow(
+                        transform * local,
+                        bounds,
+                        hole,
+                        brush,
+                        radius,
+                        std_dev,
+                    );
+                }
                 PaintCommand::Svg {
                     document,
                     transform: local,
@@ -607,6 +644,25 @@ impl PaintScene for Scene {
         self.commands.push(PaintCommand::BoxShadow {
             transform,
             rect,
+            brush,
+            radius,
+            std_dev,
+        });
+    }
+
+    fn draw_inset_box_shadow(
+        &mut self,
+        transform: Affine,
+        bounds: Rect,
+        hole: Rect,
+        brush: Color,
+        radius: f64,
+        std_dev: f64,
+    ) {
+        self.commands.push(PaintCommand::InsetBoxShadow {
+            transform,
+            bounds,
+            hole,
             brush,
             radius,
             std_dev,

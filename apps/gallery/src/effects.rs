@@ -130,6 +130,25 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
             };
             text(ui, "LIQUID GLASS · framework material: curved-edge refraction, frost and rim lighting")
                 .font_size(11).color(Color::Muted);
+            row(ui).width_percent(100.).shrink(0.).gap(12) + |ui| {
+                for (label, spread) in [("Soft inset", 0.), ("Recessed surface", 1.)] {
+                    ui.keyed(label, |ui| {
+                        column(ui).width(0.).grow(1.).height(76.).padding(16).radius(16.)
+                            .background(Color::Panel).inset_shadow(plico::BoxShadow {
+                            offset_x: 0.,
+                            offset_y: 2.,
+                            blur: 10.,
+                            spread,
+                            color: Color::Literal(0x152438),
+                            opacity: 0.18,
+                        }) + |ui|
+                        {
+                            text(ui, label).weight(550).font_size(13);
+                            text(ui, "Inner depth · continuous corners").color(Color::Muted).font_size(11);
+                        };
+                    });
+                }
+            };
             row(ui).width_percent(100.).shrink(0.).gap(16).align(Align::Stretch) + |ui| {
                 column(ui).width(0.).grow(1.).height(320.).clip(true).radius(18.)
                     .background(Color::Literal(0x171126)) + |ui|
