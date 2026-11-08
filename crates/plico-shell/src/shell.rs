@@ -73,6 +73,19 @@ impl Shell {
                 options.initial_inner_size.0,
                 options.initial_inner_size.1,
             ));
+        #[cfg(target_os = "macos")]
+        if options.titlebar_overlay && options.decorations {
+            // Set platform attributes after the common decoration choice:
+            // decorations override these AppKit titlebar properties otherwise.
+            use winit::platform::macos::WindowAttributesMacOS;
+            attrs = attrs.with_platform_attributes(Box::new(
+                WindowAttributesMacOS::default()
+                    .with_titlebar_transparent(true)
+                    .with_title_hidden(true)
+                    .with_fullsize_content_view(true)
+                    .with_movable_by_window_background(false),
+            ));
+        }
         if let Some((width, height)) = options.min_inner_size {
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
