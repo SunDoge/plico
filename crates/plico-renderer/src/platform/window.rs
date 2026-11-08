@@ -310,6 +310,8 @@ pub enum WindowCommand {
     Minimize,
     /// Set or clear the maximized state.
     SetMaximized(bool),
+    /// Toggle maximization using the current native state.
+    ToggleMaximized,
     /// Replace the native window title.
     SetTitle(String),
     /// Begin an OS-managed window drag from the current pointer gesture.

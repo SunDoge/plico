@@ -2166,6 +2166,11 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
                 shell.window().set_maximized(maximized);
             }
         }
+        WindowCommand::ToggleMaximized => {
+            if let Some(shell) = app.state.as_ref() {
+                shell.window().set_maximized(!shell.is_maximized());
+            }
+        }
         WindowCommand::SetTitle(title) => {
             if let Some(shell) = app.state.as_ref() {
                 shell.window().set_title(&title);
