@@ -254,7 +254,27 @@ impl<'s> Modal<'_, '_, 's> {
                                 .weight(650)
                                 .grow(1.);
                             let close = cx.tr("dialog-close", "Close dialog");
-                            if crate::widgets::button(cx).text(close).ghost().clicked() {
+                            let clicked = crate::widgets::tooltip(cx, close.clone())
+                                .children(|cx| {
+                                    crate::widgets::button(cx)
+                                        .icon(&crate::icons::X)
+                                        .aria_label(close)
+                                        .ghost()
+                                        .color(Color::Muted)
+                                        .width(32.)
+                                        .min_width(32.)
+                                        .max_width(32.)
+                                        .height(32.)
+                                        .min_height(32.)
+                                        .max_height(32.)
+                                        .padding(7)
+                                        .radius(16.)
+                                        .corner_smoothing(0.)
+                                        .elevation(crate::Elevation::SUBTLE)
+                                        .clicked()
+                                })
+                                .inner;
+                            if clicked {
                                 cx.close_modal();
                             }
                         });
