@@ -667,3 +667,66 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
             .unwrap()
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn small_opacity_groups_at_retina_resolution_fit_the_unchanged_frame_budget() {
+    use peniko::BlendMode;
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let size = [2880, 2000];
+    let viewport = Rect::new(0., 0., 2880., 2000.);
+    let mut grouped = Scene::new();
+    let mut reference = Scene::new();
+    for i in 0..16 {
+        let rect = Rect::new(24.5, 24.5 + i as f64 * 100., 424.5, 104.5 + i as f64 * 100.);
+        grouped.push_layer(
+            BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &viewport,
+            None,
+            None,
+        );
+        grouped.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(200, 80, 40, 255),
+            None,
+            &rect,
+        );
+        grouped.pop_layer();
+        reference.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            PaintColor::from_rgba8(200, 80, 40, 128),
+            None,
+            &rect,
+        );
+    }
+    let expected = renderer
+        .render_scene(&reference, size, [1.; 4], false)
+        .unwrap();
+    let pixels = renderer
+        .render_scene(&grouped, size, [1.; 4], true)
+        .unwrap();
+    assert!(renderer.layer_frame_bytes() < 3 * 1024 * 1024);
+    assert!(
+        pixels
+            .iter()
+            .zip(&expected)
+            .all(|(a, b)| a.abs_diff(*b) <= 1)
+    );
+    // A subsequent frame reuses the small targets, and cumulative work must
+    // not be mistaken for live allocation across frames.
+    let allocations = renderer.layer_pool_stats().allocations;
+    for command in grouped.commands.iter_mut() {
+        if let PaintCommand::PushLayer { alpha, .. } = command {
+            *alpha = 0.4;
+        }
+    }
+    renderer
+        .render_scene(&grouped, size, [1.; 4], false)
+        .unwrap();
+    assert_eq!(renderer.layer_pool_stats().allocations, allocations);
+    assert!(renderer.layer_pool_stats().reuses >= 16);
+}

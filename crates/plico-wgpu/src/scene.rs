@@ -108,6 +108,53 @@ pub struct PreparedStorageStats {
     pub ink_bytes: usize,
 }
 impl PreparedScene {
+    /// Conservative submitted ink, including AA, scissor and mask limits.
+    /// Opacity groups use it to avoid allocating a viewport-sized target for
+    /// a small disabled control whose logical group clip spans the window.
+    fn content_bounds(&self) -> Option<Rect> {
+        let mut mask = None;
+        let mut result: Option<Rect> = None;
+        for draw in &self.draws {
+            let clip = match draw {
+                PreparedDraw::SetMask(value) => {
+                    mask = Some(value.bounds());
+                    continue;
+                }
+                PreparedDraw::ResetMask => {
+                    mask = None;
+                    continue;
+                }
+                PreparedDraw::Quad(i) => self.payloads.quads[*i].clip,
+                PreparedDraw::Layer(i) => self.payloads.layers[*i].quad.clip,
+                PreparedDraw::Effect(i) => self.payloads.effects[*i].1.clip,
+                PreparedDraw::Image(i) => self.payloads.images[*i].quad.clip,
+                #[cfg(all(target_os = "linux", feature = "system-text"))]
+                PreparedDraw::Text(i) => Some(self.payloads.text[*i].clip),
+            };
+            // Quad vertices extend one pixel beyond the nominal rectangle.
+            let mut ink = draw.ink_bounds(&self.payloads);
+            if ink.is_zero_area() {
+                continue;
+            }
+            ink = ink.inflate(1., 1.);
+            if let Some([x, y, w, h]) = clip {
+                ink = ink.intersect(Rect::new(
+                    x as f64,
+                    y as f64,
+                    (x + w) as f64,
+                    (y + h) as f64,
+                ));
+            }
+            if let Some(mask) = mask {
+                ink = ink.intersect(mask);
+            }
+            if !ink.is_zero_area() {
+                result = Some(result.map_or(ink, |r| r.union(ink)));
+            }
+        }
+        result
+    }
+
     /// Estimate damage using this exact flattened stream and native ink geometry.
     /// Advancing a tracker does not draw pixels. The owner must invalidate it
     /// whenever the corresponding target was not successfully updated, and on
@@ -754,15 +801,37 @@ impl Renderer {
                                 layer_clip = Rect::ZERO;
                             }
                         }
+                        // Filter sources still need their entire sampling halo.
+                        // Unfiltered opacity groups only need the submitted ink;
+                        // their clip often intentionally covers the whole window
+                        // so children may overflow their parent's layout box.
+                        let target_bounds = if blur.is_none() {
+                            let ink = child
+                                .content_bounds()
+                                .unwrap_or(Rect::ZERO)
+                                .intersect(layer_clip);
+                            // Preserve reasonably sized targets so small content
+                            // changes do not create a new pool size every frame.
+                            if ink.area() * 4. < layer_clip.area() {
+                                ink
+                            } else {
+                                layer_clip
+                            }
+                        } else {
+                            layer_clip
+                        };
+                        if target_bounds.is_zero_area() {
+                            continue;
+                        }
                         if let Some(mask) = &composite_mask {
                             draws.push(PreparedDraw::SetMask(mask.clone()));
                         }
                         let q = quad(
                             Rect::new(
-                                layer_clip.x0.floor() - reach,
-                                layer_clip.y0.floor() - reach,
-                                layer_clip.x1.ceil() + reach,
-                                layer_clip.y1.ceil() + reach,
+                                target_bounds.x0.floor() - reach,
+                                target_bounds.y0.floor() - reach,
+                                target_bounds.x1.ceil() + reach,
+                                target_bounds.y1.ceil() + reach,
                             ),
                             [0.; 4],
                             Affine::IDENTITY,
