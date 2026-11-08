@@ -117,7 +117,7 @@ impl<'s> Modal<'_, '_, 's> {
     }
     /// Show the title row and its close button. Alerts turn it off and put the
     /// title and message in their own content.
-    pub(crate) fn header(mut self, enabled: bool) -> Self {
+    pub fn header(mut self, enabled: bool) -> Self {
         self.header = enabled;
         self
     }
