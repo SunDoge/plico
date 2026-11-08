@@ -885,3 +885,45 @@ fn repeated_backdrop_preflight_reuses_only_live_targets() {
         (0, 0)
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_inside_cropped_opacity_layer_uses_local_texture_coordinates() {
+    use kurbo::{Affine, Rect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f { return plico_backdrop_at(uv); }",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let mut scene = Scene::new();
+    scene.push_layer(
+        BlendMode::default(),
+        0.5,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 512., 256.),
+        None,
+        None,
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(255, 0, 0),
+        None,
+        &Rect::new(320., 128., 336., 144.),
+    );
+    scene.append_scene(effect, Affine::translate((320., 128.)));
+    scene.pop_layer();
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [512, 256], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        &pixels[(136 * 512 + 328) * 4..(136 * 512 + 328) * 4 + 4],
+        &[128, 0, 0, 128]
+    );
+    assert!(renderer.layer_frame_bytes() < 4096);
+}

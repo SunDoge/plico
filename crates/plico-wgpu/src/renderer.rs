@@ -1073,7 +1073,10 @@ impl Renderer {
                             &mut blitter,
                             &mut encoder,
                             &view,
-                            instances[run.start].rect,
+                            {
+                                let [x, y, w, h] = instances[run.start].rect;
+                                [x - origin[0], y - origin[1], w, h]
+                            },
                             &effect,
                             size,
                         );
