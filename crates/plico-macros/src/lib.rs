@@ -211,6 +211,9 @@ impl VisitMut for Expand {
                         segment.ident.to_string().as_str(),
                         "slider"
                             | "shader"
+                            | "skeleton"
+                            | "backdrop_blur"
+                            | "scroll_edge"
                             | "modal"
                             | "popover"
                             | "tooltip"

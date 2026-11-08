@@ -104,6 +104,41 @@ impl<V: HostView, W: plico_renderer::Widget> PreviewSource for plico_runtime::Su
         &mut self.source
     }
 }
+/// Reuses backend resources across recipes, never application or input state.
+/// Each render still constructs a fresh Source, TextContext and VirtualClock.
+/// This is a bounded batch helper, not a live application session.
+pub struct PreviewSession {
+    backend: crate::RenderBackend,
+    renderer: Option<crate::capture::CaptureRenderer>,
+    dimensions: (u32, u32),
+}
+impl PreviewSession {
+    pub fn new(backend: crate::RenderBackend) -> Self {
+        Self {
+            backend,
+            renderer: None,
+            dimensions: (0, 0),
+        }
+    }
+    pub(crate) fn renderer(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Result<&mut crate::capture::CaptureRenderer, crate::CaptureError> {
+        // Skia surfaces have a fixed size; wgpu takes the size on every draw.
+        let fixed_size = matches!(self.backend, crate::RenderBackend::Skia)
+            || (matches!(self.backend, crate::RenderBackend::Auto) && !cfg!(feature = "wgpu"));
+        if self.renderer.is_none() || (fixed_size && self.dimensions != (width, height)) {
+            self.renderer = Some(crate::capture::CaptureRenderer::new(
+                self.backend,
+                width,
+                height,
+            )?);
+            self.dimensions = (width, height);
+        }
+        Ok(self.renderer.as_mut().unwrap())
+    }
+}
 impl<S> PreviewScenario<S> {
     pub fn render<V: HostView>(
         self,
@@ -135,6 +170,22 @@ impl<S> PreviewScenario<S> {
         backend: crate::RenderBackend,
         create: impl FnOnce(S, VirtualClock) -> F,
     ) -> Result<CapturedFrame, PreviewError> {
+        self.render_source_in(&mut PreviewSession::new(backend), create)
+    }
+    pub fn render_in<V: HostView>(
+        self,
+        session: &mut PreviewSession,
+        create: impl FnOnce(S) -> V,
+    ) -> Result<CapturedFrame, PreviewError> {
+        self.render_source_in(session, |state, clock| {
+            Source::with_clock(create(state), clock)
+        })
+    }
+    pub fn render_source_in<F: PreviewSource>(
+        self,
+        session: &mut PreviewSession,
+        create: impl FnOnce(S, VirtualClock) -> F,
+    ) -> Result<CapturedFrame, PreviewError> {
         if self.version != 1 {
             return Err(PreviewError::Version {
                 version: self.version,
@@ -157,7 +208,8 @@ impl<S> PreviewScenario<S> {
         let mut text = TextContext::new();
         let (width, height) = crate::capture::dimensions(v.width, v.height, v.scale)
             .map_err(|source| PreviewError::Capture { source })?;
-        let mut renderer = crate::capture::CaptureRenderer::new(backend, width, height)
+        let renderer = session
+            .renderer(width, height)
             .map_err(|source| PreviewError::Capture { source })?;
         renderer
             .configure_text(&mut text, v.scale)
@@ -194,7 +246,7 @@ impl<S> PreviewScenario<S> {
         let image = crate::capture(&mut source)
             .size(v.width, v.height)
             .scale(v.scale)
-            .render_with(renderer, text)
+            .render_with_borrowed(renderer, &mut text)
             .map_err(|source| PreviewError::Capture { source })?;
         if let Some(error) = &source.ui_source().last_error {
             return Err(PreviewError::Input {

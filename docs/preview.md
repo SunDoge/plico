@@ -101,3 +101,42 @@ GPU 测试验证 1.5× DPI 的重复像素、脚本点击与虚拟时钟 210ms�
 Gallery 的完整场景为 `apps/gallery/scenarios/black-hole.json`。
 `state` 仍是应用定义的预览配置；它不是自动写入任意运行中 Rust 字段的反射接口。
 真实窗口的外部 IPC 与运行时状态路径写入尚未实现。
+
+## 编译一次，运行多个 recipe
+
+实验已比较独立进程串行/并行、单进程独立 renderer、单进程共享 renderer 和仅语义断言。
+Warden 七个场景的五轮测量及隔离检查见 [Recipe 批处理实验](experiments/recipe-batching.md)。
+当前保留现有 JSON `state + steps + time_ms`，不引入新的场景 DSL。
+
+框架提供 `PreviewSession` 复用后端资源。每次 `render_in` 仍调用工厂创建全新 App，
+重置 Source、文字上下文、输入状态和虚拟时钟；不沿用上一场景的 UI 状态。
+
+```rust,ignore
+let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Wgpu);
+for (scenario_path, output_path) in recipes {
+    let scenario = plico_desktop::PreviewScenario::<PreviewConfig>::load(scenario_path)?;
+    scenario.render_in(&mut session, |config| {
+        plico_desktop::NativeApp(MyApp::from_preview(config))
+    })?.write_png(output_path)?;
+}
+```
+
+`PreviewSession` 是有限批次的资源复用 API，不是常驻窗口或进程崩溃隔离机制。
+自定义 native surface 可使用 `render_source_in`。Skia 在尺寸变化时重建 surface；
+目前批处理实验数据和新回归测试来自 wgpu。通用 `plico capture` 尚未增加批处理参数，
+实验命令位于独立 [Plicowarden](plicowarden.md) 的 `recipe_probe` example。
+
+## TypeScript 测试计划
+
+需要 import 公共状态、组合交互、步骤中间断言和多个截图点时，可使用
+[TypeScript recipe 开发循环](recipes.md)。TS 生成独立的 `RecipePlan<S>`，
+由应用的普通 Rust executable 执行；已有 PreviewScenario 和 capture 命令不变。
+
+```sh
+cd ../plicowarden
+python3 scripts/run-recipes.py
+python3 scripts/run-recipes.py --no-build
+```
+
+当前应用命令位于独立 Plicowarden 仓库，已接通其合成 fixture；其他应用可使用
+`plico_desktop::recipe::RecipePlan::run` 接自己的工厂和 typed 服务事件处理函数。

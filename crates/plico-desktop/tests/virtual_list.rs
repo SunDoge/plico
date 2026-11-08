@@ -204,3 +204,35 @@ fn fill_mode_windows_from_the_observed_viewport_and_tracks_resize() {
     source.build_frame(&mut tcx, 400, 500);
     assert!(source.view.built.first().is_some_and(|&i| i > 0));
 }
+
+#[test]
+fn retained_resize_refreshes_observed_rows_before_returning_to_idle() {
+    let mut source = Source::with_clock(
+        FillDemo {
+            count: 10_000,
+            built: vec![],
+        },
+        plico::VirtualClock::default(),
+    );
+    let mut text = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
+    for _ in 0..2 {
+        source
+            .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .unwrap();
+    }
+    assert_eq!(source.view.built.len(), 10);
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .unwrap();
+    assert!(source.has_anim(), "schedule layout-feedback declaration");
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .unwrap();
+    assert_eq!(source.view.built.len(), 15);
+    let batches = source.batch_stats().declaration_batches;
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .unwrap();
+    assert_eq!(source.batch_stats().declaration_batches, batches);
+}

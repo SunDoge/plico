@@ -53,6 +53,17 @@
 | Inspector | `property_field` | 属性行 |
 | Layout / Grid / Scroll | `row` / `column` / `grid` / `scroll_y` | 布局原语 |
 
+## 从 C# 组件包补齐的 Rust 入口
+
+`chip` / `tag`、`pagination`、`alert` / `notification`、`empty_state`、`skeleton`、
+`Tone` / `badge_tone` 现已提供 context-first Rust 函数。场景效果提供 typed
+`LiquidGlass` / `BackdropBlur` / `ScrollEdgeSide` 和 `backdrop_blur` / `scroll_edge`。
+布局和 leaf builder 可使用 `.blur` / `.no_shadow`，无需通过 C# 或手工拼 shader uniforms。
+
+圆角字段、玻璃轮廓及 opaque fallback 已连接；Warden chrome 显式开启连续圆角。
+原有共享后端优化与本轮新增项的详细对照、测试和限制见
+[C# MyGO 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md)。
+
 ## 由既有子系统覆盖
 
 - Code editor / Rich text editor：`plico-editor`（独立 crate 与 widget 契约）。

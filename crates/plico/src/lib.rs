@@ -21,8 +21,10 @@ pub use calendar::{CalendarDate, CalendarMode, CalendarState, WeekStart};
 pub use local::LocalState;
 pub use storage::{StateStorageSnapshot, StorageError};
 mod calendar;
+pub mod materials;
 mod modal;
 mod model;
+pub use materials::{BackdropBlur, Elevation, LiquidGlass, ScrollEdgeSide};
 mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
@@ -152,30 +154,32 @@ pub mod macro_support {
 
 /// Recommended imports for application and custom widget modules.
 pub mod prelude {
+    pub use crate::materials::{backdrop_blur, scroll_edge};
     pub use crate::widgets::{
         ALERT_DISMISSED, Avatar, Button, CalendarResponse, Checkbox, Field, FindResponse,
         MeterLevels, Panel, RubyText, SearchResponse, Switch, TableColumn, Toast, ToastHost,
-        ToastKind, accordion, alert_dialog, avatar, back_button, badge, breadcrumbs, button,
-        button_base, calendar, calendar_content, calendar_with, checkbox, choice, collapsible,
-        color_picker, color_well, column, date_input, date_input_with, drag_area, field, fieldset,
-        find_bar, form, forward_button, grid, icon, image, link, menu, menu_item, meter, modal,
-        nav_item, nav_menu, number_input, panel, popover, progress, property_field, radio,
-        radio_group, range_slider, rating, row, ruby_text, search_field, segmented, select,
-        separator, settings_row, settings_section, shader, sidebar, sidebar_item, sidebar_section,
-        slider, spinner, split, split_percent, split_vertical, split_vertical_percent, stat,
-        stepper, svg, svg_source, switch, table_header, table_row, tabs, text, text_empty,
-        text_input, text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer,
-        tooltip, tree, tree_item, virtual_list,
+        ToastKind, Tone, accordion, alert, alert_dialog, avatar, back_button, badge, badge_tone,
+        breadcrumbs, button, button_base, calendar, calendar_content, calendar_with, checkbox,
+        chip, choice, collapsible, color_picker, color_well, column, date_input, date_input_with,
+        drag_area, empty_state, field, fieldset, find_bar, form, forward_button, grid, icon, image,
+        link, menu, menu_item, meter, modal, nav_item, nav_menu, notification, number_input,
+        pagination, panel, popover, progress, property_field, radio, radio_group, range_slider,
+        rating, row, ruby_text, search_field, segmented, select, separator, settings_row,
+        settings_section, shader, sidebar, sidebar_item, sidebar_section, skeleton, slider,
+        spinner, split, split_percent, split_vertical, split_vertical_percent, stat, stepper, svg,
+        svg_source, switch, table_header, table_row, tabs, tag, text, text_empty, text_input,
+        text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer, tooltip, tree,
+        tree_item, virtual_list,
     };
     pub use crate::{
-        AUTO, Align, BoxSizing, CalendarDate, Color, Direction, Display, Edges, FlexDirection,
-        FlexWrap, FontFamily, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse,
-        InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, Metrics,
-        ModalState, Modifiers, Motion, PopoverState, Position, Response, Route, Router,
-        SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse,
-        StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize,
-        UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax,
-        percent, px, text,
+        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display, Edges,
+        Elevation, FlexDirection, FlexWrap, FontFamily, GridFlow, GridLine, GridTemplate,
+        ImplicitKey, InnerResponse, InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation,
+        KeyPhase, Length, LiquidGlass, Metrics, ModalState, Modifiers, Motion, PopoverState,
+        Position, Response, Route, Router, ScrollEdgeSide, SelectOption, SelectResponse,
+        ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut, SvgAsset, TextBuffer,
+        Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
+        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
     };
 }
 

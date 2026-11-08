@@ -4,6 +4,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [C# MyGO 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md) | 共享后端核对、补齐的组件/效果、圆角一致性与验证边界 |
 | [MyGo 对标方向](mygo-benchmark.md) | 完整界面的验收标准与下一条应用切片 |
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
 | [2048 对照](2048.md) | MyGo 游戏切片、棋子身份、时钟动画、键盘与模块恢复 |
@@ -12,6 +13,8 @@
 | [System-wide hotkeys](global-hotkeys.md) | 可选全局热键、平台注册、Wayland portal 与宿主生命周期 |
 | [Window-local shortcuts](shortcuts.md) | 完整组合键、作用域 action 表、输入法优先级与热重载事件传递 |
 | [文字选择](text-selection.md) | 按词/段落拖选、Unicode 边界、复制与原生绘制验证 |
+| [TypeScript recipes](recipes.md) | 公共 fixture/flow、交互断言、服务事件、连续截图与失败证据 |
+| [Recipe 批处理实验](experiments/recipe-batching.md) | 一次构建、进程隔离与共享 renderer 的耗时、截图一致性和失败恢复 |
 | [Rust 测试协议](testing.md) | 共享语义命令、虚拟时钟、离屏应用测试与窗口验收边界 |
 | [Route enum 元信息](router.md) | Route derive、静态导航列表、标签、图标与稳定逻辑 ID |
 | [Gallery 与路由](gallery.md) | 页面状态、flex 展台、基础 motion 与 SVG 边界 |
@@ -72,6 +75,8 @@
 | [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
 | [C# batch frontend 实验](experiments/csharp-batch.md) | csbindgen、原生批量提交、事件回传与编辑反馈耗时 |
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |
+| [Cargo 构建性能指南实测](experiments/rust-build-latency.md) | wgpu Gallery 的调试信息、Cranelift、并行前端、Wild 与运行时代价 |
+| [Plicowarden](plicowarden.md) | 已迁出的独立 GPL 应用、开发位置与依赖边界 |
 | [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
 | [API、宏与格式化](authoring.md) | chain、component、LSP、rustfmt 与专用 formatter |
@@ -142,6 +147,6 @@
 
 - [C# / native boundary](csharp-boundary.md): feature ownership and native-free test/build tiers.
 
-- [Liquid Glass](liquid-glass.md): shared WGSL, C# composition API, parameters and backend limits.
+- [Liquid Glass](liquid-glass.md): Rust LiquidGlass/Elevation APIs, shared materials, parameters and backend limits.
 
 - [Native vertical text](native-vertical-text.md): system-owned vertical layout and rasterization, with platform verification limits.

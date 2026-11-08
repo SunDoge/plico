@@ -11,6 +11,7 @@ mod legacy_icons;
 pub mod tree_view;
 use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
+mod component_kit;
 mod components;
 pub mod game2048;
 pub mod glass;
@@ -68,6 +69,8 @@ pub enum Page {
     Patterns,
     #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
     Effects,
+    #[route(label = "Component kit", icon = color_icons::DESIGN_IDEAS)]
+    ComponentKit,
 }
 
 /// A spring-driven demo chip on the Motion page. The value samples purely
@@ -102,6 +105,7 @@ pub struct Gallery {
     /// The desktop-patterns page's local demo state.
     pub patterns: patterns::Patterns,
     pub effects: effects::Effects,
+    pub component_kit: component_kit::ComponentKit,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -201,6 +205,7 @@ impl Gallery {
                         patterns::page(ui, &mut self.patterns, &mut self.router)
                     }
                     Page::Effects => effects::page(ui, &mut self.effects),
+                    Page::ComponentKit => component_kit::page(ui, &mut self.component_kit),
                 }
             })
         };

@@ -80,6 +80,7 @@ pub(crate) fn search_field_with(
         .radius(m.radius as f32)
         .background(Color::Control)
         .border(1., Color::Border)
+        .focus_within_border(1., Color::Focus)
         .children(|cx| {
             let _ = svg(cx, &SEARCH)
                 .size(m.font_size as f32, m.font_size as f32)
@@ -87,8 +88,7 @@ pub(crate) fn search_field_with(
             let response = text_input_string(cx, label, value)
                 .placeholder(placeholder)
                 .autofocus(autofocus)
-                .background(Color::Control)
-                .border(0., Color::Control)
+                .unstyled()
                 .width(0.)
                 .min_width(0.)
                 .grow(1.)

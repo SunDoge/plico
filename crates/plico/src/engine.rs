@@ -199,6 +199,23 @@ impl Engine {
     pub fn focused(&self) -> Option<Entity> {
         self.focused
     }
+    /// Whether the last synchronized focus belongs to this exact scoped container.
+    pub(crate) fn focus_within(&self, identity: Identity) -> bool {
+        let mut current = self.focused;
+        while let Some(entity) = current {
+            let Some(node) = self.nodes.get(entity) else {
+                return false;
+            };
+            if node.identity == identity {
+                return true;
+            }
+            if entity == self.root {
+                break;
+            }
+            current = Some(node.identity.parent);
+        }
+        false
+    }
     /// Synchronize the backend-owned focus into the declaration engine.
     #[doc(hidden)]
     pub fn set_focused(&mut self, focused: Option<Entity>) {

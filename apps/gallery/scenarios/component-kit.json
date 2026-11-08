@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "viewport": { "width": 1280, "height": 900, "scale": 1.0 },
+  "state": { "router": { "current": "ComponentKit" }, "dark": false },
+  "time_ms": 200
+}

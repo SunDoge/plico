@@ -68,8 +68,15 @@ fill and clip alpha within two 8-bit levels. Existing circular quad checks remai
 unchanged. Plico's path rasterizer and MyGO's fragment shader use different
 antialiasing; these checks do not claim pixel-identical renderer output.
 
-Gallery: **Component kit → Corners**, with a smoothing slider and fill, border,
-and clipped artwork comparisons. The lyric panel also explicitly enables it.
+Rust Gallery and the managed Gallery both provide **Component kit → Corners**,
+with a smoothing slider and fill, border, and clipped artwork comparisons.
+Typed Rust LiquidGlass now passes the same corner_smoothing field to its WGSL
+contour. A GPU regression compares that implicit field against the shared
+renderer geometry, including cramped corners, intermediate amounts and 2× DPI.
+The opaque material fallback follows that contour too.
+
+For Rust, run `cargo run -p gallery -- --scenario apps/gallery/scenarios/component-kit-corners.json --capture reports/corners.png`.
+ The lyric panel also explicitly enables it.
 Rebuild the matching native library before using the new C# property:
 
 ```sh

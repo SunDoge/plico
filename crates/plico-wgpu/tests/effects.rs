@@ -746,3 +746,80 @@ fn scroll_edge_blurs_the_selected_edge_and_preserves_the_far_edge() {
         assert!(a.abs_diff(*b) <= 1);
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_markers_survive_recursive_opacity_layers() {
+    use kurbo::{Affine, Rect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f {return plico_backdrop_at(uv);}",
+        true,
+    )
+    .unwrap();
+    let blue = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(_uv:vec2f)->vec4f {return vec4f(0.,0.,1.,1.);}",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let mut make = |effects: bool| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgba8(255, 0, 0, 255),
+            None,
+            &Rect::new(0., 0., 16., 16.),
+        );
+        if effects {
+            scene.append_scene(
+                effect_scene(&mut text, copy.clone(), ShaderEffectId::new(), &[]),
+                Affine::IDENTITY,
+            );
+        }
+        scene.push_layer(
+            BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 16., 16.),
+            None,
+            None,
+        );
+        if effects {
+            scene.append_scene(
+                effect_scene(&mut text, blue.clone(), ShaderEffectId::new(), &[]),
+                Affine::IDENTITY,
+            );
+        } else {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                Color::from_rgba8(0, 0, 255, 255),
+                None,
+                &Rect::new(0., 0., 16., 16.),
+            );
+        }
+        scene.pop_layer();
+        if effects {
+            scene.append_scene(
+                effect_scene(&mut text, copy.clone(), ShaderEffectId::new(), &[]),
+                Affine::IDENTITY,
+            );
+        }
+        scene
+    };
+    let actual = make(true);
+    let expected = make(false);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&actual, [16, 16], [0.; 4], false)
+        .unwrap();
+    let expected = renderer
+        .render_scene(&expected, [16, 16], [0.; 4], false)
+        .unwrap();
+    for (a, b) in actual.iter().zip(expected) {
+        assert!(a.abs_diff(b) <= 1, "{a} != {b}");
+    }
+}

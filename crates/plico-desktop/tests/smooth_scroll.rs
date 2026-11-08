@@ -60,6 +60,16 @@ fn setup() -> (Source<Demo>, VirtualClock, TextContext) {
     s.build_frame(&mut tcx, 400, 300);
     (s, clock, tcx)
 }
+fn settle_scrollbar_fade<V: HostView>(
+    source: &mut Source<V>,
+    clock: &VirtualClock,
+    text: &mut TextContext,
+) {
+    // Overall animation includes the overlay scrollbar's 800ms hold + 200ms fade.
+    clock.advance(Duration::from_millis(1001)).unwrap();
+    source.build_frame(text, 400, 300);
+    assert!(!source.has_anim());
+}
 #[test]
 fn clock_samples_visible_rows_pauses_and_finishes_exactly() {
     let (mut s, clock, mut tcx) = setup();
@@ -78,8 +88,9 @@ fn clock_samples_visible_rows_pauses_and_finishes_exactly() {
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 4000.);
     assert_eq!(s.view.built.first(), Some(&98));
-    assert!(!s.has_anim());
     assert_eq!(clock.now(), Duration::from_millis(160));
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
+    assert_eq!(offset(&s), 4000.);
 }
 #[test]
 fn successive_wheels_accumulate_and_can_reverse_without_jumping() {
@@ -102,7 +113,7 @@ fn successive_wheels_accumulate_and_can_reverse_without_jumping() {
     clock.advance(Duration::from_millis(160)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 0.);
-    assert!(!s.has_anim());
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
     assert!(!s.handle_event(wheel(-40.)).handled);
 }
 #[test]
@@ -114,11 +125,11 @@ fn reduced_motion_snaps_pending_target_and_future_wheels() {
     s.set_reduced_motion(true);
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 4000.);
-    assert!(!s.has_anim());
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
     s.handle_event(wheel(200.));
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 4200.);
-    assert!(!s.has_anim());
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
 }
 #[test]
 fn shrinking_content_cancels_out_of_range_motion() {
@@ -238,8 +249,8 @@ fn nested_smooth_ports_chain_to_ancestors_and_settle() {
     for port in ports {
         assert_eq!(port.scroll.offset[1], port.scroll.range[1]);
     }
-    assert!(!s.has_anim());
     assert_eq!(s.adapter.stats.layout_runs, 0);
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
 }
 
 #[test]
@@ -267,7 +278,7 @@ fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
         }
     }
     let clock = VirtualClock::default();
-    let mut s = Source::with_clock(FocusDemo, clock);
+    let mut s = Source::with_clock(FocusDemo, clock.clone());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 300);
     s.handle_event(wheel(400.));
@@ -287,5 +298,5 @@ fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
         .find(|p| p.scroll.scrollable[1])
         .unwrap();
     assert_eq!(port.scroll.offset[1], port.scroll.range[1]);
-    assert!(!s.has_anim());
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
 }

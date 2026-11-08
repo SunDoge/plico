@@ -2041,6 +2041,9 @@ impl Renderer {
         };
         let parent_images = std::mem::take(&mut self.frame_images);
         let parent_slots = std::mem::take(&mut self.frame_image_slots);
+        // encode_items clears/rebuilds the marker table for each render target.
+        // Child layers must not discard the parent's pending backdrop markers.
+        let parent_backdrops = std::mem::take(&mut self.backdrop_effects);
         let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
         let mut resource = cached_image;
         let result = encoded.map(|mut encoder| {
@@ -2096,6 +2099,7 @@ impl Renderer {
         self.target = parent_target;
         self.frame_images = parent_images;
         self.frame_image_slots = parent_slots;
+        self.backdrop_effects = parent_backdrops;
         self.layer_depth -= 1;
         result
     }

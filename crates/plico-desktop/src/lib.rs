@@ -91,4 +91,10 @@ pub use services_host::{ServiceDesktopError, run_service_app_with_options};
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 mod preview;
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
-pub use preview::{PreviewError, PreviewScenario, PreviewSource, PreviewStep, PreviewViewport};
+pub use preview::{
+    PreviewError, PreviewScenario, PreviewSession, PreviewSource, PreviewStep, PreviewViewport,
+};
+
+/// Versioned recipe plans with assertions, fixture events and checkpoint captures.
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+pub mod recipe;
