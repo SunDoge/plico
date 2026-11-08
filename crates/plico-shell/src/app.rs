@@ -1969,11 +1969,17 @@ impl ExtensionContext<'_> {
                     app.skipped_present_deadline = None;
                     shell.invalidate_presentation();
                     shell.window().set_visible(true);
+                    shell.window().set_minimized(false);
                     shell.window().focus_window();
                     shell.window().request_redraw();
                     true
                 }
-                None => true,
+                None => {
+                    shell.window().set_minimized(false);
+                    shell.window().focus_window();
+                    shell.window().request_redraw();
+                    true
+                }
                 _ => false,
             };
         }
