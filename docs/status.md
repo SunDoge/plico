@@ -22,13 +22,20 @@
 macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
 详见 [桌面集成](desktop-integration.md)。
 
+## 默认圆角
+
+Rust Style 的默认 corner_smoothing 已设为 1，控件与布局统一采用连续圆角，半径数值不变。
+显式 0 保留圆弧；正圆与完全圆角胶囊在 CPU 与玻璃 WGSL 均保持精确圆弧，不变成方圆形。
+默认／serde／显式覆盖、几何与 GPU 圆角和裁剪回归已覆盖。
+
 ## MyGO 材质继续迁移
 
 新增 `LiquidGlass::regular()` / `clear()`、`GlassStyle` 与 Clarity。Regular 的明暗 tone
 随 theme surface 变化，大面板清晰度不会削弱小控件；旧 default/Custom 保持兼容。
 禁用玻璃按钮改用主题 fallback，减少无交互背景采样并保持可读性。
 Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、GPU 像素与交互测试已覆盖。
-交互玻璃的按压外扩／悬停过渡、inset shadow 与完整模糊金字塔还没有迁移，继续按证据推进。
+交互玻璃的按压外扩／悬停过渡已接入通用 shader scalar transition 与 paint_outset；原生输入、GPU 像素、焦点、裁剪和 idle 有回归。
+inset shadow 与完整模糊金字塔尚未迁移，继续按证据推进。
 
 ## C# MyGO 改进的 Rust 入口
 

@@ -15,6 +15,11 @@ resource (`Plico.liquid_glass.wgsl`, SHA-256
 Framework-specific adaptation, parameterization, reflection and fallback code
 are Apache-2.0. No GPL SDK or application business logic is included.
 
+The interactive material also follows the hover/press timing and material-only
+expansion in `Glass.BuildMaterial` / `pressed.PaintMaterial` in `glass.go`.
+Retained uniform transitions, painting overflow, hit testing and scheduling are
+Plico framework implementations.
+
 Elevation presets separate contact and ambient shadows, following the two-shadow
 treatment of MyGO `examples/effort-slider/effort.go`. MyGO's glass material itself
 casts no shadow. The preset values are Plico's design tokens, not an assertion of

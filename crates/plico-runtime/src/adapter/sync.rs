@@ -50,7 +50,7 @@ impl Adapter {
         if n.kind == Kind::Slider {
             target.checked = self.pressed == Some(e);
         }
-        if styled_button {
+        if styled_button && !target.material_background {
             target.background = target.background.or(Some(Token::Control));
             let inferred = match target.background {
                 Some(Token::Control) => (Some(Token::ControlHover), Some(Token::ControlPressed)),
@@ -86,8 +86,8 @@ impl Adapter {
                 visual_style,
                 engine.theme(),
                 button_state::Interaction {
-                    hovered: self.hovered == Some(e),
-                    pressed: self.pressed == Some(e),
+                    hovered: self.hovered == Some(e) && !target.material_background,
+                    pressed: self.pressed == Some(e) && !target.material_background,
                     focused: self.focus_visible && self.focused == Some(e),
                     disabled: target.disabled,
                 },

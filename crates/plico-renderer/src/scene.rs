@@ -113,6 +113,18 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
     let border_box = Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64);
     let outline = f64::from((node.paint.outline_width + node.paint.outline_offset.abs()).max(0.0));
     let mut bounds = border_box.inflate(outline, outline);
+    if let Some(widget) = &node.paint.widget
+        && let Some(crate::PaintCommand::PushClip { transform, clip }) = widget.commands.first()
+    {
+        let local = transform.transform_rect_bbox(clip.bounding_box());
+        bounds = bounds.union(
+            local
+                + kurbo::Vec2::new(
+                    f64::from(node.content_origin[0]),
+                    f64::from(node.content_origin[1]),
+                ),
+        );
+    }
     for shadow in &node.paint.shadows {
         let (shadow_rect, _, std_dev) =
             shadow_geometry(border_box, f64::from(node.paint.border_radii.max()), shadow);

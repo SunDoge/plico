@@ -9,6 +9,7 @@ use lru::LruCache;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use rustc_hash::FxHashMap;
 use std::num::NonZeroUsize;
+use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPipeline, Texture,
     TextureFormat, TextureView,
@@ -93,17 +94,16 @@ const SHADER_BACKDROP_PREFIX: &str = r#"
 var plico_backdrop: texture_2d<f32>;
 @group(1) @binding(1)
 var plico_backdrop_sampler: sampler;
+@group(1) @binding(2)
+var<uniform> plico_backdrop_mapping: vec4f;
 
 fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
     if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
         return vec4<f32>(0.0);
     }
-    return textureSampleLevel(
-        plico_backdrop,
-        plico_backdrop_sampler,
-        uv,
-        0.0,
-    );
+    let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
+    if any(mapped < vec2f(0.0)) || any(mapped > vec2f(1.0)) { return vec4f(0.0); }
+    return textureSampleLevel(plico_backdrop,plico_backdrop_sampler,mapped,0.0);
 }
 
 /// The surface's own sample of its backdrop at uv, premultiplied.
@@ -269,7 +269,18 @@ impl ShaderEffectSource {
             .map_err(|error| format!("invalid shader interface: {error}"))?;
         let mut parameters = Vec::new();
         for (_, variable) in module.global_variables.iter() {
-            // Only the two resources owned by the generated backdrop prelude
+            if reads_backdrop
+                && variable.space == naga::AddressSpace::Uniform
+                && variable.name.as_deref() == Some("plico_backdrop_mapping")
+                && variable
+                    .binding
+                    .as_ref()
+                    .is_some_and(|b| b.group == 1 && b.binding == 2)
+                && matches!(&module.types[variable.ty].inner, naga::TypeInner::Vector {size: naga::VectorSize::Quad,scalar} if scalar.kind == naga::ScalarKind::Float && scalar.width == 4)
+            {
+                continue;
+            }
+            // Only the texture/sampler owned by the generated backdrop prelude
             // are allowed outside the uniform group. Arbitrary user bindings
             // remain rejected, including for complete shader modules.
             if reads_backdrop
@@ -656,6 +667,16 @@ impl ShaderRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let backdrop_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -739,6 +760,27 @@ impl ShaderRenderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
     ) -> TextureView {
+        self.render_view_with_backdrop_mapping(
+            effect,
+            backdrop,
+            [0., 0., 1., 1.],
+            device,
+            queue,
+            encoder,
+        )
+    }
+
+    /// Sample a cropped backdrop through an effect-UV to texture-UV mapping.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_view_with_backdrop_mapping(
+        &mut self,
+        effect: &ShaderEffect,
+        backdrop: &wgpu::TextureView,
+        mapping: [f32; 4],
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) -> TextureView {
         let (_id, view, bind_group) = self.render_target_full(effect, device, queue, encoder);
         let pipeline = Self::backdrop_pipeline(
             &mut self.backdrop_pipelines,
@@ -747,6 +789,11 @@ impl ShaderRenderer {
             device,
             &effect.source,
         );
+        let mapping = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Plico backdrop UV mapping"),
+            contents: bytemuck::cast_slice(&mapping),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
         let backdrop_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Plico shader backdrop bind"),
             layout: &self.backdrop_layout,
@@ -758,6 +805,10 @@ impl ShaderRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.backdrop_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: mapping.as_entire_binding(),
                 },
             ],
         });

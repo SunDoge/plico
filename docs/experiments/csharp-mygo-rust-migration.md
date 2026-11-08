@@ -117,5 +117,14 @@ MyGO 模糊金字塔、原生 NSGlassEffectView 或系统壁纸采样。
 Gallery 示例含明／暗／clear 可重建场景及模式与清晰度交互测试。禁用按钮不再创建背景 shader。
 主按钮强调色提高覆盖率，三套内置主题的 on-accent 文字经过 GPU 像素对比度检查（至少 4.5:1）。
 
-本批没有移植 MyGO 的 hover/press 150 ms 过渡和几何外扩，也没有移植 inset shadow、
-解析连续 caster 阴影或 blur pyramid；这些仍属于后续显示效果工作，不能用本批通过的测试代替验证。
+第一批结束时，交互几何、inset shadow、解析连续 caster 阴影与 blur pyramid 仍未迁移。
+
+### 第二批：交互材质
+
+参考 `Glass.BuildMaterial` 与 `pressed.PaintMaterial`：悬停提亮 120 ms，按压外扩 150 ms、
+水平 1.1 / 垂直 0.45 DIP；通用实现为 shader scalar transition 和 paint_outset，字形和 hit box 不动。
+修正了宿主对材质按钮补实色背景的推断，保留焦点、disabled 和祖先 clip。裁剪离屏背景加入 UV 映射，
+避免材质画布外扩后采样偏移。Preview 增加 pointer_down/up，Gallery 提供可重建 hover/pressed 场景。
+
+原生输入、retained clock／反向／组合目标、idle／reduced motion、焦点和 GPU 外扩／裁剪像素均验证。
+inset shadow、解析连续 caster 阴影和 blur pyramid 仍待实现；本批不声称与原生 macOS 像素一致。

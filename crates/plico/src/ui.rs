@@ -1142,6 +1142,7 @@ impl Leaf<'_, '_, '_> {
         style.styled_button = styled;
         let mut material = self.material;
         if let Some(ref mut glass) = material {
+            style.material_background = true;
             // Disabled controls retain a readable theme surface instead of
             // spending backdrop work on a translucent, noninteractive pane.
             if style.disabled {
@@ -1179,16 +1180,26 @@ impl Leaf<'_, '_, '_> {
         ui.engine.set_spans(entity, &[]);
         let inner = ui.with_parent(entity, style, true, |cx| {
             if let Some(mut glass) = material {
-                if !style.disabled {
-                    if cx.pressed() {
-                        glass.tint_opacity = (glass.tint_opacity + 0.12).min(1.);
-                        glass.rim *= 0.65;
-                    } else if response.hovered {
-                        glass.tint_opacity = (glass.tint_opacity + 0.06).min(1.);
-                        glass.rim = (glass.rim + 0.15).min(1.);
+                if glass.interactive && !style.disabled {
+                    glass.show_interactive(
+                        cx,
+                        style.radius,
+                        style.corner_smoothing,
+                        response.hovered,
+                        cx.pressed(),
+                    );
+                } else {
+                    if !style.disabled {
+                        if cx.pressed() {
+                            glass.tint_opacity = (glass.tint_opacity + 0.12).min(1.);
+                            glass.rim *= 0.65;
+                        } else if response.hovered {
+                            glass.tint_opacity = (glass.tint_opacity + 0.06).min(1.);
+                            glass.rim = (glass.rim + 0.15).min(1.);
+                        }
                     }
+                    glass.show(cx, style.radius, style.corner_smoothing);
                 }
-                glass.show(cx, style.radius, style.corner_smoothing);
             }
             build(cx)
         });
@@ -2321,6 +2332,29 @@ impl crate::ImplicitKey for Shader<'_, '_, '_> {
     }
 }
 impl Shader<'_, '_, '_> {
+    /// Interpolate one scalar on target changes, using the injected native clock.
+    pub fn transition_value(mut self, index: usize, milliseconds: u16) -> Self {
+        let value = crate::ShaderTransition {
+            index,
+            milliseconds,
+        };
+        if let Some(existing) = self
+            .params
+            .transitions
+            .iter_mut()
+            .find(|t| t.index == index)
+        {
+            *existing = value;
+        } else {
+            self.params.transitions.push(value);
+        }
+        self
+    }
+    /// Expand only the painted canvas. Parent clips still apply.
+    pub fn paint_outset(mut self, x: f32, y: f32) -> Self {
+        self.params.paint_outset = [x, y];
+        self
+    }
     #[inline(always)]
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();

@@ -2324,7 +2324,19 @@ fn encode_backdrop_step<'p>(
         effects.begin_frame();
         effects
     });
-    let output = effects.render_view_with_backdrop(effect, &backdrop_view, device, queue, encoder);
+    let output = effects.render_view_with_backdrop_mapping(
+        effect,
+        &backdrop_view,
+        [
+            (x - left as f32) / region.width as f32,
+            (y - top as f32) / region.height as f32,
+            w / region.width as f32,
+            h / region.height as f32,
+        ],
+        device,
+        queue,
+        encoder,
+    );
     let compositor = compositor
         .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
     {

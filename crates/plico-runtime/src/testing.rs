@@ -5,8 +5,9 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerEvent, PointerPhase,
-    PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext, UiEvent,
+    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
+    PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
+    UiEvent,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -19,6 +20,16 @@ pub enum Command {
     Snapshot,
     /// Move the primary mouse pointer in window-logical pixels.
     PointerMove {
+        x: f64,
+        y: f64,
+    },
+    /// Press the primary pointer at window-logical coordinates; release separately.
+    PointerDown {
+        x: f64,
+        y: f64,
+    },
+    /// Release the primary pointer, allowing intermediate pressed-state captures.
+    PointerUp {
         x: f64,
         y: f64,
     },
@@ -120,7 +131,30 @@ pub fn dispatch<V: HostView>(
                 phase: PointerPhase::Move,
                 position: Point { x: *x, y: *y },
                 button: None,
-                buttons: 0,
+                buttons: u32::from(
+                    source.adapter.pressed.is_some()
+                        || source.adapter.slider_drag.is_some()
+                        || source.adapter.scrollbar_drag.is_some()
+                        || source.adapter.backdrop_pressed.is_some(),
+                ),
+                modifiers: Modifiers::empty(),
+                properties: PointerProperties::default(),
+            }));
+        }
+        Command::PointerDown { x, y } | Command::PointerUp { x, y } => {
+            if !x.is_finite() || !y.is_finite() {
+                return Err(Error::PointerPosition);
+            }
+            let down = matches!(command, Command::PointerDown { .. });
+            source.handle_event(UiEvent::Pointer(PointerEvent {
+                phase: if down {
+                    PointerPhase::Down
+                } else {
+                    PointerPhase::Up
+                },
+                position: Point { x: *x, y: *y },
+                button: Some(PointerButton::Primary),
+                buttons: u32::from(down),
                 modifiers: Modifiers::empty(),
                 properties: PointerProperties::default(),
             }));

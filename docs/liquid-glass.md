@@ -212,3 +212,45 @@ Clarity 的尺寸响应对短边 100 DIP 以内的控件保持原材质，在 10
 提供模式切换、clarity 滑杆和普通／主操作／禁用按钮。内容底板保证不同背景上的文字对比度。
 GPU 测试检查参考色调端点、深色模式、small-control clarity 不变及大面板变化。
 当前仍使用既有 25 点 shader 采样，没有宣称移植 MyGO 的模糊金字塔、HDR 或原生系统玻璃。
+
+## 交互玻璃与原生时钟
+
+`regular()` / `clear()` 预设现为按钮启用 `interactive`；`default()` / Custom 仍默认关闭。
+设置 `LiquidGlass { interactive: true, ..LiquidGlass::default() }` 可为既有参数开启相同反馈。
+容器材质保持静态；只有按钮／button_base 的交互状态会驱动反馈。
+
+悬停在 120 ms 内提亮 rim、tone 与 tint，按压在 150 ms 内让材质向左右各外扩 1.1 DIP、
+上下各外扩 0.45 DIP，并略调圆角。字形、布局和点击区域不缩放；父级滚动裁剪仍然生效。
+减少动态效果时直接到目标状态。材质拥有背景后，宿主不再在下面推断一层实色 Control fill；
+键盘焦点与 disabled 处理独立保留。
+
+这由通用 `shader(...).transition_value(index, milliseconds)` 与 `paint_outset(x,y)` 支撑，
+前者用注入时钟对指定 scalar 进行 retained 过渡，后者仅拓展绘制画布（每轴 0–64 DIP）。
+目标中途变化时从当前采样值继续；其他参数变化不会重启未改变的目标；结束后回到 idle。
+应用不需要 per-frame changed、UI state 回调或系统 Instant。
+
+`paint_outset` 仍受祖先裁剪。renderer 在离屏目标裁剪输入背景时保留 effect UV 到纹理 UV 的映射，
+避免外扩画布或 cropped opacity target 导致采样位置偏移。这份映射在每次 GPU 编码中独立拥有，
+不缓存历史 backdrop view。
+
+Gallery 的 `effects-glass-hover.json` / `effects-glass-pressed.json` 可重建交互截图。
+Preview 现在支持独立的 `pointer_down` / `pointer_up`，无需把按压伪装成一次已完成的 click。
+
+```sh
+cargo test -p plico-desktop --test shader_transition --test interactive_glass
+cargo test -p plico-desktop --test interactive_glass --test materials --test scroll_clip -- --ignored
+cargo test -p plico-wgpu --test effects -- --ignored
+```
+
+测试覆盖：原生输入、时钟中间帧／反向与组合目标、无重复声明／布局、idle、减少动态效果、
+绘制外扩但不扩大命中、键盘焦点、父级裁剪、无实色底板，以及裁剪背景像素位置不变。
+
+## 默认连续圆角
+
+Rust `Style::default()` 的 `corner_smoothing` 现在为 1，普通按钮、输入、布局、图像与材质
+从同一默认值取得连续圆角，不需要应用逐个开启。原有半径数值不变；半径为零仍为直角。
+旧预览数据省略该字段时也采用新默认值，显式 `.corner_smoothing(0.)` 可选择圆弧。
+
+圆形与完全圆角胶囊例外：统一半径达到短边一半时，CPU fill/border/clip 使用精确 RoundedRect 圆弧，
+玻璃 WGSL 使用相同的 circular 场，保留真圆和标准胶囊，并避免为这些形状创建连续轮廓路径。
+API 默认、显式选择、圆／胶囊几何相等及 GPU cramped-corner／滚动裁剪都有回归。

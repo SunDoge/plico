@@ -1043,3 +1043,71 @@ fn backdrop_effects_obey_scroll_clips_and_masks_after_translation() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn cropped_backdrops_preserve_pixel_positions_when_effect_canvas_extends_outside_target() {
+    use kurbo::{Affine, Rect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f {return plico_backdrop_at(uv);}",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let make = |with_effect: bool| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(255, 0, 0),
+            None,
+            &Rect::new(0., 0., 48., 48.),
+        );
+        scene.push_layer(
+            BlendMode::default(),
+            0.75,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 48., 48.),
+            None,
+            None,
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(12., 12., 28., 28.));
+        for x in 8..24 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                if x % 2 == 0 {
+                    Color::from_rgb8(0, 0, 255)
+                } else {
+                    Color::from_rgb8(0, 255, 0)
+                },
+                None,
+                &Rect::new(x as f64, 8., x as f64 + 1., 24.),
+            );
+        }
+        if with_effect {
+            scene.append_scene(effect.clone(), Affine::translate((8., 8.)));
+        }
+        scene.pop_layer();
+        scene.pop_layer();
+        scene
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&make(true), [48, 48], [0.; 4], false)
+        .unwrap();
+    let expected = renderer
+        .render_scene(&make(false), [48, 48], [0.; 4], false)
+        .unwrap();
+    for (i, (a, b)) in actual.iter().zip(&expected).enumerate() {
+        assert!(
+            a.abs_diff(*b) <= 1,
+            "crop moved a backdrop pixel at ({},{}): {a} != {b}",
+            i / 4 % 48,
+            i / 4 / 48
+        );
+    }
+}

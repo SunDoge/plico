@@ -118,6 +118,12 @@ impl From<[f32; 4]> for ShaderValue {
         Self::Vec4(v)
     }
 }
+/// A retained, clock-driven transition for one scalar shader value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ShaderTransition {
+    pub index: usize,
+    pub milliseconds: u16,
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ShaderParams {
@@ -125,6 +131,10 @@ pub struct ShaderParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
     pub values: Vec<f32>,
+    /// Scalar transitions sampled by the runtime, without redeclaring the view.
+    pub transitions: Vec<ShaderTransition>,
+    /// Symmetric paint overflow in logical pixels; layout and hit boxes are unchanged.
+    pub paint_outset: [f32; 2],
     /// Complete-module top-level f32/vector fields, resolved by WGSL name.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<(String, ShaderValue)>,
@@ -142,6 +152,8 @@ impl Default for ShaderParams {
         Self {
             source_path: None,
             values: Vec::new(),
+            transitions: Vec::new(),
+            paint_outset: [0.; 2],
             parameters: Vec::new(),
             sksl: None,
             time: 0.,
@@ -155,7 +167,17 @@ impl Default for ShaderParams {
 }
 impl ShaderParams {
     pub fn valid(&self) -> bool {
-        self.parameters.len() <= 256
+        self.paint_outset
+            .iter()
+            .all(|v| v.is_finite() && (0. ..=64.).contains(v))
+            && self.transitions.len() <= 256
+            && self.transitions.iter().enumerate().all(|(i, t)| {
+                t.index < 256
+                    && !self.transitions[..i]
+                        .iter()
+                        .any(|previous| previous.index == t.index)
+            })
+            && self.parameters.len() <= 256
             && self.parameters.iter().all(|(name, value)| {
                 !name.is_empty()
                     && name.len() <= 1024
@@ -202,5 +224,29 @@ mod tests {
         assert!(MODULE.is_module());
         assert_eq!(ShaderAsset::new("inline").source_path(), None);
         assert_eq!(MODULE.with_sksl("skia").source_path(), MODULE.source_path());
+    }
+}
+
+#[cfg(test)]
+mod transition_validation {
+    use super::*;
+    #[test]
+    fn shader_transition_metadata_is_bounded_and_legacy_configs_stay_static() {
+        let mut params: ShaderParams = serde_json::from_str("{}").unwrap();
+        assert!(params.transitions.is_empty());
+        assert_eq!(params.paint_outset, [0.; 2]);
+        params.transitions = vec![ShaderTransition {
+            index: 0,
+            milliseconds: 120,
+        }];
+        params.paint_outset = [2., 2.];
+        assert!(params.valid());
+        params.transitions.push(params.transitions[0]);
+        assert!(!params.valid());
+        params.transitions.pop();
+        params.paint_outset[0] = f32::NAN;
+        assert!(!params.valid());
+        params.paint_outset = [65., 0.];
+        assert!(!params.valid());
     }
 }

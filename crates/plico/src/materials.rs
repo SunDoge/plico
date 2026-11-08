@@ -44,6 +44,8 @@ pub struct LiquidGlass {
     pub style: GlassStyle,
     /// Clear large panes without flattening small controls, in 0..=1.
     pub clarity: f32,
+    /// Animate button hover and material-only press growth. Containers stay static.
+    pub interactive: bool,
     pub enabled: bool,
     /// Blur amount in 0..=1.
     pub frost: f32,
@@ -68,6 +70,7 @@ impl Default for LiquidGlass {
         Self {
             style: GlassStyle::Custom,
             clarity: 0.,
+            interactive: false,
             enabled: true,
             frost: 0.42,
             tint: Color::Literal(0xf9fcff),
@@ -87,6 +90,7 @@ impl LiquidGlass {
     pub fn regular() -> Self {
         Self {
             style: GlassStyle::Regular,
+            interactive: true,
             tint: Color::Panel,
             tint_opacity: 0.,
             saturation: 1.,
@@ -127,6 +131,31 @@ impl LiquidGlass {
     }
     #[crate::component]
     pub(crate) fn show(self, cx: &mut UiContext, radius: f32, corner_smoothing: f32) {
+        self.show_surface(cx, radius, corner_smoothing, None);
+    }
+    #[crate::component]
+    pub(crate) fn show_interactive(
+        self,
+        cx: &mut UiContext,
+        radius: f32,
+        smoothing: f32,
+        hovered: bool,
+        pressed: bool,
+    ) {
+        self.show_surface(
+            cx,
+            radius,
+            smoothing,
+            Some([f32::from(hovered), f32::from(pressed)]),
+        );
+    }
+    fn show_surface(
+        self,
+        cx: &mut UiContext,
+        radius: f32,
+        corner_smoothing: f32,
+        feedback: Option<[f32; 2]>,
+    ) {
         let options = self.validated();
         if options.enabled {
             let animated = options.animated && !options.reduce_motion;
@@ -141,7 +170,11 @@ impl LiquidGlass {
                 GlassStyle::Regular => 1.,
                 GlassStyle::Clear => 2.,
             };
-            shader(cx, &LIQUID_GLASS)
+            let feedback = feedback.filter(|_| options.interactive);
+            let amounts = feedback.unwrap_or([0.; 2]);
+            // A fixed two-DIP canvas margin encloses MyGO's 1.1/0.45-DIP growth.
+            let outset = if feedback.is_some() { 2. } else { 0. };
+            let surface = shader(cx, &LIQUID_GLASS)
                 .absolute(0., 0.)
                 .radius(0.)
                 .width_percent(100.)
@@ -163,8 +196,16 @@ impl LiquidGlass {
                     style,
                     options.clarity,
                     f32::from(brightness < 0.5),
+                    amounts[0],
+                    amounts[1],
+                    outset,
+                    outset,
                 ])
+                .paint_outset(outset, outset)
                 .animated(animated);
+            if feedback.is_some() && !options.reduce_motion {
+                surface.transition_value(16, 120).transition_value(17, 150);
+            }
         } else {
             column(cx)
                 .absolute(0., 0.)

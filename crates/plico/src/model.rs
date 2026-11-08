@@ -317,7 +317,7 @@ pub struct Style {
     /// Gaussian foreground sigma in logical pixels; zero disables filtering.
     #[invalidates(PAINT)]
     pub foreground_blur: f32,
-    /// Continuous-corner easing in 0..=1; zero keeps circular corners.
+    /// Continuous-corner easing in 0..=1, defaulting to 1; zero selects circular arcs.
     #[invalidates(PAINT)]
     pub corner_smoothing: f32,
     /// Optional outer shadow; changing it only invalidates paint.
@@ -443,6 +443,10 @@ pub struct Style {
     /// Styled composite button; native hosts may animate its disabled attenuation.
     #[invalidates(PAINT)]
     pub styled_button: bool,
+    /// A child material supplies the surface. Keep focus/semantics but suppress inferred button fills.
+    #[serde(default)]
+    #[invalidates(PAINT)]
+    pub material_background: bool,
     /// Retain native input semantics without built-in control painting.
     /// Frontends can supply their own visuals around a range editing surface.
     #[serde(default = "control_chrome_default")]
@@ -480,7 +484,7 @@ impl Default for Style {
             selectable: false,
             backdrop_blur: 0.,
             foreground_blur: 0.,
-            corner_smoothing: 0.,
+            corner_smoothing: 1.,
             shadow: None,
             ambient_shadow: None,
             sticky_top: None,
@@ -532,6 +536,7 @@ impl Default for Style {
             background: None,
             disabled: false,
             styled_button: false,
+            material_background: false,
             control_chrome: true,
             checked: false,
             input_revision: 0,
