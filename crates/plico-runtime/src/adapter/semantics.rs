@@ -144,6 +144,11 @@ impl Adapter {
                 if cacheable {
                     self.semantic.borrow_mut().nodes.insert(e, semantic.clone());
                 }
+                // Bound input values live outside declaration text. Read only the
+                // ordinary projection; TextBuffer::text deliberately excludes secrets.
+                if n.kind == Kind::TextInput {
+                    semantic.value = engine.input(e).and_then(|(buffer, _)| buffer.text());
+                }
                 semantic.bounds = self.visual_bounds(p.node_id).unwrap_or(p.rect);
                 semantic.described_by = self.tooltip_description(engine, e).into_iter().collect();
                 semantic.disabled |=

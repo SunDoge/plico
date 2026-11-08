@@ -2,6 +2,22 @@
 
 # 实现状态与边界
 
+## 框架材质
+
+`plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；
+容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
+框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
+启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。Skia 材质、原生系统玻璃与模糊金字塔尚未实现。
+见 [Liquid Glass](liquid-glass.md)。
+
+## C# MyGO 改进的 Rust 入口
+
+已补齐 progressive BackdropBlur / 四方向 ScrollEdge、前景 `.blur` / `.no_shadow`、
+Tone 与 Info 语义色、chip/tag、有界分页、alert/notification、empty_state 和 native-clock skeleton。
+Rust Gallery 新增 Component kit 与圆角对照页；玻璃和 opaque fallback 继承容器的连续圆角。
+原本位于 shared Rust 后端的文字、滚动、阴影和缓存优化继续共用，未重复实现。
+详细迁移矩阵与边界见 [迁移记录](experiments/csharp-mygo-rust-migration.md)。
+
 ## 当前主线
 
 plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续共用；

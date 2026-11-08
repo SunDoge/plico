@@ -232,21 +232,23 @@ impl Capture<'_> {
         mut renderer: CaptureRenderer,
         mut text: TextContext,
     ) -> Result<CapturedFrame, CaptureError> {
+        self.render_with_borrowed(&mut renderer, &mut text)
+    }
+    pub(crate) fn render_with_borrowed(
+        self,
+        renderer: &mut CaptureRenderer,
+        text: &mut TextContext,
+    ) -> Result<CapturedFrame, CaptureError> {
         let (width, height) = dimensions(self.width, self.height, self.scale)?;
         for pass in 0..=self.settle_passes {
             let mut scene = Scene::new();
             if self
                 .source
-                .render_retained_frame(&mut scene, &mut text, (self.width, self.height), self.scale)
+                .render_retained_frame(&mut scene, text, (self.width, self.height), self.scale)
                 .is_none()
             {
-                self.source.build_and_paint(
-                    &mut scene,
-                    &mut text,
-                    self.width,
-                    self.height,
-                    self.scale,
-                );
+                self.source
+                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale);
             }
             if pass == self.settle_passes || !self.source.poll_async() {
                 let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;

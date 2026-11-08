@@ -296,6 +296,13 @@ fn secret_buffer_binding_keeps_password_out_of_presentation_and_ime() {
     source.handle_event(UiEvent::TextInput("not-for-presentation".into()));
     paint(&mut source, &mut text);
     assert_eq!(source.ime_state().unwrap().surrounding_text, "");
+    let snapshot = source.adapter.semantics(&source.engine, 0);
+    assert!(
+        snapshot
+            .nodes
+            .iter()
+            .any(|node| node.id == id && node.value.is_none())
+    );
     assert!(
         !serde_json::to_string(&source.engine.snapshot())
             .unwrap()
