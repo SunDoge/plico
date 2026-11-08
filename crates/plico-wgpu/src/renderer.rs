@@ -153,6 +153,7 @@ pub struct Renderer {
     info: wgpu::AdapterInfo,
     adapter: wgpu::Adapter,
     blitter: Option<crate::blit::Blitter>,
+    backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
     layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -446,6 +447,7 @@ impl Renderer {
             info,
             adapter,
             blitter: None,
+            backdrop_compositor: None,
             layout,
             frame,
             bind,
@@ -1056,6 +1058,17 @@ impl Renderer {
                         );
                     }
                     if let Some(effect_index) = backdrop_at {
+                        let marker = instances[run.start];
+                        let [x, y, w, h] = marker.rect;
+                        let [cx, cy, cw, ch] = marker.clip;
+                        if x.max(cx).max(origin[0])
+                            >= (x + w).min(cx + cw).min(origin[0] + width as f32)
+                            || y.max(cy).max(origin[1])
+                                >= (y + h).min(cy + ch).min(origin[1] + height as f32)
+                        {
+                            first = end;
+                            continue;
+                        }
                         // Split the pass: everything before the effect is
                         // now in the target; copy that region out, render
                         // the effect with it bound, then continue the rest
@@ -1064,13 +1077,21 @@ impl Renderer {
                         drop(pass);
                         let effect = self.backdrop_effects[effect_index].clone();
                         let mut effects = self.effects.take();
-                        let mut blitter = self.blitter.take();
+                        let mut compositor = self.backdrop_compositor.take();
                         pass = encode_backdrop_step(
                             &self.device,
                             &self.queue,
                             self.target.as_ref(),
                             &mut effects,
-                            &mut blitter,
+                            &mut compositor,
+                            &self.atlas_texture.layout,
+                            if run.mask > 0 {
+                                &self.frame_images[run.mask as usize - 1].bind
+                            } else {
+                                &self.atlas_texture.bind
+                            },
+                            instances[run.start],
+                            origin,
                             &mut encoder,
                             &view,
                             {
@@ -1081,7 +1102,7 @@ impl Renderer {
                             size,
                         );
                         self.effects = effects;
-                        self.blitter = blitter;
+                        self.backdrop_compositor = compositor;
                         self.batch_stats.passes += 1;
                         pass.set_bind_group(0, &self.bind, &[]);
                         pass.set_vertex_buffer(0, self.instances.slice(..));
@@ -1488,6 +1509,7 @@ impl Renderer {
                     });
                 }
                 crate::Draw::Effect(effect, q) => {
+                    q.validate()?;
                     if effect.reads_backdrop() {
                         // Backdrop readers sample what the frame paints before
                         // them; that content is drawn by the pass this instance
@@ -1507,12 +1529,9 @@ impl Renderer {
                             clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                             uv: [0.; 4],
                             gradient: [0.; 4],
-                            clip_params: [0.; 4],
+                            clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                         });
-                        continue;
-                    }
-                    {
-                        q.validate()?;
+                    } else {
                         let resource = self.render_effect(effect)?;
                         let slot = self.intern_frame_image(resource);
                         instances.push(Instance {
@@ -2244,7 +2263,11 @@ fn encode_backdrop_step<'p>(
     queue: &wgpu::Queue,
     target: Option<&Target>,
     effects: &mut Option<plico_renderer::shader::ShaderRenderer>,
-    blitter: &mut Option<crate::blit::Blitter>,
+    compositor: &mut Option<crate::backdrop_composite::Compositor>,
+    mask_layout: &wgpu::BindGroupLayout,
+    mask: &wgpu::BindGroup,
+    instance: Instance,
+    origin: [f32; 2],
     encoder: &'p mut wgpu::CommandEncoder,
     frame_view: &wgpu::TextureView,
     rect: [f32; 4],
@@ -2253,12 +2276,14 @@ fn encode_backdrop_step<'p>(
 ) -> wgpu::RenderPass<'p> {
     let [x, y, w, h] = rect;
     let target = target.expect("backdrop steps only run with a live target");
+    let left = x.floor().max(0.) as u32;
+    let top = y.floor().max(0.) as u32;
     let region = wgpu::Extent3d {
-        width: (w as u32)
-            .min(size[0].saturating_sub(x.max(0.) as u32))
+        width: ((x + w).ceil().min(size[0] as f32) as u32)
+            .saturating_sub(left)
             .max(1),
-        height: (h as u32)
-            .min(size[1].saturating_sub(y.max(0.) as u32))
+        height: ((y + h).ceil().min(size[1] as f32) as u32)
+            .saturating_sub(top)
             .max(1),
         depth_or_array_layers: 1,
     };
@@ -2279,8 +2304,8 @@ fn encode_backdrop_step<'p>(
             texture: &target.texture,
             mip_level: 0,
             origin: wgpu::Origin3d {
-                x: x.max(0.) as u32,
-                y: y.max(0.) as u32,
+                x: left,
+                y: top,
                 z: 0,
             },
             aspect: wgpu::TextureAspect::All,
@@ -2300,13 +2325,8 @@ fn encode_backdrop_step<'p>(
         effects
     });
     let output = effects.render_view_with_backdrop(effect, &backdrop_view, device, queue, encoder);
-    // Blit the effect output into the frame at the instance's rect: a
-    // fullscreen premultiplied blit, scissored to the rect.
-    let format = target.texture.format();
-    if blitter.as_ref().is_none_or(|b| b.format != format) {
-        *blitter = Some(crate::blit::Blitter::new(device, format));
-    }
-    let blitter = blitter.as_mut().expect("blitter just created");
+    let compositor = compositor
+        .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Plico backdrop effect composite"),
@@ -2321,23 +2341,29 @@ fn encode_backdrop_step<'p>(
             })],
             ..Default::default()
         });
-        pass.set_scissor_rect(
-            x.max(0.) as u32,
-            y.max(0.) as u32,
-            region.width,
-            region.height,
+        pass.set_scissor_rect(left, top, region.width, region.height);
+        // Keep the effect's original rectangle when an isolated target crops
+        // it. The compositor applies the inherited world-space clip and mask;
+        // shrinking its viewport instead would stretch offscreen content in.
+        pass.set_viewport(0., 0., size[0] as f32, size[1] as f32, 0., 1.);
+        compositor.encode(
+            device,
+            &output,
+            &backdrop_view,
+            mask,
+            [
+                [x, y, w, h],
+                instance.clip,
+                instance.mask_rect,
+                [
+                    origin[0],
+                    origin[1],
+                    instance.clip_params[2],
+                    instance.clip_params[0],
+                ],
+            ],
+            pass,
         );
-        // The source is a local region, not a full-window texture. Map its
-        // UVs into the destination rectangle rather than sampling window coords.
-        pass.set_viewport(
-            x.max(0.),
-            y.max(0.),
-            region.width as f32,
-            region.height as f32,
-            0.,
-            1.,
-        );
-        blitter.encode_scissored(device, &output, pass);
     }
     // Continue the frame in a fresh pass over the same target.
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

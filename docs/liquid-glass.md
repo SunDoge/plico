@@ -168,3 +168,17 @@ The backdrop surface stays fixed while a separate content viewport scrolls.
 Glass dialogs default to an 18% scrim; opaque fallback retains the 38% default.
 `Modal::scrim_opacity` explicitly overrides that amount. Passing an application
 material with `enabled: false` declares an opaque panel without a shader.
+
+## 滚动区域裁剪回归
+
+读取背景的材质在独立合成时继续使用祖先矩形裁剪、圆角覆盖遮罩和离屏目标原点。
+结果包含已采样背景，因此按裁剪覆盖率与原像素混合，不再次以 SrcOver 叠加背景。
+完全离开可见裁剪的效果不执行背景复制。
+
+```sh
+cargo test -p plico-wgpu --test effects -- --ignored
+cargo test -p plico-desktop --test scroll_clip -- --ignored
+```
+
+测试将同色材质与普通填充逐像素比较，并验证真实 scroll_y 控件中的玻璃、阴影和透明分组
+在连续滚动与 1／1.5／2 倍 device scale 下不会越过父滚动区域或圆角。需要可用的 wgpu adapter。

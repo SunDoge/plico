@@ -70,29 +70,6 @@ impl Blitter {
     pub fn clear_source(&mut self) {
         self.source = None;
     }
-    /// Blit into an already-open pass that the caller configured (scissor,
-    /// load op). Binds the source on first use per source view.
-    pub fn encode_scissored(
-        &mut self,
-        device: &wgpu::Device,
-        source: &wgpu::TextureView,
-        mut pass: wgpu::RenderPass<'_>,
-    ) {
-        if self.source.as_ref().is_none_or(|(view, _)| view != source) {
-            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(source),
-                }],
-            });
-            self.source = Some((source.clone(), bind));
-        }
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.source.as_ref().unwrap().1, &[]);
-        pass.draw(0..3, 0..1);
-    }
     pub fn encode(
         &mut self,
         device: &wgpu::Device,

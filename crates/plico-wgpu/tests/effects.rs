@@ -965,3 +965,81 @@ fn glass_corners_preserve_transparent_backdrop_inside_opacity_layers() {
     );
     assert!(pixels[(136 * 512 + 328) * 4 + 3] > 100);
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_effects_obey_scroll_clips_and_masks_after_translation() {
+    use kurbo::{Affine, Rect, RoundedRect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(_uv:vec2f)->vec4f { return vec4f(0.,0.,1.,1.); }",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, source, ShaderEffectId::new(), &[]);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for rounded in [false, true] {
+        for isolated in [false, true] {
+            for shift in [-40., -7., 0., 7., 40.] {
+                let make = |shader: bool| {
+                    let mut scene = Scene::new();
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::from_rgb8(255, 0, 0),
+                        None,
+                        &Rect::new(0., 0., 48., 48.),
+                    );
+                    if isolated {
+                        scene.push_layer(
+                            BlendMode::default(),
+                            0.75,
+                            Affine::IDENTITY,
+                            &Rect::new(0., 0., 48., 48.),
+                            None,
+                            None,
+                        );
+                    }
+                    scene.push_clip_layer(
+                        Affine::IDENTITY,
+                        &RoundedRect::new(12., 12., 28., 28., if rounded { 6. } else { 0. }),
+                    );
+                    let transform = Affine::translate((8., 8. + shift));
+                    if shader {
+                        scene.append_scene(effect.clone(), transform);
+                    } else {
+                        scene.fill(
+                            Fill::NonZero,
+                            transform,
+                            Color::from_rgb8(0, 0, 255),
+                            None,
+                            &Rect::new(0., 0., 16., 16.),
+                        );
+                    }
+                    scene.pop_layer();
+                    if isolated {
+                        scene.pop_layer();
+                    }
+                    scene
+                };
+                let actual = renderer
+                    .render_scene(&make(true), [48, 48], [0.; 4], false)
+                    .unwrap();
+                let expected = renderer
+                    .render_scene(&make(false), [48, 48], [0.; 4], false)
+                    .unwrap();
+                for (i, (a, b)) in actual.iter().zip(&expected).enumerate() {
+                    assert!(
+                        a.abs_diff(*b) <= 1,
+                        "rounded={rounded}, isolated={isolated}, shift={shift}, ({},{}), channel {}: {a} != {b}",
+                        i / 4 % 48,
+                        i / 4 / 48,
+                        i % 4
+                    );
+                }
+            }
+        }
+    }
+}

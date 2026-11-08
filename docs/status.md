@@ -8,6 +8,7 @@
 容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
 启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。Skia 材质、原生系统玻璃与模糊金字塔尚未实现。
+背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
 见 [Liquid Glass](liquid-glass.md)。
 
 ## 原生桌面服务
