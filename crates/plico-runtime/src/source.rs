@@ -855,6 +855,26 @@ impl<V: HostView> FrameSource for Source<V> {
         }
     }
     fn handle_event(&mut self, event: UiEvent) -> EventResponse {
+        let activity = match &event {
+            UiEvent::Pointer(pointer) => {
+                pointer.phase == PointerPhase::Down
+                    || (pointer.phase == PointerPhase::Move && pointer.buttons != 0)
+            }
+            UiEvent::Key(key) => key.phase == KeyPhase::Down && !key.synthetic,
+            UiEvent::TextInput(text) | UiEvent::Paste(text) => !text.is_empty(),
+            UiEvent::Ime(plico_renderer::ImeEvent::Commit(text))
+            | UiEvent::Ime(plico_renderer::ImeEvent::Preedit { text, .. }) => !text.is_empty(),
+            UiEvent::Ime(plico_renderer::ImeEvent::DeleteSurrounding {
+                before_bytes,
+                after_bytes,
+            }) => *before_bytes != 0 || *after_bytes != 0,
+            UiEvent::Wheel(wheel) => wheel.delta_x != 0. || wheel.delta_y != 0.,
+            UiEvent::Gesture(_) => true,
+            _ => false,
+        };
+        if activity {
+            self.view.on_user_activity();
+        }
         let mut scroll_changed = false;
         if let Some(now) = self.clock_instant() {
             self.set_tick(now, false);
@@ -927,6 +947,9 @@ impl<V: HostView> FrameSource for Source<V> {
             self.adapter.dismiss_tooltip();
         }
         let handled = self.adapter.semantic_action(&mut self.engine, action);
+        if handled {
+            self.view.on_user_activity();
+        }
         self.pending |= handled;
         handled
     }
