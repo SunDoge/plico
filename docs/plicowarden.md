@@ -5,7 +5,7 @@
 
 - 应用、Bitwarden SDK 集成、SSH agent、合成场景和应用 recipe 位于独立 GPL-3.0-only 仓库。
 - Plico 保留 Apache-2.0 的通用 Engine、组件、材质、运行时、桌面宿主和 recipe 协议/TS helper；不依赖应用或 Bitwarden SDK。
-- 当前应用使用 `../plico/crates/...` 路径依赖本地新 API；这些 API 发布后才能替换为已验证的固定 Git revision。没有指向原 Warden/Wabou 的依赖。
+- 独立应用通过完整 Git revision 固定依赖 Plico，具体版本见应用的 `Cargo.toml` 和 `Cargo.lock`。普通构建不需要相邻的 Plico checkout，也不依赖原 Warden/Wabou。
 
 从独立应用目录运行：
 
