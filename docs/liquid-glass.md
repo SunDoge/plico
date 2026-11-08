@@ -159,3 +159,12 @@ share the same conservative backdrop damage and clipping limits as Liquid Glass.
 Rust clients can reuse `plico_renderer::shader::BACKDROP_BLUR_WGSL`; vec4 slot 0 is
 `[radius, mode, tint, 0]` (mode 0 uniform, 1 top, 2 bottom, 3 left, 4 right) and
 slot 1 is tint RGB. No additional Rust ABI or package dependency is required.
+
+### Dialog panels
+
+`modal(cx, &mut state).material(glass)` uses the shared scene-backed material on
+the dialog panel, with continuous corners and overlay contact/ambient shadows.
+The backdrop surface stays fixed while a separate content viewport scrolls.
+Glass dialogs default to an 18% scrim; opaque fallback retains the 38% default.
+`Modal::scrim_opacity` explicitly overrides that amount. Passing an application
+material with `enabled: false` declares an opaque panel without a shader.

@@ -263,3 +263,49 @@ fn glass_buttons_keep_semantics_and_paint_material_before_sharp_content() {
             .all(|&id| engine.node(id).unwrap().kind != Kind::Shader)
     );
 }
+
+#[test]
+fn glass_dialog_background_stays_outside_its_content_scroller_and_has_opaque_fallback() {
+    let mut engine = Engine::default();
+    let mut state = ModalState::default();
+    state.open();
+    for enabled in [true, false] {
+        engine
+            .frame_declarations(|cx| {
+                modal(cx, &mut state)
+                    .title("Glass dialog")
+                    .material(LiquidGlass {
+                        enabled,
+                        ..Default::default()
+                    })
+                    .children(|cx| {
+                        text(cx, "Sharp dialog content");
+                    });
+            })
+            .unwrap();
+        let nodes = descendants(&engine, engine.root());
+        let dialog = nodes
+            .iter()
+            .map(|&id| engine.node(id).unwrap())
+            .find(|node| node.kind == Kind::Dialog)
+            .unwrap();
+        assert!(!dialog.style.scroll_y);
+        assert_eq!(dialog.style.radius, 24.);
+        assert_eq!(dialog.style.shadow, Elevation::OVERLAY.contact);
+        assert_eq!(dialog.style.ambient_shadow, Elevation::OVERLAY.ambient);
+        let background = engine.node(dialog.children[0]).unwrap();
+        let content = engine.node(dialog.children[1]).unwrap();
+        assert!(content.style.scroll_y);
+        if enabled {
+            assert_eq!(background.kind, Kind::Shader);
+            assert!(background.shader.as_ref().unwrap().reads_backdrop);
+        } else {
+            assert_ne!(background.kind, Kind::Shader);
+            assert!(
+                nodes
+                    .iter()
+                    .all(|&id| engine.node(id).unwrap().kind != Kind::Shader)
+            );
+        }
+    }
+}
