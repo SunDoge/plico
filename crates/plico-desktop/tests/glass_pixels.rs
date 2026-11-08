@@ -301,10 +301,18 @@ fn backdrop_filter_layer_is_clipped_to_the_card() {
         (x1 - x0) < 400. && (y1 - y0) < 300.,
         "filter clip {filter_clips:?} covers the card, not the 1120x820 viewport"
     );
-    // The content inset follows the 192px sidebar; keep this range tracking
-    // deliberate layout changes rather than silent drift.
+    // Compare with the actual card, independent of sidebar width/font metrics.
+    let cards: Vec<_> = nodes
+        .iter()
+        .filter(|node| node.paint.backdrop_blur > 0.)
+        .collect();
+    assert_eq!(cards.len(), 1);
     assert!(
-        (244. ..260.).contains(&x0) && (310. ..335.).contains(&y0),
-        "clip bounds moved: {filter_clips:?}"
+        [x0, y0, x1, y1]
+            .into_iter()
+            .zip(cards[0].rect)
+            .all(|(clip, card)| (clip - f64::from(card)).abs() <= 1.),
+        "filter clip {filter_clips:?} differs from card {:?}",
+        cards[0].rect
     );
 }

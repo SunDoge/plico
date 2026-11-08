@@ -144,6 +144,11 @@ fn ordinary_scroll_moves_geometry_without_redeclaring_or_relayout() {
         assert!(source.adapter.stats.flatten_visits > 0);
     }
     assert_eq!(offset(&source), 480.);
+    // Scrolling has settled, but overlay scrollbars retain their finite fade.
+    assert!(source.has_anim());
+    clock.advance(Duration::from_millis(1001)).unwrap();
+    sample(&mut source, &mut text);
+    assert_eq!(source.view.calls, calls);
     assert!(!source.has_anim());
     assert_eq!(
         source.batch_stats().declaration_batches,
@@ -188,6 +193,8 @@ fn repeated_wheel_events_only_redeclare_when_scroll_is_observed() {
             clock.advance(Duration::from_millis(200)).unwrap();
             sample(&mut source, &mut text);
             assert_eq!(offset(&source), 384.);
+            clock.advance(Duration::from_millis(1001)).unwrap();
+            sample(&mut source, &mut text);
             assert!(!source.has_anim());
             sample(&mut source, &mut text);
             assert_eq!(source.adapter.stats.scene_reuses, 1);
@@ -332,7 +339,10 @@ fn final_scroll_position_is_presented_even_when_an_event_hits_nothing() {
     clock.advance(Duration::from_millis(160)).unwrap();
     source.prepare_for_event(&mut text);
     assert_eq!(offset(&source), 480.);
-    assert!(!source.has_anim());
+    assert!(
+        source.has_anim(),
+        "overlay scrollbar fade remains scheduled"
+    );
     let calls = source.view.calls;
     let response = source.handle_event(UiEvent::Pointer(plico_renderer::PointerEvent {
         phase: plico_renderer::PointerPhase::Move,

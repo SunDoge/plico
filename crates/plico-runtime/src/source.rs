@@ -439,6 +439,7 @@ impl<V: HostView> Source<V> {
             }
             return;
         }
+        let viewport_changed = self.viewport != Some((width, height));
         self.viewport = Some((width, height));
         let result = self
             .engine
@@ -457,7 +458,21 @@ impl<V: HostView> Source<V> {
             return;
         }
         self.last_error = None;
-        self.update_backend(tcx, width, height)
+        self.update_backend(tcx, width, height);
+        // Fill-mode virtual lists declared from the previous layout's viewport.
+        // Commit the new geometry before replaying observers, even while an
+        // unrelated scrollbar fade would otherwise reuse declarations.
+        if viewport_changed
+            && self.adapter.scroll_indices.iter().any(|&index| {
+                self.adapter
+                    .reverse
+                    .get(&self.adapter.placed[index].node_id)
+                    .is_some_and(|&entity| self.engine.observes_scroll(entity))
+            })
+        {
+            self.pending = true;
+            self.requests.insert(plico::Changes::ANIMATE);
+        }
     }
     fn update_backend(&mut self, tcx: &mut TextContext, width: u32, height: u32) {
         self.adapter.requested_focus = self.engine.take_focus_request();

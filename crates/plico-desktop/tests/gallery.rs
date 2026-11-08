@@ -373,10 +373,28 @@ fn expanded_motion_card_fits_minimum_viewport_and_large_text() {
         let mut tcx = TextContext::new();
         let nodes = source.build_frame(&mut tcx, width, 780);
         for node in nodes {
+            // Scroll content can extend beyond the viewport; only its clipped
+            // visible bounds must fit, as in the all-routes layout regression.
+            let mut rect = node.rect;
+            if let Some(clip) = node.clip {
+                rect = [
+                    rect[0].max(clip[0]),
+                    rect[1].max(clip[1]),
+                    rect[2].min(clip[2]),
+                    rect[3].min(clip[3]),
+                ];
+                if rect[0] >= rect[2] || rect[1] >= rect[3] {
+                    continue;
+                }
+            }
             assert!(
-                node.rect[2] <= width as f32 + 0.5 && node.rect[3] <= 780.5,
+                rect.iter().all(|v| v.is_finite())
+                    && rect[0] >= -0.5
+                    && rect[1] >= -0.5
+                    && rect[2] <= width as f32 + 0.5
+                    && rect[3] <= 780.5,
                 "{:?}",
-                node.rect
+                rect
             );
         }
     }
