@@ -254,7 +254,16 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
         };
         outside.extend(hole.elements().iter().copied());
         scene.push_clip_layer(transform, &outside);
-        scene.draw_box_shadow(transform, shadow_rect, shadow.color, radius, std_dev);
+        scene.draw_box_shadow_profile(
+            transform,
+            shadow_rect,
+            shadow.color,
+            crate::ShadowProfile {
+                radius,
+                std_dev,
+                corner_smoothing: node.paint.corner_smoothing,
+            },
+        );
         scene.pop_layer();
     }
     if let Some(background) = node.paint.background {
@@ -289,13 +298,16 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             transform,
             &corner_shape(rect, radii, node.paint.corner_smoothing),
         );
-        scene.draw_inset_box_shadow(
+        scene.draw_inset_box_shadow_profile(
             transform,
             rect,
             hole,
             shadow.color,
-            radius,
-            f64::from(shadow.std_dev),
+            crate::ShadowProfile {
+                radius,
+                std_dev: f64::from(shadow.std_dev),
+                corner_smoothing: node.paint.corner_smoothing,
+            },
         );
         scene.pop_layer();
     }
@@ -1129,11 +1141,18 @@ mod tests {
             clip.to_path(0.1),
             corner_shape(Rect::new(20., 20., 80., 80.), node.paint.border_radii, 1.).to_path(0.1)
         );
-        let crate::PaintCommand::InsetBoxShadow { hole, std_dev, .. } = &scene.commands[2] else {
+        let crate::PaintCommand::InsetBoxShadow {
+            hole,
+            std_dev,
+            corner_smoothing,
+            ..
+        } = &scene.commands[2]
+        else {
             panic!("missing inset");
         };
         assert_eq!(*hole, Rect::new(26., 27., 78., 79.));
         assert_eq!(*std_dev, 5.);
+        assert_eq!(*corner_smoothing, 1.);
     }
 
     #[test]

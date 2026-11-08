@@ -98,6 +98,93 @@ fn coverage(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
     }
     return clamp(0.5 - distance_to_round_rect(p, size, radii), 0., 1.);
 }
+// Continuous-corner field and Illinois inverse adapted from MyGO
+// internal/gpu/metal/shader.metal at ee3d4bd9 (MIT), Copyright 2026 MyGo
+// contributors. See ../third_party/mygo-LICENSE.
+fn shadow_contour_field(p: vec2<f32>, size: vec2<f32>, radius: f32, smoothing: f32) -> f32 {
+    let u = size * 0.5 - abs(p);
+    let edge = -min(u.x, u.y);
+    if radius <= 0.0 {
+        return edge;
+    }
+    var circular = edge;
+    if u.x < radius && u.y < radius {
+        circular = max(circular, length(max(vec2<f32>(radius) - u, vec2<f32>(0.0))) - radius);
+    }
+    if smoothing <= 0.0 || radius >= min(size.x,size.y)*0.5 {
+        // Fully rounded controls remain true circles/capsules.
+        return circular;
+    }
+    let extent = 1.528665 * radius;
+    var continuous = edge;
+    if u.x < extent && u.y < extent {
+        let a = max(vec2<f32>(1.0) - u / extent, vec2<f32>(0.0));
+        let len = length(a);
+        let high = max(a.x, a.y);
+        var rho = 0.0;
+        if high > 0.0 {
+            rho = min(min(a.x, a.y) / high, 1.0);
+        }
+        let polynomial = (((-0.926054 * rho + 3.15601) * rho - 3.64122) * rho + 1.26803) * rho + 0.268531;
+        let curve = len + 1.0 - 1.0 / (1.0 - rho * rho * min(len, 1.0) * polynomial);
+        let q = max(a * 1.528665 - vec2<f32>(0.528665), vec2<f32>(0.0));
+        let circle = length(q) * 0.654166 + 0.345834;
+        let clamp_xy = clamp((vec2<f32>(1.528665) - size / (2.0 * radius)) / 0.528665, vec2<f32>(0.0), vec2<f32>(1.0));
+        let effective = mix(extent, radius, max(clamp_xy.x, clamp_xy.y));
+        var direction = -1.0;
+        if a.y > a.x {
+            direction = 1.0;
+        }
+        let weight = clamp(0.5 - direction + direction * rho, 0.0, 1.0);
+        let fx = mix(curve, circle, clamp_xy.x);
+        let fy = mix(curve, circle, clamp_xy.y);
+        continuous = max(edge, min(max(effective - u.x, effective - u.y), 0.0) + extent * (mix(fx, fy, weight) - 1.0));
+    }
+    return mix(circular, continuous, smoothing);
+}
+
+fn shadow_contour_coverage(p: vec2f, size: vec2f, r: f32, smoothing: f32) -> f32 {
+    if smoothing <= 0. || r >= min(size.x,size.y)*0.5 {
+        return coverage(p, size, vec4f(r));
+    }
+    let centered = p - size*0.5;
+    let value = shadow_contour_field(centered, size, r, smoothing);
+    let dx = shadow_contour_field(centered + vec2f(0.25,0.), size,r,smoothing)
+           - shadow_contour_field(centered - vec2f(0.25,0.), size,r,smoothing);
+    let dy = shadow_contour_field(centered + vec2f(0.,0.25), size,r,smoothing)
+           - shadow_contour_field(centered - vec2f(0.,0.25), size,r,smoothing);
+    return clamp(0.5 - value / max(length(vec2f(dx,dy))*2.,0.00001),0.,1.);
+}
+// Horizontal contour inset at height v. The field blends before solving so
+// fractional smoothing follows exactly the CPU contour, rather than mixing spans.
+fn shadow_contour_inset(v: f32, size: vec2f, r: f32, smoothing: f32) -> f32 {
+    let extent = 1.528665*r;
+    if v >= extent { return 0.; }
+    var lo = 0.;
+    if v < r { lo = r - sqrt(max(v*(2.*r-v),0.)); }
+    var hi = extent - sqrt(max(v*(2.*extent-v),0.));
+    var dlo = shadow_contour_field(vec2f(lo,v)-size*0.5,size,r,smoothing);
+    var dhi = shadow_contour_field(vec2f(hi,v)-size*0.5,size,r,smoothing);
+    if dlo <= 0. { return lo; }
+    if dhi >= 0. { return hi; }
+    var side = 0;
+    for(var n=0u; n<4u; n++) {
+        let m = (lo*dhi-hi*dlo)/(dhi-dlo);
+        let dm = shadow_contour_field(vec2f(m,v)-size*0.5,size,r,smoothing);
+        if abs(dm) < 0.0001 { return m; }
+        if dm > 0. {
+            lo=m; dlo=dm;
+            if side == 1 { dhi*=0.5; }
+            side=1;
+        } else {
+            hi=m; dhi=dm;
+            if side == -1 { dlo*=0.5; }
+            side=-1;
+        }
+    }
+    return clamp((lo*dhi-hi*dlo)/(dhi-dlo),lo,hi);
+}
+
 // Normal CDF approximation (maximum absolute error below 8e-8).
 fn normal_cdf(x: f32) -> f32 {
     let a = abs(x);
@@ -107,10 +194,18 @@ fn normal_cdf(x: f32) -> f32 {
     return select(tail, 1. - tail, x >= 0.);
 }
 // Integrate the horizontal Gaussian analytically, then use bounded midpoint
-// quadrature vertically. Restrict integration to four sigma around this pixel.
-fn shadow_coverage(p: vec2f, size: vec2f, radius: f32, sigma: f32) -> f32 {
+// quadrature vertically (16-point Gauss-Legendre for continuous contours,
+// legacy 32-point midpoint for circles). Restrict to four sigma around this pixel.
+fn shadow_coverage(p: vec2f, size: vec2f, radius: f32, sigma: f32, smoothing: f32) -> f32 {
     let r = clamp(radius, 0., min(size.x, size.y) * 0.5);
-    if r <= 0. || (p.y - 4. * sigma >= r && p.y + 4. * sigma <= size.y - r) {
+    if sigma <= 0. { return shadow_contour_coverage(p,size,r,smoothing); }
+    let continuous = smoothing > 0. && r > 0. && r < min(size.x,size.y)*0.5;
+    let extent = select(r,1.528665*r,continuous);
+    // Neither central strip can see a corner within the four-sigma kernel.
+    // This keeps long panel edges analytic instead of solving a corner for
+    // every top/bottom pixel across the entire panel width.
+    if r <= 0. || (p.y - 4. * sigma >= extent && p.y + 4. * sigma <= size.y - extent)
+        || (p.x - 4. * sigma >= extent && p.x + 4. * sigma <= size.x - extent) {
         return (normal_cdf((size.x - p.x) / sigma) - normal_cdf(-p.x / sigma))
             * (normal_cdf((size.y - p.y) / sigma) - normal_cdf(-p.y / sigma));
     }
@@ -119,17 +214,27 @@ fn shadow_coverage(p: vec2f, size: vec2f, radius: f32, sigma: f32) -> f32 {
     if hi <= lo {
         return 0.;
     }
-    let step = (hi - lo) / 32.;
+    let count = select(32u, 16u, continuous);
+    let step = (hi - lo) / f32(count);
+    let nodes = array<f32,8>(0.0950125098,0.2816035508,0.4580167777,0.6178762444,0.7554044084,0.8656312024,0.9445750231,0.9894009350);
+    let weights = array<f32,8>(0.1894506105,0.1826034150,0.1691565194,0.1495959888,0.1246289713,0.0951585117,0.0622535239,0.0271524594);
     var sum = 0.;
-    for(var i = 0u; i < 32u; i++) {
-        let y = lo + (f32(i) + 0.5) * step;
+    for(var i = 0u; i < count; i++) {
+        var y = lo + (f32(i) + 0.5) * step;
+        var weight = step;
+        if continuous {
+            let j = min(i,15u-i);
+            y = (lo+hi)*0.5 + select(-nodes[j],nodes[j],i>=8u)*(hi-lo)*0.5;
+            weight = weights[j]*(hi-lo)*0.5;
+        }
         let dy = max(abs(y - size.y * 0.5) - (size.y * 0.5 - r), 0.);
-        let inset = r - sqrt(max(r * r - dy * dy, 0.));
+        var inset = r - sqrt(max(r * r - dy * dy, 0.));
+        if continuous { inset = shadow_contour_inset(min(y,size.y-y),size,r,smoothing); }
         let horizontal = normal_cdf((size.x - inset - p.x) / sigma) - normal_cdf((inset - p.x) / sigma);
         let z = (y - p.y) / sigma;
-        sum += horizontal * exp(-0.5 * z * z);
+        sum += horizontal * exp(-0.5 * z * z) * weight;
     }
-    return clamp(sum * step * 0.39894228 / sigma, 0., 1.);
+    return clamp(sum * 0.39894228 / sigma, 0., 1.);
 }
 // Mitchell-Netravali reconstruction with B=C=1/3. Source texels are
 // already premultiplied; clamp ringing back into valid premultiplied RGBA.
@@ -220,9 +325,9 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         var covered = 0.;
         if all(hole.zw > vec2f(0.)) {
             if input.config.y > 0. {
-                covered = shadow_coverage(input.local - hole.xy, hole.zw, input.config.x, input.config.y);
+                covered = shadow_coverage(input.local - hole.xy, hole.zw, input.config.x, input.config.y, input.config.w);
             } else {
-                covered = coverage(input.local - hole.xy, hole.zw, vec4f(input.config.x));
+                covered = shadow_contour_coverage(input.local - hole.xy, hole.zw, input.config.x, input.config.w);
             }
         }
         let alpha = input.color.a * (1. - covered) * clip_alpha;
@@ -234,6 +339,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
                 input.gradient.zw,
                 input.config.x,
                 input.gradient.y,
+                input.config.w,
             ) * clip_alpha;
         return vec4f(input.color.rgb * alpha, alpha);
     }

@@ -135,3 +135,15 @@ inset shadow、解析连续 caster 阴影和 blur pyramid 仍待实现；本批�
 wgpu 以 Gaussian coverage 的补集着色，Skia 以反向轮廓模糊；两者均在 caster 轮廓和祖先裁剪内绘制。
 内阴影不扩大布局或外部 visual bounds，清除阴影 API 同时清除它。Gallery 提供凹陷表面对照。
 孔洞模糊仍使用圆弧近似；解析连续 caster 与完整 blur pyramid 继续保留为未实现项。
+
+### 第四批：wgpu 连续阴影
+
+连续角现在参与内外阴影 caster／孔洞的积分，而不仅是裁剪。
+复用 MyGO Illinois 逆轮廓思路，搭配 16 点 Gauss–Legendre 与长边中央解析捷径；
+圆弧旧接口及正圆／胶囊继续保持原形。中间平滑度按混合后的场求根。
+独立 CPU 轮廓 oracle 的 81 组配置最大灰度误差约 1.68/255（门槛 3）；
+移动、祖先 clip、damage 与无离屏 layer 分配有回归，固定性能探针可重跑。
+当前仍是统一阴影半径，混合半径节点沿用最大半径规则，未声称支持任意异形路径模糊。
+
+按用户最新方向，画质和性能工作以 wgpu 为主；保留 Skia 已有兼容代码，不做专项追平。
+完整 blur pyramid 仍待后续工作。

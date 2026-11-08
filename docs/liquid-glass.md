@@ -262,8 +262,8 @@ API 默认、显式选择、圆／胶囊几何相等及 GPU cramped-corner／滚
 子内容与边框下绘制，`no_shadow()` 同时清除内外阴影。它不增加布局尺寸或外部绘制范围。
 
 参考 MyGO `internal/scene/scene.go` 的 inset 定义，Plico 的共享 Scene 新增原生补集 primitive；
-wgpu 复用解析高斯积分，Skia 使用相反轮廓的模糊。caster clip 采用完整连续圆角，
-孔洞的模糊目前仍是圆弧近似，与现有外阴影 caster 一致。不要将其视为连续轮廓模糊已完成。
+wgpu 复用解析高斯积分，Skia 使用相反轮廓的模糊。caster clip 采用完整连续圆角；
+wgpu 的孔洞和外阴影均按相同连续场积分，见下文。
 材质是子级 shader 时仍按通常子内容顺序覆盖背景及内阴影；玻璃自身的内缘由材质 rim 控制。
 
 Gallery Effects 提供 Soft inset 与 Recessed surface 示例。
@@ -277,3 +277,33 @@ cargo test -p plico-skia --features raster --test raster inset_shadow
 
 GPU 回归覆盖 1/1.5/2 倍缩放、零及非零 blur、正负 spread、空孔洞、连续边缘外部裁剪与父级 scroll clip。
 Skia 有独立补集像素检查；这些是 Linux 渲染测试，不是 macOS 原生玻璃等效性验证。
+
+## wgpu 连续轮廓阴影
+
+普通 Rust 控件与布局的外阴影、内阴影自动继承 `corner_smoothing`。
+不需要应用再次开关；显式零保留圆弧，正圆和胶囊始终采用精确圆弧。
+共享 `ShadowProfile` 保留半径、sigma 与平滑度；旧的低层 `draw_box_shadow` 调用仍表示圆弧。
+当前 shadow profile 是统一半径，renderer 的混合半径节点仍按其最大半径生成 caster，
+与旧规则一致；这不代表任意异形路径模糊已实现。
+
+参考 MyGO 的 `contInset`：沿水平方向求连续场零点，再积分横向 Gaussian CDF。
+连续轮廓使用 16 点 Gauss–Legendre，圆弧保留既有 32 点 midpoint；中间平滑度先混合场再解轮廓。
+长边中央且四 sigma 内见不到角的像素直接使用矩形解析积分，避免整条边重复求根。
+这些操作不增加离屏 layer 或历史纹理缓存。
+
+独立回归使用 CPU 连续轮廓的折线截面与 1024 点垂直积分，对照 81 组形状／
+平滑度／sigma／缩放配置、每组 64 个探针；本机最大灰度误差约 1.68/255，门槛 3/255。
+另有零 blur 与填充轮廓／内外互补检查、移动裁剪与局部重绘像素相等、layer allocations=0。
+
+```sh
+cargo test -p plico-wgpu --test continuous_shadows --test shadows --test inset_shadows -- --ignored --nocapture
+cargo run -p plico-wgpu --example continuous_shadow_profile
+```
+
+探针固定 13 个连续圆角表面、26 个阴影，比较时保持 fill/clip 不变，仅切换阴影 profile。
+采用 `render_scene_to_view` 加 GPU 完成等待，不包含 CPU 图像回读；它仍是端到端墙钟，
+不是 GPU timestamp 或真实窗口呈现延迟。Intel ARL / Vulkan 的一次本机记录中，
+连续阴影 1x/2x 中位约 7.51/9.51 ms，单 pass、39 instances、26 draws、零 layer allocations。
+这些数值受机器、频率与同步影响，不能外推 macOS 帧率；脚本保留以便在目标机器重测。
+
+后续优先维护 wgpu，不以 Skia 特效对齐作为交付前置。完整模糊金字塔仍未实现。

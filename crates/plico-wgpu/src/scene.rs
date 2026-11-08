@@ -962,6 +962,7 @@ impl Renderer {
                         brush,
                         radius,
                         std_dev,
+                        corner_smoothing,
                     } => {
                         if !std_dev.is_finite()
                             || *std_dev < 0.
@@ -976,6 +977,7 @@ impl Renderer {
                         let (scale, _) = uniform(*transform, index)?;
                         let mut q = quad(*bounds, [*radius; 4], *transform, clip, index)?;
                         q.shadow_sigma = (std_dev * scale) as f32;
+                        q.shadow_smoothing = *corner_smoothing;
                         q.shadow_hole = Some([
                             ((hole.x0 - bounds.x0) * scale) as f32,
                             ((hole.y0 - bounds.y0) * scale) as f32,
@@ -991,6 +993,7 @@ impl Renderer {
                         brush,
                         radius,
                         std_dev,
+                        corner_smoothing,
                     } => {
                         if !std_dev.is_finite()
                             || *std_dev < 0.
@@ -1008,6 +1011,7 @@ impl Renderer {
                             index,
                         )?;
                         q.shadow_sigma = (std_dev * scale) as f32;
+                        q.shadow_smoothing = *corner_smoothing;
                         q.colors = [brush.components; 2];
                         draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                     }

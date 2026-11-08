@@ -871,6 +871,7 @@ impl SkiaSurface {
                     brush,
                     radius,
                     std_dev,
+                    corner_smoothing,
                 } => {
                     if !std_dev.is_finite()
                         || *std_dev < 0.
@@ -902,12 +903,16 @@ impl SkiaSurface {
                     if hole.width() > 0. && hole.height() > 0. {
                         let radius = radius.min(hole.width().min(hole.height()) * 0.5);
                         inverse.extend(
-                            hole.to_rounded_rect(radius)
-                                .to_path(0.1)
-                                .reverse_subpaths()
-                                .elements()
-                                .iter()
-                                .copied(),
+                            plico_renderer::corner_shape::corner_shape(
+                                *hole,
+                                plico_renderer::style::CornerRadii::uniform(radius as f32),
+                                *corner_smoothing,
+                            )
+                            .to_path(0.1)
+                            .reverse_subpaths()
+                            .elements()
+                            .iter()
+                            .copied(),
                         );
                     }
                     canvas.save();
@@ -931,6 +936,7 @@ impl SkiaSurface {
                     brush,
                     radius,
                     std_dev,
+                    corner_smoothing,
                 } => {
                     // Matches Vello's BlurredRoundedRectangle: a rounded rect
                     // blurred by a Gaussian whose sigma is std_dev, painted in
@@ -963,7 +969,18 @@ impl SkiaSurface {
                         radius as f32,
                         radius as f32,
                     );
-                    canvas.draw_rrect(rrect, &paint);
+                    if *corner_smoothing > 0. {
+                        canvas.draw_path(
+                            &path(&plico_renderer::corner_shape::corner_shape(
+                                rect,
+                                plico_renderer::style::CornerRadii::uniform(radius as f32),
+                                *corner_smoothing,
+                            )),
+                            &paint,
+                        );
+                    } else {
+                        canvas.draw_rrect(rrect, &paint);
+                    }
                     canvas.restore();
                 }
                 PaintCommand::Svg {

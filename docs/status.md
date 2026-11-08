@@ -36,7 +36,9 @@ Rust Style 的默认 corner_smoothing 已设为 1，控件与布局统一采用�
 Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、GPU 像素与交互测试已覆盖。
 交互玻璃的按压外扩／悬停过渡已接入通用 shader scalar transition 与 paint_outset；原生输入、GPU 像素、焦点、裁剪和 idle 有回归。
 新增 `.inset_shadow(BoxShadow)`，在背景上绘制模糊孔洞的补集，并沿连续圆角和祖先 clip 限制范围。
-完整模糊金字塔与解析连续 caster 阴影尚未迁移，继续按证据推进。
+wgpu 内外阴影现已沿连续 caster／孔洞求 Gaussian coverage，显式圆弧和正圆／胶囊继续保留。
+CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 damage 有 GPU 回归。
+完整模糊金字塔仍待实现。后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
 ## C# MyGO 改进的 Rust 入口
 

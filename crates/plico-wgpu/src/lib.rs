@@ -83,6 +83,8 @@ pub struct Quad {
     /// Gaussian shadow sigma. Positive values blur the inset rounded rectangle
     /// (the quad includes a four-sigma margin on every side).
     pub shadow_sigma: f32,
+    /// Continuous-corner blend for shadow geometry only.
+    pub shadow_smoothing: f32,
     /// Optional rounded hole relative to the quad origin, for an inset shadow.
     pub shadow_hole: Option<[f32; 4]>,
     /// Uniform inside border width in physical pixels.
@@ -109,6 +111,7 @@ impl Quad {
             rect,
             radii: [0.; 4],
             shadow_sigma: 0.,
+            shadow_smoothing: 0.,
             shadow_hole: None,
             border_width: 0.,
             border_color: [0.; 4],
@@ -127,6 +130,8 @@ impl Quad {
         if !valid_rect(self.rect)
             || self.clip.is_some_and(|r| !valid_rect(r))
             || (self.shadow_hole.is_some() && self.material)
+            || !self.shadow_smoothing.is_finite()
+            || !(0. ..=1.).contains(&self.shadow_smoothing)
             || !self.shadow_sigma.is_finite()
             || self.shadow_sigma < 0.
             || self

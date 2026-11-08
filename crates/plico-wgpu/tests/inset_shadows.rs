@@ -1,6 +1,8 @@
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
-use plico_renderer::{PaintScene, Scene, corner_shape::corner_shape, style::CornerRadii};
+use plico_renderer::{
+    PaintScene, Scene, ShadowProfile, corner_shape::corner_shape, style::CornerRadii,
+};
 use plico_wgpu::Renderer;
 
 #[test]
@@ -21,13 +23,16 @@ fn inset_shadows_blur_the_hole_complement_and_respect_parent_clips_at_all_scales
                     transform,
                     &corner_shape(caster, CornerRadii::uniform(10.), 1.),
                 );
-                scene.draw_inset_box_shadow(
+                scene.draw_inset_box_shadow_profile(
                     transform,
                     caster,
                     hole,
                     Color::BLACK,
-                    (10_f64 - spread).max(0.),
-                    sigma,
+                    ShadowProfile {
+                        radius: (10_f64 - spread).max(0.),
+                        std_dev: sigma,
+                        corner_smoothing: 1.,
+                    },
                 );
                 scene.pop_layer();
                 scene.pop_layer();

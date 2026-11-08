@@ -1485,20 +1485,27 @@ impl Renderer {
                             },
                             if q.shadow_hole.is_some() {
                                 6.
-                            } else if q.shadow_sigma > 0. {
+                            } else if q.shadow_sigma > 0. || q.shadow_smoothing > 0. {
                                 5.
                             } else if q.material {
                                 1.
                             } else {
                                 0.
                             },
-                            q.parameter,
+                            if q.shadow_sigma > 0.
+                                || q.shadow_hole.is_some()
+                                || q.shadow_smoothing > 0.
+                            {
+                                q.shadow_smoothing
+                            } else {
+                                q.parameter
+                            },
                         ],
                         clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
                         uv: [0.; 4],
                         gradient: if let Some(hole) = q.shadow_hole {
                             hole
-                        } else if q.shadow_sigma > 0. {
+                        } else if q.shadow_sigma > 0. || q.shadow_smoothing > 0. {
                             [
                                 4. * q.shadow_sigma,
                                 q.shadow_sigma,

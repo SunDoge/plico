@@ -109,6 +109,7 @@ pub enum PaintCommand {
         brush: Color,
         radius: f64,
         std_dev: f64,
+        corner_smoothing: f32,
     },
     /// Paint the complement of a blurred rounded hole within bounds.
     InsetBoxShadow {
@@ -118,6 +119,7 @@ pub enum PaintCommand {
         brush: Color,
         radius: f64,
         std_dev: f64,
+        corner_smoothing: f32,
     },
     /// Draw an already parsed SVG document.
     Svg {
@@ -257,6 +259,17 @@ impl Scene {
     }
 }
 
+/// Geometry shared by outer and inset shadow replay.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShadowProfile {
+    /// Uniform caster or hole radius in logical pixels.
+    pub radius: f64,
+    /// Gaussian standard deviation in logical pixels.
+    pub std_dev: f64,
+    /// Continuous-corner blend in 0..=1. Fully rounded circles/capsules keep arcs.
+    pub corner_smoothing: f32,
+}
+
 /// Minimal paint sink shared by Wabou scene construction and the Vello GPU replay.
 pub trait PaintScene {
     /// Remove every recorded operation.
@@ -343,7 +356,7 @@ pub trait PaintScene {
             glyphs.into_iter(),
         )
     }
-    /// Draw a blurred box shadow.
+    /// Draw a circular-corner blurred box shadow.
     fn draw_box_shadow(
         &mut self,
         transform: Affine,
@@ -351,8 +364,19 @@ pub trait PaintScene {
         brush: Color,
         radius: f64,
         std_dev: f64,
-    );
-    /// Paint the blurred complement of a rounded hole inside bounds.
+    ) {
+        self.draw_box_shadow_profile(
+            transform,
+            rect,
+            brush,
+            ShadowProfile {
+                radius,
+                std_dev,
+                corner_smoothing: 0.,
+            },
+        );
+    }
+    /// Paint the blurred complement of a circular rounded hole inside bounds.
     fn draw_inset_box_shadow(
         &mut self,
         transform: Affine,
@@ -361,6 +385,35 @@ pub trait PaintScene {
         brush: Color,
         radius: f64,
         std_dev: f64,
+    ) {
+        self.draw_inset_box_shadow_profile(
+            transform,
+            bounds,
+            hole,
+            brush,
+            ShadowProfile {
+                radius,
+                std_dev,
+                corner_smoothing: 0.,
+            },
+        );
+    }
+    /// Draw a shadow using the authored continuous-corner profile.
+    fn draw_box_shadow_profile(
+        &mut self,
+        transform: Affine,
+        rect: Rect,
+        brush: Color,
+        profile: ShadowProfile,
+    );
+    /// Draw a clipped hole complement using the authored corner profile.
+    fn draw_inset_box_shadow_profile(
+        &mut self,
+        transform: Affine,
+        bounds: Rect,
+        hole: Rect,
+        brush: Color,
+        profile: ShadowProfile,
     );
     /// Draw a retained SVG document.
     fn draw_svg(&mut self, document: SvgDocument, transform: Affine);
@@ -450,7 +503,17 @@ pub trait PaintScene {
                     brush,
                     radius,
                     std_dev,
-                } => self.draw_box_shadow(transform * local, rect, brush, radius, std_dev),
+                    corner_smoothing,
+                } => self.draw_box_shadow_profile(
+                    transform * local,
+                    rect,
+                    brush,
+                    ShadowProfile {
+                        radius,
+                        std_dev,
+                        corner_smoothing,
+                    },
+                ),
                 PaintCommand::InsetBoxShadow {
                     transform: local,
                     bounds,
@@ -458,14 +521,18 @@ pub trait PaintScene {
                     brush,
                     radius,
                     std_dev,
+                    corner_smoothing,
                 } => {
-                    self.draw_inset_box_shadow(
+                    self.draw_inset_box_shadow_profile(
                         transform * local,
                         bounds,
                         hole,
                         brush,
-                        radius,
-                        std_dev,
+                        ShadowProfile {
+                            radius,
+                            std_dev,
+                            corner_smoothing,
+                        },
                     );
                 }
                 PaintCommand::Svg {
@@ -633,39 +700,38 @@ impl PaintScene for Scene {
         });
     }
 
-    fn draw_box_shadow(
+    fn draw_box_shadow_profile(
         &mut self,
         transform: Affine,
         rect: Rect,
         brush: Color,
-        radius: f64,
-        std_dev: f64,
+        profile: ShadowProfile,
     ) {
         self.commands.push(PaintCommand::BoxShadow {
             transform,
             rect,
             brush,
-            radius,
-            std_dev,
+            radius: profile.radius,
+            std_dev: profile.std_dev,
+            corner_smoothing: profile.corner_smoothing,
         });
     }
-
-    fn draw_inset_box_shadow(
+    fn draw_inset_box_shadow_profile(
         &mut self,
         transform: Affine,
         bounds: Rect,
         hole: Rect,
         brush: Color,
-        radius: f64,
-        std_dev: f64,
+        profile: ShadowProfile,
     ) {
         self.commands.push(PaintCommand::InsetBoxShadow {
             transform,
             bounds,
             hole,
             brush,
-            radius,
-            std_dev,
+            radius: profile.radius,
+            std_dev: profile.std_dev,
+            corner_smoothing: profile.corner_smoothing,
         });
     }
 

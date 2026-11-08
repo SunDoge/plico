@@ -25,7 +25,9 @@ pub mod text;
 pub mod vector_path;
 pub mod widget;
 pub use crate::platform::{EffectCompletion, EffectRequest};
-pub use paint::{Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, SvgDocument};
+pub use paint::{
+    Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, ShadowProfile, SvgDocument,
+};
 pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
