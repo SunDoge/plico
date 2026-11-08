@@ -17,7 +17,7 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../../plico-renderer/assets/liquid_glass.wgsl" LogicalName="Plico.liquid_glass.wgsl" />
-    <EmbeddedResource Include="../../../plico-renderer/assets/backdrop_blur.wgsl" LogicalName="Plico.backdrop_blur.wgsl" />
+    <EmbeddedResource Include="../../../plico/assets/materials/backdrop_blur.wgsl" LogicalName="Plico.backdrop_blur.wgsl" />
     <ProjectReference Include="../Plico.Generators/Plico.Generators.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <None Include="../Plico.Generators/bin/$(Configuration)/netstandard2.0/Plico.Generators.dll"
           Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />

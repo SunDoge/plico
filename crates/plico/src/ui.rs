@@ -265,6 +265,7 @@ impl<'e> UiContext<'e> {
             kind,
             style,
             grid: None,
+            material: None,
         }
     }
     #[inline(always)]
@@ -561,8 +562,41 @@ pub struct Layout<'u, 'e> {
     kind: Kind,
     style: Style,
     grid: Option<crate::GridTemplate>,
+    material: Option<crate::LiquidGlass>,
 }
 impl Layout<'_, '_> {
+    /// Fill this container with a scene-backed material. Establishes a positioned
+    /// container for its absolute background without overriding absolute layout.
+    #[inline(always)]
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.material = Some(material);
+        self.style.background = None;
+        if self.style.layout.position == crate::Position::Static {
+            self.style.layout.position = crate::Position::Relative;
+        }
+        self
+    }
+    #[inline(always)]
+    pub fn elevation(mut self, elevation: crate::Elevation) -> Self {
+        elevation.apply(&mut self.style);
+        self
+    }
+
+    /// Override this container's border while a descendant has native focus.
+    /// Preserves the scoped identity and requires no application focus state.
+    #[inline(always)]
+    pub fn focus_within_border(mut self, width: f32, color: Color) -> Self {
+        if self.ui.engine.focus_within(Identity {
+            parent: self.ui.parent,
+            key: self.key,
+            scope: self.ui.scope,
+        }) {
+            self.style.border_width = width;
+            self.style.border_color = color;
+        }
+        self
+    }
+
     #[inline(always)]
     pub fn grid_columns(mut self, tracks: impl IntoIterator<Item: Into<crate::Track>>) -> Self {
         self.grid.get_or_insert_default().columns = tracks.into_iter().map(Into::into).collect();
@@ -930,6 +964,31 @@ impl Layout<'_, '_> {
         self.style.justify = Some(value);
         self
     }
+    /// An outer box shadow, excluded from the container interior.
+    #[inline(always)]
+    pub fn shadow(mut self, shadow: crate::BoxShadow) -> Self {
+        self.style.shadow = Some(shadow);
+        self
+    }
+    /// Add a broad ambient shadow beneath the primary contact shadow.
+    #[inline(always)]
+    pub fn ambient_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+        self.style.ambient_shadow = Some(shadow);
+        self
+    }
+    /// Clear both contact and ambient shadows.
+    #[inline(always)]
+    pub fn no_shadow(mut self) -> Self {
+        self.style.shadow = None;
+        self.style.ambient_shadow = None;
+        self
+    }
+    /// Blur this container and its content, in logical Gaussian sigma units.
+    #[inline(always)]
+    pub fn blur(mut self, sigma: f32) -> Self {
+        self.style.foreground_blur = sigma;
+        self
+    }
     /// Blur the already-painted application backdrop behind this container.
     #[inline(always)]
     pub fn backdrop_blur(mut self, sigma: f32) -> Self {
@@ -1016,7 +1075,12 @@ impl Layout<'_, '_> {
             Cow::Borrowed(""),
         );
         self.ui.engine.set_grid(entity, self.grid.as_ref());
-        let inner = self.ui.with_parent(entity, self.style, false, build);
+        let inner = self.ui.with_parent(entity, self.style, false, |cx| {
+            if let Some(material) = self.material {
+                material.show(cx, self.style.radius, self.style.corner_smoothing);
+            }
+            build(cx)
+        });
         InnerResponse {
             inner,
             response: Response::new(false, !self.style.disabled, false),
@@ -1221,6 +1285,13 @@ macro_rules! common {
             #[inline(always)]
             pub fn direction(mut self, value: crate::Direction) -> Self {
                 self.inner.style.layout.direction = value;
+                self
+            }
+            /// Position this leaf relative to its immediate containing block.
+            #[inline(always)]
+            pub fn absolute(mut self, left: f32, top: f32) -> Self {
+                self.inner.style.absolute = Some([left, top]);
+                self.inner.style.layout.position = crate::Position::Absolute;
                 self
             }
             #[inline(always)]
@@ -1464,8 +1535,44 @@ macro_rules! common {
                 self
             }
             #[inline(always)]
+            pub fn elevation(mut self, elevation: crate::Elevation) -> Self {
+                elevation.apply(&mut self.inner.style);
+                self
+            }
+            /// Clear both contact and ambient shadows.
+            #[inline(always)]
+            pub fn no_shadow(mut self) -> Self {
+                self.inner.style.shadow = None;
+                self.inner.style.ambient_shadow = None;
+                self
+            }
+            /// Blur this node and its content, in logical Gaussian sigma units.
+            #[inline(always)]
+            pub fn blur(mut self, sigma: f32) -> Self {
+                self.inner.style.foreground_blur = sigma;
+                self
+            }
+            /// Add a broad ambient shadow beneath the primary contact shadow.
+            #[inline(always)]
+            pub fn ambient_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+                self.inner.style.ambient_shadow = Some(shadow);
+                self
+            }
+            /// An outer box shadow, excluded from the control interior.
+            #[inline(always)]
+            pub fn shadow(mut self, shadow: crate::BoxShadow) -> Self {
+                self.inner.style.shadow = Some(shadow);
+                self
+            }
+            #[inline(always)]
             pub fn radius(mut self, px: f32) -> Self {
                 self.inner.style.radius = px;
+                self
+            }
+            /// Tint only the background, preserving opaque control content.
+            #[inline(always)]
+            pub fn background_alpha(mut self, alpha: f32) -> Self {
+                self.inner.style.background_alpha = alpha;
                 self
             }
             #[inline(always)]
@@ -1964,6 +2071,16 @@ impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
     }
 }
 impl<'t> Input<'_, '_, 't> {
+    /// Keep native input, caret and semantics, with visuals supplied by a parent.
+    /// The parent must provide an appropriate focus indication.
+    #[inline(always)]
+    pub fn unstyled(mut self) -> Self {
+        self.inner.style.control_chrome = false;
+        self.inner.style.background = None;
+        self.inner.style.border_width = 0.;
+        self
+    }
+
     /// Explicitly reveal a secret in a supporting native editor.
     #[inline(always)]
     pub fn password_visible(mut self, visible: bool) -> Self {

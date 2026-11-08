@@ -58,6 +58,8 @@ pub struct Theme {
     pub accent_hover: u32,
     pub accent_pressed: u32,
     pub focus: u32,
+    /// Informational content; see [`Color::Info`].
+    pub info: u32,
     /// Good or complete state; see [`Color::Success`].
     pub success: u32,
     /// Attention state; see [`Color::Warning`].
@@ -83,9 +85,10 @@ impl Default for Theme {
             accent_hover: 0x1d4ed8,
             accent_pressed: 0x1e40af,
             focus: 0x6094ef,
-            success: 0x16a34a,
-            warning: 0xd97706,
-            danger: 0xdc2626,
+            info: 0x1d4ed8,
+            success: 0x15803d,
+            warning: 0x92400e,
+            danger: 0xb91c1c,
             metrics: Metrics::default(),
         }
     }
@@ -115,9 +118,10 @@ impl Theme {
             accent_hover: 0xb0c8ff,
             accent_pressed: 0x78a0ed,
             focus: 0x94b5ff,
-            success: 0x22c55e,
-            warning: 0xf59e0b,
-            danger: 0xef4444,
+            info: 0x93c5fd,
+            success: 0x86efac,
+            warning: 0xfcd34d,
+            danger: 0xfca5a5,
             metrics: Metrics::default(),
         }
     }
@@ -142,6 +146,7 @@ impl Theme {
             Color::AccentHover => self.accent_hover,
             Color::AccentPressed => self.accent_pressed,
             Color::Focus => self.focus,
+            Color::Info => self.info,
             Color::Success => self.success,
             Color::Warning => self.warning,
             Color::Danger => self.danger,

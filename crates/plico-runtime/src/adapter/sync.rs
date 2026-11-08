@@ -552,7 +552,11 @@ pub(crate) fn make_paint(
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
     };
-    if let Some(shadow) = style.shadow.filter(|s| s.opacity > 0.) {
+    for shadow in [style.ambient_shadow, style.shadow]
+        .into_iter()
+        .flatten()
+        .filter(|s| s.opacity > 0.)
+    {
         p.shadows.push(plico_renderer::style::Shadow {
             offset_x: shadow.offset_x,
             offset_y: shadow.offset_y,
@@ -585,7 +589,7 @@ pub(crate) fn make_paint(
         if kind == Kind::Button && p.background.is_none() {
             p.background = Some(resolve(Token::Control, theme));
         }
-        if focus {
+        if focus && style.control_chrome {
             p.outline_width = 1.5;
             p.outline_offset = 1.;
             p.outline_color = Some(resolve(Token::Focus, theme));

@@ -150,6 +150,8 @@ pub enum Color {
     Warning,
     /// A level that needs action, as a meter at its critical level.
     Danger,
+    /// Informational state, independent of the interactive accent.
+    Info,
 }
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -321,6 +323,10 @@ pub struct Style {
     /// Optional outer shadow; changing it only invalidates paint.
     #[invalidates(PAINT)]
     pub shadow: Option<BoxShadow>,
+    /// Broad ambient shadow beneath the primary contact shadow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(PAINT)]
+    pub ambient_shadow: Option<BoxShadow>,
     /// Keep this node at least this far below its scroll port's top while its
     /// containing block is in view (CSS sticky, top inset). `None` is static.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -476,6 +482,7 @@ impl Default for Style {
             foreground_blur: 0.,
             corner_smoothing: 0.,
             shadow: None,
+            ambient_shadow: None,
             sticky_top: None,
             background_alpha: 1.,
             width: None,
@@ -576,6 +583,7 @@ impl Style {
             && self.corner_smoothing.is_finite()
             && (0. ..=1.).contains(&self.corner_smoothing)
             && self.shadow.is_none_or(BoxShadow::valid)
+            && self.ambient_shadow.is_none_or(BoxShadow::valid)
             && self.background_alpha.is_finite()
             && (0. ..=1.).contains(&self.background_alpha)
             && self.opacity.is_finite()

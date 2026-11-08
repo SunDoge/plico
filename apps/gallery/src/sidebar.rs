@@ -43,6 +43,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                     &[
                         Page::Layout,
                         Page::Controls,
+                        Page::ComponentKit,
                         Page::Lists,
                         Page::DataTable,
                         Page::TreeView,
@@ -129,7 +130,7 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Controls | Page::Localization => &icons::SLIDERS_HORIZONTAL,
         Page::Lists | Page::DataTable | Page::TreeView => &icons::LIST,
         Page::Calendar => &icons::LAYOUT_GRID,
-        Page::Patterns => &icons::LAYERS,
+        Page::Patterns | Page::ComponentKit => &icons::LAYERS,
         Page::Effects => &icons::SPARKLES,
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,

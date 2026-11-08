@@ -4,9 +4,6 @@ use crate::heading;
 use plico::prelude::*;
 
 #[cfg(not(target_arch = "wasm32"))]
-static LIQUID_GLASS: plico::ShaderAsset =
-    plico::shader_asset!("../assets/shaders/liquid_glass.wgsl").read_backdrop();
-#[cfg(not(target_arch = "wasm32"))]
 static ORB: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/orb.wgsl");
 #[cfg(not(target_arch = "wasm32"))]
 static WIND: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/wind.wgsl");
@@ -59,8 +56,8 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
         {
             // A busy, saturated backdrop makes the pane's blur and rim refraction
             // visible; the shader reads everything painted before it.
-            column(ui).width_percent(100.).height(300.).shrink(0.).clip(true).radius(18.)
-                .background(Color::Literal(0x121826)) + |ui|
+            column(ui).position(Position::Relative).width_percent(100.).height(300.).shrink(0.).clip(true)
+                .radius(18.).corner_smoothing(1.).background(Color::Literal(0x121826)) + |ui|
             {
                 column(ui).absolute(-50., -70.).width(280.).height(280.).radius(140.)
                     .background(Color::Literal(0xf97316)) + |_ui|
@@ -71,17 +68,23 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                 column(ui).absolute(300., 160.).width(280.).height(280.).radius(140.)
                     .background(Color::Literal(0xa855f7)) + |_ui|
                 {};
-                column(ui).absolute(28., 28.).gap(4) + |ui| {
-                    text(ui, "LIQUID").font_size(44).weight(800).color(Color::Literal(0xffffff));
-                    text(ui, "GLASS").font_size(44).weight(800).color(Color::Literal(0xffffff));
-                    text(ui, "Frosted by nine taps, bent at the rim, lit with a sheen.").font_size(13).color(Color::Literal(0xe2e8f0));
+                column(ui).absolute(0., 0.).width_percent(100.).height_percent(100.).padding(28).gap(4)
+                    .radius(18.).corner_smoothing(1.).material(LiquidGlass {
+                    frost: state.frost as f32,
+                    tint_opacity: 0.55,
+                    refraction: state.bend as f32 / 24.,
+                    rim: state.sheen as f32,
+                    animated: !state.paused,
+                    ..Default::default()
+                }) + |ui|
+                {
+                    text(ui, "LIQUID").font_size(44).weight(800).color(Color::Literal(0x243443));
+                    text(ui, "GLASS").font_size(44).weight(800).color(Color::Literal(0x243443));
+                    text(ui, "A framework material: scene refraction with sharp surface text.")
+                        .font_size(13).color(Color::Literal(0x334d63));
                 };
-                plico::widgets::shader(ui, &LIQUID_GLASS).position(Position::Absolute).inset(0.)
-                    .width_percent(100.).height_percent(100.)
-                    .values(&[state.frost as f32, state.bend as f32, state.sheen as f32]).animated(true)
-                    .paused(state.paused);
             };
-            text(ui, "LIQUID GLASS · read_backdrop: nine-tap blur, rim refraction, chromatic fringe, inner rim light")
+            text(ui, "LIQUID GLASS · framework material: curved-edge refraction, frost and rim lighting")
                 .font_size(11).color(Color::Muted);
             row(ui).width_percent(100.).shrink(0.).gap(16).align(Align::Stretch) + |ui| {
                 column(ui).width(0.).grow(1.).height(320.).clip(true).radius(18.)
@@ -142,11 +145,8 @@ mod tests {
 
     #[test]
     fn mygo_effects_validate_under_the_plico_prelude() {
-        ShaderEffectSource::with_backdrop(
-            include_str!("../assets/shaders/liquid_glass.wgsl"),
-            true,
-        )
-        .expect("liquid glass validates with a backdrop");
+        ShaderEffectSource::with_backdrop(plico::materials::liquid_glass_shader().source(), true)
+            .expect("liquid glass validates with a backdrop");
         ShaderEffectSource::new(include_str!("../assets/shaders/orb.wgsl")).expect("orb validates");
         ShaderEffectSource::new(include_str!("../assets/shaders/wind.wgsl"))
             .expect("wind validates");

@@ -1023,7 +1023,7 @@ fn effect_uniforms(effect: &ShaderEffect) -> [f32; UNIFORM_FLOAT_COUNT] {
 pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");
 
 /// Progressive backdrop blur body shared with the managed SDK.
-pub const BACKDROP_BLUR_WGSL: &str = include_str!("../assets/backdrop_blur.wgsl");
+pub const BACKDROP_BLUR_WGSL: &str = plico::materials::backdrop_blur_shader().source();
 
 #[cfg(test)]
 mod tests {
