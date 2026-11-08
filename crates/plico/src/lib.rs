@@ -24,7 +24,7 @@ mod calendar;
 pub mod materials;
 mod modal;
 mod model;
-pub use materials::{BackdropBlur, Elevation, LiquidGlass, ScrollEdgeSide};
+pub use materials::{BackdropBlur, Elevation, GlassStyle, LiquidGlass, ScrollEdgeSide};
 mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
@@ -173,13 +173,14 @@ pub mod prelude {
     };
     pub use crate::{
         AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display, Edges,
-        Elevation, FlexDirection, FlexWrap, FontFamily, GridFlow, GridLine, GridTemplate,
-        ImplicitKey, InnerResponse, InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation,
-        KeyPhase, Length, LiquidGlass, Metrics, ModalState, Modifiers, Motion, PopoverState,
-        Position, Response, Route, Router, ScrollEdgeSide, SelectOption, SelectResponse,
-        ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut, SvgAsset, TextBuffer,
-        Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
-        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
+        Elevation, FlexDirection, FlexWrap, FontFamily, GlassStyle, GridFlow, GridLine,
+        GridTemplate, ImplicitKey, InnerResponse, InputNavigation, InputResponse, Justify,
+        KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics, ModalState, Modifiers,
+        Motion, PopoverState, Position, Response, Route, Router, ScrollEdgeSide, SelectOption,
+        SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut,
+        SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext,
+        VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent,
+        px, text,
     };
 }
 

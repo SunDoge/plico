@@ -108,3 +108,14 @@ MyGO 模糊金字塔、原生 NSGlassEffectView 或系统壁纸采样。
 连续阴影的内部切孔已与连续圆角统一；模糊 caster 的半影仍沿用 C# 同一后端的 rounded-box
 近似，不宣称已移植 MyGO 的解析连续阴影 shader。全新的 TokenField / Outline / Chart 等，
 不是先前 C# 已做的功能，仍按 [MyGO 覆盖清单](../mygo-ports.md) 的已知边界处理。
+
+## 2026-11-09：继续对照 MyGO 原生材质
+
+参考同一已记录 MyGO revision 的 `plugins/glass/glass.go` 和 `glass.glsl`，新增 Regular、Clear
+和大面板 Clarity，并把色调／尺寸响应与材质 preset 沉淀到 Plico。使用现有 MIT 来源记录。
+材质 API、明暗色调 GPU 端点、80 DIP 小控件 clarity 不变、240 DIP 面板清晰度变化均有断言。
+Gallery 示例含明／暗／clear 可重建场景及模式与清晰度交互测试。禁用按钮不再创建背景 shader。
+主按钮强调色提高覆盖率，三套内置主题的 on-accent 文字经过 GPU 像素对比度检查（至少 4.5:1）。
+
+本批没有移植 MyGO 的 hover/press 150 ms 过渡和几何外扩，也没有移植 inset shadow、
+解析连续 caster 阴影或 blur pyramid；这些仍属于后续显示效果工作，不能用本批通过的测试代替验证。

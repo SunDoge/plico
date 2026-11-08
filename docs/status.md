@@ -22,6 +22,14 @@
 macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
 详见 [桌面集成](desktop-integration.md)。
 
+## MyGO 材质继续迁移
+
+新增 `LiquidGlass::regular()` / `clear()`、`GlassStyle` 与 Clarity。Regular 的明暗 tone
+随 theme surface 变化，大面板清晰度不会削弱小控件；旧 default/Custom 保持兼容。
+禁用玻璃按钮改用主题 fallback，减少无交互背景采样并保持可读性。
+Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、GPU 像素与交互测试已覆盖。
+交互玻璃的按压外扩／悬停过渡、inset shadow 与完整模糊金字塔还没有迁移，继续按证据推进。
+
 ## C# MyGO 改进的 Rust 入口
 
 已补齐 progressive BackdropBlur / 四方向 ScrollEdge、前景 `.blur` / `.no_shadow`、

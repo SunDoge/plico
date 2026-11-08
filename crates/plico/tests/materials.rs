@@ -246,7 +246,7 @@ fn glass_buttons_keep_semantics_and_paint_material_before_sharp_content() {
         assert!(node.children.len() >= 2);
         if label == "Save" {
             assert_eq!(node.style.foreground, Color::OnAccent);
-            assert_eq!(material.shader.as_ref().unwrap().values[2], 0.88);
+            assert_eq!(material.shader.as_ref().unwrap().values[2], 1.0);
         }
     }
     engine
@@ -308,4 +308,83 @@ fn glass_dialog_background_stays_outside_its_content_scroller_and_has_opaque_fal
             );
         }
     }
+}
+
+#[test]
+fn mygo_glass_presets_keep_theme_and_clarity_in_paint_parameters() {
+    assert_eq!(LiquidGlass::default().style, GlassStyle::Custom);
+    assert_eq!(LiquidGlass::regular().style, GlassStyle::Regular);
+    assert_eq!(LiquidGlass::clear().style, GlassStyle::Clear);
+    assert_eq!(LiquidGlass::regular().fallback, Color::Panel);
+    assert_eq!(
+        LiquidGlass {
+            clarity: f32::NAN,
+            ..LiquidGlass::regular()
+        }
+        .validated()
+        .clarity,
+        0.
+    );
+    assert_eq!(
+        LiquidGlass {
+            clarity: 2.,
+            ..LiquidGlass::regular()
+        }
+        .validated()
+        .clarity,
+        1.
+    );
+    let mut engine = Engine::default();
+    let mut material = LiquidGlass::regular();
+    engine
+        .frame_declarations(|cx| pane(cx, material, Elevation::NONE))
+        .unwrap();
+    let shader = descendants(&engine, engine.root())
+        .into_iter()
+        .find(|id| engine.node(*id).unwrap().kind == Kind::Shader)
+        .unwrap();
+    let values = &engine.node(shader).unwrap().shader.as_ref().unwrap().values;
+    assert_eq!(&values[13..16], &[1., 0., 0.]);
+    material.clarity = 0.75;
+    let stats = engine
+        .frame_declarations(|cx| pane(cx, material, Elevation::NONE))
+        .unwrap();
+    assert_eq!((stats.measure_calls, stats.layout_runs), (0, 0));
+    assert_eq!(
+        engine.node(shader).unwrap().shader.as_ref().unwrap().values[14],
+        0.75
+    );
+}
+
+#[test]
+fn disabled_glass_controls_use_a_readable_fallback_without_backdrop_work() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            button(cx)
+                .text("Unavailable")
+                .primary()
+                .disabled(true)
+                .material(LiquidGlass::regular());
+        })
+        .unwrap();
+    let nodes = descendants(&engine, engine.root());
+    assert!(
+        nodes
+            .iter()
+            .all(|id| engine.node(*id).unwrap().kind != Kind::Shader)
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|id| engine.node(*id).unwrap().style.background == Some(Color::Accent))
+    );
+    let button = nodes
+        .iter()
+        .find_map(|id| {
+            let node = engine.node(*id).unwrap();
+            (node.text == "Unavailable").then_some(node)
+        })
+        .unwrap();
+    assert!(button.style.disabled);
 }

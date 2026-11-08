@@ -79,6 +79,12 @@ fn glass_contour_field(p: vec2<f32>, size: vec2<f32>, radius: f32, smoothing: f3
     }
     return mix(circular, continuous, smoothing);
 }
+// MyGO paneTone: clarity changes larger panes, while controls keep their material.
+fn glass_parameter(frost: f32, mid: f32, clear: f32, clarity: f32, pane: f32) -> f32 {
+    var value = mix(frost, mid, min(clarity * 2.0, 1.0));
+    if clarity > 0.5 { value = mix(mid, clear, (clarity - 0.5) * 2.0); }
+    return mix(frost, value, pane);
+}
 fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let resolution = max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
     let scale = max(plico.resolution_time_scale.w, 0.01);
@@ -106,11 +112,24 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     }
     let coverage = 1.0 - smoothstep(-0.5 / scale, 0.5 / scale, distance);
     let depth = max(-distance, 0.0);
-    let bezel = min(plico.values[1].w, min(size.x, size.y) * 0.5);
+    let material = plico.values[3].y;
+    let clarity = clamp(plico.values[3].z, 0.0, 1.0);
+    let dark = plico.values[3].w > 0.5;
+    let short_side = min(size.x, size.y);
+    let pane = smoothstep(100.0, 200.0, short_side);
+    var bezel_width = plico.values[1].w;
+    if material > 0.5 { bezel_width *= glass_parameter(36.0,48.0,48.0,clarity,pane)/36.0; }
+    let bezel = min(bezel_width, short_side * 0.5);
     let refraction = bezel * plico.values[1].x * glass_lens(depth, bezel);
     let lens = uv - normal * refraction * scale / resolution;
     let frost = clamp(plico.values[0].y, 0.0, 1.0);
-    let spread = (0.6 + frost * 5.0) * scale / resolution;
+    var sigma = 0.6 + frost * 5.0;
+    if material > 0.5 {
+        sigma = min(max(short_side * 0.035,1.0),glass_parameter(10.0,5.0,2.0,clarity,pane));
+        if material > 1.5 { sigma = 1.0; }
+        sigma *= frost / 0.42;
+    }
+    let spread = sigma * scale / resolution;
     var blurred = vec3<f32>(0.0);
     var weight_sum = 0.0;
     for(var y = -2; y <= 2; y = y + 1) {
@@ -125,17 +144,33 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let luminance = dot(blurred, vec3<f32>(0.2126, 0.7152, 0.0722));
     // A clearer MyGO-style light material: the scene remains legible through
     // broad panes, while surface text is painted separately and stays sharp.
-    let low = mix(0.125, 0.35, frost);
-    let toned = low + (1.0 - low) * (1.0 - pow(max(1.0 - luminance, 0.0), 1.2));
-    var color = clamp(
-            vec3<f32>(toned) + (blurred - vec3<f32>(luminance)) * (1.0 - low) * plico.values[1].y,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-    color = mix(color, plico.values[2].xyz, clamp(plico.values[0].z, 0.0, 1.0) * 0.88);
+    var low = mix(0.125, 0.35, frost);
+    var high = 1.0;
+    var curve = 1.2;
+    var saturation = plico.values[1].y;
+    if material > 1.5 {
+        low = 0.125; high = 1.082; curve = 1.0;
+    } else if material > 0.5 {
+        low = glass_parameter(0.541,0.35,0.2,clarity,pane);
+        if dark {
+            low = glass_parameter(0.15,0.15,0.1,clarity,pane);
+            high = glass_parameter(0.51,0.6,0.85,clarity,pane);
+            curve = 2.0; saturation *= 2.2;
+        }
+    }
+    let toned = low + (high - low) * (1.0 - pow(max(1.0 - luminance, 0.0), curve));
+    var color = clamp(vec3<f32>(toned) + (blurred - vec3<f32>(luminance)) * (high - low) * saturation,
+        vec3<f32>(0.0),vec3<f32>(1.0));
+    let tint_amount = clamp(plico.values[0].z, 0.0, 1.0);
+    // Prominent controls need strong color to keep on-accent text readable.
+    // Ordinary translucent panes retain the historical 0.88 tint response.
+    let tint_alpha = tint_amount * (0.88 + 0.08 * smoothstep(0.88,1.0,tint_amount));
+    color = mix(color, plico.values[2].xyz, tint_alpha);
     // MyGO's one-pixel lit rim, with a wider, softer inner reflection.
     let light = abs(dot(normal, normalize(vec2<f32>(-0.25, -1.0))));
-    let rim = plico.values[1].z * exp(-depth * depth);
+    var rim_strength = plico.values[1].z;
+    if material > 0.5 { rim_strength *= glass_parameter(0.35,0.5,0.5,clarity,pane)/0.35; }
+    let rim = min(rim_strength,1.0) * exp(-depth * depth);
     color = mix(color, vec3<f32>(light), rim);
     let inner = exp(-pow((depth - 2.0) / 1.25, 2.0));
     color += vec3<f32>(inner * light * 0.055);

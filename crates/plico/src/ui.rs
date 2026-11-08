@@ -1142,9 +1142,14 @@ impl Leaf<'_, '_, '_> {
         style.styled_button = styled;
         let mut material = self.material;
         if let Some(ref mut glass) = material {
+            // Disabled controls retain a readable theme surface instead of
+            // spending backdrop work on a translucent, noninteractive pane.
+            if style.disabled {
+                glass.enabled = false;
+            }
             if style.background == Some(Color::Accent) {
                 glass.tint = Color::Accent;
-                glass.tint_opacity = glass.tint_opacity.max(0.88);
+                glass.tint_opacity = 1.;
                 glass.fallback = Color::Accent;
             }
             style.background = None;

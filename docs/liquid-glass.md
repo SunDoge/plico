@@ -182,3 +182,33 @@ cargo test -p plico-desktop --test scroll_clip -- --ignored
 
 测试将同色材质与普通填充逐像素比较，并验证真实 scroll_y 控件中的玻璃、阴影和透明分组
 在连续滚动与 1／1.5／2 倍 device scale 下不会越过父滚动区域或圆角。需要可用的 wgpu adapter。
+
+## Regular、Clear 与大面板 Clarity
+
+Rust 的 `LiquidGlass::regular()` 与 `LiquidGlass::clear()` 参考 MyGO
+`plugins/glass/glass.go` 的 `paneMaterial` / `paneTone`，通过公开材质入口给容器、按钮和对话框使用。
+`Regular` 依据当前 theme surface 的亮度选明／暗色调；`Clear` 只轻度调色，内容需自行保证对比度。
+
+```rust,ignore
+column(cx).radius(24.).material(LiquidGlass {
+    clarity: 0.65,
+    ..LiquidGlass::regular()
+}) + |cx| {
+    button(cx).text("Continue").primary().material(LiquidGlass::regular());
+};
+```
+
+Clarity 的尺寸响应对短边 100 DIP 以内的控件保持原材质，在 100–200 DIP 之间平滑过渡，
+对 200 DIP 以上的大面板完整生效。该参数同时调整大面板的色调、模糊采样范围、bezel 和 rim。
+默认 `LiquidGlass::default()` 仍为 `GlassStyle::Custom`，保留旧 Rust 材质的响应；新增参数
+使用第 3 组 uniform 的 y/z/w，分别是风格、clarity 和 surface 是否偏暗。C# legacy shader
+及其折射像素单位合约没有更改。
+
+主按钮使用更强的强调色 tint，高 tint 区间平滑增加覆盖；GPU 像素测试验证内置 Default／Light／Dark 三套主题的 on-accent 文字对比度至少 4.5:1。普通面板的 tint 响应保留。
+禁用的玻璃按钮使用 fallback，保留 disabled 语义与原本的透明度，不创建 shader。
+减少动态效果仍由原来的 reduce_motion 控制；这些静态 presets 本身不要求持续绘帧。
+
+新增 Gallery 场景 `effects-regular.json`、`effects-regular-dark.json` 与 `effects-clear.json`，
+提供模式切换、clarity 滑杆和普通／主操作／禁用按钮。内容底板保证不同背景上的文字对比度。
+GPU 测试检查参考色调端点、深色模式、small-control clarity 不变及大面板变化。
+当前仍使用既有 25 点 shader 采样，没有宣称移植 MyGO 的模糊金字塔、HDR 或原生系统玻璃。

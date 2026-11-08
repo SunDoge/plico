@@ -15,6 +15,18 @@ pub const fn liquid_glass_shader() -> crate::ShaderAsset {
     LIQUID_GLASS
 }
 
+/// Tone and size response of scene-backed glass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlassStyle {
+    /// Existing Plico parameter response, retained for source/visual compatibility.
+    #[default]
+    Custom,
+    /// MyGO-inspired frosted controls and theme-adaptive panels.
+    Regular,
+    /// Lightly toned glass for imagery; foreground contrast is the caller's responsibility.
+    Clear,
+}
+
 /// A scene-backed liquid glass material. Surface content is painted afterward,
 /// so text and controls remain sharp. The container's radius supplies its shape.
 ///
@@ -28,6 +40,10 @@ pub const fn liquid_glass_shader() -> crate::ShaderAsset {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LiquidGlass {
+    /// Tone/size response. Prefer the regular()/clear() presets for new surfaces.
+    pub style: GlassStyle,
+    /// Clear large panes without flattening small controls, in 0..=1.
+    pub clarity: f32,
     pub enabled: bool,
     /// Blur amount in 0..=1.
     pub frost: f32,
@@ -50,6 +66,8 @@ pub struct LiquidGlass {
 impl Default for LiquidGlass {
     fn default() -> Self {
         Self {
+            style: GlassStyle::Custom,
+            clarity: 0.,
             enabled: true,
             frost: 0.42,
             tint: Color::Literal(0xf9fcff),
@@ -65,6 +83,27 @@ impl Default for LiquidGlass {
     }
 }
 impl LiquidGlass {
+    /// Theme-adaptive frosted glass, following MyGO's size/clarity tone response.
+    pub fn regular() -> Self {
+        Self {
+            style: GlassStyle::Regular,
+            tint: Color::Panel,
+            tint_opacity: 0.,
+            saturation: 1.,
+            rim: 0.35,
+            bevel: 36.,
+            fallback: Color::Panel,
+            ..Self::default()
+        }
+    }
+    /// Near-clear glass for photos/video. Text must supply its own contrast.
+    pub fn clear() -> Self {
+        Self {
+            style: GlassStyle::Clear,
+            ..Self::regular()
+        }
+    }
+
     /// Clamp finite values to supported ranges; non-finite values use defaults.
     pub fn validated(self) -> Self {
         let defaults = Self::default();
@@ -76,6 +115,7 @@ impl LiquidGlass {
             }
         };
         Self {
+            clarity: bounded(self.clarity, 1., 0.),
             frost: bounded(self.frost, 1., defaults.frost),
             tint_opacity: bounded(self.tint_opacity, 1., defaults.tint_opacity),
             refraction: bounded(self.refraction, 4., defaults.refraction),
@@ -91,6 +131,16 @@ impl LiquidGlass {
         if options.enabled {
             let animated = options.animated && !options.reduce_motion;
             let tint = cx.theme().resolve(options.tint);
+            let surface = cx.theme().surface;
+            let brightness = (((surface >> 16) & 255) as f32 * 0.2126
+                + ((surface >> 8) & 255) as f32 * 0.7152
+                + (surface & 255) as f32 * 0.0722)
+                / 255.;
+            let style = match options.style {
+                GlassStyle::Custom => 0.,
+                GlassStyle::Regular => 1.,
+                GlassStyle::Clear => 2.,
+            };
             shader(cx, &LIQUID_GLASS)
                 .absolute(0., 0.)
                 .radius(0.)
@@ -110,6 +160,9 @@ impl LiquidGlass {
                     (tint & 255) as f32 / 255.,
                     0.,
                     corner_smoothing,
+                    style,
+                    options.clarity,
+                    f32::from(brightness < 0.5),
                 ])
                 .animated(animated);
         } else {

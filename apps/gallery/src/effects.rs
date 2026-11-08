@@ -14,6 +14,8 @@ static WIND: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/wind.w
 pub struct Effects {
     pub paused: bool,
     pub frost: f64,
+    pub glass_style: String,
+    pub clarity: f64,
     pub bend: f64,
     pub sheen: f64,
     pub energy: f64,
@@ -26,6 +28,8 @@ impl Default for Effects {
         Self {
             paused: false,
             frost: 0.55,
+            glass_style: "custom".into(),
+            clarity: 0.5,
             bend: 18.,
             sheen: 0.8,
             energy: 0.6,
@@ -52,8 +56,37 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
             text(ui, "Sheen").font_size(12).color(Color::Muted);
             slider(ui, "Glass sheen", &mut state.sheen, 0.0..=1.0).step(0.05).width(110.);
         };
+        row(ui).gap(10).wrap(true).align(Align::Center) + |ui| {
+            for (name, value) in [
+                ("Custom", "custom"),
+                ("Regular", "regular"),
+                ("Clear", "clear"),
+            ] {
+                ui.keyed(value, |ui| {
+                    let control = button(ui).text(name).radius(18.).height(36.)
+                        .material(LiquidGlass::regular());
+                    let control = if state.glass_style == value { control.primary() } else { control.ghost() };
+                    if control.clicked() {
+                        state.glass_style = value.into();
+                    }
+                });
+            }
+            text(ui, "Pane clarity").font_size(12).color(Color::Muted);
+            slider(ui, "Pane clarity", &mut state.clarity, 0.0..=1.0).step(0.05).width(140.);
+        };
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let material = match state.glass_style.as_str() {
+                "regular" => LiquidGlass {
+                    clarity: state.clarity as f32,
+                    ..LiquidGlass::regular()
+                },
+                "clear" => LiquidGlass {
+                    clarity: state.clarity as f32,
+                    ..LiquidGlass::clear()
+                },
+                _ => LiquidGlass::default(),
+            };
             // A busy, saturated backdrop makes the pane's blur and rim refraction
             // visible; the shader reads everything painted before it.
             column(ui).position(Position::Relative).width_percent(100.).height(300.).shrink(0.).clip(true)
@@ -71,17 +104,28 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                 column(ui).absolute(0., 0.).width_percent(100.).height_percent(100.).padding(28).gap(4)
                     .radius(18.).corner_smoothing(1.).material(LiquidGlass {
                     frost: state.frost as f32,
-                    tint_opacity: 0.55,
+                    tint_opacity: if state.glass_style == "custom" { 0.55 } else { 0. },
                     refraction: state.bend as f32 / 24.,
                     rim: state.sheen as f32,
                     animated: !state.paused,
-                    ..Default::default()
+                    ..material
                 }) + |ui|
                 {
-                    text(ui, "LIQUID").font_size(44).weight(800).color(Color::Literal(0x243443));
-                    text(ui, "GLASS").font_size(44).weight(800).color(Color::Literal(0x243443));
-                    text(ui, "A framework material: scene refraction with sharp surface text.")
-                        .font_size(13).color(Color::Literal(0x334d63));
+                    column(ui).width(360).padding(18).gap(12).radius(16.).corner_smoothing(1.)
+                        .background(Color::Panel).background_alpha(0.94).elevation(Elevation::CONTROL) + |ui|
+                    {
+                        text(ui, "Material preview").font_size(24).weight(650);
+                        text(ui, "Sharp controls over a scene-backed surface.").font_size(13)
+                            .color(Color::Muted).width_percent(100.);
+                        row(ui).gap(8).wrap(true) + |ui| {
+                            button(ui).text("Continue").primary().radius(20.).material(material)
+                                .elevation(Elevation::CONTROL);
+                            button(ui).text("Secondary").radius(20.).material(material)
+                                .elevation(Elevation::SUBTLE);
+                            button(ui).text("Unavailable").disabled(true).radius(20.)
+                                .material(material);
+                        };
+                    };
                 };
             };
             text(ui, "LIQUID GLASS · framework material: curved-edge refraction, frost and rim lighting")
