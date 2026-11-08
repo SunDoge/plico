@@ -8,6 +8,12 @@ static ORB: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/orb.wgs
 #[cfg(not(target_arch = "wasm32"))]
 static WIND: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/wind.wgsl");
 
+#[cfg(not(target_arch = "wasm32"))]
+static STRIPES: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/stripes.wgsl");
+#[cfg(not(target_arch = "wasm32"))]
+static BLUR_DETAIL: plico::ShaderAsset =
+    plico::shader_asset!("../assets/shaders/blur-detail.wgsl").prefilter_backdrop(8.);
+
 /// The Effects page's serializable demonstration state.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -145,6 +151,27 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                         {
                             text(ui, label).weight(550).font_size(13);
                             text(ui, "Inner depth · continuous corners").color(Color::Muted).font_size(11);
+                        };
+                    });
+                }
+            };
+            row(ui).width_percent(100.).shrink(0.).gap(12) + |ui| {
+                for (label, prefilter) in [
+                    ("Sparse samples · aliases", false),
+                    ("Prefiltered blur · preserved average", true),
+                ] {
+                    ui.keyed(label, |ui| {
+                        column(ui).width(0.).grow(1.).gap(6) + |ui| {
+                            text(ui, label).font_size(12).color(Color::Muted);
+                            column(ui).position(Position::Relative).width_percent(100.).height(64.)
+                                .radius(12.).clip(true) + |ui|
+                            {
+                                shader(ui, &STRIPES).absolute(0., 0.).width_percent(100.)
+                                    .height_percent(100.);
+                                shader(ui, &BLUR_DETAIL).absolute(0., 0.).width_percent(100.)
+                                    .height_percent(100.)
+                                    .prefilter_backdrop(if prefilter { 8. } else { 0. });
+                            };
                         };
                     });
                 }

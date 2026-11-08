@@ -86,6 +86,13 @@ pub struct FrameBatchStats {
     pub passes: u64,
     /// Explicit partial-damage replacement clears (not load-op clears).
     pub clears: u64,
+    /// Backdrop snapshots encoded, including snapshots in child layers.
+    pub backdrop_copies: u64,
+    /// Area-prefilter passes encoded for opted-in backdrop shaders.
+    pub backdrop_mip_passes: u64,
+    /// Transient backdrop texture payload encoded this frame, including all mips.
+    /// Not retained cache bytes or process RSS.
+    pub backdrop_bytes: u64,
 }
 // Preserve scope markers while culling expensive child layers before encoding.
 // The later instance filter remains useful for glyph-level pruning.
@@ -154,6 +161,7 @@ pub struct Renderer {
     adapter: wgpu::Adapter,
     blitter: Option<crate::blit::Blitter>,
     backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
+    backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -448,6 +456,7 @@ impl Renderer {
             adapter,
             blitter: None,
             backdrop_compositor: None,
+            backdrop_prefilter: None,
             layout,
             frame,
             bind,
@@ -1084,6 +1093,8 @@ impl Renderer {
                             self.target.as_ref(),
                             &mut effects,
                             &mut compositor,
+                            &mut self.backdrop_prefilter,
+                            &mut self.batch_stats,
                             &self.atlas_texture.layout,
                             if run.mask > 0 {
                                 &self.frame_images[run.mask as usize - 1].bind
@@ -2279,6 +2290,8 @@ fn encode_backdrop_step<'p>(
     target: Option<&Target>,
     effects: &mut Option<plico_renderer::shader::ShaderRenderer>,
     compositor: &mut Option<crate::backdrop_composite::Compositor>,
+    prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
+    stats: &mut FrameBatchStats,
     mask_layout: &wgpu::BindGroupLayout,
     mask: &wgpu::BindGroup,
     instance: Instance,
@@ -2302,10 +2315,16 @@ fn encode_backdrop_step<'p>(
             .max(1),
         depth_or_array_layers: 1,
     };
+    let mip_levels =
+        crate::backdrop_prefilter::levels(region.width, region.height, effect.prefilter_backdrop());
+    stats.backdrop_copies += 1;
+    stats.backdrop_mip_passes += u64::from(mip_levels - 1);
+    stats.backdrop_bytes +=
+        crate::backdrop_prefilter::bytes(region.width, region.height, mip_levels);
     let backdrop = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Plico effect backdrop copy"),
         size: region,
-        mip_level_count: 1,
+        mip_level_count: mip_levels,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -2333,6 +2352,11 @@ fn encode_backdrop_step<'p>(
         },
         region,
     );
+    if mip_levels > 1 {
+        prefilter
+            .get_or_insert_with(|| crate::backdrop_prefilter::Prefilter::new(device))
+            .encode(device, encoder, &backdrop);
+    }
     let backdrop_view = backdrop.create_view(&wgpu::TextureViewDescriptor::default());
     let effects = effects.get_or_insert_with(|| {
         let mut effects = plico_renderer::shader::ShaderRenderer::new(device);

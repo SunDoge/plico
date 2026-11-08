@@ -2293,6 +2293,7 @@ impl<'e> UiContext<'e> {
                 module: asset.is_module(),
                 sksl: asset.sksl().map(str::to_owned),
                 reads_backdrop: asset.reads_backdrop(),
+                prefilter_backdrop: asset.backdrop_prefiltered(),
                 ..Default::default()
             },
         }
@@ -2368,6 +2369,12 @@ impl Shader<'_, '_, '_> {
         self
     }
     #[inline(always)]
+    /// Build backdrop prefilter levels up to this logical-pixel sigma.
+    /// The asset must declare backdrop reading; layout and hit testing are unchanged.
+    pub fn prefilter_backdrop(mut self, max_sigma: f32) -> Self {
+        self.params.prefilter_backdrop = Some(max_sigma);
+        self
+    }
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();
         self.params.values.extend_from_slice(values);

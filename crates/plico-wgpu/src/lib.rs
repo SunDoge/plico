@@ -3,6 +3,7 @@
 //! Shared Scene rendering is always available; system text and window hosting
 //! remain separate features. The rendering path does not invoke Vello.
 mod backdrop_composite;
+mod backdrop_prefilter;
 mod blit;
 mod blur;
 #[cfg(all(target_os = "linux", feature = "system-text"))]

@@ -135,18 +135,7 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
         if material > 1.5 { sigma = 1.0; }
         sigma *= frost / 0.42;
     }
-    let spread = sigma * scale / resolution;
-    var blurred = vec3<f32>(0.0);
-    var weight_sum = 0.0;
-    for(var y = -2; y <= 2; y = y + 1) {
-        for(var x = -2; x <= 2; x = x + 1) {
-            let offset = vec2<f32>(f32(x), f32(y));
-            let weight = exp(-dot(offset, offset) * 0.5);
-            blurred += glass_sample(lens + offset * spread) * weight;
-            weight_sum += weight;
-        }
-    }
-    blurred /= weight_sum;
+    let blurred = plico_backdrop_blur(lens, sigma * scale).rgb;
     let luminance = dot(blurred, vec3<f32>(0.2126, 0.7152, 0.0722));
     // A clearer MyGO-style light material: the scene remains legible through
     // broad panes, while surface text is painted separately and stays sharp.

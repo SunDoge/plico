@@ -97,13 +97,44 @@ var plico_backdrop_sampler: sampler;
 @group(1) @binding(2)
 var<uniform> plico_backdrop_mapping: vec4f;
 
-fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+fn backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
     if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
         return vec4<f32>(0.0);
     }
     let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
     if any(mapped < vec2f(0.0)) || any(mapped > vec2f(1.0)) { return vec4f(0.0); }
-    return textureSampleLevel(plico_backdrop,plico_backdrop_sampler,mapped,0.0);
+    return textureSampleLevel(plico_backdrop,plico_backdrop_sampler,mapped,lod);
+}
+
+fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+    return backdrop_at_lod(uv, 0.0);
+}
+fn plico_backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
+    return backdrop_at_lod(uv,lod);
+}
+// Gaussian residual over a box-prefiltered pyramid. Sigma is in physical
+// pixels; interpolation between mip levels keeps progressive masks smooth.
+fn plico_backdrop_blur(uv: vec2<f32>, sigma: f32) -> vec4<f32> {
+    let resolution = max(plico.resolution_time_scale.xy,vec2f(1.));
+    let pixel = 0.5/resolution;
+    if sigma <= 0.01 { return backdrop_at(clamp(uv,pixel,vec2f(1.)-pixel)); }
+    let lod = clamp(log2(max(sigma,1.)),0.,f32(textureNumLevels(plico_backdrop)-1u));
+    let lower = floor(lod);
+    let width = exp2(lower);
+    let variance = (mix(width*width,4.*width*width,fract(lod))-1.)/12.;
+    let residual = sqrt(max(sigma*sigma-variance,0.));
+    let spread = residual/resolution;
+    var sum = vec4f(0.);
+    var weights = 0.;
+    for(var y=-2; y<=2; y++) {
+        for(var x=-2; x<=2; x++) {
+            let offset=vec2f(f32(x),f32(y));
+            let weight=exp(-dot(offset,offset)*0.5);
+            sum+=backdrop_at_lod(clamp(uv+offset*spread,pixel,vec2f(1.)-pixel),lod)*weight;
+            weights+=weight;
+        }
+    }
+    return sum/weights;
 }
 
 /// The surface's own sample of its backdrop at uv, premultiplied.
@@ -185,6 +216,8 @@ pub struct ShaderEffectSource {
     /// The effect reads its backdrop through `plico.backdrop_at` (mygo's
     /// scene.Effect.Backdrop). Hosts bind the region's rendered content.
     reads_backdrop: bool,
+    // Validated finite sigma bits keep the retained source key Eq + Hash.
+    prefilter_backdrop: Option<u32>,
 }
 
 impl ShaderEffectSource {
@@ -194,6 +227,19 @@ impl ShaderEffectSource {
             return Err("SkSL source must be nonempty and within the shader source limit".into());
         }
         self.sksl = Some(source.into());
+        Ok(self)
+    }
+    /// Request transient area-prefiltered backdrop levels from compatible hosts.
+    pub fn with_backdrop_prefilter(mut self, max_sigma: Option<f32>) -> Result<Self, String> {
+        if max_sigma.is_some_and(|sigma| {
+            !self.reads_backdrop || !sigma.is_finite() || !(0. ..=128.).contains(&sigma)
+        }) {
+            return Err(
+                "backdrop prefilter requires a backdrop-reading effect and finite sigma in 0..=128"
+                    .into(),
+            );
+        }
+        self.prefilter_backdrop = max_sigma.map(|sigma| sigma.max(0.).to_bits());
         Ok(self)
     }
     /// Validate and retain a custom WGSL effect function.
@@ -444,6 +490,7 @@ impl ShaderEffectSource {
             interface,
             parameters: parameters.into(),
             reads_backdrop,
+            prefilter_backdrop: None,
         })
     }
 
@@ -537,6 +584,10 @@ impl ShaderEffect {
     /// Whether the effect reads its backdrop (mygo's scene.Effect.Backdrop).
     pub fn reads_backdrop(&self) -> bool {
         self.source.reads_backdrop
+    }
+    /// Maximum logical-pixel sigma requested for area-prefiltered backdrop levels.
+    pub fn prefilter_backdrop(&self) -> Option<f32> {
+        self.source.prefilter_backdrop.map(f32::from_bits)
     }
     /// Injected animation time in seconds.
     pub fn time(&self) -> f32 {
@@ -686,7 +737,7 @@ impl ShaderRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         Self {
@@ -1106,6 +1157,17 @@ mod tests {
         let body = "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return plico_backdrop_at(uv); }";
         ShaderEffectSource::with_backdrop(body, true).unwrap();
         assert!(ShaderEffectSource::new(body).is_err());
+        let source = ShaderEffectSource::with_backdrop(body, true).unwrap();
+        assert!(source.clone().with_backdrop_prefilter(Some(8.)).is_ok());
+        for sigma in [-1., f32::NAN, f32::INFINITY, 129.] {
+            assert!(source.clone().with_backdrop_prefilter(Some(sigma)).is_err());
+        }
+        assert!(
+            ShaderEffectSource::new("fn plico_effect(_uv:vec2f)->vec4f { return vec4f(1.); }")
+                .unwrap()
+                .with_backdrop_prefilter(Some(8.))
+                .is_err()
+        );
     }
 
     #[test]

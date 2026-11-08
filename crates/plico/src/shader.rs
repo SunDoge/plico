@@ -8,6 +8,7 @@ pub struct ShaderAsset {
     /// The effect samples what is painted behind it (mygo's scene.Effect
     /// Backdrop): the host binds the region's rendered content as an input.
     reads_backdrop: bool,
+    prefilter_backdrop: Option<f32>,
 }
 impl ShaderAsset {
     pub const fn new(source: &'static str) -> Self {
@@ -17,6 +18,7 @@ impl ShaderAsset {
             module: false,
             sksl: None,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
     pub const fn module(source: &'static str) -> Self {
@@ -26,6 +28,7 @@ impl ShaderAsset {
             module: true,
             sksl: None,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
     /// Declare that the effect's `plico_effect` calls `plico.backdrop_at(uv)`.
@@ -35,6 +38,16 @@ impl ShaderAsset {
     pub const fn read_backdrop(mut self) -> Self {
         self.reads_backdrop = true;
         self
+    }
+    /// Request area-prefiltered levels up to a maximum logical-pixel sigma.
+    /// This also enables backdrop reading. The host owns all transient levels.
+    pub const fn prefilter_backdrop(mut self, max_sigma: f32) -> Self {
+        self.reads_backdrop = true;
+        self.prefilter_backdrop = Some(max_sigma);
+        self
+    }
+    pub const fn backdrop_prefiltered(self) -> Option<f32> {
+        self.prefilter_backdrop
     }
     pub const fn reads_backdrop(self) -> bool {
         self.reads_backdrop
@@ -146,6 +159,8 @@ pub struct ShaderParams {
     pub module: bool,
     /// The effect samples its backdrop through `plico.backdrop_at`.
     pub reads_backdrop: bool,
+    /// Maximum logical-pixel sigma for an area-prefiltered backdrop, or None.
+    pub prefilter_backdrop: Option<f32>,
 }
 impl Default for ShaderParams {
     fn default() -> Self {
@@ -162,12 +177,19 @@ impl Default for ShaderParams {
             paused: false,
             module: false,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
 }
 impl ShaderParams {
     pub fn valid(&self) -> bool {
-        self.paint_outset
+        self.prefilter_backdrop.is_none_or(|sigma| {
+            self.reads_backdrop
+                && !self.module
+                && sigma.is_finite()
+                && (0. ..=128.).contains(&sigma)
+        }) && self
+            .paint_outset
             .iter()
             .all(|v| v.is_finite() && (0. ..=64.).contains(v))
             && self.transitions.len() <= 256
@@ -213,6 +235,48 @@ mod tests {
         assert_eq!(serde_json::from_str::<ShaderParams>(&json).unwrap(), params);
         params.parameters[0].1 = [0., f32::NAN, 1.].into();
         assert!(!params.valid());
+    }
+    #[test]
+    fn backdrop_prefilter_is_opt_in_and_requires_a_function_backdrop() {
+        assert_eq!(ShaderAsset::new("source").backdrop_prefiltered(), None);
+        let asset = ShaderAsset::new("source").prefilter_backdrop(8.);
+        assert!(asset.reads_backdrop());
+        assert_eq!(asset.backdrop_prefiltered(), Some(8.));
+        assert_eq!(ShaderParams::default().prefilter_backdrop, None);
+        for sigma in [-1., f32::NAN, f32::INFINITY, 129.] {
+            assert!(
+                !ShaderParams {
+                    reads_backdrop: true,
+                    prefilter_backdrop: Some(sigma),
+                    ..Default::default()
+                }
+                .valid()
+            );
+        }
+        assert!(
+            !ShaderParams {
+                prefilter_backdrop: Some(8.),
+                ..Default::default()
+            }
+            .valid()
+        );
+        assert!(
+            ShaderParams {
+                prefilter_backdrop: Some(8.),
+                reads_backdrop: true,
+                ..Default::default()
+            }
+            .valid()
+        );
+        assert!(
+            !ShaderParams {
+                prefilter_backdrop: Some(8.),
+                reads_backdrop: true,
+                module: true,
+                ..Default::default()
+            }
+            .valid()
+        );
     }
     #[test]
     fn embedded_assets_preserve_source_and_interface() {

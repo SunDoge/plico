@@ -7,7 +7,7 @@ use crate::{
 };
 
 static LIQUID_GLASS: crate::ShaderAsset =
-    crate::shader_asset!("../assets/materials/liquid_glass.wgsl").read_backdrop();
+    crate::shader_asset!("../assets/materials/liquid_glass.wgsl").prefilter_backdrop(128.);
 
 /// Embedded material source for renderer validation and backend conformance tests.
 /// Applications should normally use `Layout::material` instead of raw uniforms.
@@ -174,7 +174,13 @@ impl LiquidGlass {
             let amounts = feedback.unwrap_or([0.; 2]);
             // A fixed two-DIP canvas margin encloses MyGO's 1.1/0.45-DIP growth.
             let outset = if feedback.is_some() { 2. } else { 0. };
+            let max_sigma = match options.style {
+                GlassStyle::Custom => 0.6 + options.frost * 5.,
+                GlassStyle::Regular => 10. * options.frost / 0.42,
+                GlassStyle::Clear => options.frost / 0.42,
+            };
             let surface = shader(cx, &LIQUID_GLASS)
+                .prefilter_backdrop(max_sigma)
                 .absolute(0., 0.)
                 .radius(0.)
                 .width_percent(100.)
@@ -311,7 +317,7 @@ impl BackdropBlur {
     }
 }
 static BACKDROP_BLUR: crate::ShaderAsset =
-    crate::shader_asset!("../assets/materials/backdrop_blur.wgsl").read_backdrop();
+    crate::shader_asset!("../assets/materials/backdrop_blur.wgsl").prefilter_backdrop(128.);
 /// Shared source for renderer and managed compatibility entry points.
 pub const fn backdrop_blur_shader() -> crate::ShaderAsset {
     BACKDROP_BLUR
@@ -348,14 +354,16 @@ fn blur_surface<'u, 'e>(
 ) -> crate::Shader<'u, 'e, 'static> {
     let options = options.validated();
     let tint = cx.theme().resolve(options.tint);
-    shader(cx, &BACKDROP_BLUR).values(&[
-        options.radius,
-        mode,
-        options.tint_opacity,
-        0.,
-        ((tint >> 16) & 255) as f32 / 255.,
-        ((tint >> 8) & 255) as f32 / 255.,
-        (tint & 255) as f32 / 255.,
-        0.,
-    ])
+    shader(cx, &BACKDROP_BLUR)
+        .prefilter_backdrop(options.radius)
+        .values(&[
+            options.radius,
+            mode,
+            options.tint_opacity,
+            0.,
+            ((tint >> 16) & 255) as f32 / 255.,
+            ((tint >> 8) & 255) as f32 / 255.,
+            (tint & 255) as f32 / 255.,
+            0.,
+        ])
 }

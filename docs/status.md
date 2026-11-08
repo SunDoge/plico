@@ -7,7 +7,7 @@
 `plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；
 容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
-启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。Skia 材质、原生系统玻璃与模糊金字塔尚未实现。
+启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。wgpu 已有受最大 sigma 限制的面积预滤波模糊金字塔；Skia 材质与原生系统玻璃尚未实现。
 背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
 见 [Liquid Glass](liquid-glass.md)。
 
@@ -38,7 +38,9 @@ Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、G
 新增 `.inset_shadow(BoxShadow)`，在背景上绘制模糊孔洞的补集，并沿连续圆角和祖先 clip 限制范围。
 wgpu 内外阴影现已沿连续 caster／孔洞求 Gaussian coverage，显式圆弧和正圆／胶囊继续保留。
 CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 damage 有 GPU 回归。
-完整模糊金字塔仍待实现。后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
+玻璃与 ScrollEdge 已接入面积预滤波金字塔＋残余 Gaussian 核，减少大半径稀疏采样混叠；
+层级按声明的最大 sigma 与 DPI 截止，不保留历史背景纹理，新增颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
+后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
 ## C# MyGO 改进的 Rust 入口
 
