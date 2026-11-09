@@ -491,7 +491,7 @@ texture，再执行隐藏/最小化。这个阶段保留 target/readback 像素�
 这是对 MyGO presenter 在资源生命周期切换前 wait/drain 原则的适配：wgpu Metal 的
 后台获取不能用主线程 NSWindow occlusion 查询提前跳过已隐藏窗口，因此先隐藏再
 等待可能延长获取等待。没有将 MyGO Window::Hide 本身描述成拥有此屏障；这是 Plico
-在 wgpu 边界补的顺序。系统直接发起的隐藏、原生标题栏特殊最小化路径等仍可能先到
+在 wgpu 边界补的顺序。系统直接发起的隐藏、系统原生交通灯或菜单最小化等仍可能先到
 occluded 事件，不能保证所有操作都没有 in-flight 等待。
 
 真实 surface 回归验证 drain 后仍保留 target/readback，且随后 configure 不会因
@@ -508,3 +508,17 @@ occluded 事件，不能保证所有操作都没有 in-flight 等待。
 输出还记录实际安装的 worker 模式（async/sync），不是只记录请求的环境变量。
 macOS 若请求后台模式而 worker 无法安装，检查程序报错；同步 A/B 模式仍可显式
 选择。这里的目标像素仍不是 WindowServer 最终合成输出，系统视觉验收范围保持独立。
+
+### 自定义标题栏双击最小化也经过屏障
+
+NativeInput 现在在当前拖窗手势中先解析系统双击动作，返回持有 NSWindow 引用的
+PreparedTitlebarAction；Shell 在 Minimize 动作前调用相同 prepare_hide，再执行
+AppKit 的 performMiniaturize。Zoom / Ignore 保持原动作，不额外等待获取任务。
+同一 NSEvent 的重复命令产生 Ignore，不重复执行动作或屏障。局部 autorelease pool
+排空后，待执行动作仍有自己持有的 native target，不借用池内临时对象。
+
+该顺序补齐的是框架自定义拖窗区域路径。系统原生交通灯/菜单直接发起的动作不经过
+这个解析器，仍依赖后续 occluded 通知处理。系统设置解析和事件去重的现有 portable
+回归、宿主 68 项测试与实际 AppKit 模块的 Apple 目标 Clippy 检查通过；当前 Linux
+没有执行双击系统偏好对应的 macOS 交互。实机需在系统选择“双击标题栏最小化”后，
+对有持续绘制的自定义标题栏确认动作及恢复行为，不能用普通不透明检查窗口代替。

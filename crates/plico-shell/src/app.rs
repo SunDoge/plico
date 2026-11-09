@@ -1766,7 +1766,7 @@ impl ExtensionContext<'_> {
     /// A macOS titlebar double click can consume it as the system's action.
     pub fn start_window_drag(&mut self, window_key: WindowResourceKey) -> bool {
         find_window_by_key(self.windows.values_mut(), window_key)
-            .and_then(|app| app.state.as_ref())
+            .and_then(|app| app.state.as_mut())
             .is_some_and(|shell| shell.start_window_drag())
     }
 
@@ -2295,7 +2295,7 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
             }
         }
         WindowCommand::StartDragging => {
-            if let Some(shell) = app.state.as_ref() {
+            if let Some(shell) = app.state.as_mut() {
                 shell.start_window_drag();
             }
         }

@@ -183,12 +183,16 @@ impl Shell {
         })
     }
 
-    pub(crate) fn start_window_drag(&self) -> bool {
+    pub(crate) fn start_window_drag(&mut self) -> bool {
         #[cfg(target_os = "macos")]
-        if self
+        if let Some(action) = self
             .native_input
-            .handle_titlebar_double_click(self.window.as_ref())
+            .prepare_titlebar_double_click(self.window.as_ref())
         {
+            if action.minimizes() {
+                self.prepare_hide();
+            }
+            action.perform();
             return true;
         }
         match self.window.drag_window() {

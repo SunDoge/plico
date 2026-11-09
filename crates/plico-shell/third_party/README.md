@@ -52,3 +52,9 @@ validation and a bounded per-window event identity gate. See `mygo-LICENSE`.
 (`ee3d4bd9bd741f197de231b9fd9b002e9db55577`, MIT) for withholding ordinary
 window presentation while out of sight. Plico preserves its own host-action,
 semantic and explicit-capture settlement before the presentation gate.
+
+The titlebar adapter prepares an owned AppKit target/action before dispatch,
+allowing Plico's shared pre-hide acquisition barrier to run before a custom
+header double-click invokes performMiniaturize. MyGO's existing double-click
+preference mapping remains the reference; the renderer barrier ordering is
+Plico-specific. The native target is retained across the local autorelease pool.
