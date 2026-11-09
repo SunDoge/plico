@@ -32,7 +32,7 @@ url = { workspace = true }
 [features]
 default = ["wgpu"]
 wgpu = ["dep:plico-wgpu", "dep:pollster"]
-desktop-integration = ["dep:tray-icon", "dep:zbus"]
+desktop-integration = ["dep:tray-icon"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 skia = ["dep:plico-skia"]
 profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
@@ -70,4 +70,4 @@ name = "global_hotkeys"
 required-features = ["global-hotkeys"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "=5.19.0", features = ["blocking-api"], optional = true }
+zbus = { version = "=5.19.0", features = ["blocking-api"] }

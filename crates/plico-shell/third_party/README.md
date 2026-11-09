@@ -24,3 +24,12 @@ display links, common run-loop modes, default frame-rate range, continuous
 requests without repeated native start/stop, and idle/invisible pausing. Plico's
 callback owns only a wake handle and handshake state; winit remains the event
 and redraw host. No transaction-presentation implementation is copied.
+
+
+`src/linux_preferences.rs` references MyGO `internal/linux/system.go` at the
+same revision: notification-driven preference snapshots, portal contrast, GTK
+animation/HighContrast fallbacks. Plico uses a process-shared background zbus
+Settings observer and weak per-window subscriptions; it does not bind GTK or
+copy the GLib ABI. Portal `reduced-motion` is preferred as a standard source,
+with GNOME requests combined when those keys are exposed. MIT attribution is
+retained in `mygo-LICENSE`.

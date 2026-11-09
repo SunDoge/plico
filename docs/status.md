@@ -24,6 +24,14 @@ wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有
 macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
 详见 [桌面集成](desktop-integration.md)。
 
+## 原生显示偏好
+
+macOS 监听 NSWorkspace 辅助功能偏好，Linux 在后台共享 portal Settings 连接并监听变化。
+减少动画和高对比度接入共享 WindowMetrics / DisplayPreferences，应用不保存系统偏好；
+Linux 还兼容 portal 暴露的 GNOME 动画、主题与高对比度设置。没有绘制期系统查询。
+Linux 协议与关闭生命周期经私有 D-Bus mock 服务验证；真实桌面后端、异步首帧、
+portal 不可用及未实现选项的边界见 [Linux 对照](linux-mygo.md)。
+
 ## 默认圆角
 
 Rust Style 的默认 corner_smoothing 已设为 1，控件与布局统一采用连续圆角，半径数值不变。

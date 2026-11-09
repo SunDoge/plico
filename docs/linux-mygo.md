@@ -41,6 +41,38 @@ xvfb-run -a cargo test --locked -p plico-shell --lib native_resize_uses_latest_e
 保留目标重建的 GPU 像素一致性另由 `trimming_idle_target` 回归覆盖。Xvfb 不能
 证明真实 Wayland compositor 的遮挡、分数缩放、实际高刷节奏或进程 RSS 降幅。
 
-后续继续对照 MyGO `internal/linux/system.go` 的系统辅助功能偏好（动画和高对比度）
-以及 Wayland/X11 交互。当前原生偏好适配仍主要在 macOS；Linux 未实现的能力
-不列作已经完成。
+系统辅助功能偏好已接入，详见下文；真实 Wayland 高刷、分数缩放和各桌面后端的
+偏好暴露情况仍需验证，未验证的能力不列作已经完成。
+
+
+## Linux 原生显示偏好
+
+参考 MyGO `internal/linux/system.go` 的 `Preferences` / `watchPortalSettings`，
+Linux 宿主共享一个后台 portal 观察服务。初始 ReadAll 和 SettingChanged 订阅通过
+zbus 完成；UI 只读取快照，并由合并的 wake 回调接收变化，没有绘制期 D-Bus 查询
+或周期性轮询。订阅先于读取，避免初始化期间漏掉设置变化。
+
+- `org.freedesktop.appearance` 的 `reduced-motion` 和 `contrast` 接入共享偏好。
+- portal 暴露 GNOME 设置时，兼容 `enable-animations`、`gtk-theme` 和
+  `org.gnome.desktop.a11y.interface` 的 `high-contrast`。
+- 减少动画或高对比度的任一来源提出请求便生效；portal 的“无偏好”不取消 GNOME
+  已提出的请求。非法类型和无关设置忽略，恢复设置后可撤销对应来源的请求。
+- 多窗口复用同一服务，订阅使用弱引用。最后一个宿主释放服务时主动关闭连接，
+  解除阻塞的信号监听；UI 不等待线程 join 或远程方法答复。
+
+框架已有的语义主题高对比度、Modal 减少动效和应用自身减少动效选项的合并逻辑
+直接消费这些 WindowMetrics，应用无需重复实现或保存系统偏好。
+
+初始读取异步进行，首帧可能先使用默认值；portal 不存在或不可用时保持默认值，
+不会阻止窗口创建。尝试通过总线激活惰性 portal，但不引入 GTK 设置依赖。
+本轮不提供 portal 启动失败后的自动重连，也未实现 Linux 原生减少透明度、
+accent-color 或 text-scaling-factor。GNOME 兼容键取决于当前 portal 是否暴露。
+
+验证覆盖真实私有 D-Bus 上的初始快照、变化信号、唤醒合并和连接关闭，以及
+无偏好回退、恢复、非法类型和无关字段。可重建命令：
+
+```sh
+dbus-run-session -- cargo test --locked -p plico-shell --lib portal_initial_snapshot_signals -- --ignored
+```
+
+该测试使用 mock Settings 服务，证明协议和生命周期，不等同于 GNOME/KDE 实机设置面板验证。

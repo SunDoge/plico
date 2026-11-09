@@ -37,6 +37,8 @@ pub struct Shell {
     native_frame: crate::macos_window_frame::NativeWindowFrame,
     #[cfg(target_os = "macos")]
     preferences: crate::macos_preferences::NativePreferences,
+    #[cfg(target_os = "linux")]
+    preferences: crate::linux_preferences::NativePreferences,
     presentation_error: Option<String>,
     /// Reused backend-neutral application scene for the current frame.
     pub scene: Scene,
@@ -166,7 +168,7 @@ impl Shell {
             deferred_show,
             #[cfg(target_os = "macos")]
             native_frame,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             preferences: Default::default(),
             presentation_error: None,
             renderer,
@@ -178,11 +180,11 @@ impl Shell {
     }
 
     pub(crate) fn display_preferences(&self) -> plico_renderer::DisplayPreferences {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             self.preferences.snapshot()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Default::default()
         }
@@ -196,6 +198,8 @@ impl Shell {
             );
             self.preferences.observe(_wake);
         }
+        #[cfg(target_os = "linux")]
+        self.preferences.observe(_wake);
     }
     pub(crate) fn animation_frame_ready(&self, _continuous: bool) -> bool {
         #[cfg(target_os = "macos")]
@@ -205,11 +209,11 @@ impl Shell {
         true
     }
     pub(crate) fn refresh_display_preferences(&mut self) -> bool {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             self.preferences.refresh()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             false
         }
