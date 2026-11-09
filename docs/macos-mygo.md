@@ -731,3 +731,17 @@ worker 单槽/QoS、frame pacing、drawable 等待调度和标题栏纯策略七
 同次运行的 Linux quality 与 Windows compile 作业也成功，但不是本次 macOS 原生
 运行的替代证据。Metal 真 surface、原生窗口视觉/交互、Core Animation 提交轮次、
 高刷跨屏及长时间滚动 RSS/footprint/p95/p99 仍未由这项作业验证；目标继续保持未完成。
+
+## 将验证扩展到 Metal 与窗口
+
+从 `c598cb3` 起，macOS CI 默认运行 full 模式；CPU 模式继续保留为独立的原生文字/
+调度检查入口。Metal paragraph GPU 回归明确断言所选 adapter 的 backend 为 Metal，
+避免把其他后端通过算作 Metal 证据。生命周期示例同样在 macOS 拒绝非 Metal 后端，
+并输出实际 adapter 名称、设备类型及 backend；WgpuWindow::adapter_info 提供只读查询。
+这些信息写入 full 模式的 summary，和已有的实际 async/sync 状态、阶段内存样本一起
+用于解释结果。
+
+这一扩展在本地通过 Apple 目标 Clippy、Linux 真实 X11 窗口运行、actionlint 和脚本
+正反门控验证。但它不自动把 macOS GPU / 窗口行改成“通过”：必须有 full 模式具体
+成功日志、Metal backend 断言、窗口完成标记和八个内存阶段。此前 59 项原生 CPU
+通过的记录保持原来的范围，不替代这次扩展的执行结果。
