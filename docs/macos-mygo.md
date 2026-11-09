@@ -682,3 +682,22 @@ tracking / 红色 span 之后普通蓝色文本的宽度、caret 与像素保持
 新增虚拟时间回归覆盖跳过多个周期、非边界恢复、精确边界、重复冻结时间和失焦，
 连同现有光标/终端背景保留共 5 项通过，terminal 全目标 Clippy 通过。
 这证明共享时间逻辑，不代替 macOS 实际系统睡眠/显示恢复或能耗测量。
+
+## macOS CI 执行原生 CPU 回归
+
+CI 新增 macos-15 作业，运行以下模式，不再仅对这些测试交叉编译：
+
+```sh
+PLICO_MACOS_CHECK_MODE=cpu scripts/check-macos-native.sh
+```
+
+CPU 模式实际执行 CoreText 单/多行与私有字体、垂直文字、paragraph cache、
+worker 单槽/QoS、frame pacing、drawable 等待调度和标题栏纯策略七个阶段。
+仍严格检查每阶段非零测试数和命令退出码，并把提交与范围写入作业 summary。
+此模式不运行 Metal GPU、live-window、八阶段进程内存样本或系统标题栏交互；
+完整原生验证仍使用默认 full 模式。未知 mode 拒绝执行，避免配置拼写错误造成
+静默跳过。CI 作业不使用可选 Skia 后端。
+
+工作流通过 actionlint；脚本模拟验证 full 原有门控、CPU 模式及非法 mode。
+是否完成原生执行必须以具体 GitHub Actions 作业及其测试日志为准，新增工作流
+本身不是 macOS 运行通过的证据。

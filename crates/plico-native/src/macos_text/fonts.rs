@@ -449,7 +449,14 @@ mod tests {
                         } else {
                             NSFont::systemFontOfSize_weight(size, weight.native_value())
                         };
-                        native.fontName().to_string()
+                        // NSFont.fontName may be a virtual UI alias such as
+                        // .AppleSystemUIFont. Compare the physical PostScript
+                        // name through CoreText on both independently selected faces.
+                        let native: &NSFont = &native;
+                        let expected: &CTFont = native.as_ref();
+                        // SAFETY: The independently selected AppKit font is live
+                        // throughout this synchronous toll-free bridge query.
+                        unsafe { expected.post_script_name() }.to_string()
                     });
                     assert_eq!(
                         line.font_postscript_name(),
