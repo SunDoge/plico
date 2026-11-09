@@ -243,7 +243,7 @@ impl Cache {
             let mapped = match candidate {
                 "" | "sans-serif" | "system-ui" => "system-ui",
                 "serif" => "Times",
-                "monospace" => "Menlo",
+                "monospace" | "ui-monospace" => "ui-monospace",
                 other => other,
             };
             let mut probe = Request::new("");
@@ -251,7 +251,7 @@ impl Cache {
             probe.fonts = Some(&self.fonts);
             let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
             if self.fonts.contains_family(mapped)
-                || mapped == "system-ui"
+                || matches!(mapped, "system-ui" | "ui-monospace")
                 || face.font_family().eq_ignore_ascii_case(mapped)
                 || face.font_postscript_name().eq_ignore_ascii_case(mapped)
             {
@@ -741,6 +741,19 @@ mod tests {
             ellipsis: false,
         })
     }
+    #[test]
+    fn generic_monospace_selects_the_native_system_monospaced_face() {
+        let mut cache = Cache::new();
+        let mut requested = (*request()).clone();
+        requested.family = "monospace".into();
+        requested.text = "iiii WWWW 0123".into();
+        let generic = cache.layout(Arc::new(requested.clone())).unwrap();
+        requested.family = "ui-monospace".into();
+        let explicit = cache.layout(Arc::new(requested)).unwrap();
+        assert_eq!(generic.metrics().width, explicit.metrics().width);
+        assert!(generic.caret_rect(4).is_some());
+    }
+
     #[test]
     fn application_font_alias_survives_engine_reinstallation_and_cache_trim() {
         let asset = FontAsset::from_static(include_bytes!(

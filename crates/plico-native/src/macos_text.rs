@@ -18,10 +18,9 @@ use objc2_core_foundation::{
 };
 use objc2_core_graphics::CGColor;
 use objc2_core_text::{
-    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, CTTypesetter,
-    kCTFontAttributeName, kCTFontTraitsAttribute, kCTFontWeightTrait,
-    kCTForegroundColorAttributeName, kCTForegroundColorFromContextAttributeName,
-    kCTTrackingAttributeName,
+    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTLine, CTTypesetter, kCTFontAttributeName,
+    kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorAttributeName,
+    kCTForegroundColorFromContextAttributeName, kCTTrackingAttributeName,
 };
 pub use paragraph::{Alignment, Paragraph, ParagraphLine};
 pub use raster::Rasterized;
@@ -53,16 +52,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Native face weight selection; CoreText chooses the closest available face.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum FontWeight {
-    /// Select the family's regular face using symbolic traits.
+    /// Select the family's regular face.
     #[default]
     Regular,
-    /// Select the family's bold face using symbolic traits.
+    /// Select the family's bold face.
     Bold,
     /// CoreText normalized weight in `[-1, 1]`, with zero regular/medium.
     /// This is not a CSS weight or an OpenType `wght` axis coordinate.
     Normalized(f64),
 }
 impl FontWeight {
+    fn native_value(self) -> f64 {
+        match self {
+            // SAFETY: Immutable AppKit constants on supported macOS versions.
+            Self::Regular => unsafe { objc2_app_kit::NSFontWeightRegular },
+            Self::Bold => unsafe { objc2_app_kit::NSFontWeightBold },
+            Self::Normalized(weight) => weight,
+        }
+    }
     /// Map CSS weights through the platform's named weight constants. Values
     /// between hundreds interpolate native anchors; 1..100 and 900..1000 clamp
     /// to the lightest/heaviest named weight. This requests a closest face,
@@ -156,6 +163,7 @@ pub struct Request<'a> {
     /// Original UTF-8 text, at most 1 MiB and 100,000 scalar values.
     pub text: &'a str,
     /// System/PostScript family name; `system-ui` or empty selects the UI font.
+    /// `ui-monospace` selects the platform system monospaced face.
     /// CoreText may fall back for unknown names; inspect [`Line::font_family`].
     pub family: &'a str,
     /// Private application faces; no process-wide font registration is performed.

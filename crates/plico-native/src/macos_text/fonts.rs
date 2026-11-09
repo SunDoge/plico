@@ -62,14 +62,7 @@ impl Fonts {
         }
         let font = if let Some(faces) = self.registered.get(&family.to_lowercase()) {
             let style = request.style.unwrap_or_default();
-            let weight = match style.weight {
-                FontWeight::Regular => 0.,
-                FontWeight::Bold => match FontWeight::from_css(700.)? {
-                    FontWeight::Normalized(w) => w,
-                    _ => unreachable!(),
-                },
-                FontWeight::Normalized(w) => w,
-            };
+            let weight = style.weight.native_value();
             let face = faces
                 .iter()
                 .min_by(|a, b| {
@@ -114,20 +107,21 @@ pub(super) fn resolve(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
     }
 }
 fn create(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
-    let name = CFString::from_str(request.family);
-    // SAFETY: CFString values and the null optional transform remain valid
-    // throughout each synchronous call. Returned create-rule objects are owned.
-    let font = unsafe {
-        if matches!(request.family, "" | "system-ui") {
-            CTFont::new_ui_font_for_language(CTFontUIFontType::System, request.size, None)
-                .ok_or(Error::Allocation)?
-        } else {
-            CTFont::with_name(&name, request.size, std::ptr::null())
-        }
+    let system = matches!(request.family, "" | "system-ui" | "ui-monospace");
+    let font = if system {
+        system_font(request)?
+    } else {
+        let name = CFString::from_str(request.family);
+        // SAFETY: Retained name and null optional transform are valid.
+        unsafe { CTFont::with_name(&name, request.size, std::ptr::null()) }
     };
     let font = if let Some(style) = request.style {
         let mut traits = CTFontSymbolicTraits::empty();
-        if style.weight == FontWeight::Bold {
+        // NSFont already selected the native UI weight; do not clear it.
+        if system && !style.italic {
+            return Ok(font);
+        }
+        if !system && style.weight == FontWeight::Bold {
             traits |= CTFontSymbolicTraits::TraitBold;
         }
         if style.italic {
@@ -140,11 +134,15 @@ fn create(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
                 0.,
                 std::ptr::null(),
                 traits,
-                CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic,
+                if system {
+                    CTFontSymbolicTraits::TraitItalic
+                } else {
+                    CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic
+                },
             )
         }
         .ok_or(Error::UnavailableStyle)?;
-        if let FontWeight::Normalized(weight) = style.weight {
+        if !system && let FontWeight::Normalized(weight) = style.weight {
             let number = CFNumber::new_f64(weight);
             // SAFETY: Framework constants are valid retained CFString keys;
             // dictionaries retain their values for the synchronous font copy.
@@ -177,9 +175,95 @@ fn create(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
     Ok(font)
 }
 
+// Like MyGO's systemFont, scope AppKit temporary objects to this thread even
+// outside an event loop. The returned CF owner survives pool drainage.
+fn system_font(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
+    use objc2_app_kit::NSFont;
+    objc2::rc::autoreleasepool(|_| {
+        let weight = request.style.unwrap_or_default().weight.native_value();
+        if request.family == "ui-monospace" && !objc2::available!(macos = 10.15) {
+            return create(&Request {
+                family: "Menlo",
+                ..*request
+            });
+        }
+        let native = if request.family == "ui-monospace" {
+            NSFont::monospacedSystemFontOfSize_weight(request.size, weight)
+        } else {
+            NSFont::systemFontOfSize_weight(request.size, weight)
+        };
+        let font: &NSFont = &native;
+        let font: &CTFont = font.as_ref();
+        // SAFETY: objc2-app-kit supplies the public toll-free CTFont bridge;
+        // retain before the NSFont owner and local autorelease pool are dropped.
+        Ok(unsafe { CFRetained::retain(std::ptr::NonNull::from(font)) })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_faces_match_appkit_selection_and_survive_the_local_pool() {
+        use objc2_app_kit::NSFont;
+        for family in ["system-ui", "ui-monospace"] {
+            if family == "ui-monospace" && !objc2::available!(macos = 10.15) {
+                continue;
+            }
+            for size in [11., 13., 17., 24.] {
+                for css in [400., 500., 600., 700.] {
+                    let weight = FontWeight::from_css(css).unwrap();
+                    let line = Line::new(&Request {
+                        family,
+                        size,
+                        style: Some(FontStyle {
+                            weight,
+                            italic: false,
+                        }),
+                        ..Request::new("AV office 0123")
+                    })
+                    .unwrap();
+                    let expected = objc2::rc::autoreleasepool(|_| {
+                        let native = if family == "ui-monospace" {
+                            NSFont::monospacedSystemFontOfSize_weight(size, weight.native_value())
+                        } else {
+                            NSFont::systemFontOfSize_weight(size, weight.native_value())
+                        };
+                        native.fontName().to_string()
+                    });
+                    assert_eq!(
+                        line.font_postscript_name(),
+                        expected,
+                        "{family} {size} {css}"
+                    );
+                    // system_font's local pool has drained before these calls.
+                    assert!(line.caret_offsets(2).is_ok());
+                    assert!(line.rasterize(2., [0.25, 0.], [255; 4]).unwrap().is_some());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn system_monospace_has_equal_advances_and_explicit_menlo_still_resolves() {
+        let width = |text| {
+            Line::new(&Request {
+                family: "ui-monospace",
+                ..Request::new(text)
+            })
+            .unwrap()
+            .metrics()
+            .width
+        };
+        assert!((width("iiii") - width("WWWW")).abs() < 1e-6);
+        let named = Line::new(&Request {
+            family: "Menlo",
+            ..Request::new("iiii")
+        })
+        .unwrap();
+        assert_eq!(named.font_family(), "Menlo");
+    }
 
     #[test]
     fn changing_text_or_tracking_reuses_the_face_but_sizes_and_traits_do_not() {

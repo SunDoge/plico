@@ -125,3 +125,19 @@ tick target 仅持有调度握手和事件循环 wake，不保存应用/UI 状�
 多窗口共用帧调度入口。此适配未迁移动态 `presentsWithTransaction`，也不声称已
 验证 ProMotion、AppKit tracking/live resize 的实机帧时序。握手和宿主测试可在 Linux
 运行；原生模块使用 Apple Silicon 目标做类型/Clippy 检查，macOS 动画效果待实测。
+
+## AppKit 系统字体选择
+
+对照 MyGO `internal/text/coretext_darwin.go::systemFont`，系统 UI 字体通过
+`NSFont.systemFontOfSize:weight:` 按原生字重选择，而不是先生成常规 CTFont 再组合
+traits 字典。`monospace` / `ui-monospace` 使用
+`NSFont.monospacedSystemFontOfSize:weight:`；macOS 10.15 之前回退 Menlo。
+显式指定 `Menlo` 仍选择该命名字体，不改变其他命名字体或私有应用字体选择。
+
+NSFont 经 objc2-app-kit 的公开 toll-free bridge 转为自持有 CTFont，局部 autorelease
+pool 在字体缓存 miss 后立即排空；缓存命中不重复查询 AppKit。斜体选择只修改 italic
+trait，保留 NSFont 选出的字重。尺寸仍按精确逻辑值缓存，不对光学尺寸取整。
+
+新增原生回归对照 AppKit 在多个字号/字重下的 PostScript 名称，检查 pool 排空后的
+光标和栅格有效性、等宽字形 advance 及 generic family 的桥接。它们可编译到 Apple
+Silicon，实际执行需要 macOS。没有从代码审查推断进程 RSS 降幅。

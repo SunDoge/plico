@@ -59,3 +59,8 @@ these attribution notes do not relicense them.
   The CoreText application font collection uses private descriptors and family
   aliases rather than process-global registration. Ownership, per-collection
   caches and validation are Rust implementations. See `licenses/mygo-MIT.txt`.
+
+The same MyGO CoreText revision's `systemFont` also informs AppKit UI/monospaced
+font selection by native weight, local autorelease-pool scope and owned CTFont
+bridging. The Rust implementation uses objc2-app-kit's public toll-free bridge;
+no manually loaded Objective-C ABI is copied.
