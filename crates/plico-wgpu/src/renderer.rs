@@ -814,9 +814,10 @@ impl Renderer {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
-        // Encoded commands retain their own GPU references. The pass-local
-        // interning table must not keep evicted textures alive until another frame.
-        self.clear_frame_images();
+        // Encoded commands retain their own GPU references. Pass-local image
+        // bindings, deferred layer scenes and effects must not keep evicted
+        // textures/CPU raster payload alive until another frame or after trim.
+        self.clear_frame_references();
         if !unchanged && result.is_ok() {
             self.images.finish_frame();
         }
@@ -1670,6 +1671,11 @@ impl Renderer {
         self.frame_image_slots.clear();
         self.frame_images.clear();
     }
+    fn clear_frame_references(&mut self) {
+        self.clear_frame_images();
+        self.backdrop_effects.clear();
+        self.deferred_layers.clear();
+    }
     fn intern_frame_image(&mut self, image: std::rc::Rc<crate::image::GpuImage>) -> usize {
         // Pointer identity is local to this pass, and every registered resource
         // is strongly owned by this pass's current/saved frame_images. The
@@ -1688,9 +1694,7 @@ impl Renderer {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
-        self.backdrop_effects.clear();
-        self.deferred_layers.clear();
-        self.clear_frame_images();
+        self.clear_frame_references();
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
             let first = instances.len();
@@ -2235,6 +2239,7 @@ impl Renderer {
     /// Release CPU path/SVG/clip rasters and the local prepared-scene snapshot.
     /// Retained final pixels remain valid; subsequent changes rebuild derived data.
     pub fn trim_raster_cache(&mut self) {
+        self.clear_frame_references();
         self.prepared_cache.clear();
         self.paths = Default::default();
         self.svgs = Default::default();
@@ -3591,6 +3596,95 @@ mod tests {
         renderer.trim_readback_buffer();
         renderer.trim_readback_buffer();
         assert_eq!(renderer.target_storage_bytes().1, 0);
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
+        use kurbo::{Affine, Rect};
+        use plico_renderer::{PaintScene, Scene};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut scene = Scene::new();
+        for alpha in [0.8, 0.7] {
+            scene.push_layer(
+                peniko::BlendMode::default(),
+                alpha,
+                Affine::IDENTITY,
+                &Rect::new(0., 0., 32., 32.),
+                None,
+                None,
+            );
+        }
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &Rect::new(4., 4., 20., 20.),
+        );
+        let source = plico_renderer::ShaderEffectSource::with_backdrop(
+            "fn plico_effect(uv:vec2f)->vec4f { return plico_backdrop_at(uv); }",
+            true,
+        )
+        .unwrap();
+        let mut text = plico_renderer::TextContext::new();
+        let mut paint = plico_renderer::widget::PaintContext::new(32., 32., 1., &mut text);
+        paint.draw_shader_effect(
+            plico_renderer::ShaderEffectId::new(),
+            source,
+            0.,
+            Vec::<f32>::new().into(),
+        );
+        scene.append_scene(paint.finish(), Affine::IDENTITY);
+        scene.pop_layer();
+        scene.pop_layer();
+        let expected = renderer
+            .render_scene(&scene, [32, 32], [0.; 4], false)
+            .unwrap();
+        let broken = crate::image::ImageQuad::new(
+            Quad::new([0., 0., 1., 1.], [1.; 4]),
+            peniko::ImageData {
+                data: peniko::Blob::new(std::sync::Arc::new(vec![255u8])),
+                format: peniko::ImageFormat::Rgba8,
+                alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+                width: 1,
+                height: 1,
+            },
+        );
+        for fail in [false, true] {
+            let prepared = renderer.prepare_scene(&scene, [32, 32]).unwrap();
+            let mut draws = prepared.draws();
+            let weak = draws
+                .iter()
+                .find_map(|draw| match draw {
+                    crate::Draw::Layer(layer) => Some(std::rc::Rc::downgrade(&layer.scene)),
+                    _ => None,
+                })
+                .expect("nested scene must produce an isolated layer");
+            if fail {
+                draws.push(crate::Draw::Image(&broken));
+            }
+            let encoder = renderer.encode_frame(&draws, [32, 32], [0.; 4], 0.);
+            assert_eq!(encoder.is_err(), fail);
+            drop(draws);
+            drop(prepared);
+            renderer.trim_raster_cache();
+            assert!(
+                weak.upgrade().is_none(),
+                "pass-local layer references outlived cache trim (failure={fail})"
+            );
+            if let Ok(encoder) = encoder {
+                // GPU commands own everything needed even after all CPU layer
+                // owners were released, before this encoder is submitted.
+                assert_eq!(renderer.read_frame(encoder, [32, 32]).unwrap(), expected);
+            }
+        }
+        assert_eq!(
+            renderer
+                .render_scene(&scene, [32, 32], [0.; 4], false)
+                .unwrap(),
+            expected
+        );
     }
 
     #[test]

@@ -71,6 +71,7 @@ run_tests x11-host "${x11_runner[@]}" cargo test --color never --locked -p plico
 run_tests x11-surface "${x11_runner[@]}" cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib native_surface_resize_waits -- --ignored --test-threads=1
 run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib abandoned_prepared_frames_preserve -- --ignored --test-threads=1
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
+run_tests layer-owners-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib encoded_layers_release_scene -- --ignored --test-threads=1
 run_tests idle-target-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib trimming_idle_target -- --ignored --test-threads=1
 run_surface_window() {
     local marker='' line

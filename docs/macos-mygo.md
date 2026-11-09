@@ -793,3 +793,23 @@ Linux 的 3 项 HUD 回归与宿主 Clippy 通过；当前 Linux 环境的完整
 旧代码在新增标记断言处失败，修正后通过。纯 deadline 回归、Linux Clippy 与
 Apple 目标实现/测试 Clippy 也通过。macOS 原生 surface 恢复时序仍由用户本机测量，
 本轮不运行云端 macOS 作业。
+
+## 清除延期 backdrop 图层的帧级引用
+
+对照 MyGO Metal `releaseTextures` 同时释放 drawState / builder 引用的原则，清理
+Plico 编码器在 top-level encode 结束后的 image / effect / deferred-layer 引用。
+普通孤立图层只留下 GPU 图片 owner，原先已被清理；读取 backdrop 的延期图层则
+留在 deferred_layers 中，额外持有 Rc<PreparedScene>。因此清空 prepared/raster 缓存
+后，上一帧的派生场景和文字位图仍可能存活到下一次编码。
+
+现在成功与错误返回都释放这组帧级引用；显式 trim_raster_cache 也覆盖它们。
+已编码 command buffer 自己拥有所需 GPU 资源，不必用 CPU PreparedScene 延长
+生命周期。正常的 prepared LRU、外部场景 owner、shader pipeline 和 GPU 缓存继续
+按各自策略管理，不强制丢弃应用资产。
+
+新增嵌套 backdrop 回归用 Weak<PreparedScene> 检查清理后的真实 owner 释放，并在
+释放 CPU scene 后才提交 encoder / 读回像素，确保 GPU 内容仍有效；同时覆盖编码
+失败与下一次恢复。旧实现确实在成功编码后的弱引用断言处失败，修正后通过。
+相关编码回归 4 项、嵌套 backdrop 3 项通过，Linux / Apple / WASM Clippy 通过。
+两个本机原生检查脚本加入该 GPU 阶段；不触发云端 macOS 运行。该证据不等同于
+macOS RSS 降幅，也不是对先前 3 GB 增长根因的完整定位。
