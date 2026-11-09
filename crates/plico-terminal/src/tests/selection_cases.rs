@@ -979,3 +979,31 @@ fn focus_and_alternate_scroll_modes_report_to_pty() {
     }));
     assert_eq!(widget.take_input(), b"\x1b[A");
 }
+
+#[test]
+fn host_click_interval_changes_preserve_selection_and_use_the_injected_clock() {
+    let clock = plico::VirtualClock::default();
+    let mut widget = TerminalWidget::headless(20, 4);
+    widget.set_clock(std::sync::Arc::new(clock.clone()));
+    widget.feed(b"hello world");
+    let x = f64::from(DEFAULT_CELL_WIDTH) * 7.25;
+    let click = |widget: &mut TerminalWidget| {
+        widget.handle_event(&pointer(PointerPhase::Down, x, 1., 1));
+        widget.handle_event(&pointer(PointerPhase::Up, x, 1., 0));
+    };
+    click(&mut widget);
+    clock.advance(Duration::from_millis(750)).unwrap();
+    click(&mut widget);
+    assert_ne!(widget.selected_text().as_deref(), Some("world"));
+    plico_renderer::Widget::set_multi_click_interval(&mut widget, Duration::from_secs(1));
+    click(&mut widget);
+    clock.advance(Duration::from_millis(750)).unwrap();
+    click(&mut widget);
+    assert_eq!(widget.selected_text().as_deref(), Some("world"));
+    plico_renderer::Widget::set_multi_click_interval(&mut widget, Duration::from_millis(100));
+    assert_eq!(widget.selected_text().as_deref(), Some("world"));
+    click(&mut widget);
+    clock.advance(Duration::from_millis(150)).unwrap();
+    click(&mut widget);
+    assert_ne!(widget.selected_text().as_deref(), Some("world"));
+}

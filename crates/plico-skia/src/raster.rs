@@ -197,6 +197,9 @@ impl Resources {
                 }
                 Some(result.unwrap_or(Rect::ZERO))
             }
+            PaintCommand::InsetBoxShadow {
+                transform, bounds, ..
+            } => Some(transform.transform_rect_bbox(*bounds)),
             PaintCommand::Paragraph { request, transform } => Some(
                 transform.transform_rect_bbox(
                     self.paragraphs
@@ -861,12 +864,79 @@ impl SkiaSurface {
                     canvas.draw_path(&path(shape), &paint);
                     canvas.restore();
                 }
+                PaintCommand::InsetBoxShadow {
+                    transform,
+                    bounds,
+                    hole,
+                    brush,
+                    radius,
+                    std_dev,
+                    corner_smoothing,
+                } => {
+                    if !std_dev.is_finite()
+                        || *std_dev < 0.
+                        || !radius.is_finite()
+                        || *radius < 0.
+                        || ![hole.x0, hole.y0, hole.x1, hole.y1]
+                            .iter()
+                            .all(|v| v.is_finite())
+                    {
+                        return Err(Error::Unsupported {
+                            command: "invalid inset shadow geometry",
+                        });
+                    }
+                    let mut paint = Paint::new(color(*brush), None);
+                    paint.set_anti_alias(true);
+                    if *std_dev > 0. {
+                        paint.set_mask_filter(skia_safe::MaskFilter::blur(
+                            skia_safe::BlurStyle::Normal,
+                            *std_dev as f32,
+                            None,
+                        ));
+                    }
+                    // A finite outer contour more than four sigma outside the
+                    // caster is equivalent to an infinite complement inside it.
+                    let extent = bounds
+                        .union(*hole)
+                        .inflate(4. * std_dev + 1., 4. * std_dev + 1.);
+                    let mut inverse = extent.to_path(0.1);
+                    if hole.width() > 0. && hole.height() > 0. {
+                        let radius = radius.min(hole.width().min(hole.height()) * 0.5);
+                        inverse.extend(
+                            plico_renderer::corner_shape::corner_shape(
+                                *hole,
+                                plico_renderer::style::CornerRadii::uniform(radius as f32),
+                                *corner_smoothing,
+                            )
+                            .to_path(0.1)
+                            .reverse_subpaths()
+                            .elements()
+                            .iter()
+                            .copied(),
+                        );
+                    }
+                    canvas.save();
+                    canvas.concat(&matrix(*transform));
+                    canvas.clip_rect(
+                        skia_safe::Rect::new(
+                            bounds.x0 as f32,
+                            bounds.y0 as f32,
+                            bounds.x1 as f32,
+                            bounds.y1 as f32,
+                        ),
+                        None,
+                        true,
+                    );
+                    canvas.draw_path(&path(&inverse), &paint);
+                    canvas.restore();
+                }
                 PaintCommand::BoxShadow {
                     transform,
                     rect,
                     brush,
                     radius,
                     std_dev,
+                    corner_smoothing,
                 } => {
                     // Matches Vello's BlurredRoundedRectangle: a rounded rect
                     // blurred by a Gaussian whose sigma is std_dev, painted in
@@ -899,7 +969,18 @@ impl SkiaSurface {
                         radius as f32,
                         radius as f32,
                     );
-                    canvas.draw_rrect(rrect, &paint);
+                    if *corner_smoothing > 0. {
+                        canvas.draw_path(
+                            &path(&plico_renderer::corner_shape::corner_shape(
+                                rect,
+                                plico_renderer::style::CornerRadii::uniform(radius as f32),
+                                *corner_smoothing,
+                            )),
+                            &paint,
+                        );
+                    } else {
+                        canvas.draw_rrect(rrect, &paint);
+                    }
                     canvas.restore();
                 }
                 PaintCommand::Svg {

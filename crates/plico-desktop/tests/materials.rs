@@ -277,3 +277,159 @@ fn plico_effect(uv:vec2<f32>)->vec4<f32> {
         );
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn regular_and_clear_glass_follow_mygo_tones_and_preserve_small_control_clarity() {
+    use plico_desktop::HostView;
+    use plico_renderer::{FrameSource, Scene, TextContext};
+    struct ToneProbe {
+        dark: bool,
+        size: f32,
+        background: u32,
+        glass: LiquidGlass,
+    }
+    impl HostView for ToneProbe {
+        fn theme(&self) -> plico::Theme {
+            if self.dark {
+                plico::Theme::dark()
+            } else {
+                plico::Theme::light()
+            }
+        }
+        #[component]
+        #[rustfmt::skip]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).width(self.size).height(self.size).background(Color::Literal(self.background)) + |cx| {
+                column(cx).width_percent(100.).height_percent(100.).radius(16.).material(self.glass).end();
+            };
+        }
+    }
+    let mut renderer = pollster::block_on(plico_wgpu::Renderer::new()).unwrap();
+    let mut render = |dark, size, background, mut glass: LiquidGlass| {
+        glass.rim = 0.;
+        let mut source = Source::with_clock(
+            ToneProbe {
+                dark,
+                size,
+                background,
+                glass,
+            },
+            plico::VirtualClock::default(),
+        );
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
+        source
+            .render_retained_frame(&mut scene, &mut text, (size as u32, size as u32), 1.)
+            .unwrap();
+        renderer
+            .render_scene(&scene, [size as u32, size as u32], [0.; 4], false)
+            .unwrap()
+    };
+    for (dark, background, glass, expected) in [
+        (false, 0x000000, LiquidGlass::regular(), 138u8),
+        (false, 0xffffff, LiquidGlass::regular(), 255),
+        (true, 0x000000, LiquidGlass::regular(), 38),
+        (true, 0xffffff, LiquidGlass::regular(), 130),
+        (false, 0x000000, LiquidGlass::clear(), 32),
+        (true, 0x000000, LiquidGlass::clear(), 32),
+    ] {
+        let pixels = render(dark, 80., background, glass);
+        let center = (40 * 80 + 40) * 4;
+        assert!(
+            pixels[center].abs_diff(expected) <= 1,
+            "dark={dark}, background={background:x}: {} != {expected}",
+            pixels[center]
+        );
+        assert_eq!(pixels[center + 3], 255);
+    }
+    for dark in [false, true] {
+        let regular = LiquidGlass::regular();
+        let clearer = LiquidGlass {
+            clarity: 1.,
+            ..regular
+        };
+        assert_eq!(
+            render(dark, 80., 0x345678, regular),
+            render(dark, 80., 0x345678, clearer),
+            "clarity must not flatten small controls"
+        );
+        let opaque = render(dark, 240., 0x000000, regular);
+        let clear = render(dark, 240., 0x000000, clearer);
+        let center = (120 * 240 + 120) * 4;
+        assert!(
+            clear[center] < opaque[center],
+            "large pane must become clearer"
+        );
+        assert!(clear[center].abs_diff(if dark { 26 } else { 51 }) <= 1);
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn primary_glass_buttons_keep_default_theme_label_contrast() {
+    use plico_desktop::HostView;
+    use plico_renderer::{FrameSource, Scene, TextContext};
+    struct Primary(plico::Theme);
+    impl HostView for Primary {
+        fn theme(&self) -> plico::Theme {
+            self.0
+        }
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx)
+                .width(120)
+                .height(40)
+                .background(Color::Panel)
+                .children(|cx| {
+                    button(cx)
+                        .aria_label("Primary")
+                        .primary()
+                        .width(120)
+                        .height(40)
+                        .radius(20.)
+                        .material(LiquidGlass::regular());
+                });
+        }
+    }
+    let luminance = |rgb: [u8; 3]| {
+        let linear = |v: u8| {
+            let v = f64::from(v) / 255.;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        linear(rgb[0]) * 0.2126 + linear(rgb[1]) * 0.7152 + linear(rgb[2]) * 0.0722
+    };
+    let mut renderer = pollster::block_on(plico_wgpu::Renderer::new()).unwrap();
+    for preset in [
+        plico::Theme::default(),
+        plico::Theme::light(),
+        plico::Theme::dark(),
+    ] {
+        let mut source = Source::with_clock(Primary(preset), plico::VirtualClock::default());
+        let theme = source.view.theme();
+        let label = theme.on_accent;
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
+        source
+            .render_retained_frame(&mut scene, &mut text, (120, 40), 1.)
+            .unwrap();
+        let pixels = renderer
+            .render_scene(&scene, [120, 40], [0.; 4], false)
+            .unwrap();
+        let foreground = luminance([(label >> 16) as u8, (label >> 8) as u8, label as u8]);
+        // Test the text's usable interior, including the reflection band;
+        // antialiased capsule borders do not belong to the label background.
+        for y in 10..30 {
+            for x in 20..100 {
+                let i = (y * 120 + x) * 4;
+                let background = luminance([pixels[i], pixels[i + 1], pixels[i + 2]]);
+                let ratio =
+                    (background.max(foreground) + 0.05) / (background.min(foreground) + 0.05);
+                assert!(ratio >= 4.5, "primary label contrast {ratio} at ({x},{y})");
+            }
+        }
+    }
+}

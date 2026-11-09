@@ -108,3 +108,74 @@ MyGO 模糊金字塔、原生 NSGlassEffectView 或系统壁纸采样。
 连续阴影的内部切孔已与连续圆角统一；模糊 caster 的半影仍沿用 C# 同一后端的 rounded-box
 近似，不宣称已移植 MyGO 的解析连续阴影 shader。全新的 TokenField / Outline / Chart 等，
 不是先前 C# 已做的功能，仍按 [MyGO 覆盖清单](../mygo-ports.md) 的已知边界处理。
+
+## 2026-11-09：继续对照 MyGO 原生材质
+
+参考同一已记录 MyGO revision 的 `plugins/glass/glass.go` 和 `glass.glsl`，新增 Regular、Clear
+和大面板 Clarity，并把色调／尺寸响应与材质 preset 沉淀到 Plico。使用现有 MIT 来源记录。
+材质 API、明暗色调 GPU 端点、80 DIP 小控件 clarity 不变、240 DIP 面板清晰度变化均有断言。
+Gallery 示例含明／暗／clear 可重建场景及模式与清晰度交互测试。禁用按钮不再创建背景 shader。
+主按钮强调色提高覆盖率，三套内置主题的 on-accent 文字经过 GPU 像素对比度检查（至少 4.5:1）。
+
+第一批结束时，交互几何、inset shadow、解析连续 caster 阴影与 blur pyramid 仍未迁移。
+
+### 第二批：交互材质
+
+参考 `Glass.BuildMaterial` 与 `pressed.PaintMaterial`：悬停提亮 120 ms，按压外扩 150 ms、
+水平 1.1 / 垂直 0.45 DIP；通用实现为 shader scalar transition 和 paint_outset，字形和 hit box 不动。
+修正了宿主对材质按钮补实色背景的推断，保留焦点、disabled 和祖先 clip。裁剪离屏背景加入 UV 映射，
+避免材质画布外扩后采样偏移。Preview 增加 pointer_down/up，Gallery 提供可重建 hover/pressed 场景。
+
+原生输入、retained clock／反向／组合目标、idle／reduced motion、焦点和 GPU 外扩／裁剪像素均验证。
+inset shadow、解析连续 caster 阴影和 blur pyramid 仍待实现；本批不声称与原生 macOS 像素一致。
+
+### 第三批：内阴影
+
+参考 MyGO scene 的 inset shadow 孔洞补集定义，新增共享内阴影命令与控件／布局 builder。
+wgpu 以 Gaussian coverage 的补集着色，Skia 以反向轮廓模糊；两者均在 caster 轮廓和祖先裁剪内绘制。
+内阴影不扩大布局或外部 visual bounds，清除阴影 API 同时清除它。Gallery 提供凹陷表面对照。
+孔洞模糊仍使用圆弧近似；解析连续 caster 与完整 blur pyramid 继续保留为未实现项。
+
+### 第四批：wgpu 连续阴影
+
+连续角现在参与内外阴影 caster／孔洞的积分，而不仅是裁剪。
+复用 MyGO Illinois 逆轮廓思路，搭配 16 点 Gauss–Legendre 与长边中央解析捷径；
+圆弧旧接口及正圆／胶囊继续保持原形。中间平滑度按混合后的场求根。
+独立 CPU 轮廓 oracle 的 81 组配置最大灰度误差约 1.68/255（门槛 3）；
+移动、祖先 clip、damage 与无离屏 layer 分配有回归，固定性能探针可重跑。
+当前仍是统一阴影半径，混合半径节点沿用最大半径规则，未声称支持任意异形路径模糊。
+
+按用户最新方向，画质和性能工作以 wgpu 为主；保留 Skia 已有兼容代码，不做专项追平。
+完整 blur pyramid 仍待后续工作。
+
+### 第五批：受 sigma 预算约束的背景预滤波
+
+wgpu 新增 render-pass 面积预滤波金字塔，玻璃与 ScrollEdge 按物理 sigma 选 LOD，
+扣除预滤波方差后用残余核模糊；ordinary backdrop 与 level-0 采样保持单层语义。
+层级由最大逻辑 sigma 与 DPI 决定，临时资源无历史纹理缓存，公开本帧 payload/pass 统计。
+细条纹、Gaussian CDF 阶跃、跨 LOD 连续性、透明颜色、奇数／单像素轴、clip、damage、释放
+均有回归。Gallery Effects 提供两个采样路径的对照和可重建场景。
+
+这是参考 MyGO 降采样与模糊分工后的 Plico 实现，不声称精确复制其逐层两轴 Gaussian、
+HDR 或系统原生材质。较早批次中关于“金字塔未实现”的表述是当时状态；当前接口与
+证据以 [Liquid Glass](../liquid-glass.md) 及状态页为准。
+
+## 当前特效验收
+
+目标是将 MyGO 的材质／轮廓／阴影与交互观感改进带入 Rust 公共控件；
+按最新方向以 wgpu 验收，不要求复制 MyGO 全部产品组件或 Skia 特效。
+
+| 项目 | 当前可重建证据 |
+|---|---|
+| 连续圆角默认与正圆／胶囊例外 | `plico/tests/corner_defaults.rs`、renderer `corner_shape` 单测；普通控件与 serde 默认、显式零、精确圆弧 |
+| Regular / Clear / Clarity 与明暗 tone | `plico/tests/materials.rs`、`plico-desktop/tests/materials.rs`，含主题主按钮文字对比度和禁用 fallback |
+| 悬停／按压材质、原生焦点和无额外布局 | desktop `interactive_glass`、`shader_transition`，注入时钟、retarget、idle、reduced motion、外扩但不扩大命中 |
+| 双层外阴影与内阴影、连续 caster | renderer scene tests、wgpu `continuous_shadows` / `shadows` / `inset_shadows`，CPU contour Gaussian oracle、0/0.5/1 平滑度与多 DPI |
+| 大半径模糊与四方向 ScrollEdge | wgpu `backdrop_prefilter` / desktop `materials`：细纹理、CDF、跨层连续性、明暗示例，受 sigma 预算限制 |
+| 滚动与分组合成层级 | desktop `scroll_clip`、wgpu `effects`：祖先矩形／圆角 mask、透明隔离层、cropped target、局部重绘 |
+| 临时资源边界 | prefilter budget unit test、premultiplied/odd/thin GPU tests、移除释放、帧 payload/pass 统计，prefilter 不持有纹理缓存 |
+| 场景预览与真实消费 | Gallery 的 mode/clarity/press 测试及 `effects-prefilter.json`；独立 Plicowarden 通过同一 Git revision 消费框架，应用回归由其 recipe runner 重建 |
+
+已检查 Gallery 明／暗效果截图；生成物仅放 reports，不作为文档依赖。
+此验收不声称验证了 macOS 原生呈现、系统级玻璃／壁纸、HDR、任意异形路径 blur
+或完整应用 RSS；这些不由此处的 Linux GPU 像素与定型探针间接证明。

@@ -145,6 +145,16 @@ pub(crate) fn show_notification(
     app_name: &str,
     request: NotificationRequest,
 ) -> Result<(), String> {
+    notification_builder(app_name, &request)?
+        .show()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn notification_builder(
+    app_name: &str,
+    request: &NotificationRequest,
+) -> Result<notify_rust::Notification, String> {
     if request.title.trim().is_empty() {
         return Err("notification title must not be empty".into());
     }
@@ -165,10 +175,7 @@ pub(crate) fn show_notification(
     if request.silent {
         notification.hint(notify_rust::Hint::SuppressSound(true));
     }
-    notification
-        .show()
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    Ok(notification)
 }
 
 #[cfg(test)]

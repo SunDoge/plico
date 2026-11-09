@@ -2,12 +2,29 @@
 //!
 //! Shared Scene rendering is always available; system text and window hosting
 //! remain separate features. The rendering path does not invoke Vello.
+mod backdrop_batch;
+mod backdrop_composite;
+mod backdrop_context;
+mod backdrop_prefilter;
 mod blit;
 mod blur;
+#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+mod frame_pass;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod glyphs;
+#[cfg(all(target_os = "macos", feature = "window"))]
+mod macos_frame_pass;
+#[cfg(all(target_os = "macos", feature = "window"))]
+mod macos_transaction;
 mod mipmap;
 mod renderer;
+#[cfg(any(
+    all(target_os = "macos", feature = "window"),
+    all(test, not(target_arch = "wasm32"))
+))]
+mod surface_acquire;
+#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+mod transaction_policy;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 pub mod web;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
@@ -16,10 +33,22 @@ mod web_text;
 mod window;
 #[cfg(feature = "window")]
 pub use window::WgpuWindow;
+/// An observed host display-link callback, in the host's monotonic clock domain.
+#[cfg(any(feature = "window", test))]
+#[derive(Clone, Copy, Debug)]
+pub struct PresentationTick {
+    /// Changes only when a display callback is delivered.
+    pub serial: u64,
+    /// Callback time; None before the host's first callback.
+    pub observed_at: Option<std::time::Instant>,
+}
+
 pub mod image;
 #[cfg(all(target_os = "macos", feature = "system-text"))]
 mod macos_paragraph;
 pub mod mask;
+#[cfg(any(all(target_os = "macos", feature = "system-text"), test))]
+mod native_raster_window;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod paragraph;
 #[cfg(all(target_os = "windows", feature = "system-text"))]
@@ -82,6 +111,10 @@ pub struct Quad {
     /// Gaussian shadow sigma. Positive values blur the inset rounded rectangle
     /// (the quad includes a four-sigma margin on every side).
     pub shadow_sigma: f32,
+    /// Continuous-corner blend for shadow geometry only.
+    pub shadow_smoothing: f32,
+    /// Optional rounded hole relative to the quad origin, for an inset shadow.
+    pub shadow_hole: Option<[f32; 4]>,
     /// Uniform inside border width in physical pixels.
     pub border_width: f32,
     pub border_color: [f32; 4],
@@ -106,6 +139,8 @@ impl Quad {
             rect,
             radii: [0.; 4],
             shadow_sigma: 0.,
+            shadow_smoothing: 0.,
+            shadow_hole: None,
             border_width: 0.,
             border_color: [0.; 4],
             colors: [color; 2],
@@ -122,9 +157,16 @@ impl Quad {
         let valid_color = |c: [f32; 4]| c.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v));
         if !valid_rect(self.rect)
             || self.clip.is_some_and(|r| !valid_rect(r))
+            || (self.shadow_hole.is_some() && self.material)
+            || !self.shadow_smoothing.is_finite()
+            || !(0. ..=1.).contains(&self.shadow_smoothing)
             || !self.shadow_sigma.is_finite()
             || self.shadow_sigma < 0.
+            || self
+                .shadow_hole
+                .is_some_and(|h| !h.iter().all(|v| v.is_finite()))
             || (self.shadow_sigma > 0.
+                && self.shadow_hole.is_none()
                 && (self.material
                     || self.rect[2] < 8. * self.shadow_sigma
                     || self.rect[3] < 8. * self.shadow_sigma))

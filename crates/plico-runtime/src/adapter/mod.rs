@@ -144,6 +144,7 @@ pub(super) struct PaintKey {
     focused: bool,
     checked_progress: f32,
     focus_progress: f32,
+    raster_correction: Option<f32>,
 }
 
 pub(super) type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
@@ -202,6 +203,7 @@ pub struct Adapter {
     pub(super) font_family: Arc<str>,
     pub(super) font_dirty: bool,
     pub(super) selection: selection::TextSelection,
+    pub(super) input_pointers: input::InputPointers,
     /// Selection state changed outside a frame; the next update must refresh
     /// paragraphs and rects even when the backend otherwise did no work.
     pub(super) selection_dirty: bool,
@@ -213,6 +215,7 @@ pub struct Adapter {
     /// Latest pointer position in window logical pixels; None outside.
     pub(super) pointer_position: Option<(f64, f64)>,
     pub(super) pressed: Option<Entity>,
+    pub(super) secondary_pressed: Option<Entity>,
     pub(super) presentation: HashMap<NodeId, presentation::Presentation>,
     pub(super) presentation_dirty: bool,
     pub(super) presentation_roots: HashSet<NodeId>,
@@ -285,6 +288,7 @@ impl Default for Adapter {
             font_family: Arc::from(plico_renderer::text::DEFAULT_UI_FONT_FAMILY),
             font_dirty: false,
             selection: Default::default(),
+            input_pointers: Default::default(),
             selection_dirty: true,
             tree: TaffyTree::new(),
             nodes: HashMap::new(),
@@ -293,6 +297,7 @@ impl Default for Adapter {
             hovered: None,
             pointer_position: None,
             pressed: None,
+            secondary_pressed: None,
             presentation: HashMap::new(),
             presentation_dirty: false,
             presentation_roots: HashSet::new(),

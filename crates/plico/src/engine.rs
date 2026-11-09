@@ -48,6 +48,7 @@ pub struct Engine {
     pointer_observed: std::cell::Cell<bool>,
     hover_regions: std::cell::RefCell<HashMap<Entity, bool>>,
     clicks: Vec<Entity>,
+    secondary_clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
     high_values: Vec<(Entity, f64)>,
@@ -61,6 +62,8 @@ pub struct Engine {
     width: f32,
     height: f32,
     theme: Theme,
+    requested_theme: Theme,
+    display_preferences: crate::DisplayPreferences,
     theme_dirty: bool,
     viewport_dirty: bool,
     pub(crate) changes: Changes,
@@ -109,6 +112,7 @@ impl Default for Engine {
             pointer_observed: std::cell::Cell::new(false),
             hover_regions: Default::default(),
             clicks: Vec::new(),
+            secondary_clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
             high_values: Vec::new(),
@@ -122,6 +126,8 @@ impl Default for Engine {
             width: 720.,
             height: 820.,
             theme: Theme::default(),
+            requested_theme: Theme::default(),
+            display_preferences: Default::default(),
             theme_dirty: false,
             viewport_dirty: true,
             changes: Changes::empty(),
@@ -299,10 +305,26 @@ impl Engine {
         Ok(())
     }
     pub fn set_theme(&mut self, theme: Theme) {
+        self.requested_theme = theme;
+        let theme = theme.follow_preferences(self.display_preferences);
         if self.theme != theme {
             self.theme = theme;
             self.theme_dirty = true;
         }
+    }
+    /// Apply host display preferences. Returns whether declarations must refresh.
+    pub fn set_display_preferences(&mut self, preferences: crate::DisplayPreferences) -> bool {
+        if self.display_preferences == preferences {
+            return false;
+        }
+        self.display_preferences = preferences;
+        self.set_theme(self.requested_theme);
+        self.theme_dirty = true;
+        true
+    }
+    /// Host accessibility preferences exposed to custom components.
+    pub fn display_preferences(&self) -> crate::DisplayPreferences {
+        self.display_preferences
     }
     pub fn theme(&self) -> Theme {
         self.theme
@@ -408,6 +430,30 @@ impl Engine {
             values: std::mem::take(&mut self.unmatched_values),
         }
     }
+    /// Presence exit keeps the last committed child tree, not a fresh
+    /// evaluation of application state that may already have been cleared.
+    pub(crate) fn retain_exiting_children(&mut self, parent: Entity) {
+        let children = self.nodes.get(parent).unwrap().children.clone();
+        self.nodes.get_mut(parent).unwrap().declared_children = children.len();
+        self.nodes.get_mut(parent).unwrap().retained_exit = true;
+        for child in children {
+            if self.nodes.get(child).unwrap().touched == self.epoch {
+                self.error.get_or_insert(FrameError::DuplicateKey {
+                    parent,
+                    key: self.nodes.get(child).unwrap().identity.key,
+                });
+                continue;
+            }
+            let node = self.nodes.get_mut(child).unwrap();
+            node.touched = self.epoch;
+            node.retained_exit = true;
+            node.wake_at = None;
+            node.order_dirty = false;
+            self.stats.visited += 1;
+            self.declarations.push((parent, child));
+            self.retain_exiting_children(child);
+        }
+    }
     pub fn dirty_nodes(&self) -> &[Entity] {
         &self.dirty_nodes
     }
@@ -417,6 +463,22 @@ impl Engine {
             .filter_map(|(_, n)| n.style.presence_until_ms)
             .min()
             .map(std::time::Duration::from_millis)
+    }
+    /// Earliest retained component deadline, including presence exits.
+    pub fn wake_deadline(&self) -> Option<std::time::Duration> {
+        self.nodes
+            .iter()
+            .filter_map(|(_, n)| {
+                n.wake_at
+                    .into_iter()
+                    .chain(
+                        n.style
+                            .presence_until_ms
+                            .map(std::time::Duration::from_millis),
+                    )
+                    .min()
+            })
+            .min()
     }
     pub fn changes(&self) -> Changes {
         self.changes
@@ -628,6 +690,21 @@ impl Engine {
         });
         changed
     }
+    /// Queue a secondary-button activation. It never triggers primary activation.
+    pub fn queue_secondary_click(&mut self, entity: Entity) {
+        if !self.secondary_clicks.contains(&entity) {
+            self.secondary_clicks.push(entity);
+        }
+    }
+    pub(crate) fn secondary_clicked(&mut self, entity: Entity) -> bool {
+        if let Some(i) = self.secondary_clicks.iter().position(|id| *id == entity) {
+            self.secondary_clicks.swap_remove(i);
+            self.changes.insert(Changes::VIEW);
+            true
+        } else {
+            false
+        }
+    }
     pub fn queue_click(&mut self, entity: Entity) {
         // A declaration exposes a boolean click. Coalesce repeated activation
         // of the same control until it is consumed, including local replays.
@@ -767,6 +844,8 @@ impl Engine {
         node.scroll_observed.set(false);
         node.auto = 0;
         node.touched = self.epoch;
+        node.wake_at = None;
+        node.retained_exit = false;
         if node.kind != kind {
             self.inputs.remove(&entity);
             node.pending_changes |= Changes::STRUCTURE
@@ -1011,6 +1090,8 @@ impl Engine {
         let in_button = false;
         let root = self.nodes.get_mut(frame_root).unwrap();
         root.touched = self.epoch;
+        root.wake_at = None;
+        root.retained_exit = false;
         root.auto = 0;
         root.scroll_observed.set(false);
         root.declared_children = 0;
@@ -1053,7 +1134,7 @@ impl Engine {
             if self.nodes.get(parent).is_none() {
                 return false;
             }
-            if epoch == self.epoch {
+            if epoch == self.epoch || self.nodes.get(parent).unwrap().retained_exit {
                 return true;
             }
             false
@@ -1155,6 +1236,7 @@ impl Engine {
         self.theme_dirty = false;
         self.viewport_dirty = false;
         self.clicks.clear();
+        self.secondary_clicks.clear();
         // Leftover path-addressed events survived no declaration this pass;
         // keep them observable instead of silently discarding them.
         self.unmatched_clicks.append(&mut self.click_paths);

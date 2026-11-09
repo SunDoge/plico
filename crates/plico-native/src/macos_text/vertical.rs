@@ -3,8 +3,7 @@ use super::*;
 use crate::vertical::{Bitmap, Request as VerticalRequest};
 use objc2_core_foundation::{CGRect, CGSize};
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo, CGImageByteOrderInfo, CGPath,
-    kCGColorSpaceSRGB,
+    CGBitmapContextCreate, CGContext, CGImageAlphaInfo, CGImageByteOrderInfo, CGPath,
 };
 use objc2_core_text::{
     CTFrameProgression, CTFramesetter, kCTFrameProgressionAttributeName,
@@ -19,6 +18,7 @@ pub(crate) fn rasterize(request: &VerticalRequest<'_>) -> Result<Bitmap> {
         } else {
             request.family
         },
+        fonts: None,
         size: request.size,
         letter_spacing: 0.,
         style: Some(FontStyle {
@@ -63,22 +63,22 @@ pub(crate) fn rasterize(request: &VerticalRequest<'_>) -> Result<Bitmap> {
     let width = (request.bounds[0] * request.scale).ceil() as u32;
     let height = (request.bounds[1] * request.scale).ceil() as u32;
     let mut rgba = vec![0_u8; width as usize * height as usize * 4];
-    let space =
-        CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB })).ok_or(Error::Allocation)?;
     // SAFETY: Storage is exactly width*height*4 and not touched until CGContext
     // is released. The frame owns its fonts, strings and paths while drawing.
-    let context = unsafe {
-        CGBitmapContextCreate(
-            rgba.as_mut_ptr().cast(),
-            width as usize,
-            height as usize,
-            8,
-            width as usize * 4,
-            Some(&space),
-            CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0,
-        )
-    }
-    .ok_or(Error::Allocation)?;
+    let context = super::drawing::with_srgb(|space| {
+        unsafe {
+            CGBitmapContextCreate(
+                rgba.as_mut_ptr().cast(),
+                width as usize,
+                height as usize,
+                8,
+                width as usize * 4,
+                Some(space),
+                CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0,
+            )
+        }
+        .ok_or(Error::Allocation)
+    })?;
     let ctx = Some(&*context);
     CGContext::set_allows_antialiasing(ctx, true);
     CGContext::set_should_antialias(ctx, true);

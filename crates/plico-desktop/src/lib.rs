@@ -11,6 +11,10 @@ pub use capture::{Capture, CaptureError, CapturedFrame, capture};
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::Error as DesktopError;
 
+pub use plico_renderer::platform::{
+    NotificationRequest, WindowResourceKey, initial_window_resource_key,
+};
+
 pub use plico_renderer::{
     HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
     WindowResizeEdges,
@@ -98,3 +102,24 @@ pub use preview::{
 /// Versioned recipe plans with assertions, fixture events and checkpoint captures.
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 pub mod recipe;
+
+/// Optional tray, native-menu and actionable-notification services.
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop-integration"))]
+pub use plico_shell::desktop;
+/// Native window services available to desktop integrations.
+#[cfg(not(target_arch = "wasm32"))]
+pub use plico_shell::{ExtensionContext, RunOutcome, ShellExtension};
+
+/// Launch a source and native integrations on one event loop.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_source_with_extensions(
+    source: impl plico_renderer::FrameSource + 'static,
+    options: WindowOptions,
+    extensions: Vec<Box<dyn ShellExtension>>,
+) -> Result<RunOutcome, DesktopError> {
+    plico_shell::run_windows_with_factory_and_extensions(
+        vec![(Box::new(source), options)],
+        None,
+        extensions,
+    )
+}

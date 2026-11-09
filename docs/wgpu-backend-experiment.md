@@ -154,7 +154,10 @@ control is a test UI-scale override, not a simulation of OS display parameters.
 
 Window rendering uses `new_for_surface` to choose a compatible adapter and
 `render_to_view` for GPU-only drawing/compositing. It does not read pixels back or
-wait on the CPU. Readback buffers are allocated lazily only for screenshot calls.
+wait on the CPU during regular frames. macOS startup first completes one retained
+GPU frame with a bounded one-second wait before exposing the window; see
+[macOS/MyGO comparison](macos-mygo.md). Readback buffers are allocated lazily
+only for screenshot calls.
 A pixel-exact fullscreen copy handles RGBA/BGRA and UNORM/sRGB surface formats;
 GPU tests verify that format changes do not accidentally change encoded text/color
 values. The raw draw API fully redraws its retained offscreen color target; the

@@ -37,6 +37,8 @@ pub struct Modal<'u, 'e, 's> {
     panel_role: Option<crate::WidgetRole>,
     max_height: Option<f32>,
     header: bool,
+    material: Option<crate::LiquidGlass>,
+    scrim_opacity: Option<f32>,
 }
 impl<'e> UiContext<'e> {
     pub fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
@@ -54,6 +56,8 @@ impl<'e> UiContext<'e> {
             panel_role: None,
             max_height: None,
             header: true,
+            material: None,
+            scrim_opacity: None,
         }
     }
     /// Close the innermost popover containing this declaration.
@@ -117,13 +121,24 @@ impl<'s> Modal<'_, '_, 's> {
     }
     /// Show the title row and its close button. Alerts turn it off and put the
     /// title and message in their own content.
-    pub(crate) fn header(mut self, enabled: bool) -> Self {
+    pub fn header(mut self, enabled: bool) -> Self {
         self.header = enabled;
         self
     }
     /// The semantic role of the dialog panel, such as an alert dialog.
     pub(crate) fn panel_role(mut self, role: crate::WidgetRole) -> Self {
         self.panel_role = Some(role);
+        self
+    }
+    /// Scene-backed glass with the dialog's own fixed background, rounded rim
+    /// and overlay shadows. Scrolling affects content, not the glass surface.
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.material = Some(material);
+        self
+    }
+    /// Override the dimming behind a modal. Glass defaults to 18%, opaque to 38%.
+    pub fn scrim_opacity(mut self, opacity: f32) -> Self {
+        self.scrim_opacity = opacity.is_finite().then(|| opacity.clamp(0., 1.));
         self
     }
     pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> ModalResponse<R> {
@@ -140,7 +155,18 @@ impl<'s> Modal<'_, '_, 's> {
             panel_role,
             max_height,
             header,
+            material,
+            scrim_opacity,
         } = self;
+        let preferences = ui.display_preferences();
+        let material = material.map(|material| material.follow_preferences(preferences));
+        let motion = if preferences.reduce_motion
+            || material.is_some_and(|material| material.reduce_motion)
+        {
+            Motion::None
+        } else {
+            motion
+        };
         let now = ui.now().as_millis().min(u64::MAX as u128) as u64;
         if ui.inherited.disabled {
             state.close();
@@ -218,14 +244,20 @@ impl<'s> Modal<'_, '_, 's> {
                     Style {
                         overlay: true,
                         background: Some(Color::Literal(0)),
-                        opacity: 0.38,
+                        opacity: scrim_opacity.unwrap_or(
+                            if material.is_some_and(|glass| glass.enabled) {
+                                0.18
+                            } else {
+                                0.38
+                            },
+                        ),
                         ..Default::default()
                     },
                     "",
                     |_| {},
                 );
             }
-            let panel = Style {
+            let mut panel = Style {
                 width_percent: anchor.is_none().then_some(100.),
                 width: anchor.map(|_| width),
                 max_width: Some(width),
@@ -233,17 +265,41 @@ impl<'s> Modal<'_, '_, 's> {
                 padding: if anchor.is_some() { 8. } else { 24. },
                 gap: if anchor.is_some() { 8. } else { 18. },
                 radius: 12.,
+                enter_from: anchor.is_none().then(|| crate::Presentation {
+                    translate: [0., 8.],
+                    ..Default::default()
+                }),
+                translate: [
+                    0.,
+                    if state.open || anchor.is_some() {
+                        0.
+                    } else {
+                        8.
+                    },
+                ],
+                transition_ms: motion.duration_ms(),
                 background: Some(Color::Panel),
                 border_width: 1.,
                 border_color: Color::Border,
                 scroll_y: true,
                 max_height,
                 role: panel_role,
-                disabled: !state.open,
+                disabled: false,
                 font_size: cx.theme().metrics.font_size,
                 ..Default::default()
             };
-            cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
+            if material.is_some() {
+                panel.padding = 0.;
+                panel.gap = 0.;
+                panel.radius = 24.;
+                panel.corner_smoothing = 1.;
+                panel.background = None;
+                panel.border_width = 0.;
+                panel.scroll_y = false;
+                panel.layout.position = crate::Position::Relative;
+                crate::Elevation::OVERLAY.apply(&mut panel);
+            }
+            let content = |cx: &mut UiContext<'_>| {
                 if anchor.is_none() && header {
                     let _ = crate::widgets::row(cx)
                         .gap(12)
@@ -254,12 +310,62 @@ impl<'s> Modal<'_, '_, 's> {
                                 .weight(650)
                                 .grow(1.);
                             let close = cx.tr("dialog-close", "Close dialog");
-                            if crate::widgets::button(cx).text(close).ghost().clicked() {
+                            let clicked = crate::widgets::tooltip(cx, close.clone())
+                                .children(|cx| {
+                                    crate::widgets::button(cx)
+                                        .icon(&crate::icons::X)
+                                        .aria_label(close)
+                                        .ghost()
+                                        .color(Color::Muted)
+                                        .width(32.)
+                                        .min_width(32.)
+                                        .max_width(32.)
+                                        .height(32.)
+                                        .min_height(32.)
+                                        .max_height(32.)
+                                        .padding(7)
+                                        .radius(16.)
+                                        .corner_smoothing(0.)
+                                        .elevation(crate::Elevation::SUBTLE)
+                                        .clicked()
+                                })
+                                .inner;
+                            if clicked {
                                 cx.close_modal();
                             }
                         });
                 }
                 build(cx)
+            };
+            cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
+                if !state.open {
+                    cx.engine.retain_exiting_children(cx.parent);
+                    return None;
+                }
+                Some(if let Some(material) = material {
+                    material.show(cx, panel.radius, panel.corner_smoothing);
+                    let content_style = Style {
+                        width_percent: Some(100.),
+                        padding: if anchor.is_some() { 8. } else { 24. },
+                        gap: if anchor.is_some() { 8. } else { 18. },
+                        scroll_y: true,
+                        max_height,
+                        radius: panel.radius,
+                        corner_smoothing: panel.corner_smoothing,
+                        font_size: cx.theme().metrics.font_size,
+                        ..Default::default()
+                    };
+                    cx.element(
+                        Key::Static("dialog-content"),
+                        Kind::Column,
+                        content_style,
+                        "",
+                        content,
+                    )
+                    .0
+                } else {
+                    content(cx)
+                })
             })
             .0
         });
@@ -267,10 +373,7 @@ impl<'s> Modal<'_, '_, 's> {
         if dismissed && state.open {
             state.close();
         }
-        ModalResponse {
-            inner: Some(inner),
-            dismissed,
-        }
+        ModalResponse { inner, dismissed }
     }
 }
 

@@ -26,7 +26,7 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let first = now + std::time::Duration::from_millis(16);
     let mut scheduled = None;
     assert_eq!(
-        scheduled_frame_wake(false, None, Some(first), &mut scheduled, now),
+        scheduled_frame_wake(true, false, None, Some(first), &mut scheduled, now, false),
         FrameWake::Deadline(first)
     );
 
@@ -34,11 +34,13 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let moving_deadline = wake_time + std::time::Duration::from_millis(16);
     assert_eq!(
         scheduled_frame_wake(
+            true,
             false,
             None,
             Some(moving_deadline),
             &mut scheduled,
-            wake_time
+            wake_time,
+            false
         ),
         FrameWake::Redraw
     );
@@ -636,16 +638,32 @@ fn skipped_present_keeps_animation_paced_without_polling() {
     let mut scheduled = None;
     for _ in 0..3 {
         assert_eq!(
-            scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, now),
+            scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, now, false),
             FrameWake::Deadline(deadline)
         );
     }
     assert_eq!(
-        scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, deadline),
+        scheduled_frame_wake(
+            true,
+            true,
+            Some(deadline),
+            None,
+            &mut scheduled,
+            deadline,
+            false
+        ),
         FrameWake::Redraw
     );
     assert_eq!(
-        scheduled_frame_wake(false, Some(deadline), None, &mut scheduled, now),
+        scheduled_frame_wake(
+            true,
+            false,
+            Some(deadline),
+            None,
+            &mut scheduled,
+            now,
+            false
+        ),
         FrameWake::Idle
     );
 }
@@ -663,4 +681,361 @@ fn restricted_edges_project_corners_onto_allowed_resize_axes() {
     assert_eq!(at(0., 0., Edges::BOTTOM), None);
     assert_eq!(at(0., 599., Edges::BOTTOM), Some(ResizeDirection::South));
     assert_eq!(at(899., 599., Edges::empty()), None);
+}
+
+#[test]
+fn invisible_windows_stop_frame_timers_and_resume_with_one_fresh_frame() {
+    let now = Instant::now();
+    let future = now + std::time::Duration::from_secs(1);
+    let mut scheduled = Some(future);
+    for (animation, deadline) in [(true, None), (false, Some(now)), (false, Some(future))] {
+        assert_eq!(
+            scheduled_frame_wake(false, animation, None, deadline, &mut scheduled, now, false),
+            FrameWake::Idle
+        );
+        assert_eq!(scheduled, None);
+    }
+    assert_eq!(
+        scheduled_frame_wake(true, true, None, None, &mut scheduled, now, false),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, now, false),
+        FrameWake::Deadline(future)
+    );
+    assert_eq!(
+        scheduled_frame_wake(
+            true,
+            false,
+            None,
+            Some(future),
+            &mut scheduled,
+            future,
+            false
+        ),
+        FrameWake::Redraw
+    );
+}
+
+#[test]
+fn maintenance_wakes_host_without_suppressing_frames_or_earlier_timers() {
+    let now = Instant::now();
+    let early = now + std::time::Duration::from_secs(1);
+    let late = now + std::time::Duration::from_secs(2);
+    assert_eq!(
+        FrameWake::Idle.with_maintenance(Some(late)),
+        FrameWake::Deadline(late)
+    );
+    assert_eq!(
+        FrameWake::Redraw.with_maintenance(Some(late)),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        FrameWake::Deadline(early).with_maintenance(Some(late)),
+        FrameWake::Deadline(early)
+    );
+    assert_eq!(
+        FrameWake::Deadline(late).with_maintenance(Some(early)),
+        FrameWake::Deadline(early)
+    );
+    assert_eq!(FrameWake::Idle.with_maintenance(None), FrameWake::Idle);
+    assert_eq!(
+        FrameWake::Deadline(early).with_maintenance(None),
+        FrameWake::Deadline(early)
+    );
+}
+
+#[cfg(all(target_os = "linux", feature = "wgpu"))]
+#[test]
+#[ignore = "requires an X11 display and working wgpu adapter (can run under Xvfb)"]
+fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_paths() {
+    use winit::platform::x11::EventLoopBuilderExtX11;
+    struct CountingSource {
+        frames: Arc<AtomicUsize>,
+        polls: Arc<AtomicUsize>,
+        capture: Arc<Mutex<Option<crate::ScreenshotRequest>>>,
+        captured: Arc<AtomicBool>,
+    }
+    impl FrameSource for CountingSource {
+        fn build_frame(&mut self, _: &mut TextContext, _: u32, _: u32) -> Vec<PlacedNode> {
+            self.frames.fetch_add(1, Ordering::SeqCst);
+            Vec::new()
+        }
+        fn poll_async(&mut self) -> bool {
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+        fn take_screenshot_request(&mut self) -> Option<crate::ScreenshotRequest> {
+            self.capture.lock().unwrap().take()
+        }
+        fn complete_screenshot(
+            &mut self,
+            _: &std::path::Path,
+            result: Result<std::path::PathBuf, String>,
+        ) {
+            assert!(result.is_ok(), "hidden capture failed: {result:?}");
+            self.captured.store(true, Ordering::SeqCst);
+        }
+        fn base_color(&self) -> Color {
+            Color::BLACK
+        }
+    }
+    struct Probe {
+        app: App,
+        frames: Arc<AtomicUsize>,
+        checked: Arc<AtomicBool>,
+        polls: Arc<AtomicUsize>,
+        capture: Arc<Mutex<Option<crate::ScreenshotRequest>>>,
+        captured: Arc<AtomicBool>,
+    }
+    impl ApplicationHandler for Probe {
+        fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+            self.app.can_create_surfaces(event_loop);
+            let shell = self.app.state.as_ref().expect("native window initialized");
+            let id = shell.window().id();
+            let actual = shell.window().surface_size();
+            assert!(actual.width > 80 && actual.height > 80);
+            let stale = PhysicalSize::new(actual.width - 40, actual.height - 40);
+            let event = || WindowEvent::SurfaceResized(stale);
+            // Simulate a renderer that has not caught up with native geometry,
+            // followed by an already superseded queued native resize event.
+            self.app
+                .state
+                .as_mut()
+                .unwrap()
+                .resize(actual.width - 20, actual.height - 20);
+            let before = self.frames.load(Ordering::SeqCst);
+            self.app.window_event(event_loop, id, event());
+            assert_eq!(
+                self.app.state.as_ref().unwrap().size(),
+                (actual.width, actual.height)
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 1,
+                "single-window resize draws before returning from the event"
+            );
+            self.app.window_event(event_loop, id, event());
+            self.app.window_event(
+                event_loop,
+                id,
+                WindowEvent::SurfaceResized(PhysicalSize::new(0, 0)),
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 1,
+                "stale/duplicate/minimized events do not draw again"
+            );
+            assert_eq!(self.app.window_metrics.physical_width, actual.width);
+            assert_eq!(self.app.window_metrics.physical_height, actual.height);
+
+            // Multi-window dispatch uses the same handler but draws only after
+            // extensions have observed and processed the new window metrics.
+            self.app
+                .state
+                .as_mut()
+                .unwrap()
+                .resize(stale.width, stale.height);
+            assert!(self.app.handle_window_event(event_loop, id, event()));
+            assert_eq!(self.frames.load(Ordering::SeqCst), before + 1);
+            assert!(!self.app.handle_window_event(event_loop, id, event()));
+            self.app.redraw();
+            assert_eq!(self.frames.load(Ordering::SeqCst), before + 2);
+            assert_eq!(
+                self.app.state.as_ref().unwrap().size(),
+                (actual.width, actual.height)
+            );
+            let shell = self.app.state.as_mut().unwrap();
+            let deadline = shell
+                .maintain(Instant::now())
+                .expect("Linux idle maintenance armed");
+            assert_eq!(
+                shell.maintain(deadline),
+                None,
+                "one-shot maintenance is consumed"
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 2,
+                "idle maintenance does not draw or re-declare the view"
+            );
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some(),
+                "drawing after trim restores the surface and rearms maintenance"
+            );
+            self.app
+                .handle_window_event(event_loop, id, WindowEvent::Occluded(true));
+            let before_occluded = self.frames.load(Ordering::SeqCst);
+            let polls = self.polls.load(Ordering::SeqCst);
+            assert!(
+                self.app.poll_background_work(),
+                "background services keep draining"
+            );
+            assert_eq!(self.polls.load(Ordering::SeqCst), polls + 1);
+            self.app.redraw();
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before_occluded + 1,
+                "declarations still settle host work/captures while occluded"
+            );
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "an occluded redraw must not restore GPU targets or rearm idle maintenance"
+            );
+            assert!(!self.app.present_retry_pending);
+            assert!(self.app.skipped_present_deadline.is_none());
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("occluded.png");
+            *self.capture.lock().unwrap() = Some(crate::ScreenshotRequest {
+                file: std::fs::File::create(&path).unwrap(),
+                path: path.clone(),
+            });
+            self.app.redraw();
+            assert!(self.captured.load(Ordering::SeqCst));
+            let image = image::open(&path).unwrap();
+            assert_eq!(
+                (image.width(), image.height()),
+                (actual.width, actual.height)
+            );
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "an explicit capture must not start invisible presentation retries"
+            );
+            self.app
+                .handle_window_event(event_loop, id, WindowEvent::Occluded(false));
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some(),
+                "visibility restoration presents a fresh frame and rearms maintenance"
+            );
+            // Keep the native window mapped so a no-op driver present cannot
+            // make this pass accidentally: lifecycle must gate it on its own.
+            let capabilities = WindowCapabilities {
+                mutable_visibility: true,
+            };
+            assert_eq!(
+                self.app
+                    .lifecycle
+                    .transition(WindowIntent::Hide, capabilities),
+                Some(WindowEffect::SetVisible(false))
+            );
+            self.app.state.as_mut().unwrap().trim_gpu_cache();
+            self.app.redraw();
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "a hidden lifecycle must suppress presentation even before OS occlusion arrives"
+            );
+            assert_eq!(
+                self.app
+                    .lifecycle
+                    .transition(WindowIntent::Show, capabilities),
+                Some(WindowEffect::SetVisible(true))
+            );
+            self.app.state.as_mut().unwrap().invalidate_presentation();
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some()
+            );
+            self.checked.store(true, Ordering::SeqCst);
+            event_loop.exit();
+        }
+        fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+    }
+    let frames = Arc::new(AtomicUsize::new(0));
+    let polls = Arc::new(AtomicUsize::new(0));
+    let capture = Arc::new(Mutex::new(None));
+    let captured = Arc::new(AtomicBool::new(false));
+    let checked = Arc::new(AtomicBool::new(false));
+    let mut builder = EventLoop::builder();
+    builder.with_x11().with_any_thread(true);
+    let event_loop = builder.build().unwrap();
+    event_loop
+        .run_app(Probe {
+            app: App::with_size(
+                Box::new(CountingSource {
+                    frames: frames.clone(),
+                    polls: polls.clone(),
+                    capture: capture.clone(),
+                    captured: captured.clone(),
+                }),
+                320,
+                240,
+            ),
+            frames,
+            checked: checked.clone(),
+            polls,
+            capture,
+            captured,
+        })
+        .unwrap();
+    assert!(checked.load(Ordering::SeqCst));
+}
+
+#[test]
+fn drawable_wait_suspends_only_continuous_animation_and_preserves_timer_work() {
+    let now = Instant::now();
+    let deadline = now + std::time::Duration::from_millis(16);
+    let mut scheduled = Some(deadline);
+    for elapsed in 0..4 {
+        assert_eq!(
+            scheduled_frame_wake(
+                true,
+                true,
+                None,
+                None,
+                &mut scheduled,
+                now + std::time::Duration::from_millis(elapsed * 16),
+                true
+            ),
+            FrameWake::Idle,
+            "display ticks must not keep rebuilding while a drawable is pending"
+        );
+        assert_eq!(scheduled, None);
+    }
+    // The worker's proxy wake requests the recovery redraw independently. Once
+    // it presents, normal animation scheduling becomes eligible again.
+    assert_eq!(
+        scheduled_frame_wake(true, true, None, None, &mut scheduled, now, false),
+        FrameWake::Redraw
+    );
+    // A one-shot source timer is semantic work, not a paced animation loop.
+    assert_eq!(
+        scheduled_frame_wake(true, false, None, Some(deadline), &mut scheduled, now, true),
+        FrameWake::Deadline(deadline)
+    );
+    assert_eq!(
+        scheduled_frame_wake(
+            true,
+            false,
+            None,
+            Some(deadline),
+            &mut scheduled,
+            deadline,
+            true
+        ),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        scheduled_frame_wake(false, true, None, None, &mut scheduled, deadline, true),
+        FrameWake::Idle
+    );
 }

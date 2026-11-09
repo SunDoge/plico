@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1120,
+    "height": 820,
+    "scale": 1
+  },
+  "state": {
+    "router": {
+      "current": "Mines"
+    }
+  },
+  "time_ms": 1000,
+  "steps": [
+    {
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Medium"
+      }
+    },
+    {
+      "command": {
+        "action": "secondary_click",
+        "role": "button",
+        "label": "Row 1, column 1: hidden"
+      }
+    },
+    {
+      "after_ms": 50,
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Row 9, column 9: hidden"
+      }
+    }
+  ]
+}

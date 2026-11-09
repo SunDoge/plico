@@ -816,3 +816,56 @@ fn cursor_blink_ticks_on_the_injected_clock() {
         "blink flips exactly at the virtual deadline"
     );
 }
+
+#[test]
+fn cursor_blink_catches_up_without_replaying_ticks_or_shifting_phase() {
+    let clock = plico::VirtualClock::default();
+    let mut widget = TerminalWidget::headless(20, 4);
+    widget.set_clock(std::sync::Arc::new(clock.clone()));
+    widget.focus_changed(true);
+    widget.feed(b"\x1b[1 q");
+    assert!(widget.poll_async());
+    let start = widget.clock.now_instant();
+    clock
+        .advance(std::time::Duration::from_millis(1250))
+        .unwrap();
+    widget.update_cursor_blink();
+    assert!(
+        widget.cursor_on,
+        "two missed blink boundaries preserve the on phase"
+    );
+    assert_eq!(
+        widget.next_cursor_blink,
+        Some(start + std::time::Duration::from_millis(1500))
+    );
+    // Repeated work at frozen virtual time must not toggle or push the deadline.
+    widget.update_cursor_blink();
+    assert!(widget.cursor_on);
+    assert_eq!(
+        widget.next_cursor_blink,
+        Some(start + std::time::Duration::from_millis(1500))
+    );
+    clock
+        .advance(std::time::Duration::from_millis(250))
+        .unwrap();
+    widget.update_cursor_blink();
+    assert!(!widget.cursor_on);
+    assert_eq!(
+        widget.next_cursor_blink,
+        Some(start + std::time::Duration::from_millis(2000))
+    );
+    // An odd number of missed boundaries flips once, with the original phase.
+    clock
+        .advance(std::time::Duration::from_millis(1750))
+        .unwrap();
+    widget.update_cursor_blink();
+    assert!(widget.cursor_on);
+    assert_eq!(
+        widget.next_cursor_blink,
+        Some(start + std::time::Duration::from_millis(3500))
+    );
+    widget.focus_changed(false);
+    clock.advance(std::time::Duration::from_secs(60)).unwrap();
+    widget.update_cursor_blink();
+    assert!(widget.next_cursor_blink.is_none());
+}

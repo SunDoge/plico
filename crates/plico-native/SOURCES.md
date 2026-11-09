@@ -53,3 +53,34 @@ these attribution notes do not relicense them.
   MIT notices remain in those files and `licenses/microsoft-terminal-MIT.txt`.
   The fixed legacy thin-family list/detection is not copied; callers explicitly
   choose the thin-family contrast policy.
+
+- MyGO, MIT, commit `ee3d4bd9bd741f197de231b9fd9b002e9db55577`:
+  `internal/text/coretext_darwin.go` registration and nearest-face selection.
+  The CoreText application font collection uses private descriptors and family
+  aliases rather than process-global registration. Ownership, per-collection
+  caches and validation are Rust implementations. See `licenses/mygo-MIT.txt`.
+
+The same MyGO CoreText revision's `systemFont` also informs AppKit UI/monospaced
+font selection by native weight, local autorelease-pool scope and owned CTFont
+bridging. The Rust implementation uses objc2-app-kit's public toll-free bridge;
+no manually loaded Objective-C ABI is copied.
+
+The bounded CoreText face cache retains hot exact-size faces across animation
+samples using per-entry recency rather than flushing all faces at capacity.
+This is newly written Rust; MyGO `internal/text/coretext_darwin.go` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` informed the primary/style CTFont
+retention principle. Plico retains its own 256-face bound and private collection
+invalidation behavior; the existing MyGO MIT notice is retained.
+
+The thread-local immutable sRGB resource in `src/macos_text/drawing.rs` follows
+MyGO `internal/text/coretext_darwin.go`'s retained `coreText.srgb` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT). Horizontal and vertical
+bitmap contexts borrow the same named color space on their thread while each
+context retains independent ownership. The helper is newly written Rust; the
+existing MIT notice applies.
+
+The same MyGO CoreText revision's `attrsKey` / `e.attrs` reuse informs the
+immutable baseline attribute dictionaries in `macos_text/fonts.rs`. Plico stores
+one lazy dictionary per bounded cached face; tracking and rich spans are applied
+only to newly owned attributed strings. No independent unbounded attribute map
+or mutable attributed string is shared.

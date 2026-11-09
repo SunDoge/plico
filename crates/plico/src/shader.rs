@@ -8,6 +8,7 @@ pub struct ShaderAsset {
     /// The effect samples what is painted behind it (mygo's scene.Effect
     /// Backdrop): the host binds the region's rendered content as an input.
     reads_backdrop: bool,
+    prefilter_backdrop: Option<f32>,
 }
 impl ShaderAsset {
     pub const fn new(source: &'static str) -> Self {
@@ -17,6 +18,7 @@ impl ShaderAsset {
             module: false,
             sksl: None,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
     pub const fn module(source: &'static str) -> Self {
@@ -26,15 +28,26 @@ impl ShaderAsset {
             module: true,
             sksl: None,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
     /// Declare that the effect's `plico_effect` calls `plico.backdrop_at(uv)`.
-    /// Backdrop readers see everything painted before them and cannot be
-    /// damage-skipped; hosts apply full-damage semantics (mygo's
-    /// scene.Effect.Backdrop).
+    /// Backdrop readers see everything painted before them. Hosts with bounded
+    /// input dependencies may preserve unchanged pixels; unknown consumers keep
+    /// conservative full damage (mygo's scene.Effect.Backdrop).
     pub const fn read_backdrop(mut self) -> Self {
         self.reads_backdrop = true;
         self
+    }
+    /// Request area-prefiltered levels up to a maximum logical-pixel sigma.
+    /// This also enables backdrop reading. The host owns all transient levels.
+    pub const fn prefilter_backdrop(mut self, max_sigma: f32) -> Self {
+        self.reads_backdrop = true;
+        self.prefilter_backdrop = Some(max_sigma);
+        self
+    }
+    pub const fn backdrop_prefiltered(self) -> Option<f32> {
+        self.prefilter_backdrop
     }
     pub const fn reads_backdrop(self) -> bool {
         self.reads_backdrop
@@ -118,6 +131,12 @@ impl From<[f32; 4]> for ShaderValue {
         Self::Vec4(v)
     }
 }
+/// A retained, clock-driven transition for one scalar shader value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ShaderTransition {
+    pub index: usize,
+    pub milliseconds: u16,
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ShaderParams {
@@ -125,6 +144,10 @@ pub struct ShaderParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
     pub values: Vec<f32>,
+    /// Scalar transitions sampled by the runtime, without redeclaring the view.
+    pub transitions: Vec<ShaderTransition>,
+    /// Symmetric paint overflow in logical pixels; layout and hit boxes are unchanged.
+    pub paint_outset: [f32; 2],
     /// Complete-module top-level f32/vector fields, resolved by WGSL name.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<(String, ShaderValue)>,
@@ -136,12 +159,16 @@ pub struct ShaderParams {
     pub module: bool,
     /// The effect samples its backdrop through `plico.backdrop_at`.
     pub reads_backdrop: bool,
+    /// Maximum logical-pixel sigma for an area-prefiltered backdrop, or None.
+    pub prefilter_backdrop: Option<f32>,
 }
 impl Default for ShaderParams {
     fn default() -> Self {
         Self {
             source_path: None,
             values: Vec::new(),
+            transitions: Vec::new(),
+            paint_outset: [0.; 2],
             parameters: Vec::new(),
             sksl: None,
             time: 0.,
@@ -150,12 +177,29 @@ impl Default for ShaderParams {
             paused: false,
             module: false,
             reads_backdrop: false,
+            prefilter_backdrop: None,
         }
     }
 }
 impl ShaderParams {
     pub fn valid(&self) -> bool {
-        self.parameters.len() <= 256
+        self.prefilter_backdrop.is_none_or(|sigma| {
+            self.reads_backdrop
+                && !self.module
+                && sigma.is_finite()
+                && (0. ..=128.).contains(&sigma)
+        }) && self
+            .paint_outset
+            .iter()
+            .all(|v| v.is_finite() && (0. ..=64.).contains(v))
+            && self.transitions.len() <= 256
+            && self.transitions.iter().enumerate().all(|(i, t)| {
+                t.index < 256
+                    && !self.transitions[..i]
+                        .iter()
+                        .any(|previous| previous.index == t.index)
+            })
+            && self.parameters.len() <= 256
             && self.parameters.iter().all(|(name, value)| {
                 !name.is_empty()
                     && name.len() <= 1024
@@ -193,6 +237,48 @@ mod tests {
         assert!(!params.valid());
     }
     #[test]
+    fn backdrop_prefilter_is_opt_in_and_requires_a_function_backdrop() {
+        assert_eq!(ShaderAsset::new("source").backdrop_prefiltered(), None);
+        let asset = ShaderAsset::new("source").prefilter_backdrop(8.);
+        assert!(asset.reads_backdrop());
+        assert_eq!(asset.backdrop_prefiltered(), Some(8.));
+        assert_eq!(ShaderParams::default().prefilter_backdrop, None);
+        for sigma in [-1., f32::NAN, f32::INFINITY, 129.] {
+            assert!(
+                !ShaderParams {
+                    reads_backdrop: true,
+                    prefilter_backdrop: Some(sigma),
+                    ..Default::default()
+                }
+                .valid()
+            );
+        }
+        assert!(
+            !ShaderParams {
+                prefilter_backdrop: Some(8.),
+                ..Default::default()
+            }
+            .valid()
+        );
+        assert!(
+            ShaderParams {
+                prefilter_backdrop: Some(8.),
+                reads_backdrop: true,
+                ..Default::default()
+            }
+            .valid()
+        );
+        assert!(
+            !ShaderParams {
+                prefilter_backdrop: Some(8.),
+                reads_backdrop: true,
+                module: true,
+                ..Default::default()
+            }
+            .valid()
+        );
+    }
+    #[test]
     fn embedded_assets_preserve_source_and_interface() {
         assert_eq!(EFFECT.source(), include_str!("shader.rs"));
         assert_eq!(MODULE.source(), EFFECT.source());
@@ -202,5 +288,29 @@ mod tests {
         assert!(MODULE.is_module());
         assert_eq!(ShaderAsset::new("inline").source_path(), None);
         assert_eq!(MODULE.with_sksl("skia").source_path(), MODULE.source_path());
+    }
+}
+
+#[cfg(test)]
+mod transition_validation {
+    use super::*;
+    #[test]
+    fn shader_transition_metadata_is_bounded_and_legacy_configs_stay_static() {
+        let mut params: ShaderParams = serde_json::from_str("{}").unwrap();
+        assert!(params.transitions.is_empty());
+        assert_eq!(params.paint_outset, [0.; 2]);
+        params.transitions = vec![ShaderTransition {
+            index: 0,
+            milliseconds: 120,
+        }];
+        params.paint_outset = [2., 2.];
+        assert!(params.valid());
+        params.transitions.push(params.transitions[0]);
+        assert!(!params.valid());
+        params.transitions.pop();
+        params.paint_outset[0] = f32::NAN;
+        assert!(!params.valid());
+        params.paint_outset = [65., 0.];
+        assert!(!params.valid());
     }
 }

@@ -63,7 +63,7 @@ impl TerminalWidget {
         let (local_x, local_y) = self.local_point(x, y);
         let now = self.clock.now_instant();
         let clicks = self.last_click.map_or(1, |(time, last_x, last_y, count)| {
-            if now.duration_since(time) <= Duration::from_millis(400)
+            if now.duration_since(time) <= self.multi_click_interval
                 && (local_x - last_x).abs() <= 4.0
                 && (local_y - last_y).abs() <= 4.0
             {

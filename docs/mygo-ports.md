@@ -60,7 +60,9 @@
 `LiquidGlass` / `BackdropBlur` / `ScrollEdgeSide` 和 `backdrop_blur` / `scroll_edge`。
 布局和 leaf builder 可使用 `.blur` / `.no_shadow`，无需通过 C# 或手工拼 shader uniforms。
 
-圆角字段、玻璃轮廓及 opaque fallback 已连接；Warden chrome 显式开启连续圆角。
+圆角字段、玻璃轮廓及 opaque fallback 已连接；Rust 控件和布局默认连续圆角。
+wgpu 材质包含 Regular/Clear/Clarity、悬停／按压反馈、连续内外阴影与受 sigma 预算约束的背景预滤波；
+应用复用框架 API，不维护效果源码。
 原有共享后端优化与本轮新增项的详细对照、测试和限制见
 [C# MyGO 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md)。
 
@@ -94,3 +96,7 @@
 - 组件与行为测试：`crates/plico/tests/{desktop,indicator,navigation,search,tree,color,form,radio,date,find,alert,split}_widgets.rs`。
 - 语义投影：`crates/plico-runtime/tests/indicator_semantics.rs`、`alert_dialog.rs`。
 - 各控件的 API 与已知差异：`docs/components.md`、`docs/desktop-widgets.md`。
+
+## 呈现与合成架构
+
+退出子树、字形几何变换与背景采样顺序的本轮对照见 [呈现生命周期](presentation.md)，包含具体 MyGO revision、源文件、测试与限制。

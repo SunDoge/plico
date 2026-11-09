@@ -52,6 +52,9 @@ impl NativeParagraph for Paragraph {
     fn hit_test(&self, x: f32, y: f32) -> usize {
         self.layout.hit_test(x as f64, y as f64).unwrap_or(0)
     }
+    fn line_range_at(&self, y: f32) -> Option<std::ops::Range<usize>> {
+        self.layout.line_range_at(f64::from(y))
+    }
     fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
         self.layout
             .caret_rect(byte)

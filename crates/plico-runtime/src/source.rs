@@ -73,6 +73,8 @@ pub struct Source<V: HostView> {
     clock_epoch: Instant,
     last_tick: Option<Instant>,
     requests: plico::Changes,
+    requested_reduced_motion: bool,
+    display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
     background: Option<Color>,
     scene_cache: plico_renderer::scene::SceneCache,
@@ -116,6 +118,8 @@ impl<V: HostView> Source<V> {
             clock_epoch: epoch,
             last_tick: None,
             requests: plico::Changes::empty(),
+            requested_reduced_motion: false,
+            display_preferences_dirty: false,
             target_scene: None,
             background: None,
             scene_cache: Default::default(),
@@ -284,8 +288,19 @@ impl<V: HostView> Source<V> {
             ..self.batch_stats
         }
     }
+    /// Install host click thresholds without changing the current selection or
+    /// requesting a frame. The next press starts a new streak after a change.
+    pub fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        self.adapter.set_multi_click_settings(settings);
+    }
     /// Disable theme, property and scroll transitions (host accessibility policy).
     pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.requested_reduced_motion = reduced;
+        self.apply_motion_preferences();
+    }
+    fn apply_motion_preferences(&mut self) {
+        let reduced =
+            self.requested_reduced_motion || self.engine.display_preferences().reduce_motion;
         self.adapter.motions.set_enabled(!reduced);
         self.adapter.smooth_scroll_enabled = !reduced;
         self.adapter.scrollbars.reduced_motion = reduced;
@@ -317,7 +332,7 @@ impl<V: HostView> Source<V> {
             }
         } else if (scroll.changed
             || self.adapter.scroll_dirty
-            || self.adapter.scrollbars.needs_frame())
+            || self.adapter.scrollbars.needs_frame(self.engine.time().now))
             && let Some((w, h)) = self.viewport
         {
             // Event targeting must use the presented scroll position even when
@@ -382,14 +397,14 @@ impl<V: HostView> Source<V> {
         self.pending |= scroll.declarations;
         if self
             .engine
-            .presence_deadline()
+            .wake_deadline()
             .is_some_and(|deadline| self.engine.time().now >= deadline)
         {
             self.pending = true;
         }
         let shader_active = self.adapter.shader_active();
-        let tooltip_active = self.adapter.tips.needs_frame();
-        let scrollbar_active = self.adapter.scrollbars.needs_frame();
+        let tooltip_active = self.adapter.tips.needs_frame(self.engine.time().now);
+        let scrollbar_active = self.adapter.scrollbars.needs_frame(self.engine.time().now);
         // A surface redraw is not itself an application-state change. Native
         // sampling can keep the declaration tree when all invalidation sources
         // are clean. The snapshot API deliberately still evaluates the view.
@@ -397,7 +412,11 @@ impl<V: HostView> Source<V> {
             && !self.pending
             && !self.requests.contains(plico::Changes::ANIMATE)
             && self.viewport == Some((width, height))
-            && self.engine.theme() == self.view.theme()
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && self.last_error.is_none()
         {
             self.batch_stats.retained_samples += 1;
@@ -423,7 +442,11 @@ impl<V: HostView> Source<V> {
             && !self.requests.contains(plico::Changes::ANIMATE)
             && !self.pending
             && self.viewport == Some((width, height))
-            && self.engine.theme() == self.view.theme()
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && (motion_dirty
                 || shader_active
                 || tooltip_active
@@ -659,7 +682,12 @@ impl<V: HostView> Source<V> {
             }
         }
         let start = Instant::now();
-        if self.engine.theme() == self.view.theme()
+        if !self.display_preferences_dirty
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && let Some(batch) = self.view.replay_regions(&mut self.engine)
         {
             let batch = batch.map_err(|source| {
@@ -683,7 +711,12 @@ impl<V: HostView> Source<V> {
             self.declarations_pending = true;
             // A region event can change the view's global theme. Refresh all
             // inherited contexts in this same event, before committing a frame.
-            if self.engine.theme() == self.view.theme() {
+            if self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
+            {
                 return Ok(());
             }
         }
@@ -706,6 +739,7 @@ impl<V: HostView> Source<V> {
                     other => SourceError::Declaration { source: other },
                 }
             })?;
+        self.display_preferences_dirty = false;
         self.batch_stats.declaration_passes += passes as usize;
         self.declaration_stats = self.engine.last_stats();
         self.declared_dirty.extend(self.engine.drain_settle_dirty());
@@ -724,6 +758,9 @@ impl<V: HostView> Source<V> {
     }
 }
 impl<V: HostView> FrameSource for Source<V> {
+    fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        Source::set_multi_click_settings(self, settings);
+    }
     fn take_host_action(&mut self) -> Option<HostAction> {
         self.view.take_host_action()
     }
@@ -834,9 +871,21 @@ impl<V: HostView> FrameSource for Source<V> {
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
             || self.requests.contains(plico::Changes::ANIMATE)
-            || self.engine.presence_deadline().is_some()
-            || self.adapter.tips.needs_frame()
-            || self.adapter.scrollbars.needs_frame()
+            || self.adapter.tips.needs_frame(self.engine.time().now)
+            || self.adapter.scrollbars.needs_frame(self.engine.time().now)
+    }
+    fn animation_deadline(&self) -> Option<Instant> {
+        let deadline = [
+            self.engine.wake_deadline(),
+            self.adapter.tips.wake_deadline(),
+            self.adapter
+                .scrollbars
+                .wake_deadline(self.engine.time().now),
+        ]
+        .into_iter()
+        .flatten()
+        .min()?;
+        self.clock_epoch.checked_add(deadline)
     }
     fn paint_debug_overlay(
         &mut self,
@@ -855,6 +904,40 @@ impl<V: HostView> FrameSource for Source<V> {
         }
     }
     fn handle_event(&mut self, event: UiEvent) -> EventResponse {
+        if let UiEvent::WindowMetrics(metrics) = &event
+            && self
+                .engine
+                .set_display_preferences(metrics.display_preferences())
+        {
+            self.display_preferences_dirty = true;
+            self.apply_motion_preferences();
+            self.target_scene = None;
+            return EventResponse {
+                handled: true,
+                request_redraw: true,
+                ..EventResponse::IGNORED
+            };
+        }
+        let activity = match &event {
+            UiEvent::Pointer(pointer) => {
+                pointer.phase == PointerPhase::Down
+                    || (pointer.phase == PointerPhase::Move && pointer.buttons != 0)
+            }
+            UiEvent::Key(key) => key.phase == KeyPhase::Down && !key.synthetic,
+            UiEvent::TextInput(text) | UiEvent::Paste(text) => !text.is_empty(),
+            UiEvent::Ime(plico_renderer::ImeEvent::Commit(text))
+            | UiEvent::Ime(plico_renderer::ImeEvent::Preedit { text, .. }) => !text.is_empty(),
+            UiEvent::Ime(plico_renderer::ImeEvent::DeleteSurrounding {
+                before_bytes,
+                after_bytes,
+            }) => *before_bytes != 0 || *after_bytes != 0,
+            UiEvent::Wheel(wheel) => wheel.delta_x != 0. || wheel.delta_y != 0.,
+            UiEvent::Gesture(_) => true,
+            _ => false,
+        };
+        if activity {
+            self.view.on_user_activity();
+        }
         let mut scroll_changed = false;
         if let Some(now) = self.clock_instant() {
             self.set_tick(now, false);
@@ -927,6 +1010,9 @@ impl<V: HostView> FrameSource for Source<V> {
             self.adapter.dismiss_tooltip();
         }
         let handled = self.adapter.semantic_action(&mut self.engine, action);
+        if handled {
+            self.view.on_user_activity();
+        }
         self.pending |= handled;
         handled
     }

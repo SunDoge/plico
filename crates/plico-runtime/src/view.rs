@@ -58,6 +58,10 @@ impl<A: plico_dev::App> HostView for NativeApp<A> {
 /// `HostView` adds host actions, wakeups, Regions, and cache metadata.
 /// Consuming an event automatically requests a settling declaration.
 pub trait HostView {
+    /// A meaningful native input or accepted accessibility action occurred.
+    /// Presentation frames and pointer hover do not invoke this callback.
+    fn on_user_activity(&mut self) {}
+
     #[doc(hidden)]
     fn replay_regions(
         &mut self,

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1120,
+    "height": 820,
+    "scale": 1
+  },
+  "state": {
+    "router": {
+      "current": "Mines"
+    }
+  },
+  "time_ms": 1000,
+  "steps": [
+    {
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Hard"
+      }
+    }
+  ]
+}

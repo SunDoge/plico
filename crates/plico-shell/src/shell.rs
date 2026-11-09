@@ -22,6 +22,9 @@ use plico_renderer::platform::WindowBackground;
 
 /// Native rendering resources owned by one live window.
 pub struct Shell {
+    // Invalidate before the window/view is dropped (fields drop in order).
+    #[cfg(target_os = "macos")]
+    frame_clock: Option<crate::macos_frame_clock::NativeFrameClock>,
     /// Platform window handle.
     pub window: Arc<dyn Window>,
     /// Selected graphics consumer for this window.
@@ -29,6 +32,15 @@ pub struct Shell {
     /// Current physical render size.
     surface_size: [u32; 2],
     corner_radius: u32,
+    deferred_show: bool,
+    #[cfg(target_os = "macos")]
+    native_frame: crate::macos_window_frame::NativeWindowFrame,
+    #[cfg(target_os = "macos")]
+    native_input: crate::macos_input::NativeInput,
+    #[cfg(target_os = "macos")]
+    preferences: crate::macos_preferences::NativePreferences,
+    #[cfg(target_os = "linux")]
+    preferences: crate::linux_preferences::NativePreferences,
     presentation_error: Option<String>,
     /// Reused backend-neutral application scene for the current frame.
     pub scene: Scene,
@@ -73,6 +85,19 @@ impl Shell {
                 options.initial_inner_size.0,
                 options.initial_inner_size.1,
             ));
+        #[cfg(target_os = "macos")]
+        if options.titlebar_overlay && options.decorations {
+            // Set platform attributes after the common decoration choice:
+            // decorations override these AppKit titlebar properties otherwise.
+            use winit::platform::macos::WindowAttributesMacOS;
+            attrs = attrs.with_platform_attributes(Box::new(
+                WindowAttributesMacOS::default()
+                    .with_titlebar_transparent(true)
+                    .with_title_hidden(true)
+                    .with_fullsize_content_view(true)
+                    .with_movable_by_window_background(false),
+            ));
+        }
         if let Some((width, height)) = options.min_inner_size {
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
@@ -117,12 +142,38 @@ impl Shell {
             text_backend = tcx.raster_backend_name(),
             "Window text layout initialized"
         );
-        // Expose the window after its rendering resources are ready.
-        window.set_visible(true);
+        // Apply native clipping after Metal creates its surface layer, before
+        // exposing the window. Core Animation owns the continuous window contour.
+        #[cfg(target_os = "macos")]
+        let mut native_frame = crate::macos_window_frame::NativeWindowFrame::default();
+        #[cfg(target_os = "macos")]
+        if options.corner_radius > 0 {
+            native_frame.apply(
+                window.as_ref(),
+                options.corner_radius,
+                [surface_width, surface_height],
+            );
+        }
+        // MyGO makes a window ready only after its first content frame. Metal
+        // cannot acquire a hidden drawable, so wgpu first fills its retained
+        // target and exposes the window only for the final surface copy.
+        let deferred_show = renderer.defers_initial_show();
+        if !deferred_show {
+            window.set_visible(true);
+        }
 
         Ok(Shell {
+            #[cfg(target_os = "macos")]
+            frame_clock: None,
             window,
             corner_radius: options.corner_radius,
+            deferred_show,
+            #[cfg(target_os = "macos")]
+            native_frame,
+            #[cfg(target_os = "macos")]
+            native_input: Default::default(),
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            preferences: Default::default(),
             presentation_error: None,
             renderer,
             surface_size: [surface_width, surface_height],
@@ -132,6 +183,98 @@ impl Shell {
         })
     }
 
+    pub(crate) fn start_window_drag(&mut self) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(action) = self
+            .native_input
+            .prepare_titlebar_double_click(self.window.as_ref())
+        {
+            if action.minimizes() {
+                self.prepare_hide();
+            }
+            action.perform();
+            return true;
+        }
+        match self.window.drag_window() {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(?error, "native window manager rejected window drag");
+                false
+            }
+        }
+    }
+
+    pub(crate) fn multi_click_settings(&self) -> plico_renderer::MultiClickSettings {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos_input::multi_click_settings()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Default::default()
+        }
+    }
+
+    pub(crate) fn display_preferences(&self) -> plico_renderer::DisplayPreferences {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.preferences.snapshot()
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            Default::default()
+        }
+    }
+    pub(crate) fn observe_native_events(&mut self, _wake: crate::WakeCallback) {
+        self.renderer.set_surface_wake(_wake.clone());
+        #[cfg(target_os = "macos")]
+        {
+            self.frame_clock = crate::macos_frame_clock::NativeFrameClock::new(
+                self.window.as_ref(),
+                _wake.clone(),
+            );
+            self.preferences.observe(_wake);
+        }
+        #[cfg(target_os = "linux")]
+        self.preferences.observe(_wake);
+    }
+    pub(crate) fn animation_frame_ready(&self, _continuous: bool) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(clock) = &self.frame_clock {
+            return clock.frame_ready(_continuous);
+        }
+        true
+    }
+    pub(crate) fn presentation_deferred(&self) -> bool {
+        self.renderer.presentation_deferred()
+    }
+    pub(crate) fn presentation_waits_for_display(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.frame_clock.is_some() && self.renderer.presentation_deferred()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+    pub(crate) fn presentation_deadline(&self) -> Option<std::time::Instant> {
+        self.renderer.presentation_deadline()
+    }
+    pub(crate) fn take_surface_ready(&self) -> bool {
+        self.renderer.take_surface_ready()
+    }
+    pub(crate) fn refresh_display_preferences(&mut self) -> bool {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.preferences.refresh()
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            false
+        }
+    }
+
     /// Current surface size (w,h).
     pub fn size(&self) -> (u32, u32) {
         (self.surface_size[0], self.surface_size[1])
@@ -139,13 +282,27 @@ impl Shell {
 
     /// Resize the physical render surface; zero-sized requests are ignored.
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 {
-            self.surface_size = [width, height];
-            self.renderer.resize(width, height);
+        if self.resize_surface(width, height) {
             self.window.request_redraw();
         }
     }
+    fn resize_surface(&mut self, width: u32, height: u32) -> bool {
+        if width == 0 || height == 0 || self.surface_size == [width, height] {
+            return false;
+        }
+        self.surface_size = [width, height];
+        self.renderer.resize(width, height);
+        true
+    }
 
+    /// Synchronize native extent before building scene/IME geometry, including
+    /// DPI events whose queued SurfaceResized notification has not arrived yet.
+    pub(crate) fn sync_surface_size(&mut self) -> bool {
+        let size = self.window.surface_size();
+        // A frame/scale handler is already going to paint this geometry; do
+        // not enqueue another redraw just for discovering the current extent.
+        self.resize_surface(size.width, size.height)
+    }
     /// Current physical-pixels-per-logical-pixel scale reported by the window.
     pub fn scale_factor(&self) -> f64 {
         self.window.scale_factor().max(f64::EPSILON)
@@ -211,6 +368,17 @@ impl Shell {
         } else {
             self.corner_radius
         };
+        #[cfg(target_os = "macos")]
+        if self.corner_radius > 0
+            && self
+                .native_frame
+                .apply(self.window.as_ref(), radius, self.surface_size)
+        {
+            // Native continuous corners clip content and compositor shadow.
+            // Preserve the scene clear; a second GPU clip would square off the
+            // continuous contour and introduce another antialiasing fringe.
+            return base_color;
+        }
         let radius = f64::from(radius) * self.scale_factor();
         crate::window_frame::clip_window_frame(
             &mut self.scene,
@@ -222,13 +390,37 @@ impl Shell {
 
     /// Accept [`Self::scene`], returning true for presentation or an unchanged-frame skip.
     pub fn present(&mut self, base_color: Color) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(clock) = &self.frame_clock {
+                self.renderer
+                    .set_presentation_clock(Some(clock.tick_sample()), clock.refresh_interval());
+                clock.consume();
+            } else {
+                self.renderer
+                    .set_presentation_clock(None, std::time::Duration::from_secs_f64(1. / 60.));
+            }
+        }
         self.accessibility.publish_root(self.window.as_ref());
-        match self.renderer.render(
-            &mut self.scene,
-            self.surface_size[0],
-            self.surface_size[1],
-            base_color,
-        ) {
+        let result = if self.deferred_show {
+            self.renderer.render_initial(
+                &mut self.scene,
+                self.surface_size[0],
+                self.surface_size[1],
+                base_color,
+            )
+        } else {
+            self.renderer.render(
+                &mut self.scene,
+                self.surface_size[0],
+                self.surface_size[1],
+                base_color,
+            )
+        };
+        if self.deferred_show && self.window.is_visible() == Some(true) {
+            self.deferred_show = false;
+        }
+        match result {
             Ok(presented) => {
                 self.presentation_error = None;
                 presented
@@ -244,16 +436,35 @@ impl Shell {
         }
     }
 
+    pub(crate) fn initial_show_pending(&self) -> bool {
+        self.deferred_show
+    }
+    pub(crate) fn initial_show_error(&self) -> Option<String> {
+        self.deferred_show
+            .then(|| self.presentation_error.clone())
+            .flatten()
+    }
+
     pub(crate) fn damage_coverage(&self) -> Option<f64> {
         self.renderer
             .damage_coverage(self.surface_size[0], self.surface_size[1])
     }
 
+    pub(crate) fn surface_acquire_pending(&self) -> bool {
+        self.renderer.surface_acquire_pending()
+    }
     pub(crate) fn present_skipped(&self) -> bool {
         self.renderer.present_skipped()
     }
     pub(crate) fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_presentation();
+    }
+    pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+        self.renderer.maintain(now)
+    }
+    pub(crate) fn prepare_hide(&mut self) {
+        self.animation_frame_ready(false);
+        self.renderer.prepare_hide();
     }
     pub(crate) fn trim_gpu_cache(&mut self) {
         self.renderer.trim_gpu_cache();

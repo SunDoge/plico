@@ -9,6 +9,7 @@ use lru::LruCache;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use rustc_hash::FxHashMap;
 use std::num::NonZeroUsize;
+use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPipeline, Texture,
     TextureFormat, TextureView,
@@ -93,17 +94,47 @@ const SHADER_BACKDROP_PREFIX: &str = r#"
 var plico_backdrop: texture_2d<f32>;
 @group(1) @binding(1)
 var plico_backdrop_sampler: sampler;
+@group(1) @binding(2)
+var<uniform> plico_backdrop_mapping: vec4f;
 
-fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+fn backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
     if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
         return vec4<f32>(0.0);
     }
-    return textureSampleLevel(
-        plico_backdrop,
-        plico_backdrop_sampler,
-        uv,
-        0.0,
-    );
+    let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
+    if any(mapped < vec2f(0.0)) || any(mapped > vec2f(1.0)) { return vec4f(0.0); }
+    return textureSampleLevel(plico_backdrop,plico_backdrop_sampler,mapped,lod);
+}
+
+fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
+    return backdrop_at_lod(uv, 0.0);
+}
+fn plico_backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
+    return backdrop_at_lod(uv,lod);
+}
+// Gaussian residual over a box-prefiltered pyramid. Sigma is in physical
+// pixels; interpolation between mip levels keeps progressive masks smooth.
+fn plico_backdrop_blur(uv: vec2<f32>, sigma: f32) -> vec4<f32> {
+    let resolution = max(plico.resolution_time_scale.xy,vec2f(1.));
+    let pixel = 0.5/resolution;
+    if sigma <= 0.01 { return backdrop_at(clamp(uv,pixel,vec2f(1.)-pixel)); }
+    let lod = clamp(log2(max(sigma,1.)),0.,f32(textureNumLevels(plico_backdrop)-1u));
+    let lower = floor(lod);
+    let width = exp2(lower);
+    let variance = (mix(width*width,4.*width*width,fract(lod))-1.)/12.;
+    let residual = sqrt(max(sigma*sigma-variance,0.));
+    let spread = residual/resolution;
+    var sum = vec4f(0.);
+    var weights = 0.;
+    for(var y=-2; y<=2; y++) {
+        for(var x=-2; x<=2; x++) {
+            let offset=vec2f(f32(x),f32(y));
+            let weight=exp(-dot(offset,offset)*0.5);
+            sum+=backdrop_at_lod(clamp(uv+offset*spread,pixel,vec2f(1.)-pixel),lod)*weight;
+            weights+=weight;
+        }
+    }
+    return sum/weights;
 }
 
 /// The surface's own sample of its backdrop at uv, premultiplied.
@@ -185,6 +216,8 @@ pub struct ShaderEffectSource {
     /// The effect reads its backdrop through `plico.backdrop_at` (mygo's
     /// scene.Effect.Backdrop). Hosts bind the region's rendered content.
     reads_backdrop: bool,
+    // Validated finite sigma bits keep the retained source key Eq + Hash.
+    prefilter_backdrop: Option<u32>,
 }
 
 impl ShaderEffectSource {
@@ -196,6 +229,19 @@ impl ShaderEffectSource {
         self.sksl = Some(source.into());
         Ok(self)
     }
+    /// Request transient area-prefiltered backdrop levels from compatible hosts.
+    pub fn with_backdrop_prefilter(mut self, max_sigma: Option<f32>) -> Result<Self, String> {
+        if max_sigma.is_some_and(|sigma| {
+            !self.reads_backdrop || !sigma.is_finite() || !(0. ..=128.).contains(&sigma)
+        }) {
+            return Err(
+                "backdrop prefilter requires a backdrop-reading effect and finite sigma in 0..=128"
+                    .into(),
+            );
+        }
+        self.prefilter_backdrop = max_sigma.map(|sigma| sigma.max(0.).to_bits());
+        Ok(self)
+    }
     /// Validate and retain a custom WGSL effect function.
     pub fn new(source: &str) -> Result<Self, String> {
         Self::with_backdrop(source, false)
@@ -203,7 +249,8 @@ impl ShaderEffectSource {
 
     /// Validate a `plico_effect` function that may call `plico.backdrop_at`
     /// to sample what is painted behind the surface (mygo's scene.Effect
-    /// Backdrop). Hosts apply full-damage semantics to these effects.
+    /// Backdrop). Hosts may track bounded input dependencies; unknown hosts
+    /// retain conservative full damage.
     pub fn with_backdrop(source: &str, reads_backdrop: bool) -> Result<Self, String> {
         if source.trim().is_empty() {
             return Err("shader source must not be empty".into());
@@ -269,7 +316,18 @@ impl ShaderEffectSource {
             .map_err(|error| format!("invalid shader interface: {error}"))?;
         let mut parameters = Vec::new();
         for (_, variable) in module.global_variables.iter() {
-            // Only the two resources owned by the generated backdrop prelude
+            if reads_backdrop
+                && variable.space == naga::AddressSpace::Uniform
+                && variable.name.as_deref() == Some("plico_backdrop_mapping")
+                && variable
+                    .binding
+                    .as_ref()
+                    .is_some_and(|b| b.group == 1 && b.binding == 2)
+                && matches!(&module.types[variable.ty].inner, naga::TypeInner::Vector {size: naga::VectorSize::Quad,scalar} if scalar.kind == naga::ScalarKind::Float && scalar.width == 4)
+            {
+                continue;
+            }
+            // Only the texture/sampler owned by the generated backdrop prelude
             // are allowed outside the uniform group. Arbitrary user bindings
             // remain rejected, including for complete shader modules.
             if reads_backdrop
@@ -433,6 +491,7 @@ impl ShaderEffectSource {
             interface,
             parameters: parameters.into(),
             reads_backdrop,
+            prefilter_backdrop: None,
         })
     }
 
@@ -527,6 +586,10 @@ impl ShaderEffect {
     pub fn reads_backdrop(&self) -> bool {
         self.source.reads_backdrop
     }
+    /// Maximum logical-pixel sigma requested for area-prefiltered backdrop levels.
+    pub fn prefilter_backdrop(&self) -> Option<f32> {
+        self.source.prefilter_backdrop.map(f32::from_bits)
+    }
     /// Injected animation time in seconds.
     pub fn time(&self) -> f32 {
         self.time
@@ -557,6 +620,7 @@ struct EffectTarget {
     bind_group: BindGroup,
     size: [u16; 2],
     used_in_frame: u64,
+    rendered_in_frame: u64,
     texture_id: ShaderTextureId,
     effect: Option<ShaderEffect>,
 }
@@ -599,6 +663,7 @@ impl EffectTarget {
             bind_group,
             size,
             used_in_frame: 0,
+            rendered_in_frame: 0,
             texture_id: ShaderTextureId(ShaderEffectId::new().0),
             effect: None,
         }
@@ -654,6 +719,16 @@ impl ShaderRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let backdrop_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -663,7 +738,7 @@ impl ShaderRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         Self {
@@ -737,6 +812,27 @@ impl ShaderRenderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
     ) -> TextureView {
+        self.render_view_with_backdrop_mapping(
+            effect,
+            backdrop,
+            [0., 0., 1., 1.],
+            device,
+            queue,
+            encoder,
+        )
+    }
+
+    /// Sample a cropped backdrop through an effect-UV to texture-UV mapping.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_view_with_backdrop_mapping(
+        &mut self,
+        effect: &ShaderEffect,
+        backdrop: &wgpu::TextureView,
+        mapping: [f32; 4],
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) -> TextureView {
         let (_id, view, bind_group) = self.render_target_full(effect, device, queue, encoder);
         let pipeline = Self::backdrop_pipeline(
             &mut self.backdrop_pipelines,
@@ -745,6 +841,11 @@ impl ShaderRenderer {
             device,
             &effect.source,
         );
+        let mapping = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Plico backdrop UV mapping"),
+            contents: bytemuck::cast_slice(&mapping),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
         let backdrop_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Plico shader backdrop bind"),
             layout: &self.backdrop_layout,
@@ -756,6 +857,10 @@ impl ShaderRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.backdrop_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: mapping.as_entire_binding(),
                 },
             ],
         });
@@ -787,10 +892,12 @@ impl ShaderRenderer {
     /// Keep an unchanged surface alive when a damage consumer skips its draw.
     pub fn retain_effect(&mut self, effect: &ShaderEffect) {
         if let Some(targets) = self.targets.get_mut(&effect.id) {
-            for target in targets {
-                if target.effect.as_ref() == Some(effect) {
-                    target.used_in_frame = self.frame;
-                }
+            // Reserve one matching output per live occurrence. Marking every
+            // historical duplicate would keep the whole allocation history alive.
+            if let Some(target) = targets.iter_mut().find(|target| {
+                target.used_in_frame != self.frame && target.effect.as_ref() == Some(effect)
+            }) {
+                target.used_in_frame = self.frame;
             }
         }
     }
@@ -831,6 +938,7 @@ impl ShaderRenderer {
             target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
+        target.rendered_in_frame = self.frame;
         if target.effect.as_ref() == Some(effect) && !effect.reads_backdrop() {
             return (target.texture_id, target.view.clone());
         }
@@ -878,7 +986,16 @@ impl ShaderRenderer {
         let targets = self.targets.entry(effect.id).or_default();
         let index = targets
             .iter()
-            .position(|target| target.used_in_frame != self.frame)
+            // A preflight reservation is reusable by its actual draw. Only
+            // another draw already encoded this frame makes an output busy.
+            .position(|target| {
+                target.rendered_in_frame != self.frame && target.effect.as_ref() == Some(effect)
+            })
+            .or_else(|| {
+                targets
+                    .iter()
+                    .position(|target| target.used_in_frame != self.frame)
+            })
             .unwrap_or_else(|| {
                 targets.push(EffectTarget::new(
                     device,
@@ -894,6 +1011,7 @@ impl ShaderRenderer {
             target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
+        target.rendered_in_frame = self.frame;
         let uniforms = effect_uniforms(effect);
         queue.write_buffer(&target.uniforms, 0, bytemuck::cast_slice(&uniforms));
         let bind = target.bind_group.clone();
@@ -1040,6 +1158,17 @@ mod tests {
         let body = "fn plico_effect(uv: vec2<f32>) -> vec4<f32> { return plico_backdrop_at(uv); }";
         ShaderEffectSource::with_backdrop(body, true).unwrap();
         assert!(ShaderEffectSource::new(body).is_err());
+        let source = ShaderEffectSource::with_backdrop(body, true).unwrap();
+        assert!(source.clone().with_backdrop_prefilter(Some(8.)).is_ok());
+        for sigma in [-1., f32::NAN, f32::INFINITY, 129.] {
+            assert!(source.clone().with_backdrop_prefilter(Some(sigma)).is_err());
+        }
+        assert!(
+            ShaderEffectSource::new("fn plico_effect(_uv:vec2f)->vec4f { return vec4f(1.); }")
+                .unwrap()
+                .with_backdrop_prefilter(Some(8.))
+                .is_err()
+        );
     }
 
     #[test]

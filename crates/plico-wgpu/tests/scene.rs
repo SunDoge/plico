@@ -1513,3 +1513,56 @@ fn raster_trim_releases_local_snapshots_and_rebuilds_identical_pixels() {
         original
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn retired_page_image_sources_are_released_after_resize_and_removal() {
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Pixels {
+        data: Vec<u8>,
+        live: Arc<AtomicUsize>,
+    }
+    impl AsRef<[u8]> for Pixels {
+        fn as_ref(&self) -> &[u8] {
+            &self.data
+        }
+    }
+    impl Drop for Pixels {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    let live = Arc::new(AtomicUsize::new(0));
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..12 {
+        live.fetch_add(1, Ordering::SeqCst);
+        let pixels = Arc::new(Pixels {
+            data: vec![255; (8 + frame) * 4 * 4],
+            live: live.clone(),
+        });
+        let image = ImageBrush::new(ImageData {
+            data: Blob::new(pixels),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+            width: (8 + frame) as u32,
+            height: 4,
+        });
+        let mut scene = Scene::new();
+        scene.draw_image((&image).into(), Affine::IDENTITY);
+        renderer
+            .render_scene(&scene, [64 + frame as u32, 48], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            live.load(Ordering::SeqCst),
+            1,
+            "historical CPU image retained at frame {frame}"
+        );
+        assert_eq!(renderer.image_cache_stats().0, 1);
+    }
+    renderer
+        .render_scene(&Scene::new(), [80, 48], [0.; 4], true)
+        .unwrap();
+    assert_eq!(renderer.image_cache_stats().0, 0);
+    assert_eq!(live.load(Ordering::SeqCst), 0);
+}

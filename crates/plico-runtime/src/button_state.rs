@@ -40,10 +40,20 @@ impl ButtonStates {
         self.entries.clear();
         self.active.clear();
     }
+    pub fn snap(&mut self, dirty: &mut Vec<Entity>) {
+        for (&entity, entry) in &mut self.entries {
+            entry.value = entry.target;
+            entry.from = entry.target;
+            entry.elapsed = entry.duration;
+            dirty.push(entity);
+        }
+        self.active.clear();
+    }
     pub fn remove(&mut self, entity: Entity) {
         self.entries.remove(&entity);
         self.active.remove(&entity);
     }
+    #[cfg(test)]
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.entries.keys().copied()
     }
@@ -80,7 +90,7 @@ impl ButtonStates {
         enabled: bool,
     ) -> (Style, f32) {
         let target = input.targets();
-        let weights = if !enabled || style.transition_ms == 0 {
+        let weights = if style.transition_ms == 0 {
             self.remove(entity);
             target
         } else {
@@ -98,7 +108,12 @@ impl ButtonStates {
                 entry.elapsed = Duration::ZERO;
                 entry.duration = duration;
             }
-            if entry.value != target {
+            if !enabled {
+                entry.value = target;
+                entry.from = target;
+                entry.elapsed = entry.duration;
+            }
+            if enabled && entry.value != target {
                 self.active.insert(entity);
             } else {
                 self.active.remove(&entity);
@@ -218,7 +233,7 @@ mod tests {
         assert_eq!(paint.background, Some(Color::Literal(0)));
     }
     #[test]
-    fn reduced_motion_and_zero_duration_snap_and_release_entries() {
+    fn reduced_motion_keeps_rested_targets_and_zero_duration_releases_entries() {
         for enabled in [true, false] {
             let (mut states, entity, mut style) = setup();
             states.style(
@@ -242,8 +257,23 @@ mod tests {
                 enabled,
             );
             assert_eq!(paint.background, Some(Color::Literal(0xffffff)));
-            assert_eq!(states.entities().count(), 0);
+            assert_eq!(states.entities().count(), usize::from(!enabled));
             assert!(!states.active());
+            if !enabled {
+                states.style(
+                    entity,
+                    style,
+                    Theme::default(),
+                    Interaction::default(),
+                    true,
+                );
+                assert!(
+                    states.active(),
+                    "restoring motion animates the first subsequent interaction"
+                );
+                states.remove(entity);
+                assert_eq!(states.entities().count(), 0);
+            }
         }
     }
     #[test]

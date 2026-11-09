@@ -1,7 +1,7 @@
 //! Experimental retained CoreText geometry and bounded per-line RGBA cache.
 use crate::{Error, Renderer, Result};
 use plico_native::macos_text::{
-    Alignment, FontStyle, FontWeight, Line, Paragraph as Layout, Request, StyleSpan,
+    Alignment, FontCollection, FontStyle, FontWeight, Line, Paragraph as Layout, Request, StyleSpan,
 };
 use plico_renderer::{
     TextContext,
@@ -71,6 +71,17 @@ impl NativeParagraph for Paragraph {
             .unwrap_or(0)
             .min(self.visible_end)
     }
+    fn line_range_at(&self, y: f32) -> Option<std::ops::Range<usize>> {
+        if !y.is_finite() {
+            return None;
+        }
+        let lines = &self.layout.lines()[..self.visible_lines];
+        let line = lines
+            .iter()
+            .find(|line| f64::from(y) < line.vertical_bounds[1])
+            .or_else(|| lines.last())?;
+        Some(line.range.start.min(self.visible_end)..line.range.end.min(self.visible_end))
+    }
     fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
         if !self.request.text.is_char_boundary(byte) {
             return None;
@@ -134,8 +145,9 @@ struct Raster {
     origin: [i32; 2],
     bytes: usize,
 }
-/// Accounted Rust caches only; excludes CoreText objects, GPU textures and live
-/// externally retained paragraphs/images. This is not a process RSS estimate.
+/// Accounted layout/raster/intrinsic payload only; excludes native objects,
+/// GPU textures, bounded family names and externally retained paragraphs/images.
+/// This is not a process RSS estimate.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MacosTextCacheStats {
     /// Retained native paragraph entries.
@@ -161,7 +173,11 @@ pub(crate) struct Cache {
     rasters: lru::LruCache<RasterKey, Raster>,
     raster_bytes: usize,
     rasterizations: u64,
-    font_error: bool,
+    fonts: FontCollection,
+    families: lru::LruCache<Arc<str>, Arc<str>>,
+    #[cfg(test)]
+    family_probes: u64,
+    font_assets: Vec<FontAsset>,
     intrinsic: lru::LruCache<u64, Intrinsic>,
     intrinsic_bytes: usize,
     intrinsic_measurements: u64,
@@ -174,13 +190,18 @@ impl Cache {
             rasters: lru::LruCache::new(NonZeroUsize::new(1024).unwrap()),
             raster_bytes: 0,
             rasterizations: 0,
-            font_error: false,
+            fonts: FontCollection::default(),
+            families: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
+            #[cfg(test)]
+            family_probes: 0,
+            font_assets: Vec::new(),
             intrinsic: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
             intrinsic_bytes: 0,
             intrinsic_measurements: 0,
         }
     }
     fn clear(&mut self) {
+        self.families.clear();
         self.layouts.clear();
         self.rasters.clear();
         self.layout_bytes = 0;
@@ -188,16 +209,49 @@ impl Cache {
         self.intrinsic.clear();
         self.intrinsic_bytes = 0;
     }
+    fn resolve_family(
+        &mut self,
+        requested: &Arc<str>,
+    ) -> std::result::Result<Arc<str>, ParagraphError> {
+        if let Some(family) = self.families.get(requested.as_ref()) {
+            return Ok(family.clone());
+        }
+        for candidate in requested.split(',').map(str::trim) {
+            let mapped = match candidate {
+                "" | "sans-serif" | "system-ui" => "system-ui",
+                "serif" => "Times",
+                "monospace" | "ui-monospace" => "ui-monospace",
+                other => other,
+            };
+            let known = self.fonts.contains_family(mapped)
+                || matches!(mapped, "system-ui" | "ui-monospace");
+            let installed = if known {
+                true
+            } else {
+                let mut probe = Request::new("");
+                probe.family = mapped;
+                probe.fonts = Some(&self.fonts);
+                #[cfg(test)]
+                {
+                    self.family_probes += 1;
+                }
+                let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
+                face.font_family().eq_ignore_ascii_case(mapped)
+                    || face.font_postscript_name().eq_ignore_ascii_case(mapped)
+            };
+            if installed {
+                let family: Arc<str> = mapped.into();
+                self.families.put(requested.clone(), family.clone());
+                return Ok(family);
+            }
+        }
+        Err(rejected("no requested CoreText family is installed"))
+    }
     #[tracing::instrument(name = "plico_wgpu.coretext_layout", skip_all, fields(text_bytes = request.text.len()))]
     fn layout(
         &mut self,
         request: Arc<ParagraphRequest>,
     ) -> std::result::Result<Rc<Paragraph>, ParagraphError> {
-        if self.font_error {
-            return Err(rejected(
-                "CoreText application font registration is not implemented",
-            ));
-        }
         if request.runs.len() > 4096 {
             return Err(rejected("too many CoreText rich spans"));
         }
@@ -241,28 +295,10 @@ impl Cache {
         {
             return Ok(p.clone());
         }
-        let mut family = None;
-        for candidate in request.family.split(',').map(str::trim) {
-            let mapped = match candidate {
-                "" | "sans-serif" | "system-ui" => "system-ui",
-                "serif" => "Times",
-                "monospace" => "Menlo",
-                other => other,
-            };
-            let mut probe = Request::new("");
-            probe.family = mapped;
-            let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
-            if mapped == "system-ui"
-                || face.font_family().eq_ignore_ascii_case(mapped)
-                || face.font_postscript_name().eq_ignore_ascii_case(mapped)
-            {
-                family = Some(mapped);
-                break;
-            }
-        }
-        let family = family.ok_or_else(|| rejected("no requested CoreText family is installed"))?;
+        let family = self.resolve_family(&request.family)?;
         let mut source_native = Request::new(&request.text);
-        source_native.family = family;
+        source_native.family = &family;
+        source_native.fonts = Some(&self.fonts);
         source_native.size = request.font_size as f64;
         source_native.letter_spacing = request.letter_spacing as f64;
         source_native.style = Some(FontStyle {
@@ -300,7 +336,7 @@ impl Cache {
             (true, None) | (true, Some(f64::INFINITY)) => None,
             // A collapsed flex item has no visible text area. Keep the request
             // valid and clamp its editing geometry to the source start.
-            (true, Some(width)) if width == 0. => Some((String::new(), 0)),
+            (true, Some(0.)) => Some((String::new(), 0)),
             (true, Some(width)) => {
                 Line::ellipsized_text_styled(&source_native, &source_spans, width)
                     .map_err(|e| rejected(e.to_string()))?
@@ -318,11 +354,10 @@ impl Cache {
         let native_spans = if let Some((_, end)) = &ellipsized {
             source_spans
                 .iter()
-                .filter_map(|span| {
-                    (span.range.start < *end).then(|| StyleSpan {
-                        range: span.range.start..span.range.end.min(*end),
-                        ..span.clone()
-                    })
+                .filter(|span| span.range.start < *end)
+                .map(|span| StyleSpan {
+                    range: span.range.start..span.range.end.min(*end),
+                    ..span.clone()
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -485,12 +520,17 @@ impl Cache {
             let position = [line.baseline[0] * scale + phase, line.baseline[1] * scale];
             let base = position.map(f64::floor);
             let phases = [position[0] - base[0], position[1] - base[1]];
-            let bounds = [
+            let mut bounds = [
                 (ink[0] * scale + position[0]).floor() - 2.,
                 (ink[1] * scale + position[1]).floor() - 2.,
                 (ink[2] * scale + position[0]).ceil() + 2.,
                 (ink[3] * scale + position[1]).ceil() + 2.,
             ];
+            // A max-lines boundary is part of the paragraph, unlike a moving
+            // viewport. Preserve that hard raster bound even for reusable lines.
+            if paragraph.visible_lines < paragraph.layout.lines().len() {
+                bounds[3] = bounds[3].min((paragraph.visible_size[1] * scale).ceil());
+            }
             let clipped = [
                 bounds[0].max(clip[0].floor()),
                 bounds[1].max(clip[1].floor()),
@@ -513,6 +553,15 @@ impl Cache {
                 clipped[2] - base[0],
                 clipped[3] - base[1],
             ];
+            let local = crate::native_raster_window::cache_window(
+                [
+                    bounds[0] - base[0],
+                    bounds[1] - base[1],
+                    bounds[2] - base[0],
+                    bounds[3] - base[1],
+                ],
+                local,
+            );
             let key = RasterKey {
                 request: fingerprint,
                 line: index,
@@ -616,10 +665,20 @@ impl ParagraphEngine for Engine {
             .layout(request)
             .map(|p| p as Rc<dyn NativeParagraph>)
     }
-    fn register_font(&mut self, _asset: &FontAsset) {
+    fn register_font(&mut self, asset: &FontAsset) {
         let mut cache = self.cache.borrow_mut();
-        cache.font_error = true;
-        cache.clear();
+        if cache.font_assets.iter().any(|registered| {
+            registered.family() == asset.family() && std::ptr::eq(registered.bytes(), asset.bytes())
+        }) {
+            return;
+        }
+        match cache.fonts.register(asset.bytes(), asset.family()) {
+            Ok(()) => {
+                cache.font_assets.push(asset.clone());
+                cache.clear();
+            }
+            Err(error) => tracing::warn!(%error, "CoreText rejected application font"),
+        }
     }
     fn clear(&mut self) {
         self.cache.borrow_mut().clear();
@@ -715,6 +774,7 @@ mod tests {
     fn request() -> Arc<ParagraphRequest> {
         Arc::new(ParagraphRequest {
             font_revision: 0,
+            raster_scale_hint: None,
             text: "Hello ffi 中文🙂".into(),
             font_size: 16.,
             font_weight: 500.,
@@ -730,6 +790,108 @@ mod tests {
             max_lines: 0,
             ellipsis: false,
         })
+    }
+    #[test]
+    fn text_and_width_changes_reuse_family_resolution_without_empty_line_probes() {
+        let mut cache = Cache::new();
+        let mut declaration = (*request()).clone();
+        cache.layout(Arc::new(declaration.clone())).unwrap();
+        assert_eq!(
+            cache.family_probes, 0,
+            "system fonts need no availability probe"
+        );
+        declaration.family = "Plico Definitely Missing Fixture,system-ui".into();
+        cache.layout(Arc::new(declaration.clone())).unwrap();
+        let probes = cache.family_probes;
+        assert_eq!(probes, 1);
+        for index in 0..16 {
+            declaration.text = format!("edited value {index}").into();
+            declaration.width = Some(40. + index as f32);
+            cache.layout(Arc::new(declaration.clone())).unwrap();
+        }
+        assert_eq!(
+            cache.family_probes, probes,
+            "new native paragraphs must not repeat family availability shaping"
+        );
+        for index in 0..160 {
+            cache
+                .resolve_family(&format!("system-ui,Unused{index}").into())
+                .unwrap();
+        }
+        assert_eq!(cache.families.len(), 128);
+        cache.clear();
+        assert!(cache.families.is_empty());
+    }
+
+    #[test]
+    fn generic_monospace_selects_the_native_system_monospaced_face() {
+        let mut cache = Cache::new();
+        let mut requested = (*request()).clone();
+        requested.family = "monospace".into();
+        requested.text = "iiii WWWW 0123".into();
+        let generic = cache.layout(Arc::new(requested.clone())).unwrap();
+        requested.family = "ui-monospace".into();
+        let explicit = cache.layout(Arc::new(requested)).unwrap();
+        assert_eq!(generic.metrics().width, explicit.metrics().width);
+        assert!(generic.caret_rect(4).is_some());
+    }
+
+    #[test]
+    fn application_font_alias_survives_engine_reinstallation_and_cache_trim() {
+        let asset = FontAsset::from_static(include_bytes!(
+            "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+        ))
+        .with_family("Private CoreText Fixture");
+        let cache = Rc::new(RefCell::new(Cache::new()));
+        let mut engine = Engine {
+            cache: cache.clone(),
+            scale: 1.,
+        };
+        let mut request = (*request()).clone();
+        request.family = "Private CoreText Fixture".into();
+        assert!(engine.layout(Arc::new(request.clone())).is_err());
+        request.family = "Private CoreText Fixture,system-ui".into();
+        engine.layout(Arc::new(request.clone())).unwrap();
+        assert_eq!(
+            cache
+                .borrow_mut()
+                .resolve_family(&request.family)
+                .unwrap()
+                .as_ref(),
+            "system-ui"
+        );
+        engine.register_font(&asset);
+        assert!(
+            cache.borrow().families.is_empty(),
+            "registration invalidates cached fallback choices"
+        );
+        let first = engine.layout(Arc::new(request.clone())).unwrap();
+        assert!(first.metrics().width > 0.);
+        assert_eq!(
+            cache
+                .borrow_mut()
+                .resolve_family(&request.family)
+                .unwrap()
+                .as_ref(),
+            "Private CoreText Fixture"
+        );
+        for scale in [1.25, 2., 1.] {
+            // configure_text replays assets when reinstalling the provider.
+            let mut next = Engine {
+                cache: cache.clone(),
+                scale,
+            };
+            next.register_font(&asset.clone());
+            assert_eq!(cache.borrow().font_assets.len(), 1);
+            next.clear();
+            let restored = next.layout(Arc::new(request.clone())).unwrap();
+            assert_eq!(restored.metrics().width, first.metrics().width);
+            assert!(restored.caret_rect(1).is_some());
+            assert!(
+                next.layout(self::request()).is_ok(),
+                "system text must remain usable"
+            );
+        }
     }
     #[test]
     fn geometry_is_color_independent_and_per_line_rasters_are_reused() {
@@ -773,6 +935,70 @@ mod tests {
         assert!(c.rasterizations > calls);
     }
     #[test]
+    fn scrolling_clip_reuses_native_pixels_and_matches_an_exact_raster_crop() {
+        let mut cache = Cache::new();
+        let mut declaration = (*request()).clone();
+        declaration.wrap = false;
+        declaration.text = "AV office 日本語".into();
+        let paragraph = cache.layout(Arc::new(declaration.clone())).unwrap();
+        for scale in [1., 1.25, 2.] {
+            let first = cache
+                .images(
+                    paragraph.clone(),
+                    declaration.color,
+                    scale,
+                    0.25,
+                    [0., 0., 80., 40.],
+                )
+                .unwrap();
+            assert!(!first.is_empty());
+            let calls = cache.rasterizations;
+            for y in 1..12 {
+                let next = cache
+                    .images(
+                        paragraph.clone(),
+                        declaration.color,
+                        scale,
+                        0.25,
+                        [1., y as f64, 79., 40.],
+                    )
+                    .unwrap();
+                assert_eq!(cache.rasterizations, calls);
+                assert_eq!(next[0].0.data.id(), first[0].0.data.id());
+            }
+            let line = &paragraph.layout.lines()[0];
+            let position = [line.baseline[0] * scale + 0.25, line.baseline[1] * scale];
+            let base = position.map(f64::floor);
+            let phase = [position[0] - base[0], position[1] - base[1]];
+            let exact = line
+                .line
+                .rasterize_clipped(
+                    scale,
+                    phase,
+                    declaration.color,
+                    [2. - base[0], 2. - base[1], 78. - base[0], 39. - base[1]],
+                )
+                .unwrap()
+                .unwrap();
+            let (image, origin) = &first[0];
+            for y in 0..exact.size[1] {
+                for x in 0..exact.size[0] {
+                    let world_x = exact.origin[0] + base[0] as i32 + x as i32;
+                    let world_y = exact.origin[1] + base[1] as i32 + y as i32;
+                    let source_x = (world_x - origin[0]) as usize;
+                    let source_y = (world_y - origin[1]) as usize;
+                    let source = (source_y * image.width as usize + source_x) * 4;
+                    let expected = (y as usize * exact.size[0] as usize + x as usize) * 4;
+                    assert_eq!(
+                        &image.data.data()[source..source + 4],
+                        &exact.pixels[expected..expected + 4]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn clipped_native_images_stay_bounded_and_rich_spans_render() {
         let mut c = Cache::new();
         let mut declaration = (*request()).clone();
@@ -785,7 +1011,7 @@ mod tests {
             .unwrap();
         assert!(!images.is_empty());
         for (image, _) in images.iter() {
-            assert!(image.width <= 120 && image.height <= 80);
+            assert!(image.width <= 120 + 256 && image.height <= 80 + 64);
         }
         let mut run = plico_renderer::text::TextRun {
             range: 0..1,
@@ -959,13 +1185,75 @@ mod tests {
 #[cfg(test)]
 mod gpu_tests {
     use super::*;
+    fn metal_renderer() -> Renderer {
+        let renderer = pollster::block_on(Renderer::new()).unwrap();
+        assert_eq!(renderer.adapter_info().backend, wgpu::Backend::Metal);
+        eprintln!("native Metal adapter: {:?}", renderer.adapter_info());
+        renderer
+    }
+    #[test]
+    #[ignore = "requires a macOS GPU adapter and installed system fonts"]
+    fn scrolling_native_line_reuses_cpu_raster_and_gpu_upload() {
+        let mut renderer = metal_renderer();
+        let request = Arc::new(ParagraphRequest {
+            font_revision: 0,
+            raster_scale_hint: None,
+            text: "Scrolling UI".into(),
+            font_size: 20.,
+            font_weight: 500.,
+            italic: false,
+            letter_spacing: 0.,
+            line_height: None,
+            align: TextAlign::Start,
+            color: [20, 30, 40, 255],
+            runs: Arc::from([]),
+            family: "system-ui".into(),
+            width: None,
+            wrap: false,
+            max_lines: 0,
+            ellipsis: false,
+        });
+        let mut calls = None;
+        for offset in 0..8 {
+            use plico_renderer::{PaintCommand, PaintShape, Scene};
+            let mut scene = Scene::new();
+            scene.commands.push(PaintCommand::PushClip {
+                transform: kurbo::Affine::IDENTITY,
+                clip: PaintShape::record(&kurbo::Rect::new(10., 10., 90., 40.), 0.1),
+            });
+            scene.commands.push(PaintCommand::Paragraph {
+                request: request.clone(),
+                transform: kurbo::Affine::translate((12.25, 12. - f64::from(offset))),
+            });
+            scene.commands.push(PaintCommand::PopLayer);
+            let pixels = renderer
+                .render_scene(&scene, [128, 64], [1.; 4], false)
+                .unwrap();
+            assert!(pixels.as_chunks::<4>().0.iter().any(|p| p[0] < 200));
+            let current = (
+                renderer.macos_text_cache_stats().rasterizations,
+                renderer.image_cache_stats().2,
+            );
+            if let Some(first) = calls {
+                assert_eq!(
+                    current, first,
+                    "scrolling should only change draw geometry/clip"
+                );
+            } else {
+                assert!(current.0 > 0 && current.1 > 0);
+                calls = Some(current);
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn fractional_line_limit_matches_an_explicit_clip_of_only_visible_content() {
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut renderer = metal_renderer();
         let make = |text: &str, max_lines| {
             Arc::new(ParagraphRequest {
                 font_revision: 0,
+                raster_scale_hint: None,
                 text: text.into(),
                 font_size: 20.,
                 font_weight: 500.,
@@ -1022,12 +1310,13 @@ mod gpu_tests {
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn coretext_scene_pixels_survive_reuse_damage_and_cache_trim() {
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut renderer = metal_renderer();
         let mut text = TextContext::new();
         renderer.configure_text(&mut text, 1.25).unwrap();
         assert_eq!(text.raster_backend_name(), "coretext-wgpu");
         let request = Arc::new(ParagraphRequest {
             font_revision: 0,
+            raster_scale_hint: None,
             text: "CoreText S 中文 日本語🙂".into(),
             font_size: 20.,
             font_weight: 500.,

@@ -31,6 +31,7 @@ image = { workspace = true, optional = true, features = ["png"] }
 plico-skia = { path = "../plico-skia", optional = true, features = ["raster"] }
 
 [features]
+desktop-integration = ["plico-shell/desktop-integration"]
 skia = ["plico-shell/skia", "dep:plico-skia", "dep:image"]
 wgpu = ["plico-shell/wgpu", "dep:plico-wgpu", "dep:pollster", "dep:image"]
 default = ["wgpu"]
@@ -67,3 +68,7 @@ required-features = ["wgpu"]
 [[example]]
 name = "wgpu-software-probe"
 required-features = ["wgpu", "profiling"]
+
+[[example]]
+name = "desktop-integration"
+required-features = ["desktop-integration"]

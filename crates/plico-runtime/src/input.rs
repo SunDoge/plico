@@ -7,6 +7,34 @@ use plico_renderer::paragraph::ParagraphLayout;
 use plico_renderer::{ClipboardRequest, ImeEvent, ImeState, PaintScene, Point, WidgetImePurpose};
 use zeroize::Zeroizing;
 
+#[derive(Default)]
+pub(super) struct InputPointers {
+    last: Option<InputPress>,
+    drag: Option<InputDrag>,
+}
+impl InputPointers {
+    pub(super) fn clear_streak(&mut self) {
+        self.last = None;
+    }
+}
+struct InputPress {
+    entity: Entity,
+    pointer: plico_renderer::PointerId,
+    pointer_type: plico_renderer::PointerType,
+    point: Point,
+    time: std::time::Duration,
+    count: u8,
+    value_revision: u64,
+}
+#[derive(Clone, Copy)]
+struct InputDrag {
+    entity: Entity,
+    pointer: plico_renderer::PointerId,
+    pointer_type: plico_renderer::PointerType,
+    unit: u8,
+    initial: (usize, usize),
+    value_revision: u64,
+}
 #[derive(PartialEq)]
 struct GeometryKey {
     revision: u64,
@@ -222,30 +250,180 @@ impl Adapter {
             .unwrap()
             .widget = Some(fragment);
     }
+    fn input_position(
+        &self,
+        entity: Entity,
+        point: Point,
+    ) -> Option<(usize, Option<(usize, usize)>)> {
+        let geometry = self.input_layouts.get(&entity)?;
+        let placed = &self.placed[*self.placed_indices.get(&self.nodes.get(&entity)?.id)?];
+        let point = self.layout_point(placed.node_id, point.x, point.y)?;
+        let x = point.x as f32 - placed.content_origin[0] + geometry.offset;
+        let y = point.y as f32 - placed.content_origin[1] - geometry.y;
+        Some((
+            geometry.layout.hit_test(x, y),
+            geometry.layout.line_range_at(y).map(|r| (r.start, r.end)),
+        ))
+    }
     pub(super) fn input_pointer(
         &mut self,
         engine: &Engine,
         entity: Option<Entity>,
-        point: Point,
-        shift: bool,
+        p: plico_renderer::PointerEvent,
     ) {
         let Some(entity) = entity else {
+            self.input_pointers.last = None;
             return;
         };
         let Some((buffer, _)) = engine.input(entity) else {
+            self.input_pointers.last = None;
             return;
         };
-        if let Some(geometry) = self.input_layouts.get(&entity) {
-            let p = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
-            let Some(point) = self.layout_point(p.node_id, point.x, point.y) else {
-                return;
-            };
-            let byte = geometry.layout.hit_test(
-                point.x as f32 - p.content_origin[0] + geometry.offset,
-                point.y as f32 - p.content_origin[1] - geometry.y,
-            );
-            buffer.edit(InputEdit::Select(byte, shift));
+        let Some((byte, visual_range)) = self.input_position(entity, p.position) else {
+            return;
+        };
+        let now = engine.time().now;
+        let value_revision = buffer.value_revision();
+        let count = if p.modifiers.shift() {
+            1
+        } else {
+            self.input_pointers
+                .last
+                .as_ref()
+                .filter(|last| {
+                    last.entity == entity
+                        && last.pointer == p.properties.id
+                        && last.pointer_type == p.properties.pointer_type
+                        && last.value_revision == value_revision
+                        && now.checked_sub(last.time).is_some_and(|elapsed| {
+                            self.multi_click_settings()
+                                .accepts(last.point, p.position, elapsed)
+                        })
+                })
+                .map_or(1, |last| (last.count + 1).min(3))
+        };
+        self.input_pointers.last = (!p.modifiers.shift()).then_some(InputPress {
+            entity,
+            pointer: p.properties.id,
+            pointer_type: p.properties.pointer_type,
+            point: p.position,
+            time: now,
+            count,
+            value_revision,
+        });
+        match count {
+            2 => buffer.edit(InputEdit::SelectWord {
+                at: byte,
+                extend_from: None,
+            }),
+            3 => buffer.edit(InputEdit::SelectLine {
+                at: byte,
+                visual_range,
+                extend_from: None,
+            }),
+            _ => buffer.edit(InputEdit::Select(byte, p.modifiers.shift())),
         }
+        let (head, anchor) = buffer.selection_display_bytes();
+        self.input_pointers.drag = Some(InputDrag {
+            entity,
+            pointer: p.properties.id,
+            pointer_type: p.properties.pointer_type,
+            unit: count,
+            initial: (head.min(anchor), head.max(anchor)),
+            value_revision,
+        });
+    }
+    pub(super) fn input_pointer_event(
+        &mut self,
+        engine: &Engine,
+        event: &UiEvent,
+    ) -> Option<EventResponse> {
+        use plico_renderer::{PointerButton, PointerPhase};
+        match event {
+            UiEvent::Focus(false)
+            | UiEvent::TextInput(_)
+            | UiEvent::Paste(_)
+            | UiEvent::Ime(ImeEvent::Commit(_) | ImeEvent::Preedit { .. }) => {
+                self.input_pointers = Default::default();
+            }
+            UiEvent::Key(key) if key.phase == KeyPhase::Down => {
+                self.input_pointers = Default::default()
+            }
+            UiEvent::Pointer(p) => {
+                if p.phase == PointerPhase::Down {
+                    self.input_pointers.drag = None;
+                    if p.button != Some(PointerButton::Primary)
+                        || self
+                            .hit(engine, p.position.x, p.position.y)
+                            .and_then(|entity| engine.input(entity))
+                            .is_none()
+                    {
+                        self.input_pointers.last = None;
+                    }
+                    return None;
+                }
+                let drag = self.input_pointers.drag?;
+                if drag.pointer != p.properties.id || drag.pointer_type != p.properties.pointer_type
+                {
+                    return None;
+                }
+                let Some((buffer, _)) = engine.input(drag.entity) else {
+                    self.input_pointers = Default::default();
+                    return None;
+                };
+                if self.focused != Some(drag.entity)
+                    || engine.node(drag.entity)?.style.disabled
+                    || buffer.value_revision() != drag.value_revision
+                {
+                    self.input_pointers = Default::default();
+                    return None;
+                }
+                if p.phase == PointerPhase::Move && p.buttons & 1 != 0 {
+                    if self.input_pointers.last.as_ref().is_some_and(|last| {
+                        !self.multi_click_settings().accepts(
+                            last.point,
+                            p.position,
+                            std::time::Duration::ZERO,
+                        )
+                    }) {
+                        self.input_pointers.last = None;
+                    }
+                    if let Some((byte, visual_range)) = self.input_position(drag.entity, p.position)
+                    {
+                        match drag.unit {
+                            2 => buffer.edit(InputEdit::SelectWord {
+                                at: byte,
+                                extend_from: Some(drag.initial),
+                            }),
+                            3 => buffer.edit(InputEdit::SelectLine {
+                                at: byte,
+                                visual_range,
+                                extend_from: Some(drag.initial),
+                            }),
+                            _ => buffer.edit(InputEdit::Select(byte, true)),
+                        }
+                        self.pointer_position = Some((p.position.x, p.position.y));
+                        return Some(EventResponse {
+                            handled: true,
+                            request_redraw: true,
+                            text_input: Some(true),
+                            ..EventResponse::IGNORED
+                        });
+                    }
+                }
+                if matches!(p.phase, PointerPhase::Up | PointerPhase::Cancel)
+                    || matches!(p.phase, PointerPhase::Move | PointerPhase::Leave)
+                        && p.buttons & 1 == 0
+                {
+                    self.input_pointers.drag = None;
+                    if p.phase != PointerPhase::Up {
+                        self.input_pointers.last = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
     }
     pub(super) fn input_event(
         &mut self,
@@ -483,6 +661,107 @@ mod multiline_tests {
                 .width(120.)
                 .height(100.);
         }
+    }
+    fn pointer(
+        source: &mut crate::Source<View>,
+        phase: plico_renderer::PointerPhase,
+        position: Point,
+    ) {
+        use plico_renderer::*;
+        source.handle_event(UiEvent::Pointer(PointerEvent {
+            phase,
+            position,
+            button: matches!(phase, PointerPhase::Down | PointerPhase::Up)
+                .then_some(PointerButton::Primary),
+            buttons: u32::from(phase != PointerPhase::Up),
+            modifiers: Modifiers::empty(),
+            properties: PointerProperties::default(),
+        }));
+    }
+    fn point(source: &crate::Source<View>, entity: Entity, byte: usize) -> Point {
+        let g = &source.adapter.input_layouts[&entity];
+        let node = &source.adapter.placed
+            [source.adapter.placed_indices[&source.adapter.nodes[&entity].id]];
+        let rect = g.layout.caret_rect(byte).unwrap();
+        Point {
+            x: f64::from(node.content_origin[0] + rect[0] - g.offset) + 0.1,
+            y: f64::from(node.content_origin[1] + (rect[1] + rect[3]) * 0.5 + g.y),
+        }
+    }
+    #[test]
+    fn editor_double_click_drag_reverses_and_survives_pointer_leave() {
+        use plico_renderer::PointerPhase::*;
+        let buffer = plico::TextBuffer::new();
+        buffer.set("one two three".to_owned().into());
+        let clock = plico::VirtualClock::default();
+        let mut source = crate::Source::with_clock(View(buffer.clone()), clock.clone());
+        source.build_frame(&mut TextContext::new(), 240, 180);
+        let entity = source.engine.find(source.engine.root(), "editor").unwrap();
+        let at = point(&source, entity, 5);
+        pointer(&mut source, Down, at);
+        pointer(&mut source, Up, at);
+        clock
+            .advance(std::time::Duration::from_millis(100))
+            .unwrap();
+        pointer(&mut source, Down, at);
+        assert_eq!(buffer.selected_text().as_deref(), Some("two"));
+        pointer(&mut source, Leave, at);
+        let right = point(&source, entity, 11);
+        pointer(&mut source, Move, right);
+        assert_eq!(buffer.selected_text().as_deref(), Some("two three"));
+        let left = point(&source, entity, 1);
+        pointer(&mut source, Move, left);
+        assert_eq!(buffer.selected_text().as_deref(), Some("one two"));
+        pointer(&mut source, Up, left);
+        pointer(&mut source, Move, right);
+        assert_eq!(buffer.selected_text().as_deref(), Some("one two"));
+    }
+    #[test]
+    fn editing_or_focus_loss_cancels_pointer_selection() {
+        use plico_renderer::PointerPhase::*;
+        let buffer = plico::TextBuffer::new();
+        buffer.set("one two three".to_owned().into());
+        let mut source = crate::Source::new(View(buffer.clone()));
+        source.build_frame(&mut TextContext::new(), 240, 180);
+        let entity = source.engine.find(source.engine.root(), "editor").unwrap();
+        let left = point(&source, entity, 1);
+        let right = point(&source, entity, 11);
+        pointer(&mut source, Down, left);
+        buffer.set("new content".to_owned().into());
+        let selection = buffer.selection_display_bytes();
+        pointer(&mut source, Move, right);
+        assert_eq!(buffer.selection_display_bytes(), selection);
+        assert!(source.adapter.input_pointers.drag.is_none());
+        pointer(&mut source, Down, left);
+        source.handle_event(UiEvent::Focus(false));
+        pointer(&mut source, Move, right);
+        assert!(source.adapter.input_pointers.drag.is_none());
+        assert!(source.adapter.input_pointers.last.is_none());
+    }
+    #[test]
+    fn editor_triple_click_uses_wrapped_visual_line() {
+        use plico_renderer::PointerPhase::*;
+        let buffer = plico::TextBuffer::multiline();
+        buffer.set("alpha beta gamma delta epsilon zeta".to_owned().into());
+        let clock = plico::VirtualClock::default();
+        let mut source = crate::Source::with_clock(View(buffer.clone()), clock.clone());
+        source.build_frame(&mut TextContext::new(), 240, 180);
+        let entity = source.engine.find(source.engine.root(), "editor").unwrap();
+        let at = point(&source, entity, 2);
+        let (_, range) = source.adapter.input_position(entity, at).unwrap();
+        let (start, end) = range.unwrap();
+        assert!(end < buffer.text().unwrap().len());
+        for _ in 0..3 {
+            pointer(&mut source, Down, at);
+            pointer(&mut source, Up, at);
+            clock
+                .advance(std::time::Duration::from_millis(100))
+                .unwrap();
+        }
+        assert_eq!(
+            buffer.selected_text().as_deref(),
+            Some(&buffer.text().unwrap()[start..end])
+        );
     }
     #[test]
     fn multiline_wraps_at_top_and_enter_inserts_without_submitting() {

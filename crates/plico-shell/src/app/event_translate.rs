@@ -103,6 +103,18 @@ pub(super) enum FrameWake {
     Deadline(Instant),
 }
 
+impl FrameWake {
+    // Maintenance wakes only the host. It must not become an application
+    // redraw or replace an earlier UI deadline.
+    pub(super) fn with_maintenance(self, deadline: Option<Instant>) -> Self {
+        match (self, deadline) {
+            (Self::Idle, Some(deadline)) => Self::Deadline(deadline),
+            (Self::Deadline(frame), Some(maintenance)) => Self::Deadline(frame.min(maintenance)),
+            _ => self,
+        }
+    }
+}
+
 pub(super) fn frame_wake(
     has_animation: bool,
     deadline: Option<Instant>,
@@ -115,14 +127,59 @@ pub(super) fn frame_wake(
     }
 }
 
+/// Deadline fallback pauses continuous redraw without losing source timers.
+pub(super) fn presentation_work(
+    source_animation: bool,
+    source_deadline: Option<Instant>,
+    fallback: Option<Instant>,
+) -> (bool, Option<Instant>) {
+    let continuous = source_animation && fallback.is_none();
+    let deadline = if continuous {
+        None
+    } else {
+        [source_deadline, fallback].into_iter().flatten().min()
+    };
+    (continuous, deadline)
+}
+/// Display waits add one tick request; they do not throttle independent timers.
+pub(super) fn display_wait_wake(
+    wake: FrameWake,
+    animation: bool,
+    waiting: bool,
+    tick_ready: bool,
+) -> FrameWake {
+    if waiting && tick_ready {
+        FrameWake::Redraw
+    } else if animation && wake == FrameWake::Redraw && !tick_ready {
+        FrameWake::Idle
+    } else {
+        wake
+    }
+}
+
 pub(super) fn scheduled_frame_wake(
+    visible: bool,
     has_animation: bool,
     animation_not_before: Option<Instant>,
     reported_deadline: Option<Instant>,
     scheduled_deadline: &mut Option<Instant>,
     now: Instant,
+    surface_pending: bool,
 ) -> FrameWake {
+    // MyGO's macOS surface pauses display-link work while out of sight.
+    // UI time still advances; showing the window asks for a fresh frame.
+    if !visible {
+        *scheduled_deadline = None;
+        return FrameWake::Idle;
+    }
     if has_animation {
+        // MyGO's presenter resumes paced work via its drawable-ready wake.
+        // Input, geometry and async invalidations can still redraw immediately;
+        // only the self-sustaining animation loop waits here.
+        if surface_pending {
+            *scheduled_deadline = None;
+            return FrameWake::Idle;
+        }
         if let Some(deadline) = animation_not_before.filter(|deadline| *deadline > now) {
             *scheduled_deadline = Some(deadline);
             return FrameWake::Deadline(deadline);
@@ -414,4 +471,70 @@ pub(super) fn ime_client_changed(
     next: Option<&crate::ImeState>,
 ) -> bool {
     matches!((previous, next), (Some(previous), Some(next)) if previous.client_id != next.client_id)
+}
+
+#[cfg(test)]
+mod transaction_wake_tests {
+    use super::*;
+    #[test]
+    fn static_resize_requests_a_display_tick_and_stops_after_submission() {
+        assert_eq!(presentation_work(false, None, None), (false, None));
+        assert_eq!(
+            display_wait_wake(FrameWake::Idle, false, true, false),
+            FrameWake::Idle
+        );
+        assert_eq!(
+            display_wait_wake(FrameWake::Idle, false, true, true),
+            FrameWake::Redraw
+        );
+        let now = Instant::now();
+        assert_eq!(
+            display_wait_wake(FrameWake::Deadline(now), false, true, false),
+            FrameWake::Deadline(now)
+        );
+        assert_eq!(
+            display_wait_wake(FrameWake::Redraw, false, true, false),
+            FrameWake::Redraw,
+            "independent source deadline remains immediate"
+        );
+    }
+    #[test]
+    fn fallback_wait_retains_deadlines_and_suspends_continuous_polling() {
+        let now = Instant::now();
+        let fallback = now + Duration::from_millis(16);
+        assert_eq!(
+            presentation_work(true, None, Some(fallback)),
+            (false, Some(fallback))
+        );
+        let earlier = now + Duration::from_millis(4);
+        assert_eq!(
+            presentation_work(false, Some(earlier), Some(fallback)),
+            (false, Some(earlier))
+        );
+        let mut scheduled = None;
+        assert_eq!(
+            scheduled_frame_wake(
+                true,
+                false,
+                None,
+                Some(fallback),
+                &mut scheduled,
+                now,
+                false
+            ),
+            FrameWake::Deadline(fallback)
+        );
+        assert_eq!(
+            scheduled_frame_wake(
+                true,
+                false,
+                None,
+                Some(fallback),
+                &mut scheduled,
+                fallback,
+                false
+            ),
+            FrameWake::Redraw
+        );
+    }
 }

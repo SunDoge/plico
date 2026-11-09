@@ -36,17 +36,19 @@ use crate::source::{
     WindowMetrics, WindowOptions,
 };
 use crate::style::CursorStyle;
-use crate::window_lifecycle::{WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle};
+use crate::window_lifecycle::{
+    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
+};
 
 mod event_translate;
 
 use event_translate::{
     CUSTOM_DECORATION_RESIZE_BORDER, FrameWake, allowed_external_url, button_mask,
-    button_source_properties, committed_key_text, gesture_phase, ime_client_changed,
-    ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
+    button_source_properties, committed_key_text, display_wait_wake, gesture_phase,
+    ime_client_changed, ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
     modifiers as translate_modifiers, ms, namespaced_pointer_id, pointer_button,
-    pointer_kind_properties, pointer_source_properties, resize_direction_at, scheduled_frame_wake,
-    unconsumed_key_text, update_present_retry, window_capabilities,
+    pointer_kind_properties, pointer_source_properties, presentation_work, resize_direction_at,
+    scheduled_frame_wake, unconsumed_key_text, update_present_retry, window_capabilities,
 };
 
 type ModalEffectFuture = Pin<Box<dyn Future<Output = crate::EffectCompletion>>>;
@@ -139,6 +141,7 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
+    multi_click_settings: Option<crate::source::MultiClickSettings>,
     performance_hud: crate::performance_hud::PerformanceHud,
 }
 
@@ -263,6 +266,7 @@ impl App {
             force_semantics: false,
             scheduled_frame_deadline: None,
             skipped_present_deadline: None,
+            multi_click_settings: None,
             performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
         }
     }
@@ -270,6 +274,16 @@ impl App {
     fn set_wake_callback(&mut self, wake: WakeCallback) {
         self.source.set_wake_callback(wake.clone());
         self.wake_callback = Some(wake);
+    }
+
+    fn sync_multi_click_settings(&mut self) {
+        if let Some(shell) = &self.state {
+            let settings = shell.multi_click_settings();
+            if self.multi_click_settings != Some(settings) {
+                self.source.set_multi_click_settings(settings);
+                self.multi_click_settings = Some(settings);
+            }
+        }
     }
 
     fn sync_window_metrics(&mut self) {
@@ -295,9 +309,9 @@ impl App {
                 winit::window::Theme::Light => crate::ColorScheme::Light,
                 winit::window::Theme::Dark => crate::ColorScheme::Dark,
             }),
-            // The Vello shell has no shared motion-preference source.
-            // The runtime publishes its application preference.
-            reduced_motion: false,
+            reduced_motion: shell.display_preferences().reduce_motion,
+            reduced_transparency: shell.display_preferences().reduce_transparency,
+            high_contrast: shell.display_preferences().high_contrast,
         };
         if next != self.window_metrics {
             self.window_metrics = next;
@@ -835,6 +849,14 @@ impl App {
         changed
     }
 
+    fn fail_initial_frame(&mut self, error: crate::Error) {
+        *self
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned") = Some(error);
+        self.application_exit_requested = true;
+    }
+
     fn redraw(&mut self) {
         let frame_measurement = crate::telemetry::span("frame", "redraw.cpu");
         self.performance_hud.begin_frame(Instant::now());
@@ -850,6 +872,13 @@ impl App {
         );
         #[cfg(feature = "profiling")]
         let _frame_guard = frame_span.enter();
+        let resized = self
+            .state
+            .as_mut()
+            .is_some_and(|shell| shell.sync_surface_size());
+        if resized {
+            self.sync_window_metrics();
+        }
         let Some(shell) = self.state.as_mut() else {
             return;
         };
@@ -867,6 +896,9 @@ impl App {
                     if let Some(request) = self.source.take_screenshot_request() {
                         self.source
                             .complete_screenshot(&request.path, Err(error.to_string()));
+                    }
+                    if shell.initial_show_pending() {
+                        self.fail_initial_frame(error);
                     }
                     return;
                 }
@@ -894,7 +926,7 @@ impl App {
             scale,
         );
         let base_color = shell.prepare_window_frame(base_color);
-        if let Some(mut request) = self.source.take_screenshot_request() {
+        let captured = if let Some(mut request) = self.source.take_screenshot_request() {
             let (width, height) = shell.size();
             let result = shell
                 .renderer
@@ -906,6 +938,27 @@ impl App {
                 .map_err(|error| error.to_string());
             drop(request.file);
             self.source.complete_screenshot(&request.path, result);
+            true
+        } else {
+            false
+        };
+        // AppKit can request redraws for an occluded view, and asynchronous
+        // services can wake hidden windows. Keep declarations, host actions,
+        // semantics and explicit captures above alive, but do not reacquire a
+        // drawable or rebuild trimmed GPU caches just to present out of sight.
+        // Hidden startup still needs its first frame before ready-to-show.
+        if self.lifecycle.presence() != WindowPresence::Visible
+            || self.window_metrics.occluded && !shell.initial_show_pending()
+        {
+            shell.animation_frame_ready(false);
+            if captured {
+                // Explicit capture may recreate the offscreen/readback targets
+                // after idle trim; it must not leave them pinned out of sight.
+                shell.trim_gpu_cache();
+            }
+            self.present_retry_pending = false;
+            self.skipped_present_deadline = None;
+            return;
         }
         let t2 = Instant::now();
         let presented = {
@@ -917,6 +970,12 @@ impl App {
             phase.attribute("parent", frame_measurement.id());
             shell.present(base_color)
         };
+        if let Some(message) = shell.initial_show_error() {
+            // A failed hidden startup must not become an invisible animation
+            // loop continually submitting work (e.g. after a GPU wait timeout).
+            self.fail_initial_frame(crate::Error::Renderer { message });
+            return;
+        }
         let present_ms = ms(Instant::now() - t2);
         let present_skipped = shell.present_skipped();
         self.skipped_present_deadline = present_skipped.then(|| {
@@ -959,7 +1018,11 @@ impl App {
         };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
-        if update_present_retry(presented, &mut self.present_retry_pending) {
+        if shell.surface_acquire_pending() || shell.presentation_deferred() {
+            // The worker will wake us once. Do not turn a normal wait into an
+            // immediate failed-present retry and redundant UI/scene work.
+            self.present_retry_pending = false;
+        } else if update_present_retry(presented, &mut self.present_retry_pending) {
             shell.window().request_redraw();
         }
     }
@@ -1064,6 +1127,9 @@ impl App {
         state: ElementState,
         properties: PointerProperties,
     ) {
+        if state == ElementState::Pressed {
+            self.sync_multi_click_settings();
+        }
         let button = pointer_button(&source);
         let position = self.logical_pointer_position(position);
         let mut buttons = self
@@ -1158,84 +1224,33 @@ impl App {
     /// Drain work which does not require a native surface. This remains active
     /// for close-to-tray windows whose frame source is intentionally retained.
     fn poll_background_work(&mut self) -> bool {
-        self.poll_modal_effects()
+        let preferences_changed = self
+            .state
+            .as_mut()
+            .is_some_and(|shell| shell.refresh_display_preferences());
+        if preferences_changed {
+            self.sync_window_metrics();
+        }
+        let surface_ready = self
+            .state
+            .as_ref()
+            .is_some_and(|shell| shell.take_surface_ready());
+        preferences_changed
+            | surface_ready
+            | self.poll_modal_effects()
             | self.poll_effect_completions()
             | self.source.poll_async()
             | self.drain_host_actions()
             | self.drain_effects()
     }
 
-    fn drain_proxy_wake_up(&mut self) -> bool {
-        let changed = self.poll_background_work();
-        if changed && let Some(shell) = self.state.as_ref() {
-            shell.window().request_redraw();
-        }
-        changed
-    }
-}
-
-impl ApplicationHandler for App {
-    fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        self.skipped_present_deadline = None;
-        if let Some(shell) = self.state.as_mut() {
-            shell.invalidate_presentation();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Resumed));
-    }
-
-    fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        if let Some(shell) = self.state.as_mut() {
-            shell.trim_gpu_cache();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Suspended));
-    }
-
-    fn memory_warning(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        if let Some(shell) = self.state.as_mut() {
-            shell.tcx.clear_caches();
-            shell.trim_gpu_cache();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::MemoryWarning));
-    }
-
-    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-        if self.state.is_some() {
-            return;
-        }
-        // Initial size: prefer the source's notion of viewport if it exposes one;
-        // otherwise default. For now we read none from the source, so use a sane
-        // default that the first resize will correct.
-        let shell = match Shell::create(event_loop, &self.window_options) {
-            Ok(shell) => shell,
-            Err(error) => {
-                *self
-                    .startup_error
-                    .lock()
-                    .expect("startup error mutex poisoned") = Some(error);
-                event_loop.exit();
-                return;
-            }
-        };
-        let window = shell.window().clone();
-        self.state = Some(shell);
-        self.sync_window_metrics();
-        window.request_redraw();
-    }
-
-    fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        self.state = None;
-    }
-
-    fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        let _ = self.drain_proxy_wake_up();
-    }
-
-    fn window_event(
+    fn handle_window_event(
         &mut self,
         event_loop: &dyn ActiveEventLoop,
         _window_id: WindowId,
         event: WindowEvent,
-    ) {
+    ) -> bool {
+        let mut geometry_changed = false;
         if let Some(shell) = self.state.as_mut() {
             shell
                 .accessibility
@@ -1247,7 +1262,7 @@ impl ApplicationHandler for App {
                     if let Some(shell) = self.state.as_ref() {
                         shell.window().request_redraw();
                     }
-                    return;
+                    return false;
                 }
                 self.state = None;
                 event_loop.exit();
@@ -1255,20 +1270,24 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::SurfaceResized(PhysicalSize { width, height }) => {
                 let Some(shell) = self.state.as_mut() else {
-                    return;
+                    return false;
                 };
-                // Match Blitz's native path: configure immediately. Only its
-                // WASM backend debounces resize because configuring clears the
-                // browser canvas. Ignore zero-sized/minimized surfaces.
-                shell.resize(width, height);
+                // Queued events can describe intermediate extents. Configure
+                // only the latest native size and avoid a redundant redraw.
+                if width == 0 || height == 0 {
+                    return false;
+                }
+                geometry_changed = shell.sync_surface_size();
                 self.present_retry_pending = false;
                 self.sync_window_metrics();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
-                self.sync_window_metrics();
-                if let Some(shell) = self.state.as_ref() {
-                    shell.window().request_redraw();
+                if let Some(shell) = self.state.as_mut() {
+                    geometry_changed = shell.sync_surface_size()
+                        || shell.scale_factor() != self.window_metrics.scale_factor;
                 }
+                self.present_retry_pending = false;
+                self.sync_window_metrics();
             }
             WindowEvent::ThemeChanged(_) => {
                 self.sync_window_metrics();
@@ -1292,7 +1311,7 @@ impl ApplicationHandler for App {
                     }
                     self.present_retry_pending = false;
                 }
-                if let Some(shell) = self.state.as_ref() {
+                if !occluded && let Some(shell) = self.state.as_ref() {
                     shell.window().request_redraw();
                 }
             }
@@ -1426,7 +1445,7 @@ impl ApplicationHandler for App {
                     winit::event::Ime::Disabled => ImeEvent::Disabled,
                     // `Ime` is non-exhaustive upstream; unknown IME lifecycle
                     // events carry no text and do not change composition state.
-                    _ => return,
+                    _ => return false,
                 };
                 self.dispatch_event(UiEvent::Ime(event));
             }
@@ -1513,6 +1532,125 @@ impl ApplicationHandler for App {
             }
             _ => {}
         }
+        geometry_changed
+    }
+
+    fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
+        let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
+        let source_animation = self.source.has_anim();
+        let fallback = self.state.as_ref().and_then(Shell::presentation_deadline);
+        let waits_for_tick = self
+            .state
+            .as_ref()
+            .is_some_and(Shell::presentation_waits_for_display);
+        let source_deadline = (!source_animation || fallback.is_some())
+            .then(|| self.source.animation_deadline())
+            .flatten();
+        let (has_animation, deadline) =
+            presentation_work(source_animation, source_deadline, fallback);
+        let mut wake = scheduled_frame_wake(
+            self.state.is_some()
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded,
+            has_animation,
+            self.skipped_present_deadline,
+            deadline,
+            &mut self.scheduled_frame_deadline,
+            now,
+            self.state
+                .as_ref()
+                .is_some_and(Shell::surface_acquire_pending),
+        );
+        if let Some(shell) = &self.state {
+            let waiting = waits_for_tick
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded;
+            let ready =
+                shell.animation_frame_ready(waiting || has_animation && wake == FrameWake::Redraw);
+            wake = display_wait_wake(wake, has_animation, waiting, ready);
+        }
+        wake.with_maintenance(maintenance)
+    }
+
+    fn drain_proxy_wake_up(&mut self) -> bool {
+        let changed = self.poll_background_work();
+        if changed && let Some(shell) = self.state.as_ref() {
+            shell.window().request_redraw();
+        }
+        changed
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.skipped_present_deadline = None;
+        if let Some(shell) = self.state.as_mut() {
+            shell.invalidate_presentation();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Resumed));
+    }
+
+    fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        if let Some(shell) = self.state.as_mut() {
+            shell.trim_gpu_cache();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Suspended));
+    }
+
+    fn memory_warning(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        if let Some(shell) = self.state.as_mut() {
+            shell.tcx.clear_caches();
+            shell.trim_gpu_cache();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::MemoryWarning));
+    }
+
+    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+        // Initial size: prefer the source's notion of viewport if it exposes one;
+        // otherwise default. For now we read none from the source, so use a sane
+        // default that the first resize will correct.
+        let mut shell = match Shell::create(event_loop, &self.window_options) {
+            Ok(shell) => shell,
+            Err(error) => {
+                *self
+                    .startup_error
+                    .lock()
+                    .expect("startup error mutex poisoned") = Some(error);
+                event_loop.exit();
+                return;
+            }
+        };
+        if let Some(wake) = self.wake_callback.clone() {
+            shell.observe_native_events(wake);
+            shell.refresh_display_preferences();
+        }
+        let window = shell.window().clone();
+        self.state = Some(shell);
+        self.sync_multi_click_settings();
+        self.sync_window_metrics();
+        window.request_redraw();
+    }
+
+    fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.state = None;
+    }
+
+    fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        let _ = self.drain_proxy_wake_up();
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &dyn ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if self.handle_window_event(event_loop, window_id, event) {
+            self.redraw();
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -1528,17 +1666,7 @@ impl ApplicationHandler for App {
         // A reactive source keeps the redraw loop spinning at vsync while it has
         // pending rAF work; a static source idles (ControlFlow::Wait) until a
         // resize/close.
-        let has_animation = self.source.has_anim();
-        let deadline = (!has_animation)
-            .then(|| self.source.animation_deadline())
-            .flatten();
-        match scheduled_frame_wake(
-            has_animation,
-            self.skipped_present_deadline,
-            deadline,
-            &mut self.scheduled_frame_deadline,
-            Instant::now(),
-        ) {
+        match self.next_frame_wake(Instant::now()) {
             FrameWake::Redraw => {
                 event_loop.set_control_flow(ControlFlow::Wait);
                 if let Some(shell) = self.state.as_ref() {
@@ -1648,16 +1776,11 @@ impl ExtensionContext<'_> {
     }
 
     /// Begin an OS-managed move from the current pointer-down gesture.
+    /// A macOS titlebar double click can consume it as the system's action.
     pub fn start_window_drag(&mut self, window_key: WindowResourceKey) -> bool {
         find_window_by_key(self.windows.values_mut(), window_key)
-            .and_then(|app| app.state.as_ref())
-            .is_some_and(|shell| match shell.window().drag_window() {
-                Ok(()) => true,
-                Err(error) => {
-                    tracing::warn!(?error, "native window manager rejected window drag");
-                    false
-                }
-            })
+            .and_then(|app| app.state.as_mut())
+            .is_some_and(|shell| shell.start_window_drag())
     }
 
     /// Request a physical desktop position, clamped to an available monitor.
@@ -1969,11 +2092,17 @@ impl ExtensionContext<'_> {
                     app.skipped_present_deadline = None;
                     shell.invalidate_presentation();
                     shell.window().set_visible(true);
+                    shell.window().set_minimized(false);
                     shell.window().focus_window();
                     shell.window().request_redraw();
                     true
                 }
-                None => true,
+                None => {
+                    shell.window().set_minimized(false);
+                    shell.window().focus_window();
+                    shell.window().request_redraw();
+                    true
+                }
                 _ => false,
             };
         }
@@ -2045,9 +2174,10 @@ impl ExtensionContext<'_> {
             }
             Some(WindowEffect::SetVisible(false)) => self
                 .windows
-                .get(&window_id)
-                .and_then(|app| app.state.as_ref())
+                .get_mut(&window_id)
+                .and_then(|app| app.state.as_mut())
                 .is_some_and(|shell| {
+                    shell.prepare_hide();
                     shell.window().set_visible(false);
                     true
                 }),
@@ -2157,7 +2287,8 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
     match command {
         WindowCommand::Close => app.close_requested = true,
         WindowCommand::Minimize => {
-            if let Some(shell) = app.state.as_ref() {
+            if let Some(shell) = app.state.as_mut() {
+                shell.prepare_hide();
                 shell.window().set_minimized(true);
             }
         }
@@ -2166,14 +2297,19 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
                 shell.window().set_maximized(maximized);
             }
         }
+        WindowCommand::ToggleMaximized => {
+            if let Some(shell) = app.state.as_ref() {
+                shell.window().set_maximized(!shell.is_maximized());
+            }
+        }
         WindowCommand::SetTitle(title) => {
             if let Some(shell) = app.state.as_ref() {
                 shell.window().set_title(&title);
             }
         }
         WindowCommand::StartDragging => {
-            if let Some(shell) = app.state.as_ref() {
-                let _ = shell.window().drag_window();
+            if let Some(shell) = app.state.as_mut() {
+                shell.start_window_drag();
             }
         }
         // Surface restoration is a MultiWindowApp operation; a visible
@@ -2588,13 +2724,13 @@ impl ApplicationHandler for MultiWindowApp {
             }
             return;
         }
-        let surface_resized = matches!(&event, WindowEvent::SurfaceResized(size) if size.width > 0 && size.height > 0);
         let metrics_changed = matches!(
             &event,
             WindowEvent::SurfaceResized(_)
                 | WindowEvent::ScaleFactorChanged { .. }
                 | WindowEvent::ThemeChanged(_)
         );
+        let previous_metrics = self.windows.get(&window_id).map(|app| app.window_metrics);
         if let WindowEvent::PointerMoved {
             position,
             primary: true,
@@ -2648,11 +2784,16 @@ impl ApplicationHandler for MultiWindowApp {
                 return;
             }
         }
-        if let Some(app) = self.windows.get_mut(&window_id) {
-            app.window_event(event_loop, window_id, event);
-        }
+        let geometry_changed = self
+            .windows
+            .get_mut(&window_id)
+            .is_some_and(|app| app.handle_window_event(event_loop, window_id, event));
         if metrics_changed
-            && let Some(window_key) = self.windows.get(&window_id).map(|app| app.window_key)
+            && let Some(window_key) = self
+                .windows
+                .get(&window_id)
+                .filter(|app| Some(app.window_metrics) != previous_metrics)
+                .map(|app| app.window_key)
         {
             let mut context =
                 Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop);
@@ -2664,7 +2805,7 @@ impl ApplicationHandler for MultiWindowApp {
             // proxy wake (which may be coalesced while handling this event).
             if let Some(app) = self.windows.get_mut(&window_id) {
                 app.drain_proxy_wake_up();
-                if surface_resized {
+                if geometry_changed {
                     // Submit the first frame at the new extent in this event,
                     // rather than exposing the resized window with its old
                     // buffer until a later RedrawRequested is dispatched.
@@ -2680,17 +2821,7 @@ impl ApplicationHandler for MultiWindowApp {
         let now = Instant::now();
         let mut earliest = None;
         for app in self.windows.values_mut() {
-            let has_animation = app.source.has_anim();
-            let deadline = (!has_animation)
-                .then(|| app.source.animation_deadline())
-                .flatten();
-            match scheduled_frame_wake(
-                has_animation,
-                app.skipped_present_deadline,
-                deadline,
-                &mut app.scheduled_frame_deadline,
-                now,
-            ) {
+            match app.next_frame_wake(now) {
                 FrameWake::Redraw => {
                     if let Some(shell) = app.state.as_ref() {
                         shell.window().request_redraw();

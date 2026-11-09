@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1120,
+    "height": 820,
+    "scale": 1
+  },
+  "state": {
+    "router": {
+      "current": "Mines"
+    },
+    "mines": {
+      "columns": 9,
+      "rows": 9,
+      "mine_count": 0
+    }
+  },
+  "time_ms": 2500,
+  "steps": [
+    {
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Start sweeping"
+      }
+    },
+    {
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Row 5, column 5: hidden"
+      }
+    }
+  ]
+}

@@ -443,13 +443,22 @@ impl TerminalWidget {
     }
 
     pub(super) fn update_cursor_blink(&mut self) {
-        if self.focused
-            && self
-                .next_cursor_blink
-                .is_some_and(|time| self.clock.now_instant() >= time)
-        {
-            self.cursor_on = !self.cursor_on;
-            self.next_cursor_blink = Some(self.clock.now_instant() + Duration::from_millis(500));
+        let Some(deadline) = self.next_cursor_blink.filter(|_| self.focused) else {
+            return;
+        };
+        let now = self.clock.now_instant();
+        if now >= deadline {
+            // Like MyGO's editor caret, derive phase from elapsed frame time,
+            // not how many polls ran. Keep one deadline, without replaying ticks
+            // missed while the window was hidden or the event loop stalled.
+            let interval = Duration::from_millis(500);
+            let late = now.duration_since(deadline).as_nanos();
+            let periods = late / interval.as_nanos() + 1;
+            if periods % 2 == 1 {
+                self.cursor_on = !self.cursor_on;
+            }
+            let remainder = Duration::from_nanos((late % interval.as_nanos()) as u64);
+            self.next_cursor_blink = Some(now + (interval - remainder));
         }
     }
 

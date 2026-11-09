@@ -108,6 +108,9 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
         "First helpful description"
     ));
     let shows = s.view.shows;
+    let deadline = s
+        .animation_deadline()
+        .expect("tooltip needs a delayed wake");
     clock.advance(Duration::from_millis(599)).unwrap();
     assert!(!visible(
         &frame(&mut s, &mut tcx),
@@ -115,6 +118,8 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
     ));
     assert_eq!(s.view.shows, shows);
     assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert!(!s.has_anim(), "waiting for a tooltip must not spin frames");
+    assert_eq!(s.animation_deadline(), Some(deadline));
     clock.advance(Duration::from_millis(1)).unwrap();
     assert!(visible(
         &frame(&mut s, &mut tcx),
@@ -122,6 +127,7 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
     ));
     assert_eq!(s.view.shows, shows);
     assert!(!s.has_anim());
+    assert_eq!(s.animation_deadline(), None);
 }
 #[test]
 fn keyboard_focus_is_immediate_described_and_escape_suppresses_until_leave() {

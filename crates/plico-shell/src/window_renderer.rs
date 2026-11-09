@@ -21,6 +21,44 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn defers_initial_show(&self) -> bool {
+        #[cfg(all(target_os = "macos", feature = "wgpu"))]
+        {
+            matches!(
+                self,
+                Self::Wgpu {
+                    active: Some(_),
+                    ..
+                }
+            )
+        }
+        #[cfg(not(all(target_os = "macos", feature = "wgpu")))]
+        {
+            false
+        }
+    }
+    pub(crate) fn render_initial(
+        &mut self,
+        scene: &mut Scene,
+        width: u32,
+        height: u32,
+        color: Color,
+    ) -> crate::Result<bool> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.resize(width, height);
+            return renderer
+                .present_initial(scene, color)
+                .map_err(|e| crate::Error::Renderer {
+                    message: e.to_string(),
+                });
+        }
+        self.render(scene, width, height, color)
+    }
     pub(crate) fn configure_text(
         &mut self,
         _text: &mut plico_renderer::TextContext,
@@ -212,6 +250,62 @@ impl WindowRenderer {
             Self::Skia { active: None, .. } => {}
         }
     }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_presentation_clock(
+        &mut self,
+        tick: Option<(u64, Option<std::time::Instant>)>,
+        interval: std::time::Duration,
+    ) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.set_presentation_clock(
+                tick.map(|(serial, observed_at)| plico_wgpu::PresentationTick {
+                    serial,
+                    observed_at,
+                }),
+                interval,
+            );
+        }
+        #[cfg(not(feature = "wgpu"))]
+        let _ = (tick, interval);
+    }
+    pub(crate) fn presentation_deferred(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.presentation_deferred();
+        }
+        false
+    }
+    pub(crate) fn presentation_deadline(&self) -> Option<std::time::Instant> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.presentation_deadline();
+        }
+        None
+    }
+    pub(crate) fn surface_acquire_pending(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.surface_acquire_pending();
+        }
+        false
+    }
     pub(crate) fn present_skipped(&self) -> bool {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {
@@ -248,6 +342,52 @@ impl WindowRenderer {
         {
             renderer.invalidate_presentation();
         }
+    }
+    pub(crate) fn set_surface_wake(&mut self, wake: crate::WakeCallback) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.set_surface_wake(wake);
+            return;
+        }
+        let _ = wake;
+    }
+    pub(crate) fn take_surface_ready(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.take_surface_ready();
+        }
+        false
+    }
+    pub(crate) fn prepare_hide(&mut self) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.prepare_hide();
+        }
+    }
+    pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.maintain(now);
+            return renderer.maintenance_deadline();
+        }
+        let _ = now;
+        None
     }
     pub(crate) fn trim_gpu_cache(&mut self) {
         #[cfg(feature = "wgpu")]

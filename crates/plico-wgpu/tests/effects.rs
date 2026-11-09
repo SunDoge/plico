@@ -823,3 +823,291 @@ fn backdrop_markers_survive_recursive_opacity_layers() {
         assert!(a.abs_diff(b) <= 1, "{a} != {b}");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn repeated_backdrop_preflight_reuses_only_live_targets() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f {return plico_backdrop_at(uv);}",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for frame in 0..96 {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(frame, 0, 0),
+            None,
+            &Rect::new(0., 0., 16., 16.),
+        );
+        scene.append_scene(effect.clone(), Affine::IDENTITY);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(0, 0, frame),
+            None,
+            &Rect::new(16., 0., 32., 16.),
+        );
+        scene.append_scene(effect.clone(), Affine::translate((16., 0.)));
+        let pixels = renderer
+            .render_scene(&scene, [32, 16], [0.; 4], false)
+            .unwrap();
+        assert_eq!(
+            &pixels[(8 * 32 + 8) * 4..(8 * 32 + 8) * 4 + 4],
+            &[frame, 0, 0, 255]
+        );
+        assert_eq!(
+            &pixels[(8 * 32 + 24) * 4..(8 * 32 + 24) * 4 + 4],
+            &[0, 0, frame, 255]
+        );
+        let stats = renderer.effect_cache_stats();
+        assert_eq!(
+            (stats.0, stats.1),
+            (2, 2 * 16 * 16 * 4),
+            "backdrop output retention grew at frame {frame}"
+        );
+    }
+    renderer
+        .render_scene(&Scene::new(), [32, 16], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        (
+            renderer.effect_cache_stats().0,
+            renderer.effect_cache_stats().1
+        ),
+        (0, 0)
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_inside_cropped_opacity_layer_uses_local_texture_coordinates() {
+    use kurbo::{Affine, Rect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f { return plico_backdrop_at(uv); }",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let mut scene = Scene::new();
+    scene.push_layer(
+        BlendMode::default(),
+        0.5,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 512., 256.),
+        None,
+        None,
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(255, 0, 0),
+        None,
+        &Rect::new(320., 128., 336., 144.),
+    );
+    scene.append_scene(effect, Affine::translate((320., 128.)));
+    scene.pop_layer();
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [512, 256], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        &pixels[(136 * 512 + 328) * 4..(136 * 512 + 328) * 4 + 4],
+        &[128, 0, 0, 128]
+    );
+    assert!(renderer.layer_frame_bytes() < 4096);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn glass_corners_preserve_transparent_backdrop_inside_opacity_layers() {
+    use kurbo::{Affine, Rect};
+    use peniko::BlendMode;
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let glass =
+        ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(
+        &mut text,
+        glass,
+        ShaderEffectId::new(),
+        &[8., 0.42, 0.26, 0., 1.6, 1.12, 0.5, 8., 0.97, 0.98, 1.],
+    );
+    let mut scene = Scene::new();
+    scene.push_layer(
+        BlendMode::default(),
+        0.45,
+        Affine::IDENTITY,
+        &Rect::new(0., 0., 512., 256.),
+        None,
+        None,
+    );
+    scene.append_scene(effect, Affine::translate((320., 128.)));
+    scene.pop_layer();
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [512, 256], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        pixels[(128 * 512 + 320) * 4 + 3],
+        0,
+        "glass corner must remain transparent"
+    );
+    assert!(pixels[(136 * 512 + 328) * 4 + 3] > 100);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn backdrop_effects_obey_scroll_clips_and_masks_after_translation() {
+    use kurbo::{Affine, Rect, RoundedRect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(_uv:vec2f)->vec4f { return vec4f(0.,0.,1.,1.); }",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, source, ShaderEffectId::new(), &[]);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    for rounded in [false, true] {
+        for isolated in [false, true] {
+            for shift in [-40., -7., 0., 7., 40.] {
+                let make = |shader: bool| {
+                    let mut scene = Scene::new();
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::from_rgb8(255, 0, 0),
+                        None,
+                        &Rect::new(0., 0., 48., 48.),
+                    );
+                    if isolated {
+                        scene.push_layer(
+                            BlendMode::default(),
+                            0.75,
+                            Affine::IDENTITY,
+                            &Rect::new(0., 0., 48., 48.),
+                            None,
+                            None,
+                        );
+                    }
+                    scene.push_clip_layer(
+                        Affine::IDENTITY,
+                        &RoundedRect::new(12., 12., 28., 28., if rounded { 6. } else { 0. }),
+                    );
+                    let transform = Affine::translate((8., 8. + shift));
+                    if shader {
+                        scene.append_scene(effect.clone(), transform);
+                    } else {
+                        scene.fill(
+                            Fill::NonZero,
+                            transform,
+                            Color::from_rgb8(0, 0, 255),
+                            None,
+                            &Rect::new(0., 0., 16., 16.),
+                        );
+                    }
+                    scene.pop_layer();
+                    if isolated {
+                        scene.pop_layer();
+                    }
+                    scene
+                };
+                let actual = renderer
+                    .render_scene(&make(true), [48, 48], [0.; 4], false)
+                    .unwrap();
+                let expected = renderer
+                    .render_scene(&make(false), [48, 48], [0.; 4], false)
+                    .unwrap();
+                for (i, (a, b)) in actual.iter().zip(&expected).enumerate() {
+                    assert!(
+                        a.abs_diff(*b) <= 1,
+                        "rounded={rounded}, isolated={isolated}, shift={shift}, ({},{}), channel {}: {a} != {b}",
+                        i / 4 % 48,
+                        i / 4 / 48,
+                        i % 4
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn cropped_backdrops_preserve_pixel_positions_when_effect_canvas_extends_outside_target() {
+    use kurbo::{Affine, Rect};
+    use peniko::{BlendMode, Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let copy = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f {return plico_backdrop_at(uv);}",
+        true,
+    )
+    .unwrap();
+    let mut text = TextContext::new();
+    let effect = effect_scene(&mut text, copy, ShaderEffectId::new(), &[]);
+    let make = |with_effect: bool| {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(255, 0, 0),
+            None,
+            &Rect::new(0., 0., 48., 48.),
+        );
+        scene.push_layer(
+            BlendMode::default(),
+            0.75,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 48., 48.),
+            None,
+            None,
+        );
+        scene.push_clip_layer(Affine::IDENTITY, &Rect::new(12., 12., 28., 28.));
+        for x in 8..24 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                if x % 2 == 0 {
+                    Color::from_rgb8(0, 0, 255)
+                } else {
+                    Color::from_rgb8(0, 255, 0)
+                },
+                None,
+                &Rect::new(x as f64, 8., x as f64 + 1., 24.),
+            );
+        }
+        if with_effect {
+            scene.append_scene(effect.clone(), Affine::translate((8., 8.)));
+        }
+        scene.pop_layer();
+        scene.pop_layer();
+        scene
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let actual = renderer
+        .render_scene(&make(true), [48, 48], [0.; 4], false)
+        .unwrap();
+    let expected = renderer
+        .render_scene(&make(false), [48, 48], [0.; 4], false)
+        .unwrap();
+    for (i, (a, b)) in actual.iter().zip(&expected).enumerate() {
+        assert!(
+            a.abs_diff(*b) <= 1,
+            "crop moved a backdrop pixel at ({},{}): {a} != {b}",
+            i / 4 % 48,
+            i / 4 / 48
+        );
+    }
+}

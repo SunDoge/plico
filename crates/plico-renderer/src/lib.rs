@@ -1,5 +1,6 @@
 //! Shared layout, text, paint and widget contracts for native and browser hosts.
 #![warn(missing_docs)]
+pub use plico::DisplayPreferences;
 pub mod animated_image;
 pub mod corner_shape;
 pub mod damage;
@@ -25,14 +26,16 @@ pub mod text;
 pub mod vector_path;
 pub mod widget;
 pub use crate::platform::{EffectCompletion, EffectRequest};
-pub use paint::{Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, SvgDocument};
+pub use paint::{
+    Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, ShadowProfile, SvgDocument,
+};
 pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
     FrameSource, FrameStats, GestureEvent, GesturePhase, HostAction, ImeEvent, ImeState, KeyEvent,
-    KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent, PointerId, PointerPhase,
-    PointerProperties, PointerType, RenderBackend, ScreenshotRequest, SemanticAction,
-    SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
+    KeyLocation, KeyPhase, Modifiers, MultiClickSettings, Point, PointerButton, PointerEvent,
+    PointerId, PointerPhase, PointerProperties, PointerType, RenderBackend, ScreenshotRequest,
+    SemanticAction, SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
     SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
     WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
     WindowMetrics, WindowOptions, WindowResizeEdges,

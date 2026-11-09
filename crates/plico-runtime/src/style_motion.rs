@@ -9,6 +9,7 @@ struct Entry {
     target: [f64; 42],
     shape: (bool, bool, bool, [u8; 26]),
     duration: u16,
+    raster_scale: f64,
 }
 pub(crate) struct StyleMotions {
     arena: MotionArena<42>,
@@ -58,12 +59,17 @@ impl StyleMotions {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
-            self.dirty.extend(self.buttons.entities());
-            self.buttons.clear();
-            self.arena = Default::default();
-            self.dirty.extend(self.entries.keys().copied());
-            self.entries.clear();
-            self.owners.clear();
+            self.buttons.snap(&mut self.dirty);
+            for (&entity, entry) in &mut self.entries {
+                self.arena.retarget_tween(
+                    entry.id,
+                    entry.target,
+                    Duration::ZERO,
+                    Easing::EaseInOut,
+                );
+                entry.duration = 0;
+                self.dirty.push(entity);
+            }
         }
     }
     pub fn remove(&mut self, entity: Entity) {
@@ -96,6 +102,13 @@ impl StyleMotions {
         self.buttons
             .style(entity, style, theme, input, self.enabled)
     }
+    pub fn raster_scale(&self, entity: Entity) -> Option<f64> {
+        self.entries
+            .get(&entity)
+            .filter(|entry| self.arena.is_running(entry.id))
+            .map(|entry| entry.raster_scale)
+            .filter(|scale| scale.is_finite() && *scale > 0.)
+    }
     pub fn checked(&self, entity: Entity, target: bool) -> f32 {
         self.entries
             .get(&entity)
@@ -103,10 +116,13 @@ impl StyleMotions {
             .map_or(u8::from(target) as f32, |v| v[9] as f32)
     }
     pub fn style(&mut self, entity: Entity, style: Style, theme: Theme, entering: bool) -> Style {
-        if !self.enabled || style.transition_ms == 0 {
+        if style.transition_ms == 0 {
             self.remove(entity);
             return style;
         }
+        // MyGO ui/motion.go keeps a rested target when motion is reduced.
+        // Retain the baseline so re-enabling motion can animate the next change.
+        let duration = if self.enabled { style.transition_ms } else { 0 };
         let background = style.background.map_or(0, |color| theme.resolve(color));
         let base = [
             style.width.unwrap_or(0.) as f64,
@@ -157,35 +173,48 @@ impl StyleMotions {
         }
         let entry = self.entries.entry(entity).or_insert_with(|| {
             let mut initial = target;
-            if entering && style.modal_open && style.overlay {
-                initial[4] = 0.;
+            if entering && self.enabled {
+                if let Some(from) = style.enter_from {
+                    initial[4] = f64::from(from.opacity);
+                    initial[12] = f64::from(from.translate[0]);
+                    initial[13] = f64::from(from.translate[1]);
+                    initial[14] = f64::from(from.scale[0]);
+                    initial[15] = f64::from(from.scale[1]);
+                } else if style.modal_open && style.overlay {
+                    initial[4] = 0.;
+                }
             }
             Entry {
                 id: self.arena.insert_tween(
                     initial,
                     target,
                     Duration::from_millis(if initial != target {
-                        style.transition_ms as u64
+                        duration as u64
                     } else {
                         0
                     }),
-                    Easing::EaseInOut,
+                    Easing::EaseOut,
                 ),
                 target,
                 shape,
-                duration: style.transition_ms,
+                duration,
+                raster_scale: initial[14].max(initial[15]).max(target[14]).max(target[15]),
             }
         });
         self.owners.insert(entry.id, entity);
-        if entry.target != target || entry.duration != style.transition_ms {
+        if entry.target != target || entry.duration != duration {
+            entry.raster_scale = entry.target[14]
+                .max(entry.target[15])
+                .max(target[14])
+                .max(target[15]);
             self.arena.retarget_tween(
                 entry.id,
                 target,
-                Duration::from_millis(style.transition_ms as u64),
+                Duration::from_millis(duration as u64),
                 Easing::EaseInOut,
             );
             entry.target = target;
-            entry.duration = style.transition_ms;
+            entry.duration = duration;
         }
         let value = self.arena.value(entry.id).expect("live style motion");
         let channel = |i: usize| value[i].round().clamp(0., 255.) as u32;
@@ -351,7 +380,7 @@ mod tests {
         motions.style(e, c, Theme::default(), false);
         assert!(motions.active());
         motions.set_enabled(false);
-        assert_eq!(motions.len(), 0);
+        assert_eq!(motions.len(), 1);
         assert_eq!(
             motions.style(e, c, Theme::default(), false).width,
             Some(400.)

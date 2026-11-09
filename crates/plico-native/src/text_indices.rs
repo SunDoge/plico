@@ -1,7 +1,13 @@
 //! Valid scalar boundaries, not UTF-16 code-unit offsets inside surrogates.
-pub(crate) struct TextIndices(Vec<(usize, u32)>);
+pub(crate) enum TextIndices {
+    Ascii(usize),
+    Unicode(Vec<(usize, u32)>),
+}
 impl TextIndices {
     pub fn new(text: &str) -> Self {
+        if text.is_ascii() {
+            return Self::Ascii(text.len());
+        }
         let mut units = 0;
         let mut entries = Vec::with_capacity(text.chars().count() + 1);
         for (byte, ch) in text.char_indices() {
@@ -9,19 +15,25 @@ impl TextIndices {
             units += ch.len_utf16() as u32;
         }
         entries.push((text.len(), units));
-        Self(entries)
+        Self::Unicode(entries)
     }
     pub fn utf16(&self, byte: usize) -> Option<u32> {
-        self.0
-            .binary_search_by_key(&byte, |p| p.0)
-            .ok()
-            .map(|i| self.0[i].1)
+        match self {
+            Self::Ascii(len) => (byte <= *len).then(|| u32::try_from(byte).ok()).flatten(),
+            Self::Unicode(entries) => entries
+                .binary_search_by_key(&byte, |p| p.0)
+                .ok()
+                .map(|i| entries[i].1),
+        }
     }
     pub fn byte(&self, units: u32) -> Option<usize> {
-        self.0
-            .binary_search_by_key(&units, |p| p.1)
-            .ok()
-            .map(|i| self.0[i].0)
+        match self {
+            Self::Ascii(len) => ((units as usize) <= *len).then_some(units as usize),
+            Self::Unicode(entries) => entries
+                .binary_search_by_key(&units, |p| p.1)
+                .ok()
+                .map(|i| entries[i].0),
+        }
     }
 }
 #[cfg(test)]
@@ -45,10 +57,12 @@ mod tests {
             for ch in text.chars() {
                 if ch.len_utf16() == 2 {
                     assert_eq!(indices.byte(unit + 1), None);
+                    assert_eq!(indices.utf16(text.len() + 1), None);
                 }
                 unit += ch.len_utf16() as u32;
             }
             assert_eq!(indices.byte(unit + 1), None);
+            assert_eq!(indices.utf16(text.len() + 1), None);
         }
     }
 }

@@ -2,6 +2,7 @@
 //! metrics and editing offsets; no second shaping pass or raster approximation.
 //! Native multiline geometry and UTF-8 rich spans share retained attributed
 //! lines. The experimental renderer bridge lives in plico-wgpu.
+mod drawing;
 mod editing;
 mod fonts;
 mod intrinsic;
@@ -11,16 +12,16 @@ mod raster;
 pub(crate) mod vertical;
 mod wrapping;
 use crate::text_indices::TextIndices;
+pub use fonts::FontCollection;
 use objc2_core_foundation::{
     CFBoolean, CFDictionary, CFMutableAttributedString, CFNumber, CFRange, CFRetained, CFString,
     CFType, CGPoint,
 };
 use objc2_core_graphics::CGColor;
 use objc2_core_text::{
-    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTFontUIFontType, CTLine, CTTypesetter,
-    kCTFontAttributeName, kCTFontTraitsAttribute, kCTFontWeightTrait,
-    kCTForegroundColorAttributeName, kCTForegroundColorFromContextAttributeName,
-    kCTTrackingAttributeName,
+    CTFont, CTFontDescriptor, CTFontSymbolicTraits, CTLine, CTTypesetter, kCTFontAttributeName,
+    kCTFontTraitsAttribute, kCTFontWeightTrait, kCTForegroundColorAttributeName,
+    kCTForegroundColorFromContextAttributeName, kCTTrackingAttributeName,
 };
 pub use paragraph::{Alignment, Paragraph, ParagraphLine};
 pub use raster::Rasterized;
@@ -52,16 +53,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Native face weight selection; CoreText chooses the closest available face.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum FontWeight {
-    /// Select the family's regular face using symbolic traits.
+    /// Select the family's regular face.
     #[default]
     Regular,
-    /// Select the family's bold face using symbolic traits.
+    /// Select the family's bold face.
     Bold,
     /// CoreText normalized weight in `[-1, 1]`, with zero regular/medium.
     /// This is not a CSS weight or an OpenType `wght` axis coordinate.
     Normalized(f64),
 }
 impl FontWeight {
+    fn native_value(self) -> f64 {
+        match self {
+            // SAFETY: Immutable AppKit constants on supported macOS versions.
+            Self::Regular => unsafe { objc2_app_kit::NSFontWeightRegular },
+            Self::Bold => unsafe { objc2_app_kit::NSFontWeightBold },
+            Self::Normalized(weight) => weight,
+        }
+    }
     /// Map CSS weights through the platform's named weight constants. Values
     /// between hundreds interpolate native anchors; 1..100 and 900..1000 clamp
     /// to the lightest/heaviest named weight. This requests a closest face,
@@ -155,8 +164,11 @@ pub struct Request<'a> {
     /// Original UTF-8 text, at most 1 MiB and 100,000 scalar values.
     pub text: &'a str,
     /// System/PostScript family name; `system-ui` or empty selects the UI font.
+    /// `ui-monospace` selects the platform system monospaced face.
     /// CoreText may fall back for unknown names; inspect [`Line::font_family`].
     pub family: &'a str,
+    /// Private application faces; no process-wide font registration is performed.
+    pub fonts: Option<&'a FontCollection>,
     /// Logical font size, finite and in `(0, 4096]`.
     pub size: f64,
     /// Native tracking in logical points, finite and within `[-4096, 4096]`.
@@ -172,6 +184,7 @@ impl<'a> Request<'a> {
         Self {
             text,
             family: "system-ui",
+            fonts: None,
             size: 14.,
             letter_spacing: 0.,
             style: None,
@@ -319,10 +332,11 @@ impl Line {
         if !valid_style_spans(request.text, spans) {
             return Err(Error::InvalidRequest);
         }
-        let font = fonts::resolve(request)?;
+        let (font, attributes) = fonts::resolve_with_attributes(request)?;
         let string = CFString::from_str(request.text);
         let attributed = CFMutableAttributedString::new(None, 0).ok_or(Error::Allocation)?;
-        let units = request.text.encode_utf16().count();
+        // CFString already stores its UTF-16 length; do not rescan UTF-8 here.
+        let units = string.length();
         // SAFETY: This newly allocated string has no aliases being mutated. The
         // replacement is at its empty range; the font range spans the inserted
         // UTF-16 string exactly. CoreFoundation retains the attribute value.
@@ -332,17 +346,11 @@ impl Line {
                 CFRange::new(0, 0),
                 Some(&string),
             );
-            CFMutableAttributedString::set_attribute(
+            CFMutableAttributedString::set_attributes(
                 Some(&attributed),
-                CFRange::new(0, units as isize),
-                Some(kCTFontAttributeName),
-                Some(&font),
-            );
-            CFMutableAttributedString::set_attribute(
-                Some(&attributed),
-                CFRange::new(0, units as isize),
-                Some(kCTForegroundColorFromContextAttributeName),
-                Some(CFBoolean::new(true)),
+                CFRange::new(0, units),
+                Some(attributes.as_opaque()),
+                true,
             );
             // Leave zero tracking absent so the font's ordinary kerning and
             // ligature defaults are untouched. CoreText applies nonzero tracking
@@ -351,11 +359,16 @@ impl Line {
                 let spacing = CFNumber::new_f64(request.letter_spacing);
                 CFMutableAttributedString::set_attribute(
                     Some(&attributed),
-                    CFRange::new(0, units as isize),
+                    CFRange::new(0, units),
                     Some(kCTTrackingAttributeName),
                     Some(&spacing),
                 );
             }
+        }
+        // Plain text has no style ranges to translate. Its retained Line builds
+        // the editing index once; constructing another one here only wastes work.
+        if spans.is_empty() {
+            return Ok((font, attributed));
         }
         let indices = TextIndices::new(request.text);
         for span in spans {

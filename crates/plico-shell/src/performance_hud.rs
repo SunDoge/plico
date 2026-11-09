@@ -323,6 +323,22 @@ mod tests {
     use super::*;
     use image::GenericImageView;
 
+    #[cfg(all(target_os = "macos", feature = "wgpu"))]
+    fn hud_text_context(scale: f64) -> TextContext {
+        let mut text = TextContext::new();
+        // Match Shell's native text setup before recording paint commands.
+        // The standalone image renderer cannot consume raw Parley glyph IDs
+        // on the CoreText path. The engine owns its shared cache after this
+        // temporary renderer is dropped.
+        let mut renderer = pollster::block_on(plico_wgpu::Renderer::new()).unwrap();
+        renderer.configure_text(&mut text, scale).unwrap();
+        text
+    }
+    #[cfg(not(all(target_os = "macos", feature = "wgpu")))]
+    fn hud_text_context(_scale: f64) -> TextContext {
+        TextContext::new()
+    }
+
     #[test]
     fn hud_flag_and_health_thresholds_are_explicit() {
         for value in ["1", "true", "TRUE", " yes ", "on"] {
@@ -347,7 +363,7 @@ mod tests {
     #[test]
     fn hud_paints_outside_the_application_scene_when_enabled() {
         let mut scene = Scene::new();
-        let mut text = TextContext::new();
+        let mut text = hud_text_context(1.0);
         PerformanceHud::new(false).paint(
             &mut scene,
             &mut text,
@@ -405,7 +421,7 @@ mod tests {
     fn hud_text_uses_the_same_logical_position_at_one_and_two_x() {
         for scale in [1_u32, 2] {
             let mut scene = Scene::new();
-            let mut text = TextContext::new();
+            let mut text = hud_text_context(f64::from(scale));
             PerformanceHud::new(true).paint(
                 &mut scene,
                 &mut text,

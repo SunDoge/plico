@@ -37,6 +37,7 @@ fn material_declares_positioned_backdrop_before_content_and_updates_without_layo
         .unwrap();
     let params = engine.node(shader).unwrap().shader.unwrap();
     assert!(params.reads_backdrop);
+    assert!(params.prefilter_backdrop.is_some());
     assert!(!params.animated);
     assert_eq!(params.values[0], 18.);
     assert_eq!(params.values[4], 1.6);
@@ -213,4 +214,178 @@ fn progressive_blur_entry_points_pack_typed_parameters_without_renderer_dependen
     }
     .validated();
     assert_eq!((options.radius, options.tint_opacity), (8., 0.));
+}
+
+#[test]
+fn glass_buttons_keep_semantics_and_paint_material_before_sharp_content() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            button(cx)
+                .text("Save")
+                .primary()
+                .radius(20.)
+                .material(LiquidGlass::default());
+            button_base(cx, "Custom glass")
+                .material(LiquidGlass::default())
+                .children(|cx| {
+                    text(cx, "Custom");
+                });
+        })
+        .unwrap();
+    let nodes = descendants(&engine, engine.root());
+    for label in ["Save", "Custom glass"] {
+        let node = nodes
+            .iter()
+            .map(|&id| engine.node(id).unwrap())
+            .find(|node| node.kind == Kind::ButtonBase && node.text == label)
+            .unwrap();
+        assert_eq!(node.style.background, None);
+        assert_eq!(node.style.layout.position, Position::Relative);
+        let material = engine.node(node.children[0]).unwrap();
+        assert_eq!(material.kind, Kind::Shader);
+        assert!(node.children.len() >= 2);
+        if label == "Save" {
+            assert_eq!(node.style.foreground, Color::OnAccent);
+            assert_eq!(material.shader.as_ref().unwrap().values[2], 1.0);
+        }
+    }
+    engine
+        .frame_declarations(|cx| {
+            button(cx).text("Save").primary().material(LiquidGlass {
+                enabled: false,
+                ..Default::default()
+            });
+        })
+        .unwrap();
+    assert!(
+        descendants(&engine, engine.root())
+            .iter()
+            .all(|&id| engine.node(id).unwrap().kind != Kind::Shader)
+    );
+}
+
+#[test]
+fn glass_dialog_background_stays_outside_its_content_scroller_and_has_opaque_fallback() {
+    let mut engine = Engine::default();
+    let mut state = ModalState::default();
+    state.open();
+    for enabled in [true, false] {
+        engine
+            .frame_declarations(|cx| {
+                modal(cx, &mut state)
+                    .title("Glass dialog")
+                    .material(LiquidGlass {
+                        enabled,
+                        ..Default::default()
+                    })
+                    .children(|cx| {
+                        text(cx, "Sharp dialog content");
+                    });
+            })
+            .unwrap();
+        let nodes = descendants(&engine, engine.root());
+        let dialog = nodes
+            .iter()
+            .map(|&id| engine.node(id).unwrap())
+            .find(|node| node.kind == Kind::Dialog)
+            .unwrap();
+        assert!(!dialog.style.scroll_y);
+        assert_eq!(dialog.style.radius, 24.);
+        assert_eq!(dialog.style.shadow, Elevation::OVERLAY.contact);
+        assert_eq!(dialog.style.ambient_shadow, Elevation::OVERLAY.ambient);
+        let background = engine.node(dialog.children[0]).unwrap();
+        let content = engine.node(dialog.children[1]).unwrap();
+        assert!(content.style.scroll_y);
+        if enabled {
+            assert_eq!(background.kind, Kind::Shader);
+            assert!(background.shader.as_ref().unwrap().reads_backdrop);
+        } else {
+            assert_ne!(background.kind, Kind::Shader);
+            assert!(
+                nodes
+                    .iter()
+                    .all(|&id| engine.node(id).unwrap().kind != Kind::Shader)
+            );
+        }
+    }
+}
+
+#[test]
+fn mygo_glass_presets_keep_theme_and_clarity_in_paint_parameters() {
+    assert_eq!(LiquidGlass::default().style, GlassStyle::Custom);
+    assert_eq!(LiquidGlass::regular().style, GlassStyle::Regular);
+    assert_eq!(LiquidGlass::clear().style, GlassStyle::Clear);
+    assert_eq!(LiquidGlass::regular().fallback, Color::Panel);
+    assert_eq!(
+        LiquidGlass {
+            clarity: f32::NAN,
+            ..LiquidGlass::regular()
+        }
+        .validated()
+        .clarity,
+        0.
+    );
+    assert_eq!(
+        LiquidGlass {
+            clarity: 2.,
+            ..LiquidGlass::regular()
+        }
+        .validated()
+        .clarity,
+        1.
+    );
+    let mut engine = Engine::default();
+    let mut material = LiquidGlass::regular();
+    engine
+        .frame_declarations(|cx| pane(cx, material, Elevation::NONE))
+        .unwrap();
+    let shader = descendants(&engine, engine.root())
+        .into_iter()
+        .find(|id| engine.node(*id).unwrap().kind == Kind::Shader)
+        .unwrap();
+    let values = &engine.node(shader).unwrap().shader.as_ref().unwrap().values;
+    assert_eq!(&values[13..16], &[1., 0., 0.]);
+    material.clarity = 0.75;
+    let stats = engine
+        .frame_declarations(|cx| pane(cx, material, Elevation::NONE))
+        .unwrap();
+    assert_eq!((stats.measure_calls, stats.layout_runs), (0, 0));
+    assert_eq!(
+        engine.node(shader).unwrap().shader.as_ref().unwrap().values[14],
+        0.75
+    );
+}
+
+#[test]
+fn disabled_glass_controls_use_a_readable_fallback_without_backdrop_work() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            button(cx)
+                .text("Unavailable")
+                .primary()
+                .disabled(true)
+                .material(LiquidGlass::regular());
+        })
+        .unwrap();
+    let nodes = descendants(&engine, engine.root());
+    assert!(
+        nodes
+            .iter()
+            .all(|id| engine.node(*id).unwrap().kind != Kind::Shader)
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|id| engine.node(*id).unwrap().style.background == Some(Color::Accent))
+    );
+    let button = nodes
+        .iter()
+        .find_map(|id| {
+            let node = engine.node(*id).unwrap();
+            (node.text == "Unavailable").then_some(node)
+        })
+        .unwrap();
+    assert!(button.style.disabled);
 }

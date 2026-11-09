@@ -155,7 +155,12 @@ thread_local! {
 /// rather than running MyGO's implicit equation in a GPU fragment shader.
 pub fn corner_shape(rect: Rect, radii: CornerRadii, smoothing: f32) -> PaintShape {
     let rounded = rect.to_rounded_rect(radii.as_f64_tuple());
+    let uniform = radii.top_left == radii.top_right
+        && radii.top_left == radii.bottom_right
+        && radii.top_left == radii.bottom_left;
+    let capsule = uniform && f64::from(radii.max()) >= rect.width().min(rect.height()) * 0.5;
     if radii.max() <= 0.
+        || capsule
         || !smoothing.is_finite()
         || smoothing <= 0.
         || rect.width() <= 0.
@@ -273,7 +278,16 @@ mod tests {
         assert!(!shape.contains(Point::new(0.1, 0.1)));
     }
     #[test]
-    fn default_stays_analytical_and_mixed_corners_remain_valid() {
+    fn fully_rounded_circles_and_capsules_keep_exact_arcs_with_continuous_defaults() {
+        for rect in [Rect::new(0., 0., 40., 40.), Rect::new(0., 0., 120., 40.)] {
+            let radii = CornerRadii::uniform(20.);
+            let optimized = corner_shape(rect, radii, 1.);
+            assert!(optimized.as_rounded_rect().is_some());
+            assert_eq!(optimized, corner_shape(rect, radii, 0.));
+        }
+    }
+    #[test]
+    fn explicit_circular_stays_analytical_and_mixed_corners_remain_valid() {
         let rect = Rect::new(0., 0., 100., 70.);
         assert!(
             corner_shape(rect, CornerRadii::uniform(10.), 0.)

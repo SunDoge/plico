@@ -11,6 +11,11 @@ pub struct UiContext<'e> {
     pub(crate) in_button: bool,
 }
 impl<'e> UiContext<'e> {
+    /// Native accessibility preferences. Custom drawing can follow the same
+    /// policy as the framework's materials, motion and semantic theme colors.
+    pub fn display_preferences(&self) -> crate::DisplayPreferences {
+        self.engine.display_preferences()
+    }
     /// Translation context inherited by this declaration's children and portals.
     pub fn localizer(&self) -> &'e dyn crate::Localizer {
         self.localizer
@@ -439,6 +444,13 @@ impl<'e> UiContext<'e> {
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
     }
+    /// Re-evaluate the view at an injected-clock deadline, retaining its
+    /// declarations before then. Re-declaring or removing this component
+    /// cancels its old deadline; multiple requests keep the earliest one.
+    pub fn request_rebuild_at(&mut self, deadline: std::time::Duration) {
+        let node = self.engine.nodes.get_mut(self.parent).unwrap();
+        node.wake_at = Some(node.wake_at.map_or(deadline, |old| old.min(deadline)));
+    }
     /// Whether the host pointer targets the current parent control. Used by
     /// composed framework controls and logical-path replay adapters.
     pub fn hovered(&self) -> bool {
@@ -454,6 +466,24 @@ impl<'e> UiContext<'e> {
     /// anchor a drag at the press and track it across frames.
     pub fn pressed(&self) -> bool {
         self.engine.pressed(self.parent)
+    }
+    /// Whether the current composed control owns keyboard focus.
+    pub fn is_focused(&self) -> bool {
+        self.engine.focused() == Some(self.parent)
+    }
+    /// Request keyboard focus for the current composed control once in response
+    /// to an application action (for example, grid arrow-key navigation).
+    pub fn request_focus(&mut self) {
+        if !self.inherited.disabled {
+            self.engine.focus_request = Some(self.parent);
+        }
+    }
+    /// Consume a secondary-button click on the current composed control.
+    /// Like primary activation, the press and release must target the same
+    /// enabled control; dragging away cancels the click.
+    pub fn secondary_clicked(&mut self) -> bool {
+        let clicked = self.engine.secondary_clicked(self.parent);
+        clicked && !self.inherited.disabled
     }
     /// Current host pointer position in window logical pixels, when the
     /// pointer is inside the window. Read during declarations; pointer
@@ -553,6 +583,7 @@ impl<'e> UiContext<'e> {
             hovered: false,
             recycle_text: false,
             spans: Vec::new(),
+            material: None,
         }
     }
 }
@@ -976,11 +1007,17 @@ impl Layout<'_, '_> {
         self.style.ambient_shadow = Some(shadow);
         self
     }
-    /// Clear both contact and ambient shadows.
+    /// Add an inner shadow clipped to the container contour.
+    pub fn inset_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+        self.style.inset_shadow = Some(shadow);
+        self
+    }
+    /// Clear contact, ambient and inset shadows.
     #[inline(always)]
     pub fn no_shadow(mut self) -> Self {
         self.style.shadow = None;
         self.style.ambient_shadow = None;
+        self.style.inset_shadow = None;
         self
     }
     /// Blur this container and its content, in logical Gaussian sigma units.
@@ -1029,6 +1066,13 @@ impl Layout<'_, '_> {
     pub fn motion(self, preset: Motion) -> Self {
         self.transition(preset.duration_ms())
     }
+    /// Mount at this presentation, then animate to the authored target using
+    /// the host's motion clock. Descendants share the group's transform.
+    pub fn enter_from(mut self, presentation: crate::Presentation) -> Self {
+        self.style.enter_from = Some(presentation);
+        self
+    }
+
     #[inline(always)]
     pub fn transition(mut self, milliseconds: u16) -> Self {
         self.style.transition_ms = milliseconds;
@@ -1119,6 +1163,7 @@ struct Leaf<'u, 'e, 't> {
     hovered: bool,
     recycle_text: bool,
     spans: Vec<crate::TextSpan>,
+    material: Option<crate::LiquidGlass>,
 }
 impl Leaf<'_, '_, '_> {
     #[inline(always)]
@@ -1138,6 +1183,25 @@ impl Leaf<'_, '_, '_> {
         }
         style.disabled |= ui.inherited.disabled;
         style.styled_button = styled;
+        let mut material = self.material;
+        if let Some(ref mut glass) = material {
+            style.material_background = true;
+            // Disabled controls retain a readable theme surface instead of
+            // spending backdrop work on a translucent, noninteractive pane.
+            if style.disabled {
+                glass.enabled = false;
+            }
+            if style.background == Some(Color::Accent) {
+                glass.tint = Color::Accent;
+                glass.tint_opacity = 1.;
+                glass.fallback = Color::Accent;
+            }
+            style.background = None;
+            style.border_width = 0.;
+            if style.layout.position == crate::Position::Static {
+                style.layout.position = crate::Position::Relative;
+            }
+        }
         if styled && style.disabled {
             style.opacity *= 0.45;
         }
@@ -1157,7 +1221,31 @@ impl Leaf<'_, '_, '_> {
         };
         ui.engine.set_grid(entity, None);
         ui.engine.set_spans(entity, &[]);
-        let inner = ui.with_parent(entity, style, true, build);
+        let inner = ui.with_parent(entity, style, true, |cx| {
+            if let Some(mut glass) = material {
+                if glass.interactive && !style.disabled {
+                    glass.show_interactive(
+                        cx,
+                        style.radius,
+                        style.corner_smoothing,
+                        response.hovered,
+                        cx.pressed(),
+                    );
+                } else {
+                    if !style.disabled {
+                        if cx.pressed() {
+                            glass.tint_opacity = (glass.tint_opacity + 0.12).min(1.);
+                            glass.rim *= 0.65;
+                        } else if response.hovered {
+                            glass.tint_opacity = (glass.tint_opacity + 0.06).min(1.);
+                            glass.rim = (glass.rim + 0.15).min(1.);
+                        }
+                    }
+                    glass.show(cx, style.radius, style.corner_smoothing);
+                }
+            }
+            build(cx)
+        });
         InnerResponse { inner, response }
     }
     #[inline(always)]
@@ -1539,11 +1627,17 @@ macro_rules! common {
                 elevation.apply(&mut self.inner.style);
                 self
             }
-            /// Clear both contact and ambient shadows.
+            /// Add an inner shadow clipped to the control contour.
+            pub fn inset_shadow(mut self, shadow: crate::BoxShadow) -> Self {
+                self.inner.style.inset_shadow = Some(shadow);
+                self
+            }
+            /// Clear contact, ambient and inset shadows.
             #[inline(always)]
             pub fn no_shadow(mut self) -> Self {
                 self.inner.style.shadow = None;
                 self.inner.style.ambient_shadow = None;
+                self.inner.style.inset_shadow = None;
                 self
             }
             /// Blur this node and its content, in logical Gaussian sigma units.
@@ -1584,6 +1678,11 @@ macro_rules! common {
             pub fn motion(self, preset: Motion) -> Self {
                 self.transition(preset.duration_ms())
             }
+            pub fn enter_from(mut self, presentation: crate::Presentation) -> Self {
+                self.inner.style.enter_from = Some(presentation);
+                self
+            }
+
             #[inline(always)]
             pub fn transition(mut self, milliseconds: u16) -> Self {
                 self.inner.style.transition_ms = milliseconds;
@@ -1603,6 +1702,14 @@ common!(Button);
 common!(ButtonBase);
 common!(Toggle);
 impl<'u, 'e, 't> Button<'u, 'e, 't> {
+    /// Paint scene-backed glass beneath sharp button content. Primary buttons
+    /// tint the material with the accent; disabled materials use an opaque fallback.
+    /// Hover and press adjust the material without changing layout or hit testing.
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.inner.material = Some(material);
+        self.composable = true;
+        self
+    }
     /// Alignment of shortcut text/icon content along the button's main axis.
     pub fn justify(mut self, value: Justify) -> Self {
         self.inner.style.justify = Some(value);
@@ -1982,6 +2089,11 @@ pub struct ButtonBase<'u, 'e, 't> {
     styled: bool,
 }
 impl ButtonBase<'_, '_, '_> {
+    /// Scene-backed glass for custom button content, with native button semantics.
+    pub fn material(mut self, material: crate::LiquidGlass) -> Self {
+        self.inner.material = Some(material);
+        self
+    }
     #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);
@@ -2223,6 +2335,7 @@ impl<'e> UiContext<'e> {
                 module: asset.is_module(),
                 sksl: asset.sksl().map(str::to_owned),
                 reads_backdrop: asset.reads_backdrop(),
+                prefilter_backdrop: asset.backdrop_prefiltered(),
                 ..Default::default()
             },
         }
@@ -2274,7 +2387,36 @@ impl crate::ImplicitKey for Shader<'_, '_, '_> {
     }
 }
 impl Shader<'_, '_, '_> {
+    /// Interpolate one scalar on target changes, using the injected native clock.
+    pub fn transition_value(mut self, index: usize, milliseconds: u16) -> Self {
+        let value = crate::ShaderTransition {
+            index,
+            milliseconds,
+        };
+        if let Some(existing) = self
+            .params
+            .transitions
+            .iter_mut()
+            .find(|t| t.index == index)
+        {
+            *existing = value;
+        } else {
+            self.params.transitions.push(value);
+        }
+        self
+    }
+    /// Expand only the painted canvas. Parent clips still apply.
+    pub fn paint_outset(mut self, x: f32, y: f32) -> Self {
+        self.params.paint_outset = [x, y];
+        self
+    }
     #[inline(always)]
+    /// Build backdrop prefilter levels up to this logical-pixel sigma.
+    /// The asset must declare backdrop reading; layout and hit testing are unchanged.
+    pub fn prefilter_backdrop(mut self, max_sigma: f32) -> Self {
+        self.params.prefilter_backdrop = Some(max_sigma);
+        self
+    }
     pub fn values(mut self, values: &[f32]) -> Self {
         self.params.values.clear();
         self.params.values.extend_from_slice(values);

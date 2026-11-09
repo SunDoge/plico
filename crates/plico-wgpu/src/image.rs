@@ -1,7 +1,11 @@
 //! Immutable image resources, separate from the glyph atlas and bounded by bytes.
 use crate::{Error, Quad, Result};
 use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality};
-use std::{collections::HashMap, num::NonZeroUsize, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    rc::Rc,
+};
 
 /// A physical-pixel textured quad. UVs are normalized source coordinates.
 pub struct ImageQuad {
@@ -54,6 +58,7 @@ struct TextureEntry {
 pub(crate) struct ImageCache {
     entries: lru::LruCache<Key, TextureEntry>,
     mip_generator: Option<crate::mipmap::MipGenerator>,
+    frame_sources: HashSet<u64>,
     #[cfg(test)]
     force_cpu_mips: bool,
     bytes: usize,
@@ -68,6 +73,7 @@ impl Default for ImageCache {
             entries: lru::LruCache::new(NonZeroUsize::new(256).unwrap()),
             bytes: 0,
             mip_generator: None,
+            frame_sources: HashSet::new(),
             #[cfg(test)]
             force_cpu_mips: false,
             uploads: 0,
@@ -90,6 +96,38 @@ impl ImageCache {
         image: &ImageData,
         sampling: ImageSampling,
     ) -> Result<Rc<GpuImage>> {
+        self.get_internal(device, queue, layout, image, sampling, false)
+    }
+    pub fn get_mask(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        image: &ImageData,
+    ) -> Result<Rc<GpuImage>> {
+        self.get_internal(
+            device,
+            queue,
+            layout,
+            image,
+            ImageSampling {
+                quality: ImageQuality::Low,
+                extend: [Extend::Pad; 2],
+                mipmaps: false,
+            },
+            true,
+        )
+    }
+    fn get_internal(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        image: &ImageData,
+        sampling: ImageSampling,
+        alpha_only: bool,
+    ) -> Result<Rc<GpuImage>> {
+        self.frame_sources.insert(image.data.id());
         let ImageSampling {
             quality,
             extend,
@@ -100,7 +138,10 @@ impl ImageCache {
             image.data.id(),
             image.width,
             image.height,
-            image.format as u8 | ((image.alpha_type as u8) << 4) | (u8::from(mipmaps) << 7),
+            image.format as u8
+                | ((image.alpha_type as u8) << 4)
+                | (u8::from(alpha_only) << 6)
+                | (u8::from(mipmaps) << 7),
         );
         if let Some(entry) = self.entries.get_mut(&key) {
             self.hits += 1;
@@ -136,34 +177,44 @@ impl ImageCache {
         let preparation = tracing::debug_span!(target: "plico::perf", "wgpu.prepare_image_bytes",
             bytes, format=?image.format, alpha=?image.alpha_type)
         .entered();
-        let mut pixels =
-            if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
-                std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
-            } else {
-                if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
-                    return Err(Error::Unsupported {
-                        command: 0,
-                        reason: "image pixel format".into(),
-                    });
+        let mut pixels = if alpha_only {
+            // Coverage uses one channel on the GPU. Keep shared RGBA CPU
+            // sources compatible with vector raster/mask intersection code.
+            std::borrow::Cow::Owned(
+                image.data.data()[..bytes]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|pixel| pixel[3])
+                    .collect::<Vec<u8>>(),
+            )
+        } else if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
+            std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
+        } else {
+            if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
+                return Err(Error::Unsupported {
+                    command: 0,
+                    reason: "image pixel format".into(),
+                });
+            }
+            let mut pixels = image.data.data()[..bytes].to_vec();
+            for p in pixels.as_chunks_mut::<4>().0 {
+                if image.format == ImageFormat::Bgra8 {
+                    p.swap(0, 2);
                 }
-                let mut pixels = image.data.data()[..bytes].to_vec();
-                for p in pixels.as_chunks_mut::<4>().0 {
-                    if image.format == ImageFormat::Bgra8 {
-                        p.swap(0, 2);
-                    }
-                    if image.alpha_type == ImageAlphaType::Alpha {
-                        for c in 0..3 {
-                            p[c] = ((u16::from(p[c]) * u16::from(p[3]) + 127) / 255) as u8;
-                        }
+                if image.alpha_type == ImageAlphaType::Alpha {
+                    for c in 0..3 {
+                        p[c] = ((u16::from(p[c]) * u16::from(p[3]) + 127) / 255) as u8;
                     }
                 }
-                std::borrow::Cow::Owned(pixels)
-            };
+            }
+            std::borrow::Cow::Owned(pixels)
+        };
         drop(preparation);
         // Small glyph/run images and coverage masks do not need a mip chain.
         // Keep the full allocation within the same per-source/cache budget.
         let mut sizes = vec![[image.width, image.height]];
-        let mut texture_bytes = bytes;
+        let mut texture_bytes = if alpha_only { bytes / 4 } else { bytes };
         if mipmaps && image.width.min(image.height) >= 64 {
             let mut size = [image.width, image.height];
             while size != [1, 1] {
@@ -192,7 +243,11 @@ impl ImageCache {
             mip_level_count: sizes.len() as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: if alpha_only {
+                wgpu::TextureFormat::R8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | if gpu_mips {
@@ -227,7 +282,7 @@ impl ImageCache {
                 &pixels,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width * 4),
+                    bytes_per_row: Some(width * if alpha_only { 1 } else { 4 }),
                     rows_per_image: Some(height),
                 },
                 wgpu::Extent3d {
@@ -271,8 +326,29 @@ impl ImageCache {
         self.uploads += 1;
         Ok(binding)
     }
+    pub fn begin_frame(&mut self) {
+        self.frame_sources.clear();
+    }
+    pub fn retain_source(&mut self, image: &ImageData) {
+        self.frame_sources.insert(image.data.id());
+    }
+    pub fn finish_frame(&mut self) {
+        let stale: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| !self.frame_sources.contains(&entry.source.data.id()))
+            .map(|(key, _)| *key)
+            .collect();
+        for key in stale {
+            if let Some(entry) = self.entries.pop(&key) {
+                self.bytes -= entry.bytes;
+                self.bindings -= usize::from(entry.primary.is_some()) + entry.additional.len();
+            }
+        }
+    }
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.frame_sources.clear();
         self.mip_generator = None;
         self.bytes = 0;
         self.bindings = 0;

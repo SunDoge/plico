@@ -140,3 +140,10 @@ python3 scripts/run-recipes.py --no-build
 
 当前应用命令位于独立 Plicowarden 仓库，已接通其合成 fixture；其他应用可使用
 `plico_desktop::recipe::RecipePlan::run` 接自己的工厂和 typed 服务事件处理函数。
+
+### 按压中间状态
+
+`{"action":"pointer_down","x":340,"y":390}` 与对应的 `pointer_up` 分开派发主指针输入，
+可以在两步之间用虚拟时间截取 pressed 状态。`pointer_move` 保留活动控件／滑杆／滚动条捕获。
+坐标以窗口逻辑像素表示，非有限坐标拒绝。业务激活仍可用语义 `click`；按压截图不需要提前触发激活。
+可参考 Gallery 的 `effects-glass-hover.json` 和 `effects-glass-pressed.json`。

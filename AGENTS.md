@@ -3,7 +3,7 @@
 - Plico 是后续 Rust GUI 开发的主仓库。原 Wabou 暂停开发；除非用户另行明确要求，不在原 Wabou 仓库实现功能、修复或提交改动。
 - 需要复用的 Wabou 代码直接复制到 Plico 后维护，保留必要的许可证和来源记录。Plico 的正常 Rust 构建不依赖原 Wabou checkout，不引入指向它的 path dependency 或源码 symlink。
 - 原 Wabou 可以作为只读参考；Solid gallery 对照脚本目前仍可使用其现有 CLI 和前端包。它是可选验证工具，不是 Plico 的开发或运行前提。
-- 根目录同时是 Cargo workspace 和不发布的 examples package，用于 examples/ 下可直接运行的最小示例。框架与后端 package 放在 crates/，完整示例应用放在 apps/，crate 专属的小型 API 示例保留在对应 crate 的 examples/；plico 提供不依赖渲染与窗口的 immediate Engine、共享类型和 widgets；plico-runtime 提供宿主无关的声明运行时（adapter、Source、HostView、动效）；wgpu 为默认桌面 renderer，Skia 为主要渲染质量对照，plico-desktop 是桌面窗口宿主与开发 CLI，plico-cli 提供开发命令。早期 reactive 与 Rune 实验不作为默认路径；当前正式的显式依赖 Regions API 位于 plico-runtime::regions，与 immediate API 共用 Engine 和后端。
+- 根目录同时是 Cargo workspace 和不发布的 examples package，用于 examples/ 下可直接运行的最小示例。框架与后端 package 放在 crates/，完整示例应用放在 apps/，crate 专属的小型 API 示例保留在对应 crate 的 examples/；plico 提供不依赖渲染与窗口的 immediate Engine、共享类型和 widgets；plico-runtime 提供宿主无关的声明运行时（adapter、Source、HostView、动效）；wgpu 为默认桌面 renderer，也是画质与性能优化的主要目标；Skia 保留为可选对照，不要求每项特效持续对齐，plico-desktop 是桌面窗口宿主与开发 CLI，plico-cli 提供开发命令。早期 reactive 与 Rune 实验不作为默认路径；当前正式的显式依赖 Regions API 位于 plico-runtime::regions，与 immediate API 共用 Engine 和后端。
 - 提交使用 Cocogitto / Conventional Commits，参见 docs/contributing.md。
 - 设计目标、原实验结果与当前已实现能力要明确区分，参见 docs/README.md、docs/status.md。
 
@@ -19,3 +19,11 @@
 - reports/ 下的截图、日志与性能报告是本地生成产物，不参与提交；提交可重建脚本、测试断言与文档结论，文档不依赖生成文件链接。
 
 - 开发使用静态编译重启与 JSON 场景预览（docs/preview.md）。桌面动态热重载、stabby ABI 与 cdylib 导出已移除，不重新引入。App 不强制序列化；预览状态采用应用定义的配置类型。WASM host/UI 拆分协议独立保留。
+
+- 可复用的原生桌面能力（托盘、原生菜单、通知回调、窗口生命周期与事件循环唤醒）在 Plico 框架实现，经 plico-desktop 公开；应用只提供品牌资源、菜单与业务事件映射、通知内容和偏好持久化，不在应用重复实现平台后端。不得把密码库、SDK、SSH 审批等 GPL 应用业务搬入框架。
+
+- Rust 控件与布局默认使用 corner_smoothing = 1 的连续圆角；不要要求应用逐个开启。显式 .corner_smoothing(0.) 保留圆弧选择，完全圆角的正圆／胶囊使用精确圆弧。
+
+- 当前优先支持纯 Rust 路径；新渲染架构和公共 API 不以 FFI/C# ABI 兼容或跨语言验证作为交付前置。除非用户明确要求，不新增跨语言适配层。
+
+- 遇到界面或桌面宿主问题，先查 MyGO 对应源码，再决定修复。控件交互、动效、玻璃合成、阴影和渲染缓存优先对照 MyGO 的现有实现，再决定 Plico 的适配；不要在已有成熟参考时从头设计。可直接迁移的代码保留许可证与来源 revision，通用能力沉淀到框架，以确定性 recipe 和相关性能断言验证。MyGO checkout 只用于参考，不成为构建依赖。

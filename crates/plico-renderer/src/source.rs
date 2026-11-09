@@ -78,6 +78,10 @@ pub trait FrameSource {
     /// it builds widget scene fragments for this frame.
     fn set_device_scale(&mut self, _scale: f64) {}
 
+    /// Update native multi-click thresholds. Sources which perform their own
+    /// click classification should consume these without reading OS settings.
+    fn set_multi_click_settings(&mut self, _settings: MultiClickSettings) {}
+
     /// Commit state queued by a previous native event before another event is
     /// dispatched. This is distinct from painting: input ordering must remain
     /// correct even when several platform events arrive before the next vsync.

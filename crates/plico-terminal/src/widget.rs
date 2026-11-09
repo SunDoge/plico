@@ -684,6 +684,13 @@ impl Widget for TerminalWidget {
             .min()
     }
 
+    fn set_multi_click_interval(&mut self, interval: Duration) {
+        if self.multi_click_interval != interval {
+            self.multi_click_interval = interval;
+            self.last_click = None;
+        }
+    }
+
     fn set_wake_callback(&mut self, wake: WakeCallback) {
         self.install_native_wake(wake);
     }

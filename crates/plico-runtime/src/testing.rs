@@ -5,8 +5,9 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerEvent, PointerPhase,
-    PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext, UiEvent,
+    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
+    PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
+    UiEvent,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -22,9 +23,27 @@ pub enum Command {
         x: f64,
         y: f64,
     },
+    /// Press the primary pointer at window-logical coordinates; release separately.
+    PointerDown {
+        x: f64,
+        y: f64,
+    },
+    /// Release the primary pointer, allowing intermediate pressed-state captures.
+    PointerUp {
+        x: f64,
+        y: f64,
+    },
     /// Remove the pointer from the window (clears hover and pointer queries).
     PointerLeave,
     Click {
+        role: String,
+        label: String,
+        #[serde(default)]
+        occurrence: Option<usize>,
+    },
+    /// Secondary mouse activation at the center of a named control. Uses the
+    /// actual hit-testing route, never translates into a primary semantic click.
+    SecondaryClick {
         role: String,
         label: String,
         #[serde(default)]
@@ -120,7 +139,30 @@ pub fn dispatch<V: HostView>(
                 phase: PointerPhase::Move,
                 position: Point { x: *x, y: *y },
                 button: None,
-                buttons: 0,
+                buttons: u32::from(
+                    source.adapter.pressed.is_some()
+                        || source.adapter.slider_drag.is_some()
+                        || source.adapter.scrollbar_drag.is_some()
+                        || source.adapter.backdrop_pressed.is_some(),
+                ),
+                modifiers: Modifiers::empty(),
+                properties: PointerProperties::default(),
+            }));
+        }
+        Command::PointerDown { x, y } | Command::PointerUp { x, y } => {
+            if !x.is_finite() || !y.is_finite() {
+                return Err(Error::PointerPosition);
+            }
+            let down = matches!(command, Command::PointerDown { .. });
+            source.handle_event(UiEvent::Pointer(PointerEvent {
+                phase: if down {
+                    PointerPhase::Down
+                } else {
+                    PointerPhase::Up
+                },
+                position: Point { x: *x, y: *y },
+                button: Some(PointerButton::Primary),
+                buttons: u32::from(down),
                 modifiers: Modifiers::empty(),
                 properties: PointerProperties::default(),
             }));
@@ -134,6 +176,34 @@ pub fn dispatch<V: HostView>(
                 modifiers: Modifiers::empty(),
                 properties: PointerProperties::default(),
             }));
+        }
+        Command::SecondaryClick {
+            role,
+            label,
+            occurrence,
+        } => {
+            let target = find_target(source, role, label, *occurrence)?;
+            let tree = source.adapter.semantics(&source.engine, 0);
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|node| node.id == target)
+                .expect("resolved target")
+                .bounds;
+            let position = Point {
+                x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
+                y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
+            };
+            for phase in [PointerPhase::Down, PointerPhase::Up] {
+                source.handle_event(UiEvent::Pointer(PointerEvent {
+                    phase,
+                    position,
+                    button: Some(PointerButton::Secondary),
+                    buttons: if phase == PointerPhase::Down { 2 } else { 0 },
+                    modifiers: Modifiers::empty(),
+                    properties: PointerProperties::default(),
+                }));
+            }
         }
         Command::Click {
             role,

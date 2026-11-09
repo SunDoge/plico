@@ -322,6 +322,7 @@ pub struct TerminalWidget {
     remote_mouse_button: Option<PointerButton>,
     wheel_lines: WheelLineAccumulator,
     last_click: Option<(Instant, f32, f32, u8)>,
+    multi_click_interval: Duration,
     graphics: TerminalGraphics,
     clock: TerminalClock,
 }
@@ -402,6 +403,7 @@ impl TerminalWidget {
             remote_mouse_button: None,
             wheel_lines: WheelLineAccumulator::default(),
             last_click: None,
+            multi_click_interval: Duration::from_millis(400),
             graphics: TerminalGraphics::default(),
             clock: TerminalClock::system(),
         }

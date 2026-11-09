@@ -12,6 +12,43 @@ pub use crate::platform::accessibility::{
 /// Consumers with line-based scrolling should accumulate pixel deltas against
 /// this value so high-resolution trackpads and discrete wheels share one unit.
 pub const WHEEL_LINE_DELTA: f64 = 40.0;
+/// Host multi-click policy in logical window coordinates. Time is compared
+/// against the UI's injected clock; this value never reads a system clock.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MultiClickSettings {
+    /// Maximum time between successive presses.
+    pub interval: std::time::Duration,
+    /// Maximum radial movement between presses, in logical pixels.
+    pub distance: f64,
+}
+impl Default for MultiClickSettings {
+    fn default() -> Self {
+        Self {
+            interval: std::time::Duration::from_millis(500),
+            distance: 4.,
+        }
+    }
+}
+impl MultiClickSettings {
+    /// Replace invalid spatial thresholds with the portable default.
+    pub fn normalized(self) -> Self {
+        if self.distance.is_finite() && self.distance >= 0. {
+            self
+        } else {
+            Self {
+                distance: Self::default().distance,
+                ..self
+            }
+        }
+    }
+    /// Check time and distance; callers retain button, pointer and target checks.
+    pub fn accepts(self, previous: Point, current: Point, elapsed: std::time::Duration) -> bool {
+        let settings = self.normalized();
+        elapsed <= settings.interval
+            && (current.x - previous.x).hypot(current.y - previous.y) <= settings.distance
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Current native window state delivered to a frame source.
 pub struct WindowMetrics {
@@ -41,6 +78,20 @@ pub struct WindowMetrics {
     pub color_scheme: Option<ColorScheme>,
     /// Whether the platform requests reduced non-essential motion.
     pub reduced_motion: bool,
+    /// Whether native materials should use an opaque fallback.
+    pub reduced_transparency: bool,
+    /// Whether semantic borders and secondary text should have more contrast.
+    pub high_contrast: bool,
+}
+impl WindowMetrics {
+    /// Project native display preferences into the renderer-free UI contract.
+    pub fn display_preferences(self) -> plico::DisplayPreferences {
+        plico::DisplayPreferences {
+            reduce_motion: self.reduced_motion,
+            reduce_transparency: self.reduced_transparency,
+            high_contrast: self.high_contrast,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +119,8 @@ impl Default for WindowMetrics {
             occluded: false,
             color_scheme: Some(ColorScheme::Light),
             reduced_motion: false,
+            reduced_transparency: false,
+            high_contrast: false,
         }
     }
 }

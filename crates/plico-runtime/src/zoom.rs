@@ -47,6 +47,7 @@ pub struct ZoomSource {
     inner: Box<dyn FrameSource>,
     controller: ZoomController,
     zoom: f64,
+    click_settings: plico_renderer::MultiClickSettings,
 }
 impl ZoomSource {
     /// Wrap a frame source at 100% zoom with standard Ctrl +/-/0 shortcuts.
@@ -59,6 +60,7 @@ impl ZoomSource {
             inner,
             controller,
             zoom: 1.,
+            click_settings: Default::default(),
         }
     }
     /// Clone the native, resident zoom controller (never a serialized UI resource).
@@ -66,7 +68,18 @@ impl ZoomSource {
         self.controller.clone()
     }
     fn sync(&mut self) {
-        self.zoom = self.controller.factor();
+        let zoom = self.controller.factor();
+        if self.zoom != zoom {
+            self.zoom = zoom;
+            self.forward_click_settings();
+        }
+    }
+    fn forward_click_settings(&mut self) {
+        self.inner
+            .set_multi_click_settings(plico_renderer::MultiClickSettings {
+                distance: self.click_settings.distance / self.zoom,
+                ..self.click_settings
+            });
     }
     fn viewport(&self, size: (u32, u32)) -> (u32, u32) {
         (
@@ -76,6 +89,11 @@ impl ZoomSource {
     }
 }
 impl FrameSource for ZoomSource {
+    fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        self.click_settings = settings.normalized();
+        self.zoom = self.controller.factor();
+        self.forward_click_settings();
+    }
     fn set_device_scale(&mut self, scale: f64) {
         self.sync();
         self.inner.set_device_scale(scale * self.zoom);
@@ -401,5 +419,40 @@ mod tests {
                 .ime_bounds_for_range(0..2)
                 .map(|rect| rect.map(|v| v * 1.5))
         );
+    }
+    #[test]
+    fn click_distance_stays_in_window_units_when_zoom_or_host_settings_change() {
+        use plico_renderer::MultiClickSettings;
+        struct Capture(Arc<std::sync::Mutex<Vec<MultiClickSettings>>>);
+        impl FrameSource for Capture {
+            fn build_frame(&mut self, _: &mut TextContext, _: u32, _: u32) -> Vec<PlacedNode> {
+                Vec::new()
+            }
+            fn base_color(&self) -> peniko::Color {
+                peniko::Color::BLACK
+            }
+            fn set_multi_click_settings(&mut self, settings: MultiClickSettings) {
+                self.0.lock().unwrap().push(settings);
+            }
+        }
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut zoom = ZoomSource::new(Box::new(Capture(received.clone())));
+        let controller = zoom.controller();
+        controller.set(2.);
+        zoom.set_multi_click_settings(MultiClickSettings {
+            interval: std::time::Duration::from_millis(750),
+            distance: 6.,
+        });
+        let first = *received.lock().unwrap().last().unwrap();
+        assert_eq!(first.distance, 3.);
+        assert_eq!(first.interval, std::time::Duration::from_millis(750));
+        controller.set(1.5);
+        zoom.build_frame(&mut TextContext::new(), 300, 200);
+        assert_eq!(received.lock().unwrap().last().unwrap().distance, 4.);
+        zoom.set_multi_click_settings(MultiClickSettings {
+            distance: f64::NAN,
+            ..Default::default()
+        });
+        assert_eq!(received.lock().unwrap().last().unwrap().distance, 4. / 1.5);
     }
 }

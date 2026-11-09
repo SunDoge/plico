@@ -7,12 +7,24 @@ use crate::{
 };
 
 static LIQUID_GLASS: crate::ShaderAsset =
-    crate::shader_asset!("../assets/materials/liquid_glass.wgsl").read_backdrop();
+    crate::shader_asset!("../assets/materials/liquid_glass.wgsl").prefilter_backdrop(128.);
 
 /// Embedded material source for renderer validation and backend conformance tests.
 /// Applications should normally use `Layout::material` instead of raw uniforms.
 pub const fn liquid_glass_shader() -> crate::ShaderAsset {
     LIQUID_GLASS
+}
+
+/// Tone and size response of scene-backed glass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlassStyle {
+    /// Existing Plico parameter response, retained for source/visual compatibility.
+    #[default]
+    Custom,
+    /// MyGO-inspired frosted controls and theme-adaptive panels.
+    Regular,
+    /// Lightly toned glass for imagery; foreground contrast is the caller's responsibility.
+    Clear,
 }
 
 /// A scene-backed liquid glass material. Surface content is painted afterward,
@@ -28,6 +40,12 @@ pub const fn liquid_glass_shader() -> crate::ShaderAsset {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LiquidGlass {
+    /// Tone/size response. Prefer the regular()/clear() presets for new surfaces.
+    pub style: GlassStyle,
+    /// Clear large panes without flattening small controls, in 0..=1.
+    pub clarity: f32,
+    /// Animate button hover and material-only press growth. Containers stay static.
+    pub interactive: bool,
     pub enabled: bool,
     /// Blur amount in 0..=1.
     pub frost: f32,
@@ -50,6 +68,9 @@ pub struct LiquidGlass {
 impl Default for LiquidGlass {
     fn default() -> Self {
         Self {
+            style: GlassStyle::Custom,
+            clarity: 0.,
+            interactive: false,
             enabled: true,
             frost: 0.42,
             tint: Color::Literal(0xf9fcff),
@@ -65,6 +86,35 @@ impl Default for LiquidGlass {
     }
 }
 impl LiquidGlass {
+    /// Native accessibility requests take precedence over material options.
+    pub fn follow_preferences(mut self, preferences: crate::DisplayPreferences) -> Self {
+        self.enabled &= !preferences.reduce_transparency;
+        self.reduce_motion |= preferences.reduce_motion;
+        self
+    }
+
+    /// Theme-adaptive frosted glass, following MyGO's size/clarity tone response.
+    pub fn regular() -> Self {
+        Self {
+            style: GlassStyle::Regular,
+            interactive: true,
+            tint: Color::Panel,
+            tint_opacity: 0.,
+            saturation: 1.,
+            rim: 0.35,
+            bevel: 36.,
+            fallback: Color::Panel,
+            ..Self::default()
+        }
+    }
+    /// Near-clear glass for photos/video. Text must supply its own contrast.
+    pub fn clear() -> Self {
+        Self {
+            style: GlassStyle::Clear,
+            ..Self::regular()
+        }
+    }
+
     /// Clamp finite values to supported ranges; non-finite values use defaults.
     pub fn validated(self) -> Self {
         let defaults = Self::default();
@@ -76,6 +126,7 @@ impl LiquidGlass {
             }
         };
         Self {
+            clarity: bounded(self.clarity, 1., 0.),
             frost: bounded(self.frost, 1., defaults.frost),
             tint_opacity: bounded(self.tint_opacity, 1., defaults.tint_opacity),
             refraction: bounded(self.refraction, 4., defaults.refraction),
@@ -87,11 +138,58 @@ impl LiquidGlass {
     }
     #[crate::component]
     pub(crate) fn show(self, cx: &mut UiContext, radius: f32, corner_smoothing: f32) {
-        let options = self.validated();
+        self.show_surface(cx, radius, corner_smoothing, None);
+    }
+    #[crate::component]
+    pub(crate) fn show_interactive(
+        self,
+        cx: &mut UiContext,
+        radius: f32,
+        smoothing: f32,
+        hovered: bool,
+        pressed: bool,
+    ) {
+        self.show_surface(
+            cx,
+            radius,
+            smoothing,
+            Some([f32::from(hovered), f32::from(pressed)]),
+        );
+    }
+    fn show_surface(
+        self,
+        cx: &mut UiContext,
+        radius: f32,
+        corner_smoothing: f32,
+        feedback: Option<[f32; 2]>,
+    ) {
+        let options = self
+            .follow_preferences(cx.display_preferences())
+            .validated();
         if options.enabled {
             let animated = options.animated && !options.reduce_motion;
             let tint = cx.theme().resolve(options.tint);
-            shader(cx, &LIQUID_GLASS)
+            let surface = cx.theme().surface;
+            let brightness = (((surface >> 16) & 255) as f32 * 0.2126
+                + ((surface >> 8) & 255) as f32 * 0.7152
+                + (surface & 255) as f32 * 0.0722)
+                / 255.;
+            let style = match options.style {
+                GlassStyle::Custom => 0.,
+                GlassStyle::Regular => 1.,
+                GlassStyle::Clear => 2.,
+            };
+            let feedback = feedback.filter(|_| options.interactive);
+            let amounts = feedback.unwrap_or([0.; 2]);
+            // A fixed two-DIP canvas margin encloses MyGO's 1.1/0.45-DIP growth.
+            let outset = if feedback.is_some() { 2. } else { 0. };
+            let max_sigma = match options.style {
+                GlassStyle::Custom => 0.6 + options.frost * 5.,
+                GlassStyle::Regular => 10. * options.frost / 0.42,
+                GlassStyle::Clear => options.frost / 0.42,
+            };
+            let surface = shader(cx, &LIQUID_GLASS)
+                .prefilter_backdrop(max_sigma)
                 .absolute(0., 0.)
                 .radius(0.)
                 .width_percent(100.)
@@ -110,8 +208,19 @@ impl LiquidGlass {
                     (tint & 255) as f32 / 255.,
                     0.,
                     corner_smoothing,
+                    style,
+                    options.clarity,
+                    f32::from(brightness < 0.5),
+                    amounts[0],
+                    amounts[1],
+                    outset,
+                    outset,
                 ])
+                .paint_outset(outset, outset)
                 .animated(animated);
+            if feedback.is_some() && !options.reduce_motion {
+                surface.transition_value(16, 120).transition_value(17, 150);
+            }
         } else {
             column(cx)
                 .absolute(0., 0.)
@@ -217,7 +326,7 @@ impl BackdropBlur {
     }
 }
 static BACKDROP_BLUR: crate::ShaderAsset =
-    crate::shader_asset!("../assets/materials/backdrop_blur.wgsl").read_backdrop();
+    crate::shader_asset!("../assets/materials/backdrop_blur.wgsl").prefilter_backdrop(128.);
 /// Shared source for renderer and managed compatibility entry points.
 pub const fn backdrop_blur_shader() -> crate::ShaderAsset {
     BACKDROP_BLUR
@@ -254,14 +363,16 @@ fn blur_surface<'u, 'e>(
 ) -> crate::Shader<'u, 'e, 'static> {
     let options = options.validated();
     let tint = cx.theme().resolve(options.tint);
-    shader(cx, &BACKDROP_BLUR).values(&[
-        options.radius,
-        mode,
-        options.tint_opacity,
-        0.,
-        ((tint >> 16) & 255) as f32 / 255.,
-        ((tint >> 8) & 255) as f32 / 255.,
-        (tint & 255) as f32 / 255.,
-        0.,
-    ])
+    shader(cx, &BACKDROP_BLUR)
+        .prefilter_backdrop(options.radius)
+        .values(&[
+            options.radius,
+            mode,
+            options.tint_opacity,
+            0.,
+            ((tint >> 16) & 255) as f32 / 255.,
+            ((tint >> 8) & 255) as f32 / 255.,
+            (tint & 255) as f32 / 255.,
+            0.,
+        ])
 }

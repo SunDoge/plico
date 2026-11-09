@@ -543,6 +543,7 @@ mod tests {
     fn request() -> Arc<ParagraphRequest> {
         Arc::new(ParagraphRequest {
             font_revision: 0,
+            raster_scale_hint: None,
             text: "Hello ffi".into(),
             font_size: 16.,
             font_weight: 400.,

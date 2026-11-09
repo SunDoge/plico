@@ -1,0 +1,56 @@
+name: macOS native checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Native verification scope
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - cpu
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+
+  macos-native:
+    name: macOS native checks
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          toolchain: stable
+          cache-key: workspace-ci-macos-native-v1
+          cache-workspace-crates: true
+          cache-on-failure: false
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Run native CoreText, Metal and live-window checks
+        env:
+          PLICO_MACOS_CHECK_MODE: ${{ inputs.mode }}
+          PLICO_MACOS_CHECK_REPORT_DIR: reports/macos-native-ci
+        run: scripts/check-macos-native.sh
+      - name: Publish native check summary
+        if: always()
+        run: |
+          if [[ -f reports/macos-native-ci/summary.txt ]]; then
+            cat reports/macos-native-ci/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -330,7 +330,7 @@ impl EffectPayload {
                 ..
             } => builtin::WINDOW_CLOSE,
             Self::WindowControl {
-                command: WindowCommand::SetMaximized(_),
+                command: WindowCommand::SetMaximized(_) | WindowCommand::ToggleMaximized,
                 ..
             } => builtin::WINDOW_SET_MAXIMIZED,
             Self::WindowControl {

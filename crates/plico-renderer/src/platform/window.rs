@@ -101,7 +101,13 @@ pub struct WindowOptions {
     pub resizable: bool,
     /// Whether the OS draws its standard title bar and border.
     pub decorations: bool,
-    /// Visual client-area corner radius in logical pixels. Requires compositor alpha.
+    /// Extend app content into the transparent macOS titlebar while retaining
+    /// native traffic lights. Ignored on other platforms or without decorations.
+    #[serde(default)]
+    pub titlebar_overlay: bool,
+    /// Client-area corner radius in logical pixels. macOS uses native continuous
+    /// content-layer corners and a system shadow; other hosts use a visual GPU
+    /// clip. Requires compositor alpha.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.
@@ -133,6 +139,7 @@ impl Default for WindowOptions {
             resize_edges: WindowResizeEdges::all(),
             resizable: true,
             decorations: true,
+            titlebar_overlay: false,
             corner_radius: 0,
             centered: false,
             background: WindowBackground::Opaque,
@@ -256,6 +263,14 @@ impl WindowOptions {
         self
     }
 
+    /// Use an app-drawn header beneath the native macOS window controls.
+    /// The app must reserve space for traffic lights and supply drag regions.
+    /// Other platforms retain their existing native decorations.
+    pub fn titlebar_overlay(mut self, enabled: bool) -> Self {
+        self.titlebar_overlay = enabled;
+        self
+    }
+
     /// Place the initial window in the center of the primary monitor when supported.
     pub fn centered(mut self, centered: bool) -> Self {
         self.centered = centered;
@@ -297,9 +312,12 @@ pub enum WindowCommand {
     Minimize,
     /// Set or clear the maximized state.
     SetMaximized(bool),
+    /// Toggle maximization using the current native state.
+    ToggleMaximized,
     /// Replace the native window title.
     SetTitle(String),
     /// Begin an OS-managed window drag from the current pointer gesture.
+    /// macOS titlebar double clicks follow the system action instead.
     StartDragging,
     /// Restore a hidden or surface-released logical window.
     Show,
@@ -317,6 +335,19 @@ mod tests {
 
         assert_eq!(options.initial_inner_size, (1, 1));
         assert_eq!(options.min_inner_size, Some((1, 1)));
+    }
+
+    #[test]
+    fn titlebar_overlay_is_opt_in_and_old_options_keep_native_decorations() {
+        let options = WindowOptions::new().titlebar_overlay(true);
+        assert!(options.decorations && options.titlebar_overlay);
+        let mut json = serde_json::to_value(&options).unwrap();
+        assert_eq!(json["titlebarOverlay"], true);
+        let restored: WindowOptions = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(restored, options);
+        json.as_object_mut().unwrap().remove("titlebarOverlay");
+        let legacy: WindowOptions = serde_json::from_value(json).unwrap();
+        assert!(legacy.decorations && !legacy.titlebar_overlay);
     }
 
     #[test]

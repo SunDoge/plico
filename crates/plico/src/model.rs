@@ -153,6 +153,31 @@ pub enum Color {
     /// Informational state, independent of the interactive accent.
     Info,
 }
+/// Initial presentation for a newly mounted group. Geometry is laid out at
+/// its target size; the host samples these paint-only channels as one timeline.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Presentation {
+    pub opacity: f32,
+    pub scale: [f32; 2],
+    pub translate: [f32; 2],
+}
+impl Default for Presentation {
+    fn default() -> Self {
+        Self {
+            opacity: 1.,
+            scale: [1., 1.],
+            translate: [0., 0.],
+        }
+    }
+}
+impl Presentation {
+    pub fn valid(self) -> bool {
+        self.opacity.is_finite()
+            && (0. ..=1.).contains(&self.opacity)
+            && self.scale.iter().all(|v| v.is_finite() && *v >= 0.)
+            && self.translate.iter().all(|v| v.is_finite())
+    }
+}
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
@@ -278,8 +303,8 @@ impl SliderSpec {
         })
     }
 }
-/// One outer box shadow. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
-/// The shadow is excluded from the node interior, including translucent fills.
+/// Box shadow parameters. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
+/// Outer shadows exclude the node interior; inset shadows stay inside its contour.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoxShadow {
     pub offset_x: f32,
@@ -317,7 +342,7 @@ pub struct Style {
     /// Gaussian foreground sigma in logical pixels; zero disables filtering.
     #[invalidates(PAINT)]
     pub foreground_blur: f32,
-    /// Continuous-corner easing in 0..=1; zero keeps circular corners.
+    /// Continuous-corner easing in 0..=1, defaulting to 1; zero selects circular arcs.
     #[invalidates(PAINT)]
     pub corner_smoothing: f32,
     /// Optional outer shadow; changing it only invalidates paint.
@@ -327,6 +352,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[invalidates(PAINT)]
     pub ambient_shadow: Option<BoxShadow>,
+    /// Inner shadow above the background, clipped to the continuous border contour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(PAINT)]
+    pub inset_shadow: Option<BoxShadow>,
     /// Keep this node at least this far below its scroll port's top while its
     /// containing block is in view (CSS sticky, top inset). `None` is static.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -411,6 +440,8 @@ pub struct Style {
     /// Tween explicit dimensions, spacing and paint properties; zero snaps.
     #[invalidates(PAINT)]
     pub transition_ms: u16,
+    #[invalidates(PAINT)]
+    pub enter_from: Option<Presentation>,
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub gap: f32,
     #[invalidates(padding as horizontal_padding, LAYOUT, HIT_TEST, SEMANTICS)]
@@ -443,6 +474,10 @@ pub struct Style {
     /// Styled composite button; native hosts may animate its disabled attenuation.
     #[invalidates(PAINT)]
     pub styled_button: bool,
+    /// A child material supplies the surface. Keep focus/semantics but suppress inferred button fills.
+    #[serde(default)]
+    #[invalidates(PAINT)]
+    pub material_background: bool,
     /// Retain native input semantics without built-in control painting.
     /// Frontends can supply their own visuals around a range editing surface.
     #[serde(default = "control_chrome_default")]
@@ -480,9 +515,10 @@ impl Default for Style {
             selectable: false,
             backdrop_blur: 0.,
             foreground_blur: 0.,
-            corner_smoothing: 0.,
+            corner_smoothing: 1.,
             shadow: None,
             ambient_shadow: None,
+            inset_shadow: None,
             sticky_top: None,
             background_alpha: 1.,
             width: None,
@@ -518,6 +554,7 @@ impl Default for Style {
             scale: [1., 1.],
             radius: 0.,
             transition_ms: 0,
+            enter_from: None,
             gap: 0.,
             padding: 0.,
             padding_x: None,
@@ -532,6 +569,7 @@ impl Default for Style {
             background: None,
             disabled: false,
             styled_button: false,
+            material_background: false,
             control_chrome: true,
             checked: false,
             input_revision: 0,
@@ -584,8 +622,10 @@ impl Style {
             && (0. ..=1.).contains(&self.corner_smoothing)
             && self.shadow.is_none_or(BoxShadow::valid)
             && self.ambient_shadow.is_none_or(BoxShadow::valid)
+            && self.inset_shadow.is_none_or(BoxShadow::valid)
             && self.background_alpha.is_finite()
             && (0. ..=1.).contains(&self.background_alpha)
+            && self.enter_from.is_none_or(Presentation::valid)
             && self.opacity.is_finite()
             && (0. ..=1.).contains(&self.opacity)
             && self.translate.iter().all(|v| v.is_finite())
@@ -696,6 +736,8 @@ pub(crate) struct Node {
     pub touched: u64,
     pub auto: u32,
     pub scroll_observed: std::cell::Cell<bool>,
+    pub wake_at: Option<std::time::Duration>,
+    pub retained_exit: bool,
     pub order_dirty: bool,
     /// Invalidation accumulated where declarations mutate the node, drained by
     /// the commit pass. Replaces a retained style snapshot per node.
@@ -724,6 +766,8 @@ impl Node {
             touched: 0,
             auto: 0,
             scroll_observed: std::cell::Cell::new(false),
+            wake_at: None,
+            retained_exit: false,
             order_dirty: true,
             // A fresh node paints for the first time: every channel is stale.
             pending_changes: Changes::LAYOUT

@@ -348,7 +348,7 @@ impl<'de> serde::Deserialize<'de> for ToastHost {
 /// time is over. Declare once in the view, wherever; the frame clock drives
 /// the countdown, and the pointer resting on a toast holds its time (MyGO
 /// toastTime semantics). Returns whether any toast still shows; animation
-/// frames keep coming while a lifetime or presence animation is active.
+/// frames drive presence animations; a deadline wakes settled toasts at expiry.
 /// Closed toasts stop accepting input immediately; their pixels remain until
 /// fade/slide-out completes. Theme `interaction_ms = 0` disables the tween.
 pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
@@ -517,16 +517,29 @@ pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
     for id in close_ids {
         host.close_at(&id, Some(now));
     }
-    if host.entries[host.entries.len().saturating_sub(3)..]
-        .iter()
-        .any(|entry| {
-            (!host.held && entry.toast.life().is_some())
-                || entry
-                    .motion
-                    .as_ref()
-                    .is_some_and(|motion| motion.active(now))
-        })
-        || !host.exiting.is_empty()
+    let visible = &host.entries[host.entries.len().saturating_sub(3)..];
+    if !host.held {
+        // MyGO schedules the next expiration rather than drawing every frame
+        // while a settled toast merely waits for its lifetime to elapse.
+        if let Some(left) = visible
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .toast
+                    .life()
+                    .map(|life| life.saturating_sub(entry.shown))
+            })
+            .min()
+        {
+            cx.request_rebuild_at(now.saturating_add(left));
+        }
+    }
+    if visible.iter().any(|entry| {
+        entry
+            .motion
+            .as_ref()
+            .is_some_and(|motion| motion.active(now))
+    }) || !host.exiting.is_empty()
     {
         cx.request_animation_frame();
     }

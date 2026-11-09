@@ -71,13 +71,16 @@ bridge: `shader_asset!` embeds source at Rust compile time.
 
 ## Damage and resources
 
-This interface permits only a uniform binding, not arbitrary textures, storage or
-backdrop reads. Its output is constrained to a standalone texture rectangle, and
+Complete modules permit the validated uniform binding, not arbitrary textures or
+storage. Function-style assets may additionally declare a sealed host backdrop
+through `read_backdrop` / `prefilter_backdrop`. Its output is constrained to a standalone texture rectangle, and
 all changing inputs, including time, appear in `ShaderEffect`. The wgpu bridge
 therefore supplies local ink bounds to damage tracking. An unchanged static effect
 can skip rendering/presentation. Unknown bounds in other consumers still fall
-back conservatively. Expanding effects or backdrop effects will need an explicit
-resource/damage contract before extending this interface.
+back conservatively. The wgpu host supplies explicit backdrop input bounds and
+expands replay to restore those inputs before sampling, including overlap chains.
+Other consumers keep the conservative policy; this does not expose arbitrary
+external textures or filter graphs.
 
 Native effect outputs and pipelines reuse the shared renderer resource helper,
 through a wgpu-view interface rather than scene or texture-binding replay.

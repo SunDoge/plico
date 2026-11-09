@@ -4,6 +4,27 @@ use kurbo::{Affine, Rect};
 use peniko::Brush;
 use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
+/// Reborrow either an existing draw slice or a prepared payload without materialization.
+#[derive(Clone, Copy)]
+pub(crate) enum DrawSource<'a> {
+    Borrowed(&'a [Draw<'a>]),
+    Prepared(&'a PreparedScene),
+}
+impl<'a> DrawSource<'a> {
+    pub(crate) fn len(self) -> usize {
+        match self {
+            Self::Borrowed(items) => items.len(),
+            Self::Prepared(scene) => scene.draws.len(),
+        }
+    }
+    pub(crate) fn iter(self) -> impl ExactSizeIterator<Item = Draw<'a>> + Clone {
+        (0..self.len()).map(move |index| match self {
+            Self::Borrowed(items) => items[index],
+            Self::Prepared(scene) => scene.draw_at(index),
+        })
+    }
+}
+
 /// Retained prepared draws. Font layouts remain owned until the frame is discarded.
 pub struct PreparedScene {
     draws: Vec<PreparedDraw>,
@@ -14,6 +35,7 @@ pub struct PreparedScene {
 }
 /// An isolated source-over or additive group. Children are drawn into a transparent GPU
 /// texture, then alpha/clip are applied once to the completed group.
+#[derive(Clone)]
 pub struct PreparedLayer {
     pub(crate) scene: std::rc::Rc<PreparedScene>,
     pub(crate) quad: Quad,
@@ -34,6 +56,7 @@ struct Payloads {
 struct PreparedText {
     layout: std::rc::Rc<crate::text::GlyphLayout>,
     origin: [f64; 2],
+    scale: f64,
     color: [f32; 4],
     clip: [f32; 4],
 }
@@ -80,10 +103,10 @@ impl PreparedDraw {
                         let [x, y, w, h] = glyph.ink_bounds;
                         (w > 0. && h > 0.).then(|| {
                             Rect::new(
-                                text.origin[0] + glyph.x + x,
-                                text.origin[1] + glyph.y + y,
-                                text.origin[0] + glyph.x + x + w,
-                                text.origin[1] + glyph.y + y + h,
+                                text.origin[0] + (glyph.x + x) * text.scale,
+                                text.origin[1] + (glyph.y + y) * text.scale,
+                                text.origin[0] + (glyph.x + x + w) * text.scale,
+                                text.origin[1] + (glyph.y + y + h) * text.scale,
                             )
                             .inflate(4., 4.)
                         })
@@ -108,6 +131,80 @@ pub struct PreparedStorageStats {
     pub ink_bytes: usize,
 }
 impl PreparedScene {
+    /// Conservative submitted ink, including AA, scissor and mask limits.
+    /// Opacity groups use it to avoid allocating a viewport-sized target for
+    /// a small disabled control whose logical group clip spans the window.
+    pub(crate) fn backdrop_bounds(&self) -> Option<Rect> {
+        let mut bounds = None::<Rect>;
+        for (effect, quad) in &self.payloads.effects {
+            if effect.reads_backdrop() {
+                let [x, y, w, h] = quad.rect;
+                let rect = Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
+                bounds = Some(bounds.map_or(rect, |old| old.union(rect)));
+            }
+        }
+        for layer in &self.payloads.layers {
+            if let Some(rect) = layer.scene.backdrop_bounds() {
+                bounds = Some(bounds.map_or(rect, |old| old.union(rect)));
+            }
+        }
+        bounds
+    }
+    pub(crate) fn reads_backdrop(&self) -> bool {
+        self.payloads
+            .effects
+            .iter()
+            .any(|(effect, _)| effect.reads_backdrop())
+            || self
+                .payloads
+                .layers
+                .iter()
+                .any(|layer| layer.scene.reads_backdrop())
+    }
+    fn content_bounds(&self) -> Option<Rect> {
+        let mut mask = None;
+        let mut result: Option<Rect> = None;
+        for draw in &self.draws {
+            let clip = match draw {
+                PreparedDraw::SetMask(value) => {
+                    mask = Some(value.bounds());
+                    continue;
+                }
+                PreparedDraw::ResetMask => {
+                    mask = None;
+                    continue;
+                }
+                PreparedDraw::Quad(i) => self.payloads.quads[*i].clip,
+                PreparedDraw::Layer(i) => self.payloads.layers[*i].quad.clip,
+                PreparedDraw::Effect(i) => self.payloads.effects[*i].1.clip,
+                PreparedDraw::Image(i) => self.payloads.images[*i].quad.clip,
+                #[cfg(all(target_os = "linux", feature = "system-text"))]
+                PreparedDraw::Text(i) => Some(self.payloads.text[*i].clip),
+            };
+            // Quad vertices extend one pixel beyond the nominal rectangle.
+            let mut ink = draw.ink_bounds(&self.payloads);
+            if ink.is_zero_area() {
+                continue;
+            }
+            ink = ink.inflate(1., 1.);
+            if let Some([x, y, w, h]) = clip {
+                ink = ink.intersect(Rect::new(
+                    x as f64,
+                    y as f64,
+                    (x + w) as f64,
+                    (y + h) as f64,
+                ));
+            }
+            if let Some(mask) = mask {
+                ink = ink.intersect(mask);
+            }
+            if !ink.is_zero_area() {
+                result = Some(result.map_or(ink, |r| r.union(ink)));
+            }
+        }
+        result
+    }
+
     /// Estimate damage using this exact flattened stream and native ink geometry.
     /// Advancing a tracker does not draw pixels. The owner must invalidate it
     /// whenever the corresponding target was not successfully updated, and on
@@ -117,9 +214,24 @@ impl PreparedScene {
         tracker: &mut plico_renderer::damage::SceneDamageTracker,
         size: [u32; 2],
     ) -> plico_renderer::DamageRegion {
-        tracker.update_indexed(&self.flattened, size[0], size[1], |index, _| {
-            self.ink[index]
-        })
+        tracker.update_indexed_with_backdrops(
+            &self.flattened,
+            size[0],
+            size[1],
+            |index, _| self.ink[index],
+            |_, command| match command {
+                PaintCommand::Shader { effect, transform } if effect.reads_backdrop() => {
+                    let [width, height] = effect.logical_size();
+                    Some(transform.transform_rect_bbox(Rect::new(
+                        0.,
+                        0.,
+                        f64::from(width),
+                        f64::from(height),
+                    )))
+                }
+                _ => None,
+            },
+        )
     }
 
     /// CPU vector capacities for this scene only; not process RSS.
@@ -140,29 +252,34 @@ impl PreparedScene {
         }
     }
     pub fn draws(&self) -> Vec<Draw<'_>> {
+        self.draw_iter().collect()
+    }
+    /// Traverse immutable prepared draws without allocating a temporary command vector.
+    pub fn draw_iter(&self) -> impl ExactSizeIterator<Item = Draw<'_>> + Clone {
+        DrawSource::Prepared(self).iter()
+    }
+    fn draw_at(&self, index: usize) -> Draw<'_> {
         let data = &self.payloads;
-        self.draws
-            .iter()
-            .map(|draw| match draw {
-                PreparedDraw::Quad(i) => Draw::Quad(&data.quads[*i]),
-                PreparedDraw::Layer(i) => Draw::Layer(&data.layers[*i]),
-                PreparedDraw::Effect(i) => {
-                    let (effect, q) = &data.effects[*i];
-                    Draw::Effect(effect, q)
-                }
-                PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
-                PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
-                PreparedDraw::ResetMask => Draw::ResetMask,
-                #[cfg(all(target_os = "linux", feature = "system-text"))]
-                PreparedDraw::Text(i) => {
-                    let text = &data.text[*i];
-                    let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
-                    run.clip = Some(text.clip);
-                    run.clip_antialias = true;
-                    Draw::Text(run)
-                }
-            })
-            .collect()
+        match &self.draws[index] {
+            PreparedDraw::Quad(i) => Draw::Quad(&data.quads[*i]),
+            PreparedDraw::Layer(i) => Draw::Layer(&data.layers[*i]),
+            PreparedDraw::Effect(i) => {
+                let (effect, q) = &data.effects[*i];
+                Draw::Effect(effect, q)
+            }
+            PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
+            PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
+            PreparedDraw::ResetMask => Draw::ResetMask,
+            #[cfg(all(target_os = "linux", feature = "system-text"))]
+            PreparedDraw::Text(i) => {
+                let text = &data.text[*i];
+                let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
+                run.scale = text.scale;
+                run.clip = Some(text.clip);
+                run.clip_antialias = true;
+                Draw::Text(run)
+            }
+        }
     }
 }
 fn root_clip_key(rect: Rect) -> [u64; 4] {
@@ -179,6 +296,34 @@ fn unsupported(index: usize, reason: impl Into<String>) -> Error {
         command: index,
         reason: reason.into(),
     }
+}
+#[cfg(any(
+    all(target_arch = "wasm32", feature = "web"),
+    all(
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
+        feature = "system-text"
+    )
+))]
+fn paragraph_raster(
+    request: &std::sync::Arc<plico_renderer::paragraph::ParagraphRequest>,
+    scale: f64,
+    index: usize,
+) -> Result<(
+    std::sync::Arc<plico_renderer::paragraph::ParagraphRequest>,
+    f64,
+)> {
+    let density = request.raster_scale_hint.unwrap_or(scale);
+    if !density.is_finite() || density <= 0. {
+        return Err(unsupported(index, "invalid paragraph raster density"));
+    }
+    let request = if request.raster_scale_hint.is_some() {
+        let mut request = (**request).clone();
+        request.raster_scale_hint = None;
+        std::sync::Arc::new(request)
+    } else {
+        request.clone()
+    };
+    Ok((request, density))
 }
 pub(crate) fn uniform(transform: Affine, index: usize) -> Result<(f64, [f64; 2])> {
     let [a, b, c, d, e, f] = transform.as_coeffs();
@@ -307,11 +452,31 @@ impl Renderer {
         size: [u32; 2],
     ) -> Result<std::rc::Rc<PreparedScene>> {
         self.validate_frame(0, size, [0.; 4], 0.)?;
-        self.prepare_scene_with_clip(
+        let prepared = self.prepare_scene_with_clip(
             scene,
             size,
             Rect::new(0., 0., size[0] as f64, size[1] as f64),
-        )
+        )?;
+        // Keep reusable subtrees of the current graph, not historical pages
+        // and viewport sizes whose rasters may otherwise outlive LRU eviction.
+        fn collect(
+            scene: &std::rc::Rc<PreparedScene>,
+            live: &mut std::collections::HashSet<*const PreparedScene>,
+        ) {
+            if !live.insert(std::rc::Rc::as_ptr(scene)) {
+                return;
+            }
+            for layer in &scene.payloads.layers {
+                collect(&layer.scene, live);
+            }
+        }
+        let mut live = std::collections::HashSet::new();
+        collect(&prepared, &mut live);
+        self.prepared_cache.retain(|_, entries| {
+            entries.retain(|entry| live.contains(&std::rc::Rc::as_ptr(entry)));
+            !entries.is_empty()
+        });
+        Ok(prepared)
     }
     fn prepare_scene_with_clip(
         &mut self,
@@ -754,15 +919,37 @@ impl Renderer {
                                 layer_clip = Rect::ZERO;
                             }
                         }
+                        // Filter sources still need their entire sampling halo.
+                        // Unfiltered opacity groups only need the submitted ink;
+                        // their clip often intentionally covers the whole window
+                        // so children may overflow their parent's layout box.
+                        let target_bounds = if blur.is_none() {
+                            let ink = child
+                                .content_bounds()
+                                .unwrap_or(Rect::ZERO)
+                                .intersect(layer_clip);
+                            // Preserve reasonably sized targets so small content
+                            // changes do not create a new pool size every frame.
+                            if ink.area() * 4. < layer_clip.area() {
+                                ink
+                            } else {
+                                layer_clip
+                            }
+                        } else {
+                            layer_clip
+                        };
+                        if target_bounds.is_zero_area() {
+                            continue;
+                        }
                         if let Some(mask) = &composite_mask {
                             draws.push(PreparedDraw::SetMask(mask.clone()));
                         }
                         let q = quad(
                             Rect::new(
-                                layer_clip.x0.floor() - reach,
-                                layer_clip.y0.floor() - reach,
-                                layer_clip.x1.ceil() + reach,
-                                layer_clip.y1.ceil() + reach,
+                                target_bounds.x0.floor() - reach,
+                                target_bounds.y0.floor() - reach,
+                                target_bounds.x1.ceil() + reach,
+                                target_bounds.y1.ceil() + reach,
                             ),
                             [0.; 4],
                             Affine::IDENTITY,
@@ -866,12 +1053,45 @@ impl Renderer {
                             ));
                         }
                     }
+                    PaintCommand::InsetBoxShadow {
+                        transform,
+                        bounds,
+                        hole,
+                        brush,
+                        radius,
+                        std_dev,
+                        corner_smoothing,
+                    } => {
+                        if !std_dev.is_finite()
+                            || *std_dev < 0.
+                            || !radius.is_finite()
+                            || *radius < 0.
+                            || ![hole.x0, hole.y0, hole.x1, hole.y1]
+                                .iter()
+                                .all(|v| v.is_finite())
+                        {
+                            return Err(unsupported(index, "invalid inset shadow geometry"));
+                        }
+                        let (scale, _) = uniform(*transform, index)?;
+                        let mut q = quad(*bounds, [*radius; 4], *transform, clip, index)?;
+                        q.shadow_sigma = (std_dev * scale) as f32;
+                        q.shadow_smoothing = *corner_smoothing;
+                        q.shadow_hole = Some([
+                            ((hole.x0 - bounds.x0) * scale) as f32,
+                            ((hole.y0 - bounds.y0) * scale) as f32,
+                            (hole.width() * scale) as f32,
+                            (hole.height() * scale) as f32,
+                        ]);
+                        q.colors = [brush.components; 2];
+                        draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
+                    }
                     PaintCommand::BoxShadow {
                         transform,
                         rect,
                         brush,
                         radius,
                         std_dev,
+                        corner_smoothing,
                     } => {
                         if !std_dev.is_finite()
                             || *std_dev < 0.
@@ -889,6 +1109,7 @@ impl Renderer {
                             index,
                         )?;
                         q.shadow_sigma = (std_dev * scale) as f32;
+                        q.shadow_smoothing = *corner_smoothing;
                         q.colors = [brush.components; 2];
                         draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                     }
@@ -937,10 +1158,12 @@ impl Renderer {
                         #[cfg(all(target_os = "linux", feature = "system-text"))]
                         {
                             let (scale, origin) = uniform(*transform, index)?;
-                            let layout = self.paragraph_layout(request.clone(), scale)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let layout = self.paragraph_layout(request.clone(), density)?;
                             payloads.text.push(PreparedText {
                                 layout,
                                 origin,
+                                scale: scale / density,
                                 color: request.color.map(|c| c as f32 / 255.),
                                 clip: [
                                     clip.x0 as f32,
@@ -954,13 +1177,19 @@ impl Renderer {
                         #[cfg(all(target_os = "windows", feature = "system-text"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
                             // Four horizontal phases, snapped vertical baselines.
                             // Integer movement never creates a new raster entry.
-                            let snapped_x = (x * 4.).round() / 4.;
-                            let base_x = snapped_x.floor();
+                            let snapped_x = if ratio == 1. {
+                                (x * 4.).round() / 4.
+                            } else {
+                                x
+                            };
+                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
                             let Some(images) = self.windows_paragraph_images(
                                 request.clone(),
-                                scale,
+                                density,
                                 snapped_x - base_x,
                                 |[left, top, right, bottom]| {
                                     // Allow for native coordinate precision,
@@ -985,13 +1214,14 @@ impl Renderer {
                             };
                             let mut bounds: Option<Rect> = None;
                             for (image, origin) in images.iter() {
-                                let left = base_x + f64::from(origin[0]);
-                                let top = y.round() + f64::from(origin[1]);
+                                let left = base_x + f64::from(origin[0]) * ratio;
+                                let top = if ratio == 1. { y.round() } else { y }
+                                    + f64::from(origin[1]) * ratio;
                                 let rect = Rect::new(
                                     left,
                                     top,
-                                    left + f64::from(image.width),
-                                    top + f64::from(image.height),
+                                    left + f64::from(image.width) * ratio,
+                                    top + f64::from(image.height) * ratio,
                                 );
                                 bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
                                 if rect.intersect(clip).is_zero_area() {
@@ -1008,18 +1238,24 @@ impl Renderer {
                         #[cfg(all(target_os = "macos", feature = "system-text"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
-                            let snapped_x = (x * 4.).round() / 4.;
-                            let base_x = snapped_x.floor();
-                            let base_y = y.round();
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
+                            let snapped_x = if ratio == 1. {
+                                (x * 4.).round() / 4.
+                            } else {
+                                x
+                            };
+                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
+                            let base_y = if ratio == 1. { y.round() } else { y };
                             let paragraph = self.macos_paragraph_images(
                                 request.clone(),
-                                scale,
+                                density,
                                 snapped_x - base_x,
                                 [
-                                    clip.x0 - base_x,
-                                    clip.y0 - base_y,
-                                    clip.x1 - base_x,
-                                    clip.y1 - base_y,
+                                    (clip.x0 - base_x) / ratio,
+                                    (clip.y0 - base_y) / ratio,
+                                    (clip.x1 - base_x) / ratio,
+                                    (clip.y1 - base_y) / ratio,
                                 ],
                             )?;
                             let bounds = paragraph.ink;
@@ -1028,7 +1264,7 @@ impl Renderer {
                                     clip.x0,
                                     clip.y0,
                                     clip.x1,
-                                    clip.y1.min(base_y + height).max(clip.y0),
+                                    clip.y1.min(base_y + height * ratio).max(clip.y0),
                                 )
                             } else {
                                 clip
@@ -1046,10 +1282,12 @@ impl Renderer {
                             });
                             for (image, origin) in paragraph.images.iter() {
                                 let rect = Rect::new(
-                                    base_x + f64::from(origin[0]),
-                                    base_y + f64::from(origin[1]),
-                                    base_x + f64::from(origin[0]) + f64::from(image.width),
-                                    base_y + f64::from(origin[1]) + f64::from(image.height),
+                                    base_x + f64::from(origin[0]) * ratio,
+                                    base_y + f64::from(origin[1]) * ratio,
+                                    base_x
+                                        + (f64::from(origin[0]) + f64::from(image.width)) * ratio,
+                                    base_y
+                                        + (f64::from(origin[1]) + f64::from(image.height)) * ratio,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
@@ -1061,14 +1299,16 @@ impl Renderer {
                         #[cfg(all(target_arch = "wasm32", feature = "web"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
                             if let Some((image, offset)) =
-                                self.web_paragraph_image(request.clone(), scale)?
+                                self.web_paragraph_image(request.clone(), density)?
                             {
                                 let rect = Rect::new(
-                                    x + offset[0],
-                                    y + offset[1],
-                                    x + offset[0] + f64::from(image.width),
-                                    y + offset[1] + f64::from(image.height),
+                                    x + offset[0] * ratio,
+                                    y + offset[1] * ratio,
+                                    x + (offset[0] + f64::from(image.width)) * ratio,
+                                    y + (offset[1] + f64::from(image.height)) * ratio,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
@@ -1157,6 +1397,13 @@ impl Renderer {
     }
 }
 
+/// Validated immutable scene data; creating it does not advance damage history.
+pub(crate) struct PreparedFrame {
+    prepared: std::rc::Rc<PreparedScene>,
+    size: [u32; 2],
+    background: [f32; 4],
+}
+
 pub(crate) struct SceneFramePlan {
     prepared: std::rc::Rc<PreparedScene>,
     size: [u32; 2],
@@ -1192,7 +1439,17 @@ impl Renderer {
         // scissors costs more than one full pass (notably while scrolling).
         // Keep the tracker's new history: a full replay still establishes the
         // correct retained target for a later small update or unchanged frame.
-        let full_redraw = matches!(region, plico_renderer::DamageRegion::Full)
+        // Group backdrop inputs can extend outside their output clip. Until
+        // those cross-target dependencies are tracked individually, rebuild
+        // the parent prefix on a changed frame; retain truly unchanged frames.
+        let grouped_backdrop = prepared
+            .payloads
+            .layers
+            .iter()
+            .any(|layer| layer.scene.reads_backdrop());
+        let full_redraw = grouped_backdrop
+            && !matches!(region, plico_renderer::DamageRegion::Empty)
+            || matches!(region, plico_renderer::DamageRegion::Full)
             || self.scene_damage.damage_rects().coverage(size[0], size[1]) >= 0.5;
         tracing::trace!(target: "plico::perf",
             damage_coverage = self.scene_damage.damage_rects().coverage(size[0], size[1]),
@@ -1247,15 +1504,74 @@ impl Renderer {
         background: [f32; 4],
         damage: bool,
     ) -> Result<SceneFramePlan> {
+        let frame = self.prepare_scene_frame(scene, size, background)?;
+        Ok(self.plan_prepared_frame(frame, damage))
+    }
+    /// Validate/prepare before deciding whether a surface is available. Dropping
+    /// this value is harmless to the retained target and its damage baseline.
+    pub(crate) fn prepare_scene_frame(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+        background: [f32; 4],
+    ) -> Result<PreparedFrame> {
         self.validate_frame(0, size, background, 0.)?;
         let prepared = self.prepare_scene(scene, size)?;
+        Ok(PreparedFrame {
+            prepared,
+            size,
+            background,
+        })
+    }
+    /// Recognize a retained frame before waiting for a scarce drawable. This
+    /// probe never advances history for a changed frame that may be abandoned.
+    #[cfg(any(feature = "window", test))]
+    pub(crate) fn prepared_frame_unchanged(&self, frame: &PreparedFrame, damage: bool) -> bool {
+        damage
+            && self.scene_background == Some(frame.background)
+            && self.scene_damage.matches_retained_scene(
+                &frame.prepared.flattened,
+                frame.size[0],
+                frame.size[1],
+            )
+    }
+    /// Advance history only for a frame the caller is ready to encode. A later
+    /// encoding/acquisition/submission failure must still invalidate history.
+    pub(crate) fn plan_prepared_frame(
+        &mut self,
+        frame: PreparedFrame,
+        damage: bool,
+    ) -> SceneFramePlan {
+        let PreparedFrame {
+            prepared,
+            size,
+            background,
+        } = frame;
         let regions = self.scene_regions(&prepared, size, background, damage);
-        Ok(SceneFramePlan {
+        SceneFramePlan {
             prepared,
             size,
             background,
             regions,
-        })
+        }
+    }
+    /// Encode before acquiring a scarce swapchain drawable. The encoder keeps
+    /// its GPU resources alive; callers invalidate damage if acquisition fails.
+    pub(crate) fn encode_scene_plan(
+        &mut self,
+        plan: SceneFramePlan,
+    ) -> Result<wgpu::CommandEncoder> {
+        let result = self.encode_frame_regions(
+            DrawSource::Prepared(&plan.prepared),
+            plan.size,
+            plan.background,
+            0.,
+            plan.regions.as_deref(),
+        );
+        if result.is_err() {
+            self.scene_damage.invalidate();
+        }
+        result
     }
     pub(crate) fn submit_scene_plan(
         &mut self,
@@ -1264,20 +1580,13 @@ impl Renderer {
         format: wgpu::TextureFormat,
     ) -> Result<()> {
         let result = self
-            .encode_frame_regions(
-                &plan.prepared.draws(),
-                plan.size,
-                plan.background,
-                0.,
-                plan.regions.as_deref(),
-            )
+            .encode_scene_plan(plan)
             .and_then(|encoder| self.submit_to_view(encoder, destination, format));
         if result.is_err() {
             self.scene_damage.invalidate();
         }
         result
     }
-
     /// Forget retained presentation after target loss, external replacement or resource changes.
     pub fn invalidate_scene_damage(&mut self) {
         self.scene_damage.invalidate();
@@ -1299,7 +1608,13 @@ impl Renderer {
         let prepared = self.prepare_scene(scene, size)?;
         let regions = self.scene_regions(&prepared, size, background, damage);
         let result = self
-            .encode_frame_regions(&prepared.draws(), size, background, 0., regions.as_deref())
+            .encode_frame_regions(
+                DrawSource::Prepared(&prepared),
+                size,
+                background,
+                0.,
+                regions.as_deref(),
+            )
             .and_then(|encoder| self.read_frame(encoder, size));
         if result.is_err() {
             self.scene_damage.invalidate();
@@ -1323,7 +1638,7 @@ impl Renderer {
             return Ok(None);
         }
         self.encode_frame_regions(
-            &plan.prepared.draws(),
+            DrawSource::Prepared(&plan.prepared),
             plan.size,
             plan.background,
             0.,

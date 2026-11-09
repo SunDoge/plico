@@ -16,6 +16,8 @@ pub mod accessibility;
 pub mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod app_dirs;
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop-integration"))]
+pub mod desktop;
 pub mod effect;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod error;
@@ -39,6 +41,20 @@ pub use plico_renderer::text;
 #[cfg(target_arch = "wasm32")]
 pub use plico_renderer::web;
 pub use plico_renderer::widget;
+#[cfg(any(target_os = "macos", test))]
+mod frame_pacing;
+#[cfg(target_os = "linux")]
+mod linux_preferences;
+#[cfg(target_os = "macos")]
+mod macos_frame_clock;
+#[cfg(target_os = "macos")]
+mod macos_input;
+#[cfg(target_os = "macos")]
+mod macos_preferences;
+#[cfg(target_os = "macos")]
+mod macos_window_frame;
+#[cfg(any(target_os = "macos", test))]
+mod titlebar_action;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_state;
 

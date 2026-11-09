@@ -67,7 +67,7 @@ fn wheel(delta: f64) -> UiEvent {
         position: Point { x: 20., y: 20. },
         delta_x: 0.,
         delta_y: delta,
-        delta_mode: WheelDeltaMode::Pixel,
+        delta_mode: WheelDeltaMode::Line,
         phase: GesturePhase::Changed,
         modifiers: Modifiers::empty(),
     })
@@ -144,8 +144,9 @@ fn ordinary_scroll_moves_geometry_without_redeclaring_or_relayout() {
         assert!(source.adapter.stats.flatten_visits > 0);
     }
     assert_eq!(offset(&source), 480.);
-    // Scrolling has settled, but overlay scrollbars retain their finite fade.
-    assert!(source.has_anim());
+    // The scrollbar hold keeps one deferred wake, not a vsync loop.
+    assert!(!source.has_anim());
+    assert!(source.animation_deadline().is_some());
     clock.advance(Duration::from_millis(1001)).unwrap();
     sample(&mut source, &mut text);
     assert_eq!(source.view.calls, calls);
@@ -339,8 +340,9 @@ fn final_scroll_position_is_presented_even_when_an_event_hits_nothing() {
     clock.advance(Duration::from_millis(160)).unwrap();
     source.prepare_for_event(&mut text);
     assert_eq!(offset(&source), 480.);
+    assert!(!source.has_anim());
     assert!(
-        source.has_anim(),
+        source.animation_deadline().is_some(),
         "overlay scrollbar fade remains scheduled"
     );
     let calls = source.view.calls;

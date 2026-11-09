@@ -7,8 +7,50 @@
 `plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；
 容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
-启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。Skia 材质、原生系统玻璃与模糊金字塔尚未实现。
+启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。wgpu 已有受最大 sigma 限制的面积预滤波模糊金字塔；Skia 材质与原生系统玻璃尚未实现。
+背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
+wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有界纹理数组，批量生成 mip；
+全量／局部与独立／分组的逐像素对照及同进程 A/B 见 [背景架构实验](experiments/wgpu-backdrop-architecture.md)。
 见 [Liquid Glass](liquid-glass.md)。
+
+## 原生桌面服务
+
+可选 `plico-desktop/desktop-integration` 提供声明式托盘菜单、菜单事件、
+关闭后隐藏／恢复、Linux StatusNotifier 宿主探测和消失恢复、可点击系统通知，
+通过 `run_source_with_extensions` 接入同一原生事件循环。
+普通 NotificationShow effect 与可点击通知共享系统通知构造逻辑。
+通知监听最多一个；应用拥有通知内容、偏好存储与业务动作。
+已有独立桌面示例和框架单元测试；Linux X11/D-Bus 原生路径由独立消费应用回归。
+macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
+详见 [桌面集成](desktop-integration.md)。
+
+## 原生显示偏好
+
+macOS 监听 NSWorkspace 辅助功能偏好，Linux 在后台共享 portal Settings 连接并监听变化。
+减少动画和高对比度接入共享 WindowMetrics / DisplayPreferences，应用不保存系统偏好；
+Linux 还兼容 portal 暴露的 GNOME 动画、主题与高对比度设置。没有绘制期系统查询。
+Linux 协议与关闭生命周期经私有 D-Bus mock 服务验证；真实桌面后端、异步首帧、
+portal 不可用及未实现选项的边界见 [Linux 对照](linux-mygo.md)。
+
+## 默认圆角
+
+Rust Style 的默认 corner_smoothing 已设为 1，控件与布局统一采用连续圆角，半径数值不变。
+显式 0 保留圆弧；正圆与完全圆角胶囊在 CPU 与玻璃 WGSL 均保持精确圆弧，不变成方圆形。
+默认／serde／显式覆盖、几何与 GPU 圆角和裁剪回归已覆盖。
+
+## MyGO 材质继续迁移
+
+新增 `LiquidGlass::regular()` / `clear()`、`GlassStyle` 与 Clarity。Regular 的明暗 tone
+随 theme surface 变化，大面板清晰度不会削弱小控件；旧 default/Custom 保持兼容。
+禁用玻璃按钮改用主题 fallback，减少无交互背景采样并保持可读性。
+Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、GPU 像素与交互测试已覆盖。
+交互玻璃的按压外扩／悬停过渡已接入通用 shader scalar transition 与 paint_outset；原生输入、GPU 像素、焦点、裁剪和 idle 有回归。
+新增 `.inset_shadow(BoxShadow)`，在背景上绘制模糊孔洞的补集，并沿连续圆角和祖先 clip 限制范围。
+wgpu 内外阴影现已沿连续 caster／孔洞求 Gaussian coverage，显式圆弧和正圆／胶囊继续保留。
+CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 damage 有 GPU 回归。
+玻璃与 ScrollEdge 已接入面积预滤波金字塔＋残余 Gaussian 核，减少大半径稀疏采样混叠；
+层级按声明的最大 sigma 与 DPI 截止，不保留历史背景纹理，新增颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
+后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
 ## C# MyGO 改进的 Rust 入口
 
@@ -40,7 +82,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 - Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
 - 普通文字默认不额外几何加粗，保留 hint 与真实字重，避免淡边；显式扩张按实际扩张量收紧轮廓容差，避免直边变斜。Linux 默认优先 Noto 中英文字体栈，保留应用字体覆盖能力。
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
-- Gallery 的布局、控件、动画、2048、流式 Markdown 与应用内毛玻璃。
+- Gallery 的布局、控件、动画、2048、[Mines 扫雷](../apps/gallery/docs/mines.md)、流式 Markdown 与应用内毛玻璃。
 - Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
 - [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；不引入空间索引或自动节点几何订阅。虚拟列表复用该计算，保留 smooth scroll、宿主滚动和声明分离、条件帧调度。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。

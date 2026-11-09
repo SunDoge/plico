@@ -359,7 +359,7 @@ fn source_eviction_releases_all_bindings_without_corrupting_in_flight_draws() {
         .render_scene(&return_to_first, [1, 1], [0.; 4], false)
         .unwrap();
     assert_eq!(renderer.image_cache_stats().2, 301);
-    assert_eq!(renderer.image_binding_stats(), (511, 601));
+    assert_eq!(renderer.image_binding_stats(), (1, 601));
 }
 
 #[test]
@@ -475,6 +475,6 @@ fn large_minification_prefilters_odd_images_without_transparent_color_bleed() {
             before.2 + 1,
             "quality/size changes duplicated source upload"
         );
-        assert_eq!(after.1 - before.1, 263936, "mip payload was not accounted");
+        assert_eq!(after.1, 263936, "current mip payload was not accounted");
     }
 }

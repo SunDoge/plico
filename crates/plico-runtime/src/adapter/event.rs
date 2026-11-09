@@ -1,5 +1,6 @@
 //! Native event dispatch and interaction invalidation.
 use super::*;
+use plico_renderer::WheelDeltaMode;
 
 impl Adapter {
     pub(crate) fn update_hover_regions(&self, engine: &Engine) -> bool {
@@ -138,7 +139,7 @@ impl Adapter {
             response.request_redraw = true;
             declare = false;
         }
-        response.request_redraw |= self.tips.needs_frame();
+        response.request_redraw |= self.tips.needs_frame(engine.time().now);
         (response, declare)
     }
     pub(super) fn event_inner(
@@ -147,6 +148,9 @@ impl Adapter {
         mut event: UiEvent,
         declare: &mut bool,
     ) -> EventResponse {
+        if let Some(response) = self.input_pointer_event(engine, &event) {
+            return response;
+        }
         if let Some(response) = self.slider_event(engine, &event) {
             return response;
         }
@@ -268,7 +272,7 @@ impl Adapter {
                         self.pressed = hit;
                         self.focused = hit;
                         self.focus_visible = false;
-                        self.input_pointer(engine, hit, p.position, p.modifiers.shift());
+                        self.input_pointer(engine, hit, p);
                         handled = true;
                     }
                     PointerPhase::Up if p.button == Some(PointerButton::Primary) => {
@@ -282,7 +286,24 @@ impl Adapter {
                         }
                         handled = true;
                     }
+                    PointerPhase::Down if p.button == Some(PointerButton::Secondary) => {
+                        self.hovered = hit;
+                        self.secondary_pressed = hit;
+                        handled = true;
+                    }
+                    PointerPhase::Up if p.button == Some(PointerButton::Secondary) => {
+                        self.hovered = hit;
+                        if let Some(e) = self.secondary_pressed.take().filter(|e| Some(*e) == hit)
+                            && engine.node(e).is_some_and(|n| {
+                                n.kind.capabilities().contains(Capabilities::ACTIVATE)
+                            })
+                        {
+                            engine.queue_secondary_click(e);
+                        }
+                        handled = true;
+                    }
                     PointerPhase::Cancel | PointerPhase::Leave => {
+                        self.secondary_pressed = None;
                         self.pressed = None;
                         self.hovered = None;
                         handled = true;
@@ -342,14 +363,25 @@ impl Adapter {
                             .get(&id)
                             .copied()
                             .unwrap_or(scroll.offset);
-                        let destination = self.scroll_motions.get(&id).map_or(old[1], |m| m.target);
+                        let entity = self.reverse[&id];
+                        // MyGO ui/input.go: precise deltas already follow the
+                        // fingers (including native momentum). Interpolate only
+                        // wheel notches; touching the trackpad takes over at the
+                        // visible offset, never the old wheel destination.
+                        let smooth = w.delta_mode == WheelDeltaMode::Line
+                            && engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                        let destination = if smooth {
+                            self.scroll_motions.get(&id).map_or(old[1], |m| m.target)
+                        } else {
+                            old[1]
+                        };
                         let next = (destination + remaining).clamp(0., scroll.range[1]);
                         remaining -= next - destination;
-                        if next != destination {
-                            let entity = self.reverse[&id];
-                            let smooth = engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                        if next != destination || (!smooth && self.scroll_motions.contains_key(&id))
+                        {
                             *declare |= engine.observes_scroll(entity)
-                                && !(smooth && self.smooth_scroll_enabled);
+                                && !(smooth && self.smooth_scroll_enabled)
+                                && next != old[1];
                             self.scroll_to(id, next, smooth, engine.time().now);
                             handled = true;
                         }
@@ -360,6 +392,7 @@ impl Adapter {
                 }
             }
             UiEvent::Focus(false) => {
+                self.secondary_pressed = None;
                 self.blurred_focus = self.focused;
                 self.scrollbar_drag = None;
                 self.scroll_motions.clear();

@@ -83,6 +83,7 @@ fn run() -> Result<(), Error> {
         "motion" => Page::Motion,
         "lists" => Page::Lists,
         "2048" => Page::Game2048,
+        "mines" => Page::Mines,
         "markdown" => Page::Markdown,
         "glass" => Page::Glass,
         "calendar" => Page::Calendar,

@@ -47,3 +47,76 @@ informs Plico's batch-major damage replay: clear disjoint regions first, keep
 painter order, bind a batch once and omit disjoint batch/region pairs. Plico uses
 conservative instance bounds including its own AA fringe, and retains the
 unculled path for custom vertex materials. This is not opaque occlusion culling.
+
+
+The same revision's `internal/gpu/metal/metal.go` (`armTrim`, `trimIfIdle`, `trim`)
+informs macOS window idle resource recovery: after two seconds without a new
+presentation, release derived textures and shrink drawable storage to 1×1,
+keeping the compositor-owned last frame. Plico uses wgpu surface reconfiguration
+and the host's existing one-shot deadline scheduling, then restores the real
+extent and invalidates retained damage before the next present. See
+`docs/macos-mygo.md` for validation scope; no macOS RSS reduction is claimed from
+Linux GPU tests.
+
+The idle-resource principle also applies to Linux wgpu windows. Unlike the Metal
+adaptation, Linux leaves swapchain extent/configuration unchanged and releases
+only reconstructible offscreen/derived resources. No GTK frame-clock internals
+or private struct offsets are copied. See `docs/linux-mygo.md`.
+
+CoreText bitmap windows (`src/native_raster_window.rs`, `src/macos_paragraph.rs`)
+reference MyGO `internal/text/coretext_darwin.go` and its glyph-cache/draw-time
+clipping separation at `ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT).
+Plico retains native line rasters: small lines use full ink and large lines use
+bounded stable viewport windows with a sampling halo. This is newly written
+Rust, not a port of MyGO's glyph atlas. The existing MyGO MIT notice applies.
+
+`src/window.rs` defers surface extent configuration until a real frame, following
+MyGO `internal/gpu/metal/metal.go::render` / `fit` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT). Desired/native/configured
+extents remain distinct, so queued resize notifications cannot restore idle
+buffers prematurely. The Rust host retains wgpu's surface ownership and its
+own one-shot maintenance, including allocation attempts without a successful
+presentation; this does not port MyGO's asynchronous drawable presenter.
+
+CoreText family resolution is memoized independently of paragraph text/width,
+following the primary/style font and attribute reuse principle in MyGO
+`internal/text/coretext_darwin.go` (`ee3d4bd9bd741f197de231b9fd9b002e9db55577`,
+MIT). Plico uses a bounded 128-entry LRU, skips availability shaping for known
+system/private families, and invalidates choices with its own font/cache lifecycle.
+No MyGO family lookup or runtime source is linked; the existing MIT notice applies.
+
+The single-slot background surface acquisition worker in `src/surface_acquire.rs`
+and its macOS window integration reference MyGO
+`internal/gpu/metal/present.go::presenter` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT): one owned result, waiter-only
+wake, and drain before layer/surface lifecycle changes. This newly written Rust
+uses wgpu's Send/Sync surface contracts and a host event-loop proxy. It does not
+yet retain encoded pendingFrame command buffers across acquisition; that remains
+a separate renderer-lifetime optimization. Existing MyGO MIT attribution applies.
+
+The explicit pre-hide acquisition barrier follows the lifecycle wait/drain
+principle of MyGO's presenter, adapted to wgpu Metal's off-main-thread occlusion
+constraints. This is Plico-specific ordering, not a claim that MyGO Window::Hide
+performs that barrier. Retained target pixels remain available to native window
+animations while acquired swapchain owners are released before host visibility changes.
+
+`src/frame_pass.rs` and `src/macos_frame_pass.rs` reference MyGO
+`internal/darwin/surface.go::{armPass,caPass}` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT): arm one non-repeating
+BeforeWaiting/Exit observer at order 2_000_001 only after presentation, rather
+than entering application callbacks on every idle run-loop pass. Plico records
+per-window present/active-pass/additional-frame/callback counts, owns the CF
+observer/block with Rust RAII, and invalidates it on window destruction. Its subsequent transaction policy uses the observed pass boundary together
+with a timestamped host display tick, rather than guessing native event identity.
+Existing MyGO MIT attribution applies; the constant is an implementation
+reference, not an Apple guarantee of Core Animation's observer order.
+
+`src/transaction_policy.rs` and `src/macos_transaction.rs` adapt MyGO
+`internal/darwin/surface.go::updateLayer` and `internal/gpu/metal/metal.go::Render`
+at the same MIT revision: synchronize layer-changing frames, drain prefetch
+before mode changes, do not prefetch after synchronized presents, and defer
+resize after a synchronized frame to a display boundary outside live resize.
+Plico uses exact scene damage comparison for redundant redraws, typed timestamped
+Rust clock samples, one-shot deadline fallback, and wgpu-hal's existing Metal
+present implementation. HAL guards do not escape and no resource is destroyed;
+the layer is retained without its mutex across CATransaction commit.

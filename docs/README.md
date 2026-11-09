@@ -59,10 +59,14 @@
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |
+| [呈现生命周期](presentation.md) | MyGO 对照、完整弹窗退场、玻璃组背景与文字缩放缓存 |
+| [macOS 与 MyGO 对照](macos-mygo.md) | 原生窗口、文字缓存、空闲调度、macOS 验证入口与未完成项 |
+| [Linux 与 MyGO 对照](linux-mygo.md) | 原生尺寸合并、空闲回收、portal 显示偏好与验证边界 |
 | [交互区域 API（设计）](interaction-api.md) | hover 订阅、局部坐标、命中与反馈时序；尚未实现 |
 | [SVG 图标](icons.md) | CLI 按需生成 Lucide、应用自有集合、currentColor 与默认勾选标记 |
 | [Widget / shader 验收](widget-shader-validation.md) | 本轮目标、实现与逐项验证证据 |
 | [Slider 与数值事件](sliders.md) | 受控标量、拖动、键盘、无障碍与热重载 |
+| [Shader playground](shader-playground.md) | 光谱声波、流体液滴、场景透镜、液态搜索与边缘光 |
 | [Custom shader](shaders.md) | WGSL surface、uniform、GPU 资源与宿主时钟 |
 | [Tooltip](tooltip.md) | 宿主时钟、键盘提示、描述、指针穿透与重载 |
 | [Select / Menu](select-menu.md) | 受控选择、业务 key、命令导航与原生语义 |
@@ -72,6 +76,7 @@
 | [代码编辑器](code-editor.md) | Floem 编辑核心、Parley 可见行、native surface 示例与接入边界 |
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
+| [wgpu 背景依赖与分组](experiments/wgpu-backdrop-architecture.md) | 玻璃局部失效、纹理数组分组、像素一致性及同进程性能 A/B |
 | [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
 | [C# batch frontend 实验](experiments/csharp-batch.md) | csbindgen、原生批量提交、事件回传与编辑反馈耗时 |
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |

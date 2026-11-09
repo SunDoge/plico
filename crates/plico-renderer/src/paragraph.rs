@@ -11,6 +11,8 @@ use std::{rc::Rc, sync::Arc};
 pub struct ParagraphRequest {
     /// Host font-collection revision, so retained drawing detects font changes.
     pub font_revision: u64,
+    /// Paint-only physical raster density for an active transform. Layout stays logical.
+    pub raster_scale_hint: Option<f64>,
     /// Original UTF-8 contents.
     pub text: Arc<str>,
     /// Base font size.
@@ -45,6 +47,7 @@ impl ParagraphRequest {
     pub fn from_paint(paint: &Paint, width: Option<f32>) -> Option<Self> {
         Some(Self {
             font_revision: 0,
+            raster_scale_hint: None,
             text: paint.text.clone()?,
             font_size: paint.font_size,
             font_weight: paint.font_weight,
@@ -113,6 +116,11 @@ pub trait NativeParagraph {
     fn metrics(&self) -> ParagraphMetrics;
     /// UTF-8 insertion boundary nearest a local point.
     fn hit_test(&self, x: f32, y: f32) -> usize;
+    /// UTF-8 range of the visual line nearest a local vertical coordinate.
+    /// Providers without line geometry can return None for a logical fallback.
+    fn line_range_at(&self, _y: f32) -> Option<std::ops::Range<usize>> {
+        None
+    }
     /// Logical caret bounds [x0,y0,x1,y1] at a UTF-8 insertion boundary.
     /// Providers without editing geometry may return None.
     fn caret_rect(&self, _byte: usize) -> Option<[f32; 4]> {
@@ -191,6 +199,20 @@ impl ParagraphLayout {
         match self {
             Self::Native(p) => p.hit_test(x, y),
             Self::Parley(p) => parley::Cursor::from_point(p, x, y).index(),
+        }
+    }
+    /// Visual line under a local y coordinate, independent of bidi direction.
+    pub fn line_range_at(&self, y: f32) -> Option<std::ops::Range<usize>> {
+        if !y.is_finite() {
+            return None;
+        }
+        match self {
+            Self::Native(p) => p.line_range_at(y),
+            Self::Parley(p) => p
+                .lines()
+                .find(|line| y < line.metrics().block_max_coord)
+                .or_else(|| p.lines().next_back())
+                .map(|line| line.text_range()),
         }
     }
     /// Caret bounds from the selected provider, in logical coordinates.

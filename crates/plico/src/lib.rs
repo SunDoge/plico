@@ -21,10 +21,11 @@ pub use calendar::{CalendarDate, CalendarMode, CalendarState, WeekStart};
 pub use local::LocalState;
 pub use storage::{StateStorageSnapshot, StorageError};
 mod calendar;
+pub mod effects;
 pub mod materials;
 mod modal;
 mod model;
-pub use materials::{BackdropBlur, Elevation, LiquidGlass, ScrollEdgeSide};
+pub use materials::{BackdropBlur, Elevation, GlassStyle, LiquidGlass, ScrollEdgeSide};
 mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
@@ -36,11 +37,13 @@ pub use virtual_list::{VirtualList, VirtualListResponse};
 mod numeric;
 pub use numeric::{NumericRange, SliderResponse};
 mod shader;
-pub use shader::{ShaderAsset, ShaderParams, ShaderValue};
+pub use shader::{ShaderAsset, ShaderParams, ShaderTransition, ShaderValue};
 mod snapshot;
 mod text_style;
 mod time;
 pub use time::TimeOfDay;
+mod preferences;
+pub use preferences::DisplayPreferences;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -50,8 +53,8 @@ pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
     Align, BoxShadow, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, ImplicitKey,
-    Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Size, SliderSpec, Style,
-    StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
+    Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Presentation, Size, SliderSpec,
+    Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text};
 pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router};
@@ -172,14 +175,15 @@ pub mod prelude {
         tree_item, virtual_list,
     };
     pub use crate::{
-        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display, Edges,
-        Elevation, FlexDirection, FlexWrap, FontFamily, GridFlow, GridLine, GridTemplate,
-        ImplicitKey, InnerResponse, InputNavigation, InputResponse, Justify, KeyEvent, KeyLocation,
-        KeyPhase, Length, LiquidGlass, Metrics, ModalState, Modifiers, Motion, PopoverState,
-        Position, Response, Route, Router, ScrollEdgeSide, SelectOption, SelectResponse,
-        ShaderAsset, Shortcut, ShortcutMap, SliderResponse, StandardShortcut, SvgAsset, TextBuffer,
-        Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext, VirtualList,
-        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
+        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display,
+        DisplayPreferences, Edges, Elevation, FlexDirection, FlexWrap, FontFamily, GlassStyle,
+        GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
+        InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics,
+        ModalState, Modifiers, Motion, PopoverState, Position, Presentation, Response, Route,
+        Router, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap,
+        SliderResponse, StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse,
+        Track, TrackSize, UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget,
+        component, fr, minmax, percent, px, text,
     };
 }
 
