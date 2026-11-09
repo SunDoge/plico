@@ -120,3 +120,38 @@ Linux 从已有 Pango LayoutIter 获取原始 UTF-8 视觉行范围，复用同�
 保留，普通窗口帧等恢复可见再提交；截图临时重建的 GPU 资源在不可见时立即回收。
 Xvfb 原生回归覆盖遮挡、生命周期隐藏和恢复，以及后台轮询与截图完成。
 完整行为及测试范围见 `macos-mygo.md` 的“不可见窗口不因后台 redraw 恢复呈现资源”。
+
+## Linux 持续对照与原生验证入口
+
+后续 Linux 优化继续以本地 MyGO 同一版本为参考，重点核对
+`internal/linux/surface.go`、`surface_input.go`、`system.go` 和
+`internal/e2e/frame_clock_linux_test.go`。迁移的是调度、输入和资源生命周期原则；
+GTK 特有修补须先判断是否适用于 winit/wgpu。例如 MyGO 的
+`damageGLPaint` 修正 GTK 3 / EGL 在高 DPI 下的 damage 坐标，不能直接套到
+Plico 的 Vulkan 呈现；GtkGLArea 的 alpha attachment / auto-render 开关也不对应
+wgpu 的同名能力。Plico 仍需单独验证分数缩放下的像素和 compositor 行为。
+
+新增统一回归入口：
+
+```sh
+scripts/check-linux-native.sh
+# 无桌面的 X11 基线：
+xvfb-run -a scripts/check-linux-native.sh
+```
+
+需要工作显示服务、wgpu adapter、dbus-run-session；X11 专用回归需要 DISPLAY，
+缺省时仅为这两个回归启动 Xvfb（需安装 xvfb-run）。生命周期示例使用与应用相同的
+winit 后端选择，不再强制 X11；Wayland 桌面可直接执行，完成标记记录实际原生句柄
+对应的 `backend=wayland` 或 `backend=x11`，不能根据会话环境变量推断已覆盖 Wayland。
+无任何显示服务时，独立 Xvfb 回归仍可执行，但生命周期示例会失败；完整无桌面运行
+应使用上面的外层 xvfb-run。
+
+脚本检查共享宿主、私有 D-Bus 上的 portal 延迟启动/重启/信号积压、X11 resize、
+部分更新像素、稳定文字裁剪窗口、空闲目标回收，以及所选后端真实窗口的
+resize / idle / hide 恢复。测试零命中、命令失败或生命周期程序缺少完成标记均失败。
+日志和提交/工作树/显示环境记录保存在忽略的 reports/linux-native 下。
+
+当前 Xvfb / Vulkan 基线已跑通；未执行真实 Wayland compositor、高刷、多屏缩放、
+触控板或 RSS 测量。生命周期输出的 present_p95_us 只衡量成功 present 调用的
+CPU 耗时，不作为帧率或端到端延迟。这里补充的是可复建的验证基础，没有据此声称
+新增了 Linux 性能收益。

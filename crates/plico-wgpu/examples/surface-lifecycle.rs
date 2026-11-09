@@ -4,6 +4,7 @@ use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene, WakeCallback};
 use plico_wgpu::WgpuWindow;
+use raw_window_handle::HasWindowHandle;
 use snafu::Snafu;
 use std::{
     sync::{Arc, Mutex},
@@ -184,8 +185,15 @@ impl Probe {
                 } else {
                     "sync"
                 };
+                let backend = match native.window.window_handle().map_err(error)?.as_raw() {
+                    raw_window_handle::RawWindowHandle::Wayland(_) => "wayland",
+                    raw_window_handle::RawWindowHandle::Xlib(_)
+                    | raw_window_handle::RawWindowHandle::Xcb(_) => "x11",
+                    raw_window_handle::RawWindowHandle::AppKit(_) => "appkit",
+                    _ => "other",
+                };
                 let summary = format!(
-                    "surface-lifecycle: PASS mode={mode} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={}",
+                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={}",
                     self.frame,
                     self.pending,
                     p95.as_micros(),
@@ -316,13 +324,8 @@ impl ApplicationHandler for Probe {
     }
 }
 fn main() -> Result<(), CheckError> {
-    let mut builder = EventLoop::builder();
-    #[cfg(target_os = "linux")]
-    {
-        use winit::platform::x11::EventLoopBuilderExtX11;
-        builder.with_x11();
-    }
-    let event_loop = builder.build().map_err(error)?;
+    // Use the same backend selection as applications, including native Wayland.
+    let event_loop = EventLoop::builder().build().map_err(error)?;
     let proxy = event_loop.create_proxy();
     let outcome = Arc::new(Mutex::new(None));
     event_loop
