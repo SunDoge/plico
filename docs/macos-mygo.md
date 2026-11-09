@@ -478,7 +478,7 @@ PLICO_WGPU_ASYNC_SURFACE=0 cargo run --locked -p plico-wgpu --features window --
 路径为同步，pending=0 不能用于证明 macOS 后台分支的性能。实际 Apple 目标程序
 通过 Clippy 编译检查，但当前环境没有运行 Metal 窗口。macOS 验证脚本现在会执行
 此程序，并要求正常退出及明确的完成标记，将指标写进 summary；失败或缺失标记
-不能算通过。自定义透明圆角、标题栏交互、ProMotion、多显示器和进程 RSS 仍不在
+不能算通过。自定义透明圆角、标题栏交互、ProMotion、多显示器和应用滚动 RSS 增长仍不在
 这个程序的验证范围。
 
 ### 隐藏请求前的获取屏障
@@ -586,3 +586,26 @@ proxy wake 可以到达，但没有 readiness 标记便不因此请求额外窗�
 
 实际原生模块通过 Apple Silicon 目标 Clippy 编译检查；当前 Linux 环境没有执行
 macOS live resize，不能据此声称已测得 AppKit/WindowServer 开销下降或验证视觉效果。
+
+## 原生生命周期的进程内存观测
+
+为后续 MyGO 空闲回收对照补齐实测入口，surface-lifecycle 在 macOS 上用公开的
+[proc_pid_rusage](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h)
+和 `RUSAGE_INFO_V0` 采集当前检查进程的 `ri_resident_size` / `ri_phys_footprint`。
+这不是 Cargo 进程或 renderer 自报的 allocation bytes，也不是总显存；两个指标按
+系统各自口径输出字节值，不能相互替代。
+
+只在 startup、initial、warmup、resized、idle-trimmed、idle-recovered、
+hidden-trimmed、hide-recovered 八个阶段采样，不做每帧查询或周期轮询。最后一个
+恢复样本在显式 GPU 像素读回前采集，避免把读回本身的临时开销混到呈现恢复中。
+原生验证脚本将完整样本写入 summary；任一阶段缺失、数字格式损坏或系统查询失败
+都不能算这项观测通过。API 在 macOS 10.9 起可用，低于当前窗口宿主最低版本。
+
+Apple 目标实际示例 Clippy 检查、Linux X11 生命周期运行，以及脚本的完整样本、
+缺样本、坏格式、缺完成标记、失败退出五种模拟控制流已验证。模拟脚本输出不是
+macOS 内存实测，Linux 路径不会伪造 macOS 数据。
+
+这些是有限阶段的观测，不是峰值采样或 leak gate：驱动异步释放、系统记账和分配器
+保留都可能使即时样本不下降，因此不设置未经测量的“回收后必须少多少 MiB”断言。
+简单矩形窗口也不覆盖 Plicowarden 长时间滚动、文字/玻璃缓存或系统内存压力场景。
+当前环境仍无法提供 macOS 数字，不能据此宣布先前 1–3 GB 增长问题已解决。

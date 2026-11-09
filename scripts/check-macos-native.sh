@@ -27,8 +27,8 @@ summary="$report_dir/summary.txt"
     printf 'Async surface setting: %s\n' "${PLICO_WGPU_ASYNC_SURFACE:-default}"
     rustc --version
     cargo --version
-    printf '%s\n' 'Scope: native text, raster/GPU reuse, shared host tests, opaque surface resize/idle/hide recovery.'
-    printf '%s\n' 'Not covered: custom rounded/translucent window visuals, titlebar actions, ProMotion, OS-event queue identity, process RSS.'
+    printf '%s\n' 'Scope: native text, raster/GPU reuse, shared host tests, opaque surface resize/idle/hide recovery and process memory samples.'
+    printf '%s\n' 'Not covered: custom rounded/translucent window visuals, titlebar actions, ProMotion, OS-event queue identity, application scrolling/RSS growth.'
 } > "$summary"
 
 run_tests() {
@@ -63,11 +63,17 @@ run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --n
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
 run_tests host cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib -- --test-threads=1
 run_surface_window() {
-    local marker='' line
+    local marker='' line phase memory_phases=' '
+    local memory_pattern='^surface-memory: phase=([^[:space:]]+) rss_bytes=([0-9]+) footprint_bytes=([0-9]+)$'
     printf '%s\n' 'Running live-window (opens a window briefly; keep it visible)'
     if cargo run --color never --locked -p plico-wgpu --no-default-features --features window,system-text --example surface-lifecycle 2>&1 | tee "$report_dir/live-window.log"; then
         while IFS= read -r line; do
             if [[ $line == 'surface-lifecycle: PASS '* ]]; then marker=$line; fi
+            if [[ $line =~ $memory_pattern ]]; then
+                phase=${BASH_REMATCH[1]}
+                memory_phases+="$phase "
+                printf '%s\n' "$line" >> "$summary"
+            fi
         done < "$report_dir/live-window.log"
     else
         printf '%s\n' 'FAIL live-window (command failed)' >> "$summary"
@@ -77,8 +83,14 @@ run_surface_window() {
         printf '%s\n' 'FAIL live-window (completion marker missing)' | tee -a "$summary" >&2
         return 1
     fi
+    for phase in startup initial warmup resized idle-trimmed idle-recovered hidden-trimmed hide-recovered; do
+        if [[ $memory_phases != *" $phase "* ]]; then
+            printf 'FAIL live-window (missing memory sample: %s)\n' "$phase" | tee -a "$summary" >&2
+            return 1
+        fi
+    done
     printf '%s\n' "PASS live-window: $marker" >> "$summary"
 }
 run_surface_window
 printf 'Native checks passed. Reports: %s\n' "$report_dir"
-printf '%s\n' 'Custom window visuals, OS input, ProMotion and RSS still require separate acceptance; see docs/macos-mygo.md.'
+printf '%s\n' 'Custom window visuals, OS input, ProMotion and application RSS still require separate acceptance; see docs/macos-mygo.md.'

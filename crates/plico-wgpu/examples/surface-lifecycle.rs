@@ -1,5 +1,8 @@
 //! Main-thread native window exercise; requires `--features window`.
 //! Reported latency is the CPU duration of successful present() calls, not FPS.
+#[path = "surface-lifecycle/memory.rs"]
+mod memory;
+
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
 use plico_renderer::{PaintScene, Scene, WakeCallback};
@@ -118,6 +121,7 @@ impl Probe {
         self.frame += 1;
         match self.phase {
             Phase::Initial => {
+                memory::report("initial")?;
                 self.phase = Phase::Warmup;
                 self.warmup_start = Some(Instant::now());
                 native.window.focus_window();
@@ -129,6 +133,7 @@ impl Probe {
                     native.window.request_redraw();
                 } else {
                     self.warmup_elapsed = self.warmup_start.unwrap().elapsed();
+                    memory::report("warmup")?;
                     self.phase = Phase::Resize;
                     self.old_extent = [extent.width, extent.height];
                     for size in [(520., 350.), (580., 360.), (540., 340.)] {
@@ -140,6 +145,7 @@ impl Probe {
                 }
             }
             Phase::Resize => {
+                memory::report("resized")?;
                 self.phase = Phase::Idle;
                 self.deadline = Some(
                     native
@@ -149,6 +155,7 @@ impl Probe {
                 );
             }
             Phase::AfterIdle => {
+                memory::report("idle-recovered")?;
                 if native.gpu.maintenance_deadline().is_none() {
                     return Err(error("idle recovery did not rearm cleanup"));
                 }
@@ -159,6 +166,7 @@ impl Probe {
                 self.deadline = Some(Instant::now() + Duration::from_millis(250));
             }
             Phase::AfterHide => {
+                memory::report("hide-recovered")?;
                 let (captured_size, pixels) = native
                     .gpu
                     .read_retained_rgba()
@@ -302,10 +310,18 @@ impl ApplicationHandler for Probe {
                             self.fail(event_loop, error("idle maintenance was not consumed"));
                             return;
                         }
+                        if let Err(error) = memory::report("idle-trimmed") {
+                            self.fail(event_loop, error);
+                            return;
+                        }
                         self.phase = Phase::AfterIdle;
                         native.window.request_redraw();
                     }
                     Phase::Hidden => {
+                        if let Err(error) = memory::report("hidden-trimmed") {
+                            self.fail(event_loop, error);
+                            return;
+                        }
                         self.phase = Phase::AfterHide;
                         native.gpu.invalidate_presentation();
                         native.window.set_visible(true);
@@ -324,6 +340,7 @@ impl ApplicationHandler for Probe {
     }
 }
 fn main() -> Result<(), CheckError> {
+    memory::report("startup")?;
     // Use the same backend selection as applications, including native Wayland.
     let event_loop = EventLoop::builder().build().map_err(error)?;
     let proxy = event_loop.create_proxy();
