@@ -36,65 +36,77 @@ const CHARGE_GLOW: f32 = 0.35;
 const FLASH_GAIN: f32 = 1.2;
 const FLASH_DECAY: f32 = 7.0;
 
-fn hash11(n: f32) -> f32 { return fract(sin(n*127.1 + 311.7)*43758.5453); }
-fn settleWL(tau: f32, w: f32, l: f32) -> f32 {
-    if tau <= 0.0 { return 0.0; }
-    return 1.0 - exp(-l*tau)*cos(w*tau);
+fn hash11(n: f32) -> f32 {
+    return fract(sin(n * 127.1 + 311.7) * 43758.5453);
 }
-fn settle(tau: f32) -> f32 { return settleWL(tau, W, L); }
+fn settleWL(tau: f32, w: f32, l: f32) -> f32 {
+    if tau <= 0.0 {
+        return 0.0;
+    }
+    return 1.0 - exp(-l * tau) * cos(w * tau);
+}
+fn settle(tau: f32) -> f32 {
+    return settleWL(tau, W, L);
+}
 fn settleCrit(tau: f32, l: f32) -> f32 {
-    if tau <= 0.0 { return 0.0; }
-    return 1.0 - exp(-l*tau)*(1.0 + l*tau);
+    if tau <= 0.0 {
+        return 0.0;
+    }
+    return 1.0 - exp(-l * tau) * (1.0 + l * tau);
 }
 fn smin(a: f32, b: f32, k: f32) -> f32 {
     var h = max(k - abs(a - b), 0.0) / k;
-    return min(a, b) - h*h*k*0.25;
+    return min(a, b) - h * h * k * 0.25;
 }
 fn hue2rgb(h: f32) -> vec3<f32> {
     let hue = fract(h);
-    var r = clamp(abs(hue*6.0 - 3.0) - 1.0, 0.0, 1.0);
-    var g = clamp(2.0 - abs(hue*6.0 - 2.0), 0.0, 1.0);
-    var b = clamp(2.0 - abs(hue*6.0 - 4.0), 0.0, 1.0);
+    var r = clamp(abs(hue * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+    var g = clamp(2.0 - abs(hue * 6.0 - 2.0), 0.0, 1.0);
+    var b = clamp(2.0 - abs(hue * 6.0 - 4.0), 0.0, 1.0);
     return vec3<f32>(r, g, b);
 }
 fn dotR(fi: f32, seed: f32, t: f32) -> f32 {
-    return 0.036 + 0.010*sin(t*1.3 + seed*TAU) + 0.005*sin(t*2.4 + fi*1.3);
+    return 0.036 + 0.010 * sin(t * 1.3 + seed * TAU) + 0.005 * sin(t * 2.4 + fi * 1.3);
 }
 fn dotSD(p: vec2<f32>, pos: vec2<f32>, r: f32, t: f32, fi: f32, shapeDamp: f32) -> f32 {
     var d = p - pos;
-    var sq = 0.075 * (0.5 + 0.5*sin(t*0.9 + fi*2.0)) * shapeDamp;
-    var ca = cos(t*0.35 + fi); var sa = sin(t*0.35 + fi);
-    d = mat2x2<f32>(ca,-sa,sa,ca) * d;
-    d *= vec2<f32>(1.0+sq, 1.0-sq);
+    var sq = 0.075 * (0.5 + 0.5 * sin(t * 0.9 + fi * 2.0)) * shapeDamp;
+    var ca = cos(t * 0.35 + fi);
+    var sa = sin(t * 0.35 + fi);
+    d = mat2x2<f32>(
+            ca, -sa,
+            sa, ca,
+        ) * d;
+    d *= vec2<f32>(1.0 + sq, 1.0 - sq);
     return length(d) - r;
 }
 fn scene(p: vec2<f32>, t: f32) -> vec3<f32> {
-    var k = floor(t/MERGE_PERIOD);
-    var u = fract(t/MERGE_PERIOD);
+    var k = floor(t / MERGE_PERIOD);
+    var u = fract(t / MERGE_PERIOD);
     var te = u * MERGE_PERIOD;
     var tg = (t % GATHER_PERIOD);
     var g = settleCrit((tg - GATHER_START) * GATHER_IN, GATHER_IN_L)
-             - settleWL(tg - GATHER_START - GATHER_HOLD, BURST_W, BURST_L);
+        - settleWL(tg - GATHER_START - GATHER_HOLD, BURST_W, BURST_L);
     var gC = clamp(g, 0.0, 1.0);
     var tb = tg - (GATHER_START + GATHER_HOLD);
     var charge = smoothstep(-CHARGE_T, 0.0, min(tb, 0.0)) * gC;
-    var flash = select(0.0, exp(-max(tb,0.0)*FLASH_DECAY), tb > 0.0);
-    var gBright = mix(1.0, GATHER_DIM, gC) * (1.0 + CHARGE_GLOW*charge + FLASH_GAIN*flash);
+    var flash = select(0.0, exp(-max(tb, 0.0) * FLASH_DECAY), tb > 0.0);
+    var gBright = mix(1.0, GATHER_DIM, gC) * (1.0 + CHARGE_GLOW * charge + FLASH_GAIN * flash);
     var total3 = vec3<f32>(1e5);
     var cAcc = vec3<f32>(0.0);
     var wAcc = 1e-6;
-    for(var i=0; i<N; i++){
+    for(var i = 0; i < N; i++) {
         var fi = f32(i);
         var seed = hash11(fi);
-        var ang = fi/f32(N)*TAU + t*0.35;
+        var ang = fi / f32(N) * TAU + t * 0.35;
         var dir = vec2<f32>(cos(ang), sin(ang));
-        var R = 0.17 + 0.010*sin(t*1.0) + 0.007*sin(t*1.3 + seed*TAU);
+        var R = 0.17 + 0.010 * sin(t * 1.0) + 0.007 * sin(t * 1.3 + seed * TAU);
         var pairId = (fi % 3.0);
         var moverLow = ((k + pairId) % 2.0);
         var isMover = select(step(0.5, moverLow), step(moverLow, 0.5), fi < 2.5);
         var goStart = pairId * STAGGER;
-        var retStart = 3.0*STAGGER + HOLD + pairId * STAGGER;
-        var m = (settle(te - goStart)           - settle(te - retStart))           * isMover;
+        var retStart = 3.0 * STAGGER + HOLD + pairId * STAGGER;
+        var m = (settle(te - goStart) - settle(te - retStart)) * isMover;
         var rec = (settle(te - goStart - REC_LAG) - settle(te - retStart - REC_LAG)) * (1.0 - isMover);
         var rSelf = dotR(fi, seed, t);
         rSelf = mix(rSelf, 0.036, gC);
@@ -105,13 +117,11 @@ fn scene(p: vec2<f32>, t: f32) -> vec3<f32> {
         var radial = mix(R, deep, m) + RECOIL * rec;
         radial = mix(radial, GATHER_R, g);
         var pos = radial * dir;
-        var sdR = dotSD(p - SPECTRAL.r*dir, pos, rSelf, t, fi, 1.0 - gC);
-        var sdG = dotSD(p - SPECTRAL.g*dir, pos, rSelf, t, fi, 1.0 - gC);
-        var sdB = dotSD(p - SPECTRAL.b*dir, pos, rSelf, t, fi, 1.0 - gC);
-        total3 = vec3<f32>( smin(total3.r, sdR, SMOOTH_K),
-                       smin(total3.g, sdG, SMOOTH_K),
-                       smin(total3.b, sdB, SMOOTH_K) );
-        var hue = fract(fi/f32(N) + t*HUE_SPEED) * HUE_SPAN;
+        var sdR = dotSD(p - SPECTRAL.r * dir, pos, rSelf, t, fi, 1.0 - gC);
+        var sdG = dotSD(p - SPECTRAL.g * dir, pos, rSelf, t, fi, 1.0 - gC);
+        var sdB = dotSD(p - SPECTRAL.b * dir, pos, rSelf, t, fi, 1.0 - gC);
+        total3 = vec3<f32>(smin(total3.r, sdR, SMOOTH_K), smin(total3.g, sdG, SMOOTH_K), smin(total3.b, sdB, SMOOTH_K));
+        var hue = fract(fi / f32(N) + t * HUE_SPEED) * HUE_SPAN;
         var dotCol = mix(vec3<f32>(1.0), hue2rgb(hue), SAT);
         var w = exp(-sdG * COLOR_K);
         cAcc += w * dotCol;
@@ -127,7 +137,7 @@ fn scene(p: vec2<f32>, t: f32) -> vec3<f32> {
 fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let res = max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
     let t = plico.resolution_time_scale.z;
-    let p = (uv*2.0-1.0)*vec2<f32>(res.x,-res.y)/min(res.x,res.y)/(1.0+0.03*sin(t));
-    let col = scene(p, t) * (1.0+0.05*sin(t+1.0));
-    return vec4<f32>(min(pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0/1.2)), vec3<f32>(1.0)), 1.0);
+    let p = (uv * 2.0 - 1.0) * vec2<f32>(res.x, -res.y) / min(res.x, res.y) / (1.0 + 0.03 * sin(t));
+    let col = scene(p, t) * (1.0 + 0.05 * sin(t + 1.0));
+    return vec4<f32>(min(pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 1.2)), vec3<f32>(1.0)), 1.0);
 }
