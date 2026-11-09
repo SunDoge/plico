@@ -4,6 +4,10 @@
 将通用行为适配到 Plico 的 Rust runtime / desktop host；不是逐字复写 Go 后端。
 原生窗口移植的许可证和来源保存在 `crates/plico-shell/third_party/`。
 
+验证更新：2026-11-09 的 macOS CI 已实际通过 59 项 CPU 原生回归，见文末
+“macOS CPU 原生执行证据”。以下分阶段记录保留各次修改当时的验证边界；
+Metal / Core Animation / 实际窗口性能不因这次 CPU 作业通过而算作已验收。
+
 ## 已实现
 
 | MyGO 参考 | Plico 行为 | 验证范围 |
@@ -362,12 +366,12 @@ macOS 实测排版耗时降幅。
 
 | 项目 | 已有实现/证据 | 仍需完成的证据或工作 |
 | --- | --- | --- |
-| CoreText 字体、私有字体、词/行选择、栅格复用 | 实际 Apple 目标实现及测试可编译；入口执行原生像素、几何和复用回归 | 在 macOS 执行入口并检查真实输入/字体显示 |
+| CoreText 字体、私有字体、词/行选择、栅格复用 | macOS CI 实际通过 46 项原生文字/竖排/桥接回归（33 + 2 + 11） | 真实输入、字体显示及 Metal 文字上传/呈现仍需验收 |
 | 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有 X11/wgpu 回归；脚本含主线程不透明窗口生命周期程序 | macOS 实际执行；自定义透明圆角与 CA 视觉一致性仍需单独验收 |
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
 | CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
-| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 延迟/清理回归及 Apple 目标编译通过 | Metal 实机指标；pending GPU 编码重叠；与 CA transaction 策略联合验证 |
+| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 回归及 macOS worker 5 项原生 CPU 测试通过 | Metal 实机指标；pending GPU 编码重叠；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
 ### 为什么不从 currentEvent 补普通点击计数
@@ -701,3 +705,29 @@ worker 单槽/QoS、frame pacing、drawable 等待调度和标题栏纯策略七
 工作流通过 actionlint；脚本模拟验证 full 原有门控、CPU 模式及非法 mode。
 是否完成原生执行必须以具体 GitHub Actions 作业及其测试日志为准，新增工作流
 本身不是 macOS 运行通过的证据。
+
+
+## macOS CPU 原生执行证据
+
+2026-11-09，[运行 42596764318](https://github.com/SunDoge/plico/actions/runs/42596764318)
+的 macOS native text and scheduling 作业在 macOS / arm64 上实际执行成功，源码提交
+为 `0b662a0ba38f153f600d1f01aa1376e0eb32d100`。七阶段合计 **59 passed、0 failed**：
+
+| 阶段 | 实际通过数 |
+| --- | ---: |
+| CoreText（包括私有字体、LRU、基础属性复用、caret/selection、像素） | 33 |
+| 原生竖排栅格 | 2 |
+| CoreText paragraph bridge / cache | 11 |
+| 单槽 surface worker（包括实际 pthread QoS 查询） | 5 |
+| Frame pacing 握手与暂停恢复 | 4 |
+| Drawable 等待调度 | 1 |
+| 标题栏纯策略与事件去重 | 3 |
+
+首轮实际执行发现测试将 NSFont.fontName 的虚拟系统别名 `.AppleSystemUIFont`
+与 CoreText PostScript 名 `.SFNS-Regular` 直接比较。测试已改为对独立 AppKit 选出的
+字体通过公开 toll-free bridge 读取 CoreText PostScript 名，与 Line 的同口径结果比较；
+没有更改系统字体选择或忽略该测试。上述数字来自修正后的完整成功作业。
+
+同次运行的 Linux quality 与 Windows compile 作业也成功，但不是本次 macOS 原生
+运行的替代证据。Metal 真 surface、原生窗口视觉/交互、Core Animation 提交轮次、
+高刷跨屏及长时间滚动 RSS/footprint/p95/p99 仍未由这项作业验证；目标继续保持未完成。
