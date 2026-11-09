@@ -926,7 +926,7 @@ impl App {
             scale,
         );
         let base_color = shell.prepare_window_frame(base_color);
-        if let Some(mut request) = self.source.take_screenshot_request() {
+        let captured = if let Some(mut request) = self.source.take_screenshot_request() {
             let (width, height) = shell.size();
             let result = shell
                 .renderer
@@ -938,6 +938,27 @@ impl App {
                 .map_err(|error| error.to_string());
             drop(request.file);
             self.source.complete_screenshot(&request.path, result);
+            true
+        } else {
+            false
+        };
+        // AppKit can request redraws for an occluded view, and asynchronous
+        // services can wake hidden windows. Keep declarations, host actions,
+        // semantics and explicit captures above alive, but do not reacquire a
+        // drawable or rebuild trimmed GPU caches just to present out of sight.
+        // Hidden startup still needs its first frame before ready-to-show.
+        if self.lifecycle.presence() != WindowPresence::Visible
+            || self.window_metrics.occluded && !shell.initial_show_pending()
+        {
+            shell.animation_frame_ready(false);
+            if captured {
+                // Explicit capture may recreate the offscreen/readback targets
+                // after idle trim; it must not leave them pinned out of sight.
+                shell.trim_gpu_cache();
+            }
+            self.present_retry_pending = false;
+            self.skipped_present_deadline = None;
+            return;
         }
         let t2 = Instant::now();
         let presented = {

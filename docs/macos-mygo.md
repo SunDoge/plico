@@ -249,3 +249,32 @@ cargo test --locked -p plico-wgpu --lib scrolling_native_line_reuses -- --ignore
 ```
 
 这些结果不等同于 macOS 滚动帧时间或 RSS 的实测降幅。
+
+## 不可见窗口不因后台 redraw 恢复呈现资源
+
+对照 MyGO `internal/darwin/surface.go::RequestFrame` 的可见性判断：AppKit 可以要求
+已经遮挡的 view 重绘，后台消息也可以请求 hidden window redraw。此前 Plico 只在
+动画调度时检查可见性，直接到来的 RedrawRequested 仍会 build 并尝试呈现，可能把
+刚经遮挡/空闲回收的 GPU 资源重新建起来。
+
+App 共享 redraw 路径现于显式截图处理之后、窗口呈现之前检查 WindowPresence 和
+occluded。不可见时暂停原生动画 clock、清除呈现重试与未变化帧退避，不获取 drawable，
+不提交普通窗口帧。初次隐藏启动的 ready-to-show 帧保留；显式 Hide 生命周期不会
+被启动例外覆盖。恢复显示/解除遮挡使用现有 invalidation + request_redraw 完整呈现。
+单窗口与多窗口共用这一逻辑。
+
+继续执行 source 声明、host actions、语义同步和显式截图，保持后台任务与自动化契约；
+本轮没有宣称不可见时完全不执行 UI CPU 工作。显式截图可能临时重建 offscreen 和
+readback target，不可见时在截图完成（含失败）后再次回收，避免没有后续普通呈现
+来安排维护期限而永久保留这些资源。
+
+共享宿主原生回归在 Xvfb 下实际创建 winit/wgpu 窗口：模拟 Occluded 事件，核对
+异步轮询、声明继续处理、截图 PNG 尺寸/完成回调、无呈现维护重启或重试，以及
+恢复显示后重新呈现。另保持 native window 映射而只切换生命周期，确保隐藏分支
+不是因为驱动忽略 hidden drawable 才通过。测试命令沿用：
+
+```sh
+xvfb-run -a cargo test --locked -p plico-shell --lib native_resize_uses_latest_extent -- --ignored
+```
+
+这证明共享 App 路径，不替代 macOS 实际遮挡事件、Core Animation 或 RSS 实测。

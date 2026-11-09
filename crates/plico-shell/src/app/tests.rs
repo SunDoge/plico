@@ -725,11 +725,31 @@ fn maintenance_wakes_host_without_suppressing_frames_or_earlier_timers() {
 #[ignore = "requires an X11 display and working wgpu adapter (can run under Xvfb)"]
 fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_paths() {
     use winit::platform::x11::EventLoopBuilderExtX11;
-    struct CountingSource(Arc<AtomicUsize>);
+    struct CountingSource {
+        frames: Arc<AtomicUsize>,
+        polls: Arc<AtomicUsize>,
+        capture: Arc<Mutex<Option<crate::ScreenshotRequest>>>,
+        captured: Arc<AtomicBool>,
+    }
     impl FrameSource for CountingSource {
         fn build_frame(&mut self, _: &mut TextContext, _: u32, _: u32) -> Vec<PlacedNode> {
-            self.0.fetch_add(1, Ordering::SeqCst);
+            self.frames.fetch_add(1, Ordering::SeqCst);
             Vec::new()
+        }
+        fn poll_async(&mut self) -> bool {
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+        fn take_screenshot_request(&mut self) -> Option<crate::ScreenshotRequest> {
+            self.capture.lock().unwrap().take()
+        }
+        fn complete_screenshot(
+            &mut self,
+            _: &std::path::Path,
+            result: Result<std::path::PathBuf, String>,
+        ) {
+            assert!(result.is_ok(), "hidden capture failed: {result:?}");
+            self.captured.store(true, Ordering::SeqCst);
         }
         fn base_color(&self) -> Color {
             Color::BLACK
@@ -739,6 +759,9 @@ fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_pa
         app: App,
         frames: Arc<AtomicUsize>,
         checked: Arc<AtomicBool>,
+        polls: Arc<AtomicUsize>,
+        capture: Arc<Mutex<Option<crate::ScreenshotRequest>>>,
+        captured: Arc<AtomicBool>,
     }
     impl ApplicationHandler for Probe {
         fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -821,21 +844,122 @@ fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_pa
                     .is_some(),
                 "drawing after trim restores the surface and rearms maintenance"
             );
+            self.app
+                .handle_window_event(event_loop, id, WindowEvent::Occluded(true));
+            let before_occluded = self.frames.load(Ordering::SeqCst);
+            let polls = self.polls.load(Ordering::SeqCst);
+            assert!(
+                self.app.poll_background_work(),
+                "background services keep draining"
+            );
+            assert_eq!(self.polls.load(Ordering::SeqCst), polls + 1);
+            self.app.redraw();
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before_occluded + 1,
+                "declarations still settle host work/captures while occluded"
+            );
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "an occluded redraw must not restore GPU targets or rearm idle maintenance"
+            );
+            assert!(!self.app.present_retry_pending);
+            assert!(self.app.skipped_present_deadline.is_none());
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("occluded.png");
+            *self.capture.lock().unwrap() = Some(crate::ScreenshotRequest {
+                file: std::fs::File::create(&path).unwrap(),
+                path: path.clone(),
+            });
+            self.app.redraw();
+            assert!(self.captured.load(Ordering::SeqCst));
+            let image = image::open(&path).unwrap();
+            assert_eq!(
+                (image.width(), image.height()),
+                (actual.width, actual.height)
+            );
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "an explicit capture must not start invisible presentation retries"
+            );
+            self.app
+                .handle_window_event(event_loop, id, WindowEvent::Occluded(false));
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some(),
+                "visibility restoration presents a fresh frame and rearms maintenance"
+            );
+            // Keep the native window mapped so a no-op driver present cannot
+            // make this pass accidentally: lifecycle must gate it on its own.
+            let capabilities = WindowCapabilities {
+                mutable_visibility: true,
+            };
+            assert_eq!(
+                self.app
+                    .lifecycle
+                    .transition(WindowIntent::Hide, capabilities),
+                Some(WindowEffect::SetVisible(false))
+            );
+            self.app.state.as_mut().unwrap().trim_gpu_cache();
+            self.app.redraw();
+            assert_eq!(
+                self.app.state.as_mut().unwrap().maintain(Instant::now()),
+                None,
+                "a hidden lifecycle must suppress presentation even before OS occlusion arrives"
+            );
+            assert_eq!(
+                self.app
+                    .lifecycle
+                    .transition(WindowIntent::Show, capabilities),
+                Some(WindowEffect::SetVisible(true))
+            );
+            self.app.state.as_mut().unwrap().invalidate_presentation();
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some()
+            );
             self.checked.store(true, Ordering::SeqCst);
             event_loop.exit();
         }
         fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
     }
     let frames = Arc::new(AtomicUsize::new(0));
+    let polls = Arc::new(AtomicUsize::new(0));
+    let capture = Arc::new(Mutex::new(None));
+    let captured = Arc::new(AtomicBool::new(false));
     let checked = Arc::new(AtomicBool::new(false));
     let mut builder = EventLoop::builder();
     builder.with_x11().with_any_thread(true);
     let event_loop = builder.build().unwrap();
     event_loop
         .run_app(Probe {
-            app: App::with_size(Box::new(CountingSource(frames.clone())), 320, 240),
+            app: App::with_size(
+                Box::new(CountingSource {
+                    frames: frames.clone(),
+                    polls: polls.clone(),
+                    capture: capture.clone(),
+                    captured: captured.clone(),
+                }),
+                320,
+                240,
+            ),
             frames,
             checked: checked.clone(),
+            polls,
+            capture,
+            captured,
         })
         .unwrap();
     assert!(checked.load(Ordering::SeqCst));

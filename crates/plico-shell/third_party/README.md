@@ -47,3 +47,8 @@ The custom drag-region double-click branch in `src/macos_input.rs` and
 and `ui/input.go` at the same MIT revision: AppleActionOnDoubleClick chooses
 no action, miniaturization or native zoom. Plico adds same-window/mouse-event
 validation and a bounded per-window event identity gate. See `mygo-LICENSE`.
+
+`src/app.rs` also references MyGO `internal/darwin/surface.go::RequestFrame`
+(`ee3d4bd9bd741f197de231b9fd9b002e9db55577`, MIT) for withholding ordinary
+window presentation while out of sight. Plico preserves its own host-action,
+semantic and explicit-capture settlement before the presentation gate.
