@@ -70,4 +70,5 @@ name = "global_hotkeys"
 required-features = ["global-hotkeys"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+futures-lite = "2"
 zbus = { version = "=5.19.0", features = ["blocking-api"] }

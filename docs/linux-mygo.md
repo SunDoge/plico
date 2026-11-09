@@ -65,7 +65,8 @@ zbus 完成；UI 只读取快照，并由合并的 wake 回调接收变化，没
 
 初始读取异步进行，首帧可能先使用默认值；portal 不存在或不可用时保持默认值，
 不会阻止窗口创建。尝试通过总线激活惰性 portal，但不引入 GTK 设置依赖。
-本轮不提供 portal 启动失败后的自动重连，也未实现 Linux 原生减少透明度、
+portal 启动较晚或更换进程时，NameOwnerChanged 会触发完整快照更新；恢复前保留
+最后的合法偏好。session bus 本身断连后尚未实现重连，也未实现 Linux 原生减少透明度、
 accent-color 或 text-scaling-factor。GNOME 兼容键取决于当前 portal 是否暴露。
 
 验证覆盖真实私有 D-Bus 上的初始快照、变化信号、唤醒合并和连接关闭，以及
@@ -76,3 +77,21 @@ dbus-run-session -- cargo test --locked -p plico-shell --lib portal_initial_snap
 ```
 
 该测试使用 mock Settings 服务，证明协议和生命周期，不等同于 GNOME/KDE 实机设置面板验证。
+
+
+### Portal 生命周期与慢快照
+
+设置和服务所有者变化均在同一个后台异步循环中处理。匹配规则可以在 portal 尚未
+拥有总线名称时注册；注册后才解析当前所有者并读取快照，避免初始化的所有者切换
+造成永久失联。换进程后重新读取完整快照，清除旧后端不再提供的键。
+
+ReadAll 待完成时继续消费信号，避免队列积满后连方法回复也无法前进。每个已知偏好
+记录信号版本；快照只更新读取期间没有新信号的键，因此旧回复不会覆盖新设置。
+忽略旧进程的迟到信号。没有为恢复服务增加重试计时器或额外连接/观察线程。
+
+额外的私有 D-Bus 回归覆盖服务延迟出现、进程替换后的快照和继续收信号，以及
+ReadAll 暂停期间的 128 条变化消息；后者确认消息被持续消费且旧快照不回退最新设置。
+
+```sh
+dbus-run-session -- cargo test --locked -p plico-shell --lib linux_preferences -- --ignored
+```
