@@ -45,10 +45,8 @@ struct IdleResources {
 impl IdleResources {
     fn used(&mut self, now: std::time::Instant) {
         self.deadline = Some(now + std::time::Duration::from_secs(2));
-        #[cfg(any(target_os = "macos", test))]
-        {
-            self.trimmed = false;
-        }
+        // Offscreen captures also use GPU resources. They rearm cleanup but
+        // do not restore the native swapchain: fit_surface owns that transition.
     }
     fn due(&self, now: std::time::Instant) -> bool {
         self.deadline.is_some_and(|deadline| deadline <= now)
@@ -653,6 +651,7 @@ mod tests {
                 small.height = 1;
                 gpu.renderer.configure_surface(&gpu.surface, &small);
                 gpu.configured_size = [1, 1];
+                gpu.idle_resources.trimmed();
                 for (width, height) in [(640, 480), (960, 720), (0, 0)] {
                     gpu.resize(width, height);
                     let configured = gpu.surface.get_configuration().unwrap();
@@ -672,6 +671,10 @@ mod tests {
                     (configured.width, configured.height),
                     (1, 1),
                     "offscreen capture must not restore window drawables"
+                );
+                assert!(
+                    gpu.idle_resources.trimmed,
+                    "capture may allocate a target, but did not restore window drawables"
                 );
                 assert!(gpu.renderer.target_storage_bytes().0 > 0);
                 let deadline = gpu
@@ -905,7 +908,10 @@ mod tests {
             "no recurring idle wake"
         );
         idle.used(now + Duration::from_secs(101));
-        assert!(!idle.trimmed);
+        assert!(
+            idle.trimmed,
+            "offscreen work must preserve the surface trim state"
+        );
         assert_eq!(idle.deadline, Some(now + Duration::from_secs(103)));
     }
 

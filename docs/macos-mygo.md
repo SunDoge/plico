@@ -779,3 +779,17 @@ HUD 独立测试现先安装与 Shell 相同的 CoreText provider，再记录场
 Linux 的 3 项 HUD 回归与宿主 Clippy 通过；当前 Linux 环境的完整 Apple Shell 检查
 仍受 mac-notification-sys 所需 macOS C SDK 限制。修改后的原生 HUD 测试需由用户
 本机执行；不再触发云端 macOS 检查。
+
+## 截图重建资源不代表 swapchain 已恢复
+
+对照 MyGO Metal `fit` / `trim`，修正 idle 标记的职责：used 仅重新安排两秒资源
+清理 deadline，不清除 swapchain 的 trimmed 状态。以前截图在离屏 target 分配后
+调用 used，会清除该标记，但窗口 surface 实际仍是 1×1；后续 trim 可能因此重复
+配置 1×1 surface。现在只有真正的 fit_surface 恢复配置才清除 macOS 标记。
+
+截图或读回之后仍会回收重建的 target/缓存，不改变其现有维护 deadline，也不因此
+扩大或提前恢复隐藏窗口的 drawables。回归在真实 X11 surface 手动配置为 1×1 后
+设置与 macOS 一致的 idle 状态，截图后同时检查配置、标记、目标存储及清理计时；
+旧代码在新增标记断言处失败，修正后通过。纯 deadline 回归、Linux Clippy 与
+Apple 目标实现/测试 Clippy 也通过。macOS 原生 surface 恢复时序仍由用户本机测量，
+本轮不运行云端 macOS 作业。
