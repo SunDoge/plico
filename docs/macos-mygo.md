@@ -987,11 +987,12 @@ vsync。通过 wgpu HAL 的 Metal surface guard 取得实际 render layer，切�
 上一帧同步呈现后再次改变实际尺寸，非 live resize 会等待此前活跃 CA 轮次结束及
 其后的新 display-link callback。CA observer 和 display-link callback 都记录同一个
 std::Instant 域的观察时间，避免晚到但发生在提交轮次结束前的 tick 提前放行。
-等待期间尺寸继续合并，实际呈现最新 scene；live resize、首次显示、同尺寸输入更新
-及撤回尺寸请求不延迟。取得 tick 许可后遇到获取重试不会重新等待一个周期。
+等待期间尺寸继续合并，实际呈现最新 scene；live resize、首次显示及已离开同步轮次
+的同尺寸输入更新不延迟。同轮紧跟同步提交的变化内容也等待边界后绘制，避免混用
+两种呈现顺序；相同内容仍提前 skip，撤回尺寸不留下空转等待。取得 tick 许可后遇到获取重试不会重新等待一个周期。
 
 重复 OS redraw 的处理使用 Plico 已有的完整 scene/damage 比较：相同内容在获取和
-切换层属性之前跳过，有变化的输入/异步内容保持处理。它没有把未知来源的 winit
+切换层属性之前跳过，有变化的输入/异步内容保持处理，同轮紧跟同步提交时保留最新 scene 等待边界。它没有把未知来源的 winit
 RedrawRequested 一概当成 AppKit updateLayer，也不猜测 NSEvent.currentEvent 的身份。
 几何撤回导致 unchanged skip 时会清除遗留等待，避免静态页面继续请求 display link。
 
@@ -1007,7 +1008,7 @@ RedrawRequested 一概当成 AppKit updateLayer，也不猜测 NSEvent.currentEv
 当前程序共呈现 65 帧、仍输出原有八阶段内存样本。手动脚本的 CPU/full 模式增加
 transaction-policy 阶段，CPU 模式另检查 transaction-wake；不自动启动 Mac CI。
 
-验证：5 项纯时序策略测试、76 项宿主测试通过（4 项原有测试忽略）；Linux 真窗口
+验证：6 项纯时序策略测试、76 项宿主测试通过（4 项原有测试忽略）；Linux 真窗口
 与 65 帧生命周期通过。实际 wgpu 窗口、示例、NativeFrameClock 和 WindowRenderer
 源码通过 Apple Silicon 目标 Clippy（后两者用隔离类型检查 harness；完整 shell 跨编译
 仍受现有通知依赖需要 macOS SDK 限制）。这些不是 Metal 运行结果；CA 顺序假设、

@@ -21,8 +21,11 @@ pub(crate) struct TransactionPolicy {
     stats: [u64; 3],
 }
 impl TransactionPolicy {
-    pub fn resize_after_sync(&self, extent: [u32; 2]) -> bool {
-        self.last_sync && self.last_extent.is_some_and(|old| old != extent)
+    pub fn requires_boundary(&self, extent: [u32; 2], pass_epoch: u64) -> bool {
+        self.last_sync
+            && self
+                .last_extent
+                .is_some_and(|old| old != extent || pass_epoch == self.last_sync_epoch)
     }
     pub fn defer(
         &mut self,
@@ -33,7 +36,7 @@ impl TransactionPolicy {
         interval: Duration,
         pass: PassBoundary,
     ) -> bool {
-        if live_resize || !self.resize_after_sync(extent) {
+        if live_resize || !self.requires_boundary(extent, pass.epoch) {
             self.wait = None;
             return false;
         }
@@ -161,7 +164,7 @@ mod tests {
     fn live_resize_input_reversion_and_first_frame_are_not_delayed() {
         let now = Instant::now();
         let interval = Duration::from_millis(16);
-        let boundary = pass(0, now);
+        let boundary = pass(1, now);
         let mut policy = TransactionPolicy::default();
         assert!(!policy.defer([100, 100], false, None, now, interval, boundary));
         policy.presented([100, 100], true, 0);
@@ -279,5 +282,34 @@ mod tests {
             interval,
             committed
         ));
+    }
+    #[test]
+    fn changed_content_after_sync_in_the_same_pass_waits_without_being_dropped() {
+        let now = Instant::now();
+        let interval = Duration::from_millis(8);
+        let mut policy = TransactionPolicy::default();
+        policy.presented([100, 100], true, 3);
+        let old = PassBoundary {
+            epoch: 3,
+            committed_at: None,
+        };
+        assert!(policy.defer(
+            [100, 100],
+            false,
+            tick(1, now - interval),
+            now,
+            interval,
+            old
+        ));
+        assert!(!policy.defer(
+            [100, 100],
+            false,
+            tick(2, now + interval),
+            now + interval,
+            interval,
+            pass(4, now)
+        ));
+        policy.presented([100, 100], false, 4);
+        assert_eq!(policy.stats(), [1, 1, 1]);
     }
 }

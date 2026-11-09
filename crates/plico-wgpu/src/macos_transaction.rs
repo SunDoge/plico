@@ -54,7 +54,7 @@ impl NativeTransaction {
             return false;
         };
         // Ordinary animation/input frames need no AppKit live-resize query.
-        if !self.policy.resize_after_sync(size) {
+        if !self.policy.requires_boundary(size, pass_epoch.epoch) {
             self.policy.cancel();
             return false;
         }
