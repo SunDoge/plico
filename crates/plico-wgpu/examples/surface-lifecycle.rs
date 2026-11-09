@@ -200,8 +200,10 @@ impl Probe {
                     raw_window_handle::RawWindowHandle::AppKit(_) => "appkit",
                     _ => "other",
                 };
+                let [pending_encoded, pending_reused, pending_abandoned] =
+                    native.gpu.pending_frame_stats();
                 let summary = format!(
-                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={}",
+                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={} pending_encoded={pending_encoded} pending_reused={pending_reused} pending_abandoned={pending_abandoned}",
                     self.frame,
                     self.pending,
                     p95.as_micros(),

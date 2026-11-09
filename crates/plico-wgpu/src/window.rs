@@ -86,6 +86,12 @@ pub struct WgpuWindow {
     damage_enabled: bool,
     present_skipped: bool,
     acquire_pending: bool,
+    // One unsubmitted encoder, never a second queue of scenes/drawables.
+    pending_frame: Option<wgpu::CommandEncoder>,
+    pending_frame_stats: [u64; 3],
+    // Encoding is not submission. In particular, a new pending target has no
+    // readable retained pixels until its commands have reached the queue.
+    retained_size: Option<[u32; 2]>,
     initial_frame_ready: bool,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     idle_resources: IdleResources,
@@ -160,6 +166,9 @@ impl WgpuWindow {
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
             acquire_pending: false,
+            pending_frame: None,
+            pending_frame_stats: [0; 3],
+            retained_size: None,
             initial_frame_ready: false,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             idle_resources: IdleResources::default(),
@@ -175,6 +184,8 @@ impl WgpuWindow {
     pub fn set_surface_wake(&mut self, wake: plico_renderer::WakeCallback) {
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         {
+            self.abandon_pending_frame();
+            self.acquire_pending = false;
             // Startup-only A/B switch; no environment lookup in the frame loop.
             if matches!(
                 std::env::var("PLICO_WGPU_ASYNC_SURFACE").ok().as_deref(),
@@ -192,6 +203,7 @@ impl WgpuWindow {
     }
     #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
     fn reset_surface_acquire(&mut self) {
+        self.abandon_pending_frame();
         self.surface_acquire = None;
         if let Some(wake) = self.surface_wake.clone() {
             let surface = self.surface.clone();
@@ -322,15 +334,31 @@ impl WgpuWindow {
         self.present_frame(scene, background, !self.initial_frame_ready)
     }
     fn present_frame(&mut self, scene: &Scene, background: Color, initial: bool) -> Result<bool> {
+        let result = self.present_frame_inner(scene, background, initial);
+        if result.is_err() {
+            self.abandon_pending_frame();
+            self.cancel_surface_waiter();
+        }
+        result
+    }
+    fn present_frame_inner(
+        &mut self,
+        scene: &Scene,
+        background: Color,
+        initial: bool,
+    ) -> Result<bool> {
         self.present_skipped = false;
         self.acquire_pending = false;
         let size = self.window.surface_size();
         if size.width == 0 || size.height == 0 {
+            self.abandon_pending_frame();
+            self.cancel_surface_waiter();
             return Ok(false);
         }
         self.resize(size.width, size.height);
         self.renderer.prepare_present(self.config.format)?;
         if initial {
+            self.abandon_pending_frame();
             self.renderer.invalidate_scene_damage();
         }
         let prepared = self.renderer.prepare_scene_frame(
@@ -338,7 +366,16 @@ impl WgpuWindow {
             [size.width, size.height],
             background.components,
         )?;
-        if !initial
+        // Planning the pending encoder advanced history, but its target pixels
+        // have not been submitted. Only an identical scene may reuse it.
+        if self.pending_frame.is_some()
+            && (self.surface_needs_fit()
+                || !self.renderer.prepared_frame_unchanged(&prepared, true))
+        {
+            self.abandon_pending_frame();
+        }
+        if self.pending_frame.is_none()
+            && !initial
             && !self.surface_needs_fit()
             && self.surface_needs_result()
             && self
@@ -363,6 +400,19 @@ impl WgpuWindow {
             match worker.ready() {
                 Ok(true) => {}
                 Ok(false) => {
+                    if self.pending_frame.is_none() {
+                        let plan = self
+                            .renderer
+                            .plan_prepared_frame(prepared, self.damage_enabled);
+                        // Failed encoding can allocate upload/cache resources too.
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
+                        self.idle_resources.used(std::time::Instant::now());
+                        if self.retained_size != Some([size.width, size.height]) {
+                            self.retained_size = None;
+                        }
+                        self.pending_frame = Some(self.renderer.encode_scene_plan(plan)?);
+                        self.pending_frame_stats[0] += 1;
+                    }
                     self.acquire_pending = true;
                     return Ok(false);
                 }
@@ -374,10 +424,15 @@ impl WgpuWindow {
                 }
             }
         }
-        let plan = self
-            .renderer
-            .plan_prepared_frame(prepared, self.damage_enabled);
-        if plan.unchanged() {
+        let plan = if self.pending_frame.is_some() {
+            None
+        } else {
+            Some(
+                self.renderer
+                    .plan_prepared_frame(prepared, self.damage_enabled),
+            )
+        };
+        if plan.as_ref().is_some_and(|plan| plan.unchanged()) {
             self.present_skipped = true;
             // This request is satisfied without consuming the prefetched
             // texture. A delayed proxy wake must not redraw it again.
@@ -393,8 +448,11 @@ impl WgpuWindow {
                 Ok(Some(frame)) => Some(frame),
                 Ok(None) => {
                     self.acquire_pending = true;
-                    // Planning already advanced history, but no pixels changed.
-                    self.renderer.invalidate_scene_damage();
+                    // A pending encoder still owns this history. Without one,
+                    // planning alone has not established target pixels.
+                    if self.pending_frame.is_none() {
+                        self.renderer.invalidate_scene_damage();
+                    }
                     return Ok(false);
                 }
                 Err(error) => {
@@ -423,13 +481,23 @@ impl WgpuWindow {
         // for a hidden window (wgpu Metal deliberately rejects that). The
         // synchronous path encodes before acquisition; a prefetched texture
         // lets the host encode the latest scene without waiting for the display.
+        if self.retained_size != Some([size.width, size.height]) {
+            self.retained_size = None;
+        }
         let encoder = if initial {
-            let encoder = self.renderer.prime_scene_plan(plan, self.config.format)?;
+            let encoder = self
+                .renderer
+                .prime_scene_plan(plan.expect("initial frame has a plan"), self.config.format)?;
+            self.retained_size = Some([size.width, size.height]);
             self.initial_frame_ready = true;
             self.window.set_visible(true);
             encoder
+        } else if let Some(encoder) = self.pending_frame.take() {
+            self.pending_frame_stats[1] += 1;
+            encoder
         } else {
-            self.renderer.encode_scene_plan(plan)?
+            self.renderer
+                .encode_scene_plan(plan.expect("fresh frame has a plan"))?
         };
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         let acquired = prefetched.unwrap_or_else(|| self.surface.get_current_texture());
@@ -482,6 +550,7 @@ impl WgpuWindow {
             self.renderer.invalidate_scene_damage();
         }
         submitted?;
+        self.retained_size = Some([size.width, size.height]);
         self.window.pre_present_notify();
         self.renderer.present(frame);
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
@@ -495,6 +564,17 @@ impl WgpuWindow {
 }
 
 impl WgpuWindow {
+    /// Encoders built while waiting, reused for presentation, and abandoned.
+    /// All zero when background acquisition is disabled. Counts are per window.
+    pub fn pending_frame_stats(&self) -> [u64; 3] {
+        self.pending_frame_stats
+    }
+    fn abandon_pending_frame(&mut self) {
+        if let Some(encoder) = self.pending_frame.take() {
+            self.pending_frame_stats[2] += 1;
+            self.renderer.abandon_scene_frame(encoder);
+        }
+    }
     /// A frame is waiting for background acquisition; its event-loop wake will
     /// retry it. This is distinct from a surface failure or an unchanged frame.
     pub fn surface_acquire_pending(&self) -> bool {
@@ -533,6 +613,7 @@ impl WgpuWindow {
     /// Drain acquisition while the native window is still visible, before the
     /// host hides/minimizes it. Retain target pixels for OS window animations.
     pub fn prepare_hide(&mut self) {
+        self.abandon_pending_frame();
         self.drain_surface_acquire();
         self.acquire_pending = false;
     }
@@ -540,8 +621,13 @@ impl WgpuWindow {
     /// macOS also shrinks spare drawables; Linux keeps its real surface extent.
     /// The compositor owns the presented last frame. Next present redraws fully.
     pub fn trim_gpu_cache(&mut self) {
+        self.abandon_pending_frame();
         self.drain_surface_acquire();
         self.acquire_pending = false;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.retained_size = None;
+        }
         #[cfg(target_os = "macos")]
         if !self.idle_resources.trimmed {
             // MyGO's idle Metal trim: changing drawableSize preserves the last
@@ -562,6 +648,7 @@ impl WgpuWindow {
         }
     }
     pub fn invalidate_presentation(&mut self) {
+        self.abandon_pending_frame();
         self.renderer.invalidate_scene_damage();
     }
     /// Enable partial redraw; changing the mode forces a fresh complete frame.
@@ -574,6 +661,9 @@ impl WgpuWindow {
     /// Read retained premultiplied RGBA8 pixels without repainting. Size is the target's own
     /// physical extent, which can differ from a newly resized native window.
     pub fn read_retained_rgba(&mut self) -> Result<Option<([u32; 2], Vec<u8>)>> {
+        if self.retained_size.is_none() {
+            return Ok(None);
+        }
         let result = self.renderer.read_retained_rgba()?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if result.is_some() {
@@ -588,16 +678,25 @@ impl WgpuWindow {
         size: [u32; 2],
         background: Color,
     ) -> Result<Vec<u8>> {
+        // Capture may replace targets and overwrite shared upload buffers.
+        self.abandon_pending_frame();
         let prepared = self.renderer.prepare_scene(scene, size)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.used(std::time::Instant::now());
-        self.renderer
-            .render_prepared(&prepared, size, background.components, 0.)
+        self.retained_size = None;
+        let result = self
+            .renderer
+            .render_prepared(&prepared, size, background.components, 0.);
+        if result.is_ok() {
+            self.retained_size = Some(size);
+        }
+        result
     }
 }
 
 impl Drop for WgpuWindow {
     fn drop(&mut self) {
+        self.abandon_pending_frame();
         // Join before renderer/surface/window field destruction. Wake callbacks
         // are event-loop proxies and cannot wait on this dropping host thread.
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
@@ -690,7 +789,8 @@ mod tests {
                     "coalesced sizes do not invalidate unchanged content"
                 );
                 // A controlled in-flight real surface acquisition must not
-                // block a changed frame, nor advance damage into a false skip.
+                // block a changed frame or mark its encoder as presented.
+                let pending_stats = gpu.pending_frame_stats();
                 let (release, gate) = std::sync::mpsc::channel();
                 let (began, begins) = std::sync::mpsc::channel();
                 let (wake, wakes) = std::sync::mpsc::channel();
@@ -746,6 +846,17 @@ mod tests {
                 assert!(!gpu.surface_acquire_pending());
                 assert_eq!(gpu.last_damage_coverage(), 0.);
                 let pending = gpu.present(&changed, Color::BLACK).unwrap();
+                assert!(
+                    gpu.pending_frame.is_some(),
+                    "encode while the fetch is blocked"
+                );
+                assert_eq!(gpu.pending_frame_stats()[0], pending_stats[0] + 1);
+                assert!(!gpu.present(&changed, Color::BLACK).unwrap());
+                assert_eq!(
+                    gpu.pending_frame_stats()[0],
+                    pending_stats[0] + 1,
+                    "identical retries must retain the one encoder"
+                );
                 let _ = returned.send(());
                 assert!(
                     rescue.join().unwrap(),
@@ -767,6 +878,12 @@ mod tests {
                     !gpu.last_present_skipped(),
                     "waiting never establishes retained pixels"
                 );
+                assert!(gpu.pending_frame.is_none());
+                assert_eq!(
+                    gpu.pending_frame_stats()[1],
+                    pending_stats[1] + 1,
+                    "resume submits the encoder built before readiness"
+                );
                 let coverage = gpu.last_damage_coverage();
                 assert!(
                     coverage > 0. && coverage < 0.1,
@@ -787,6 +904,158 @@ mod tests {
                     pixels, expected,
                     "partial resumed frame must match full replay"
                 );
+                // Exercise invalidation with a real blocked fetch and GPU
+                // command encoder, not just a mock pending-state flag.
+                fn hold(
+                    gpu: &mut WgpuWindow,
+                ) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+                    gpu.surface_acquire = None;
+                    // Isolate each lifecycle case with a fresh, drained swapchain.
+                    // Retained scene pixels live in the separate renderer target.
+                    gpu.renderer.configure_surface(&gpu.surface, &gpu.config);
+                    gpu.invalidate_presentation();
+                    let (release, gate) = std::sync::mpsc::channel();
+                    let (began, begins) = std::sync::mpsc::channel();
+                    let (wake, wakes) = std::sync::mpsc::channel();
+                    let callback: plico_renderer::WakeCallback = Arc::new(move || {
+                        let _ = wake.send(());
+                    });
+                    gpu.surface_wake = Some(callback.clone());
+                    let surface = gpu.surface.clone();
+                    let mut first = true;
+                    gpu.surface_acquire = Some(
+                        crate::surface_acquire::Acquire::new(
+                            move || {
+                                if first {
+                                    first = false;
+                                    began.send(()).unwrap();
+                                    gate.recv().unwrap();
+                                }
+                                surface.get_current_texture()
+                            },
+                            callback,
+                        )
+                        .unwrap(),
+                    );
+                    gpu.surface_acquire.as_ref().unwrap().start();
+                    begins
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap();
+                    (release, wakes)
+                }
+                let mut newer = Scene::new();
+                newer.fill(
+                    peniko::Fill::NonZero,
+                    kurbo::Affine::IDENTITY,
+                    Color::from_rgb8(0, 255, 0),
+                    None,
+                    &kurbo::Rect::new(50., 10., 80., 40.),
+                );
+                for operation in [
+                    "replace",
+                    "capture",
+                    "invalidate",
+                    "hide",
+                    "trim",
+                    "full",
+                    "fit",
+                ] {
+                    if operation == "full" {
+                        gpu.set_damage_tracking(false);
+                    }
+                    let (release, wakes) = hold(&mut gpu);
+                    let old = gpu.read_retained_rgba().unwrap().unwrap().1;
+                    let stats = gpu.pending_frame_stats();
+                    // Alternate background so this cannot hit an unchanged skip.
+                    assert!(!gpu.present(&changed, Color::WHITE).unwrap());
+                    assert!(gpu.pending_frame.is_some());
+                    assert!(!gpu.present(&changed, Color::WHITE).unwrap());
+                    assert_eq!(
+                        gpu.pending_frame_stats()[0],
+                        stats[0] + 1,
+                        "same pending contents reuse the encoder even with damage disabled"
+                    );
+                    assert_eq!(
+                        gpu.read_retained_rgba().unwrap().unwrap().1,
+                        old,
+                        "encoding alone cannot alter the last presented pixels"
+                    );
+                    match operation {
+                        "replace" => {
+                            assert!(!gpu.present(&newer, Color::BLACK).unwrap());
+                            assert_eq!(gpu.pending_frame_stats()[0], stats[0] + 2);
+                            assert!(gpu.pending_frame.is_some());
+                        }
+                        "capture" => {
+                            gpu.capture_rgba(&newer, [80, 80], Color::BLACK).unwrap();
+                        }
+                        "invalidate" => gpu.invalidate_presentation(),
+                        "full" => gpu.set_damage_tracking(true),
+                        _ => {}
+                    }
+                    release.send(()).unwrap();
+                    wakes
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap();
+                    match operation {
+                        "hide" => gpu.prepare_hide(),
+                        "trim" => gpu.trim_gpu_cache(),
+                        "fit" => gpu.configured_size = [1, 1],
+                        _ => {}
+                    }
+                    if operation != "fit" {
+                        assert_eq!(
+                            gpu.pending_frame_stats()[2],
+                            stats[2] + 1,
+                            "{operation} abandons the old encoder exactly once"
+                        );
+                    }
+                    if operation != "replace" && operation != "fit" {
+                        assert!(gpu.pending_frame.is_none());
+                    }
+                    let mut presented = false;
+                    for _ in 0..3 {
+                        if gpu.present(&newer, Color::BLACK).unwrap() {
+                            presented = true;
+                            break;
+                        }
+                        // Synchronous surface failures need a bounded retry;
+                        // only a worker waiter promises a readiness wake.
+                        if gpu.surface_acquire_pending() {
+                            if operation == "trim" {
+                                assert!(
+                                    gpu.read_retained_rgba().unwrap().is_none(),
+                                    "unsubmitted target is not retained pixels"
+                                );
+                            }
+                            wakes
+                                .recv_timeout(std::time::Duration::from_secs(2))
+                                .unwrap_or_else(|error| {
+                                    panic!("{operation}: fetch wake: {error:?}")
+                                });
+                        }
+                    }
+                    assert!(presented, "{operation}: bounded acquisition recovery");
+                    assert_eq!(
+                        gpu.pending_frame_stats()[2],
+                        stats[2] + 1,
+                        "{operation}: no old encoder survives recovery"
+                    );
+                    assert!(!gpu.last_present_skipped());
+                    let pixels = gpu.read_retained_rgba().unwrap().unwrap().1;
+                    let expected = reference
+                        .render_scene(
+                            &newer,
+                            [actual.width, actual.height],
+                            Color::BLACK.components,
+                            false,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        pixels, expected,
+                        "{operation}: no stale uploads, false skips or old target"
+                    );
+                }
                 let retained = gpu.renderer.target_storage_bytes();
                 gpu.prepare_hide();
                 assert_eq!(
@@ -803,7 +1072,11 @@ mod tests {
                 gpu.configured_size = [1, 1];
                 assert!(gpu.present(&scene, Color::BLACK).unwrap());
                 gpu.surface_acquire = None;
-                let wake = gpu.surface_wake.clone().unwrap();
+                let (wake, failure_wakes) = std::sync::mpsc::channel();
+                let wake: plico_renderer::WakeCallback = Arc::new(move || {
+                    let _ = wake.send(());
+                });
+                gpu.surface_wake = Some(wake.clone());
                 gpu.surface_acquire = Some(
                     crate::surface_acquire::Acquire::new(
                         || panic!("controlled acquisition failure"),
@@ -812,11 +1085,15 @@ mod tests {
                     .unwrap(),
                 );
                 assert!(!gpu.present(&scene, Color::WHITE).unwrap());
-                wakes
+                failure_wakes
                     .recv_timeout(std::time::Duration::from_secs(2))
                     .unwrap();
                 assert!(gpu.present(&scene, Color::WHITE).is_err());
                 assert!(!gpu.surface_prefetch_enabled());
+                assert!(
+                    gpu.pending_frame.is_none(),
+                    "failed fetch cannot retain its encoder"
+                );
                 assert!(
                     gpu.present(&scene, Color::WHITE).unwrap(),
                     "a failed worker must leave synchronous recovery available"

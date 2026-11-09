@@ -371,7 +371,7 @@ macOS 实测排版耗时降幅。
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
 | CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
-| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 回归及 macOS worker 5 项原生 CPU 测试通过 | Metal 实机指标；pending GPU 编码重叠；与 CA transaction 策略联合验证 |
+| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 回归及 macOS worker 5 项原生 CPU 测试通过 | Metal 实机编码重叠收益；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
 ### 为什么不从 currentEvent 补普通点击计数
@@ -405,10 +405,8 @@ macOS 实测排版耗时降幅。
   实现的 maybe_wait_on_main 可能等待 UI，与 UI 等待 worker 形成环。
 - wgpu 30 的 Surface/SurfaceTexture 通过 Send/Sync 类型约束跨线程持有；真正的
   acquire 在 worker，配置及编码/提交仍归宿主。配置期间绝不保留旧 texture。
-- 当前 bridge 在 ready 后编码最新 scene，没有跨获取间隔保留已编码 command buffer。
-  它与 MyGO pendingFrame 的 GPU 编码重叠不同。后续已将 preparation/planning
-  分开，pending 不推进 damage history（见下文）；GPU 编码重叠仍需结合 Renderer
-  共享可变 buffer 和显式 capture 生命周期继续优化。
+- 早期 bridge 在 ready 后才编码最新 scene。当前已加入跨获取间隔保留单槽编码器，
+  并处理共享 buffer、capture 和 damage 生命周期，见末节“等待 drawable 时保留已编码帧”。
 - 等待实际帧时暂停 idle 维护期限，防止维护清理撤销唯一的完成唤醒；完成后重新安排
   两秒一次的回收。显式遮挡/关闭仍可 drain 清理，并在恢复显示时完整重绘。
 
@@ -455,8 +453,9 @@ PreparedFrame，核对原画面仍能 unchanged skip，后续局部更新与全�
 cargo test --locked -p plico-wgpu --features window --lib abandoned_prepared_frames_preserve -- --ignored
 ```
 
-这一步保留 CPU damage 基线，没有迁移 MyGO 的 pending GPU command-buffer 编码
-重叠。CA transaction 配合与实际 Metal 吞吐/延迟验证仍是独立未完成项。
+这一步当时只保留 CPU damage 基线。后续已加入单槽 GPU 编码挂起：此时基线跟随
+拥有编码器的 pending 帧，不代表已经提交；废弃编码器必须失效基线，见末节。
+CA transaction 配合与实际 Metal 吞吐/延迟验证仍是独立未完成项。
 
 ## 主线程真窗口生命周期验证
 
@@ -629,8 +628,8 @@ next_frame_wake，每个窗口独立判断等待，不阻塞其他窗口。
 
 新增调度回归覆盖多次等待仍不 redraw、等待解除后恢复、独立定时器到期和隐藏窗口；
 宿主 71 项测试、Clippy 和 X11 原生窗口 resize/隐藏/恢复回归通过。这些检查不是
-macOS 实际 display-link / Metal 联调，也未测得 CPU 用量降幅。MyGO 的 pending
-GPU command buffer 编码重叠仍是独立未完成项，本次没有将它算作已迁移。
+macOS 实际 display-link / Metal 联调，也未测得 CPU 用量降幅。当时尚未迁移的
+pending GPU command-buffer 编码重叠，后续实现见末节。
 
 ## 避免重复的文字编码索引
 
@@ -896,3 +895,39 @@ X11 surface、HUD 3 项回归通过，Linux / Apple / WASM Clippy 通过。当�
 仍等待 tick，而不是用固定 60Hz 判断。这是时序策略验证，不是实测窗口 FPS。
 实际 macOS frame-clock 模块通过 Apple Silicon 目标独立 harness 的 Clippy 类型检查；
 没有运行云端 macOS 作业。跨屏及 ProMotion 实机节奏仍待用户验证。
+
+
+## 等待 drawable 时保留已编码帧
+
+对照 MyGO `internal/gpu/metal/present.go::{stash,finishPending,dropPending}`，
+macOS worker 返回等待时，现在先完成 offscreen frame 编码，保留单个未提交
+`wgpu::CommandEncoder`，与后台获取 drawable 重叠。此前等待路径在准备后直接返回，
+只有就绪才开始编码。这里重叠的是 CPU 编码，不声称 GPU 已经执行这些命令。
+
+相同 scene 的再次请求不会建立第二个 encoder。完成通知后提交已有编码，再复制到
+真实 drawable；它不能被当作普通 unchanged skip。编码推进的 damage history 属于
+pending 帧，只有提交后才成为画面基线。内容/背景变化、surface fit、截图、显式
+失效、切换 damage 策略、隐藏、回收、错误或析构会废弃旧编码，刷新 upload staging，
+使后续帧完整重建。替换始终先废弃再编码，队列没有第二个待呈现场景。
+
+截图可能换 target、覆盖共享 instance/image buffer，所以先废弃 pending；这与
+MyGO 为 capture 保留独立 draw state 的实现不同，当前不声称截图与挂起编码并行复用。
+不重绘的 retained readback 则可以读取此前已经提交的 target；首次编码或 trim 后
+新建但未提交的 target 返回 None。首帧 prime 完成、正常提交和成功截图分别建立
+可读状态，不把“已分配/已编码”当作“已提交”。
+
+`WgpuWindow::pending_frame_stats()` 返回等待期间编码、恢复复用、废弃三种累计计数；
+主线程 `surface-lifecycle` 完成报告也输出它们，便于同一二进制的 Mac A/B 对照。
+关闭后台获取时三个计数应保持零。计数不是帧率或延迟指标。
+
+真实 X11 surface 的受控获取回归验证：阻塞获取时仍返回 UI、重复请求只编码一次、
+小更新恢复保留局部 damage 并逐像素匹配全量绘制，以及替换、capture、invalidate、
+hide、trim、关闭 damage、强制 fit 的废弃/恢复。各生命周期轮次使用已 drain 的新
+swapchain 和独立唤醒通道；不依赖一轮留下的 drawable 或代理消息。
+同时验证未提交 target 不可读、worker panic 丢弃编码并可走同步恢复。
+
+本地 Linux 回归通过：真窗口受控场景 1 项、编码/资源 owner 4 项、串行 backdrop
+13 项、主线程生命周期 64 帧。Linux Clippy 与实际 wgpu 窗口/示例的 Apple Silicon
+目标 Clippy 通过。Linux 默认同步路径的 pending 计数为零，受控测试才覆盖后台
+编码路径；没有运行云端 macOS CI，也没有 Metal 实机 p95/p99 或内存收益数据。
+CA transaction 联合时序、原始事件队列身份与高刷/跨屏真实窗口验证仍未完成。
