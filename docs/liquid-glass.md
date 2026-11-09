@@ -65,7 +65,7 @@ Enabled glass currently requires the wgpu WGSL backdrop path. Skia/SkSL glass,
 OS compositor integration and native material calibration are not implemented.
 The wgpu backdrop uses a bounded area-prefilter pyramid plus a residual blur kernel
 (see below); it is not a direct copy of MyGO's separable Gaussian implementation. Opaque fallback uses ordinary primitives. Keep a small
-number of chrome panes: backdrop readers require conservative full damage and
+number of chrome panes: backdrop readers still require ordered background snapshots, and
 the renderer only samples already-painted content in the pane's local region.
 It cannot sample another window or the desktop. Transformed/masked/partially
 offscreen panes need additional coverage.
@@ -111,11 +111,14 @@ For Rust/custom effect clients, enable backdrop input and provide these vec4 slo
 | 2 | tint red | tint green | tint blue | reserved (0) |
 
 This is a wgpu scene effect, not an OS compositor API or a SkSL implementation.
-Backdrop readers currently require conservative full damage. Prefer a few chrome
-panes to hundreds of independently sampled list cells. Axis-aligned local regions
-are covered by the offset-region GPU regression test; arbitrary clip masks,
-transformed panes and partially offscreen panes still need additional coverage.
-Do not infer universal clipping or power-efficiency guarantees from this demo.
+wgpu tracks each reader's bounded input and clipped output: unrelated changes
+skip it, while intersecting changes restore its whole input before replay. This
+avoids sampling the previous composited pane or foreground. Unknown consumers
+retain full damage. Rounded masks, cropped opacity layers, offscreen panes and
+1/1.5/2x are covered by GPU differential tests. Prefer a few chrome panes to
+hundreds of independently sampled list cells; dependencies can still expand to
+full replay, especially for overlapping or window-wide inputs. See the
+[backdrop architecture experiment](experiments/wgpu-backdrop-architecture.md).
 
 The C# gallery's shader page demonstrates controls and an interactive pane. Pure
 managed checks cover composition/fallback/validation without loading Rust; native
@@ -350,3 +353,23 @@ cargo plico capture apps/gallery --scenario apps/gallery/scenarios/effects-prefi
 预滤波额外 48 个 pass，payload 为 696,320 B，相比 base 524,288 B。
 这是以一些工作量换取采样质量，不是性能加速宣称；实际窗口和 macOS 应在目标机重测。
 Gallery Effects 现在有稀疏核与预滤波的细纹理并排对照，可由场景 JSON 重建。
+
+## 背景依赖与同阶段分组
+
+wgpu 的局部失效不再因存在背景采样而一律全屏更新。后端提供完整采样输入矩形，
+tracker 按绘制顺序传播背景变化到后续玻璃；重放时将相交玻璃的完整输入／输出与
+文字／描边的原子绘制范围展开到固定点，避免误采上一帧的玻璃、光标或标签。
+完全不变的窗口帧可跳过提交，玻璃外的小变化不再重算玻璃。
+
+同阶段、等物理尺寸的背景副本可合到一个纹理数组，并按 mip 层批量执行 compute 预滤波。
+每个面板仍绑定独立的 D2 slice 与自己的 mip 数，保留原有 UV、边界和采样结果。
+每块区域仍执行一次 copy，减少的是 texture allocations 与预滤波 pass，不宣称减少拷贝总字节。
+中间绘制若写入后续面板的输入区（包括相邻阴影），会阻止它加入该阶段；不重排画家顺序。
+每组最多 16 slices、32 MiB payload、512 instances 前瞻；没有 compute／相应设备限额时
+自动保留独立路径。数组与 views 只属于本次编码，不形成历史纹理缓存。
+
+`Renderer::force_separate_backdrops(true)` 用于像素与性能 A/B，默认启用分组。
+`batch_stats()` 新增 `backdrop_textures` 与 `backdrop_shared_reads`；
+`backdrop_copies` 仍是 copy 次数，`backdrop_mip_passes` 统计实际 render/compute pass。
+最大 sigma 预算已按 device scale 转成物理值，含 1.5/2x 验证。
+详情、测量限制及复跑命令见 [实验记录](experiments/wgpu-backdrop-architecture.md)。

@@ -315,7 +315,25 @@ impl SceneDamageTracker {
         scene: &crate::Scene,
         width: u32,
         height: u32,
+        ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+    ) -> DamageRegion {
+        self.update_indexed_with_backdrops(scene, width, height, ink, |_, _| None)
+    }
+
+    /// Opt into bounded backdrop dependencies. `backdrop_input` must return the
+    /// complete physical-pixel region copied by the host before a backdrop draw,
+    /// without intersecting the effect's output clip. Returning None keeps the
+    /// conservative full-damage policy. The host must restore/replay all returned
+    /// damage before sampling: old composited pixels are not a valid backdrop.
+    /// Foreground changes are not propagated backwards as content changes, but
+    /// replay expands to whole input/output regions of intersecting effects.
+    pub fn update_indexed_with_backdrops(
+        &mut self,
+        scene: &crate::Scene,
+        width: u32,
+        height: u32,
         mut ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+        mut backdrop_input: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
     ) -> DamageRegion {
         use crate::PaintCommand;
         use kurbo::Shape;
@@ -324,10 +342,19 @@ impl SceneDamageTracker {
             self.regions.add(DamageRegion::Full);
         }
         self.nonlocal = false;
+        let mut dependencies = Vec::new();
         let mut clips: Vec<Option<Rect>> = Vec::new();
         let mut clip: Option<Rect> = None;
         for (index, command) in scene.commands.iter().enumerate() {
             let context = clip;
+            let input = match command {
+                PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
+                    backdrop_input(index, command)
+                        .filter(|r| finite(*r))
+                        .map(|r| DamageRegion::Rect(r.inflate(1., 1.)).for_surface(width, height))
+                }
+                _ => None,
+            };
             let same_command =
                 self.previous.as_ref().and_then(|s| s.commands.get(index)) == Some(command);
             let bounds = match command {
@@ -369,10 +396,10 @@ impl SceneDamageTracker {
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
                 }
-                // Backdrop readers sample everything painted before them:
-                // any earlier change must reach them, so they are never
-                // damage-skipped (mygo's scene.Effect.Backdrop contract).
-                PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
+                // Unbounded readers retain the legacy conservative policy.
+                PaintCommand::Shader { effect, .. }
+                    if effect.reads_backdrop() && input.is_none() =>
+                {
                     self.nonlocal = true;
                     self.regions.add(DamageRegion::Full);
                     DamageRegion::Full
@@ -400,6 +427,20 @@ impl SceneDamageTracker {
                     self.regions.add(*old);
                 }
             }
+            if let Some(input) = input {
+                // Only the painter prefix can change this effect's input.
+                // Marking its output now forwards changes to subsequent readers.
+                if self.regions.is_full()
+                    || self
+                        .regions
+                        .rects()
+                        .iter()
+                        .any(|r| input.intersects(DamageRegion::Rect(*r)))
+                {
+                    self.regions.add(bounds);
+                }
+                dependencies.push((input, bounds));
+            }
             if index < self.bounds.len() {
                 self.contexts[index] = context;
                 self.bounds[index] = bounds;
@@ -416,7 +457,34 @@ impl SceneDamageTracker {
         if !clips.is_empty() {
             self.regions.add(DamageRegion::Full);
         }
-        self.expand_to_whole_command_bounds(&scene.commands);
+        // Restoring a dirty output can replay an otherwise unchanged reader.
+        // Its entire input must be clean at that point in painter order. Repeat
+        // with atomic text/stroke expansion until coverage reaches a fixed point;
+        // this also handles chains of overlapping panes and rectangle coalescing.
+        loop {
+            if self.regions.is_full() {
+                break;
+            }
+            let before = self.regions.coverage(width, height);
+            self.expand_to_whole_command_bounds(&scene.commands);
+            for &(input, output) in &dependencies {
+                if self.regions.is_full() {
+                    break;
+                }
+                if self
+                    .regions
+                    .rects()
+                    .iter()
+                    .any(|r| output.intersects(DamageRegion::Rect(*r)))
+                {
+                    self.regions.add(input);
+                    self.regions.add(output);
+                }
+            }
+            if self.regions.is_full() || self.regions.coverage(width, height) == before {
+                break;
+            }
+        }
         self.previous = Some(scene.clone());
         self.size = Some((width, height));
         self.regions.bounding_region().for_surface(width, height)

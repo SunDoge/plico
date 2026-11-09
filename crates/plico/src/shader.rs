@@ -32,9 +32,9 @@ impl ShaderAsset {
         }
     }
     /// Declare that the effect's `plico_effect` calls `plico.backdrop_at(uv)`.
-    /// Backdrop readers see everything painted before them and cannot be
-    /// damage-skipped; hosts apply full-damage semantics (mygo's
-    /// scene.Effect.Backdrop).
+    /// Backdrop readers see everything painted before them. Hosts with bounded
+    /// input dependencies may preserve unchanged pixels; unknown consumers keep
+    /// conservative full damage (mygo's scene.Effect.Backdrop).
     pub const fn read_backdrop(mut self) -> Self {
         self.reads_backdrop = true;
         self

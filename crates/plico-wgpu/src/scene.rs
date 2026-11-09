@@ -164,9 +164,24 @@ impl PreparedScene {
         tracker: &mut plico_renderer::damage::SceneDamageTracker,
         size: [u32; 2],
     ) -> plico_renderer::DamageRegion {
-        tracker.update_indexed(&self.flattened, size[0], size[1], |index, _| {
-            self.ink[index]
-        })
+        tracker.update_indexed_with_backdrops(
+            &self.flattened,
+            size[0],
+            size[1],
+            |index, _| self.ink[index],
+            |_, command| match command {
+                PaintCommand::Shader { effect, transform } if effect.reads_backdrop() => {
+                    let [width, height] = effect.logical_size();
+                    Some(transform.transform_rect_bbox(Rect::new(
+                        0.,
+                        0.,
+                        f64::from(width),
+                        f64::from(height),
+                    )))
+                }
+                _ => None,
+            },
+        )
     }
 
     /// CPU vector capacities for this scene only; not process RSS.

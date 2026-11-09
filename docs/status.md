@@ -9,6 +9,8 @@
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
 启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。wgpu 已有受最大 sigma 限制的面积预滤波模糊金字塔；Skia 材质与原生系统玻璃尚未实现。
 背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
+wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有界纹理数组，批量生成 mip；
+全量／局部与独立／分组的逐像素对照及同进程 A/B 见 [背景架构实验](experiments/wgpu-backdrop-architecture.md)。
 见 [Liquid Glass](liquid-glass.md)。
 
 ## 原生桌面服务

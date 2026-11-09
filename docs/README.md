@@ -72,6 +72,7 @@
 | [代码编辑器](code-editor.md) | Floem 编辑核心、Parley 可见行、native surface 示例与接入边界 |
 | [流式 Markdown](markdown.md) | 富文本范围、开放块解析缓存、逻辑时钟展示与 gallery 聊天页 |
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
+| [wgpu 背景依赖与分组](experiments/wgpu-backdrop-architecture.md) | 玻璃局部失效、纹理数组分组、像素一致性及同进程性能 A/B |
 | [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
 | [C# batch frontend 实验](experiments/csharp-batch.md) | csbindgen、原生批量提交、事件回传与编辑反馈耗时 |
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |

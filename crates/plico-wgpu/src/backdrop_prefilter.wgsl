@@ -20,5 +20,6 @@
             sum+=textureLoad(source,vec2i(i32(x),i32(y)),0)*f32(wx)*f32(wy);
         }
     }
-    return sum/(f32(input_size.x)*f32(input_size.y));
+    let average=sum/(f32(input_size.x)*f32(input_size.y));
+    return floor(clamp(average,vec4f(0.),vec4f(1.))*255.+0.5)/255.;
 }

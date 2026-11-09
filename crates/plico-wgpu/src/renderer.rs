@@ -93,6 +93,10 @@ pub struct FrameBatchStats {
     /// Transient backdrop texture payload encoded this frame, including all mips.
     /// Not retained cache bytes or process RSS.
     pub backdrop_bytes: u64,
+    /// Physical backdrop texture allocations encoded this frame (arrays count once).
+    pub backdrop_textures: u64,
+    /// Effects reading slices of a same-stage snapshot array.
+    pub backdrop_shared_reads: u64,
 }
 // Preserve scope markers while culling expensive child layers before encoding.
 // The later instance filter remains useful for glyph-level pruning.
@@ -162,6 +166,8 @@ pub struct Renderer {
     blitter: Option<crate::blit::Blitter>,
     backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
+    backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
+    force_separate_backdrops: bool,
     layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -457,6 +463,8 @@ impl Renderer {
             blitter: None,
             backdrop_compositor: None,
             backdrop_prefilter: None,
+            backdrop_batch_prefilter: None,
+            force_separate_backdrops: false,
             layout,
             frame,
             bind,
@@ -535,6 +543,10 @@ impl Renderer {
     /// NoClasses). Pixels must be identical either way.
     pub fn force_general_pipelines(&mut self, force: bool) {
         self.force_general = force;
+    }
+    /// Disable same-stage backdrop batching for pixel/performance comparisons.
+    pub fn force_separate_backdrops(&mut self, force: bool) {
+        self.force_separate_backdrops = force;
     }
     /// Runtime shader replacement. Invalid input preserves the last working pipeline.
     /// Loading the same source again is a no-op. No Rust compilation is involved.
@@ -895,6 +907,24 @@ impl Renderer {
                 })
             });
         }
+        let backdrop_plan = plan_backdrops(
+            &instances,
+            &self.backdrop_effects,
+            origin,
+            size,
+            !self.force_separate_backdrops
+                && crate::mipmap::MipGenerator::supported(&self.device)
+                && self.device.limits().max_texture_array_layers >= 16
+                && self.device.limits().max_compute_workgroups_per_dimension
+                    >= self
+                        .device
+                        .limits()
+                        .max_texture_dimension_2d
+                        .div_ceil(16)
+                        .max(16),
+        );
+        let mut backdrop_snapshots: Vec<Option<Vec<wgpu::TextureView>>> =
+            (0..backdrop_plan.groups.len()).map(|_| None).collect();
         if instances
             .iter()
             .any(|instance| instance.config[2] == 4. && instance.config[1] == 1.)
@@ -1084,6 +1114,32 @@ impl Renderer {
                         // in a fresh pass (mygo's Backdrop step between
                         // batches).
                         drop(pass);
+                        let shared = backdrop_plan.members.get(run.start).copied().flatten().map(
+                            |(group, slot)| {
+                                if backdrop_snapshots[group].is_none() {
+                                    let requests = &backdrop_plan.groups[group];
+                                    let views = crate::backdrop_batch::capture(
+                                        &self.device,
+                                        &mut encoder,
+                                        &self.target.as_ref().unwrap().texture,
+                                        requests,
+                                        &mut self.backdrop_batch_prefilter,
+                                    );
+                                    let levels = requests.iter().map(|r| r.levels).max().unwrap();
+                                    self.batch_stats.backdrop_copies += requests.len() as u64;
+                                    self.batch_stats.backdrop_textures += 1;
+                                    self.batch_stats.backdrop_mip_passes += u64::from(levels - 1);
+                                    self.batch_stats.backdrop_bytes +=
+                                        crate::backdrop_prefilter::bytes(
+                                            requests[0].region[2],
+                                            requests[0].region[3],
+                                            levels,
+                                        ) * requests.len() as u64;
+                                    backdrop_snapshots[group] = Some(views);
+                                }
+                                backdrop_snapshots[group].as_ref().unwrap()[slot].clone()
+                            },
+                        );
                         let effect = self.backdrop_effects[effect_index].clone();
                         let mut effects = self.effects.take();
                         let mut compositor = self.backdrop_compositor.take();
@@ -1095,6 +1151,7 @@ impl Renderer {
                             &mut compositor,
                             &mut self.backdrop_prefilter,
                             &mut self.batch_stats,
+                            shared.as_ref(),
                             &self.atlas_texture.layout,
                             if run.mask > 0 {
                                 &self.frame_images[run.mask as usize - 1].bind
@@ -2283,6 +2340,78 @@ impl Renderer {
     }
 }
 
+fn plan_backdrops(
+    instances: &[Instance],
+    effects: &[plico_renderer::ShaderEffect],
+    origin: [f32; 2],
+    size: [u32; 2],
+    enabled: bool,
+) -> crate::backdrop_batch::Plan {
+    if !enabled || effects.len() < 2 {
+        return crate::backdrop_batch::Plan {
+            groups: Vec::new(),
+            members: Vec::new(),
+        };
+    }
+    let mut requests = Vec::new();
+    let mut writes = Vec::with_capacity(instances.len());
+    for (index, i) in instances.iter().enumerate() {
+        let [x, y, w, h] = i.rect;
+        let [cx, cy, cw, ch] = i.clip;
+        let mut output = kurbo::Rect::new(
+            f64::from(x - origin[0] - 1.),
+            f64::from(y - origin[1] - 1.),
+            f64::from(x + w - origin[0] + 1.),
+            f64::from(y + h - origin[1] + 1.),
+        )
+        .intersect(kurbo::Rect::new(
+            f64::from(cx - origin[0] - 1.),
+            f64::from(cy - origin[1] - 1.),
+            f64::from(cx + cw - origin[0] + 1.),
+            f64::from(cy + ch - origin[1] + 1.),
+        ));
+        if i.clip_params[2] > 0. {
+            let [mx, my, mw, mh] = i.mask_rect;
+            output = output.intersect(kurbo::Rect::new(
+                f64::from(mx - origin[0]),
+                f64::from(my - origin[1]),
+                f64::from(mx + mw - origin[0]),
+                f64::from(my + mh - origin[1]),
+            ));
+        }
+        writes.push((output.width() > 0. && output.height() > 0.).then_some(output));
+        if !enabled || i.color[3] != 2. || output.width() <= 0. || output.height() <= 0. {
+            continue;
+        }
+        // Match the actual marker's visibility test, not the AA-inflated
+        // write bound: an offscreen future member must never be copied early.
+        if x.max(cx).max(origin[0]) >= (x + w).min(cx + cw).min(origin[0] + size[0] as f32)
+            || y.max(cy).max(origin[1]) >= (y + h).min(cy + ch).min(origin[1] + size[1] as f32)
+        {
+            continue;
+        }
+        let effect = &effects[i.config[3] as usize];
+        let left = (x - origin[0]).floor().max(0.) as u32;
+        let top = (y - origin[1]).floor().max(0.) as u32;
+        let width =
+            (((x + w - origin[0]).ceil().min(size[0] as f32) as u32).saturating_sub(left)).max(1);
+        let height =
+            (((y + h - origin[1]).ceil().min(size[1] as f32) as u32).saturating_sub(top)).max(1);
+        requests.push(crate::backdrop_batch::Request {
+            instance: index,
+            region: [left, top, width, height],
+            levels: crate::backdrop_prefilter::levels(
+                width,
+                height,
+                effect
+                    .prefilter_backdrop()
+                    .map(|sigma| sigma * effect.device_scale()),
+            ),
+        });
+    }
+    crate::backdrop_batch::Plan::new(&requests, &writes, instances.len())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn encode_backdrop_step<'p>(
     device: &wgpu::Device,
@@ -2292,6 +2421,7 @@ fn encode_backdrop_step<'p>(
     compositor: &mut Option<crate::backdrop_composite::Compositor>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
     stats: &mut FrameBatchStats,
+    shared: Option<&wgpu::TextureView>,
     mask_layout: &wgpu::BindGroupLayout,
     mask: &wgpu::BindGroup,
     instance: Instance,
@@ -2315,49 +2445,60 @@ fn encode_backdrop_step<'p>(
             .max(1),
         depth_or_array_layers: 1,
     };
-    let mip_levels =
-        crate::backdrop_prefilter::levels(region.width, region.height, effect.prefilter_backdrop());
-    stats.backdrop_copies += 1;
-    stats.backdrop_mip_passes += u64::from(mip_levels - 1);
-    stats.backdrop_bytes +=
-        crate::backdrop_prefilter::bytes(region.width, region.height, mip_levels);
-    let backdrop = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Plico effect backdrop copy"),
-        size: region,
-        mip_level_count: mip_levels,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    encoder.copy_texture_to_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &target.texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d {
-                x: left,
-                y: top,
-                z: 0,
+    let backdrop_view = if let Some(view) = shared {
+        stats.backdrop_shared_reads += 1;
+        view.clone()
+    } else {
+        let mip_levels = crate::backdrop_prefilter::levels(
+            region.width,
+            region.height,
+            effect
+                .prefilter_backdrop()
+                .map(|sigma| sigma * effect.device_scale()),
+        );
+        stats.backdrop_copies += 1;
+        stats.backdrop_textures += 1;
+        stats.backdrop_mip_passes += u64::from(mip_levels - 1);
+        stats.backdrop_bytes +=
+            crate::backdrop_prefilter::bytes(region.width, region.height, mip_levels);
+        let backdrop = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Plico effect backdrop copy"),
+            size: region,
+            mip_level_count: mip_levels,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: left,
+                    y: top,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
             },
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyTextureInfo {
-            texture: &backdrop,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        region,
-    );
-    if mip_levels > 1 {
-        prefilter
-            .get_or_insert_with(|| crate::backdrop_prefilter::Prefilter::new(device))
-            .encode(device, encoder, &backdrop);
-    }
-    let backdrop_view = backdrop.create_view(&wgpu::TextureViewDescriptor::default());
+            wgpu::TexelCopyTextureInfo {
+                texture: &backdrop,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            region,
+        );
+        if mip_levels > 1 {
+            prefilter
+                .get_or_insert_with(|| crate::backdrop_prefilter::Prefilter::new(device))
+                .encode(device, encoder, &backdrop);
+        }
+        backdrop.create_view(&wgpu::TextureViewDescriptor::default())
+    };
     let effects = effects.get_or_insert_with(|| {
         let mut effects = plico_renderer::shader::ShaderRenderer::new(device);
         effects.begin_frame();

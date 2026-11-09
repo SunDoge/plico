@@ -249,7 +249,8 @@ impl ShaderEffectSource {
 
     /// Validate a `plico_effect` function that may call `plico.backdrop_at`
     /// to sample what is painted behind the surface (mygo's scene.Effect
-    /// Backdrop). Hosts apply full-damage semantics to these effects.
+    /// Backdrop). Hosts may track bounded input dependencies; unknown hosts
+    /// retain conservative full damage.
     pub fn with_backdrop(source: &str, reads_backdrop: bool) -> Result<Self, String> {
         if source.trim().is_empty() {
             return Err("shader source must not be empty".into());
