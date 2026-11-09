@@ -668,3 +668,17 @@ tracking / 红色 span 之后普通蓝色文本的宽度、caret 与像素保持
 回归继续比较原生测量和像素。Apple Silicon 目标实现与测试 Clippy 检查通过；
 这些 CoreText 回归仍需 macOS 执行，未测得真实 shaping 时间或 native allocation
 降幅，不能据此宣称 macOS 原生验证已经完成。
+
+## 暂停后保留光标闪烁相位
+
+继续对照 MyGO `ui/editor_layout.go` 的 `phase / blink` 和下一边界 deadline，
+终端光标仍使用一次性 500 ms deadline，但不再按“实际轮询了几次”翻转状态。
+事件循环暂停或窗口恢复时，一次计算经过的周期数及余数，按奇偶确定状态，并将
+下一 deadline 对齐原时间线；不会为漏掉的闪烁逐次排队或从恢复时刻重新计时。
+保持终端已有的 500 ms 间隔，不把 MyGO editor 的 530 ms 或 30 秒策略直接移植。
+
+未聚焦或没有 blink deadline 时不读取时钟。所有时间仍来自已有注入 Clock bridge，
+没有新增系统计时器、持续动画请求或平台线程；共享实现自然适用于 macOS 宿主。
+新增虚拟时间回归覆盖跳过多个周期、非边界恢复、精确边界、重复冻结时间和失焦，
+连同现有光标/终端背景保留共 5 项通过，terminal 全目标 Clippy 通过。
+这证明共享时间逻辑，不代替 macOS 实际系统睡眠/显示恢复或能耗测量。
