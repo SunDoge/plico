@@ -96,3 +96,30 @@ jobs:
         run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features plico-desktop/skia,backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
       - name: Check the Bevy plugin on Windows MSVC
         run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p plico-bevy --lib
+
+  macos-native:
+    name: macOS native text and scheduling
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          toolchain: stable
+          cache-key: workspace-ci-macos-native-v1
+          cache-workspace-crates: true
+          cache-on-failure: false
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Run native CoreText and scheduling checks
+        env:
+          PLICO_MACOS_CHECK_MODE: cpu
+          PLICO_MACOS_CHECK_REPORT_DIR: reports/macos-native-ci
+        run: scripts/check-macos-native.sh
+      - name: Publish native check summary
+        if: always()
+        run: |
+          if [[ -f reports/macos-native-ci/summary.txt ]]; then
+            cat reports/macos-native-ci/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
