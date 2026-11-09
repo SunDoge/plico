@@ -218,3 +218,60 @@ fn multiline_preserves_newlines_while_single_line_and_secret_keep_filtering() {
         assert_eq!(input.with_value(str::to_owned), "ab");
     }
 }
+
+#[test]
+fn word_selection_reverses_from_original_word_without_editing_value() {
+    let buffer = TextBuffer::new();
+    buffer.set("one cafe\u{301} three".to_owned().into());
+    let revision = buffer.value_revision();
+    buffer.edit(InputEdit::Preedit("pending".to_owned().into()));
+    buffer.edit(InputEdit::SelectWord {
+        at: 6,
+        extend_from: None,
+    });
+    assert_eq!(buffer.selected_text().as_deref(), Some("cafe\u{301}"));
+    assert!(!buffer.is_composing());
+    let (head, anchor) = buffer.selection_display_bytes();
+    let initial = Some((anchor, head));
+    buffer.edit(InputEdit::SelectWord {
+        at: 13,
+        extend_from: initial,
+    });
+    assert_eq!(buffer.selected_text().as_deref(), Some("cafe\u{301} three"));
+    buffer.edit(InputEdit::SelectWord {
+        at: 1,
+        extend_from: initial,
+    });
+    assert_eq!(buffer.selected_text().as_deref(), Some("one cafe\u{301}"));
+    assert_eq!(buffer.value_revision(), revision);
+}
+
+#[test]
+fn visual_line_selection_trims_separators_and_secret_selection_stays_masked() {
+    let buffer = TextBuffer::multiline();
+    buffer.set("first\nsecond".to_owned().into());
+    buffer.edit(InputEdit::SelectLine {
+        at: 2,
+        visual_range: Some((0, 6)),
+        extend_from: None,
+    });
+    assert_eq!(buffer.selected_text().as_deref(), Some("first"));
+    buffer.edit(InputEdit::SelectLine {
+        at: 8,
+        visual_range: None,
+        extend_from: None,
+    });
+    assert_eq!(buffer.selected_text().as_deref(), Some("second"));
+    let secret = TextBuffer::secret();
+    secret.set("a👩‍💻e\u{301}".to_owned().into());
+    secret.edit(InputEdit::SelectRange(3, 6));
+    assert_eq!(secret.selection_display_bytes(), (6, 3));
+    assert!(secret.selected_text().is_none());
+    secret.edit(InputEdit::SelectWord {
+        at: 3,
+        extend_from: None,
+    });
+    let presentation = secret.presentation();
+    assert_eq!(presentation.text, "•••");
+    assert_eq!((presentation.head, presentation.anchor), (9, 0));
+}

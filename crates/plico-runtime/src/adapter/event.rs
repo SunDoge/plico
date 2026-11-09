@@ -148,6 +148,9 @@ impl Adapter {
         mut event: UiEvent,
         declare: &mut bool,
     ) -> EventResponse {
+        if let Some(response) = self.input_pointer_event(engine, &event) {
+            return response;
+        }
         if let Some(response) = self.slider_event(engine, &event) {
             return response;
         }
@@ -269,7 +272,7 @@ impl Adapter {
                         self.pressed = hit;
                         self.focused = hit;
                         self.focus_visible = false;
-                        self.input_pointer(engine, hit, p.position, p.modifiers.shift());
+                        self.input_pointer(engine, hit, p);
                         handled = true;
                     }
                     PointerPhase::Up if p.button == Some(PointerButton::Primary) => {

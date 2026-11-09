@@ -8,3 +8,10 @@ drags. Plico uses explicit retained paragraph IDs, UTF-8 offsets, Rust Unicode
 segmentation and its injected clock rather than MyGO's Go editor/runtime objects.
 The original MIT notice is retained in `licenses/mygo-MIT.txt`.
 No MyGO checkout is needed to build or run Plico.
+
+Editable input gestures in `src/input.rs` also reference MyGO
+`ui/editor_navigation.go` (`press`, `drag`, `lineEdges`), commit
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT). The original word/line
+range anchors reversed drags; Plico resolves visual lines through retained
+native/Parley layouts and keeps password offsets in masked display coordinates.
+The existing MIT notice applies. No MyGO source dependency is introduced.

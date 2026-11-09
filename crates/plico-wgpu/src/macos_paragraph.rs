@@ -71,6 +71,17 @@ impl NativeParagraph for Paragraph {
             .unwrap_or(0)
             .min(self.visible_end)
     }
+    fn line_range_at(&self, y: f32) -> Option<std::ops::Range<usize>> {
+        if !y.is_finite() {
+            return None;
+        }
+        let lines = &self.layout.lines()[..self.visible_lines];
+        let line = lines
+            .iter()
+            .find(|line| f64::from(y) < line.vertical_bounds[1])
+            .or_else(|| lines.last())?;
+        Some(line.range.start.min(self.visible_end)..line.range.end.min(self.visible_end))
+    }
     fn caret_rect(&self, byte: usize) -> Option<[f32; 4]> {
         if !self.request.text.is_char_boundary(byte) {
             return None;

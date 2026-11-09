@@ -100,3 +100,18 @@ dbus-run-session -- cargo test --locked -p plico-shell --lib linux_preferences -
 宿主多击配置已通过共享 FrameSource / Widget 契约下传，Linux 暂用 500ms / 4 逻辑
 像素 fallback；本轮尚未对接 GTK/XSettings 的双击设置。macOS 的 NSEvent 间隔
 适配与虚拟时钟/终端覆盖范围见 `macos-mygo.md`。
+
+## 编辑框选择复用原生布局
+
+对照 MyGO `ui/editor_navigation.go` 的 press / drag 和初始选择锚点，补齐
+普通输入框及多行编辑框的字符拖选、双击选词后按词拖选、三击选视觉行。
+反向拖动仍保留最初选中的词/行；Shift 扩展原锚点。使用共享多击阈值和注入时钟，
+不在控件中读取系统时间。密码框只提供掩码位置，按词/行操作选择整个秘密字段。
+
+Linux 从已有 Pango LayoutIter 获取原始 UTF-8 视觉行范围，复用同一份排版，
+不通过左右极端 x 坐标猜测双向文字的行边界。Parley 和 macOS CoreText 提供同一契约；
+其他未提供视觉行的后端回退逻辑行。布局范围中的硬换行符不纳入单行选择。
+
+回归覆盖虚拟时钟下的双击与三击、折行、拖选反向、按住时离开窗口后继续拖选，
+以及密码掩码和 Unicode 组合字符。Pango 原生测试额外核对中文、阿拉伯文、
+1/1.25/2 倍缩放和截断行的范围。尚未实现指针停在边缘时的持续自动滚动。

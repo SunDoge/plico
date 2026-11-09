@@ -282,6 +282,35 @@ impl GlyphLayout {
             strong.height() as f64 / UNIT / self.scale,
         ])
     }
+    /// Original UTF-8 range of the visual line nearest a logical y coordinate.
+    pub fn line_range_at(&self, y: f64) -> Option<std::ops::Range<usize>> {
+        if !y.is_finite() {
+            return None;
+        }
+        let mut iter = self.native.iter();
+        let mut last = None;
+        let mut count = 0;
+        loop {
+            if self.clip.as_ref().is_some_and(|clip| count >= clip.lines) {
+                break;
+            }
+            if let Some(line) = iter.line_readonly() {
+                let (_, bounds) = iter.line_extents();
+                let start = line.start_index().max(0) as usize;
+                let end = start + line.length().max(0) as usize;
+                let end = self.clip.as_ref().map_or(end, |clip| end.min(clip.end));
+                last = Some(start.min(end)..end);
+                if y < f64::from(bounds.y() + bounds.height()) / UNIT / self.scale {
+                    break;
+                }
+            }
+            count += 1;
+            if !iter.next_line() {
+                break;
+            }
+        }
+        last
+    }
     /// Logical-position hit test, returning a UTF-8 byte boundary (not glyph index).
     pub fn hit_test(&self, x: f64, y: f64) -> Option<usize> {
         if !x.is_finite() || !y.is_finite() {
@@ -897,6 +926,25 @@ mod line_clip_tests {
                 let full = context.layout(&request).unwrap();
                 let lines = full.line_metrics();
                 assert!(lines.len() > 1);
+                let mut iter = full.native.iter();
+                for bounds in &lines {
+                    let line = iter.line_readonly().unwrap();
+                    let start = line.start_index() as usize;
+                    let end = start + line.length() as usize;
+                    assert_eq!(
+                        full.line_range_at(bounds[1] + bounds[3] / 2.),
+                        Some(start..end)
+                    );
+                    assert!(content.is_char_boundary(start) && content.is_char_boundary(end));
+                    iter.next_line();
+                }
+                assert!(full.line_range_at(f64::NAN).is_none());
+                assert_eq!(full.line_range_at(-100.), full.line_range_at(lines[0][1]));
+                let last = lines.last().unwrap();
+                assert_eq!(
+                    full.line_range_at(1e6),
+                    full.line_range_at(last[1] + last[3] / 2.)
+                );
                 for limit in [1, 2, 99] {
                     let clipped = context
                         .layout_styled(

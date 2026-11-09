@@ -49,6 +49,19 @@ pub enum InputEdit {
     End(bool),
     SelectAll,
     Select(usize, bool),
+    /// Select display-coordinate anchor/head positions, snapping to graphemes.
+    SelectRange(usize, usize),
+    /// Select a Unicode word, optionally extending an initial display range.
+    SelectWord {
+        at: usize,
+        extend_from: Option<(usize, usize)>,
+    },
+    /// Logical-line fallback when a host cannot expose visual line geometry.
+    SelectLine {
+        at: usize,
+        visual_range: Option<(usize, usize)>,
+        extend_from: Option<(usize, usize)>,
+    },
     DeleteSurrounding(usize, usize),
     Submit,
 }
@@ -113,6 +126,19 @@ impl TextBuffer {
     pub fn selection_bytes(&self) -> (usize, usize) {
         let s = self.0.lock().unwrap();
         if s.secret { (0, 0) } else { (s.head, s.anchor) }
+    }
+    /// Committed selection in display UTF-8 bytes. Secret buffers expose only
+    /// bullet offsets, never underlying secret byte positions or content.
+    pub fn selection_display_bytes(&self) -> (usize, usize) {
+        let s = self.0.lock().unwrap();
+        if s.secret {
+            (
+                s.value[..s.head].graphemes(true).count() * 3,
+                s.value[..s.anchor].graphemes(true).count() * 3,
+            )
+        } else {
+            (s.head, s.anchor)
+        }
     }
     pub fn is_secret(&self) -> bool {
         self.0.lock().unwrap().secret
@@ -287,28 +313,23 @@ impl TextBuffer {
                 s.head = s.value.len();
             }
             InputEdit::Select(display_byte, shift) => {
-                let at = if s.secret {
-                    s.value
-                        .grapheme_indices(true)
-                        .nth(display_byte / 3)
-                        .map_or(s.value.len(), |(i, _)| i)
-                } else {
-                    s.value
-                        .grapheme_indices(true)
-                        .map(|(i, _)| i)
-                        .take_while(|i| *i <= display_byte)
-                        .last()
-                        .unwrap_or(0)
-                        .min(s.value.len())
-                };
-                let at = if !s.secret && display_byte >= s.value.len() {
-                    s.value.len()
-                } else {
-                    at
-                };
+                let at = s.display_position(display_byte);
                 s.preedit.zeroize();
                 extend(&mut s, at, shift);
             }
+            InputEdit::SelectRange(anchor, head) => {
+                s.anchor = s.display_position(anchor);
+                s.head = s.display_position(head);
+                s.preedit.zeroize();
+            }
+            InputEdit::SelectWord { at, extend_from } => {
+                s.select_unit(at, false, None, extend_from)
+            }
+            InputEdit::SelectLine {
+                at,
+                visual_range,
+                extend_from,
+            } => s.select_unit(at, true, visual_range, extend_from),
             InputEdit::DeleteSurrounding(before, after) => {
                 let mut start = s.head.saturating_sub(before);
                 let mut end = s.head.saturating_add(after).min(s.value.len());
@@ -328,6 +349,91 @@ impl TextBuffer {
     }
 }
 impl State {
+    fn select_unit(
+        &mut self,
+        at: usize,
+        line: bool,
+        visual: Option<(usize, usize)>,
+        extend_from: Option<(usize, usize)>,
+    ) {
+        let at = self.display_position(at);
+        let mut range = if self.secret {
+            0..self.value.len()
+        } else if let Some((start, end)) = visual {
+            let start = self.display_position(start);
+            let end = self.display_position(end);
+            start.min(end)..start.max(end)
+        } else {
+            self.unit_range(at, line)
+        };
+        // Some shapers include a hard separator in their visual line range.
+        // Selection semantics match providers whose line range excludes it.
+        if line
+            && !self.secret
+            && let Some((i, separator)) =
+                self.value[range.clone()].grapheme_indices(true).next_back()
+            && hard_separator(separator)
+        {
+            range.end = range.start + i;
+        }
+        if let Some((start, end)) = extend_from {
+            let start = self.display_position(start);
+            let end = self.display_position(end);
+            if at < start {
+                self.anchor = end;
+                self.head = range.start;
+            } else {
+                self.anchor = start;
+                self.head = range.end.max(end);
+            }
+        } else {
+            self.anchor = range.start;
+            self.head = range.end;
+        }
+        self.preedit.zeroize();
+    }
+
+    fn display_position(&self, byte: usize) -> usize {
+        if self.secret {
+            self.value
+                .grapheme_indices(true)
+                .nth(byte / 3)
+                .map_or(self.value.len(), |(i, _)| i)
+        } else if byte >= self.value.len() {
+            self.value.len()
+        } else {
+            self.value
+                .grapheme_indices(true)
+                .map(|(i, _)| i)
+                .take_while(|i| *i <= byte)
+                .last()
+                .unwrap_or(0)
+        }
+    }
+    fn unit_range(&self, at: usize, line: bool) -> Range<usize> {
+        if self.secret {
+            return 0..self.value.len();
+        }
+        if line {
+            let mut start = 0;
+            for (i, grapheme) in self.value.grapheme_indices(true) {
+                if hard_separator(grapheme) {
+                    if i >= at {
+                        return start..i;
+                    }
+                    start = i + grapheme.len();
+                }
+            }
+            start..self.value.len()
+        } else {
+            self.value
+                .split_word_bound_indices()
+                .find(|(i, word)| at < i + word.len())
+                .or_else(|| self.value.split_word_bound_indices().next_back())
+                .map_or(0..0, |(i, word)| i..i + word.len())
+        }
+    }
+
     fn range(&self) -> Range<usize> {
         self.head.min(self.anchor)..self.head.max(self.anchor)
     }
@@ -360,4 +466,11 @@ impl State {
         self.value = next;
         self.value_revision = self.value_revision.saturating_add(1);
     }
+}
+
+fn hard_separator(value: &str) -> bool {
+    matches!(
+        value,
+        "\n" | "\r" | "\r\n" | "\u{85}" | "\u{2028}" | "\u{2029}"
+    )
 }

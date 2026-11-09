@@ -203,6 +203,7 @@ pub struct Adapter {
     pub(super) font_family: Arc<str>,
     pub(super) font_dirty: bool,
     pub(super) selection: selection::TextSelection,
+    pub(super) input_pointers: input::InputPointers,
     /// Selection state changed outside a frame; the next update must refresh
     /// paragraphs and rects even when the backend otherwise did no work.
     pub(super) selection_dirty: bool,
@@ -287,6 +288,7 @@ impl Default for Adapter {
             font_family: Arc::from(plico_renderer::text::DEFAULT_UI_FONT_FAMILY),
             font_dirty: false,
             selection: Default::default(),
+            input_pointers: Default::default(),
             selection_dirty: true,
             tree: TaffyTree::new(),
             nodes: HashMap::new(),

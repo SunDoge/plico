@@ -94,7 +94,11 @@ impl Adapter {
         if self.selection.click_settings != settings {
             self.selection.click_settings = settings;
             self.selection.last_press = None;
+            self.input_pointers.clear_streak();
         }
+    }
+    pub(super) fn multi_click_settings(&self) -> plico_renderer::MultiClickSettings {
+        self.selection.click_settings
     }
 
     fn selection_group(&self, engine: &Engine, id: NodeId) -> Option<Entity> {
