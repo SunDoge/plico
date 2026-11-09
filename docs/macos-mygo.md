@@ -745,3 +745,21 @@ worker 单槽/QoS、frame pacing、drawable 等待调度和标题栏纯策略七
 正反门控验证。但它不自动把 macOS GPU / 窗口行改成“通过”：必须有 full 模式具体
 成功日志、Metal backend 断言、窗口完成标记和八个内存阶段。此前 59 项原生 CPU
 通过的记录保持原来的范围，不替代这次扩展的执行结果。
+
+
+## macOS 工作流仅手动触发
+
+macOS 检查现独立在 `.github/workflows/macos-native.yml`，只配置
+`workflow_dispatch`，不监听 push / pull_request。普通 CI 不再包含 macOS job。
+手动执行时默认 full（CoreText、Metal GPU、真实窗口与内存样本），也可选择 cpu；
+检查模式会写入 summary，CPU 通过不代表 Metal / 窗口通过。
+
+新工作流需在 GitHub 可见后，从 Actions 的 “macOS native checks” 选择分支和模式
+运行；有 Actions write 权限的 token 可执行：
+
+```sh
+gh workflow run macos-native.yml --ref experiment/csharp-batch -f mode=full
+```
+
+本轮不再尝试通过手动触发接口启动运行。此前 59 项原生 CPU 成功记录仍有效；
+后续 Metal/full 结果以其具体运行日志为准。
