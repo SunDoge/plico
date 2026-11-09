@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/SunDoge/plico/compare/v0.3.1...v0.3.2) - 2026-11-09
+
+### Added
+
+- *(widgets)* share materials and add MyGO-inspired Rust components
+- *(csharp)* add reusable liquid glass and managed widget toolkit
+- *(runtime)* add MyGO-style editable text selection with native visual lines
+- *(native)* add system-backed vertical document text
+- *(shell)* follow macOS accessibility display preferences
+- *(materials)* prefilter backdrop blur with bounded mip pyramids
+- *(renderer)* match shadow contours to continuous widget corners
+- *(widgets)* add clipped inset shadows across native renderers
+- *(widgets)* animate glass feedback and default widgets to continuous corners
+- *(window)* toggle maximization using native window state
+- *(window)* support macOS titlebar overlay with native controls
+- *(csharp)* add progressive scroll-edge and backdrop blur
+- *(renderer)* adapt MyGO quartic glass refraction model
+- *(gallery)* add Mines gallery and reusable secondary activation
+- *(runtime)* notify hosts of meaningful user activity
+- *(preview)* add reusable recipe sessions and typed test plans
+- *(csharp)* add renderer-backed SDK with intercepted components
+- *(shell)* follow Linux portal display preferences
+- *(desktop)* provide reusable native tray and actionable notification services
+
+### Fixed
+
+- *(macos)* match AppKit system font and monospace selection
+- *(macos)* support private CoreText application fonts
+- *(shell)* honor macOS custom titlebar double-click actions
+- *(input)* follow macOS multi-click interval in native text selection
+- *(shell)* use native continuous window corners on macOS
+- *(runtime)* retain coherent presentations and reuse animated text rasters
+- *(renderer)* preserve backdrop alpha outside glass contours
+- *(renderer)* reuse backdrop targets reserved during frame preflight
+- *(ci)* declare built-in shader assets before test modules
+- *(renderer)* give liquid glass correct surface refraction
+- *(renderer)* preserve canvas drags on identical overlay updates
+- *(runtime)* refresh virtual rows after viewport changes
+- *(csharp)* restore virtual tables and route game keyboard input
+- *(desktop)* coordinate macOS transaction presentation and resize pacing
+- *(shell)* use callback timing for macOS display-link resume pacing
+- *(backend)* prepare surface before native titlebar double-click minimization
+- *(backend)* drain surface acquisition before host visibility changes
+- *(shell)* recover Linux preferences across portal restarts
+- *(shell)* prepare complete frames before macOS window exposure
+- *(shell)* restore minimized windows when shown by native integrations
+- *(terminal)* preserve terminal blink phase across event loop pauses
+
+### Other
+
+- *(dev)* reduce application optimization and debug information
+- *(text)* compare AppKit font selection using CoreText PostScript names
+- *(text)* reuse immutable CoreText baseline attributes per cached face
+- *(text)* avoid redundant CoreText encoding index allocations
+- *(backend)* add focused macOS native verification entrypoint
+- *(backend)* reuse immutable CoreGraphics color space across text rasters
+- *(backend)* retain hot CoreText faces across font-size animations
+- *(wgpu)* skip retained static frames before drawable waits
+- *(renderer)* localize backdrop damage and batch independent snapshots
+- *(widgets)* sleep between toast animations and expiration
+- *(runtime)* follow precise scrolling and sleep between UI deadlines
+- *(wgpu)* borrow prepared draw streams throughout renderer traversal
+- *(backend)* configure native CoreText in macOS HUD fixtures
+- *(backend)* pause continuous animation while waiting for a drawable
+- *(macos)* avoid reapplying native window style during resize
+- *(backend)* resume paused macOS animations without an extra display tick
+- *(backend)* prefetch macOS surface textures without blocking ordinary frames
+- *(backend)* avoid presenting background redraws to invisible windows
+- *(desktop)* coalesce native resize frames and trim idle Linux caches
+- *(shell)* pace macOS animations with native display links
+- *(wgpu)* release idle macOS drawable and frame resources
+
 ## [0.3.1](https://github.com/SunDoge/plico/compare/v0.3.0...v0.3.1) - 2026-11-07
 
 ### Added
