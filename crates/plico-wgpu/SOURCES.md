@@ -99,3 +99,14 @@ principle of MyGO's presenter, adapted to wgpu Metal's off-main-thread occlusion
 constraints. This is Plico-specific ordering, not a claim that MyGO Window::Hide
 performs that barrier. Retained target pixels remain available to native window
 animations while acquired swapchain owners are released before host visibility changes.
+
+`src/frame_pass.rs` and `src/macos_frame_pass.rs` reference MyGO
+`internal/darwin/surface.go::{armPass,caPass}` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT): arm one non-repeating
+BeforeWaiting/Exit observer at order 2_000_001 only after presentation, rather
+than entering application callbacks on every idle run-loop pass. Plico records
+per-window present/active-pass/additional-frame/callback counts, owns the CF
+observer/block with Rust RAII, and invalidates it on window destruction. It does
+not yet use the observation to defer frames or enable transaction presentation.
+Existing MyGO MIT attribution applies; the constant is an implementation
+reference, not an Apple guarantee of Core Animation's observer order.

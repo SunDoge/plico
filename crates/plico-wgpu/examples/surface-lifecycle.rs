@@ -67,6 +67,7 @@ struct Probe {
     samples: Vec<Duration>,
     pending: u32,
     idle_ready: u32,
+    idle_pass_stats: Option<[u64; 4]>,
     old_extent: [u32; 2],
 }
 impl Probe {
@@ -147,6 +148,7 @@ impl Probe {
             Phase::Resize => {
                 memory::report("resized")?;
                 self.phase = Phase::Idle;
+                self.idle_pass_stats = native.gpu.presentation_pass_stats();
                 self.deadline = Some(
                     native
                         .gpu
@@ -202,8 +204,17 @@ impl Probe {
                 };
                 let [pending_encoded, pending_reused, pending_abandoned] =
                     native.gpu.pending_frame_stats();
+                let ca_pass_stats = native.gpu.presentation_pass_stats();
+                #[cfg(target_os = "macos")]
+                if native.gpu.adapter_info().backend == wgpu::Backend::Metal
+                    && !ca_pass_stats.is_some_and(|s| s[0] > 0 && s[1] > 0 && s[3] == s[1])
+                {
+                    return Err(error(
+                        "Metal presentation-pass observation did not complete",
+                    ));
+                }
                 let summary = format!(
-                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={} pending_encoded={pending_encoded} pending_reused={pending_reused} pending_abandoned={pending_abandoned}",
+                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={} pending_encoded={pending_encoded} pending_reused={pending_reused} pending_abandoned={pending_abandoned} ca_pass_stats={ca_pass_stats:?}",
                     self.frame,
                     self.pending,
                     p95.as_micros(),
@@ -318,6 +329,23 @@ impl ApplicationHandler for Probe {
             if let Some(native) = &mut self.native {
                 match self.phase {
                     Phase::Idle => {
+                        if let (Some(before), Some(after)) =
+                            (self.idle_pass_stats, native.gpu.presentation_pass_stats())
+                        {
+                            // At most the final armed one-shot may fire after
+                            // entering idle. A periodic observer fails this gate.
+                            if before[0] != after[0]
+                                || before[2] != after[2]
+                                || !matches!(after[3].checked_sub(before[3]), Some(0 | 1))
+                                || !matches!(after[1].checked_sub(before[1]), Some(0 | 1))
+                            {
+                                self.fail(
+                                    event_loop,
+                                    error("presentation observer continued while idle"),
+                                );
+                                return;
+                            }
+                        }
                         native.gpu.maintain(now);
                         if native.gpu.maintenance_deadline().is_some() {
                             self.fail(event_loop, error("idle maintenance was not consumed"));
@@ -372,6 +400,7 @@ fn main() -> Result<(), CheckError> {
             samples: Vec::new(),
             pending: 0,
             idle_ready: 0,
+            idle_pass_stats: None,
             old_extent: [0; 2],
         })
         .map_err(error)?;

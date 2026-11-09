@@ -93,6 +93,8 @@ pub struct WgpuWindow {
     // readable retained pixels until its commands have reached the queue.
     retained_size: Option<[u32; 2]>,
     initial_frame_ready: bool,
+    #[cfg(target_os = "macos")]
+    frame_pass: Option<crate::macos_frame_pass::NativeFramePass>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     idle_resources: IdleResources,
     #[cfg(all(
@@ -152,6 +154,10 @@ impl WgpuWindow {
         };
         renderer.configure_surface(&surface, &config);
         tracing::info!(adapter=?renderer.adapter_info(),?format,"Plico wgpu window renderer initialized");
+        #[cfg(target_os = "macos")]
+        let frame_pass = (renderer.adapter_info().backend == wgpu::Backend::Metal)
+            .then(crate::macos_frame_pass::NativeFramePass::new)
+            .flatten();
         Ok(Self {
             renderer,
             instance,
@@ -170,6 +176,8 @@ impl WgpuWindow {
             pending_frame_stats: [0; 3],
             retained_size: None,
             initial_frame_ready: false,
+            #[cfg(target_os = "macos")]
+            frame_pass,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             idle_resources: IdleResources::default(),
             #[cfg(all(
@@ -553,6 +561,10 @@ impl WgpuWindow {
         self.retained_size = Some([size.width, size.height]);
         self.window.pre_present_notify();
         self.renderer.present(frame);
+        #[cfg(target_os = "macos")]
+        if let Some(pass) = &mut self.frame_pass {
+            pass.presented();
+        }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         if let Some(worker) = &self.surface_acquire {
             worker.start();
@@ -564,6 +576,20 @@ impl WgpuWindow {
 }
 
 impl WgpuWindow {
+    /// Submitted present calls, completed active run-loop passes, additional
+    /// presentations in a pass, and observer callbacks. None off Metal/macOS
+    /// or if unavailable. Observer ordering follows MyGO's CA commit boundary.
+    /// This is observation only: same-pass frames can contain legitimate input.
+    pub fn presentation_pass_stats(&self) -> Option<[u64; 4]> {
+        #[cfg(target_os = "macos")]
+        {
+            self.frame_pass.as_ref().and_then(|pass| pass.snapshot())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
     /// Encoders built while waiting, reused for presentation, and abandoned.
     /// All zero when background acquisition is disabled. Counts are per window.
     pub fn pending_frame_stats(&self) -> [u64; 3] {

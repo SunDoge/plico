@@ -370,7 +370,7 @@ macOS 实测排版耗时降幅。
 | 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有 X11/wgpu 回归；脚本含主线程不透明窗口生命周期程序 | macOS 实际执行；自定义透明圆角与 CA 视觉一致性仍需单独验收 |
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
-| CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
+| CA transaction 同步呈现 | wgpu Metal 有底层能力；已加入按需轮次观测与空闲 gate，尚未打开同步属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
 | 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 回归及 macOS worker 5 项原生 CPU 测试通过 | Metal 实机编码重叠收益；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
@@ -931,3 +931,39 @@ swapchain 和独立唤醒通道；不依赖一轮留下的 drawable 或代理消
 目标 Clippy 通过。Linux 默认同步路径的 pending 计数为零，受控测试才覆盖后台
 编码路径；没有运行云端 macOS CI，也没有 Metal 实机 p95/p99 或内存收益数据。
 CA transaction 联合时序、原始事件队列身份与高刷/跨屏真实窗口验证仍未完成。
+
+## 按需观察呈现轮次
+
+MyGO 的 `updateLayer` 保护同时使用 `caPass`、resize、live resize 和此前的
+`presentsWithTransaction` 状态。wgpu-hal 30 的 Metal surface 可以访问 render layer，
+也会在获取 drawable 时快照 `presentsWithTransaction`，呈现时按该快照选择路径。
+因此切换层属性还必须配合 drain、获取顺序及宿主重绘来源，不能只改一个 setter。
+当前仍未开启事务同步呈现或同轮重绘延迟；需要先取得实际调度证据。
+
+现在 macOS Metal 的 `WgpuWindow` 记录成功提交的 present 调用，并对有绘制的主
+run-loop 轮次安排一个 BeforeWaiting/Exit observer，使用 MyGO 的 2_000_001 顺序。
+[Apple 的 CFRunLoopObserver 文档](https://developer.apple.com/documentation/corefoundation/cfrunloopobservercreatewithhandler(_:_:_:_:_:))
+明确非重复 observer 在首次调用后失效，即使同时注册多个阶段也只调用一次。
+Plico 没有周期性 observer 或新增定时轮询：一轮多次呈现只 arm 一次；下一轮有
+实际呈现才重新 arm，窗口销毁会 invalidate 尚未触发的 observer。每个窗口独立
+计数，observer/block/Rc state 的所有权有界；不将窗口或 GPU 对象捕获进回调。
+
+`presentation_pass_stats()` 返回 `Option<[u64; 4]>`，依次为已提交的 present 调用、
+已完成的活跃轮次、同轮额外 present、原生 observer 回调次数。失败、等待和
+unchanged skip 不记为 present；其他平台或初始化失败返回 None。最后一轮可能
+仍在进行，因此报告时 completed 不一定包含最终帧所在轮次。这些计数不代表屏幕
+扫描帧率，也不保证 Apple 所有系统版本的 CA commit 固定在该顺序之前。
+同轮额外 present 可能包含真实输入/几何更新，当前不会据此丢弃应用工作。
+
+`surface-lifecycle` 报告加入 `ca_pass_stats`。Mac Metal 路径要求观测可用且至少完成
+一次回调；两秒空闲期间要求 present 计数不变、回调最多仅补完最后一个已 arm 的
+one-shot，以拒绝持续空转的 observer。该 gate 仍待用户在 Mac 运行，Linux 的 None
+不用于代替验证。手动 macOS 检查脚本的 full/cpu 模式都增加 frame-pass 纯策略阶段。
+
+本地验证：3 项纯策略测试覆盖同轮重复 arm、空闲/重复完成通知和独立窗口；Linux
+与 Apple Silicon wgpu 窗口及示例 Clippy 通过。脚本完整/缺样本/坏格式/缺标记/
+失败退出、cpu/无效 mode 的模拟控制流保持通过；模拟不是原生 run-loop 验证。
+
+额外检查窗口与文字 feature 的独立性时，发现 `paragraph_raster` 在关闭 system-text
+且未启用 Web 文字时仍被编译，触发 dead_code。现在按实际调用方的 feature/platform
+条件编译该 helper，未压制 warning，也不为窗口观察器开启文字后端。

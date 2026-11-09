@@ -6501,6 +6501,7 @@ dependencies = [
 name = "plico-wgpu"
 version = "0.3.1"
 dependencies = [
+ "block2 0.6.2",
  "bytemuck",
  "image",
  "js-sys",
@@ -6508,6 +6509,8 @@ dependencies = [
  "libc",
  "lru",
  "naga",
+ "objc2 0.6.5",
+ "objc2-core-foundation",
  "peniko",
  "plico",
  "plico-native",

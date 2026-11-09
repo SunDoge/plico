@@ -8,8 +8,12 @@ mod backdrop_context;
 mod backdrop_prefilter;
 mod blit;
 mod blur;
+#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+mod frame_pass;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod glyphs;
+#[cfg(all(target_os = "macos", feature = "window"))]
+mod macos_frame_pass;
 mod mipmap;
 mod renderer;
 #[cfg(any(

@@ -297,6 +297,13 @@ fn unsupported(index: usize, reason: impl Into<String>) -> Error {
         reason: reason.into(),
     }
 }
+#[cfg(any(
+    all(target_arch = "wasm32", feature = "web"),
+    all(
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
+        feature = "system-text"
+    )
+))]
 fn paragraph_raster(
     request: &std::sync::Arc<plico_renderer::paragraph::ParagraphRequest>,
     scale: f64,
