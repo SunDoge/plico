@@ -321,6 +321,16 @@ impl WindowRenderer {
         }
         false
     }
+    pub(crate) fn prepare_hide(&mut self) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.prepare_hide();
+        }
+    }
     pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {

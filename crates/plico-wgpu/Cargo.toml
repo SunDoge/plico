@@ -55,3 +55,7 @@ web-sys = { version = "0.3", optional = true, features = ["Window", "Document", 
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 unicode-segmentation = { version = "1.13", optional = true }
+
+[[example]]
+name = "surface-lifecycle"
+required-features = ["window"]

@@ -93,3 +93,9 @@ wake, and drain before layer/surface lifecycle changes. This newly written Rust
 uses wgpu's Send/Sync surface contracts and a host event-loop proxy. It does not
 yet retain encoded pendingFrame command buffers across acquisition; that remains
 a separate renderer-lifetime optimization. Existing MyGO MIT attribution applies.
+
+The explicit pre-hide acquisition barrier follows the lifecycle wait/drain
+principle of MyGO's presenter, adapted to wgpu Metal's off-main-thread occlusion
+constraints. This is Plico-specific ordering, not a claim that MyGO Window::Hide
+performs that barrier. Retained target pixels remain available to native window
+animations while acquired swapchain owners are released before host visibility changes.

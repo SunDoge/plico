@@ -212,6 +212,18 @@ impl WgpuWindow {
             worker.drain();
         }
     }
+    /// Whether a background acquisition worker is installed. Useful for A/B
+    /// diagnostics to distinguish requested configuration from a sync fallback.
+    pub fn surface_prefetch_enabled(&self) -> bool {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        {
+            self.surface_acquire.is_some()
+        }
+        #[cfg(not(any(target_os = "macos", all(test, not(target_arch = "wasm32")))))]
+        {
+            false
+        }
+    }
     /// Consume a readiness notification, not the acquired texture. The host
     /// requests a redraw only if an earlier frame actually waited for it.
     pub fn take_surface_ready(&self) -> bool {
@@ -486,6 +498,12 @@ impl WgpuWindow {
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = now;
     }
+    /// Drain acquisition while the native window is still visible, before the
+    /// host hides/minimizes it. Retain target pixels for OS window animations.
+    pub fn prepare_hide(&mut self) {
+        self.drain_surface_acquire();
+        self.acquire_pending = false;
+    }
     /// Release derived caches and the macOS/Linux retained offscreen target.
     /// macOS also shrinks spare drawables; Linux keeps its real surface extent.
     /// The compositor owns the presented last frame. Next present redraws fully.
@@ -528,6 +546,16 @@ impl WgpuWindow {
             self.invalidate_presentation();
         }
         self.damage_enabled = enabled;
+    }
+    /// Read retained premultiplied RGBA8 pixels without repainting. Size is the target's own
+    /// physical extent, which can differ from a newly resized native window.
+    pub fn read_retained_rgba(&mut self) -> Result<Option<([u32; 2], Vec<u8>)>> {
+        let result = self.renderer.read_retained_rgba()?;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if result.is_some() {
+            self.idle_resources.used(std::time::Instant::now());
+        }
+        Ok(result)
     }
     /// Capture with this window's renderer and paragraph cache, never a different backend.
     pub fn capture_rgba(
@@ -708,9 +736,8 @@ mod tests {
                     coverage > 0. && coverage < 0.1,
                     "small updates must stay partial after waiting, got {coverage}"
                 );
-                let pixels = gpu
-                    .capture_rgba(&changed, [actual.width, actual.height], Color::BLACK)
-                    .unwrap();
+                let (captured_size, pixels) = gpu.read_retained_rgba().unwrap().unwrap();
+                assert_eq!(captured_size, [actual.width, actual.height]);
                 let mut reference = pollster::block_on(Renderer::new()).unwrap();
                 let expected = reference
                     .render_scene(
@@ -724,6 +751,15 @@ mod tests {
                     pixels, expected,
                     "partial resumed frame must match full replay"
                 );
+                let retained = gpu.renderer.target_storage_bytes();
+                gpu.prepare_hide();
+                assert_eq!(
+                    gpu.renderer.target_storage_bytes(),
+                    retained,
+                    "pre-hide acquisition drain preserves the native animation image"
+                );
+                gpu.renderer.configure_surface(&gpu.surface, &small);
+                gpu.configured_size = [1, 1];
                 gpu.trim_gpu_cache();
                 // configure() would panic if the prefetched SurfaceTexture
                 // were still live; this exercises drain with real GPU owners.
@@ -744,7 +780,7 @@ mod tests {
                     .recv_timeout(std::time::Duration::from_secs(2))
                     .unwrap();
                 assert!(gpu.present(&scene, Color::WHITE).is_err());
-                assert!(gpu.surface_acquire.is_none());
+                assert!(!gpu.surface_prefetch_enabled());
                 assert!(
                     gpu.present(&scene, Color::WHITE).unwrap(),
                     "a failed worker must leave synchronous recovery available"

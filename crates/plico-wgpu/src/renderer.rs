@@ -1465,6 +1465,21 @@ impl Renderer {
         let encoder = self.encode_frame(items, size, background, time)?;
         self.read_frame(encoder, size)
     }
+    /// Read the retained premultiplied RGBA8 target without repainting or changing
+    /// damage history. None means no target (including after trim). This explicit
+    /// GPU readback waits for submitted work; it is not a WindowServer screenshot.
+    pub fn read_retained_rgba(&mut self) -> Result<Option<([u32; 2], Vec<u8>)>> {
+        let Some(size) = self.target.as_ref().map(|target| target.size) else {
+            return Ok(None);
+        };
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Plico retained frame snapshot"),
+            });
+        let pixels = self.read_frame(encoder, size)?;
+        Ok(Some((size, pixels)))
+    }
     #[tracing::instrument(
         level = "debug",
         target = "plico::perf",
@@ -3721,8 +3736,23 @@ mod tests {
                 .unwrap()
                 .unchanged()
         );
+        let retained = renderer.read_retained_rgba().unwrap().unwrap();
+        assert_eq!(retained, (size, before.clone()));
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, size, background, true)
+                .unwrap()
+                .unchanged(),
+            "readback cannot invalidate an otherwise unchanged frame"
+        );
         renderer.trim_frame_target();
         assert_eq!(renderer.target_storage_bytes(), (0, 0));
+        assert!(renderer.read_retained_rgba().unwrap().is_none());
+        assert_eq!(
+            renderer.target_storage_bytes(),
+            (0, 0),
+            "snapshot cannot recreate a trimmed target"
+        );
         assert!(
             !renderer
                 .plan_scene_frame(&scene, size, background, true)

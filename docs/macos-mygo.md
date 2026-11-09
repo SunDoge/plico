@@ -363,7 +363,7 @@ macOS 实测排版耗时降幅。
 | 项目 | 已有实现/证据 | 仍需完成的证据或工作 |
 | --- | --- | --- |
 | CoreText 字体、私有字体、词/行选择、栅格复用 | 实际 Apple 目标实现及测试可编译；入口执行原生像素、几何和复用回归 | 在 macOS 执行入口并检查真实输入/字体显示 |
-| 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有真实 X11/wgpu 回归 | macOS 窗口/CA 的实际运行验证；脚本不冒充 live-window 验收 |
+| 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有 X11/wgpu 回归；脚本含主线程不透明窗口生命周期程序 | macOS 实际执行；自定义透明圆角与 CA 视觉一致性仍需单独验收 |
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
 | CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
@@ -453,3 +453,58 @@ cargo test --locked -p plico-wgpu --features window --lib abandoned_prepared_fra
 
 这一步保留 CPU damage 基线，没有迁移 MyGO 的 pending GPU command-buffer 编码
 重叠。CA transaction 配合与实际 Metal 吞吐/延迟验证仍是独立未完成项。
+
+## 主线程真窗口生命周期验证
+
+`surface-lifecycle` 在进程主线程创建一个真实、不透明的 winit/wgpu 窗口：初帧 hidden
+ready-to-show，60 次连续变化绘制，连续请求三个尺寸后采用 native 最新 extent，
+两秒空闲回收后恢复绘制，隐藏/清理/再次显示，最后校验恢复图像并自动退出。
+事件循环使用截止时间和 worker proxy，不用轮询等待。检查未完成而关闭窗口、丢失
+完成状态、缺少预期捕获像素等都会返回非零；进度超过 20 秒也会报错。该截止时间
+不能中断自身已经卡住的原生调用，不能冒充外部进程强制超时。
+
+```sh
+cargo run --locked -p plico-wgpu --features window --example surface-lifecycle
+PLICO_WGPU_ASYNC_SURFACE=0 cargo run --locked -p plico-wgpu --features window --example surface-lifecycle
+```
+
+开关不改变编译产物，可对同一二进制对照。输出包含接受帧数、等待次数、warmup 总
+时间、成功 present 调用的 CPU p95 和空闲 readiness 通知数量。pending 调用耗时没有
+混入“成功调用 p95”，等待体现在 warmup 总时间和 pending 次数中；这些不是整个
+应用的输入延迟、GPU 时间或真实显示刷新帧率。保持测试窗口可见，避免人为遮挡把
+正常 occluded 状态混入测量。窗口只显示检查图形，不是 Plicowarden 视觉验收。
+
+该程序已在 Xvfb/X11 的真实 surface 运行通过，完成 64 帧与生命周期阶段；Linux 默认
+路径为同步，pending=0 不能用于证明 macOS 后台分支的性能。实际 Apple 目标程序
+通过 Clippy 编译检查，但当前环境没有运行 Metal 窗口。macOS 验证脚本现在会执行
+此程序，并要求正常退出及明确的完成标记，将指标写进 summary；失败或缺失标记
+不能算通过。自定义透明圆角、标题栏交互、ProMotion、多显示器和进程 RSS 仍不在
+这个程序的验证范围。
+
+### 隐藏请求前的获取屏障
+
+框架的 mutable-visibility Hide 和 WindowCommand::Minimize 入口现在先调用
+prepare_hide：停止动画 clock，趁 native view 仍可见时 drain 获取任务并释放预取
+texture，再执行隐藏/最小化。这个阶段保留 target/readback 像素，供系统窗口动画
+使用；遮挡通知或后续空闲维护仍按已有策略回收派生资源。后端检查程序使用相同入口。
+
+这是对 MyGO presenter 在资源生命周期切换前 wait/drain 原则的适配：wgpu Metal 的
+后台获取不能用主线程 NSWindow occlusion 查询提前跳过已隐藏窗口，因此先隐藏再
+等待可能延长获取等待。没有将 MyGO Window::Hide 本身描述成拥有此屏障；这是 Plico
+在 wgpu 边界补的顺序。系统直接发起的隐藏、原生标题栏特殊最小化路径等仍可能先到
+occluded 事件，不能保证所有操作都没有 in-flight 等待。
+
+真实 surface 回归验证 drain 后仍保留 target/readback，且随后 configure 不会因
+旧 SurfaceTexture 存活而 panic。X11 主线程检查程序和宿主测试通过，Apple 实现/程序
+编译检查通过；未把 X11 耗时当作 Metal 最小化动画或隐藏延迟数据。程序捕获的图像
+来自 Renderer 保留目标，不读取 WindowServer 最终合成结果，也不能代替视觉验收。
+
+检查程序现在读取 `read_retained_rgba`，不再用会重新绘制 scene 的截图接口验证旧帧。
+它核对恢复后目标的真实尺寸、背景像素和最新移动矩形的边缘像素；受控 surface 局部
+重绘回归也直接读原目标，再与完整 replay 对照。该显式 readback 会等待 GPU 并可能
+创建读回 buffer，不属于正常呈现路径；没有保留目标时返回 None，不为了检查重新
+分配 target，也不推进/失效 damage history。现有“按指定 scene 生成截图”行为保留。
+
+输出还记录实际安装的 worker 模式（async/sync），不是只记录请求的环境变量。
+macOS 若请求后台模式而 worker 无法安装，检查程序报错；同步 A/B 模式仍可显式
+选择。这里的目标像素仍不是 WindowServer 最终合成输出，系统视觉验收范围保持独立。

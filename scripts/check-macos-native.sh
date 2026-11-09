@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Focused native verification, not a claim of live-window/ProMotion acceptance.
+# Focused native verification, including a short main-thread window exercise.
 set -euo pipefail
 
 if [[ $(uname -s) != Darwin ]]; then
@@ -27,8 +27,8 @@ summary="$report_dir/summary.txt"
     printf 'Async surface setting: %s\n' "${PLICO_WGPU_ASYNC_SURFACE:-default}"
     rustc --version
     cargo --version
-    printf '%s\n' 'Scope: native text, retained raster/GPU reuse, shared host unit tests.'
-    printf '%s\n' 'Not covered: live window resize, titlebar actions, ProMotion, OS-event queue identity, process RSS.'
+    printf '%s\n' 'Scope: native text, raster/GPU reuse, shared host tests, opaque surface resize/idle/hide recovery.'
+    printf '%s\n' 'Not covered: custom rounded/translucent window visuals, titlebar actions, ProMotion, OS-event queue identity, process RSS.'
 } > "$summary"
 
 run_tests() {
@@ -62,5 +62,23 @@ run_tests native-gpu cargo test --color never --locked -p plico-wgpu --no-defaul
 run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib abandoned_prepared_frames_preserve -- --ignored --test-threads=1
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
 run_tests host cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib -- --test-threads=1
+run_surface_window() {
+    local marker='' line
+    printf '%s\n' 'Running live-window (opens a window briefly; keep it visible)'
+    if cargo run --color never --locked -p plico-wgpu --no-default-features --features window,system-text --example surface-lifecycle 2>&1 | tee "$report_dir/live-window.log"; then
+        while IFS= read -r line; do
+            if [[ $line == 'surface-lifecycle: PASS '* ]]; then marker=$line; fi
+        done < "$report_dir/live-window.log"
+    else
+        printf '%s\n' 'FAIL live-window (command failed)' >> "$summary"
+        return 1
+    fi
+    if [[ -z $marker ]]; then
+        printf '%s\n' 'FAIL live-window (completion marker missing)' | tee -a "$summary" >&2
+        return 1
+    fi
+    printf '%s\n' "PASS live-window: $marker" >> "$summary"
+}
+run_surface_window
 printf 'Native checks passed. Reports: %s\n' "$report_dir"
-printf '%s\n' 'Live-window acceptance remains a separate check; see docs/macos-mygo.md.'
+printf '%s\n' 'Custom window visuals, OS input, ProMotion and RSS still require separate acceptance; see docs/macos-mygo.md.'

@@ -2161,9 +2161,10 @@ impl ExtensionContext<'_> {
             }
             Some(WindowEffect::SetVisible(false)) => self
                 .windows
-                .get(&window_id)
-                .and_then(|app| app.state.as_ref())
+                .get_mut(&window_id)
+                .and_then(|app| app.state.as_mut())
                 .is_some_and(|shell| {
+                    shell.prepare_hide();
                     shell.window().set_visible(false);
                     true
                 }),
@@ -2273,7 +2274,8 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
     match command {
         WindowCommand::Close => app.close_requested = true,
         WindowCommand::Minimize => {
-            if let Some(shell) = app.state.as_ref() {
+            if let Some(shell) = app.state.as_mut() {
+                shell.prepare_hide();
                 shell.window().set_minimized(true);
             }
         }

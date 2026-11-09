@@ -435,6 +435,10 @@ impl Shell {
     pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
         self.renderer.maintain(now)
     }
+    pub(crate) fn prepare_hide(&mut self) {
+        self.animation_frame_ready(false);
+        self.renderer.prepare_hide();
+    }
     pub(crate) fn trim_gpu_cache(&mut self) {
         self.renderer.trim_gpu_cache();
     }
