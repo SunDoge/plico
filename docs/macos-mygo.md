@@ -571,3 +571,18 @@ proxy wake 可以到达，但没有 readiness 标记便不因此请求额外窗�
 验证覆盖只读 history probe、尺寸/背景/失效/非局部效果、取消等待但保留结果，以及
 真实 X11 surface 被受控阻塞时静态帧立即 skipped、changed 帧继续等待并保持部分更新
 像素。Apple 目标检查只证明原生路径能编译；macOS 实际 wake 次数和耗时仍待测量。
+
+## 窗口样式与 resize 分开更新
+
+对照 MyGO `internal/darwin/window.go::roundContent`，原生圆角属于窗口样式，
+不必随每个 surface 尺寸重新设置。原先缓存把 radius / size 合并为一个 changed，
+导致 live resize 每一步都重写 NSWindow opaque/background/shadow 和 CALayer 圆角，
+并创建一笔禁用隐式动画的 CATransaction。
+
+现在只在首次设置、radius 变化、原生窗口/content layer 身份变化或 mask 状态失配时
+重新应用样式。纯尺寸变化只 invalidateShadow，让系统阴影跟随新边界；完全不变则
+不提交 transaction 或刷新阴影。已有 layer-backed view 不重复 setWantsLayer。
+身份缓存只保存地址值作比较，不持有旧窗口/layer，也不会解引用缓存地址。
+
+实际原生模块通过 Apple Silicon 目标 Clippy 编译检查；当前 Linux 环境没有执行
+macOS live resize，不能据此声称已测得 AppKit/WindowServer 开销下降或验证视觉效果。
