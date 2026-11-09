@@ -305,3 +305,18 @@ xvfb-run -a cargo test --locked -p plico-shell --lib native_resize_uses_latest_e
 
 Linux 原生回归和 Apple Silicon wgpu 实现/测试的 Clippy 编译检查通过；尚未在 macOS
 执行实际 resize、ready-to-show 和空闲恢复测试，不据此声明实机内存降低幅度。
+
+## 横排/竖排共享线程内 sRGB 资源
+
+对照 MyGO `internal/text/coretext_darwin.go` 在引擎中持有 sRGB color space，
+CoreText 横排和竖排栅格化现在通过同一个线程内 OnceCell 复用标准 sRGB 对象。
+此前每次创建 CGContext 都会再次调用 CGColorSpaceCreateWithName。新的 helper
+借用缓存对象，由 CGContext 持有自己的原生引用，避免每次调用额外 retain/release
+一个本地 color space owner。每个使用文字渲染的线程最多保留一个对象，随线程退出
+释放；不增加跨线程 CF 对象传递或全局析构顺序。初始化失败仍返回 Allocation，
+不写入失败状态，后续调用可重试。
+
+CGContext 本身仍为每个位图单独创建，使用相同的标准 sRGB、premultiplied RGBA8、
+采样和 AA 参数。没有共享可变 context 或像素存储。本轮仅减少重复的原生资源查询，
+不宣称已经测出可见帧时间改善。实际横排、竖排实现及已有原生测试通过 Apple Silicon
+Clippy 编译检查；macOS 像素/性能运行验证仍未在当前 Linux 环境执行。

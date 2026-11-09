@@ -2,8 +2,7 @@ use super::{Error, Line, Result};
 use crate::raster_bounds::{raster_bounds, valid_clip, valid_sampling};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo, CGImageByteOrderInfo,
-    CGTextDrawingMode, kCGColorSpaceSRGB,
+    CGBitmapContextCreate, CGContext, CGImageAlphaInfo, CGImageByteOrderInfo, CGTextDrawingMode,
 };
 
 /// A top-down premultiplied sRGB RGBA image of one native line.
@@ -79,24 +78,23 @@ impl Line {
         };
         let [width, height] = bounds.size;
         let mut pixels = vec![0u8; bounds.bytes];
-        // SAFETY: A framework-owned constant denotes the standard sRGB space.
-        let space =
-            CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB })).ok_or(Error::Allocation)?;
         // SAFETY: The initialized byte allocation is exactly width*height*4;
         // RGBA8 big-endian component order matches the stride. It is not moved,
         // accessed, or freed while the CGContext owns its temporary raw pointer.
-        let context = unsafe {
-            CGBitmapContextCreate(
-                pixels.as_mut_ptr().cast(),
-                width as usize,
-                height as usize,
-                8,
-                width as usize * 4,
-                Some(&space),
-                CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0,
-            )
-        }
-        .ok_or(Error::Allocation)?;
+        let context = super::drawing::with_srgb(|space| {
+            unsafe {
+                CGBitmapContextCreate(
+                    pixels.as_mut_ptr().cast(),
+                    width as usize,
+                    height as usize,
+                    8,
+                    width as usize * 4,
+                    Some(space),
+                    CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0,
+                )
+            }
+            .ok_or(Error::Allocation)
+        })?;
         let ctx = Some(&*context);
         CGContext::set_allows_antialiasing(ctx, true);
         CGContext::set_should_antialias(ctx, true);

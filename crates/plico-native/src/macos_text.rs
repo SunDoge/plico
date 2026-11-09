@@ -2,6 +2,7 @@
 //! metrics and editing offsets; no second shaping pass or raster approximation.
 //! Native multiline geometry and UTF-8 rich spans share retained attributed
 //! lines. The experimental renderer bridge lives in plico-wgpu.
+mod drawing;
 mod editing;
 mod fonts;
 mod intrinsic;

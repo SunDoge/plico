@@ -71,3 +71,10 @@ This is newly written Rust; MyGO `internal/text/coretext_darwin.go` at
 `ee3d4bd9bd741f197de231b9fd9b002e9db55577` informed the primary/style CTFont
 retention principle. Plico retains its own 256-face bound and private collection
 invalidation behavior; the existing MyGO MIT notice is retained.
+
+The thread-local immutable sRGB resource in `src/macos_text/drawing.rs` follows
+MyGO `internal/text/coretext_darwin.go`'s retained `coreText.srgb` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT). Horizontal and vertical
+bitmap contexts borrow the same named color space on their thread while each
+context retains independent ownership. The helper is newly written Rust; the
+existing MIT notice applies.
