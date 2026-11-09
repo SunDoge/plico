@@ -11,6 +11,28 @@ use winit::window::Window;
 fn damage_enabled(value: Option<&str>) -> bool {
     !matches!(value, Some("0" | "false"))
 }
+// wgpu 30's Metal backend labels non-opaque CAMetalLayer as PostMultiplied,
+// although Core Animation consumes premultiplied pixels. Keep our existing
+// premultiplied output. Restrict this compatibility case to Metal:
+// https://github.com/gfx-rs/wgpu/issues/9896 (upstream fix: #9922).
+fn surface_alpha_mode(
+    transparent: bool,
+    backend: wgpu::Backend,
+    supported: &[wgpu::CompositeAlphaMode],
+) -> Option<wgpu::CompositeAlphaMode> {
+    use wgpu::CompositeAlphaMode as Alpha;
+    if !transparent {
+        return Some(Alpha::Auto);
+    }
+    [Alpha::PreMultiplied, Alpha::Inherit]
+        .into_iter()
+        .find(|mode| supported.contains(mode))
+        .or_else(|| {
+            (backend == wgpu::Backend::Metal && supported.contains(&Alpha::PostMultiplied))
+                .then_some(Alpha::PostMultiplied)
+        })
+}
+
 struct SharedWindow(Arc<dyn Window>);
 impl HasWindowHandle for SharedWindow {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
@@ -61,19 +83,18 @@ impl WgpuWindow {
             .ok_or_else(|| Error::Surface {
                 message: "no compatible surface formats".into(),
             })?;
-        let alpha_mode = if transparent {
-            [
-                wgpu::CompositeAlphaMode::PreMultiplied,
-                wgpu::CompositeAlphaMode::Inherit,
-            ]
-            .into_iter()
-            .find(|mode| caps.alpha_modes.contains(mode))
-            .ok_or_else(|| Error::Surface {
-                message: "premultiplied transparent window surface unavailable".into(),
-            })?
-        } else {
-            wgpu::CompositeAlphaMode::Auto
-        };
+        let alpha_mode = surface_alpha_mode(
+            transparent,
+            renderer.adapter_info().backend,
+            &caps.alpha_modes,
+        )
+        .ok_or_else(|| Error::Surface {
+            message: format!(
+                "premultiplied transparent window surface unavailable: backend {:?}, modes {:?}",
+                renderer.adapter_info().backend,
+                caps.alpha_modes,
+            ),
+        })?;
         let size = window.surface_size();
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -256,6 +277,46 @@ impl WgpuWindow {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transparent_surface_accepts_metals_legacy_alpha_label_only_on_metal() {
+        use wgpu::{Backend, CompositeAlphaMode as Alpha};
+        let metal_caps = [Alpha::Opaque, Alpha::PostMultiplied];
+        assert_eq!(
+            super::surface_alpha_mode(true, Backend::Metal, &metal_caps),
+            Some(Alpha::PostMultiplied)
+        );
+        for backend in [
+            Backend::Vulkan,
+            Backend::Dx12,
+            Backend::Gl,
+            Backend::BrowserWebGpu,
+        ] {
+            assert_eq!(super::surface_alpha_mode(true, backend, &metal_caps), None);
+        }
+        for backend in [Backend::Metal, Backend::Vulkan] {
+            assert_eq!(
+                super::surface_alpha_mode(true, backend, &[Alpha::Opaque]),
+                None
+            );
+            assert_eq!(
+                super::surface_alpha_mode(false, backend, &metal_caps),
+                Some(Alpha::Auto)
+            );
+            assert_eq!(
+                super::surface_alpha_mode(
+                    true,
+                    backend,
+                    &[Alpha::PreMultiplied, Alpha::PostMultiplied]
+                ),
+                Some(Alpha::PreMultiplied)
+            );
+            assert_eq!(
+                super::surface_alpha_mode(true, backend, &[Alpha::Inherit]),
+                Some(Alpha::Inherit)
+            );
+        }
+    }
+
     #[test]
     fn damage_defaults_on_with_an_explicit_full_redraw_override() {
         for value in [None, Some("1"), Some("true"), Some("")] {
