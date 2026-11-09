@@ -34,24 +34,31 @@ fn surface_alpha_mode(
 }
 
 // Host maintenance uses a one-shot wake, never an idle polling loop.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Default)]
 struct IdleResources {
     deadline: Option<std::time::Instant>,
+    #[cfg(any(target_os = "macos", test))]
     trimmed: bool,
 }
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 impl IdleResources {
     fn presented(&mut self, now: std::time::Instant) {
         self.deadline = Some(now + std::time::Duration::from_secs(2));
-        self.trimmed = false;
+        #[cfg(any(target_os = "macos", test))]
+        {
+            self.trimmed = false;
+        }
     }
     fn due(&self, now: std::time::Instant) -> bool {
         self.deadline.is_some_and(|deadline| deadline <= now)
     }
     fn trimmed(&mut self) {
         self.deadline = None;
-        self.trimmed = true;
+        #[cfg(any(target_os = "macos", test))]
+        {
+            self.trimmed = true;
+        }
     }
 }
 
@@ -76,7 +83,7 @@ pub struct WgpuWindow {
     damage_enabled: bool,
     present_skipped: bool,
     initial_frame_ready: bool,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     idle_resources: IdleResources,
     #[cfg(all(
         any(target_os = "linux", target_os = "windows", target_os = "macos"),
@@ -143,7 +150,7 @@ impl WgpuWindow {
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
             initial_frame_ready: false,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             idle_resources: IdleResources::default(),
             #[cfg(all(
                 any(target_os = "linux", target_os = "windows", target_os = "macos"),
@@ -289,7 +296,7 @@ impl WgpuWindow {
         submitted?;
         self.window.pre_present_notify();
         self.renderer.present(frame);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.presented(std::time::Instant::now());
         Ok(true)
     }
@@ -303,29 +310,29 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
-    /// Next one-shot idle maintenance wake on macOS; absent on other platforms.
+    /// Next one-shot idle maintenance wake on macOS/Linux.
     pub fn maintenance_deadline(&self) -> Option<std::time::Instant> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             self.idle_resources.deadline
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             None
         }
     }
     /// Release idle resources when due without rendering or requesting a frame.
     pub fn maintain(&mut self, now: std::time::Instant) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         if self.idle_resources.due(now) {
             self.trim_gpu_cache();
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = now;
     }
-    /// Release derived caches. On macOS also return spare drawables and the
-    /// retained target; Core Animation keeps the already presented last frame.
-    /// The next present restores the real extent and performs a full redraw.
+    /// Release derived caches and the macOS/Linux retained offscreen target.
+    /// macOS also shrinks spare drawables; Linux keeps its real surface extent.
+    /// The compositor owns the presented last frame. Next present redraws fully.
     pub fn trim_gpu_cache(&mut self) {
         #[cfg(target_os = "macos")]
         if !self.idle_resources.trimmed {
@@ -337,7 +344,9 @@ impl WgpuWindow {
             self.renderer.configure_surface(&self.surface, &small);
             self.idle_resources.trimmed();
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(target_os = "linux")]
+        self.idle_resources.trimmed();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.renderer.trim_frame_target();
         self.renderer.trim_readback_buffer();
         self.renderer.trim_raster_cache();

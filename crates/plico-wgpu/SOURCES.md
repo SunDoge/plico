@@ -57,3 +57,8 @@ and the host's existing one-shot deadline scheduling, then restores the real
 extent and invalidates retained damage before the next present. See
 `docs/macos-mygo.md` for validation scope; no macOS RSS reduction is claimed from
 Linux GPU tests.
+
+The idle-resource principle also applies to Linux wgpu windows. Unlike the Metal
+adaptation, Linux leaves swapchain extent/configuration unchanged and releases
+only reconstructible offscreen/derived resources. No GTK frame-clock internals
+or private struct offsets are copied. See `docs/linux-mygo.md`.

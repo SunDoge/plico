@@ -719,3 +719,124 @@ fn maintenance_wakes_host_without_suppressing_frames_or_earlier_timers() {
         FrameWake::Deadline(early)
     );
 }
+
+#[cfg(all(target_os = "linux", feature = "wgpu"))]
+#[test]
+#[ignore = "requires an X11 display and working wgpu adapter (can run under Xvfb)"]
+fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_paths() {
+    use winit::platform::x11::EventLoopBuilderExtX11;
+    struct CountingSource(Arc<AtomicUsize>);
+    impl FrameSource for CountingSource {
+        fn build_frame(&mut self, _: &mut TextContext, _: u32, _: u32) -> Vec<PlacedNode> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Vec::new()
+        }
+        fn base_color(&self) -> Color {
+            Color::BLACK
+        }
+    }
+    struct Probe {
+        app: App,
+        frames: Arc<AtomicUsize>,
+        checked: Arc<AtomicBool>,
+    }
+    impl ApplicationHandler for Probe {
+        fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+            self.app.can_create_surfaces(event_loop);
+            let shell = self.app.state.as_ref().expect("native window initialized");
+            let id = shell.window().id();
+            let actual = shell.window().surface_size();
+            assert!(actual.width > 80 && actual.height > 80);
+            let stale = PhysicalSize::new(actual.width - 40, actual.height - 40);
+            let event = || WindowEvent::SurfaceResized(stale);
+            // Simulate a renderer that has not caught up with native geometry,
+            // followed by an already superseded queued native resize event.
+            self.app
+                .state
+                .as_mut()
+                .unwrap()
+                .resize(actual.width - 20, actual.height - 20);
+            let before = self.frames.load(Ordering::SeqCst);
+            self.app.window_event(event_loop, id, event());
+            assert_eq!(
+                self.app.state.as_ref().unwrap().size(),
+                (actual.width, actual.height)
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 1,
+                "single-window resize draws before returning from the event"
+            );
+            self.app.window_event(event_loop, id, event());
+            self.app.window_event(
+                event_loop,
+                id,
+                WindowEvent::SurfaceResized(PhysicalSize::new(0, 0)),
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 1,
+                "stale/duplicate/minimized events do not draw again"
+            );
+            assert_eq!(self.app.window_metrics.physical_width, actual.width);
+            assert_eq!(self.app.window_metrics.physical_height, actual.height);
+
+            // Multi-window dispatch uses the same handler but draws only after
+            // extensions have observed and processed the new window metrics.
+            self.app
+                .state
+                .as_mut()
+                .unwrap()
+                .resize(stale.width, stale.height);
+            assert!(self.app.handle_window_event(event_loop, id, event()));
+            assert_eq!(self.frames.load(Ordering::SeqCst), before + 1);
+            assert!(!self.app.handle_window_event(event_loop, id, event()));
+            self.app.redraw();
+            assert_eq!(self.frames.load(Ordering::SeqCst), before + 2);
+            assert_eq!(
+                self.app.state.as_ref().unwrap().size(),
+                (actual.width, actual.height)
+            );
+            let shell = self.app.state.as_mut().unwrap();
+            let deadline = shell
+                .maintain(Instant::now())
+                .expect("Linux idle maintenance armed");
+            assert_eq!(
+                shell.maintain(deadline),
+                None,
+                "one-shot maintenance is consumed"
+            );
+            assert_eq!(
+                self.frames.load(Ordering::SeqCst),
+                before + 2,
+                "idle maintenance does not draw or re-declare the view"
+            );
+            self.app.redraw();
+            assert!(
+                self.app
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .maintain(Instant::now())
+                    .is_some(),
+                "drawing after trim restores the surface and rearms maintenance"
+            );
+            self.checked.store(true, Ordering::SeqCst);
+            event_loop.exit();
+        }
+        fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+    }
+    let frames = Arc::new(AtomicUsize::new(0));
+    let checked = Arc::new(AtomicBool::new(false));
+    let mut builder = EventLoop::builder();
+    builder.with_x11().with_any_thread(true);
+    let event_loop = builder.build().unwrap();
+    event_loop
+        .run_app(Probe {
+            app: App::with_size(Box::new(CountingSource(frames.clone())), 320, 240),
+            frames,
+            checked: checked.clone(),
+        })
+        .unwrap();
+    assert!(checked.load(Ordering::SeqCst));
+}

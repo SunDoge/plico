@@ -1199,105 +1199,13 @@ impl App {
             | self.drain_effects()
     }
 
-    fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
-        let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
-        let has_animation = self.source.has_anim();
-        let deadline = (!has_animation)
-            .then(|| self.source.animation_deadline())
-            .flatten();
-        let mut wake = scheduled_frame_wake(
-            self.state.is_some()
-                && self.lifecycle.presence() == WindowPresence::Visible
-                && !self.window_metrics.occluded,
-            has_animation,
-            self.skipped_present_deadline,
-            deadline,
-            &mut self.scheduled_frame_deadline,
-            now,
-        );
-        if let Some(shell) = &self.state
-            && !shell.animation_frame_ready(has_animation && wake == FrameWake::Redraw)
-        {
-            wake = FrameWake::Idle;
-        }
-        wake.with_maintenance(maintenance)
-    }
-
-    fn drain_proxy_wake_up(&mut self) -> bool {
-        let changed = self.poll_background_work();
-        if changed && let Some(shell) = self.state.as_ref() {
-            shell.window().request_redraw();
-        }
-        changed
-    }
-}
-
-impl ApplicationHandler for App {
-    fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        self.skipped_present_deadline = None;
-        if let Some(shell) = self.state.as_mut() {
-            shell.invalidate_presentation();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Resumed));
-    }
-
-    fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        if let Some(shell) = self.state.as_mut() {
-            shell.trim_gpu_cache();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Suspended));
-    }
-
-    fn memory_warning(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        if let Some(shell) = self.state.as_mut() {
-            shell.tcx.clear_caches();
-            shell.trim_gpu_cache();
-        }
-        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::MemoryWarning));
-    }
-
-    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-        if self.state.is_some() {
-            return;
-        }
-        // Initial size: prefer the source's notion of viewport if it exposes one;
-        // otherwise default. For now we read none from the source, so use a sane
-        // default that the first resize will correct.
-        let mut shell = match Shell::create(event_loop, &self.window_options) {
-            Ok(shell) => shell,
-            Err(error) => {
-                *self
-                    .startup_error
-                    .lock()
-                    .expect("startup error mutex poisoned") = Some(error);
-                event_loop.exit();
-                return;
-            }
-        };
-        if let Some(wake) = self.wake_callback.clone() {
-            shell.observe_native_events(wake);
-            shell.refresh_display_preferences();
-        }
-        let window = shell.window().clone();
-        self.state = Some(shell);
-        self.sync_window_metrics();
-        window.request_redraw();
-    }
-
-    fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        self.state = None;
-    }
-
-    fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
-        let _ = self.drain_proxy_wake_up();
-    }
-
-    fn window_event(
+    fn handle_window_event(
         &mut self,
         event_loop: &dyn ActiveEventLoop,
         _window_id: WindowId,
         event: WindowEvent,
-    ) {
+    ) -> bool {
+        let mut geometry_changed = false;
         if let Some(shell) = self.state.as_mut() {
             shell
                 .accessibility
@@ -1309,7 +1217,7 @@ impl ApplicationHandler for App {
                     if let Some(shell) = self.state.as_ref() {
                         shell.window().request_redraw();
                     }
-                    return;
+                    return false;
                 }
                 self.state = None;
                 event_loop.exit();
@@ -1317,24 +1225,24 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::SurfaceResized(PhysicalSize { width, height }) => {
                 let Some(shell) = self.state.as_mut() else {
-                    return;
+                    return false;
                 };
-                // Match Blitz's native path: configure immediately. Only its
-                // WASM backend debounces resize because configuring clears the
-                // browser canvas. Ignore zero-sized/minimized surfaces.
-                shell.resize(width, height);
+                // Queued events can describe intermediate extents. Configure
+                // only the latest native size and avoid a redundant redraw.
+                if width == 0 || height == 0 {
+                    return false;
+                }
+                geometry_changed = shell.sync_surface_size();
                 self.present_retry_pending = false;
                 self.sync_window_metrics();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(shell) = self.state.as_mut() {
-                    shell.sync_surface_size();
+                    geometry_changed = shell.sync_surface_size()
+                        || shell.scale_factor() != self.window_metrics.scale_factor;
                 }
                 self.present_retry_pending = false;
                 self.sync_window_metrics();
-                if let Some(shell) = self.state.as_ref() {
-                    shell.window().request_redraw();
-                }
             }
             WindowEvent::ThemeChanged(_) => {
                 self.sync_window_metrics();
@@ -1492,7 +1400,7 @@ impl ApplicationHandler for App {
                     winit::event::Ime::Disabled => ImeEvent::Disabled,
                     // `Ime` is non-exhaustive upstream; unknown IME lifecycle
                     // events carry no text and do not change composition state.
-                    _ => return,
+                    _ => return false,
                 };
                 self.dispatch_event(UiEvent::Ime(event));
             }
@@ -1578,6 +1486,111 @@ impl ApplicationHandler for App {
                 }
             }
             _ => {}
+        }
+        geometry_changed
+    }
+
+    fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
+        let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
+        let has_animation = self.source.has_anim();
+        let deadline = (!has_animation)
+            .then(|| self.source.animation_deadline())
+            .flatten();
+        let mut wake = scheduled_frame_wake(
+            self.state.is_some()
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded,
+            has_animation,
+            self.skipped_present_deadline,
+            deadline,
+            &mut self.scheduled_frame_deadline,
+            now,
+        );
+        if let Some(shell) = &self.state
+            && !shell.animation_frame_ready(has_animation && wake == FrameWake::Redraw)
+        {
+            wake = FrameWake::Idle;
+        }
+        wake.with_maintenance(maintenance)
+    }
+
+    fn drain_proxy_wake_up(&mut self) -> bool {
+        let changed = self.poll_background_work();
+        if changed && let Some(shell) = self.state.as_ref() {
+            shell.window().request_redraw();
+        }
+        changed
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.skipped_present_deadline = None;
+        if let Some(shell) = self.state.as_mut() {
+            shell.invalidate_presentation();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Resumed));
+    }
+
+    fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        if let Some(shell) = self.state.as_mut() {
+            shell.trim_gpu_cache();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::Suspended));
+    }
+
+    fn memory_warning(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        if let Some(shell) = self.state.as_mut() {
+            shell.tcx.clear_caches();
+            shell.trim_gpu_cache();
+        }
+        self.dispatch_event(UiEvent::AppLifecycle(AppLifecycleEvent::MemoryWarning));
+    }
+
+    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+        // Initial size: prefer the source's notion of viewport if it exposes one;
+        // otherwise default. For now we read none from the source, so use a sane
+        // default that the first resize will correct.
+        let mut shell = match Shell::create(event_loop, &self.window_options) {
+            Ok(shell) => shell,
+            Err(error) => {
+                *self
+                    .startup_error
+                    .lock()
+                    .expect("startup error mutex poisoned") = Some(error);
+                event_loop.exit();
+                return;
+            }
+        };
+        if let Some(wake) = self.wake_callback.clone() {
+            shell.observe_native_events(wake);
+            shell.refresh_display_preferences();
+        }
+        let window = shell.window().clone();
+        self.state = Some(shell);
+        self.sync_window_metrics();
+        window.request_redraw();
+    }
+
+    fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.state = None;
+    }
+
+    fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        let _ = self.drain_proxy_wake_up();
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &dyn ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if self.handle_window_event(event_loop, window_id, event) {
+            self.redraw();
         }
     }
 
@@ -2655,14 +2668,13 @@ impl ApplicationHandler for MultiWindowApp {
             }
             return;
         }
-        let geometry_changed = matches!(&event, WindowEvent::SurfaceResized(size) if size.width > 0 && size.height > 0)
-            || matches!(&event, WindowEvent::ScaleFactorChanged { .. });
         let metrics_changed = matches!(
             &event,
             WindowEvent::SurfaceResized(_)
                 | WindowEvent::ScaleFactorChanged { .. }
                 | WindowEvent::ThemeChanged(_)
         );
+        let previous_metrics = self.windows.get(&window_id).map(|app| app.window_metrics);
         if let WindowEvent::PointerMoved {
             position,
             primary: true,
@@ -2716,11 +2728,16 @@ impl ApplicationHandler for MultiWindowApp {
                 return;
             }
         }
-        if let Some(app) = self.windows.get_mut(&window_id) {
-            app.window_event(event_loop, window_id, event);
-        }
+        let geometry_changed = self
+            .windows
+            .get_mut(&window_id)
+            .is_some_and(|app| app.handle_window_event(event_loop, window_id, event));
         if metrics_changed
-            && let Some(window_key) = self.windows.get(&window_id).map(|app| app.window_key)
+            && let Some(window_key) = self
+                .windows
+                .get(&window_id)
+                .filter(|app| Some(app.window_metrics) != previous_metrics)
+                .map(|app| app.window_key)
         {
             let mut context =
                 Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop);

@@ -102,7 +102,8 @@ wgpu surface 暂时配置为 1×1（Metal 后端对应 CAMetalLayer.drawableSize
 
 维护定时使用已有事件循环的 WaitUntil，与 UI deadline 取较早值，不驱动应用重绘，
 也不增加周期轮询。只在实际提交新帧后重新安排；跳过的 unchanged present 不推迟回收。
-单窗口与多窗口共享相同调度。非 macOS 宿主没有新增空闲回收行为。
+单窗口与多窗口共享相同调度。后续 Linux 的回收适配见 `linux-mygo.md`；
+Linux 保持真实 surface extent，不缩小 swapchain 配置。
 
 GPU 回归验证目标字节清零、静态 scene 必须重建以及重建像素一致；宿主测试验证维护
 唤醒不吞掉动画或更早的 UI 定时。Linux GPU 测试不能验证 Core Animation 显示保持，
@@ -141,3 +142,10 @@ trait，保留 NSFont 选出的字重。尺寸仍按精确逻辑值缓存，不�
 新增原生回归对照 AppKit 在多个字号/字重下的 PostScript 名称，检查 pool 排空后的
 光标和栅格有效性、等宽字形 advance 及 generic family 的桥接。它们可编译到 Apple
 Silicon，实际执行需要 macOS。没有从代码审查推断进程 RSS 降幅。
+
+
+尺寸事件处理现由单窗口和多窗口共用：读取 native 最新 extent，真实变化才在事件
+内绘制，过时/重复事件不再额外配置和重绘；扩展只在 metrics 实际变化时收到通知。
+Linux Xvfb 原生窗口回归验证共享处理流程，不能替代 macOS live resize 实机测试。
+wgpu Metal 已支持 `presentsWithTransaction` 所需的 waitUntilScheduled / present 顺序，
+但 MyGO 还依赖 CA 提交轮次与重复绘制保护；尚未仅通过打开开关迁移该行为。
