@@ -495,12 +495,17 @@ impl Cache {
             let position = [line.baseline[0] * scale + phase, line.baseline[1] * scale];
             let base = position.map(f64::floor);
             let phases = [position[0] - base[0], position[1] - base[1]];
-            let bounds = [
+            let mut bounds = [
                 (ink[0] * scale + position[0]).floor() - 2.,
                 (ink[1] * scale + position[1]).floor() - 2.,
                 (ink[2] * scale + position[0]).ceil() + 2.,
                 (ink[3] * scale + position[1]).ceil() + 2.,
             ];
+            // A max-lines boundary is part of the paragraph, unlike a moving
+            // viewport. Preserve that hard raster bound even for reusable lines.
+            if paragraph.visible_lines < paragraph.layout.lines().len() {
+                bounds[3] = bounds[3].min((paragraph.visible_size[1] * scale).ceil());
+            }
             let clipped = [
                 bounds[0].max(clip[0].floor()),
                 bounds[1].max(clip[1].floor()),
@@ -523,6 +528,15 @@ impl Cache {
                 clipped[2] - base[0],
                 clipped[3] - base[1],
             ];
+            let local = crate::native_raster_window::cache_window(
+                [
+                    bounds[0] - base[0],
+                    bounds[1] - base[1],
+                    bounds[2] - base[0],
+                    bounds[3] - base[1],
+                ],
+                local,
+            );
             let key = RasterKey {
                 request: fingerprint,
                 line: index,
@@ -842,6 +856,70 @@ mod tests {
         assert!(c.rasterizations > calls);
     }
     #[test]
+    fn scrolling_clip_reuses_native_pixels_and_matches_an_exact_raster_crop() {
+        let mut cache = Cache::new();
+        let mut declaration = (*request()).clone();
+        declaration.wrap = false;
+        declaration.text = "AV office 日本語".into();
+        let paragraph = cache.layout(Arc::new(declaration.clone())).unwrap();
+        for scale in [1., 1.25, 2.] {
+            let first = cache
+                .images(
+                    paragraph.clone(),
+                    declaration.color,
+                    scale,
+                    0.25,
+                    [0., 0., 80., 40.],
+                )
+                .unwrap();
+            assert!(!first.is_empty());
+            let calls = cache.rasterizations;
+            for y in 1..12 {
+                let next = cache
+                    .images(
+                        paragraph.clone(),
+                        declaration.color,
+                        scale,
+                        0.25,
+                        [1., y as f64, 79., 40.],
+                    )
+                    .unwrap();
+                assert_eq!(cache.rasterizations, calls);
+                assert_eq!(next[0].0.data.id(), first[0].0.data.id());
+            }
+            let line = &paragraph.layout.lines()[0];
+            let position = [line.baseline[0] * scale + 0.25, line.baseline[1] * scale];
+            let base = position.map(f64::floor);
+            let phase = [position[0] - base[0], position[1] - base[1]];
+            let exact = line
+                .line
+                .rasterize_clipped(
+                    scale,
+                    phase,
+                    declaration.color,
+                    [2. - base[0], 2. - base[1], 78. - base[0], 39. - base[1]],
+                )
+                .unwrap()
+                .unwrap();
+            let (image, origin) = &first[0];
+            for y in 0..exact.size[1] {
+                for x in 0..exact.size[0] {
+                    let world_x = exact.origin[0] + base[0] as i32 + x as i32;
+                    let world_y = exact.origin[1] + base[1] as i32 + y as i32;
+                    let source_x = (world_x - origin[0]) as usize;
+                    let source_y = (world_y - origin[1]) as usize;
+                    let source = (source_y * image.width as usize + source_x) * 4;
+                    let expected = (y as usize * exact.size[0] as usize + x as usize) * 4;
+                    assert_eq!(
+                        &image.data.data()[source..source + 4],
+                        &exact.pixels[expected..expected + 4]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn clipped_native_images_stay_bounded_and_rich_spans_render() {
         let mut c = Cache::new();
         let mut declaration = (*request()).clone();
@@ -854,7 +932,7 @@ mod tests {
             .unwrap();
         assert!(!images.is_empty());
         for (image, _) in images.iter() {
-            assert!(image.width <= 120 && image.height <= 80);
+            assert!(image.width <= 120 + 256 && image.height <= 80 + 64);
         }
         let mut run = plico_renderer::text::TextRun {
             range: 0..1,
@@ -1028,6 +1106,61 @@ mod tests {
 #[cfg(test)]
 mod gpu_tests {
     use super::*;
+    #[test]
+    #[ignore = "requires a macOS GPU adapter and installed system fonts"]
+    fn scrolling_native_line_reuses_cpu_raster_and_gpu_upload() {
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let request = Arc::new(ParagraphRequest {
+            font_revision: 0,
+            raster_scale_hint: None,
+            text: "Scrolling UI".into(),
+            font_size: 20.,
+            font_weight: 500.,
+            italic: false,
+            letter_spacing: 0.,
+            line_height: None,
+            align: TextAlign::Start,
+            color: [20, 30, 40, 255],
+            runs: Arc::from([]),
+            family: "system-ui".into(),
+            width: None,
+            wrap: false,
+            max_lines: 0,
+            ellipsis: false,
+        });
+        let mut calls = None;
+        for offset in 0..8 {
+            use plico_renderer::{PaintCommand, PaintShape, Scene};
+            let mut scene = Scene::new();
+            scene.commands.push(PaintCommand::PushClip {
+                transform: kurbo::Affine::IDENTITY,
+                clip: PaintShape::record(&kurbo::Rect::new(10., 10., 90., 40.), 0.1),
+            });
+            scene.commands.push(PaintCommand::Paragraph {
+                request: request.clone(),
+                transform: kurbo::Affine::translate((12.25, 12. - f64::from(offset))),
+            });
+            scene.commands.push(PaintCommand::PopLayer);
+            let pixels = renderer
+                .render_scene(&scene, [128, 64], [1.; 4], false)
+                .unwrap();
+            assert!(pixels.as_chunks::<4>().0.iter().any(|p| p[0] < 200));
+            let current = (
+                renderer.macos_text_cache_stats().rasterizations,
+                renderer.image_cache_stats().2,
+            );
+            if let Some(first) = calls {
+                assert_eq!(
+                    current, first,
+                    "scrolling should only change draw geometry/clip"
+                );
+            } else {
+                assert!(current.0 > 0 && current.1 > 0);
+                calls = Some(current);
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn fractional_line_limit_matches_an_explicit_clip_of_only_visible_content() {

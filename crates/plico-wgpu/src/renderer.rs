@@ -2880,6 +2880,73 @@ fn encode_backdrop_step<'p>(
 mod tests {
     #[test]
     #[ignore = "requires a working wgpu adapter"]
+    fn stable_native_raster_windows_preserve_clipped_gpu_pixels() {
+        use super::*;
+        use crate::{Draw, image::ImageQuad, native_raster_window::cache_window};
+        use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+        use std::sync::Arc;
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let ink = [0., 0., 1024., 64.];
+        let visible = [160., 8., 224., 48.];
+        let window = cache_window(ink, visible);
+        assert_ne!(window, ink);
+        let make_image = |rect: [f64; 4], ratio: f32, shift: f32| {
+            let [left, top, right, bottom] = rect.map(|v| v as u32);
+            let pixels = (top..bottom)
+                .flat_map(|y| {
+                    (left..right).flat_map(move |x| {
+                        // Stable native-pixel coordinates, including translucent edges.
+                        let a = ((x * 13 + y * 7) % 128 + 128) as u8;
+                        [((x * 3) % 128) as u8, ((y * 5) % 128) as u8, 30, a]
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut quad = Quad::new(
+                [
+                    left as f32 * ratio - 130. + shift,
+                    top as f32 * ratio + 5. + shift,
+                    (right - left) as f32 * ratio,
+                    (bottom - top) as f32 * ratio,
+                ],
+                [1.; 4],
+            );
+            quad.clip = Some([
+                visible[0] as f32 * ratio - 130. + shift,
+                visible[1] as f32 * ratio + 5. + shift,
+                (visible[2] - visible[0]) as f32 * ratio,
+                (visible[3] - visible[1]) as f32 * ratio,
+            ]);
+            ImageQuad::new(
+                quad,
+                ImageData {
+                    data: Blob::new(Arc::new(pixels)),
+                    width: right - left,
+                    height: bottom - top,
+                    format: ImageFormat::Rgba8,
+                    alpha_type: ImageAlphaType::AlphaPremultiplied,
+                },
+            )
+        };
+        for ratio in [0.75, 1., 1.25] {
+            for shift in [0., 0.25, 0.5, 0.75] {
+                let full = make_image(ink, ratio, shift);
+                let cached = make_image(window, ratio, shift);
+                let expected = renderer
+                    .render_items(&[Draw::Image(&full)], [256, 128], [0.; 4], 0.)
+                    .unwrap();
+                let actual = renderer
+                    .render_items(&[Draw::Image(&cached)], [256, 128], [0.; 4], 0.)
+                    .unwrap();
+                assert!(
+                    actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                    "bitmap window changed GPU coverage/sampling at {ratio} / {shift}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
     fn coverage_masks_use_one_gpu_byte_per_pixel_without_aliasing_rgba_images() {
         use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
         let mut renderer = pollster::block_on(Renderer::new()).unwrap();

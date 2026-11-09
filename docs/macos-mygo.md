@@ -212,3 +212,40 @@ shaping 缓存的生命周期，Plico 的精确字号缓存达到 256 个 face �
 存活，以及使用序号溢出后的顺序。Apple Silicon 目标的实际 CoreText 实现及测试
 已通过 Clippy 编译检查；当前 Linux 环境不能执行这些 macOS 原生测试，亦未测得
 macOS 帧时间或 RSS 的变化，不据此宣称实机性能提升幅度。
+
+## 滚动时复用文字位图
+
+对照 MyGO `internal/text/coretext_darwin.go` 的 glyph 栅格缓存及 GPU 绘制期裁剪，
+Plico 的 CoreText 行位图不再直接把每帧精确 viewport 交集作为缓存键：
+
+- 小于等于 64 KiB 的行复用完整 ink 位图，精确 viewport 仍在 GPU 绘制时裁剪。
+- 超长/大字号行仅栅格化可见区域附近，以行空间的 128×32 物理像素网格稳定窗口；
+  预留 2 像素采样边界，避免双线性采样在临时裁剪边缘夹取错误像素。不拆分为
+  多个拼接位图，不新增文字接缝。
+- 完全不可见的行在分配前跳过。扩展后会超出既有 16384 边长或 64 MiB 上限时
+  回退精确窗口，保留大内容的既有拒绝边界；总 raster LRU 仍有计数和字节上限。
+  max-lines 的固有硬边界继续限制位图，不能被 viewport 缓存扩展越过。
+
+同一字体、颜色、密度和 phase 下，滚动边缘的文字可以复用同一个 ImageData ID，
+因此 CPU 栅格缓存命中也能继续命中 GPU 上传缓存。没有量化布局、字号或文字位置。
+本轮没有把 MyGO 的逐 glyph atlas 替换进来；适配的是栅格内容与 viewport 裁剪分离原则。
+
+验证：5 项可在 Linux 执行的窗口规划回归覆盖负坐标、可见像素包含、有限过绘制、
+极长 ink 以及预算回退。120 次单像素滚动中，精确窗口产生 120 个不同键，稳定窗口
+不超过 10 个。实际 wgpu 像素对照覆盖 0.75/1/1.25 缩放及四个亚像素位置，与完整
+位图应用相同精确裁剪的结果逐通道误差不超过 1，可重建命令：
+
+```sh
+cargo test --locked -p plico-wgpu --lib native_raster_window
+cargo test --locked -p plico-wgpu --lib stable_native_raster_windows_preserve -- --ignored
+```
+
+CoreText 原生 crop 像素对照、移动 viewport 后 ImageData ID 复用，以及 macOS GPU
+滚动时不新增 raster/upload 的回归已通过 Apple Silicon Clippy 编译检查；当前环境
+没有执行这些原生测试。后者可在 macOS 运行：
+
+```sh
+cargo test --locked -p plico-wgpu --lib scrolling_native_line_reuses -- --ignored
+```
+
+这些结果不等同于 macOS 滚动帧时间或 RSS 的实测降幅。

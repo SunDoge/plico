@@ -62,3 +62,10 @@ The idle-resource principle also applies to Linux wgpu windows. Unlike the Metal
 adaptation, Linux leaves swapchain extent/configuration unchanged and releases
 only reconstructible offscreen/derived resources. No GTK frame-clock internals
 or private struct offsets are copied. See `docs/linux-mygo.md`.
+
+CoreText bitmap windows (`src/native_raster_window.rs`, `src/macos_paragraph.rs`)
+reference MyGO `internal/text/coretext_darwin.go` and its glyph-cache/draw-time
+clipping separation at `ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT).
+Plico retains native line rasters: small lines use full ink and large lines use
+bounded stable viewport windows with a sampling halo. This is newly written
+Rust, not a port of MyGO's glyph atlas. The existing MyGO MIT notice applies.

@@ -24,6 +24,8 @@ pub mod image;
 #[cfg(all(target_os = "macos", feature = "system-text"))]
 mod macos_paragraph;
 pub mod mask;
+#[cfg(any(all(target_os = "macos", feature = "system-text"), test))]
+mod native_raster_window;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod paragraph;
 #[cfg(all(target_os = "windows", feature = "system-text"))]
