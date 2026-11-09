@@ -7,3 +7,9 @@ MIT. See `mygo-LICENSE`.
 
 Plico's Gaussian quadrature, partial smoothing, replay and clipping are framework
 implementations.
+
+`src/surface_acquire.rs` follows the single-slot background drawable acquisition
+and dedicated-thread USER_INTERACTIVE QoS of MyGO
+`internal/gpu/metal/present.go` at the same MIT revision. Plico adapts that policy
+to wgpu textures and its event-loop proxy, with Rust ownership and worker-failure
+handling. See `mygo-LICENSE`.

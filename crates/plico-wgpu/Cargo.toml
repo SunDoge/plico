@@ -19,6 +19,7 @@ plico-native = { path = "../plico-native", default-features = false, features = 
 plico-native = { path = "../plico-native", default-features = false, features = ["windows-text"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 plico-native = { path = "../plico-native", default-features = false, features = ["macos-text"], optional = true }
 
 [dependencies]

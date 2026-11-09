@@ -522,3 +522,18 @@ AppKit 的 performMiniaturize。Zoom / Ignore 保持原动作，不额外等待�
 回归、宿主 68 项测试与实际 AppKit 模块的 Apple 目标 Clippy 检查通过；当前 Linux
 没有执行双击系统偏好对应的 macOS 交互。实机需在系统选择“双击标题栏最小化”后，
 对有持续绘制的自定义标题栏确认动作及恢复行为，不能用普通不透明检查窗口代替。
+
+## Drawable 获取线程的调度等级
+
+进一步对照 MyGO `internal/gpu/metal/present.go::presenter.run`，专用 surface
+acquisition 线程启动时调用 `pthread_set_qos_class_self_np`，设置为
+`QOS_CLASS_USER_INTERACTIVE`、相对优先级 0。获取下一张 drawable 是显示节奏的
+一部分，不应以普通后台任务的调度等级与 UI 竞争。只调整该专用线程；不修改主线程、
+应用异步任务或 Linux 线程的优先级，也不增加忙等。设置失败记录 debug 诊断，仍继续
+原有工作线程，避免调度优化变成窗口初始化失败。
+
+新增 macOS 原生回归直接在实际 fetch 回调内读取 pthread QoS，确认生效的线程和
+相对优先级；已有 `scripts/check-macos-native.sh` 的 surface-worker 阶段包含它。
+Apple Silicon 目标实现与测试编译检查、Linux 单槽 worker 回归可以在当前环境执行；
+原生 QoS 查询测试和 CPU 竞争下的帧时序收益须在 macOS 执行，未据交叉编译声称
+已验证系统调度或获得性能提升。

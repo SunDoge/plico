@@ -40,6 +40,21 @@ impl<T: Send + 'static> Acquire<T> {
         let thread = std::thread::Builder::new()
             .name("plico-surface-acquire".into())
             .spawn(move || {
+                #[cfg(target_os = "macos")]
+                {
+                    // MyGO's Metal presenter uses the UI's QoS for nextDrawable:
+                    // display-paced work should not run at background-worker priority.
+                    // This dedicated thread owns no unrelated application jobs.
+                    let status = unsafe {
+                        libc::pthread_set_qos_class_self_np(
+                            libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE,
+                            0,
+                        )
+                    };
+                    if status != 0 {
+                        tracing::debug!(status, "could not set surface acquisition thread QoS");
+                    }
+                }
                 loop {
                     let mut state = worker.state.lock().unwrap();
                     while !state.fetching && !state.stopping {
@@ -162,6 +177,30 @@ mod tests {
         mpsc,
     };
     use std::time::Duration;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn drawable_fetch_runs_at_user_interactive_qos() {
+        let (send, receive) = mpsc::channel();
+        let worker = Acquire::new(
+            move || {
+                let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+                let mut priority = 0;
+                // Query inside the actual fetch callback, not on the test thread.
+                let status = unsafe {
+                    libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, &mut priority)
+                };
+                send.send((status, class as u32, priority)).unwrap();
+            },
+            Arc::new(|| {}),
+        )
+        .unwrap();
+        worker.start();
+        let (status, class, priority) = receive.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.drain();
+        assert_eq!(status, 0);
+        assert_eq!(class, libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32);
+        assert_eq!(priority, 0);
+    }
     #[test]
     fn pending_fetch_is_single_slot_and_wakes_only_a_waiting_frame() {
         let (permit, receive) = mpsc::channel();
