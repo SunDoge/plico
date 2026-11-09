@@ -116,12 +116,19 @@ pub(super) fn frame_wake(
 }
 
 pub(super) fn scheduled_frame_wake(
+    visible: bool,
     has_animation: bool,
     animation_not_before: Option<Instant>,
     reported_deadline: Option<Instant>,
     scheduled_deadline: &mut Option<Instant>,
     now: Instant,
 ) -> FrameWake {
+    // MyGO's macOS surface pauses display-link work while out of sight.
+    // UI time still advances; showing the window asks for a fresh frame.
+    if !visible {
+        *scheduled_deadline = None;
+        return FrameWake::Idle;
+    }
     if has_animation {
         if let Some(deadline) = animation_not_before.filter(|deadline| *deadline > now) {
             *scheduled_deadline = Some(deadline);

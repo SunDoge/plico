@@ -70,12 +70,22 @@ impl Visibility {
     }
 }
 impl Scrollbars {
-    pub(super) fn needs_frame(&self) -> bool {
+    pub(super) fn needs_frame(&self, now: Duration) -> bool {
         self.dirty
-            || self
-                .states
-                .values()
-                .any(|s| s.since.is_some() && !s.pinned && s.opacity > 0.)
+            || self.states.values().any(|s| {
+                !s.pinned
+                    && s.opacity > 0.
+                    && s.since
+                        .is_some_and(|since| now.saturating_sub(since) >= IDLE)
+            })
+    }
+    pub(super) fn wake_deadline(&self, now: Duration) -> Option<Duration> {
+        self.states
+            .values()
+            .filter(|s| !s.pinned && s.opacity > 0.)
+            .filter_map(|s| s.since?.checked_add(IDLE))
+            .filter(|deadline| *deadline > now)
+            .min()
     }
     pub(super) fn event(&mut self, event: &UiEvent) {
         match event {
@@ -324,6 +334,18 @@ mod integration {
         pointer(&mut s, PointerPhase::Move, Point::new(50., 50.));
         let shown = frame(&mut s, &mut text);
         assert_eq!(scroll(&s).opacity, 1.);
+        assert!(
+            !s.has_anim(),
+            "the scrollbar hold is a timer, not an animation"
+        );
+        let hide = s.animation_deadline().expect("fade needs a delayed wake");
+        clock.set(Duration::from_millis(799)).unwrap();
+        frame(&mut s, &mut text);
+        assert!(!s.has_anim());
+        assert_eq!(s.animation_deadline(), Some(hide));
+        clock.set(Duration::from_millis(800)).unwrap();
+        frame(&mut s, &mut text);
+        assert!(s.has_anim(), "the fade itself samples display frames");
         let calls = s.view.calls;
         clock.set(Duration::from_millis(900)).unwrap();
         let fading = frame(&mut s, &mut text);
@@ -336,6 +358,7 @@ mod integration {
         assert_ne!(fading, hidden);
         assert_eq!(scroll(&s).opacity, 0.);
         assert!(!s.has_anim());
+        assert_eq!(s.animation_deadline(), None);
         let n = s
             .adapter
             .placed

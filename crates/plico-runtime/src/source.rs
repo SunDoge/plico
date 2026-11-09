@@ -317,7 +317,7 @@ impl<V: HostView> Source<V> {
             }
         } else if (scroll.changed
             || self.adapter.scroll_dirty
-            || self.adapter.scrollbars.needs_frame())
+            || self.adapter.scrollbars.needs_frame(self.engine.time().now))
             && let Some((w, h)) = self.viewport
         {
             // Event targeting must use the presented scroll position even when
@@ -388,8 +388,8 @@ impl<V: HostView> Source<V> {
             self.pending = true;
         }
         let shader_active = self.adapter.shader_active();
-        let tooltip_active = self.adapter.tips.needs_frame();
-        let scrollbar_active = self.adapter.scrollbars.needs_frame();
+        let tooltip_active = self.adapter.tips.needs_frame(self.engine.time().now);
+        let scrollbar_active = self.adapter.scrollbars.needs_frame(self.engine.time().now);
         // A surface redraw is not itself an application-state change. Native
         // sampling can keep the declaration tree when all invalidation sources
         // are clean. The snapshot API deliberately still evaluates the view.
@@ -834,9 +834,21 @@ impl<V: HostView> FrameSource for Source<V> {
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
             || self.requests.contains(plico::Changes::ANIMATE)
-            || self.engine.wake_deadline().is_some()
-            || self.adapter.tips.needs_frame()
-            || self.adapter.scrollbars.needs_frame()
+            || self.adapter.tips.needs_frame(self.engine.time().now)
+            || self.adapter.scrollbars.needs_frame(self.engine.time().now)
+    }
+    fn animation_deadline(&self) -> Option<Instant> {
+        let deadline = [
+            self.engine.wake_deadline(),
+            self.adapter.tips.wake_deadline(),
+            self.adapter
+                .scrollbars
+                .wake_deadline(self.engine.time().now),
+        ]
+        .into_iter()
+        .flatten()
+        .min()?;
+        self.clock_epoch.checked_add(deadline)
     }
     fn paint_debug_overlay(
         &mut self,

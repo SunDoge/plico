@@ -36,7 +36,9 @@ use crate::source::{
     WindowMetrics, WindowOptions,
 };
 use crate::style::CursorStyle;
-use crate::window_lifecycle::{WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle};
+use crate::window_lifecycle::{
+    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
+};
 
 mod event_translate;
 
@@ -1292,7 +1294,7 @@ impl ApplicationHandler for App {
                     }
                     self.present_retry_pending = false;
                 }
-                if let Some(shell) = self.state.as_ref() {
+                if !occluded && let Some(shell) = self.state.as_ref() {
                     shell.window().request_redraw();
                 }
             }
@@ -1533,6 +1535,9 @@ impl ApplicationHandler for App {
             .then(|| self.source.animation_deadline())
             .flatten();
         match scheduled_frame_wake(
+            self.state.is_some()
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded,
             has_animation,
             self.skipped_present_deadline,
             deadline,
@@ -2696,6 +2701,9 @@ impl ApplicationHandler for MultiWindowApp {
                 .then(|| app.source.animation_deadline())
                 .flatten();
             match scheduled_frame_wake(
+                app.state.is_some()
+                    && app.lifecycle.presence() == WindowPresence::Visible
+                    && !app.window_metrics.occluded,
                 has_animation,
                 app.skipped_present_deadline,
                 deadline,

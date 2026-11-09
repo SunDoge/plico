@@ -26,7 +26,7 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let first = now + std::time::Duration::from_millis(16);
     let mut scheduled = None;
     assert_eq!(
-        scheduled_frame_wake(false, None, Some(first), &mut scheduled, now),
+        scheduled_frame_wake(true, false, None, Some(first), &mut scheduled, now),
         FrameWake::Deadline(first)
     );
 
@@ -34,6 +34,7 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let moving_deadline = wake_time + std::time::Duration::from_millis(16);
     assert_eq!(
         scheduled_frame_wake(
+            true,
             false,
             None,
             Some(moving_deadline),
@@ -636,16 +637,16 @@ fn skipped_present_keeps_animation_paced_without_polling() {
     let mut scheduled = None;
     for _ in 0..3 {
         assert_eq!(
-            scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, now),
+            scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, now),
             FrameWake::Deadline(deadline)
         );
     }
     assert_eq!(
-        scheduled_frame_wake(true, Some(deadline), None, &mut scheduled, deadline),
+        scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, deadline),
         FrameWake::Redraw
     );
     assert_eq!(
-        scheduled_frame_wake(false, Some(deadline), None, &mut scheduled, now),
+        scheduled_frame_wake(true, false, Some(deadline), None, &mut scheduled, now),
         FrameWake::Idle
     );
 }
@@ -663,4 +664,30 @@ fn restricted_edges_project_corners_onto_allowed_resize_axes() {
     assert_eq!(at(0., 0., Edges::BOTTOM), None);
     assert_eq!(at(0., 599., Edges::BOTTOM), Some(ResizeDirection::South));
     assert_eq!(at(899., 599., Edges::empty()), None);
+}
+
+#[test]
+fn invisible_windows_stop_frame_timers_and_resume_with_one_fresh_frame() {
+    let now = Instant::now();
+    let future = now + std::time::Duration::from_secs(1);
+    let mut scheduled = Some(future);
+    for (animation, deadline) in [(true, None), (false, Some(now)), (false, Some(future))] {
+        assert_eq!(
+            scheduled_frame_wake(false, animation, None, deadline, &mut scheduled, now),
+            FrameWake::Idle
+        );
+        assert_eq!(scheduled, None);
+    }
+    assert_eq!(
+        scheduled_frame_wake(true, true, None, None, &mut scheduled, now),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, now),
+        FrameWake::Deadline(future)
+    );
+    assert_eq!(
+        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, future),
+        FrameWake::Redraw
+    );
 }

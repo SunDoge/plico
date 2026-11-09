@@ -32,7 +32,7 @@ fn wheel(delta: f64) -> UiEvent {
         position: Point { x: 20., y: 20. },
         delta_x: 0.,
         delta_y: delta,
-        delta_mode: WheelDeltaMode::Pixel,
+        delta_mode: WheelDeltaMode::Line,
         phase: GesturePhase::Changed,
         modifiers: Modifiers::empty(),
     })
@@ -299,4 +299,53 @@ fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
         .unwrap();
     assert_eq!(port.scroll.offset[1], port.scroll.range[1]);
     settle_scrollbar_fade(&mut s, &clock, &mut tcx);
+}
+
+fn precise_wheel(delta: f64) -> UiEvent {
+    let UiEvent::Wheel(mut event) = wheel(delta) else {
+        unreachable!()
+    };
+    event.delta_mode = WheelDeltaMode::Pixel;
+    UiEvent::Wheel(event)
+}
+#[test]
+fn precise_trackpad_deltas_follow_fingers_without_extra_interpolation() {
+    let (mut s, clock, mut tcx) = setup();
+    let mut expected = 0.;
+    for delta in [20.5, 1.25, -0.5, 40.] {
+        assert!(s.handle_event(precise_wheel(delta)).handled);
+        expected += delta as f32;
+        s.build_frame(&mut tcx, 400, 300);
+        assert_eq!(offset(&s), expected);
+        clock.advance(Duration::from_millis(16)).unwrap();
+        s.build_frame(&mut tcx, 400, 300);
+        assert_eq!(
+            offset(&s),
+            expected,
+            "native momentum must not gain a second glide"
+        );
+    }
+    settle_scrollbar_fade(&mut s, &clock, &mut tcx);
+    assert_eq!(offset(&s), expected);
+}
+#[test]
+fn touching_trackpad_cancels_wheel_glide_at_the_visible_offset() {
+    for delta in [0., 20., -20.] {
+        let (mut s, clock, mut tcx) = setup();
+        s.handle_event(wheel(400.));
+        clock.advance(Duration::from_millis(80)).unwrap();
+        s.build_frame(&mut tcx, 400, 300);
+        assert_eq!(offset(&s), 350.);
+        assert!(s.handle_event(precise_wheel(delta)).handled);
+        s.build_frame(&mut tcx, 400, 300);
+        assert_eq!(offset(&s), 350. + delta as f32);
+        clock.advance(Duration::from_millis(200)).unwrap();
+        s.build_frame(&mut tcx, 400, 300);
+        assert_eq!(
+            offset(&s),
+            350. + delta as f32,
+            "old wheel target must stay cancelled"
+        );
+        settle_scrollbar_fade(&mut s, &clock, &mut tcx);
+    }
 }

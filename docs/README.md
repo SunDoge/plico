@@ -60,6 +60,7 @@
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |
 | [呈现生命周期](presentation.md) | MyGO 对照、完整弹窗退场、玻璃组背景与文字缩放缓存 |
+| [macOS 与 MyGO 对照](macos-mygo.md) | 原生窗口轮廓、空闲调度、精确滚动与后续检查 |
 | [交互区域 API（设计）](interaction-api.md) | hover 订阅、局部坐标、命中与反馈时序；尚未实现 |
 | [SVG 图标](icons.md) | CLI 按需生成 Lucide、应用自有集合、currentColor 与默认勾选标记 |
 | [Widget / shader 验收](widget-shader-validation.md) | 本轮目标、实现与逐项验证证据 |

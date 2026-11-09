@@ -1,5 +1,6 @@
 //! Native event dispatch and interaction invalidation.
 use super::*;
+use plico_renderer::WheelDeltaMode;
 
 impl Adapter {
     pub(crate) fn update_hover_regions(&self, engine: &Engine) -> bool {
@@ -138,7 +139,7 @@ impl Adapter {
             response.request_redraw = true;
             declare = false;
         }
-        response.request_redraw |= self.tips.needs_frame();
+        response.request_redraw |= self.tips.needs_frame(engine.time().now);
         (response, declare)
     }
     pub(super) fn event_inner(
@@ -359,14 +360,25 @@ impl Adapter {
                             .get(&id)
                             .copied()
                             .unwrap_or(scroll.offset);
-                        let destination = self.scroll_motions.get(&id).map_or(old[1], |m| m.target);
+                        let entity = self.reverse[&id];
+                        // MyGO ui/input.go: precise deltas already follow the
+                        // fingers (including native momentum). Interpolate only
+                        // wheel notches; touching the trackpad takes over at the
+                        // visible offset, never the old wheel destination.
+                        let smooth = w.delta_mode == WheelDeltaMode::Line
+                            && engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                        let destination = if smooth {
+                            self.scroll_motions.get(&id).map_or(old[1], |m| m.target)
+                        } else {
+                            old[1]
+                        };
                         let next = (destination + remaining).clamp(0., scroll.range[1]);
                         remaining -= next - destination;
-                        if next != destination {
-                            let entity = self.reverse[&id];
-                            let smooth = engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                        if next != destination || (!smooth && self.scroll_motions.contains_key(&id))
+                        {
                             *declare |= engine.observes_scroll(entity)
-                                && !(smooth && self.smooth_scroll_enabled);
+                                && !(smooth && self.smooth_scroll_enabled)
+                                && next != old[1];
                             self.scroll_to(id, next, smooth, engine.time().now);
                             handled = true;
                         }

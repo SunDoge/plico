@@ -47,8 +47,11 @@ impl Tooltips {
     pub(super) fn layer(&self) -> &[PlacedNode] {
         &self.layer
     }
-    pub(super) fn needs_frame(&self) -> bool {
-        self.dirty || self.deadline.is_some()
+    pub(super) fn needs_frame(&self, now: Duration) -> bool {
+        self.dirty || self.deadline.is_some_and(|deadline| deadline <= now)
+    }
+    pub(super) fn wake_deadline(&self) -> Option<Duration> {
+        self.deadline
     }
 }
 impl Adapter {

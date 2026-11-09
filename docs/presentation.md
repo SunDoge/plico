@@ -24,7 +24,8 @@ Modal 面板为 140 ms 淡入并上移 8 px，遮罩、内容使用同一时间�
 关闭后的 `ModalResponse.inner` 为 `None`；内容闭包不执行，因此清空业务数据不会使退出中的文字先消失。
 
 `request_rebuild_at` 的 deadline 由节点生命周期拥有；重新声明或移除节点会清理旧 deadline。
-未到期时复用声明和保留场景；宿主仍可能按 vsync 唤醒，尚不是操作系统级定时调度。
+未到期时复用声明和保留场景；桌面宿主通过 `animation_deadline` 映射到事件循环的 `WaitUntil`，
+纯 deadline 不再维持 vsync 循环。真实动效仍按帧采样；浏览器暂保持 rAF 轮询 deadline。
 
 ## 合成与内存边界
 

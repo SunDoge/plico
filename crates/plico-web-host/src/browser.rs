@@ -103,7 +103,9 @@ impl<V: HostView> WebHost<V> {
         self.renderer
             .render(&self.scene, size, self.source.base_color().components)
             .map_err(|e| error(e.to_string()))?;
-        Ok(self.source.has_anim())
+        // Browser scheduling currently uses rAF for deferred UI deadlines;
+        // native hosts can sleep with FrameSource::animation_deadline instead.
+        Ok(self.source.has_anim() || self.source.animation_deadline().is_some())
     }
     /// Flush the previous discrete input before routing the next one.
     pub fn dispatch(
