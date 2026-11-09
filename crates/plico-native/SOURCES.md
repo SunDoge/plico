@@ -64,3 +64,10 @@ The same MyGO CoreText revision's `systemFont` also informs AppKit UI/monospaced
 font selection by native weight, local autorelease-pool scope and owned CTFont
 bridging. The Rust implementation uses objc2-app-kit's public toll-free bridge;
 no manually loaded Objective-C ABI is copied.
+
+The bounded CoreText face cache retains hot exact-size faces across animation
+samples using per-entry recency rather than flushing all faces at capacity.
+This is newly written Rust; MyGO `internal/text/coretext_darwin.go` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` informed the primary/style CTFont
+retention principle. Plico retains its own 256-face bound and private collection
+invalidation behavior; the existing MyGO MIT notice is retained.

@@ -32,10 +32,15 @@ impl FaceKey {
         }
     }
 }
+struct CachedFace {
+    font: CFRetained<CTFont>,
+    used: u64,
+}
 #[derive(Default)]
 struct Fonts {
-    families: HashMap<String, HashMap<FaceKey, CFRetained<CTFont>>>,
+    families: HashMap<String, HashMap<FaceKey, CachedFace>>,
     count: usize,
+    clock: u64,
     registered: HashMap<String, Vec<RegisteredFace>>,
 }
 impl Fonts {
@@ -57,8 +62,14 @@ impl Fonts {
             request.family
         };
         let key = FaceKey::new(request);
-        if let Some(font) = self.families.get(family).and_then(|faces| faces.get(&key)) {
-            return Ok(font.clone());
+        let used = self.next_use();
+        if let Some(face) = self
+            .families
+            .get_mut(family)
+            .and_then(|faces| faces.get_mut(&key))
+        {
+            face.used = used;
+            return Ok(face.font.clone());
         }
         let font = if let Some(faces) = self.registered.get(&family.to_lowercase()) {
             let style = request.style.unwrap_or_default();
@@ -80,18 +91,59 @@ impl Fonts {
         } else {
             create(request)?
         };
-        // Continuous font-size animations must not keep every sampled size.
-        // Live lines retain their own face, so eviction cannot invalidate them.
+        // Keep hot UI faces while continuous font-size animations cycle through
+        // sampled sizes. Only a miss scans this small bounded cache; hits borrow
+        // the family name without allocation. Live lines retain their own face.
         if self.count >= MAX_FONTS {
-            self.families.clear();
-            self.count = 0;
+            self.evict_oldest();
         }
-        self.families
-            .entry(family.to_owned())
-            .or_default()
-            .insert(key, font.clone());
+        self.families.entry(family.to_owned()).or_default().insert(
+            key,
+            CachedFace {
+                font: font.clone(),
+                used,
+            },
+        );
         self.count += 1;
         Ok(font)
+    }
+    fn next_use(&mut self) -> u64 {
+        if self.clock == u64::MAX {
+            // Preserve ordering even after counter wrap. This path is bounded
+            // by MAX_FONTS, never drops native faces and is not a cache flush.
+            let mut faces: Vec<_> = self
+                .families
+                .values_mut()
+                .flat_map(|faces| faces.values_mut())
+                .collect();
+            faces.sort_unstable_by_key(|face| face.used);
+            for (index, face) in faces.into_iter().enumerate() {
+                face.used = index as u64;
+            }
+            self.clock = self.count as u64;
+        }
+        self.clock += 1;
+        self.clock
+    }
+    fn evict_oldest(&mut self) {
+        let oldest = self
+            .families
+            .iter()
+            .flat_map(|(family, faces)| {
+                faces
+                    .iter()
+                    .map(move |(key, face)| (family, *key, face.used))
+            })
+            .min_by_key(|(_, _, used)| *used)
+            .map(|(family, key, _)| (family.clone(), key));
+        if let Some((family, key)) = oldest {
+            let faces = self.families.get_mut(&family).expect("cached family");
+            faces.remove(&key);
+            self.count -= 1;
+            if faces.is_empty() {
+                self.families.remove(&family);
+            }
+        }
     }
 }
 thread_local! {
@@ -203,6 +255,50 @@ fn system_font(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animated_sizes_evict_cold_faces_without_flushing_hot_ui_faces() {
+        let mut fonts = Fonts::default();
+        let hot = Request {
+            size: 13.,
+            ..Request::new("UI label")
+        };
+        let cold = Request {
+            family: "Menlo",
+            size: 17.,
+            ..hot
+        };
+        let retained = fonts.resolve(&cold).unwrap();
+        fonts.resolve(&hot).unwrap();
+        for index in 0..(MAX_FONTS * 3) {
+            fonts
+                .resolve(&Request {
+                    size: 20. + index as f64 / 10.,
+                    ..hot
+                })
+                .unwrap();
+            // Refresh the label as an ordinary mixed UI frame would.
+            fonts.resolve(&hot).unwrap();
+            assert!(fonts.families["system-ui"].contains_key(&FaceKey::new(&hot)));
+            assert!(fonts.count <= MAX_FONTS);
+        }
+        assert_eq!(fonts.count, MAX_FONTS);
+        assert!(
+            !fonts.families.contains_key("Menlo"),
+            "remove empty family keys too"
+        );
+        assert_eq!(
+            fonts.count,
+            fonts.families.values().map(HashMap::len).sum::<usize>()
+        );
+        // A laid-out line can keep an evicted font alive independently.
+        assert!(unsafe { retained.size() } > 0.);
+        fonts.clock = u64::MAX;
+        fonts.resolve(&hot).unwrap();
+        fonts.resolve(&Request { size: 999., ..hot }).unwrap();
+        assert!(fonts.families["system-ui"].contains_key(&FaceKey::new(&hot)));
+        assert_eq!(fonts.count, MAX_FONTS);
+    }
 
     #[test]
     fn system_faces_match_appkit_selection_and_survive_the_local_pool() {
