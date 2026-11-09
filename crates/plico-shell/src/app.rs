@@ -141,6 +141,7 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
+    multi_click_settings: Option<crate::source::MultiClickSettings>,
     performance_hud: crate::performance_hud::PerformanceHud,
 }
 
@@ -265,6 +266,7 @@ impl App {
             force_semantics: false,
             scheduled_frame_deadline: None,
             skipped_present_deadline: None,
+            multi_click_settings: None,
             performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
         }
     }
@@ -272,6 +274,16 @@ impl App {
     fn set_wake_callback(&mut self, wake: WakeCallback) {
         self.source.set_wake_callback(wake.clone());
         self.wake_callback = Some(wake);
+    }
+
+    fn sync_multi_click_settings(&mut self) {
+        if let Some(shell) = &self.state {
+            let settings = shell.multi_click_settings();
+            if self.multi_click_settings != Some(settings) {
+                self.source.set_multi_click_settings(settings);
+                self.multi_click_settings = Some(settings);
+            }
+        }
     }
 
     fn sync_window_metrics(&mut self) {
@@ -1090,6 +1102,9 @@ impl App {
         state: ElementState,
         properties: PointerProperties,
     ) {
+        if state == ElementState::Pressed {
+            self.sync_multi_click_settings();
+        }
         let button = pointer_button(&source);
         let position = self.logical_pointer_position(position);
         let mut buttons = self
@@ -1571,6 +1586,7 @@ impl ApplicationHandler for App {
         }
         let window = shell.window().clone();
         self.state = Some(shell);
+        self.sync_multi_click_settings();
         self.sync_window_metrics();
         window.request_redraw();
     }

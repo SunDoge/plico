@@ -288,6 +288,11 @@ impl<V: HostView> Source<V> {
             ..self.batch_stats
         }
     }
+    /// Install host click thresholds without changing the current selection or
+    /// requesting a frame. The next press starts a new streak after a change.
+    pub fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        self.adapter.set_multi_click_settings(settings);
+    }
     /// Disable theme, property and scroll transitions (host accessibility policy).
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         self.requested_reduced_motion = reduced;
@@ -753,6 +758,9 @@ impl<V: HostView> Source<V> {
     }
 }
 impl<V: HostView> FrameSource for Source<V> {
+    fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        Source::set_multi_click_settings(self, settings);
+    }
     fn take_host_action(&mut self) -> Option<HostAction> {
         self.view.take_host_action()
     }

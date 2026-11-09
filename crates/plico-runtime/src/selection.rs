@@ -30,6 +30,7 @@ pub(super) struct TextSelection {
     head: Option<Endpoint>,
     dragging: bool,
     last_press: Option<Press>,
+    click_settings: plico_renderer::MultiClickSettings,
     unit: u8,
     start: Option<(Endpoint, Endpoint)>,
     pub(super) hovered: bool,
@@ -85,6 +86,17 @@ fn empty_rects() -> Arc<[[f32; 4]]> {
     EMPTY.get_or_init(|| Vec::new().into()).clone()
 }
 impl Adapter {
+    pub(super) fn set_multi_click_settings(
+        &mut self,
+        settings: plico_renderer::MultiClickSettings,
+    ) {
+        let settings = settings.normalized();
+        if self.selection.click_settings != settings {
+            self.selection.click_settings = settings;
+            self.selection.last_press = None;
+        }
+    }
+
     fn selection_group(&self, engine: &Engine, id: NodeId) -> Option<Entity> {
         for placed in self.placed_chain(id) {
             let entity = self.reverse[&placed.node_id];
@@ -430,11 +442,14 @@ impl Adapter {
                                             && last.pointer == p.properties.id
                                             && last.pointer_type == p.properties.pointer_type
                                             && engine.time().now.checked_sub(last.time).is_some_and(
-                                                |elapsed| elapsed <= Duration::from_millis(500),
+                                                |elapsed| {
+                                                    self.selection.click_settings.accepts(
+                                                        last.position,
+                                                        p.position,
+                                                        elapsed,
+                                                    )
+                                                },
                                             )
-                                            && (last.position.x - p.position.x).powi(2)
-                                                + (last.position.y - p.position.y).powi(2)
-                                                <= 16.
                                     })
                                     .map_or(1, |last| (last.count + 1).min(3))
                             };
@@ -601,6 +616,43 @@ mod tests {
         pointer(source, PointerPhase::Down, at);
         pointer(source, PointerPhase::Up, at);
     }
+    #[test]
+    fn host_interval_uses_virtual_time_and_updates_reset_only_the_click_streak() {
+        let (mut source, clock, _) = setup();
+        let at = point(&source, 5);
+        click(&mut source, at);
+        clock.advance(Duration::from_millis(750)).unwrap();
+        click(&mut source, at);
+        assert!(
+            source.adapter.selected_text().is_none(),
+            "portable threshold is 500ms"
+        );
+        source.set_multi_click_settings(plico_renderer::MultiClickSettings {
+            interval: Duration::from_secs(1),
+            ..Default::default()
+        });
+        click(&mut source, at);
+        clock.advance(Duration::from_millis(750)).unwrap();
+        click(&mut source, at);
+        assert_eq!(source.adapter.selected_text().as_deref(), Some("two"));
+        source.set_multi_click_settings(plico_renderer::MultiClickSettings {
+            interval: Duration::from_millis(100),
+            ..Default::default()
+        });
+        assert_eq!(
+            source.adapter.selected_text().as_deref(),
+            Some("two"),
+            "settings do not clear visible selection"
+        );
+        click(&mut source, at);
+        clock.advance(Duration::from_millis(150)).unwrap();
+        click(&mut source, at);
+        assert!(
+            source.adapter.selected_text().is_none(),
+            "slow pair no longer selects a word"
+        );
+    }
+
     #[test]
     fn repeated_clicks_select_words_then_paragraphs_and_use_virtual_time() {
         let (mut source, clock, mut text) = setup();

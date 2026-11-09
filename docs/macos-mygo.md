@@ -149,3 +149,24 @@ Silicon，实际执行需要 macOS。没有从代码审查推断进程 RSS 降�
 Linux Xvfb 原生窗口回归验证共享处理流程，不能替代 macOS live resize 实机测试。
 wgpu Metal 已支持 `presentsWithTransaction` 所需的 waitUntilScheduled / present 顺序，
 但 MyGO 还依赖 CA 提交轮次与重复绘制保护；尚未仅通过打开开关迁移该行为。
+
+
+## 系统多击间隔
+
+MyGO macOS 从 NSEvent 取得 clickCount，其他后端通过 `platform/clicks.go` 结合系统
+阈值判断。winit 没有直接暴露原生 clickCount，本轮通过 `NSEvent.doubleClickInterval`
+把系统双击间隔下传为 `FrameSource::set_multi_click_settings`。初始窗口和指针按下时
+读取，非逐帧查询；偏好未变时不重复更新 source。
+
+`MultiClickSettings` 保持宿主无关，Source 的可选择只读文字按注入的 Clock 判断，
+变化时只重置点击序列，保留可见选择，不主动重建 UI。默认 500ms / 4 逻辑像素保留
+既有运行时行为。ZoomSource 反向缩放空间阈值，保持窗口坐标下的点击容差一致。
+
+SurfaceSource 将时间阈值转给托管 Widget；终端采用该间隔，保留自身网格的空间规则
+和脱离宿主时的既有 400ms fallback。框架其他 Widget 可以覆盖
+`Widget::set_multi_click_interval`；默认忽略，不宣称所有编辑器已接入。
+
+虚拟时钟回归覆盖长/短间隔、偏好改变后保留选择、缩放以及终端单词选择。
+macOS 原生读取模块经 Apple Silicon 类型/Clippy 检查，系统面板实测仍由用户完成。
+本轮没有取得 NSEvent 原始时间戳或 clickCount，忙主线程下的事件排队语义仍不同于
+MyGO；空间阈值也尚未从系统读取。不把阈值下传声称为完整的原生点击计数。

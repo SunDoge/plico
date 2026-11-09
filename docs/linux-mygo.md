@@ -95,3 +95,8 @@ ReadAll 暂停期间的 128 条变化消息；后者确认消息被持续消费�
 ```sh
 dbus-run-session -- cargo test --locked -p plico-shell --lib linux_preferences -- --ignored
 ```
+
+
+宿主多击配置已通过共享 FrameSource / Widget 契约下传，Linux 暂用 500ms / 4 逻辑
+像素 fallback；本轮尚未对接 GTK/XSettings 的双击设置。macOS 的 NSEvent 间隔
+适配与虚拟时钟/终端覆盖范围见 `macos-mygo.md`。

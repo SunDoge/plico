@@ -48,6 +48,8 @@ mod linux_preferences;
 #[cfg(target_os = "macos")]
 mod macos_frame_clock;
 #[cfg(target_os = "macos")]
+mod macos_input;
+#[cfg(target_os = "macos")]
 mod macos_preferences;
 #[cfg(target_os = "macos")]
 mod macos_window_frame;

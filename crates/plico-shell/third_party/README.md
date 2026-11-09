@@ -33,3 +33,10 @@ Settings observer and weak per-window subscriptions; it does not bind GTK or
 copy the GLib ABI. Portal `reduced-motion` is preferred as a standard source,
 with GNOME requests combined when those keys are exposed. MIT attribution is
 retained in `mygo-LICENSE`.
+
+
+`src/macos_input.rs` and the host multi-click policy reference MyGO
+`internal/darwin/surface.go`'s NSEvent click semantics and
+`internal/platform/clicks.go` at `ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT).
+Plico reads the public doubleClickInterval property and keeps classification
+on the injected runtime clock; native event counts/timestamps are not copied.

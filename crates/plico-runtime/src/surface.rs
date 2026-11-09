@@ -169,6 +169,10 @@ impl<V: HostView, W: Widget> Drop for SurfaceSource<V, W> {
     }
 }
 impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
+    fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
+        self.source.set_multi_click_settings(settings);
+        self.widget.set_multi_click_interval(settings.interval);
+    }
     fn set_device_scale(&mut self, scale: f64) {
         self.scale = scale;
         self.source.set_device_scale(scale);
@@ -497,5 +501,23 @@ mod tests {
                 [(320. * scale) as u16, (200. * scale) as u16]
             );
         }
+    }
+    #[test]
+    fn hosted_widget_receives_host_click_interval_before_mount() {
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<std::time::Duration>>>);
+        impl plico_renderer::Widget for Capture {
+            fn paint(&mut self, _: &mut PaintContext<'_>) {}
+            fn set_multi_click_interval(&mut self, interval: std::time::Duration) {
+                *self.0.lock().unwrap() = Some(interval);
+            }
+        }
+        let value = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let mut source = SurfaceSource::new(ShaderView, Capture(value.clone()), "unused-slot");
+        let interval = std::time::Duration::from_millis(900);
+        source.set_multi_click_settings(plico_renderer::MultiClickSettings {
+            interval,
+            ..Default::default()
+        });
+        assert_eq!(*value.lock().unwrap(), Some(interval));
     }
 }

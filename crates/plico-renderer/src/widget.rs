@@ -908,6 +908,10 @@ pub trait Widget {
         None
     }
 
+    /// Install the host's multi-click interval. Widgets keep their own local
+    /// spatial/selection rules; changing this must not erase visible selection.
+    fn set_multi_click_interval(&mut self, _interval: std::time::Duration) {}
+
     /// Install the event-loop wake callback for a background producer.
     fn set_wake_callback(&mut self, _wake: WakeCallback) {}
 

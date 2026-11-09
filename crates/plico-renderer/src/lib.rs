@@ -33,9 +33,9 @@ pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
     FrameSource, FrameStats, GestureEvent, GesturePhase, HostAction, ImeEvent, ImeState, KeyEvent,
-    KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent, PointerId, PointerPhase,
-    PointerProperties, PointerType, RenderBackend, ScreenshotRequest, SemanticAction,
-    SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
+    KeyLocation, KeyPhase, Modifiers, MultiClickSettings, Point, PointerButton, PointerEvent,
+    PointerId, PointerPhase, PointerProperties, PointerType, RenderBackend, ScreenshotRequest,
+    SemanticAction, SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
     SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
     WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
     WindowMetrics, WindowOptions, WindowResizeEdges,

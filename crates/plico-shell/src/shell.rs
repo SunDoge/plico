@@ -179,6 +179,17 @@ impl Shell {
         })
     }
 
+    pub(crate) fn multi_click_settings(&self) -> plico_renderer::MultiClickSettings {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos_input::multi_click_settings()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Default::default()
+        }
+    }
+
     pub(crate) fn display_preferences(&self) -> plico_renderer::DisplayPreferences {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
