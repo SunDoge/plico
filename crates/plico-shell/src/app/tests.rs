@@ -26,7 +26,7 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     let first = now + std::time::Duration::from_millis(16);
     let mut scheduled = None;
     assert_eq!(
-        scheduled_frame_wake(true, false, None, Some(first), &mut scheduled, now),
+        scheduled_frame_wake(true, false, None, Some(first), &mut scheduled, now, false),
         FrameWake::Deadline(first)
     );
 
@@ -39,7 +39,8 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
             None,
             Some(moving_deadline),
             &mut scheduled,
-            wake_time
+            wake_time,
+            false
         ),
         FrameWake::Redraw
     );
@@ -637,16 +638,32 @@ fn skipped_present_keeps_animation_paced_without_polling() {
     let mut scheduled = None;
     for _ in 0..3 {
         assert_eq!(
-            scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, now),
+            scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, now, false),
             FrameWake::Deadline(deadline)
         );
     }
     assert_eq!(
-        scheduled_frame_wake(true, true, Some(deadline), None, &mut scheduled, deadline),
+        scheduled_frame_wake(
+            true,
+            true,
+            Some(deadline),
+            None,
+            &mut scheduled,
+            deadline,
+            false
+        ),
         FrameWake::Redraw
     );
     assert_eq!(
-        scheduled_frame_wake(true, false, Some(deadline), None, &mut scheduled, now),
+        scheduled_frame_wake(
+            true,
+            false,
+            Some(deadline),
+            None,
+            &mut scheduled,
+            now,
+            false
+        ),
         FrameWake::Idle
     );
 }
@@ -673,21 +690,29 @@ fn invisible_windows_stop_frame_timers_and_resume_with_one_fresh_frame() {
     let mut scheduled = Some(future);
     for (animation, deadline) in [(true, None), (false, Some(now)), (false, Some(future))] {
         assert_eq!(
-            scheduled_frame_wake(false, animation, None, deadline, &mut scheduled, now),
+            scheduled_frame_wake(false, animation, None, deadline, &mut scheduled, now, false),
             FrameWake::Idle
         );
         assert_eq!(scheduled, None);
     }
     assert_eq!(
-        scheduled_frame_wake(true, true, None, None, &mut scheduled, now),
+        scheduled_frame_wake(true, true, None, None, &mut scheduled, now, false),
         FrameWake::Redraw
     );
     assert_eq!(
-        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, now),
+        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, now, false),
         FrameWake::Deadline(future)
     );
     assert_eq!(
-        scheduled_frame_wake(true, false, None, Some(future), &mut scheduled, future),
+        scheduled_frame_wake(
+            true,
+            false,
+            None,
+            Some(future),
+            &mut scheduled,
+            future,
+            false
+        ),
         FrameWake::Redraw
     );
 }
@@ -963,4 +988,54 @@ fn native_resize_uses_latest_extent_and_draws_once_in_single_and_multi_window_pa
         })
         .unwrap();
     assert!(checked.load(Ordering::SeqCst));
+}
+
+#[test]
+fn drawable_wait_suspends_only_continuous_animation_and_preserves_timer_work() {
+    let now = Instant::now();
+    let deadline = now + std::time::Duration::from_millis(16);
+    let mut scheduled = Some(deadline);
+    for elapsed in 0..4 {
+        assert_eq!(
+            scheduled_frame_wake(
+                true,
+                true,
+                None,
+                None,
+                &mut scheduled,
+                now + std::time::Duration::from_millis(elapsed * 16),
+                true
+            ),
+            FrameWake::Idle,
+            "display ticks must not keep rebuilding while a drawable is pending"
+        );
+        assert_eq!(scheduled, None);
+    }
+    // The worker's proxy wake requests the recovery redraw independently. Once
+    // it presents, normal animation scheduling becomes eligible again.
+    assert_eq!(
+        scheduled_frame_wake(true, true, None, None, &mut scheduled, now, false),
+        FrameWake::Redraw
+    );
+    // A one-shot source timer is semantic work, not a paced animation loop.
+    assert_eq!(
+        scheduled_frame_wake(true, false, None, Some(deadline), &mut scheduled, now, true),
+        FrameWake::Deadline(deadline)
+    );
+    assert_eq!(
+        scheduled_frame_wake(
+            true,
+            false,
+            None,
+            Some(deadline),
+            &mut scheduled,
+            deadline,
+            true
+        ),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        scheduled_frame_wake(false, true, None, None, &mut scheduled, deadline, true),
+        FrameWake::Idle
+    );
 }

@@ -1550,6 +1550,9 @@ impl App {
             deadline,
             &mut self.scheduled_frame_deadline,
             now,
+            self.state
+                .as_ref()
+                .is_some_and(Shell::surface_acquire_pending),
         );
         if let Some(shell) = &self.state
             && !shell.animation_frame_ready(has_animation && wake == FrameWake::Redraw)

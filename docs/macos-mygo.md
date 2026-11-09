@@ -609,3 +609,21 @@ macOS 内存实测，Linux 路径不会伪造 macOS 数据。
 保留都可能使即时样本不下降，因此不设置未经测量的“回收后必须少多少 MiB”断言。
 简单矩形窗口也不覆盖 Plicowarden 长时间滚动、文字/玻璃缓存或系统内存压力场景。
 当前环境仍无法提供 macOS 数字，不能据此宣布先前 1–3 GB 增长问题已解决。
+
+## Drawable 等待期间暂停持续动画自循环
+
+继续对照 MyGO `internal/gpu/metal/present.go` 的 Ready / wakeContent 握手：
+单槽获取 worker 返回 pending 时，Plico 虽已取消失败重试，宿主的 has_anim 调度仍会
+在 display-link tick 请求连续 redraw。这样没有新的 drawable 也可能重复构建 UI 和
+prepared scene。
+
+共享调度器现在在 surface_acquire_pending 时暂停持续动画请求，并通过现有
+animation_frame_ready(false) 停止原生 link。worker 就绪后既有 proxy 路径主动请求
+恢复帧；恢复呈现后 pending 清除，再继续显示时钟调度。普通输入、几何变化、异步
+source 更新和独立 source deadline 不受这条持续动画门控影响。多窗口共用同一
+next_frame_wake，每个窗口独立判断等待，不阻塞其他窗口。
+
+新增调度回归覆盖多次等待仍不 redraw、等待解除后恢复、独立定时器到期和隐藏窗口；
+宿主 71 项测试、Clippy 和 X11 原生窗口 resize/隐藏/恢复回归通过。这些检查不是
+macOS 实际 display-link / Metal 联调，也未测得 CPU 用量降幅。MyGO 的 pending
+GPU command buffer 编码重叠仍是独立未完成项，本次没有将它算作已迁移。

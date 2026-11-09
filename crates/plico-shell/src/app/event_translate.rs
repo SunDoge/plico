@@ -134,6 +134,7 @@ pub(super) fn scheduled_frame_wake(
     reported_deadline: Option<Instant>,
     scheduled_deadline: &mut Option<Instant>,
     now: Instant,
+    surface_pending: bool,
 ) -> FrameWake {
     // MyGO's macOS surface pauses display-link work while out of sight.
     // UI time still advances; showing the window asks for a fresh frame.
@@ -142,6 +143,13 @@ pub(super) fn scheduled_frame_wake(
         return FrameWake::Idle;
     }
     if has_animation {
+        // MyGO's presenter resumes paced work via its drawable-ready wake.
+        // Input, geometry and async invalidations can still redraw immediately;
+        // only the self-sustaining animation loop waits here.
+        if surface_pending {
+            *scheduled_deadline = None;
+            return FrameWake::Idle;
+        }
         if let Some(deadline) = animation_not_before.filter(|deadline| *deadline > now) {
             *scheduled_deadline = Some(deadline);
             return FrameWake::Deadline(deadline);
