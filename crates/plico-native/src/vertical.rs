@@ -202,6 +202,46 @@ mod tests {
         r.bounds = [16384.; 2];
         assert!(!r.valid());
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn coretext_horizontal_and_vertical_rasters_keep_independent_color_contexts() {
+        let mut engine = Engine::new().unwrap();
+        for scale in [1., 1.25, 2.] {
+            let mut request = Request::new("日本語（縦書き）ABC", [160., 320.], 20.);
+            request.scale = scale;
+            request.color = [180, 30, 20, 128];
+            let first = engine.rasterize(&request).unwrap();
+            assert!(first.fits);
+            assert!(
+                first
+                    .rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|p| p[3] > 0 && p[0] > p[1])
+            );
+            let horizontal =
+                crate::macos_text::Line::new(&crate::macos_text::Request::new("office 日本語"))
+                    .unwrap()
+                    .rasterize(scale, [0.25, 0.], [20, 180, 30, 255])
+                    .unwrap()
+                    .unwrap();
+            assert!(
+                horizontal
+                    .pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|p| p[3] > 0 && p[1] > p[0])
+            );
+            let next = engine.rasterize(&request).unwrap();
+            assert_eq!(next.size, first.size);
+            assert_eq!(
+                next.rgba, first.rgba,
+                "sharing immutable native resources must not share mutable draw state"
+            );
+        }
+    }
     #[cfg(target_os = "linux")]
     #[test]
     fn pango_mixed_vertical_text_wraps_and_does_not_poison_horizontal_cache() {

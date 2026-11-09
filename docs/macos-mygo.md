@@ -340,3 +340,44 @@ fallback 的列表能在应用字体注册后改选新字体。纯失败的列�
 128 条上限及注册私有字体后撤销旧 fallback。实际 CoreText 实现与这些测试通过
 Apple Silicon Clippy 编译检查；当前 Linux 环境未执行原生测试，没有据此给出
 macOS 实测排版耗时降幅。
+
+## 当前验收范围与未完成项
+
+运行原生验证入口：
+
+```sh
+./scripts/check-macos-native.sh
+```
+
+脚本只在 macOS 执行，默认写入忽略提交的 `reports/macos-native/`；可通过
+`PLICO_MACOS_CHECK_REPORT_DIR` 指定目录。记录 Git revision、系统/架构和工具链，
+分阶段运行 CoreText、竖排、bridge、原生 GPU、稳定位图采样及宿主测试。阶段失败
+立即返回非零，过滤器没有执行任何测试也视为失败；不把“0 tests”当成绿色验收。
+它不启用 Skia，也不运行 Windows 后端。需要可用 Metal adapter 以及完整 macOS
+开发工具链。当前 Linux 仅验证了平台拒绝路径、脚本语法和实际 Apple 目标源码编译，
+没有运行脚本内的 macOS 原生测试。
+
+新增竖排回归交替生成不同颜色的横排/竖排文字，核对 1/1.25/2 倍下可见像素与重复
+竖排图像一致性，覆盖共享不可变色彩空间不应混用 CGContext 可变颜色状态的契约。
+
+| 项目 | 已有实现/证据 | 仍需完成的证据或工作 |
+| --- | --- | --- |
+| CoreText 字体、私有字体、词/行选择、栅格复用 | 实际 Apple 目标实现及测试可编译；入口执行原生像素、几何和复用回归 | 在 macOS 执行入口并检查真实输入/字体显示 |
+| 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有真实 X11/wgpu 回归 | macOS 窗口/CA 的实际运行验证；脚本不冒充 live-window 验收 |
+| NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
+| 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
+| CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
+| 异步 drawable 获取 | 场景编码已在同步获取 drawable 前完成 | MyGO presenter 的后台 nextDrawable、in-flight fetch 与配置/trim 协作尚未迁移 |
+| 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
+
+### 为什么不从 currentEvent 补普通点击计数
+
+本地 `winit-appkit 0.31.0-beta.2` 的 `view.rs::queue_event` 将回调交给
+`app_state.rs::maybe_queue_with_handler`。没有正在处理回调时可以立即派发；嵌套处理
+期间则放到 run-loop closure 队列，稍后才调用应用。PointerButton 只携带按钮、位置等
+通用字段，没有原 NSEvent 的计数、事件编号和时间戳。此时即使 currentEvent 的窗口、
+类型和坐标碰巧相同，也不能证明它是队列中这条输入的原事件。只补一个即时 NSEvent
+读取会留下错误关联，不能作为与 MyGO `surface.go::mouse` 直接复制原 clickCount
+等价的实现。该差异保持显式待办，不用更宽松的匹配掩盖。
+
+脚本全绿仅证明表内自动回归覆盖的部分，不能将上述待办及实机指标标记为已完成。
