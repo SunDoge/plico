@@ -8,6 +8,7 @@ pub mod icons;
 #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
 pub mod images;
 mod legacy_icons;
+mod shader_playground;
 pub mod tree_view;
 use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
 use plico_dev::App;
@@ -72,6 +73,8 @@ pub enum Page {
     Patterns,
     #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
     Effects,
+    #[route(label = "Shader playground", icon = color_icons::DESIGN_IDEAS)]
+    ShaderPlayground,
     #[route(label = "Component kit", icon = color_icons::DESIGN_IDEAS)]
     ComponentKit,
 }
@@ -108,6 +111,7 @@ pub struct Gallery {
     /// The desktop-patterns page's local demo state.
     pub patterns: patterns::Patterns,
     pub effects: effects::Effects,
+    pub shader_playground: shader_playground::Playground,
     pub component_kit: component_kit::ComponentKit,
     #[serde(skip)]
     pub spring: SpringDemo,
@@ -213,6 +217,9 @@ impl Gallery {
                         patterns::page(ui, &mut self.patterns, &mut self.router)
                     }
                     Page::Effects => effects::page(ui, &mut self.effects),
+                    Page::ShaderPlayground => {
+                        shader_playground::page(ui, &mut self.shader_playground)
+                    }
                     Page::ComponentKit => component_kit::page(ui, &mut self.component_kit),
                 }
             })

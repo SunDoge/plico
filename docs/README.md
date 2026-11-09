@@ -66,6 +66,7 @@
 | [SVG 图标](icons.md) | CLI 按需生成 Lucide、应用自有集合、currentColor 与默认勾选标记 |
 | [Widget / shader 验收](widget-shader-validation.md) | 本轮目标、实现与逐项验证证据 |
 | [Slider 与数值事件](sliders.md) | 受控标量、拖动、键盘、无障碍与热重载 |
+| [Shader playground](shader-playground.md) | 光谱声波、流体液滴、场景透镜、液态搜索与边缘光 |
 | [Custom shader](shaders.md) | WGSL surface、uniform、GPU 资源与宿主时钟 |
 | [Tooltip](tooltip.md) | 宿主时钟、键盘提示、描述、指针穿透与重载 |
 | [Select / Menu](select-menu.md) | 受控选择、业务 key、命令导航与原生语义 |

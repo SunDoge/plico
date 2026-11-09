@@ -21,6 +21,7 @@ pub use calendar::{CalendarDate, CalendarMode, CalendarState, WeekStart};
 pub use local::LocalState;
 pub use storage::{StateStorageSnapshot, StorageError};
 mod calendar;
+pub mod effects;
 pub mod materials;
 mod modal;
 mod model;
