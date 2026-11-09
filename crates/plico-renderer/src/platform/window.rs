@@ -317,6 +317,7 @@ pub enum WindowCommand {
     /// Replace the native window title.
     SetTitle(String),
     /// Begin an OS-managed window drag from the current pointer gesture.
+    /// macOS titlebar double clicks follow the system action instead.
     StartDragging,
     /// Restore a hidden or surface-released logical window.
     Show,

@@ -36,6 +36,8 @@ pub struct Shell {
     #[cfg(target_os = "macos")]
     native_frame: crate::macos_window_frame::NativeWindowFrame,
     #[cfg(target_os = "macos")]
+    native_input: crate::macos_input::NativeInput,
+    #[cfg(target_os = "macos")]
     preferences: crate::macos_preferences::NativePreferences,
     #[cfg(target_os = "linux")]
     preferences: crate::linux_preferences::NativePreferences,
@@ -168,6 +170,8 @@ impl Shell {
             deferred_show,
             #[cfg(target_os = "macos")]
             native_frame,
+            #[cfg(target_os = "macos")]
+            native_input: Default::default(),
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             preferences: Default::default(),
             presentation_error: None,
@@ -177,6 +181,23 @@ impl Shell {
             tcx,
             accessibility,
         })
+    }
+
+    pub(crate) fn start_window_drag(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if self
+            .native_input
+            .handle_titlebar_double_click(self.window.as_ref())
+        {
+            return true;
+        }
+        match self.window.drag_window() {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(?error, "native window manager rejected window drag");
+                false
+            }
+        }
     }
 
     pub(crate) fn multi_click_settings(&self) -> plico_renderer::MultiClickSettings {

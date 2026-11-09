@@ -168,5 +168,26 @@ SurfaceSource 将时间阈值转给托管 Widget；终端采用该间隔，保�
 
 虚拟时钟回归覆盖长/短间隔、偏好改变后保留选择、缩放以及终端单词选择。
 macOS 原生读取模块经 Apple Silicon 类型/Clippy 检查，系统面板实测仍由用户完成。
-本轮没有取得 NSEvent 原始时间戳或 clickCount，忙主线程下的事件排队语义仍不同于
-MyGO；空间阈值也尚未从系统读取。不把阈值下传声称为完整的原生点击计数。
+文字选择路径没有取得 NSEvent 原始时间戳或 clickCount，忙主线程下的事件排队语义
+仍不同于 MyGO；空间阈值也尚未从系统读取。不把阈值下传声称为完整的原生点击计数。
+
+
+## 自定义标题栏双击
+
+对照 MyGO `internal/darwin/window.go::TitleBarDoubleClicked`，统一拖窗入口在 macOS
+上检查当前原生 NSEvent：只处理同一窗口的左键第二次按下。与 winit 的拖窗实现一样，
+调用必须处于当前指针手势中。单击、其他窗口和非左键事件保留既有拖窗路径。
+
+双击读取 `AppleActionOnDoubleClick`：`None` 消费事件但不操作，`Minimize` 调用
+`performMiniaturize`，其余值按 MyGO 的 fallback 调用 `performZoom`。不把应用自己的
+最大化设置当作系统偏好。WindowCommand::StartDragging 和扩展的 start_window_drag
+共享入口，Plicowarden 的现有拖动区域无需单独实现。
+
+每个窗口仅记住最后处理的 eventNumber / timestamp 标识，不保留 NSEvent；相同事件
+产生的重复命令不会再次切换缩放状态。NSUserDefaults 只在合格双击时读取，原生临时
+对象在局部 autorelease pool 中释放。该路径使用原生点击计数，但不改变文字选择
+仍基于注入时钟判断的边界。
+
+宿主回归覆盖动作映射、普通拖动和跨窗口过滤、重复事件处理。AppKit 桥接使用
+Apple Silicon 目标做类型/Clippy 检查，未在 Linux 上声称验证真实 macOS 窗口动作。
+系统“缩放 / 最小化 / 不操作”的表现及无边框窗口的 AppKit 行为仍需用户实测。

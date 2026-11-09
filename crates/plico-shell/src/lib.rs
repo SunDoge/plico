@@ -53,6 +53,8 @@ mod macos_input;
 mod macos_preferences;
 #[cfg(target_os = "macos")]
 mod macos_window_frame;
+#[cfg(any(target_os = "macos", test))]
+mod titlebar_action;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_state;
 

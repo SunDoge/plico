@@ -40,3 +40,10 @@ retained in `mygo-LICENSE`.
 `internal/platform/clicks.go` at `ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT).
 Plico reads the public doubleClickInterval property and keeps classification
 on the injected runtime clock; native event counts/timestamps are not copied.
+
+
+The custom drag-region double-click branch in `src/macos_input.rs` and
+`src/titlebar_action.rs` follows MyGO `internal/darwin/window.go::TitleBarDoubleClicked`
+and `ui/input.go` at the same MIT revision: AppleActionOnDoubleClick chooses
+no action, miniaturization or native zoom. Plico adds same-window/mouse-event
+validation and a bounded per-window event identity gate. See `mygo-LICENSE`.

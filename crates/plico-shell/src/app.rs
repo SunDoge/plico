@@ -1733,16 +1733,11 @@ impl ExtensionContext<'_> {
     }
 
     /// Begin an OS-managed move from the current pointer-down gesture.
+    /// A macOS titlebar double click can consume it as the system's action.
     pub fn start_window_drag(&mut self, window_key: WindowResourceKey) -> bool {
         find_window_by_key(self.windows.values_mut(), window_key)
             .and_then(|app| app.state.as_ref())
-            .is_some_and(|shell| match shell.window().drag_window() {
-                Ok(()) => true,
-                Err(error) => {
-                    tracing::warn!(?error, "native window manager rejected window drag");
-                    false
-                }
-            })
+            .is_some_and(|shell| shell.start_window_drag())
     }
 
     /// Request a physical desktop position, clamped to an available monitor.
@@ -2269,7 +2264,7 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
         }
         WindowCommand::StartDragging => {
             if let Some(shell) = app.state.as_ref() {
-                let _ = shell.window().drag_window();
+                shell.start_window_drag();
             }
         }
         // Surface restoration is a MultiWindowApp operation; a visible
