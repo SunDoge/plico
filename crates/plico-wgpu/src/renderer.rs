@@ -2880,6 +2880,63 @@ fn encode_backdrop_step<'p>(
 mod tests {
     #[test]
     #[ignore = "requires a working wgpu adapter"]
+    fn abandoned_prepared_frames_preserve_partial_damage_and_pixels() {
+        use super::*;
+        use plico_renderer::{PaintScene, Scene};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let size = [128, 128];
+        let background = [0., 0., 0., 1.];
+        let baseline = Scene::new();
+        renderer
+            .render_scene(&baseline, size, background, true)
+            .unwrap();
+        let mut abandoned = Scene::new();
+        abandoned.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &kurbo::Rect::new(0., 0., 128., 128.),
+        );
+        drop(
+            renderer
+                .prepare_scene_frame(&abandoned, size, [1.; 4])
+                .unwrap(),
+        );
+        assert!(
+            renderer
+                .plan_scene_frame(&baseline, size, background, true)
+                .unwrap()
+                .unchanged(),
+            "a prepared but unplanned frame must not alter retained history/background"
+        );
+        let mut latest = Scene::new();
+        latest.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::from_rgb8(255, 0, 0),
+            None,
+            &kurbo::Rect::new(8., 8., 20., 20.),
+        );
+        let prepared = renderer
+            .prepare_scene_frame(&latest, size, background)
+            .unwrap();
+        let plan = renderer.plan_prepared_frame(prepared, true);
+        let coverage = renderer.scene_damage_coverage(size);
+        assert!(coverage > 0. && coverage < 0.1, "coverage {coverage}");
+        let encoder = renderer.encode_scene_plan(plan).unwrap();
+        let actual = renderer.read_frame(encoder, size).unwrap();
+        let mut reference = pollster::block_on(Renderer::new()).unwrap();
+        assert_eq!(
+            actual,
+            reference
+                .render_scene(&latest, size, background, false)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
     fn stable_native_raster_windows_preserve_clipped_gpu_pixels() {
         use super::*;
         use crate::{Draw, image::ImageQuad, native_raster_window::cache_window};

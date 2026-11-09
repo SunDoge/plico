@@ -306,14 +306,38 @@ impl WgpuWindow {
         if initial {
             self.renderer.invalidate_scene_damage();
         }
-        let plan = self.renderer.plan_scene_frame(
+        let prepared = self.renderer.prepare_scene_frame(
             scene,
             [size.width, size.height],
             background.components,
-            self.damage_enabled,
         )?;
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if !initial
+            && !self.surface_needs_fit()
+            && let Some(worker) = &self.surface_acquire
+        {
+            match worker.ready() {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.acquire_pending = true;
+                    return Ok(false);
+                }
+                Err(error) => {
+                    self.surface_acquire = None;
+                    return Err(Error::Surface {
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+        let plan = self
+            .renderer
+            .plan_prepared_frame(prepared, self.damage_enabled);
         if plan.unchanged() {
             self.present_skipped = true;
+            // This request is satisfied without consuming the prefetched
+            // texture. A delayed proxy wake must not redraw it again.
+            let _ = self.take_surface_ready();
             return Ok(true);
         }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
@@ -559,6 +583,7 @@ mod tests {
                 );
                 let actual = window.surface_size();
                 let mut gpu = WgpuWindow::new(window, false).unwrap();
+                gpu.damage_enabled = true;
                 // Put the real surface into the same 1x1 configuration as
                 // macOS idle trim, without relying on a mocked configure call.
                 let mut small = gpu.config.clone();
@@ -647,7 +672,16 @@ mod tests {
                     release.send(()).unwrap();
                     nonblocking
                 });
-                let pending = gpu.present(&scene, Color::WHITE).unwrap();
+                use plico_renderer::PaintScene;
+                let mut changed = Scene::new();
+                changed.fill(
+                    peniko::Fill::NonZero,
+                    kurbo::Affine::IDENTITY,
+                    Color::from_rgb8(255, 0, 0),
+                    None,
+                    &kurbo::Rect::new(10., 10., 30., 30.),
+                );
+                let pending = gpu.present(&changed, Color::BLACK).unwrap();
                 let _ = returned.send(());
                 assert!(
                     rescue.join().unwrap(),
@@ -664,20 +698,31 @@ mod tests {
                     .unwrap();
                 assert!(gpu.take_surface_ready());
                 assert!(!gpu.take_surface_ready());
-                assert!(gpu.present(&scene, Color::WHITE).unwrap());
+                assert!(gpu.present(&changed, Color::BLACK).unwrap());
                 assert!(
                     !gpu.last_present_skipped(),
-                    "a pending plan never established retained pixels"
+                    "waiting never establishes retained pixels"
+                );
+                let coverage = gpu.last_damage_coverage();
+                assert!(
+                    coverage > 0. && coverage < 0.1,
+                    "small updates must stay partial after waiting, got {coverage}"
                 );
                 let pixels = gpu
-                    .capture_rgba(&scene, [actual.width, actual.height], Color::WHITE)
+                    .capture_rgba(&changed, [actual.width, actual.height], Color::BLACK)
                     .unwrap();
-                assert!(
-                    pixels
-                        .as_chunks::<4>()
-                        .0
-                        .iter()
-                        .all(|pixel| *pixel == [255; 4])
+                let mut reference = pollster::block_on(Renderer::new()).unwrap();
+                let expected = reference
+                    .render_scene(
+                        &changed,
+                        [actual.width, actual.height],
+                        Color::BLACK.components,
+                        false,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    pixels, expected,
+                    "partial resumed frame must match full replay"
                 );
                 gpu.trim_gpu_cache();
                 // configure() would panic if the prefetched SurfaceTexture

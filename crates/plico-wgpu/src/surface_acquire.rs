@@ -88,6 +88,23 @@ impl<T: Send + 'static> Acquire<T> {
             self.shared.changed.notify_one();
         }
     }
+    /// Peek without consuming the texture. If not ready, request one fetch and
+    /// arm its wake. Frame validation can precede this check, damage planning follow it.
+    pub fn ready(&self) -> Result<bool, AcquireError> {
+        let mut state = self.shared.state.lock().unwrap();
+        if state.failed {
+            return Err(AcquireError);
+        }
+        if state.ready.is_some() {
+            return Ok(true);
+        }
+        state.waiter = true;
+        if !state.fetching {
+            state.fetching = true;
+            self.shared.changed.notify_one();
+        }
+        Ok(false)
+    }
     /// Take a result, or arrange one wake when an outstanding/new fetch finishes.
     pub fn take(&self) -> Result<Option<T>, AcquireError> {
         let mut state = self.shared.state.lock().unwrap();
@@ -163,11 +180,18 @@ mod tests {
         worker.start();
         starts.recv_timeout(Duration::from_secs(2)).unwrap();
         worker.start();
+        assert!(!worker.ready().unwrap());
+        assert!(!worker.ready().unwrap());
         assert_eq!(worker.take().unwrap(), None);
         permit.send(7).unwrap();
         wakes.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(worker.take_signal());
         assert!(!worker.take_signal());
+        assert!(worker.ready().unwrap());
+        assert!(
+            worker.ready().unwrap(),
+            "readiness must not consume a drawable"
+        );
         assert_eq!(worker.take().unwrap(), Some(7));
         worker.start();
         starts.recv_timeout(Duration::from_secs(2)).unwrap();

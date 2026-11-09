@@ -59,6 +59,7 @@ run_tests vertical cargo test --color never --locked -p plico-native --no-defaul
 run_tests bridge cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib macos_paragraph::tests:: -- --test-threads=1
 run_tests surface-worker cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib surface_acquire:: -- --test-threads=1
 run_tests native-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib macos_paragraph::gpu_tests:: -- --ignored --test-threads=1
+run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib abandoned_prepared_frames_preserve -- --ignored --test-threads=1
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
 run_tests host cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib -- --test-threads=1
 printf 'Native checks passed. Reports: %s\n' "$report_dir"

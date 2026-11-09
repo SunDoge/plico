@@ -367,7 +367,7 @@ macOS 实测排版耗时降幅。
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
 | CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
-| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 延迟/清理回归及 Apple 目标编译通过 | Metal 实机指标；pending GPU 编码重叠/局部 damage 保留；与 CA transaction 策略联合验证 |
+| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 延迟/清理回归及 Apple 目标编译通过 | Metal 实机指标；pending GPU 编码重叠；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
 ### 为什么不从 currentEvent 补普通点击计数
@@ -402,9 +402,9 @@ macOS 实测排版耗时降幅。
 - wgpu 30 的 Surface/SurfaceTexture 通过 Send/Sync 类型约束跨线程持有；真正的
   acquire 在 worker，配置及编码/提交仍归宿主。配置期间绝不保留旧 texture。
 - 当前 bridge 在 ready 后编码最新 scene，没有跨获取间隔保留已编码 command buffer。
-  它与 MyGO pendingFrame 的 GPU 编码重叠不同：pending 时要撤销已经推进的 damage
-  history，下次可能完整重绘；否则会错误跳过尚未呈现的内容。后续编码重叠/局部
-  damage 保留仍需结合 Renderer 共享可变 buffer 和显式 capture 生命周期继续优化。
+  它与 MyGO pendingFrame 的 GPU 编码重叠不同。后续已将 preparation/planning
+  分开，pending 不推进 damage history（见下文）；GPU 编码重叠仍需结合 Renderer
+  共享可变 buffer 和显式 capture 生命周期继续优化。
 - 等待实际帧时暂停 idle 维护期限，防止维护清理撤销唯一的完成唤醒；完成后重新安排
   两秒一次的回收。显式遮挡/关闭仍可 drain 清理，并在恢复显示时完整重绘。
 
@@ -427,3 +427,29 @@ macOS 主线程等待、帧时间 p95/p99 或 RSS 对照；CA transaction 联合
 进行同一二进制的同步/后台 A/B 对照。开关只在安装宿主代理时读取，不在帧循环查询。
 原生验证报告会记录该设置。worker panic 会报告错误并停用该 worker，保留宿主已有
 的有限同步恢复重试；这不保证能恢复已损坏的驱动/设备。
+
+## drawable 等待不再迫使局部 damage 失效
+
+进一步对照 MyGO 保留待绘帧变化信息的原则，把 Plico 的 frame preparation 与
+破坏性 damage planning 分成显式的两个阶段。PreparedFrame 保存校验后的不可变
+scene、extent 和 background；丢弃它不会推进上一帧的 damage/background。读取
+worker readiness 只探测槽位、安排唤醒，不消费 texture。就绪后才进入 damage 计算，
+然后按原有计划编码/提交。实际编码、获取、提交失败仍走既有的保守失效处理。
+
+因此普通等待无需复制整份 tracker 或清空其历史，最新状态可以继续相对真正已经画出
+的内容计算局部更新。新 scene 仍在等待前完成校验，unsupported 命令不会因为 readiness
+门控而被当成一个成功提交。未变化的帧满足请求后会消费残留通知，保留预取 texture，
+避免迟到的 proxy wake 额外生成同一帧。
+
+真实 surface 的受控等待回归改为小矩形更新：就绪后 coverage 大于零且小于画面 10%，
+并与全量重绘的每个像素一致。另一个无需原生窗口的 GPU 回归丢弃包含不同背景的
+PreparedFrame，核对原画面仍能 unchanged skip，后续局部更新与全量 replay 一致。
+该回归已加入 macOS 原生验证入口。Linux GPU、共享 surface 回归和 Apple 编译检查
+通过，Metal 真窗口帧时间仍未在当前环境测量。
+
+```sh
+cargo test --locked -p plico-wgpu --features window --lib abandoned_prepared_frames_preserve -- --ignored
+```
+
+这一步保留 CPU damage 基线，没有迁移 MyGO 的 pending GPU command-buffer 编码
+重叠。CA transaction 配合与实际 Metal 吞吐/延迟验证仍是独立未完成项。

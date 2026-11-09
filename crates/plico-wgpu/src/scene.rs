@@ -1365,6 +1365,13 @@ impl Renderer {
     }
 }
 
+/// Validated immutable scene data; creating it does not advance damage history.
+pub(crate) struct PreparedFrame {
+    prepared: std::rc::Rc<PreparedScene>,
+    size: [u32; 2],
+    background: [f32; 4],
+}
+
 pub(crate) struct SceneFramePlan {
     prepared: std::rc::Rc<PreparedScene>,
     size: [u32; 2],
@@ -1465,15 +1472,44 @@ impl Renderer {
         background: [f32; 4],
         damage: bool,
     ) -> Result<SceneFramePlan> {
+        let frame = self.prepare_scene_frame(scene, size, background)?;
+        Ok(self.plan_prepared_frame(frame, damage))
+    }
+    /// Validate/prepare before deciding whether a surface is available. Dropping
+    /// this value is harmless to the retained target and its damage baseline.
+    pub(crate) fn prepare_scene_frame(
+        &mut self,
+        scene: &Scene,
+        size: [u32; 2],
+        background: [f32; 4],
+    ) -> Result<PreparedFrame> {
         self.validate_frame(0, size, background, 0.)?;
         let prepared = self.prepare_scene(scene, size)?;
+        Ok(PreparedFrame {
+            prepared,
+            size,
+            background,
+        })
+    }
+    /// Advance history only for a frame the caller is ready to encode. A later
+    /// encoding/acquisition/submission failure must still invalidate history.
+    pub(crate) fn plan_prepared_frame(
+        &mut self,
+        frame: PreparedFrame,
+        damage: bool,
+    ) -> SceneFramePlan {
+        let PreparedFrame {
+            prepared,
+            size,
+            background,
+        } = frame;
         let regions = self.scene_regions(&prepared, size, background, damage);
-        Ok(SceneFramePlan {
+        SceneFramePlan {
             prepared,
             size,
             background,
             regions,
-        })
+        }
     }
     /// Encode before acquiring a scarce swapchain drawable. The encoder keeps
     /// its GPU resources alive; callers invalidate damage if acquisition fails.
