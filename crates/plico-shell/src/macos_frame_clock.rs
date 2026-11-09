@@ -9,7 +9,10 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSRunLoop, NSRunLoopCommonMod
 use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
 use plico_renderer::WakeCallback;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 use winit::window::Window;
 
 struct State {
@@ -83,7 +86,8 @@ impl NativeFrameClock {
         }
         Some(Self { link, state })
     }
-    /// Continuous animation waits for a tick; other work is immediately ready.
+    /// Continuous animation follows ticks, with an immediate first frame after
+    /// a long pause. Other work remains immediately ready.
     pub fn frame_ready(&self, continuous: bool) -> bool {
         if !continuous {
             if self.state.pacer.stop() {
@@ -91,14 +95,18 @@ impl NativeFrameClock {
             }
             return true;
         }
-        let (ready, start) = self.state.pacer.request();
+        let refresh = Duration::try_from_secs_f64(self.link.duration())
+            .ok()
+            .filter(|duration| !duration.is_zero())
+            .unwrap_or(Duration::from_secs_f64(1. / 60.));
+        let (ready, start) = self.state.pacer.request(Instant::now(), refresh);
         if start {
             self.link.setPaused(false);
         }
         ready
     }
     pub fn consume(&self) {
-        self.state.pacer.consume();
+        self.state.pacer.consume(Instant::now());
     }
 }
 impl Drop for NativeFrameClock {

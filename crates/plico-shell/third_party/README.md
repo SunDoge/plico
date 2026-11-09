@@ -58,3 +58,8 @@ allowing Plico's shared pre-hide acquisition barrier to run before a custom
 header double-click invokes performMiniaturize. MyGO's existing double-click
 preference mapping remains the reference; the renderer barrier ordering is
 Plico-specific. The native target is retained across the local autorelease pool.
+
+`src/frame_pacing.rs` / `src/macos_frame_clock.rs` also reference MyGO
+`internal/darwin/surface.go::RequestFrame`'s immediate first frame after a pause
+longer than two refresh intervals. Plico uses injected monotonic timing for the
+handshake and CADisplayLink.duration for the current display interval.

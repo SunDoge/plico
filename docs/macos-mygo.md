@@ -537,3 +537,17 @@ acquisition 线程启动时调用 `pthread_set_qos_class_self_np`，设置为
 Apple Silicon 目标实现与测试编译检查、Linux 单槽 worker 回归可以在当前环境执行；
 原生 QoS 查询测试和 CPU 竞争下的帧时序收益须在 macOS 执行，未据交叉编译声称
 已验证系统调度或获得性能提升。
+
+## 暂停后的动画首帧
+
+对照 MyGO `internal/darwin/surface.go::RequestFrame`，CADisplayLink 停止后，
+距离最近一次绘制超过两个刷新周期时，下一次可见动画请求立即放行首帧，同时启动
+原生显示时钟；后续连续请求仍等待 tick。短暂停止/恢复不会绕过刷新节奏，运行中的
+link 也不会仅因为主线程停顿而额外放行。隐藏窗口仍由宿主可见性门控停止时钟并清除
+就绪状态，迟到 tick 不唤醒；首帧优化不增加对隐藏窗口的绘制。
+
+刷新周期读取当前 CADisplayLink.duration，原生尚未提供有效周期时回退 60 Hz；
+不是把所有显示器固定为 60 Hz。纯调度器从宿主接收 Instant / Duration，测试注入
+时间，覆盖首次请求、严格两个周期边界、长暂停、快速重启、连续 tick 和隐藏停止。
+宿主 70 项回归及实际原生模块的 Apple 目标 Clippy 检查通过；尚未在 macOS 设备上
+测量动画首帧延迟或验证跨屏刷新周期切换。
