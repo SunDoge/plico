@@ -557,18 +557,9 @@ impl WgpuWindow {
         self.idle_resources.trimmed();
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.renderer.trim_frame_target();
-        self.renderer.trim_readback_buffer();
-        self.renderer.trim_geometry_buffers();
-        self.renderer.trim_raster_cache();
-        self.renderer.trim_image_cache();
-        self.renderer.trim_layer_pool();
-        self.renderer.trim_effect_cache();
-        self.renderer.trim_positioned_glyph_cache();
-        #[cfg(all(
-            any(target_os = "linux", target_os = "windows", target_os = "macos"),
-            feature = "system-text"
-        ))]
-        self.renderer.trim_text_cache();
+        if let Err(error) = self.renderer.trim_caches() {
+            tracing::debug!(%error, "GPU completion cleanup failed during cache trim");
+        }
     }
     pub fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_scene_damage();

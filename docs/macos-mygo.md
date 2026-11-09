@@ -832,3 +832,22 @@ instance_storage_bytes 只报告当前 renderer 持有的实例 GPU buffer 和 C
 wgpu 的旧 buffer owner 有效，恢复完整绘制后像素相同且 pipeline 编译计数不增加。
 该回归和真实 X11 surface 回归通过，Linux / Apple / WASM Clippy 通过；本机验证
 脚本纳入该阶段。macOS 的实际内存/恢复延迟仍需用户测量，不启动云端 macOS 作业。
+
+## 回收后处理已完成提交的引用
+
+继续核对 MyGO `trim` 的 waitLast / releaseTextures 顺序，并查看当前锁定版本
+wgpu-core 的 device poll / lifetime tracker：poll 会分拣已完成提交、释放 command
+buffer trackers，并处理 deferred resource destruction。因此回收不能只考虑 renderer
+自身的 Rust owner。
+
+新增共享 Renderer::trim_caches，集中回收读回、几何、raster/image/layer/effect 和
+原生文字派生资源，末尾调用一次 Device::poll(PollType::Poll)。窗口继续先 drain
+surface 获取与按平台处理 retained target，再使用该入口。poll 不等待 fence，不
+提交新画面，也不安排后续轮询；未完成工作仍由 wgpu 保持 owner。poll 可能执行已
+排队完成回调，API 文档明确该行为；窗口记录清理错误，保留后续呈现自己的错误路径。
+
+GPU 回归先完成一次真实读回，再注册完成回调，验证一次回收即可处理该已完成工作，
+同时目标身份/像素保留、读回与 CPU staging 释放；不使用 sleep 猜测 GPU 时间。
+真实 X11 surface 恢复及 64 帧生命周期运行、Linux / Apple / WASM Clippy 均通过。
+脚本增加此回归；macOS 用户本机执行，云端保持手动。非阻塞 poll 仍有 CPU 清理
+成本，且不保证所有 GPU 工作或驱动内部缓存已经释放，不据此承诺 RSS 立即下降。

@@ -1657,6 +1657,28 @@ impl Renderer {
         self.target = None;
         self.invalidate_scene_damage();
     }
+    /// Release derived frame caches and process already completed GPU work.
+    /// Retained final pixels stay available. This does not wait for a GPU fence
+    /// or schedule more polling; pending work keeps its own resource references.
+    /// Like device polling/readback, this may run queued completion callbacks.
+    pub fn trim_caches(&mut self) -> Result<()> {
+        self.trim_readback_buffer();
+        self.trim_geometry_buffers();
+        self.trim_raster_cache();
+        self.trim_image_cache();
+        self.trim_layer_pool();
+        self.trim_effect_cache();
+        self.trim_positioned_glyph_cache();
+        #[cfg(all(
+            any(target_os = "linux", target_os = "windows", target_os = "macos"),
+            feature = "system-text"
+        ))]
+        self.trim_text_cache();
+        self.device
+            .poll(wgpu::PollType::Poll)
+            .map(|_| ())
+            .context(crate::PollSnafu)
+    }
     /// Current instance GPU buffer and CPU staging capacity, in bytes. Excludes
     /// buffers still owned by encoded/submitted GPU work; this is not process RSS.
     pub fn instance_storage_bytes(&self) -> (u64, usize) {
@@ -3621,6 +3643,38 @@ mod tests {
         renderer.trim_readback_buffer();
         renderer.trim_readback_buffer();
         assert_eq!(renderer.target_storage_bytes().1, 0);
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn cache_trim_dispatches_completed_work_and_preserves_retained_pixels() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let quad = Quad::new([0., 0., 8., 8.], [1., 0., 0., 1.]);
+        // Readback has already waited for this submission, so no sleeps or
+        // timing assumptions are needed to observe its completion callback.
+        let expected = renderer.render(&[quad], [16, 16], [0.; 4], 0.).unwrap();
+        let target = renderer.target.as_ref().unwrap().view.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let notify = completed.clone();
+        renderer
+            .queue
+            .on_submitted_work_done(move || notify.store(true, Ordering::SeqCst));
+        assert!(!completed.load(Ordering::SeqCst));
+        renderer.trim_caches().unwrap();
+        assert!(
+            completed.load(Ordering::SeqCst),
+            "trim must process completed submission callbacks"
+        );
+        assert_eq!(renderer.target.as_ref().unwrap().view, target);
+        assert_eq!(renderer.target_storage_bytes().1, 0);
+        assert_eq!(renderer.instance_storage_bytes().1, 0);
+        let (size, pixels) = renderer.read_retained_rgba().unwrap().unwrap();
+        assert_eq!(size, [16, 16]);
+        assert_eq!(pixels, expected);
     }
 
     #[test]

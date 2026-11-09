@@ -73,6 +73,7 @@ run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --n
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
 run_tests layer-owners-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib encoded_layers_release_scene -- --ignored --test-threads=1
 run_tests geometry-trim-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib geometry_trim_releases -- --ignored --test-threads=1
+run_tests cache-trim-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib cache_trim_dispatches -- --ignored --test-threads=1
 run_tests idle-target-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib trimming_idle_target -- --ignored --test-threads=1
 run_surface_window() {
     local marker='' line
