@@ -4,6 +4,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The callback's target span is the actual CADisplayLink interval, unlike
+/// `duration` on variable-rate displays. Never mix its epoch with Instant.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn display_interval(timestamp: f64, target: f64, nominal: f64) -> Duration {
+    [target - timestamp, nominal, 1. / 60.]
+        .into_iter()
+        .filter_map(|seconds| Duration::try_from_secs_f64(seconds).ok())
+        .find(|duration| !duration.is_zero())
+        .expect("the fixed fallback is positive and finite")
+}
+
 #[derive(Default)]
 pub(crate) struct FramePacer {
     requested: Cell<bool>,
@@ -130,5 +141,52 @@ mod resume_tests {
         pacer.stop();
         assert_eq!(pacer.tick(), Tick::Pause);
         assert_eq!(pacer.request(now + refresh, refresh), (false, true));
+    }
+}
+
+#[cfg(test)]
+mod display_interval_tests {
+    use super::*;
+    #[test]
+    fn actual_callback_span_overrides_nominal_refresh_and_tracks_rate_changes() {
+        for fps in [120., 30., 60., 144.] {
+            let interval = display_interval(1000., 1000. + 1. / fps, 1. / 60.);
+            assert!(interval.abs_diff(Duration::from_secs_f64(1. / fps)) < Duration::from_nanos(2));
+        }
+    }
+    #[test]
+    fn invalid_callback_spans_fall_back_without_zero_nan_or_overflow() {
+        for (timestamp, target) in [
+            (0., 0.),
+            (2., 1.),
+            (f64::NAN, 1.),
+            (1., f64::INFINITY),
+            (-f64::MAX, f64::MAX),
+            (0., 1e-20),
+        ] {
+            assert_eq!(
+                display_interval(timestamp, target, 1. / 120.),
+                Duration::from_secs_f64(1. / 120.)
+            );
+        }
+        for nominal in [0., -1., f64::NAN, f64::INFINITY, f64::MAX, 1e-20] {
+            assert_eq!(
+                display_interval(0., 0., nominal),
+                Duration::from_secs_f64(1. / 60.)
+            );
+        }
+    }
+    #[test]
+    fn resume_threshold_uses_callback_rate_in_both_directions() {
+        let now = Instant::now();
+        for (fps, pause_ms, ready) in [(120., 25, true), (30., 50, false)] {
+            let pacer = FramePacer::default();
+            pacer.consume(now);
+            let interval = display_interval(100., 100. + 1. / fps, 1. / 60.);
+            assert_eq!(
+                pacer.request(now + Duration::from_millis(pause_ms), interval),
+                (ready, true)
+            );
+        }
     }
 }

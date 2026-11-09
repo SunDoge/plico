@@ -877,3 +877,22 @@ X11 surface、HUD 3 项回归通过，Linux / Apple / WASM Clippy 通过。当�
 运行 backdrop damage 测试发生 SIGSEGV；在隔离 worktree 的修改前提交 `85f8305`
 执行相同并发命令也复现，串行执行则全部通过。尚未定位该并发崩溃根因，不将它
 声称为已修复；macOS 手动脚本本就使用单线程测试。本轮不启动云端 macOS 作业。
+
+## Display-link 实际帧间隔
+
+继续参考 MyGO `surface.go::RequestFrame` 的“两次刷新后立即恢复”策略，修正 Plico
+用于该阈值的间隔来源。原实现每次调度查询都调用 `CADisplayLink.duration()`；
+[Apple 文档](https://developer.apple.com/documentation/quartzcore/cadisplaylink/duration)
+说明该值在首次回调前未定义，实际帧间隔应使用 `targetTimestamp - timestamp`。
+
+现在只在 display-link 回调内读取 timing，优先采用实际目标跨度，非有限、非正、
+溢出或舍入为零时退回 nominal duration，再退回 60Hz。首次回调前使用显式 60Hz
+默认值，不读取尚未定义的属性。调度查询只读缓存；CADisplayLink 的默认帧率范围、
+唤醒握手、空闲暂停、隐藏窗口策略及输入立即帧保持原有行为。只使用时间差，
+不把 Core Animation 的绝对时间误当作 Rust Instant。
+
+本地纯策略测试 7 项通过，其中新增 3 项覆盖 120/30/60/144Hz、异常 timing 和恢复
+阈值的双向差异：实际 120Hz 时暂停 25ms 可以立即恢复；实际 30Hz 时暂停 50ms
+仍等待 tick，而不是用固定 60Hz 判断。这是时序策略验证，不是实测窗口 FPS。
+实际 macOS frame-clock 模块通过 Apple Silicon 目标独立 harness 的 Clippy 类型检查；
+没有运行云端 macOS 作业。跨屏及 ProMotion 实机节奏仍待用户验证。

@@ -1,6 +1,6 @@
 //! NSView-associated animation cadence, following MyGO darwin/surface.go.
 //! See ../third_party/README.md for MIT source attribution.
-use crate::frame_pacing::{FramePacer, Tick};
+use crate::frame_pacing::{FramePacer, Tick, display_interval};
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
 };
@@ -10,6 +10,7 @@ use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
 use plico_renderer::WakeCallback;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
+    cell::Cell,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -17,6 +18,7 @@ use winit::window::Window;
 
 struct State {
     pacer: FramePacer,
+    refresh: Cell<Duration>,
     wake: WakeCallback,
 }
 define_class!(
@@ -32,6 +34,9 @@ define_class!(
         #[unsafe(method(plicoDisplayTick:))]
         fn tick(&self, link: &CADisplayLink) {
             let state = self.ivars();
+            // Timing properties are defined after the first callback. Cache
+            // here rather than messaging AppKit for every scheduling query.
+            state.refresh.set(display_interval(link.timestamp(), link.targetTimestamp(), link.duration()));
             match state.pacer.tick() {
                 Tick::Ready => (state.wake)(),
                 Tick::Pause => link.setPaused(true),
@@ -66,6 +71,8 @@ impl NativeFrameClock {
         }
         let state = Rc::new(State {
             pacer: FramePacer::default(),
+            // CADisplayLink.duration is undefined before its first callback.
+            refresh: Cell::new(Duration::from_secs_f64(1. / 60.)),
             wake,
         });
         let target = DisplayLinkTarget::new(mtm, state.clone());
@@ -95,11 +102,10 @@ impl NativeFrameClock {
             }
             return true;
         }
-        let refresh = Duration::try_from_secs_f64(self.link.duration())
-            .ok()
-            .filter(|duration| !duration.is_zero())
-            .unwrap_or(Duration::from_secs_f64(1. / 60.));
-        let (ready, start) = self.state.pacer.request(Instant::now(), refresh);
+        let (ready, start) = self
+            .state
+            .pacer
+            .request(Instant::now(), self.state.refresh.get());
         if start {
             self.link.setPaused(false);
         }
