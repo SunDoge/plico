@@ -69,3 +69,11 @@ clipping separation at `ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT).
 Plico retains native line rasters: small lines use full ink and large lines use
 bounded stable viewport windows with a sampling halo. This is newly written
 Rust, not a port of MyGO's glyph atlas. The existing MyGO MIT notice applies.
+
+`src/window.rs` defers surface extent configuration until a real frame, following
+MyGO `internal/gpu/metal/metal.go::render` / `fit` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT). Desired/native/configured
+extents remain distinct, so queued resize notifications cannot restore idle
+buffers prematurely. The Rust host retains wgpu's surface ownership and its
+own one-shot maintenance, including allocation attempts without a successful
+presentation; this does not port MyGO's asynchronous drawable presenter.

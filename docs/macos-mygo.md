@@ -278,3 +278,30 @@ xvfb-run -a cargo test --locked -p plico-shell --lib native_resize_uses_latest_e
 ```
 
 这证明共享 App 路径，不替代 macOS 实际遮挡事件、Core Animation 或 RSS 实测。
+
+## 仅为真正的帧恢复 drawable 尺寸
+
+对照 MyGO `internal/gpu/metal/metal.go::render` / `fit`，WgpuWindow::resize 现在只记录
+期望的非零尺寸，不立即执行 surface.configure。真正呈现时先取得窗口最新实际 extent，
+完成场景规划、确认不是 unchanged skip，再适配 surface。因此隐藏期间的 resize/DPI
+通知不会仅因更新尺寸就把空闲时缩到 1×1 的 drawables 恢复，多次通知也不会逐次配置
+过时尺寸。记录实际配置尺寸与期望尺寸分离；macOS idle trim 同步记录实际 1×1。
+初次 ready-to-show 仍在露出窗口之前完成所需 surface 适配。
+
+资源准备及显式离屏截图也会安排一次两秒空闲维护：配置或编码之后即使获取 drawable、
+提交失败，也不会因为缺少“成功 present”而永久失去回收期限。成功呈现继续刷新期限，
+unchanged skip 不刷新，没有新增周期轮询。离屏截图使用自己的目标，不恢复窗口
+drawable；App 不可见时截图后即时回收的行为保留。
+
+真实 X11/wgpu 回归用实际 surface.get_configuration 观察：先配置为 1×1，连续 resize
+及零尺寸通知保持 1×1；离屏截图不改变它，且一次维护可释放实际 target/readback。
+下一次 present 恢复到 native 当前尺寸而非排队的旧尺寸。期望尺寸往返但实际窗口未变
+时，后续帧仍可 unchanged skip。另复跑共享宿主 resize/遮挡/截图/恢复回归：
+
+```sh
+xvfb-run -a cargo test --locked -p plico-wgpu --features window --lib native_surface_resize_waits -- --ignored
+xvfb-run -a cargo test --locked -p plico-shell --lib native_resize_uses_latest_extent -- --ignored
+```
+
+Linux 原生回归和 Apple Silicon wgpu 实现/测试的 Clippy 编译检查通过；尚未在 macOS
+执行实际 resize、ready-to-show 和空闲恢复测试，不据此声明实机内存降低幅度。

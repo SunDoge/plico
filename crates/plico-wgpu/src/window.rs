@@ -43,7 +43,7 @@ struct IdleResources {
 }
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 impl IdleResources {
-    fn presented(&mut self, now: std::time::Instant) {
+    fn used(&mut self, now: std::time::Instant) {
         self.deadline = Some(now + std::time::Duration::from_secs(2));
         #[cfg(any(target_os = "macos", test))]
         {
@@ -80,6 +80,7 @@ pub struct WgpuWindow {
     surface: wgpu::Surface<'static>,
     window: Arc<dyn Window>,
     config: wgpu::SurfaceConfiguration,
+    configured_size: [u32; 2],
     damage_enabled: bool,
     present_skipped: bool,
     initial_frame_ready: bool,
@@ -146,6 +147,7 @@ impl WgpuWindow {
             instance,
             surface,
             window,
+            configured_size: [config.width, config.height],
             config,
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
@@ -194,18 +196,24 @@ impl WgpuWindow {
             })
         }
     }
+    /// Record a desired extent without restoring idle drawables. Presentation
+    /// reconciles it with the live native size and configures the surface once.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
         }
+        self.config.width = width;
+        self.config.height = height;
+    }
+    fn fit_surface(&mut self) {
         #[cfg(not(target_os = "macos"))]
         let restore = false;
         #[cfg(target_os = "macos")]
         let restore = self.idle_resources.trimmed;
-        if self.config.width != width || self.config.height != height || restore {
-            self.config.width = width;
-            self.config.height = height;
+        let size = [self.config.width, self.config.height];
+        if self.configured_size != size || restore {
             self.renderer.configure_surface(&self.surface, &self.config);
+            self.configured_size = size;
             #[cfg(target_os = "macos")]
             {
                 self.idle_resources.trimmed = false;
@@ -244,6 +252,13 @@ impl WgpuWindow {
             self.present_skipped = true;
             return Ok(true);
         }
+        // As in MyGO Metal's fit(), wait for a real frame to restore/change
+        // drawables. Hidden resize/DPI notifications only update desired size.
+        self.fit_surface();
+        // Configuration/encoding can allocate resources even if acquisition or
+        // submission later fails. Keep one-shot cleanup armed for that case.
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.idle_resources.used(std::time::Instant::now());
         // Match MyGO's ready-to-show ordering without acquiring a drawable
         // for a hidden window (wgpu Metal deliberately rejects that). Normal
         // frames also finish all scene encoding before holding the drawable.
@@ -297,7 +312,7 @@ impl WgpuWindow {
         self.window.pre_present_notify();
         self.renderer.present(frame);
         #[cfg(any(target_os = "macos", target_os = "linux"))]
-        self.idle_resources.presented(std::time::Instant::now());
+        self.idle_resources.used(std::time::Instant::now());
         Ok(true)
     }
 }
@@ -342,6 +357,7 @@ impl WgpuWindow {
             small.width = 1;
             small.height = 1;
             self.renderer.configure_surface(&self.surface, &small);
+            self.configured_size = [1, 1];
             self.idle_resources.trimmed();
         }
         #[cfg(target_os = "linux")]
@@ -378,6 +394,8 @@ impl WgpuWindow {
         background: Color,
     ) -> Result<Vec<u8>> {
         let prepared = self.renderer.prepare_scene(scene, size)?;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.idle_resources.used(std::time::Instant::now());
         self.renderer
             .render_items(&prepared.draws(), size, background.components, 0.)
     }
@@ -385,6 +403,96 @@ impl WgpuWindow {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an X11 display and working wgpu adapter (can run under Xvfb)"]
+    fn native_surface_resize_waits_for_presentation_and_uses_live_extent() {
+        use super::*;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use winit::{
+            application::ApplicationHandler,
+            event::WindowEvent,
+            event_loop::{ActiveEventLoop, EventLoop},
+            platform::x11::EventLoopBuilderExtX11,
+            window::WindowId,
+        };
+        struct Probe(Arc<AtomicBool>);
+        impl ApplicationHandler for Probe {
+            fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+                let window: Arc<dyn Window> = Arc::from(
+                    event_loop
+                        .create_window(
+                            winit::window::WindowAttributes::default()
+                                .with_surface_size(winit::dpi::LogicalSize::new(320., 240.)),
+                        )
+                        .unwrap(),
+                );
+                let actual = window.surface_size();
+                let mut gpu = WgpuWindow::new(window, false).unwrap();
+                // Put the real surface into the same 1x1 configuration as
+                // macOS idle trim, without relying on a mocked configure call.
+                let mut small = gpu.config.clone();
+                small.width = 1;
+                small.height = 1;
+                gpu.renderer.configure_surface(&gpu.surface, &small);
+                gpu.configured_size = [1, 1];
+                for (width, height) in [(640, 480), (960, 720), (0, 0)] {
+                    gpu.resize(width, height);
+                    let configured = gpu.surface.get_configuration().unwrap();
+                    assert_eq!((configured.width, configured.height), (1, 1));
+                }
+                assert_eq!((gpu.config.width, gpu.config.height), (960, 720));
+                let scene = Scene::new();
+                let capture = gpu
+                    .capture_rgba(&scene, [actual.width, actual.height], Color::BLACK)
+                    .unwrap();
+                assert_eq!(
+                    capture.len(),
+                    actual.width as usize * actual.height as usize * 4
+                );
+                let configured = gpu.surface.get_configuration().unwrap();
+                assert_eq!(
+                    (configured.width, configured.height),
+                    (1, 1),
+                    "offscreen capture must not restore window drawables"
+                );
+                assert!(gpu.renderer.target_storage_bytes().0 > 0);
+                let deadline = gpu
+                    .maintenance_deadline()
+                    .expect("capture arms one-shot cleanup");
+                gpu.maintain(deadline);
+                assert!(gpu.maintenance_deadline().is_none());
+                assert_eq!(gpu.renderer.target_storage_bytes(), (0, 0));
+                assert!(gpu.present(&scene, Color::BLACK).unwrap());
+                let configured = gpu.surface.get_configuration().unwrap();
+                assert_eq!(
+                    (configured.width, configured.height),
+                    (actual.width, actual.height),
+                    "presentation must override stale desired sizes with the live native extent"
+                );
+                gpu.resize(actual.width * 2, actual.height * 2);
+                gpu.resize(actual.width, actual.height);
+                assert!(gpu.present(&scene, Color::BLACK).unwrap());
+                assert!(
+                    gpu.last_present_skipped(),
+                    "coalesced sizes do not invalidate unchanged content"
+                );
+                self.0.store(true, Ordering::SeqCst);
+                event_loop.exit();
+            }
+            fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+        }
+        let checked = Arc::new(AtomicBool::new(false));
+        let mut builder = EventLoop::builder();
+        builder.with_x11().with_any_thread(true);
+        builder
+            .build()
+            .unwrap()
+            .run_app(Probe(checked.clone()))
+            .unwrap();
+        assert!(checked.load(Ordering::SeqCst));
+    }
+
     #[test]
     fn transparent_surface_accepts_metals_legacy_alpha_label_only_on_metal() {
         use wgpu::{Backend, CompositeAlphaMode as Alpha};
@@ -426,15 +534,15 @@ mod tests {
     }
 
     #[test]
-    fn idle_resources_arm_once_follow_real_presents_and_stop_after_trim() {
+    fn idle_resources_arm_once_follow_gpu_work_and_stop_after_trim() {
         use std::time::{Duration, Instant};
         let now = Instant::now();
         let mut idle = super::IdleResources::default();
         assert_eq!(idle.deadline, None, "hidden startup needs no trim timer");
-        idle.presented(now);
+        idle.used(now);
         assert!(!idle.due(now + Duration::from_millis(1999)));
         assert!(idle.due(now + Duration::from_secs(2)));
-        idle.presented(now + Duration::from_secs(1));
+        idle.used(now + Duration::from_secs(1));
         assert!(
             !idle.due(now + Duration::from_secs(2)),
             "drawing postpones idle trim"
@@ -447,7 +555,7 @@ mod tests {
             !idle.due(now + Duration::from_secs(100)),
             "no recurring idle wake"
         );
-        idle.presented(now + Duration::from_secs(101));
+        idle.used(now + Duration::from_secs(101));
         assert!(!idle.trimmed);
         assert_eq!(idle.deadline, Some(now + Duration::from_secs(103)));
     }
