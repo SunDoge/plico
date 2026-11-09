@@ -651,3 +651,20 @@ rustc -O --edition=2024 scripts/bench-text-indices.rs -o /tmp/plico-text-indices
 requested bytes。这是累计分配请求，既非同时驻留内存，也非 CoreText 或进程 RSS。
 索引往返/非法边界回归、Apple 目标原生实现与测试 Clippy 检查通过；macOS 原生
 文字像素与帧时间仍未在当前环境运行，不将独立索引微基准解释为 GUI 提速比例。
+
+## 按字体复用不可变基础属性
+
+对照 MyGO `internal/text/coretext_darwin.go` 的 attrsKey / e.attrs，CoreText 字体
+缓存现在惰性保留一份基础属性字典，包含实际 CTFont 与 foreground-from-context。
+新字符串一次 set_attributes 安装基础属性，代替每次分别写入字体与前景色来源。
+字距和富文本覆盖仍写入每次新建的 mutable attributed string，不修改共享字典。
+
+字典直接属于 CachedFace，沿用已有 256 项 LRU；没有再增加一份独立缓存。淘汰或
+私有字体注册清空 face 时一并释放字典；外部所有者和原生 Line 按 CF ownership
+保留必要资源。不共享 mutable string，也不把不同字体尺寸、粗细或斜体混为一项。
+
+新增原生回归覆盖同一 face 跨文本/字距复用字典、LRU 淘汰后的独立存活，以及
+tracking / 红色 span 之后普通蓝色文本的宽度、caret 与像素保持基线。现有冷/热字体
+回归继续比较原生测量和像素。Apple Silicon 目标实现与测试 Clippy 检查通过；
+这些 CoreText 回归仍需 macOS 执行，未测得真实 shaping 时间或 native allocation
+降幅，不能据此宣称 macOS 原生验证已经完成。

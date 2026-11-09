@@ -78,3 +78,9 @@ MyGO `internal/text/coretext_darwin.go`'s retained `coreText.srgb` at
 bitmap contexts borrow the same named color space on their thread while each
 context retains independent ownership. The helper is newly written Rust; the
 existing MIT notice applies.
+
+The same MyGO CoreText revision's `attrsKey` / `e.attrs` reuse informs the
+immutable baseline attribute dictionaries in `macos_text/fonts.rs`. Plico stores
+one lazy dictionary per bounded cached face; tracking and rich spans are applied
+only to newly owned attributed strings. No independent unbounded attribute map
+or mutable attributed string is shared.

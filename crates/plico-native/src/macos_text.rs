@@ -332,7 +332,7 @@ impl Line {
         if !valid_style_spans(request.text, spans) {
             return Err(Error::InvalidRequest);
         }
-        let font = fonts::resolve(request)?;
+        let (font, attributes) = fonts::resolve_with_attributes(request)?;
         let string = CFString::from_str(request.text);
         let attributed = CFMutableAttributedString::new(None, 0).ok_or(Error::Allocation)?;
         // CFString already stores its UTF-16 length; do not rescan UTF-8 here.
@@ -346,17 +346,11 @@ impl Line {
                 CFRange::new(0, 0),
                 Some(&string),
             );
-            CFMutableAttributedString::set_attribute(
+            CFMutableAttributedString::set_attributes(
                 Some(&attributed),
                 CFRange::new(0, units),
-                Some(kCTFontAttributeName),
-                Some(&font),
-            );
-            CFMutableAttributedString::set_attribute(
-                Some(&attributed),
-                CFRange::new(0, units),
-                Some(kCTForegroundColorFromContextAttributeName),
-                Some(CFBoolean::new(true)),
+                Some(attributes.as_opaque()),
+                true,
             );
             // Leave zero tracking absent so the font's ordinary kerning and
             // ligature defaults are untouched. CoreText applies nonzero tracking

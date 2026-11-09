@@ -32,7 +32,10 @@ impl FaceKey {
         }
     }
 }
+type BaseAttributes = CFDictionary<CFString, CFType>;
+type FontAttributes = (CFRetained<CTFont>, CFRetained<BaseAttributes>);
 struct CachedFace {
+    attributes: Option<CFRetained<BaseAttributes>>,
     font: CFRetained<CTFont>,
     used: u64,
 }
@@ -100,12 +103,43 @@ impl Fonts {
         self.families.entry(family.to_owned()).or_default().insert(
             key,
             CachedFace {
+                attributes: None,
                 font: font.clone(),
                 used,
             },
         );
         self.count += 1;
         Ok(font)
+    }
+    fn resolve_attributes(&mut self, request: &Request<'_>) -> Result<FontAttributes> {
+        let font = self.resolve(request)?;
+        let family = if request.family.is_empty() {
+            "system-ui"
+        } else {
+            request.family
+        };
+        // resolve always inserts a successful face in this bounded cache. No
+        // external callback or eviction occurs between these lookups.
+        let face = self
+            .families
+            .get_mut(family)
+            .and_then(|faces| faces.get_mut(&FaceKey::new(request)))
+            .expect("resolved face is cached");
+        let attributes = face.attributes.get_or_insert_with(|| {
+            // SAFETY: The dictionary retains the font and immutable CFBoolean.
+            // Only baseline attributes are cached: tracking and rich spans are
+            // applied to each newly owned attributed string, never this object.
+            unsafe {
+                BaseAttributes::from_slices(
+                    &[
+                        kCTFontAttributeName,
+                        kCTForegroundColorFromContextAttributeName,
+                    ],
+                    &[&face.font, CFBoolean::new(true)],
+                )
+            }
+        });
+        Ok((font, attributes.clone()))
     }
     fn next_use(&mut self) -> u64 {
         if self.clock == u64::MAX {
@@ -156,6 +190,13 @@ pub(super) fn resolve(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
         collection.inner.borrow_mut().resolve(request)
     } else {
         FONTS.with_borrow_mut(|fonts| fonts.resolve(request))
+    }
+}
+pub(super) fn resolve_with_attributes(request: &Request<'_>) -> Result<FontAttributes> {
+    if let Some(collection) = request.fonts {
+        collection.inner.borrow_mut().resolve_attributes(request)
+    } else {
+        FONTS.with_borrow_mut(|fonts| fonts.resolve_attributes(request))
     }
 }
 fn create(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
@@ -256,6 +297,88 @@ fn system_font(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn baseline_attributes_reuse_face_identity_and_outlive_eviction() {
+        let mut fonts = Fonts::default();
+        let request = Request::new("first line");
+        let (_, attributes) = fonts.resolve_attributes(&request).unwrap();
+        let (_, reused) = fonts
+            .resolve_attributes(&Request {
+                text: "different text 中文 🙂",
+                letter_spacing: 2.,
+                ..request
+            })
+            .unwrap();
+        assert!(std::ptr::eq(&*attributes, &*reused));
+        assert_eq!(attributes.len(), 2);
+        // SAFETY: Public immutable CoreText attribute keys.
+        unsafe {
+            assert!(attributes.get(kCTFontAttributeName).is_some());
+            assert!(attributes.get(kCTTrackingAttributeName).is_none());
+        }
+        for index in 0..MAX_FONTS {
+            fonts
+                .resolve_attributes(&Request {
+                    size: 30. + index as f64,
+                    ..request
+                })
+                .unwrap();
+        }
+        assert!(!fonts.families["system-ui"].contains_key(&FaceKey::new(&request)));
+        let (_, replacement) = fonts.resolve_attributes(&request).unwrap();
+        assert!(!std::ptr::eq(&*attributes, &*replacement));
+        assert_eq!(
+            attributes.len(),
+            2,
+            "external attribute owner survives face eviction"
+        );
+        assert_eq!(fonts.count, MAX_FONTS);
+    }
+    #[test]
+    fn cached_base_attributes_do_not_leak_tracking_or_rich_style_between_lines() {
+        let collection = FontCollection::default();
+        let request = Request {
+            fonts: Some(&collection),
+            ..Request::new("AV office 中文 🙂")
+        };
+        let baseline = Line::new(&request).unwrap();
+        let tracked = Line::new(&Request {
+            letter_spacing: 2.,
+            ..request
+        })
+        .unwrap();
+        assert!(tracked.metrics().width > baseline.metrics().width);
+        let colored = Line::new_styled(
+            &request,
+            &[StyleSpan {
+                range: 0..request.text.len(),
+                size: request.size,
+                style: FontStyle::default(),
+                color: [255, 0, 0, 255],
+            }],
+        )
+        .unwrap();
+        let pixels = baseline
+            .rasterize(1.25, [0.25, 0.], [0, 0, 255, 255])
+            .unwrap();
+        assert_ne!(
+            colored
+                .rasterize(1.25, [0.25, 0.], [0, 0, 255, 255])
+                .unwrap(),
+            pixels
+        );
+        let plain = Line::new(&request).unwrap();
+        assert_eq!(plain.metrics().width, baseline.metrics().width);
+        for (byte, _) in request.text.char_indices() {
+            let a = baseline.caret_offsets(byte).unwrap();
+            let b = plain.caret_offsets(byte).unwrap();
+            assert_eq!((a.primary, a.secondary), (b.primary, b.secondary));
+        }
+        assert_eq!(
+            plain.rasterize(1.25, [0.25, 0.], [0, 0, 255, 255]).unwrap(),
+            pixels
+        );
+    }
     #[test]
     fn animated_sizes_evict_cold_faces_without_flushing_hot_ui_faces() {
         let mut fonts = Fonts::default();
