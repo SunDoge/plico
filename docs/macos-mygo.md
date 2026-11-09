@@ -61,3 +61,12 @@ wgpu 30 的 Metal 后端会拒绝为隐藏窗口获取 drawable；不能简单�
 这轮没有迁移 MyGO 的 CADisplayLink 或动态 `presentsWithTransaction` 切换；
 不声称与它的 Core Animation 事务时序完全一致。启动准备完成的像素测试运行于
 Linux / Vulkan，不能证明 macOS 窗口服务器的首次曝光已经无闪烁。
+
+## Toast 停留期间休眠
+
+对照 MyGO `ui/toast.go` 的 `c.After(next)`，Toast 入场动画结束后使用
+`request_rebuild_at` 等待最早的到期时间，不再为了几秒钟的停留时间持续请求帧。
+悬停暂停时取消到期唤醒，离开后按剩余时间重新安排；入场和退场仍逐帧驱动。
+`toast_motion` 的虚拟时钟回归检查停留期间无动画请求、无 adapter 同步访问、
+到期正常关闭，并检查悬停取消 deadline。此调度优化适用于所有宿主，
+macOS 桌面复用已有 WaitUntil 调度，无新增平台计时器。
