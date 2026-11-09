@@ -145,8 +145,9 @@ struct Raster {
     origin: [i32; 2],
     bytes: usize,
 }
-/// Accounted Rust caches only; excludes CoreText objects, GPU textures and live
-/// externally retained paragraphs/images. This is not a process RSS estimate.
+/// Accounted layout/raster/intrinsic payload only; excludes native objects,
+/// GPU textures, bounded family names and externally retained paragraphs/images.
+/// This is not a process RSS estimate.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MacosTextCacheStats {
     /// Retained native paragraph entries.
@@ -173,6 +174,9 @@ pub(crate) struct Cache {
     raster_bytes: usize,
     rasterizations: u64,
     fonts: FontCollection,
+    families: lru::LruCache<Arc<str>, Arc<str>>,
+    #[cfg(test)]
+    family_probes: u64,
     font_assets: Vec<FontAsset>,
     intrinsic: lru::LruCache<u64, Intrinsic>,
     intrinsic_bytes: usize,
@@ -187,6 +191,9 @@ impl Cache {
             raster_bytes: 0,
             rasterizations: 0,
             fonts: FontCollection::default(),
+            families: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
+            #[cfg(test)]
+            family_probes: 0,
             font_assets: Vec::new(),
             intrinsic: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
             intrinsic_bytes: 0,
@@ -194,12 +201,51 @@ impl Cache {
         }
     }
     fn clear(&mut self) {
+        self.families.clear();
         self.layouts.clear();
         self.rasters.clear();
         self.layout_bytes = 0;
         self.raster_bytes = 0;
         self.intrinsic.clear();
         self.intrinsic_bytes = 0;
+    }
+    fn resolve_family(
+        &mut self,
+        requested: &Arc<str>,
+    ) -> std::result::Result<Arc<str>, ParagraphError> {
+        if let Some(family) = self.families.get(requested.as_ref()) {
+            return Ok(family.clone());
+        }
+        for candidate in requested.split(',').map(str::trim) {
+            let mapped = match candidate {
+                "" | "sans-serif" | "system-ui" => "system-ui",
+                "serif" => "Times",
+                "monospace" | "ui-monospace" => "ui-monospace",
+                other => other,
+            };
+            let known = self.fonts.contains_family(mapped)
+                || matches!(mapped, "system-ui" | "ui-monospace");
+            let installed = if known {
+                true
+            } else {
+                let mut probe = Request::new("");
+                probe.family = mapped;
+                probe.fonts = Some(&self.fonts);
+                #[cfg(test)]
+                {
+                    self.family_probes += 1;
+                }
+                let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
+                face.font_family().eq_ignore_ascii_case(mapped)
+                    || face.font_postscript_name().eq_ignore_ascii_case(mapped)
+            };
+            if installed {
+                let family: Arc<str> = mapped.into();
+                self.families.put(requested.clone(), family.clone());
+                return Ok(family);
+            }
+        }
+        Err(rejected("no requested CoreText family is installed"))
     }
     #[tracing::instrument(name = "plico_wgpu.coretext_layout", skip_all, fields(text_bytes = request.text.len()))]
     fn layout(
@@ -249,30 +295,9 @@ impl Cache {
         {
             return Ok(p.clone());
         }
-        let mut family = None;
-        for candidate in request.family.split(',').map(str::trim) {
-            let mapped = match candidate {
-                "" | "sans-serif" | "system-ui" => "system-ui",
-                "serif" => "Times",
-                "monospace" | "ui-monospace" => "ui-monospace",
-                other => other,
-            };
-            let mut probe = Request::new("");
-            probe.family = mapped;
-            probe.fonts = Some(&self.fonts);
-            let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
-            if self.fonts.contains_family(mapped)
-                || matches!(mapped, "system-ui" | "ui-monospace")
-                || face.font_family().eq_ignore_ascii_case(mapped)
-                || face.font_postscript_name().eq_ignore_ascii_case(mapped)
-            {
-                family = Some(mapped);
-                break;
-            }
-        }
-        let family = family.ok_or_else(|| rejected("no requested CoreText family is installed"))?;
+        let family = self.resolve_family(&request.family)?;
         let mut source_native = Request::new(&request.text);
-        source_native.family = family;
+        source_native.family = &family;
         source_native.fonts = Some(&self.fonts);
         source_native.size = request.font_size as f64;
         source_native.letter_spacing = request.letter_spacing as f64;
@@ -767,6 +792,38 @@ mod tests {
         })
     }
     #[test]
+    fn text_and_width_changes_reuse_family_resolution_without_empty_line_probes() {
+        let mut cache = Cache::new();
+        let mut declaration = (*request()).clone();
+        cache.layout(Arc::new(declaration.clone())).unwrap();
+        assert_eq!(
+            cache.family_probes, 0,
+            "system fonts need no availability probe"
+        );
+        declaration.family = "Plico Definitely Missing Fixture,system-ui".into();
+        cache.layout(Arc::new(declaration.clone())).unwrap();
+        let probes = cache.family_probes;
+        assert_eq!(probes, 1);
+        for index in 0..16 {
+            declaration.text = format!("edited value {index}").into();
+            declaration.width = Some(40. + index as f32);
+            cache.layout(Arc::new(declaration.clone())).unwrap();
+        }
+        assert_eq!(
+            cache.family_probes, probes,
+            "new native paragraphs must not repeat family availability shaping"
+        );
+        for index in 0..160 {
+            cache
+                .resolve_family(&format!("system-ui,Unused{index}").into())
+                .unwrap();
+        }
+        assert_eq!(cache.families.len(), 128);
+        cache.clear();
+        assert!(cache.families.is_empty());
+    }
+
+    #[test]
     fn generic_monospace_selects_the_native_system_monospaced_face() {
         let mut cache = Cache::new();
         let mut requested = (*request()).clone();
@@ -793,9 +850,31 @@ mod tests {
         let mut request = (*request()).clone();
         request.family = "Private CoreText Fixture".into();
         assert!(engine.layout(Arc::new(request.clone())).is_err());
+        request.family = "Private CoreText Fixture,system-ui".into();
+        engine.layout(Arc::new(request.clone())).unwrap();
+        assert_eq!(
+            cache
+                .borrow_mut()
+                .resolve_family(&request.family)
+                .unwrap()
+                .as_ref(),
+            "system-ui"
+        );
         engine.register_font(&asset);
+        assert!(
+            cache.borrow().families.is_empty(),
+            "registration invalidates cached fallback choices"
+        );
         let first = engine.layout(Arc::new(request.clone())).unwrap();
         assert!(first.metrics().width > 0.);
+        assert_eq!(
+            cache
+                .borrow_mut()
+                .resolve_family(&request.family)
+                .unwrap()
+                .as_ref(),
+            "Private CoreText Fixture"
+        );
         for scale in [1.25, 2., 1.] {
             // configure_text replays assets when reinstalling the provider.
             let mut next = Engine {

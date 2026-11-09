@@ -77,3 +77,10 @@ extents remain distinct, so queued resize notifications cannot restore idle
 buffers prematurely. The Rust host retains wgpu's surface ownership and its
 own one-shot maintenance, including allocation attempts without a successful
 presentation; this does not port MyGO's asynchronous drawable presenter.
+
+CoreText family resolution is memoized independently of paragraph text/width,
+following the primary/style font and attribute reuse principle in MyGO
+`internal/text/coretext_darwin.go` (`ee3d4bd9bd741f197de231b9fd9b002e9db55577`,
+MIT). Plico uses a bounded 128-entry LRU, skips availability shaping for known
+system/private families, and invalidates choices with its own font/cache lifecycle.
+No MyGO family lookup or runtime source is linked; the existing MIT notice applies.

@@ -320,3 +320,23 @@ CGContext 本身仍为每个位图单独创建，使用相同的标准 sRGB、pr
 采样和 AA 参数。没有共享可变 context 或像素存储。本轮仅减少重复的原生资源查询，
 不宣称已经测出可见帧时间改善。实际横排、竖排实现及已有原生测试通过 Apple Silicon
 Clippy 编译检查；macOS 像素/性能运行验证仍未在当前 Linux 环境执行。
+
+## 字体 family 解析不再跟随文字和宽度重复探测
+
+对照 MyGO `internal/text/coretext_darwin.go` 对 primary/style 字体和属性的复用，
+CoreText bridge 将 family 解析与具体段落排版分开。此前每次段落缓存未命中都会先
+构建空字符串的 CTLine 探测字体，即使请求的是系统字体，随后才真正排版用户文字。
+
+系统 UI/系统等宽字体和已注册私有 family 直接使用已知解析路径；其他 family 仍保留
+原有 native family/PostScript 名称核对与按序 fallback。解析成功的完整 family 列表
+放入最多 128 条的 LRU，编辑文本、改变宽度或字号时可复用解析结果。入口仍限制
+family 列表为 4096 字节；名称载荷的保守上界约 1 MiB，不保存额外的文字内容。
+MacosTextCacheStats 的既有 byte 字段仅统计 layout/raster/intrinsic，不包含这些名称。
+
+注册新字体、清理 provider/空闲缓存时同步清空 family 解析结果，确保原先选中系统
+fallback 的列表能在应用字体注册后改选新字体。纯失败的列表不做负缓存。
+
+原生回归覆盖系统字体零额外探测、缺失字体后 fallback、文本/宽度变化不重复探测、
+128 条上限及注册私有字体后撤销旧 fallback。实际 CoreText 实现与这些测试通过
+Apple Silicon Clippy 编译检查；当前 Linux 环境未执行原生测试，没有据此给出
+macOS 实测排版耗时降幅。
