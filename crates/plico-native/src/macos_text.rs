@@ -335,7 +335,8 @@ impl Line {
         let font = fonts::resolve(request)?;
         let string = CFString::from_str(request.text);
         let attributed = CFMutableAttributedString::new(None, 0).ok_or(Error::Allocation)?;
-        let units = request.text.encode_utf16().count();
+        // CFString already stores its UTF-16 length; do not rescan UTF-8 here.
+        let units = string.length();
         // SAFETY: This newly allocated string has no aliases being mutated. The
         // replacement is at its empty range; the font range spans the inserted
         // UTF-16 string exactly. CoreFoundation retains the attribute value.
@@ -347,13 +348,13 @@ impl Line {
             );
             CFMutableAttributedString::set_attribute(
                 Some(&attributed),
-                CFRange::new(0, units as isize),
+                CFRange::new(0, units),
                 Some(kCTFontAttributeName),
                 Some(&font),
             );
             CFMutableAttributedString::set_attribute(
                 Some(&attributed),
-                CFRange::new(0, units as isize),
+                CFRange::new(0, units),
                 Some(kCTForegroundColorFromContextAttributeName),
                 Some(CFBoolean::new(true)),
             );
@@ -364,11 +365,16 @@ impl Line {
                 let spacing = CFNumber::new_f64(request.letter_spacing);
                 CFMutableAttributedString::set_attribute(
                     Some(&attributed),
-                    CFRange::new(0, units as isize),
+                    CFRange::new(0, units),
                     Some(kCTTrackingAttributeName),
                     Some(&spacing),
                 );
             }
+        }
+        // Plain text has no style ranges to translate. Its retained Line builds
+        // the editing index once; constructing another one here only wastes work.
+        if spans.is_empty() {
+            return Ok((font, attributed));
         }
         let indices = TextIndices::new(request.text);
         for span in spans {

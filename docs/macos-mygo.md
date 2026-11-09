@@ -627,3 +627,27 @@ next_frame_wake，每个窗口独立判断等待，不阻塞其他窗口。
 宿主 71 项测试、Clippy 和 X11 原生窗口 resize/隐藏/恢复回归通过。这些检查不是
 macOS 实际 display-link / Metal 联调，也未测得 CPU 用量降幅。MyGO 的 pending
 GPU command buffer 编码重叠仍是独立未完成项，本次没有将它算作已迁移。
+
+## 避免重复的文字编码索引
+
+对照 MyGO `internal/text/coretext_darwin.go` 的 UTF-16 / UTF-8 索引复用，移除
+Plico 原生字符串构建中的重复工作：CFString 已有 UTF-16 长度，直接读取 length，
+不再次扫描 request.text；普通无样式文本不构造只供 span 范围转换使用的临时
+TextIndices。最终 Line 仍保留编辑、命中和选区需要的索引。
+
+共享 TextIndices 对 ASCII 使用恒等偏移和长度边界，不分配逐字符 Vec；非 ASCII
+继续保留原有标量边界映射，拒绝 UTF-8 字符中间位置和 UTF-16 surrogate 中间位置。
+富文本样式仍先校验全部范围，依次应用，未改变覆盖顺序或原生 shaping 行为。
+
+可独立重建分配观测：
+
+```sh
+rustc -O --edition=2024 scripts/bench-text-indices.rs -o /tmp/plico-text-indices-bench
+/tmp/plico-text-indices-bench
+```
+
+在当前 Linux 环境，320 字节 ASCII 索引构造 10,000 次由原实现的 10,000 次
+分配 / 51,360,000 requested bytes 变为 0；Unicode 样本仍为 10,000 次 / 15,520,000
+requested bytes。这是累计分配请求，既非同时驻留内存，也非 CoreText 或进程 RSS。
+索引往返/非法边界回归、Apple 目标原生实现与测试 Clippy 检查通过；macOS 原生
+文字像素与帧时间仍未在当前环境运行，不将独立索引微基准解释为 GUI 提速比例。
