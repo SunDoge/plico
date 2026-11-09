@@ -41,6 +41,10 @@ pub use plico_renderer::text;
 #[cfg(target_arch = "wasm32")]
 pub use plico_renderer::web;
 pub use plico_renderer::widget;
+#[cfg(any(target_os = "macos", test))]
+mod frame_pacing;
+#[cfg(target_os = "macos")]
+mod macos_frame_clock;
 #[cfg(target_os = "macos")]
 mod macos_preferences;
 #[cfg(target_os = "macos")]

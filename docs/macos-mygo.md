@@ -21,7 +21,7 @@
 `Line` 输入的 delta 仍由宿主归一化为逻辑像素，`smooth_scroll` 控制其插值。
 测试中的平滑滚轮输入明确标记为 `Line`，避免把错误的触控板延迟当作预期行为。
 
-浏览器暂时仍以 rAF 轮询延迟任务，维持既有行为；这轮没有迁移 CADisplayLink，
+浏览器暂时仍以 rAF 轮询延迟任务，维持既有行为。macOS 的 CADisplayLink 适配见下文；
 没有声称完全复刻 MyGO 的呈现时序，也没有 macOS 耗电或 FPS 实测数字。
 
 ## 后续检查
@@ -58,7 +58,7 @@ wgpu 30 的 Metal 后端会拒绝为隐藏窗口获取 drawable；不能简单�
 空命令批以刷新 `write_buffer` / `write_texture` 的暂存，并要求下一帧完整重绘。
 这避免反复失败时把上传暂存一直留到未来某次成功提交。
 
-这轮没有迁移 MyGO 的 CADisplayLink 或动态 `presentsWithTransaction` 切换；
+首帧这轮没有迁移 MyGO 的 CADisplayLink（后续适配见下文）或动态 `presentsWithTransaction` 切换；
 不声称与它的 Core Animation 事务时序完全一致。启动准备完成的像素测试运行于
 Linux / Vulkan，不能证明 macOS 窗口服务器的首次曝光已经无闪烁。
 
@@ -107,3 +107,21 @@ wgpu surface 暂时配置为 1×1（Metal 后端对应 CAMetalLayer.drawableSize
 GPU 回归验证目标字节清零、静态 scene 必须重建以及重建像素一致；宿主测试验证维护
 唤醒不吞掉动画或更早的 UI 定时。Linux GPU 测试不能验证 Core Animation 显示保持，
 macOS 上静止两秒后的画面与恢复交互、实际 RSS 变化仍需实测，未宣称具体内存降幅。
+
+## NSView display link 动画调度
+
+对照 MyGO `internal/darwin/surface.go` 的 `RequestFrame` / `mygoTick:`：
+macOS 14+ 创建与 winit NSView 关联的 CADisplayLink，加入主 run loop 的 common modes，
+采用默认帧率范围以跟随所在屏幕。连续动画请求通过 tick 唤醒宿主，由原有 wgpu
+路径提交，组件插值仍由 Plico 的 Clock / FrameTime 驱动。连续请求不反复暂停/启动
+原生 link；空闲、隐藏、遮挡或等待 UI deadline 时暂停，关闭窗口前 invalidate。
+
+tick target 仅持有调度握手和事件循环 wake，不保存应用/UI 状态引用。一次请求只
+产生一个待处理 tick；宿主停顿不会积累重绘队列。输入、首帧、缩放等已请求的直接
+重绘继续立即执行，并消费可能未处理的 tick；不把首个隐藏窗口交给 display link
+等待曝光。没有 NSView display-link selector 的旧系统自动使用原调度。
+
+空闲资源回收和 UI deadline 仍用 WaitUntil，不靠 display link 定期唤醒。单窗口与
+多窗口共用帧调度入口。此适配未迁移动态 `presentsWithTransaction`，也不声称已
+验证 ProMotion、AppKit tracking/live resize 的实机帧时序。握手和宿主测试可在 Linux
+运行；原生模块使用 Apple Silicon 目标做类型/Clippy 检查，macOS 动画效果待实测。

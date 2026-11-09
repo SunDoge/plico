@@ -16,3 +16,11 @@ MyGO `internal/darwin/{system,app}.go` at that revision. Plico uses an owned
 notification token, an atomic dirty flag and its event-loop wake handle; the
 observer is removed when the shell is dropped. Queries run on the UI thread in
 an autorelease pool. No per-frame system preference polling is performed.
+
+
+`src/macos_frame_clock.rs` references MyGO `internal/darwin/surface.go`, revision
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT, see `mygo-LICENSE`): NSView-associated
+display links, common run-loop modes, default frame-rate range, continuous
+requests without repeated native start/stop, and idle/invisible pausing. Plico's
+callback owns only a wake handle and handshake state; winit remains the event
+and redraw host. No transaction-presentation implementation is copied.

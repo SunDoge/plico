@@ -1205,7 +1205,7 @@ impl App {
         let deadline = (!has_animation)
             .then(|| self.source.animation_deadline())
             .flatten();
-        scheduled_frame_wake(
+        let mut wake = scheduled_frame_wake(
             self.state.is_some()
                 && self.lifecycle.presence() == WindowPresence::Visible
                 && !self.window_metrics.occluded,
@@ -1214,8 +1214,13 @@ impl App {
             deadline,
             &mut self.scheduled_frame_deadline,
             now,
-        )
-        .with_maintenance(maintenance)
+        );
+        if let Some(shell) = &self.state
+            && !shell.animation_frame_ready(has_animation && wake == FrameWake::Redraw)
+        {
+            wake = FrameWake::Idle;
+        }
+        wake.with_maintenance(maintenance)
     }
 
     fn drain_proxy_wake_up(&mut self) -> bool {
@@ -1270,7 +1275,7 @@ impl ApplicationHandler for App {
             }
         };
         if let Some(wake) = self.wake_callback.clone() {
-            shell.observe_display_preferences(wake);
+            shell.observe_native_events(wake);
             shell.refresh_display_preferences();
         }
         let window = shell.window().clone();

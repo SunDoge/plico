@@ -22,6 +22,9 @@ use plico_renderer::platform::WindowBackground;
 
 /// Native rendering resources owned by one live window.
 pub struct Shell {
+    // Invalidate before the window/view is dropped (fields drop in order).
+    #[cfg(target_os = "macos")]
+    frame_clock: Option<crate::macos_frame_clock::NativeFrameClock>,
     /// Platform window handle.
     pub window: Arc<dyn Window>,
     /// Selected graphics consumer for this window.
@@ -156,6 +159,8 @@ impl Shell {
         }
 
         Ok(Shell {
+            #[cfg(target_os = "macos")]
+            frame_clock: None,
             window,
             corner_radius: options.corner_radius,
             deferred_show,
@@ -182,9 +187,22 @@ impl Shell {
             Default::default()
         }
     }
-    pub(crate) fn observe_display_preferences(&mut self, _wake: crate::WakeCallback) {
+    pub(crate) fn observe_native_events(&mut self, _wake: crate::WakeCallback) {
         #[cfg(target_os = "macos")]
-        self.preferences.observe(_wake);
+        {
+            self.frame_clock = crate::macos_frame_clock::NativeFrameClock::new(
+                self.window.as_ref(),
+                _wake.clone(),
+            );
+            self.preferences.observe(_wake);
+        }
+    }
+    pub(crate) fn animation_frame_ready(&self, _continuous: bool) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(clock) = &self.frame_clock {
+            return clock.frame_ready(_continuous);
+        }
+        true
     }
     pub(crate) fn refresh_display_preferences(&mut self) -> bool {
         #[cfg(target_os = "macos")]
@@ -312,6 +330,10 @@ impl Shell {
 
     /// Accept [`Self::scene`], returning true for presentation or an unchanged-frame skip.
     pub fn present(&mut self, base_color: Color) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(clock) = &self.frame_clock {
+            clock.consume();
+        }
         self.accessibility.publish_root(self.window.as_ref());
         let result = if self.deferred_show {
             self.renderer.render_initial(
