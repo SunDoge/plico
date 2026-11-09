@@ -62,6 +62,8 @@ pub struct Engine {
     width: f32,
     height: f32,
     theme: Theme,
+    requested_theme: Theme,
+    display_preferences: crate::DisplayPreferences,
     theme_dirty: bool,
     viewport_dirty: bool,
     pub(crate) changes: Changes,
@@ -124,6 +126,8 @@ impl Default for Engine {
             width: 720.,
             height: 820.,
             theme: Theme::default(),
+            requested_theme: Theme::default(),
+            display_preferences: Default::default(),
             theme_dirty: false,
             viewport_dirty: true,
             changes: Changes::empty(),
@@ -301,10 +305,26 @@ impl Engine {
         Ok(())
     }
     pub fn set_theme(&mut self, theme: Theme) {
+        self.requested_theme = theme;
+        let theme = theme.follow_preferences(self.display_preferences);
         if self.theme != theme {
             self.theme = theme;
             self.theme_dirty = true;
         }
+    }
+    /// Apply host display preferences. Returns whether declarations must refresh.
+    pub fn set_display_preferences(&mut self, preferences: crate::DisplayPreferences) -> bool {
+        if self.display_preferences == preferences {
+            return false;
+        }
+        self.display_preferences = preferences;
+        self.set_theme(self.requested_theme);
+        self.theme_dirty = true;
+        true
+    }
+    /// Host accessibility preferences exposed to custom components.
+    pub fn display_preferences(&self) -> crate::DisplayPreferences {
+        self.display_preferences
     }
     pub fn theme(&self) -> Theme {
         self.theme

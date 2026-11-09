@@ -73,6 +73,8 @@ pub struct Source<V: HostView> {
     clock_epoch: Instant,
     last_tick: Option<Instant>,
     requests: plico::Changes,
+    requested_reduced_motion: bool,
+    display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
     background: Option<Color>,
     scene_cache: plico_renderer::scene::SceneCache,
@@ -116,6 +118,8 @@ impl<V: HostView> Source<V> {
             clock_epoch: epoch,
             last_tick: None,
             requests: plico::Changes::empty(),
+            requested_reduced_motion: false,
+            display_preferences_dirty: false,
             target_scene: None,
             background: None,
             scene_cache: Default::default(),
@@ -286,6 +290,12 @@ impl<V: HostView> Source<V> {
     }
     /// Disable theme, property and scroll transitions (host accessibility policy).
     pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.requested_reduced_motion = reduced;
+        self.apply_motion_preferences();
+    }
+    fn apply_motion_preferences(&mut self) {
+        let reduced =
+            self.requested_reduced_motion || self.engine.display_preferences().reduce_motion;
         self.adapter.motions.set_enabled(!reduced);
         self.adapter.smooth_scroll_enabled = !reduced;
         self.adapter.scrollbars.reduced_motion = reduced;
@@ -397,7 +407,11 @@ impl<V: HostView> Source<V> {
             && !self.pending
             && !self.requests.contains(plico::Changes::ANIMATE)
             && self.viewport == Some((width, height))
-            && self.engine.theme() == self.view.theme()
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && self.last_error.is_none()
         {
             self.batch_stats.retained_samples += 1;
@@ -423,7 +437,11 @@ impl<V: HostView> Source<V> {
             && !self.requests.contains(plico::Changes::ANIMATE)
             && !self.pending
             && self.viewport == Some((width, height))
-            && self.engine.theme() == self.view.theme()
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && (motion_dirty
                 || shader_active
                 || tooltip_active
@@ -659,7 +677,12 @@ impl<V: HostView> Source<V> {
             }
         }
         let start = Instant::now();
-        if self.engine.theme() == self.view.theme()
+        if !self.display_preferences_dirty
+            && self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
             && let Some(batch) = self.view.replay_regions(&mut self.engine)
         {
             let batch = batch.map_err(|source| {
@@ -683,7 +706,12 @@ impl<V: HostView> Source<V> {
             self.declarations_pending = true;
             // A region event can change the view's global theme. Refresh all
             // inherited contexts in this same event, before committing a frame.
-            if self.engine.theme() == self.view.theme() {
+            if self.engine.theme()
+                == self
+                    .view
+                    .theme()
+                    .follow_preferences(self.engine.display_preferences())
+            {
                 return Ok(());
             }
         }
@@ -706,6 +734,7 @@ impl<V: HostView> Source<V> {
                     other => SourceError::Declaration { source: other },
                 }
             })?;
+        self.display_preferences_dirty = false;
         self.batch_stats.declaration_passes += passes as usize;
         self.declaration_stats = self.engine.last_stats();
         self.declared_dirty.extend(self.engine.drain_settle_dirty());
@@ -867,6 +896,20 @@ impl<V: HostView> FrameSource for Source<V> {
         }
     }
     fn handle_event(&mut self, event: UiEvent) -> EventResponse {
+        if let UiEvent::WindowMetrics(metrics) = &event
+            && self
+                .engine
+                .set_display_preferences(metrics.display_preferences())
+        {
+            self.display_preferences_dirty = true;
+            self.apply_motion_preferences();
+            self.target_scene = None;
+            return EventResponse {
+                handled: true,
+                request_redraw: true,
+                ..EventResponse::IGNORED
+            };
+        }
         let activity = match &event {
             UiEvent::Pointer(pointer) => {
                 pointer.phase == PointerPhase::Down

@@ -41,6 +41,20 @@ pub struct WindowMetrics {
     pub color_scheme: Option<ColorScheme>,
     /// Whether the platform requests reduced non-essential motion.
     pub reduced_motion: bool,
+    /// Whether native materials should use an opaque fallback.
+    pub reduced_transparency: bool,
+    /// Whether semantic borders and secondary text should have more contrast.
+    pub high_contrast: bool,
+}
+impl WindowMetrics {
+    /// Project native display preferences into the renderer-free UI contract.
+    pub fn display_preferences(self) -> plico::DisplayPreferences {
+        plico::DisplayPreferences {
+            reduce_motion: self.reduced_motion,
+            reduce_transparency: self.reduced_transparency,
+            high_contrast: self.high_contrast,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +82,8 @@ impl Default for WindowMetrics {
             occluded: false,
             color_scheme: Some(ColorScheme::Light),
             reduced_motion: false,
+            reduced_transparency: false,
+            high_contrast: false,
         }
     }
 }

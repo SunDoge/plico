@@ -11,6 +11,11 @@ pub struct UiContext<'e> {
     pub(crate) in_button: bool,
 }
 impl<'e> UiContext<'e> {
+    /// Native accessibility preferences. Custom drawing can follow the same
+    /// policy as the framework's materials, motion and semantic theme colors.
+    pub fn display_preferences(&self) -> crate::DisplayPreferences {
+        self.engine.display_preferences()
+    }
     /// Translation context inherited by this declaration's children and portals.
     pub fn localizer(&self) -> &'e dyn crate::Localizer {
         self.localizer

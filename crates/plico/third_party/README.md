@@ -28,3 +28,8 @@ pixel equality with native macOS materials.
 Inset shadow semantics follow `internal/scene/scene.go`: clip to the caster and
 paint the complement of a blurred hole. The shared command, Gaussian evaluation
 and Skia replay are Plico implementations.
+
+`src/preferences.rs` and `Theme::follow_preferences` adapt the display preference
+contract and 45%/40% border/secondary-text contrast adjustments from MyGO
+`ui/preferences.go` at the same revision, Copyright (c) 2026 MyGo contributors,
+MIT. The host notification bridge and Plico integration are maintained here.

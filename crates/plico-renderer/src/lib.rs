@@ -1,5 +1,6 @@
 //! Shared layout, text, paint and widget contracts for native and browser hosts.
 #![warn(missing_docs)]
+pub use plico::DisplayPreferences;
 pub mod animated_image;
 pub mod corner_shape;
 pub mod damage;

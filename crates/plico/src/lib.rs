@@ -41,6 +41,8 @@ mod snapshot;
 mod text_style;
 mod time;
 pub use time::TimeOfDay;
+mod preferences;
+pub use preferences::DisplayPreferences;
 mod theme;
 mod ui;
 pub mod widgets;
@@ -172,15 +174,15 @@ pub mod prelude {
         tree_item, virtual_list,
     };
     pub use crate::{
-        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display, Edges,
-        Elevation, FlexDirection, FlexWrap, FontFamily, GlassStyle, GridFlow, GridLine,
-        GridTemplate, ImplicitKey, InnerResponse, InputNavigation, InputResponse, Justify,
-        KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics, ModalState, Modifiers,
-        Motion, PopoverState, Position, Presentation, Response, Route, Router, ScrollEdgeSide,
-        SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse,
-        StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize,
-        UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget, component, fr, minmax,
-        percent, px, text,
+        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display,
+        DisplayPreferences, Edges, Elevation, FlexDirection, FlexWrap, FontFamily, GlassStyle,
+        GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
+        InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics,
+        ModalState, Modifiers, Motion, PopoverState, Position, Presentation, Response, Route,
+        Router, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap,
+        SliderResponse, StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse,
+        Track, TrackSize, UiContext, VirtualList, VirtualListResponse, VisibleRegion, Widget,
+        component, fr, minmax, percent, px, text,
     };
 }
 

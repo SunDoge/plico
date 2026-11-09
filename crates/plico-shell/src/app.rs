@@ -297,9 +297,9 @@ impl App {
                 winit::window::Theme::Light => crate::ColorScheme::Light,
                 winit::window::Theme::Dark => crate::ColorScheme::Dark,
             }),
-            // The Vello shell has no shared motion-preference source.
-            // The runtime publishes its application preference.
-            reduced_motion: false,
+            reduced_motion: shell.display_preferences().reduce_motion,
+            reduced_transparency: shell.display_preferences().reduce_transparency,
+            high_contrast: shell.display_preferences().high_contrast,
         };
         if next != self.window_metrics {
             self.window_metrics = next;
@@ -1160,7 +1160,15 @@ impl App {
     /// Drain work which does not require a native surface. This remains active
     /// for close-to-tray windows whose frame source is intentionally retained.
     fn poll_background_work(&mut self) -> bool {
-        self.poll_modal_effects()
+        let preferences_changed = self
+            .state
+            .as_mut()
+            .is_some_and(|shell| shell.refresh_display_preferences());
+        if preferences_changed {
+            self.sync_window_metrics();
+        }
+        preferences_changed
+            | self.poll_modal_effects()
             | self.poll_effect_completions()
             | self.source.poll_async()
             | self.drain_host_actions()
@@ -1207,7 +1215,7 @@ impl ApplicationHandler for App {
         // Initial size: prefer the source's notion of viewport if it exposes one;
         // otherwise default. For now we read none from the source, so use a sane
         // default that the first resize will correct.
-        let shell = match Shell::create(event_loop, &self.window_options) {
+        let mut shell = match Shell::create(event_loop, &self.window_options) {
             Ok(shell) => shell,
             Err(error) => {
                 *self
@@ -1218,6 +1226,9 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        if let Some(wake) = self.wake_callback.clone() {
+            shell.observe_display_preferences(wake);
+        }
         let window = shell.window().clone();
         self.state = Some(shell);
         self.sync_window_metrics();

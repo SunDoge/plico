@@ -31,6 +31,8 @@ pub struct Shell {
     corner_radius: u32,
     #[cfg(target_os = "macos")]
     native_frame: crate::macos_window_frame::NativeWindowFrame,
+    #[cfg(target_os = "macos")]
+    preferences: crate::macos_preferences::NativePreferences,
     presentation_error: Option<String>,
     /// Reused backend-neutral application scene for the current frame.
     pub scene: Scene,
@@ -152,6 +154,8 @@ impl Shell {
             corner_radius: options.corner_radius,
             #[cfg(target_os = "macos")]
             native_frame,
+            #[cfg(target_os = "macos")]
+            preferences: Default::default(),
             presentation_error: None,
             renderer,
             surface_size: [surface_width, surface_height],
@@ -159,6 +163,31 @@ impl Shell {
             tcx,
             accessibility,
         })
+    }
+
+    pub(crate) fn display_preferences(&self) -> plico_renderer::DisplayPreferences {
+        #[cfg(target_os = "macos")]
+        {
+            self.preferences.snapshot()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Default::default()
+        }
+    }
+    pub(crate) fn observe_display_preferences(&mut self, _wake: crate::WakeCallback) {
+        #[cfg(target_os = "macos")]
+        self.preferences.observe(_wake);
+    }
+    pub(crate) fn refresh_display_preferences(&mut self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.preferences.refresh()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
 
     /// Current surface size (w,h).

@@ -86,6 +86,13 @@ impl Default for LiquidGlass {
     }
 }
 impl LiquidGlass {
+    /// Native accessibility requests take precedence over material options.
+    pub fn follow_preferences(mut self, preferences: crate::DisplayPreferences) -> Self {
+        self.enabled &= !preferences.reduce_transparency;
+        self.reduce_motion |= preferences.reduce_motion;
+        self
+    }
+
     /// Theme-adaptive frosted glass, following MyGO's size/clarity tone response.
     pub fn regular() -> Self {
         Self {
@@ -156,7 +163,9 @@ impl LiquidGlass {
         corner_smoothing: f32,
         feedback: Option<[f32; 2]>,
     ) {
-        let options = self.validated();
+        let options = self
+            .follow_preferences(cx.display_preferences())
+            .validated();
         if options.enabled {
             let animated = options.animated && !options.reduce_motion;
             let tint = cx.theme().resolve(options.tint);

@@ -94,6 +94,23 @@ impl Default for Theme {
     }
 }
 impl Theme {
+    /// Follow native contrast preferences without accumulating adjustments.
+    /// MyGO ui/preferences.go uses 45% foreground for borders and 40% for
+    /// secondary text. Plico's focus token is already opaque.
+    pub fn follow_preferences(mut self, preferences: crate::DisplayPreferences) -> Self {
+        if preferences.high_contrast {
+            let mix = |color: u32, percent: u32| -> u32 {
+                [0, 8, 16].into_iter().fold(0, |rgb, shift| {
+                    let from = (color >> shift) & 255;
+                    let to = (self.foreground >> shift) & 255;
+                    rgb | (((from * (100 - percent) + to * percent + 50) / 100) << shift)
+                })
+            };
+            self.border = mix(self.border, 45);
+            self.muted = mix(self.muted, 40);
+        }
+        self
+    }
     pub fn light() -> Self {
         Self {
             foreground: 0x202024,

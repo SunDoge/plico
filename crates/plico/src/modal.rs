@@ -158,7 +158,11 @@ impl<'s> Modal<'_, '_, 's> {
             material,
             scrim_opacity,
         } = self;
-        let motion = if material.is_some_and(|material| material.reduce_motion) {
+        let preferences = ui.display_preferences();
+        let material = material.map(|material| material.follow_preferences(preferences));
+        let motion = if preferences.reduce_motion
+            || material.is_some_and(|material| material.reduce_motion)
+        {
             Motion::None
         } else {
             motion
