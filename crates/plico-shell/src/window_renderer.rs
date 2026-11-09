@@ -287,6 +287,19 @@ impl WindowRenderer {
             renderer.invalidate_presentation();
         }
     }
+    pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.maintain(now);
+            return renderer.maintenance_deadline();
+        }
+        let _ = now;
+        None
+    }
     pub(crate) fn trim_gpu_cache(&mut self) {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {

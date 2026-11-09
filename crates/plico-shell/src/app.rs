@@ -1199,6 +1199,25 @@ impl App {
             | self.drain_effects()
     }
 
+    fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
+        let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
+        let has_animation = self.source.has_anim();
+        let deadline = (!has_animation)
+            .then(|| self.source.animation_deadline())
+            .flatten();
+        scheduled_frame_wake(
+            self.state.is_some()
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded,
+            has_animation,
+            self.skipped_present_deadline,
+            deadline,
+            &mut self.scheduled_frame_deadline,
+            now,
+        )
+        .with_maintenance(maintenance)
+    }
+
     fn drain_proxy_wake_up(&mut self) -> bool {
         let changed = self.poll_background_work();
         if changed && let Some(shell) = self.state.as_ref() {
@@ -1570,20 +1589,7 @@ impl ApplicationHandler for App {
         // A reactive source keeps the redraw loop spinning at vsync while it has
         // pending rAF work; a static source idles (ControlFlow::Wait) until a
         // resize/close.
-        let has_animation = self.source.has_anim();
-        let deadline = (!has_animation)
-            .then(|| self.source.animation_deadline())
-            .flatten();
-        match scheduled_frame_wake(
-            self.state.is_some()
-                && self.lifecycle.presence() == WindowPresence::Visible
-                && !self.window_metrics.occluded,
-            has_animation,
-            self.skipped_present_deadline,
-            deadline,
-            &mut self.scheduled_frame_deadline,
-            Instant::now(),
-        ) {
+        match self.next_frame_wake(Instant::now()) {
             FrameWake::Redraw => {
                 event_loop.set_control_flow(ControlFlow::Wait);
                 if let Some(shell) = self.state.as_ref() {
@@ -2737,20 +2743,7 @@ impl ApplicationHandler for MultiWindowApp {
         let now = Instant::now();
         let mut earliest = None;
         for app in self.windows.values_mut() {
-            let has_animation = app.source.has_anim();
-            let deadline = (!has_animation)
-                .then(|| app.source.animation_deadline())
-                .flatten();
-            match scheduled_frame_wake(
-                app.state.is_some()
-                    && app.lifecycle.presence() == WindowPresence::Visible
-                    && !app.window_metrics.occluded,
-                has_animation,
-                app.skipped_present_deadline,
-                deadline,
-                &mut app.scheduled_frame_deadline,
-                now,
-            ) {
+            match app.next_frame_wake(now) {
                 FrameWake::Redraw => {
                     if let Some(shell) = app.state.as_ref() {
                         shell.window().request_redraw();

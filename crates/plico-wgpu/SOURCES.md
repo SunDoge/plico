@@ -47,3 +47,13 @@ informs Plico's batch-major damage replay: clear disjoint regions first, keep
 painter order, bind a batch once and omit disjoint batch/region pairs. Plico uses
 conservative instance bounds including its own AA fringe, and retains the
 unculled path for custom vertex materials. This is not opaque occlusion culling.
+
+
+The same revision's `internal/gpu/metal/metal.go` (`armTrim`, `trimIfIdle`, `trim`)
+informs macOS window idle resource recovery: after two seconds without a new
+presentation, release derived textures and shrink drawable storage to 1×1,
+keeping the compositor-owned last frame. Plico uses wgpu surface reconfiguration
+and the host's existing one-shot deadline scheduling, then restores the real
+extent and invalidates retained damage before the next present. See
+`docs/macos-mygo.md` for validation scope; no macOS RSS reduction is claimed from
+Linux GPU tests.

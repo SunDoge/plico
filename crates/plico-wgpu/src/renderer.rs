@@ -1629,6 +1629,16 @@ impl Renderer {
             )
         })
     }
+    /// Release the retained offscreen target and its readback buffer.
+    /// A compositor-owned presented frame is unaffected. Further rendering must
+    /// rebuild the target and its complete contents, even for an unchanged scene.
+    pub fn trim_frame_target(&mut self) {
+        if let Some(blitter) = &mut self.blitter {
+            blitter.clear_source();
+        }
+        self.target = None;
+        self.invalidate_scene_damage();
+    }
     /// Release the optional screenshot/readback buffer without changing final pixels.
     /// A later capture allocates it again; normal window submission does not need it.
     pub fn trim_readback_buffer(&mut self) {
@@ -3556,6 +3566,52 @@ mod tests {
         assert!(
             renderer
                 .plan_scene_frame(&scene, [32, 24], [0.2, 0.3, 0.4, 1.], true)
+                .unwrap()
+                .unchanged()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn trimming_idle_target_releases_storage_and_rebuilds_unchanged_scene_pixels() {
+        use plico_renderer::{PaintScene, Scene};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut scene = Scene::new();
+        scene.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::from_rgba8(35, 120, 210, 180),
+            None,
+            &kurbo::Rect::new(7., 9., 112., 83.).to_rounded_rect(15.),
+        );
+        let size = [128, 96];
+        let background = [0.2, 0.3, 0.4, 0.5];
+        let before = renderer
+            .render_scene(&scene, size, background, false)
+            .unwrap();
+        assert!(renderer.target_storage_bytes().0 > 0);
+        assert!(renderer.target_storage_bytes().1 > 0);
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, size, background, true)
+                .unwrap()
+                .unchanged()
+        );
+        renderer.trim_frame_target();
+        assert_eq!(renderer.target_storage_bytes(), (0, 0));
+        assert!(
+            !renderer
+                .plan_scene_frame(&scene, size, background, true)
+                .unwrap()
+                .unchanged()
+        );
+        let after = renderer
+            .render_scene(&scene, size, background, true)
+            .unwrap();
+        assert_eq!(after, before);
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, size, background, true)
                 .unwrap()
                 .unchanged()
         );

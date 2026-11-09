@@ -33,6 +33,28 @@ fn surface_alpha_mode(
         })
 }
 
+// Host maintenance uses a one-shot wake, never an idle polling loop.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Default)]
+struct IdleResources {
+    deadline: Option<std::time::Instant>,
+    trimmed: bool,
+}
+#[cfg(any(target_os = "macos", test))]
+impl IdleResources {
+    fn presented(&mut self, now: std::time::Instant) {
+        self.deadline = Some(now + std::time::Duration::from_secs(2));
+        self.trimmed = false;
+    }
+    fn due(&self, now: std::time::Instant) -> bool {
+        self.deadline.is_some_and(|deadline| deadline <= now)
+    }
+    fn trimmed(&mut self) {
+        self.deadline = None;
+        self.trimmed = true;
+    }
+}
+
 struct SharedWindow(Arc<dyn Window>);
 impl HasWindowHandle for SharedWindow {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
@@ -54,6 +76,8 @@ pub struct WgpuWindow {
     damage_enabled: bool,
     present_skipped: bool,
     initial_frame_ready: bool,
+    #[cfg(target_os = "macos")]
+    idle_resources: IdleResources,
     #[cfg(all(
         any(target_os = "linux", target_os = "windows", target_os = "macos"),
         feature = "system-text"
@@ -119,6 +143,8 @@ impl WgpuWindow {
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
             initial_frame_ready: false,
+            #[cfg(target_os = "macos")]
+            idle_resources: IdleResources::default(),
             #[cfg(all(
                 any(target_os = "linux", target_os = "windows", target_os = "macos"),
                 feature = "system-text"
@@ -165,10 +191,18 @@ impl WgpuWindow {
         if width == 0 || height == 0 {
             return;
         }
-        if self.config.width != width || self.config.height != height {
+        #[cfg(not(target_os = "macos"))]
+        let restore = false;
+        #[cfg(target_os = "macos")]
+        let restore = self.idle_resources.trimmed;
+        if self.config.width != width || self.config.height != height || restore {
             self.config.width = width;
             self.config.height = height;
             self.renderer.configure_surface(&self.surface, &self.config);
+            #[cfg(target_os = "macos")]
+            {
+                self.idle_resources.trimmed = false;
+            }
         }
     }
     /// Compile supported paint, submit on the GPU, then present. An unsupported
@@ -255,6 +289,8 @@ impl WgpuWindow {
         submitted?;
         self.window.pre_present_notify();
         self.renderer.present(frame);
+        #[cfg(target_os = "macos")]
+        self.idle_resources.presented(std::time::Instant::now());
         Ok(true)
     }
 }
@@ -267,9 +303,42 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
-    /// Release derived raster, image, layer, effect and native text caches. Final pixels remain
-    /// intact; text trimming forces the next frame to rebuild its atlas safely.
+    /// Next one-shot idle maintenance wake on macOS; absent on other platforms.
+    pub fn maintenance_deadline(&self) -> Option<std::time::Instant> {
+        #[cfg(target_os = "macos")]
+        {
+            self.idle_resources.deadline
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
+    /// Release idle resources when due without rendering or requesting a frame.
+    pub fn maintain(&mut self, now: std::time::Instant) {
+        #[cfg(target_os = "macos")]
+        if self.idle_resources.due(now) {
+            self.trim_gpu_cache();
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = now;
+    }
+    /// Release derived caches. On macOS also return spare drawables and the
+    /// retained target; Core Animation keeps the already presented last frame.
+    /// The next present restores the real extent and performs a full redraw.
     pub fn trim_gpu_cache(&mut self) {
+        #[cfg(target_os = "macos")]
+        if !self.idle_resources.trimmed {
+            // MyGO's idle Metal trim: changing drawableSize preserves the last
+            // compositor-owned frame while returning spare full-size buffers.
+            let mut small = self.config.clone();
+            small.width = 1;
+            small.height = 1;
+            self.renderer.configure_surface(&self.surface, &small);
+            self.idle_resources.trimmed();
+        }
+        #[cfg(target_os = "macos")]
+        self.renderer.trim_frame_target();
         self.renderer.trim_readback_buffer();
         self.renderer.trim_raster_cache();
         self.renderer.trim_image_cache();
@@ -345,6 +414,33 @@ mod tests {
                 Some(Alpha::Inherit)
             );
         }
+    }
+
+    #[test]
+    fn idle_resources_arm_once_follow_real_presents_and_stop_after_trim() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let mut idle = super::IdleResources::default();
+        assert_eq!(idle.deadline, None, "hidden startup needs no trim timer");
+        idle.presented(now);
+        assert!(!idle.due(now + Duration::from_millis(1999)));
+        assert!(idle.due(now + Duration::from_secs(2)));
+        idle.presented(now + Duration::from_secs(1));
+        assert!(
+            !idle.due(now + Duration::from_secs(2)),
+            "drawing postpones idle trim"
+        );
+        assert!(idle.due(now + Duration::from_secs(3)));
+        idle.trimmed();
+        assert!(idle.trimmed);
+        assert_eq!(idle.deadline, None);
+        assert!(
+            !idle.due(now + Duration::from_secs(100)),
+            "no recurring idle wake"
+        );
+        idle.presented(now + Duration::from_secs(101));
+        assert!(!idle.trimmed);
+        assert_eq!(idle.deadline, Some(now + Duration::from_secs(103)));
     }
 
     #[test]

@@ -367,6 +367,9 @@ impl Shell {
     pub(crate) fn invalidate_presentation(&mut self) {
         self.renderer.invalidate_presentation();
     }
+    pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+        self.renderer.maintain(now)
+    }
     pub(crate) fn trim_gpu_cache(&mut self) {
         self.renderer.trim_gpu_cache();
     }

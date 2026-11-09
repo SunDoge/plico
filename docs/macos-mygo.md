@@ -87,3 +87,23 @@ FontAsset 存储身份去重，不反复积累描述符。普通系统字体仍�
 原生字体与渲染桥接回归包括别名、上下文隔离、缓存替换、非法数据、集合销毁后的
 存活 Line 和引擎重装。Linux 环境只能对 Apple Silicon 目标编译这些测试，
 不能声称已运行 CoreText 像素断言；macOS 运行验证仍由用户执行。
+
+## 空闲窗口的 drawable 与渲染缓存
+
+对照 MyGO `internal/gpu/metal/metal.go` 的 `armTrim` / `trimIfIdle` / `trim`：
+macOS + wgpu 窗口两秒没有成功提交新画面后，宿主执行一次资源回收。派生路径、图片、
+隔离层、效果和文字栅格缓存被释放，保留目标及截图缓冲也被释放；复制 pipeline 的
+旧 source binding 一并清除，避免它继续持有已释放目标的纹理视图。
+
+wgpu surface 暂时配置为 1×1（Metal 后端对应 CAMetalLayer.drawableSize），
+逻辑窗口尺寸保持原值。Core Animation 保留已呈现的画面；下一次 present 恢复原尺寸，
+由于保留目标及 damage 已失效，即使 scene 未变也必须完整重绘。shader/pipeline 和
+应用字体注册保持热态。遮挡/内存警告也走回收路径。
+
+维护定时使用已有事件循环的 WaitUntil，与 UI deadline 取较早值，不驱动应用重绘，
+也不增加周期轮询。只在实际提交新帧后重新安排；跳过的 unchanged present 不推迟回收。
+单窗口与多窗口共享相同调度。非 macOS 宿主没有新增空闲回收行为。
+
+GPU 回归验证目标字节清零、静态 scene 必须重建以及重建像素一致；宿主测试验证维护
+唤醒不吞掉动画或更早的 UI 定时。Linux GPU 测试不能验证 Core Animation 显示保持，
+macOS 上静止两秒后的画面与恢复交互、实际 RSS 变化仍需实测，未宣称具体内存降幅。

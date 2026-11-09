@@ -691,3 +691,31 @@ fn invisible_windows_stop_frame_timers_and_resume_with_one_fresh_frame() {
         FrameWake::Redraw
     );
 }
+
+#[test]
+fn maintenance_wakes_host_without_suppressing_frames_or_earlier_timers() {
+    let now = Instant::now();
+    let early = now + std::time::Duration::from_secs(1);
+    let late = now + std::time::Duration::from_secs(2);
+    assert_eq!(
+        FrameWake::Idle.with_maintenance(Some(late)),
+        FrameWake::Deadline(late)
+    );
+    assert_eq!(
+        FrameWake::Redraw.with_maintenance(Some(late)),
+        FrameWake::Redraw
+    );
+    assert_eq!(
+        FrameWake::Deadline(early).with_maintenance(Some(late)),
+        FrameWake::Deadline(early)
+    );
+    assert_eq!(
+        FrameWake::Deadline(late).with_maintenance(Some(early)),
+        FrameWake::Deadline(early)
+    );
+    assert_eq!(FrameWake::Idle.with_maintenance(None), FrameWake::Idle);
+    assert_eq!(
+        FrameWake::Deadline(early).with_maintenance(None),
+        FrameWake::Deadline(early)
+    );
+}

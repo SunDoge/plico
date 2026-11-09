@@ -103,6 +103,18 @@ pub(super) enum FrameWake {
     Deadline(Instant),
 }
 
+impl FrameWake {
+    // Maintenance wakes only the host. It must not become an application
+    // redraw or replace an earlier UI deadline.
+    pub(super) fn with_maintenance(self, deadline: Option<Instant>) -> Self {
+        match (self, deadline) {
+            (Self::Idle, Some(deadline)) => Self::Deadline(deadline),
+            (Self::Deadline(frame), Some(maintenance)) => Self::Deadline(frame.min(maintenance)),
+            _ => self,
+        }
+    }
+}
+
 pub(super) fn frame_wake(
     has_animation: bool,
     deadline: Option<Instant>,
