@@ -763,3 +763,19 @@ gh workflow run macos-native.yml --ref experiment/csharp-batch -f mode=full
 
 本轮不再尝试通过手动触发接口启动运行。此前 59 项原生 CPU 成功记录仍有效；
 后续 Metal/full 结果以其具体运行日志为准。
+
+## 已返回的 Metal 检查与 HUD 测试配置
+
+此前已经结束的 [运行 42599074493](https://github.com/SunDoge/plico/actions/runs/42599074493)
+在 macOS 实际通过 3 项 CoreText / Metal GPU 回归，以及部分帧规划和稳定文字裁剪
+窗口各 1 项 GPU 回归；三个 native-gpu 用例均包含 Metal backend 断言。
+作业随后在宿主阶段失败：65 passed / 2 failed，两个失败均为 HUD 测试用默认
+TextContext 生成了未配置的 Parley positioned-glyph 命令，原生 CoreText wgpu 路径
+明确拒绝该命令。生命周期窗口和八阶段内存检查尚未运行，不能把这次作业记为 full
+通过。
+
+HUD 独立测试现先安装与 Shell 相同的 CoreText provider，再记录场景；保留原有
+文字高对比像素、1×/2× 位置和禁用/tiny 场景断言，不忽略测试或减少断言。
+Linux 的 3 项 HUD 回归与宿主 Clippy 通过；当前 Linux 环境的完整 Apple Shell 检查
+仍受 mac-notification-sys 所需 macOS C SDK 限制。修改后的原生 HUD 测试需由用户
+本机执行；不再触发云端 macOS 检查。
