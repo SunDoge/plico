@@ -1491,6 +1491,18 @@ impl Renderer {
             background,
         })
     }
+    /// Recognize a retained frame before waiting for a scarce drawable. This
+    /// probe never advances history for a changed frame that may be abandoned.
+    #[cfg(any(feature = "window", test))]
+    pub(crate) fn prepared_frame_unchanged(&self, frame: &PreparedFrame, damage: bool) -> bool {
+        damage
+            && self.scene_background == Some(frame.background)
+            && self.scene_damage.matches_retained_scene(
+                &frame.prepared.flattened,
+                frame.size[0],
+                frame.size[1],
+            )
+    }
     /// Advance history only for a frame the caller is ready to encode. A later
     /// encoding/acquisition/submission failure must still invalidate history.
     pub(crate) fn plan_prepared_frame(

@@ -233,6 +233,19 @@ impl WgpuWindow {
         }
         false
     }
+    fn surface_needs_result(&self) -> bool {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if let Some(worker) = &self.surface_acquire {
+            return worker.needs_result();
+        }
+        false
+    }
+    fn cancel_surface_waiter(&self) {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if let Some(worker) = &self.surface_acquire {
+            worker.cancel_waiter();
+        }
+    }
     /// Reinstall the native measure provider only when device scale/context changes.
     pub fn configure_text(&mut self, text: &mut TextContext) -> Result<()> {
         #[cfg(all(
@@ -323,6 +336,23 @@ impl WgpuWindow {
             [size.width, size.height],
             background.components,
         )?;
+        if !initial
+            && !self.surface_needs_fit()
+            && self.surface_needs_result()
+            && self
+                .renderer
+                .prepared_frame_unchanged(&prepared, self.damage_enabled)
+        {
+            // Keep damage diagnostics identical to the normal unchanged path,
+            // without arming a drawable waiter for work requiring no texture.
+            let plan = self
+                .renderer
+                .plan_prepared_frame(prepared, self.damage_enabled);
+            debug_assert!(plan.unchanged());
+            self.present_skipped = true;
+            self.cancel_surface_waiter();
+            return Ok(true);
+        }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         if !initial
             && !self.surface_needs_fit()
@@ -349,7 +379,7 @@ impl WgpuWindow {
             self.present_skipped = true;
             // This request is satisfied without consuming the prefetched
             // texture. A delayed proxy wake must not redraw it again.
-            let _ = self.take_surface_ready();
+            self.cancel_surface_waiter();
             return Ok(true);
         }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
@@ -709,6 +739,13 @@ mod tests {
                     None,
                     &kurbo::Rect::new(10., 10., 30., 30.),
                 );
+                assert!(gpu.present(&scene, Color::BLACK).unwrap());
+                assert!(
+                    gpu.last_present_skipped(),
+                    "static content needs no drawable"
+                );
+                assert!(!gpu.surface_acquire_pending());
+                assert_eq!(gpu.last_damage_coverage(), 0.);
                 let pending = gpu.present(&changed, Color::BLACK).unwrap();
                 let _ = returned.send(());
                 assert!(

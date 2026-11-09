@@ -2905,6 +2905,20 @@ mod tests {
         renderer
             .render_scene(&baseline, size, background, true)
             .unwrap();
+        let probe = renderer
+            .prepare_scene_frame(&baseline, size, background)
+            .unwrap();
+        assert!(renderer.prepared_frame_unchanged(&probe, true));
+        assert!(!renderer.prepared_frame_unchanged(&probe, false));
+        let other_background = renderer
+            .prepare_scene_frame(&baseline, size, [1.; 4])
+            .unwrap();
+        assert!(!renderer.prepared_frame_unchanged(&other_background, true));
+        renderer.invalidate_scene_damage();
+        assert!(!renderer.prepared_frame_unchanged(&probe, true));
+        renderer
+            .render_scene(&baseline, size, background, true)
+            .unwrap();
         let mut abandoned = Scene::new();
         abandoned.fill(
             peniko::Fill::NonZero,

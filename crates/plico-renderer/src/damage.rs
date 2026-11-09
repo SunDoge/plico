@@ -291,6 +291,18 @@ impl SceneDamageTracker {
         self.size = None;
     }
 
+    /// Read-only check against the retained target's validated history.
+    /// Nonlocal effects stay conservative. As with `update`, the owner must
+    /// invalidate history after content/resource loss or a failed submission.
+    pub fn matches_retained_scene(&self, scene: &crate::Scene, width: u32, height: u32) -> bool {
+        !self.nonlocal
+            && self.size == Some((width, height))
+            && self
+                .previous
+                .as_ref()
+                .is_some_and(|previous| previous.commands == scene.commands)
+    }
+
     /// Estimate conservative damage from the target's last command stream.
     /// `ink` returns physical-pixel ink bounds *after* the command transform.
     /// Return `None` for unknown bounds. The tracker adds a one-pixel guard
@@ -572,6 +584,23 @@ mod tracker_tests {
         s
     }
     #[test]
+    fn retained_probe_preserves_history_and_rejects_content_loss_or_size_changes() {
+        let mut tracker = SceneDamageTracker::default();
+        let baseline = scene(10.);
+        assert!(!tracker.matches_retained_scene(&baseline, 100, 100));
+        tracker.update(&baseline, 100, 100, bounds);
+        assert!(tracker.matches_retained_scene(&baseline, 100, 100));
+        assert!(!tracker.matches_retained_scene(&baseline, 200, 100));
+        assert!(!tracker.matches_retained_scene(&scene(40.), 100, 100));
+        assert!(tracker.matches_retained_scene(&baseline, 100, 100));
+        assert_ne!(
+            tracker.update(&scene(40.), 100, 100, bounds),
+            DamageRegion::Empty
+        );
+        tracker.invalidate();
+        assert!(!tracker.matches_retained_scene(&scene(40.), 100, 100));
+    }
+    #[test]
     fn tracks_old_new_removed_bounds_and_reuses_unchanged_ink() {
         let mut tracker = SceneDamageTracker::default();
         assert_eq!(
@@ -707,6 +736,7 @@ mod tracker_tests {
                 tracker.update(&outer, 100, 100, |_| Some(Rect::new(0., 0., 10., 10.))),
                 DamageRegion::Full
             );
+            assert!(!tracker.matches_retained_scene(&outer, 100, 100));
         }
         let empty = Scene::new();
         assert!(!empty.has_nonlocal_effects());

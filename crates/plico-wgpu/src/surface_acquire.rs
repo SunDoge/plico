@@ -103,6 +103,11 @@ impl<T: Send + 'static> Acquire<T> {
             self.shared.changed.notify_one();
         }
     }
+    /// Whether a request would wait for a result, without starting work or arming a wake.
+    pub fn needs_result(&self) -> bool {
+        let state = self.shared.state.lock().unwrap();
+        state.ready.is_none() && !state.failed
+    }
     /// Peek without consuming the texture. If not ready, request one fetch and
     /// arm its wake. Frame validation can precede this check, damage planning follow it.
     pub fn ready(&self) -> Result<bool, AcquireError> {
@@ -136,6 +141,13 @@ impl<T: Send + 'static> Acquire<T> {
             self.shared.changed.notify_one();
         }
         Ok(None)
+    }
+    /// The latest request needs no drawable. Preserve idle prefetch, but cancel
+    /// its readiness wake rather than letting an obsolete changed frame redraw.
+    pub fn cancel_waiter(&self) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.waiter = false;
+        state.signal = false;
     }
     pub fn take_signal(&self) -> bool {
         let mut state = self.shared.state.lock().unwrap();
@@ -244,6 +256,33 @@ mod tests {
             starts.try_recv().is_err(),
             "no second in-flight acquisition"
         );
+    }
+    #[test]
+    fn reverting_a_waiting_frame_cancels_its_wake_without_dropping_prefetch() {
+        let (permit, receive) = mpsc::channel();
+        let (wake, wakes) = mpsc::channel();
+        let worker = Acquire::new(
+            move || receive.recv().unwrap(),
+            Arc::new(move || {
+                wake.send(()).unwrap();
+            }),
+        )
+        .unwrap();
+        assert!(!worker.ready().unwrap());
+        assert!(worker.needs_result());
+        worker.cancel_waiter();
+        permit.send(7).unwrap();
+        // Wait for completion without registering a new waiter.
+        let mut state = worker.shared.state.lock().unwrap();
+        while state.fetching {
+            state = worker.shared.changed.wait(state).unwrap();
+        }
+        drop(state);
+        assert!(!worker.take_signal());
+        assert!(!worker.needs_result());
+        assert_eq!(worker.take().unwrap(), Some(7));
+        drop(worker); // Join before asserting that no late wake ran.
+        assert!(wakes.try_recv().is_err());
     }
     #[test]
     fn drain_releases_acquired_owners_and_cancels_stale_wakes() {

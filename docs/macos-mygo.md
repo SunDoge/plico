@@ -551,3 +551,23 @@ link 也不会仅因为主线程停顿而额外放行。隐藏窗口仍由宿主
 时间，覆盖首次请求、严格两个周期边界、长暂停、快速重启、连续 tick 和隐藏停止。
 宿主 70 项回归及实际原生模块的 Apple 目标 Clippy 检查通过；尚未在 macOS 设备上
 测量动画首帧延迟或验证跨屏刷新周期切换。
+
+## 静态帧不等待 drawable
+
+继续核对 MyGO Metal presenter 的 ready / wake 与空闲预取边界，修正 Plico 的额外
+等待：原先 surface worker 就绪门控位于 unchanged 判定之前，重复的静态帧可能先
+登记等待者，再在 drawable 到达后唤醒一次才能确认无需绘制。
+
+现在仅在 worker 尚无结果、surface 尺寸无须恢复且非初始化帧时，先对已验证的
+prepared scene 做只读 retained-history 比较；一致则立即报告 skipped，不消耗
+预取 texture。背景、尺寸、禁用 damage、历史失效或非局部效果均不走此捷径。
+changed 帧的 damage history 仍等到 drawable 就绪才推进，避免等待中的新场景被
+误认作已经画进 target。额外的内容比较不加入普通同步或 drawable 已就绪的路径。
+
+如果先前等待的新内容又恢复为已呈现内容，取消 worker 的 waiter 与 readiness 标记，
+保留预取任务及其结果；不阻塞 drain，也不丢弃可复用 texture。已进入事件队列的
+proxy wake 可以到达，但没有 readiness 标记便不因此请求额外窗口绘制。
+
+验证覆盖只读 history probe、尺寸/背景/失效/非局部效果、取消等待但保留结果，以及
+真实 X11 surface 被受控阻塞时静态帧立即 skipped、changed 帧继续等待并保持部分更新
+像素。Apple 目标检查只证明原生路径能编译；macOS 实际 wake 次数和耗时仍待测量。
