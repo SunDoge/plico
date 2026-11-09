@@ -13,3 +13,9 @@ and dedicated-thread USER_INTERACTIVE QoS of MyGO
 `internal/gpu/metal/present.go` at the same MIT revision. Plico adapts that policy
 to wgpu textures and its event-loop proxy, with Rust ownership and worker-failure
 handling. See `mygo-LICENSE`.
+
+`Renderer::trim_geometry_buffers` follows MyGO `internal/gpu/metal/metal.go`
+`releaseTextures` / builder release at the same revision: idle cleanup releases
+frame-derived geometry storage while keeping reusable pipelines. Plico retains
+its startup-sized instance buffer and relies on wgpu command ownership for
+already encoded/submitted buffers.

@@ -558,6 +558,7 @@ impl WgpuWindow {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.renderer.trim_frame_target();
         self.renderer.trim_readback_buffer();
+        self.renderer.trim_geometry_buffers();
         self.renderer.trim_raster_cache();
         self.renderer.trim_image_cache();
         self.renderer.trim_layer_pool();

@@ -80,6 +80,7 @@ run_tests native-gpu cargo test --color never --locked -p plico-wgpu --no-defaul
 run_tests frame-planning-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib abandoned_prepared_frames_preserve -- --ignored --test-threads=1
 run_tests raster-window-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib stable_native_raster_windows_preserve -- --ignored --test-threads=1
 run_tests layer-owners-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib encoded_layers_release_scene -- --ignored --test-threads=1
+run_tests geometry-trim-gpu cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib geometry_trim_releases -- --ignored --test-threads=1
 run_tests host cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib -- --test-threads=1
 run_surface_window() {
     local marker='' line phase memory_phases=' '

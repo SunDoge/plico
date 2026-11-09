@@ -2,6 +2,8 @@ use crate::{DEFAULT_MATERIAL, Error, Quad, Result};
 use snafu::ResultExt;
 use wgpu::util::DeviceExt;
 
+const INITIAL_INSTANCE_CAPACITY: usize = 64;
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Instance {
@@ -446,7 +448,7 @@ impl Renderer {
                 resource: frame.as_entire_binding(),
             }],
         });
-        let capacity = 64;
+        let capacity = INITIAL_INSTANCE_CAPACITY;
         let instances = Self::instance_buffer(&device, capacity);
         // Everything up to the general fragment entry point is shared vertex
         // and SDF code; the plain fragment below is a strict subset of it.
@@ -1654,6 +1656,29 @@ impl Renderer {
         }
         self.target = None;
         self.invalidate_scene_damage();
+    }
+    /// Current instance GPU buffer and CPU staging capacity, in bytes. Excludes
+    /// buffers still owned by encoded/submitted GPU work; this is not process RSS.
+    pub fn instance_storage_bytes(&self) -> (u64, usize) {
+        (
+            self.instances.size(),
+            self.instance_scratch.capacity() * std::mem::size_of::<Instance>(),
+        )
+    }
+    /// Return the instance stream to startup capacity and release CPU frame scratch.
+    /// Retained pixels and pipelines stay valid. Encoded/submitted commands own
+    /// their old GPU buffers independently until that work is released.
+    pub fn trim_geometry_buffers(&mut self) {
+        self.clear_frame_references();
+        self.instance_scratch = Vec::new();
+        self.frame_images = Vec::new();
+        self.frame_image_slots = Default::default();
+        self.backdrop_effects = Vec::new();
+        self.deferred_layers = Vec::new();
+        if self.capacity > INITIAL_INSTANCE_CAPACITY {
+            self.capacity = INITIAL_INSTANCE_CAPACITY;
+            self.instances = Self::instance_buffer(&self.device, self.capacity);
+        }
     }
     /// Release the optional screenshot/readback buffer without changing final pixels.
     /// A later capture allocates it again; normal window submission does not need it.
@@ -3596,6 +3621,60 @@ mod tests {
         renderer.trim_readback_buffer();
         renderer.trim_readback_buffer();
         assert_eq!(renderer.target_storage_bytes().1, 0);
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn geometry_trim_releases_peak_capacity_preserves_pixels_and_keeps_pipelines_hot() {
+        use plico_renderer::{PaintScene, Scene};
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut scene = Scene::new();
+        for _ in 0..1024 {
+            scene.fill(
+                peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                peniko::Color::WHITE,
+                None,
+                &kurbo::Rect::new(1., 1., 8., 8.),
+            );
+        }
+        let size = [16, 16];
+        let expected = renderer.render_scene(&scene, size, [0.; 4], true).unwrap();
+        let baseline_bytes =
+            INITIAL_INSTANCE_CAPACITY as u64 * std::mem::size_of::<Instance>() as u64;
+        assert!(renderer.instance_storage_bytes().0 > baseline_bytes);
+        assert!(renderer.instance_storage_bytes().1 > 0);
+        let compilations = renderer.pipeline_compilations();
+        let plan = renderer
+            .plan_scene_frame(&scene, size, [0.; 4], false)
+            .unwrap();
+        let encoder = renderer.encode_scene_plan(plan).unwrap();
+        let target = renderer.target.as_ref().unwrap().view.clone();
+        renderer.trim_geometry_buffers();
+        assert_eq!(renderer.instance_storage_bytes(), (baseline_bytes, 0));
+        assert_eq!(renderer.target.as_ref().unwrap().view, target);
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, size, [0.; 4], true)
+                .unwrap()
+                .unchanged()
+        );
+        // Replacing the renderer's buffer cannot invalidate an encoder that
+        // already captured the old buffer and has not been submitted yet.
+        assert_eq!(renderer.read_frame(encoder, size).unwrap(), expected);
+        let baseline_buffer = renderer.instances.clone();
+        renderer.trim_geometry_buffers();
+        assert_eq!(
+            renderer.instances, baseline_buffer,
+            "repeated trim must not reallocate the startup buffer"
+        );
+        assert_eq!(renderer.instance_storage_bytes(), (baseline_bytes, 0));
+        assert_eq!(
+            renderer.render_scene(&scene, size, [0.; 4], false).unwrap(),
+            expected
+        );
+        assert!(renderer.instance_storage_bytes().0 > baseline_bytes);
+        assert_eq!(renderer.pipeline_compilations(), compilations);
     }
 
     #[test]

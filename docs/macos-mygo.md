@@ -813,3 +813,22 @@ Plico 编码器在 top-level encode 结束后的 image / effect / deferred-layer
 相关编码回归 4 项、嵌套 backdrop 3 项通过，Linux / Apple / WASM Clippy 通过。
 两个本机原生检查脚本加入该 GPU 阶段；不触发云端 macOS 运行。该证据不等同于
 macOS RSS 降幅，也不是对先前 3 GB 增长根因的完整定位。
+
+## 空闲时回收几何容量峰值
+
+继续对照 MyGO Metal `releaseTextures` 的 drawState / builder release：两秒空闲
+维护现在同时调用 Renderer::trim_geometry_buffers，将实例 GPU buffer 回落到初始
+64 项，并释放 CPU instance_scratch 以及帧级 image/effect/layer registry 容量。
+原先这些缓冲虽然复用高效，但会一直保留历史最大帧的容量，清空纹理缓存不会缩小它们。
+持续绘制期间的容量复用保持不变，只有已有的空闲/隐藏/内存回收路径执行收缩。
+
+几何回收本身保留目标像素、damage baseline 和 pipeline；窗口空闲回收随后仍按
+原策略释放 retained target。重复调用不会重新分配已经回落的启动 buffer。
+instance_storage_bytes 只报告当前 renderer 持有的实例 GPU buffer 和 CPU staging
+容量，不包含 encoded/submitted work 仍持有的旧 buffer，也不代表进程 RSS。
+
+新 GPU 回归将实例扩展到 1024 项，检查收缩、CPU staging 归零、重复回收的 buffer
+身份稳定、目标像素和 unchanged 判定保留；尤其在回收前编码、回收后才提交，确认
+wgpu 的旧 buffer owner 有效，恢复完整绘制后像素相同且 pipeline 编译计数不增加。
+该回归和真实 X11 surface 回归通过，Linux / Apple / WASM Clippy 通过；本机验证
+脚本纳入该阶段。macOS 的实际内存/恢复延迟仍需用户测量，不启动云端 macOS 作业。
