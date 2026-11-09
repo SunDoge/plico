@@ -13,6 +13,7 @@ use std::{cell::Cell, rc::Rc};
 struct State {
     pass: FramePass,
     callbacks: Cell<u64>,
+    committed_at: Cell<Option<std::time::Instant>>,
 }
 
 pub(crate) struct NativeFramePass {
@@ -46,6 +47,7 @@ impl NativeFramePass {
         let handler = RcBlock::new(move |_: *mut CFRunLoopObserver, _: CFRunLoopActivity| {
             state.callbacks.set(state.callbacks.get().saturating_add(1));
             state.pass.committed();
+            state.committed_at.set(Some(std::time::Instant::now()));
         });
         // SAFETY: None is the default allocator; a non-null copied block owns
         // its Rc state. Non-repeating callbacks and all mutation stay on the
@@ -67,6 +69,13 @@ impl NativeFramePass {
         };
         self.run_loop.add_observer(Some(&observer), Some(self.mode));
         self.observer = Some(observer);
+    }
+    pub fn boundary(&self) -> Option<crate::transaction_policy::PassBoundary> {
+        self.available
+            .then(|| crate::transaction_policy::PassBoundary {
+                epoch: self.state.pass.snapshot()[1],
+                committed_at: self.state.committed_at.get(),
+            })
     }
     pub fn snapshot(&self) -> Option<[u64; 4]> {
         self.available.then(|| {

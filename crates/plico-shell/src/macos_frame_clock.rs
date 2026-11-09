@@ -19,6 +19,8 @@ use winit::window::Window;
 struct State {
     pacer: FramePacer,
     refresh: Cell<Duration>,
+    tick_id: Cell<u64>,
+    tick_time: Cell<Option<Instant>>,
     wake: WakeCallback,
 }
 define_class!(
@@ -34,6 +36,8 @@ define_class!(
         #[unsafe(method(plicoDisplayTick:))]
         fn tick(&self, link: &CADisplayLink) {
             let state = self.ivars();
+            state.tick_id.set(state.tick_id.get().wrapping_add(1));
+            state.tick_time.set(Some(Instant::now()));
             // Timing properties are defined after the first callback. Cache
             // here rather than messaging AppKit for every scheduling query.
             state.refresh.set(display_interval(link.timestamp(), link.targetTimestamp(), link.duration()));
@@ -73,6 +77,8 @@ impl NativeFrameClock {
             pacer: FramePacer::default(),
             // CADisplayLink.duration is undefined before its first callback.
             refresh: Cell::new(Duration::from_secs_f64(1. / 60.)),
+            tick_id: Cell::new(0),
+            tick_time: Cell::new(None),
             wake,
         });
         let target = DisplayLinkTarget::new(mtm, state.clone());
@@ -110,6 +116,15 @@ impl NativeFrameClock {
             self.link.setPaused(false);
         }
         ready
+    }
+    pub fn tick_sample(&self) -> (u64, Option<Instant>) {
+        (self.tick_id(), self.state.tick_time.get())
+    }
+    pub fn tick_id(&self) -> u64 {
+        self.state.tick_id.get()
+    }
+    pub fn refresh_interval(&self) -> Duration {
+        self.state.refresh.get()
     }
     pub fn consume(&self) {
         self.state.pacer.consume(Instant::now());

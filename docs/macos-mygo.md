@@ -370,7 +370,7 @@ macOS 实测排版耗时降幅。
 | 窗口轮廓、初帧露出、空闲回收、隐藏/恢复、resize | 已实现宿主路径；共享逻辑有 X11/wgpu 回归；脚本含主线程不透明窗口生命周期程序 | macOS 实际执行；自定义透明圆角与 CA 视觉一致性仍需单独验收 |
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
-| CA transaction 同步呈现 | wgpu Metal 有底层能力；已加入按需轮次观测与空闲 gate，尚未打开同步属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
+| CA transaction 同步呈现 | 已接入按需轮次、几何同步与显示边界延迟；普通帧保持异步 CA 呈现 | Metal 实机 CA/显示 tick、live resize、高刷与跨屏联合验证 |
 | 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 回归及 macOS worker 5 项原生 CPU 测试通过 | Metal 实机编码重叠收益；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
@@ -423,7 +423,7 @@ xvfb-run -a cargo test --locked -p plico-wgpu --features window --lib native_sur
 
 原生验证脚本已加入 worker 并发阶段。Apple 目标实际实现/测试、Linux Clippy 和 WASM
 检查通过，宿主现有回归保持通过。尚未在 Metal 真窗口运行上述默认路径，也没有
-macOS 主线程等待、帧时间 p95/p99 或 RSS 对照；CA transaction 联合策略仍未开启。
+macOS 主线程等待、帧时间 p95/p99 或 RSS 对照。当时未开启的 CA transaction 联合策略，后续接入见末节。
 
 后台获取默认开启；可在进程启动前设置 `PLICO_WGPU_ASYNC_SURFACE=0`（或 `false`）
 进行同一二进制的同步/后台 A/B 对照。开关只在安装宿主代理时读取，不在帧循环查询。
@@ -455,7 +455,7 @@ cargo test --locked -p plico-wgpu --features window --lib abandoned_prepared_fra
 
 这一步当时只保留 CPU damage 基线。后续已加入单槽 GPU 编码挂起：此时基线跟随
 拥有编码器的 pending 帧，不代表已经提交；废弃编码器必须失效基线，见末节。
-CA transaction 配合与实际 Metal 吞吐/延迟验证仍是独立未完成项。
+后续 CA transaction 配合见末节；实际 Metal 吞吐/延迟验证仍未完成。
 
 ## 主线程真窗口生命周期验证
 
@@ -930,7 +930,7 @@ swapchain 和独立唤醒通道；不依赖一轮留下的 drawable 或代理消
 13 项、主线程生命周期 64 帧。Linux Clippy 与实际 wgpu 窗口/示例的 Apple Silicon
 目标 Clippy 通过。Linux 默认同步路径的 pending 计数为零，受控测试才覆盖后台
 编码路径；没有运行云端 macOS CI，也没有 Metal 实机 p95/p99 或内存收益数据。
-CA transaction 联合时序、原始事件队列身份与高刷/跨屏真实窗口验证仍未完成。
+CA transaction 的 Metal 实机联合验证、原始事件队列身份与高刷/跨屏验证仍未完成。
 
 ## 按需观察呈现轮次
 
@@ -938,7 +938,7 @@ MyGO 的 `updateLayer` 保护同时使用 `caPass`、resize、live resize 和此
 `presentsWithTransaction` 状态。wgpu-hal 30 的 Metal surface 可以访问 render layer，
 也会在获取 drawable 时快照 `presentsWithTransaction`，呈现时按该快照选择路径。
 因此切换层属性还必须配合 drain、获取顺序及宿主重绘来源，不能只改一个 setter。
-当前仍未开启事务同步呈现或同轮重绘延迟；需要先取得实际调度证据。
+这一步当时只增加观测。后续事务同步与显示边界延迟的接入和待验范围见末节。
 
 现在 macOS Metal 的 `WgpuWindow` 记录成功提交的 present 调用，并对有绘制的主
 run-loop 轮次安排一个 BeforeWaiting/Exit observer，使用 MyGO 的 2_000_001 顺序。
@@ -967,3 +967,48 @@ one-shot，以拒绝持续空转的 observer。该 gate 仍待用户在 Mac 运�
 额外检查窗口与文字 feature 的独立性时，发现 `paragraph_raster` 在关闭 system-text
 且未启用 Web 文字时仍被编译，触发 dead_code。现在按实际调用方的 feature/platform
 条件编译该 helper，未压制 warning，也不为窗口观察器开启文字后端。
+
+
+## 事务同步与显示边界联动
+
+继续对照 MyGO `metal.go::Render` 和 `surface.go::updateLayer`，macOS Metal 现在在
+初帧、surface fit/恢复和重建时同步呈现；普通内容帧使用异步 CA 呈现，仍保留 Fifo
+vsync。通过 wgpu HAL 的 Metal surface guard 取得实际 render layer，切换
+`presentsWithTransaction` 前先废弃不兼容 pending encoder 并 drain 获取任务。
+同步帧直接获取 drawable，提交后不预取下一张；普通帧继续使用后台获取及编码重叠。
+因此不会把旧模式下预取的 drawable 用到新模式，或在同步帧后启动可能卡住 CA 提交的预取。
+
+[Apple 的同步呈现约定](https://developer.apple.com/documentation/quartzcore/cametallayer/presentswithtransaction)
+要求提交 GPU 命令、等待 scheduled、再调用 drawable.present；wgpu-hal 30.0.1 已按
+获取时快照的模式实现该路径。Plico 切换属性，不重新维护 Metal 提交实现。HAL mutex
+在 native CATransaction.commit 前释放，期间只保留 layer 的 Retained owner，获取已
+被 drain；没有在持锁状态进入可能触发原生调用的 transaction commit。
+
+上一帧同步呈现后再次改变实际尺寸，非 live resize 会等待此前活跃 CA 轮次结束及
+其后的新 display-link callback。CA observer 和 display-link callback 都记录同一个
+std::Instant 域的观察时间，避免晚到但发生在提交轮次结束前的 tick 提前放行。
+等待期间尺寸继续合并，实际呈现最新 scene；live resize、首次显示、同尺寸输入更新
+及撤回尺寸请求不延迟。取得 tick 许可后遇到获取重试不会重新等待一个周期。
+
+重复 OS redraw 的处理使用 Plico 已有的完整 scene/damage 比较：相同内容在获取和
+切换层属性之前跳过，有变化的输入/异步内容保持处理。它没有把未知来源的 winit
+RedrawRequested 一概当成 AppKit updateLayer，也不猜测 NSEvent.currentEvent 的身份。
+几何撤回导致 unchanged skip 时会清除遗留等待，避免静态页面继续请求 display link。
+
+宿主把 display-link 的序号、观察时间和实际间隔传给 renderer。即使 App 没有动画，
+待呈现几何也会请求显示 tick；这条等待与 surface acquisition/error retry 分开。
+原有 source deadline 仍独立触发，不会被这个显示等待吞掉。无 display-link 的宿主
+使用一次性 deadline；在等待 CA 轮次时延后过期 deadline 让 run loop 完成提交，
+完成后按真实观察时间计算剩余等待，避免忙循环及额外补等整周期。隐藏、回收、错误
+会清除等待，observer 不可用时恢复普通异步模式。正常动画路径不查询 AppKit live resize。
+
+`transaction_stats()` / 生命周期报告新增 `[sync, immediate, deferred]` 计数。
+主线程程序连续执行两次程序化 resize，Mac Metal gate 要求三条路径均被执行；
+当前程序共呈现 65 帧、仍输出原有八阶段内存样本。手动脚本的 CPU/full 模式增加
+transaction-policy 阶段，CPU 模式另检查 transaction-wake；不自动启动 Mac CI。
+
+验证：5 项纯时序策略测试、76 项宿主测试通过（4 项原有测试忽略）；Linux 真窗口
+与 65 帧生命周期通过。实际 wgpu 窗口、示例、NativeFrameClock 和 WindowRenderer
+源码通过 Apple Silicon 目标 Clippy（后两者用隔离类型检查 harness；完整 shell 跨编译
+仍受现有通知依赖需要 macOS SDK 限制）。这些不是 Metal 运行结果；CA 顺序假设、
+live resize、ProMotion、跨屏及真实帧时间/内存仍需用户本机验证，整个优化目标未完成。

@@ -250,6 +250,51 @@ impl WindowRenderer {
             Self::Skia { active: None, .. } => {}
         }
     }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_presentation_clock(
+        &mut self,
+        tick: Option<(u64, Option<std::time::Instant>)>,
+        interval: std::time::Duration,
+    ) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.set_presentation_clock(
+                tick.map(|(serial, observed_at)| plico_wgpu::PresentationTick {
+                    serial,
+                    observed_at,
+                }),
+                interval,
+            );
+        }
+        #[cfg(not(feature = "wgpu"))]
+        let _ = (tick, interval);
+    }
+    pub(crate) fn presentation_deferred(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.presentation_deferred();
+        }
+        false
+    }
+    pub(crate) fn presentation_deadline(&self) -> Option<std::time::Instant> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.presentation_deadline();
+        }
+        None
+    }
     pub(crate) fn surface_acquire_pending(&self) -> bool {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {

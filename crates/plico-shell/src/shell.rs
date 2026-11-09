@@ -245,6 +245,22 @@ impl Shell {
         }
         true
     }
+    pub(crate) fn presentation_deferred(&self) -> bool {
+        self.renderer.presentation_deferred()
+    }
+    pub(crate) fn presentation_waits_for_display(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.frame_clock.is_some() && self.renderer.presentation_deferred()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+    pub(crate) fn presentation_deadline(&self) -> Option<std::time::Instant> {
+        self.renderer.presentation_deadline()
+    }
     pub(crate) fn take_surface_ready(&self) -> bool {
         self.renderer.take_surface_ready()
     }
@@ -375,8 +391,15 @@ impl Shell {
     /// Accept [`Self::scene`], returning true for presentation or an unchanged-frame skip.
     pub fn present(&mut self, base_color: Color) -> bool {
         #[cfg(target_os = "macos")]
-        if let Some(clock) = &self.frame_clock {
-            clock.consume();
+        {
+            if let Some(clock) = &self.frame_clock {
+                self.renderer
+                    .set_presentation_clock(Some(clock.tick_sample()), clock.refresh_interval());
+                clock.consume();
+            } else {
+                self.renderer
+                    .set_presentation_clock(None, std::time::Duration::from_secs_f64(1. / 60.));
+            }
         }
         self.accessibility.publish_root(self.window.as_ref());
         let result = if self.deferred_show {

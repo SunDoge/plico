@@ -104,6 +104,7 @@ impl<T: Send + 'static> Acquire<T> {
         }
     }
     /// Whether a request would wait for a result, without starting work or arming a wake.
+    #[cfg(test)]
     pub fn needs_result(&self) -> bool {
         let state = self.shared.state.lock().unwrap();
         state.ready.is_none() && !state.failed

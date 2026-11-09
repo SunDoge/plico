@@ -36,6 +36,7 @@ enum Phase {
     Initial,
     Warmup,
     Resize,
+    ResizeAfterSync,
     Idle,
     AfterIdle,
     Hidden,
@@ -46,7 +47,12 @@ impl Phase {
     fn draws(self) -> bool {
         matches!(
             self,
-            Self::Initial | Self::Warmup | Self::Resize | Self::AfterIdle | Self::AfterHide
+            Self::Initial
+                | Self::Warmup
+                | Self::Resize
+                | Self::ResizeAfterSync
+                | Self::AfterIdle
+                | Self::AfterHide
         )
     }
 }
@@ -88,7 +94,9 @@ impl Probe {
         if extent.width == 0 || extent.height == 0 {
             return Ok(());
         }
-        if self.phase == Phase::Resize && [extent.width, extent.height] == self.old_extent {
+        if matches!(self.phase, Phase::Resize | Phase::ResizeAfterSync)
+            && [extent.width, extent.height] == self.old_extent
+        {
             return Ok(());
         }
         let mut scene = Scene::new();
@@ -112,7 +120,10 @@ impl Probe {
             if native.gpu.surface_acquire_pending() {
                 self.pending += 1;
             } else {
-                self.deadline = Some(Instant::now() + Duration::from_millis(16));
+                self.deadline = native
+                    .gpu
+                    .presentation_deadline()
+                    .or_else(|| Some(Instant::now() + Duration::from_millis(16)));
             }
             return Ok(());
         }
@@ -146,6 +157,16 @@ impl Probe {
                 }
             }
             Phase::Resize => {
+                // Deliberately request another programmatic size after the
+                // synchronized resize frame, before drawing ordinary content.
+                self.old_extent = [extent.width, extent.height];
+                self.phase = Phase::ResizeAfterSync;
+                let _ = native
+                    .window
+                    .request_surface_size(LogicalSize::new(560., 350.).into());
+                native.window.request_redraw();
+            }
+            Phase::ResizeAfterSync => {
                 memory::report("resized")?;
                 self.phase = Phase::Idle;
                 self.idle_pass_stats = native.gpu.presentation_pass_stats();
@@ -205,6 +226,16 @@ impl Probe {
                 let [pending_encoded, pending_reused, pending_abandoned] =
                     native.gpu.pending_frame_stats();
                 let ca_pass_stats = native.gpu.presentation_pass_stats();
+                let transaction_stats = native.gpu.transaction_stats();
+                #[cfg(target_os = "macos")]
+                if native.gpu.adapter_info().backend == wgpu::Backend::Metal
+                    && !transaction_stats
+                        .is_some_and(|stats| stats[0] > 0 && stats[1] > 0 && stats[2] > 0)
+                {
+                    return Err(error(
+                        "transaction sync/immediate/resize-deferral paths were not all exercised",
+                    ));
+                }
                 #[cfg(target_os = "macos")]
                 if native.gpu.adapter_info().backend == wgpu::Backend::Metal
                     && !ca_pass_stats.is_some_and(|s| s[0] > 0 && s[1] > 0 && s[3] == s[1])
@@ -214,7 +245,7 @@ impl Probe {
                     ));
                 }
                 let summary = format!(
-                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={} pending_encoded={pending_encoded} pending_reused={pending_reused} pending_abandoned={pending_abandoned} ca_pass_stats={ca_pass_stats:?}",
+                    "surface-lifecycle: PASS mode={mode} backend={backend} frames={} pending={} present_p95_us={} warmup_ms={} idle_ready={} pending_encoded={pending_encoded} pending_reused={pending_reused} pending_abandoned={pending_abandoned} ca_pass_stats={ca_pass_stats:?} transaction_stats={transaction_stats:?}",
                     self.frame,
                     self.pending,
                     p95.as_micros(),

@@ -44,11 +44,11 @@ mod event_translate;
 
 use event_translate::{
     CUSTOM_DECORATION_RESIZE_BORDER, FrameWake, allowed_external_url, button_mask,
-    button_source_properties, committed_key_text, gesture_phase, ime_client_changed,
-    ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
+    button_source_properties, committed_key_text, display_wait_wake, gesture_phase,
+    ime_client_changed, ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
     modifiers as translate_modifiers, ms, namespaced_pointer_id, pointer_button,
-    pointer_kind_properties, pointer_source_properties, resize_direction_at, scheduled_frame_wake,
-    unconsumed_key_text, update_present_retry, window_capabilities,
+    pointer_kind_properties, pointer_source_properties, presentation_work, resize_direction_at,
+    scheduled_frame_wake, unconsumed_key_text, update_present_retry, window_capabilities,
 };
 
 type ModalEffectFuture = Pin<Box<dyn Future<Output = crate::EffectCompletion>>>;
@@ -1018,7 +1018,7 @@ impl App {
         };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
-        if shell.surface_acquire_pending() {
+        if shell.surface_acquire_pending() || shell.presentation_deferred() {
             // The worker will wake us once. Do not turn a normal wait into an
             // immediate failed-present retry and redundant UI/scene work.
             self.present_retry_pending = false;
@@ -1537,10 +1537,17 @@ impl App {
 
     fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
         let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
-        let has_animation = self.source.has_anim();
-        let deadline = (!has_animation)
+        let source_animation = self.source.has_anim();
+        let fallback = self.state.as_ref().and_then(Shell::presentation_deadline);
+        let waits_for_tick = self
+            .state
+            .as_ref()
+            .is_some_and(Shell::presentation_waits_for_display);
+        let source_deadline = (!source_animation || fallback.is_some())
             .then(|| self.source.animation_deadline())
             .flatten();
+        let (has_animation, deadline) =
+            presentation_work(source_animation, source_deadline, fallback);
         let mut wake = scheduled_frame_wake(
             self.state.is_some()
                 && self.lifecycle.presence() == WindowPresence::Visible
@@ -1554,10 +1561,13 @@ impl App {
                 .as_ref()
                 .is_some_and(Shell::surface_acquire_pending),
         );
-        if let Some(shell) = &self.state
-            && !shell.animation_frame_ready(has_animation && wake == FrameWake::Redraw)
-        {
-            wake = FrameWake::Idle;
+        if let Some(shell) = &self.state {
+            let waiting = waits_for_tick
+                && self.lifecycle.presence() == WindowPresence::Visible
+                && !self.window_metrics.occluded;
+            let ready =
+                shell.animation_frame_ready(waiting || has_animation && wake == FrameWake::Redraw);
+            wake = display_wait_wake(wake, has_animation, waiting, ready);
         }
         wake.with_maintenance(maintenance)
     }

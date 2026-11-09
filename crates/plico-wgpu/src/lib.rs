@@ -14,6 +14,8 @@ mod frame_pass;
 mod glyphs;
 #[cfg(all(target_os = "macos", feature = "window"))]
 mod macos_frame_pass;
+#[cfg(all(target_os = "macos", feature = "window"))]
+mod macos_transaction;
 mod mipmap;
 mod renderer;
 #[cfg(any(
@@ -21,6 +23,8 @@ mod renderer;
     all(test, not(target_arch = "wasm32"))
 ))]
 mod surface_acquire;
+#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+mod transaction_policy;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 pub mod web;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
@@ -29,6 +33,16 @@ mod web_text;
 mod window;
 #[cfg(feature = "window")]
 pub use window::WgpuWindow;
+/// An observed host display-link callback, in the host's monotonic clock domain.
+#[cfg(any(feature = "window", test))]
+#[derive(Clone, Copy, Debug)]
+pub struct PresentationTick {
+    /// Changes only when a display callback is delivered.
+    pub serial: u64,
+    /// Callback time; None before the host's first callback.
+    pub observed_at: Option<std::time::Instant>,
+}
+
 pub mod image;
 #[cfg(all(target_os = "macos", feature = "system-text"))]
 mod macos_paragraph;

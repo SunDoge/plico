@@ -10,7 +10,7 @@ description = "Experimental instanced-quad wgpu renderer for Plico"
 default = ["system-text"]
 system-text = ["dep:plico-native"]
 web = ["wgpu/webgl", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:unicode-segmentation"]
-window = ["dep:winit", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2"]
+window = ["dep:winit", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2", "dep:objc2-app-kit", "dep:objc2-quartz-core"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
@@ -20,6 +20,8 @@ plico-native = { path = "../plico-native", default-features = false, features = 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSView"], optional = true }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CATransaction"], optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFRunLoop", "block2"], optional = true }
 block2 = { version = "0.6", optional = true }
 libc = "0.2"

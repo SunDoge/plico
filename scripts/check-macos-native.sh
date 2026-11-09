@@ -68,8 +68,10 @@ run_tests coretext cargo test --color never --locked -p plico-native --no-defaul
 run_tests vertical cargo test --color never --locked -p plico-native --no-default-features --features vertical-text --lib vertical:: -- --test-threads=1
 run_tests bridge cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib macos_paragraph::tests:: -- --test-threads=1
 run_tests surface-worker cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib surface_acquire:: -- --test-threads=1
+run_tests transaction-policy cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib transaction_policy:: -- --test-threads=1
 run_tests frame-pass cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib frame_pass:: -- --test-threads=1
 if [[ $check_mode == cpu ]]; then
+    run_tests transaction-wake cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib transaction_wake_tests:: -- --test-threads=1
     run_tests frame-pacing cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib frame_pacing:: -- --test-threads=1
     run_tests drawable-scheduling cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib drawable_wait_suspends -- --test-threads=1
     run_tests titlebar-policy cargo test --color never --locked -p plico-shell --no-default-features --features wgpu --lib titlebar_action:: -- --test-threads=1

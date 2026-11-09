@@ -95,6 +95,8 @@ pub struct WgpuWindow {
     initial_frame_ready: bool,
     #[cfg(target_os = "macos")]
     frame_pass: Option<crate::macos_frame_pass::NativeFramePass>,
+    #[cfg(target_os = "macos")]
+    transaction: Option<crate::macos_transaction::NativeTransaction>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     idle_resources: IdleResources,
     #[cfg(all(
@@ -158,6 +160,10 @@ impl WgpuWindow {
         let frame_pass = (renderer.adapter_info().backend == wgpu::Backend::Metal)
             .then(crate::macos_frame_pass::NativeFramePass::new)
             .flatten();
+        #[cfg(target_os = "macos")]
+        let transaction = frame_pass
+            .as_ref()
+            .and_then(|_| crate::macos_transaction::NativeTransaction::new(&surface));
         Ok(Self {
             renderer,
             instance,
@@ -178,6 +184,8 @@ impl WgpuWindow {
             initial_frame_ready: false,
             #[cfg(target_os = "macos")]
             frame_pass,
+            #[cfg(target_os = "macos")]
+            transaction,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             idle_resources: IdleResources::default(),
             #[cfg(all(
@@ -252,13 +260,6 @@ impl WgpuWindow {
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         if let Some(worker) = &self.surface_acquire {
             return worker.take_signal();
-        }
-        false
-    }
-    fn surface_needs_result(&self) -> bool {
-        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
-        if let Some(worker) = &self.surface_acquire {
-            return worker.needs_result();
         }
         false
     }
@@ -346,6 +347,7 @@ impl WgpuWindow {
         if result.is_err() {
             self.abandon_pending_frame();
             self.cancel_surface_waiter();
+            self.cancel_transaction_wait();
         }
         result
     }
@@ -361,6 +363,7 @@ impl WgpuWindow {
         if size.width == 0 || size.height == 0 {
             self.abandon_pending_frame();
             self.cancel_surface_waiter();
+            self.cancel_transaction_wait();
             return Ok(false);
         }
         self.resize(size.width, size.height);
@@ -385,7 +388,6 @@ impl WgpuWindow {
         if self.pending_frame.is_none()
             && !initial
             && !self.surface_needs_fit()
-            && self.surface_needs_result()
             && self
                 .renderer
                 .prepared_frame_unchanged(&prepared, self.damage_enabled)
@@ -398,10 +400,47 @@ impl WgpuWindow {
             debug_assert!(plan.unchanged());
             self.present_skipped = true;
             self.cancel_surface_waiter();
+            self.cancel_transaction_wait();
             return Ok(true);
         }
-        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        #[cfg(target_os = "macos")]
         if !initial
+            && self.transaction.as_mut().is_some_and(|tx| {
+                tx.defer(
+                    self.window.as_ref(),
+                    [size.width, size.height],
+                    self.frame_pass.as_ref().and_then(|pass| pass.boundary()),
+                )
+            })
+        {
+            self.abandon_pending_frame();
+            self.cancel_surface_waiter();
+            return Ok(false);
+        }
+        #[cfg(target_os = "macos")]
+        let sync_frame = self
+            .transaction
+            .as_ref()
+            .is_some_and(|tx| tx.sync(initial || self.surface_needs_fit()));
+        #[cfg(all(not(target_os = "macos"), test, not(target_arch = "wasm32")))]
+        let sync_frame = false;
+        #[cfg(target_os = "macos")]
+        if self
+            .transaction
+            .as_ref()
+            .is_some_and(|tx| sync_frame || tx.changes_mode(sync_frame))
+        {
+            // A prefetched drawable snapshots its old transaction mode. Drain
+            // before changing that mode or configuring the layer, outside its lock.
+            self.abandon_pending_frame();
+            self.drain_surface_acquire();
+            if let Some(tx) = self.transaction.as_mut() {
+                tx.apply(&self.surface, sync_frame)?;
+            }
+        }
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if !sync_frame
+            && !initial
             && !self.surface_needs_fit()
             && let Some(worker) = &self.surface_acquire
         {
@@ -445,11 +484,12 @@ impl WgpuWindow {
             // This request is satisfied without consuming the prefetched
             // texture. A delayed proxy wake must not redraw it again.
             self.cancel_surface_waiter();
+            self.cancel_transaction_wait();
             return Ok(true);
         }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         let prefetched = match (
-            initial || self.surface_needs_fit(),
+            sync_frame || initial || self.surface_needs_fit(),
             self.surface_acquire.as_ref(),
         ) {
             (false, Some(worker)) => match worker.take() {
@@ -517,6 +557,10 @@ impl WgpuWindow {
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.renderer.abandon_scene_frame(encoder);
                 self.renderer.configure_surface(&self.surface, &self.config);
+                #[cfg(target_os = "macos")]
+                if let Some(tx) = &mut self.transaction {
+                    tx.reconfigured();
+                }
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Lost => {
@@ -534,6 +578,10 @@ impl WgpuWindow {
                         })?,
                 );
                 self.renderer.configure_surface(&self.surface, &self.config);
+                #[cfg(target_os = "macos")]
+                if let Some(tx) = &mut self.transaction {
+                    tx.replaced();
+                }
                 #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
                 self.reset_surface_acquire();
                 return Ok(false);
@@ -562,11 +610,19 @@ impl WgpuWindow {
         self.window.pre_present_notify();
         self.renderer.present(frame);
         #[cfg(target_os = "macos")]
+        if let Some(tx) = &mut self.transaction {
+            tx.presented(
+                [size.width, size.height],
+                sync_frame,
+                self.frame_pass.as_ref().and_then(|pass| pass.boundary()),
+            );
+        }
+        #[cfg(target_os = "macos")]
         if let Some(pass) = &mut self.frame_pass {
             pass.presented();
         }
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
-        if let Some(worker) = &self.surface_acquire {
+        if !sync_frame && let Some(worker) = &self.surface_acquire {
             worker.start();
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -576,6 +632,59 @@ impl WgpuWindow {
 }
 
 impl WgpuWindow {
+    /// Supply the host's display-link epoch and sampled interval. None uses
+    /// a deadline fallback, useful for hosts without CADisplayLink integration.
+    pub fn set_presentation_clock(
+        &mut self,
+        tick: Option<crate::PresentationTick>,
+        interval: std::time::Duration,
+    ) {
+        #[cfg(target_os = "macos")]
+        if let Some(tx) = &mut self.transaction {
+            tx.clock(tick, interval);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (tick, interval);
+    }
+    /// Waiting for a display boundary, distinct from drawable acquisition.
+    pub fn presentation_deferred(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.transaction.as_ref().is_some_and(|tx| tx.deferred())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+    /// A one-shot fallback deadline; absent when the host supplies display ticks.
+    pub fn presentation_deadline(&self) -> Option<std::time::Instant> {
+        #[cfg(target_os = "macos")]
+        {
+            self.transaction.as_ref().and_then(|tx| tx.deadline())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
+    /// Synchronized submits, immediate submits and new display deferrals.
+    pub fn transaction_stats(&self) -> Option<[u64; 3]> {
+        #[cfg(target_os = "macos")]
+        {
+            self.transaction.as_ref().map(|tx| tx.stats())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
+    fn cancel_transaction_wait(&mut self) {
+        #[cfg(target_os = "macos")]
+        if let Some(tx) = &mut self.transaction {
+            tx.cancel();
+        }
+    }
     /// Submitted present calls, completed active run-loop passes, additional
     /// presentations in a pass, and observer callbacks. None off Metal/macOS
     /// or if unavailable. Observer ordering follows MyGO's CA commit boundary.
@@ -639,6 +748,7 @@ impl WgpuWindow {
     /// Drain acquisition while the native window is still visible, before the
     /// host hides/minimizes it. Retain target pixels for OS window animations.
     pub fn prepare_hide(&mut self) {
+        self.cancel_transaction_wait();
         self.abandon_pending_frame();
         self.drain_surface_acquire();
         self.acquire_pending = false;
@@ -647,6 +757,7 @@ impl WgpuWindow {
     /// macOS also shrinks spare drawables; Linux keeps its real surface extent.
     /// The compositor owns the presented last frame. Next present redraws fully.
     pub fn trim_gpu_cache(&mut self) {
+        self.cancel_transaction_wait();
         self.abandon_pending_frame();
         self.drain_surface_acquire();
         self.acquire_pending = false;

@@ -106,7 +106,17 @@ animations while acquired swapchain owners are released before host visibility c
 BeforeWaiting/Exit observer at order 2_000_001 only after presentation, rather
 than entering application callbacks on every idle run-loop pass. Plico records
 per-window present/active-pass/additional-frame/callback counts, owns the CF
-observer/block with Rust RAII, and invalidates it on window destruction. It does
-not yet use the observation to defer frames or enable transaction presentation.
+observer/block with Rust RAII, and invalidates it on window destruction. Its subsequent transaction policy uses the observed pass boundary together
+with a timestamped host display tick, rather than guessing native event identity.
 Existing MyGO MIT attribution applies; the constant is an implementation
 reference, not an Apple guarantee of Core Animation's observer order.
+
+`src/transaction_policy.rs` and `src/macos_transaction.rs` adapt MyGO
+`internal/darwin/surface.go::updateLayer` and `internal/gpu/metal/metal.go::Render`
+at the same MIT revision: synchronize layer-changing frames, drain prefetch
+before mode changes, do not prefetch after synchronized presents, and defer
+resize after a synchronized frame to a display boundary outside live resize.
+Plico uses exact scene damage comparison for redundant redraws, typed timestamped
+Rust clock samples, one-shot deadline fallback, and wgpu-hal's existing Metal
+present implementation. HAL guards do not escape and no resource is destroyed;
+the layer is retained without its mutex across CATransaction commit.
