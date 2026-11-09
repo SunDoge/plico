@@ -84,3 +84,12 @@ following the primary/style font and attribute reuse principle in MyGO
 MIT). Plico uses a bounded 128-entry LRU, skips availability shaping for known
 system/private families, and invalidates choices with its own font/cache lifecycle.
 No MyGO family lookup or runtime source is linked; the existing MIT notice applies.
+
+The single-slot background surface acquisition worker in `src/surface_acquire.rs`
+and its macOS window integration reference MyGO
+`internal/gpu/metal/present.go::presenter` at
+`ee3d4bd9bd741f197de231b9fd9b002e9db55577` (MIT): one owned result, waiter-only
+wake, and drain before layer/surface lifecycle changes. This newly written Rust
+uses wgpu's Send/Sync surface contracts and a host event-loop proxy. It does not
+yet retain encoded pendingFrame command buffers across acquisition; that remains
+a separate renderer-lifetime optimization. Existing MyGO MIT attribution applies.

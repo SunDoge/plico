@@ -250,6 +250,17 @@ impl WindowRenderer {
             Self::Skia { active: None, .. } => {}
         }
     }
+    pub(crate) fn surface_acquire_pending(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.surface_acquire_pending();
+        }
+        false
+    }
     pub(crate) fn present_skipped(&self) -> bool {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {
@@ -286,6 +297,29 @@ impl WindowRenderer {
         {
             renderer.invalidate_presentation();
         }
+    }
+    pub(crate) fn set_surface_wake(&mut self, wake: crate::WakeCallback) {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.set_surface_wake(wake);
+            return;
+        }
+        let _ = wake;
+    }
+    pub(crate) fn take_surface_ready(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return renderer.take_surface_ready();
+        }
+        false
     }
     pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
         #[cfg(feature = "wgpu")]

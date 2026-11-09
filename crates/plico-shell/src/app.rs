@@ -1018,7 +1018,11 @@ impl App {
         };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
-        if update_present_retry(presented, &mut self.present_retry_pending) {
+        if shell.surface_acquire_pending() {
+            // The worker will wake us once. Do not turn a normal wait into an
+            // immediate failed-present retry and redundant UI/scene work.
+            self.present_retry_pending = false;
+        } else if update_present_retry(presented, &mut self.present_retry_pending) {
             shell.window().request_redraw();
         }
     }
@@ -1227,7 +1231,12 @@ impl App {
         if preferences_changed {
             self.sync_window_metrics();
         }
+        let surface_ready = self
+            .state
+            .as_ref()
+            .is_some_and(|shell| shell.take_surface_ready());
         preferences_changed
+            | surface_ready
             | self.poll_modal_effects()
             | self.poll_effect_completions()
             | self.source.poll_async()

@@ -12,6 +12,11 @@ mod blur;
 mod glyphs;
 mod mipmap;
 mod renderer;
+#[cfg(any(
+    all(target_os = "macos", feature = "window"),
+    all(test, not(target_arch = "wasm32"))
+))]
+mod surface_acquire;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 pub mod web;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

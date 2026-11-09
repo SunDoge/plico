@@ -367,7 +367,7 @@ macOS 实测排版耗时降幅。
 | NSView display link / ProMotion | macOS 14+ 使用原生 display link；旧版回退现有宿主调度 | 60/120 Hz、跨显示器、遮挡恢复的实机节奏和功耗数据 |
 | 原生 clickCount / 原始事件时间 | 标题栏特殊路径使用当前 NSEvent；普通文字使用系统间隔与注入时钟 | 需要在原始事件与 winit 派发边界保留身份/计数/时间；不能在事后盲读 currentEvent |
 | CA transaction 同步呈现 | wgpu Metal 有相应底层能力，Plico 未打开该层属性 | MyGO 的 CA 提交轮次保护、重复绘制和 resize/同轮事务组合必须一起设计与验证 |
-| 异步 drawable 获取 | 场景编码已在同步获取 drawable 前完成 | MyGO presenter 的后台 nextDrawable、in-flight fetch 与配置/trim 协作尚未迁移 |
+| 异步 drawable 获取 | 默认 macOS 宿主启用单槽后台获取；X11 真 surface 延迟/清理回归及 Apple 目标编译通过 | Metal 实机指标；pending GPU 编码重叠/局部 damage 保留；与 CA transaction 策略联合验证 |
 | 内存和交互性能 | 有界缓存、资源释放及像素正确性回归 | macOS RSS/footprint、滚动 p95/p99、连续 resize、原生动画的实测对照 |
 
 ### 为什么不从 currentEvent 补普通点击计数
@@ -381,3 +381,49 @@ macOS 实测排版耗时降幅。
 等价的实现。该差异保持显式待办，不用更宽松的匹配掩盖。
 
 脚本全绿仅证明表内自动回归覆盖的部分，不能将上述待办及实机指标标记为已完成。
+
+## 单槽后台 surface 获取
+
+参考 MyGO `internal/gpu/metal/present.go` 的 presenter，默认 macOS 宿主通过
+`WgpuWindow::set_surface_wake` 安装事件循环代理后启用后台获取。每次成功呈现后
+最多预取一个 `CurrentSurfaceTexture`；同一个 worker 在空闲时等待条件变量，没有
+获取队列或周期轮询。独立使用 WgpuWindow 而未安装代理时仍使用原有同步路径；
+线程创建失败记录诊断并保留同步路径。Linux 默认路径本轮没有开启后台获取。
+
+- 普通同尺寸帧遇到尚未完成的获取时返回 pending，UI 线程继续处理输入。结果到达
+  只在确有帧等待时设置一次 signal 并唤醒 event-loop proxy；宿主将它转换为 redraw。
+  静态窗口的预取自行完成不会制造额外 redraw。pending 不走失败呈现的立即重试。
+- 首帧 ready-to-show 和真实 surface 几何变化使用同步路径。fit/configure、trim、
+  surface 丢失重建及窗口析构前先 drain，等待 in-flight fetch 并释放旧 texture。
+  这些生命周期操作仍可能等待获取结束，与 MyGO 的同步保护相同；不声称所有
+  resize/关闭都完全没有主线程等待。析构在 renderer/surface/window 字段释放前 join。
+- worker 唤醒只调用代理，不能从后台调用 winit Window::request_redraw：当前 AppKit
+  实现的 maybe_wait_on_main 可能等待 UI，与 UI 等待 worker 形成环。
+- wgpu 30 的 Surface/SurfaceTexture 通过 Send/Sync 类型约束跨线程持有；真正的
+  acquire 在 worker，配置及编码/提交仍归宿主。配置期间绝不保留旧 texture。
+- 当前 bridge 在 ready 后编码最新 scene，没有跨获取间隔保留已编码 command buffer。
+  它与 MyGO pendingFrame 的 GPU 编码重叠不同：pending 时要撤销已经推进的 damage
+  history，下次可能完整重绘；否则会错误跳过尚未呈现的内容。后续编码重叠/局部
+  damage 保留仍需结合 Renderer 共享可变 buffer 和显式 capture 生命周期继续优化。
+- 等待实际帧时暂停 idle 维护期限，防止维护清理撤销唯一的完成唤醒；完成后重新安排
+  两秒一次的回收。显式遮挡/关闭仍可 drain 清理，并在恢复显示时完整重绘。
+
+三项并发回归使用受控通道验证单槽、等待者唤醒、静态预取不唤醒、drain/drop 释放
+实际 owner 以及 fetch panic 后不永久等待。真实 X11/wgpu 回归将受控延迟注入实际
+surface.get_current_texture，核对 UI 先返回 pending、完成 signal 只消费一次、随后帧
+不会误判 unchanged、截图像素正确，以及 drain 后真实 configure 不会因旧 texture
+仍存活而 panic。这验证共享资源协调，不冒充 Metal 驱动时序测量。
+
+```sh
+cargo test --locked -p plico-wgpu --features window --lib surface_acquire::
+xvfb-run -a cargo test --locked -p plico-wgpu --features window --lib native_surface_resize_waits -- --ignored
+```
+
+原生验证脚本已加入 worker 并发阶段。Apple 目标实际实现/测试、Linux Clippy 和 WASM
+检查通过，宿主现有回归保持通过。尚未在 Metal 真窗口运行上述默认路径，也没有
+macOS 主线程等待、帧时间 p95/p99 或 RSS 对照；CA transaction 联合策略仍未开启。
+
+后台获取默认开启；可在进程启动前设置 `PLICO_WGPU_ASYNC_SURFACE=0`（或 `false`）
+进行同一二进制的同步/后台 A/B 对照。开关只在安装宿主代理时读取，不在帧循环查询。
+原生验证报告会记录该设置。worker panic 会报告错误并停用该 worker，保留宿主已有
+的有限同步恢复重试；这不保证能恢复已损坏的驱动/设备。

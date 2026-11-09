@@ -77,12 +77,17 @@ impl HasDisplayHandle for SharedWindow {
 pub struct WgpuWindow {
     renderer: Renderer,
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'static>,
+    surface: Arc<wgpu::Surface<'static>>,
+    #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+    surface_acquire: Option<crate::surface_acquire::Acquire<wgpu::CurrentSurfaceTexture>>,
+    #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+    surface_wake: Option<plico_renderer::WakeCallback>,
     window: Arc<dyn Window>,
     config: wgpu::SurfaceConfiguration,
     configured_size: [u32; 2],
     damage_enabled: bool,
     present_skipped: bool,
+    acquire_pending: bool,
     initial_frame_ready: bool,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     idle_resources: IdleResources,
@@ -100,6 +105,7 @@ impl WgpuWindow {
             .map_err(|e| Error::Surface {
                 message: e.to_string(),
             })?;
+        let surface = Arc::new(surface);
         let renderer = pollster::block_on(Renderer::new_for_surface(&instance, &surface))?;
         let caps = renderer.surface_capabilities(&surface);
         let format = caps
@@ -146,11 +152,16 @@ impl WgpuWindow {
             renderer,
             instance,
             surface,
+            #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+            surface_acquire: None,
+            #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+            surface_wake: None,
             window,
             configured_size: [config.width, config.height],
             config,
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
+            acquire_pending: false,
             initial_frame_ready: false,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             idle_resources: IdleResources::default(),
@@ -160,6 +171,55 @@ impl WgpuWindow {
             ))]
             text_scale: None,
         })
+    }
+    /// Enable bounded background acquisition on macOS. The callback must only
+    /// wake the event loop; it must never synchronously wait for the UI thread.
+    pub fn set_surface_wake(&mut self, wake: plico_renderer::WakeCallback) {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        {
+            // Startup-only A/B switch; no environment lookup in the frame loop.
+            if matches!(
+                std::env::var("PLICO_WGPU_ASYNC_SURFACE").ok().as_deref(),
+                Some("0" | "false")
+            ) {
+                self.surface_acquire = None;
+                self.surface_wake = None;
+                return;
+            }
+            self.surface_wake = Some(wake);
+            self.reset_surface_acquire();
+        }
+        #[cfg(not(any(target_os = "macos", all(test, not(target_arch = "wasm32")))))]
+        let _ = wake;
+    }
+    #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+    fn reset_surface_acquire(&mut self) {
+        self.surface_acquire = None;
+        if let Some(wake) = self.surface_wake.clone() {
+            let surface = self.surface.clone();
+            match crate::surface_acquire::Acquire::new(move || surface.get_current_texture(), wake)
+            {
+                Ok(worker) => self.surface_acquire = Some(worker),
+                Err(error) => {
+                    tracing::warn!(%error, "surface worker unavailable; using synchronous acquisition")
+                }
+            }
+        }
+    }
+    fn drain_surface_acquire(&self) {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if let Some(worker) = &self.surface_acquire {
+            worker.drain();
+        }
+    }
+    /// Consume a readiness notification, not the acquired texture. The host
+    /// requests a redraw only if an earlier frame actually waited for it.
+    pub fn take_surface_ready(&self) -> bool {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if let Some(worker) = &self.surface_acquire {
+            return worker.take_signal();
+        }
+        false
     }
     /// Reinstall the native measure provider only when device scale/context changes.
     pub fn configure_text(&mut self, text: &mut TextContext) -> Result<()> {
@@ -205,15 +265,18 @@ impl WgpuWindow {
         self.config.width = width;
         self.config.height = height;
     }
-    fn fit_surface(&mut self) {
+    fn surface_needs_fit(&self) -> bool {
         #[cfg(not(target_os = "macos"))]
         let restore = false;
         #[cfg(target_os = "macos")]
         let restore = self.idle_resources.trimmed;
-        let size = [self.config.width, self.config.height];
-        if self.configured_size != size || restore {
+        self.configured_size != [self.config.width, self.config.height] || restore
+    }
+    fn fit_surface(&mut self) {
+        if self.surface_needs_fit() {
+            self.drain_surface_acquire();
             self.renderer.configure_surface(&self.surface, &self.config);
-            self.configured_size = size;
+            self.configured_size = [self.config.width, self.config.height];
             #[cfg(target_os = "macos")]
             {
                 self.idle_resources.trimmed = false;
@@ -233,6 +296,7 @@ impl WgpuWindow {
     }
     fn present_frame(&mut self, scene: &Scene, background: Color, initial: bool) -> Result<bool> {
         self.present_skipped = false;
+        self.acquire_pending = false;
         let size = self.window.surface_size();
         if size.width == 0 || size.height == 0 {
             return Ok(false);
@@ -252,16 +316,45 @@ impl WgpuWindow {
             self.present_skipped = true;
             return Ok(true);
         }
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        let prefetched = match (
+            initial || self.surface_needs_fit(),
+            self.surface_acquire.as_ref(),
+        ) {
+            (false, Some(worker)) => match worker.take() {
+                Ok(Some(frame)) => Some(frame),
+                Ok(None) => {
+                    self.acquire_pending = true;
+                    // Planning already advanced history, but no pixels changed.
+                    self.renderer.invalidate_scene_damage();
+                    return Ok(false);
+                }
+                Err(error) => {
+                    self.renderer.invalidate_scene_damage();
+                    // Disable the failed worker; the host's bounded recovery
+                    // retry can use the original synchronous acquisition path.
+                    self.surface_acquire = None;
+                    return Err(Error::Surface {
+                        message: error.to_string(),
+                    });
+                }
+            },
+            _ => None,
+        };
         // As in MyGO Metal's fit(), wait for a real frame to restore/change
         // drawables. Hidden resize/DPI notifications only update desired size.
+        if initial {
+            self.drain_surface_acquire();
+        }
         self.fit_surface();
         // Configuration/encoding can allocate resources even if acquisition or
         // submission later fails. Keep one-shot cleanup armed for that case.
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.used(std::time::Instant::now());
         // Match MyGO's ready-to-show ordering without acquiring a drawable
-        // for a hidden window (wgpu Metal deliberately rejects that). Normal
-        // frames also finish all scene encoding before holding the drawable.
+        // for a hidden window (wgpu Metal deliberately rejects that). The
+        // synchronous path encodes before acquisition; a prefetched texture
+        // lets the host encode the latest scene without waiting for the display.
         let encoder = if initial {
             let encoder = self.renderer.prime_scene_plan(plan, self.config.format)?;
             self.initial_frame_ready = true;
@@ -270,7 +363,11 @@ impl WgpuWindow {
         } else {
             self.renderer.encode_scene_plan(plan)?
         };
-        let frame = match self.surface.get_current_texture() {
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        let acquired = prefetched.unwrap_or_else(|| self.surface.get_current_texture());
+        #[cfg(not(any(target_os = "macos", all(test, not(target_arch = "wasm32")))))]
+        let acquired = self.surface.get_current_texture();
+        let frame = match acquired {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             wgpu::CurrentSurfaceTexture::Outdated => {
@@ -280,13 +377,21 @@ impl WgpuWindow {
             }
             wgpu::CurrentSurfaceTexture::Lost => {
                 self.renderer.abandon_scene_frame(encoder);
-                self.surface = self
-                    .instance
-                    .create_surface(SharedWindow(self.window.clone()))
-                    .map_err(|e| Error::Surface {
-                        message: e.to_string(),
-                    })?;
+                self.drain_surface_acquire();
+                #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+                {
+                    self.surface_acquire = None;
+                }
+                self.surface = Arc::new(
+                    self.instance
+                        .create_surface(SharedWindow(self.window.clone()))
+                        .map_err(|e| Error::Surface {
+                            message: e.to_string(),
+                        })?,
+                );
                 self.renderer.configure_surface(&self.surface, &self.config);
+                #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+                self.reset_surface_acquire();
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
@@ -311,6 +416,10 @@ impl WgpuWindow {
         submitted?;
         self.window.pre_present_notify();
         self.renderer.present(frame);
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        if let Some(worker) = &self.surface_acquire {
+            worker.start();
+        }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.used(std::time::Instant::now());
         Ok(true)
@@ -318,6 +427,11 @@ impl WgpuWindow {
 }
 
 impl WgpuWindow {
+    /// A frame is waiting for background acquisition; its event-loop wake will
+    /// retry it. This is distinct from a surface failure or an unchanged frame.
+    pub fn surface_acquire_pending(&self) -> bool {
+        self.acquire_pending
+    }
     pub fn last_present_skipped(&self) -> bool {
         self.present_skipped
     }
@@ -327,6 +441,9 @@ impl WgpuWindow {
     }
     /// Next one-shot idle maintenance wake on macOS/Linux.
     pub fn maintenance_deadline(&self) -> Option<std::time::Instant> {
+        if self.acquire_pending {
+            return None;
+        }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             self.idle_resources.deadline
@@ -339,7 +456,7 @@ impl WgpuWindow {
     /// Release idle resources when due without rendering or requesting a frame.
     pub fn maintain(&mut self, now: std::time::Instant) {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
-        if self.idle_resources.due(now) {
+        if !self.acquire_pending && self.idle_resources.due(now) {
             self.trim_gpu_cache();
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -349,6 +466,8 @@ impl WgpuWindow {
     /// macOS also shrinks spare drawables; Linux keeps its real surface extent.
     /// The compositor owns the presented last frame. Next present redraws fully.
     pub fn trim_gpu_cache(&mut self) {
+        self.drain_surface_acquire();
+        self.acquire_pending = false;
         #[cfg(target_os = "macos")]
         if !self.idle_resources.trimmed {
             // MyGO's idle Metal trim: changing drawableSize preserves the last
@@ -398,6 +517,17 @@ impl WgpuWindow {
         self.idle_resources.used(std::time::Instant::now());
         self.renderer
             .render_items(&prepared.draws(), size, background.components, 0.)
+    }
+}
+
+impl Drop for WgpuWindow {
+    fn drop(&mut self) {
+        // Join before renderer/surface/window field destruction. Wake callbacks
+        // are event-loop proxies and cannot wait on this dropping host thread.
+        #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
+        {
+            self.surface_acquire = None;
+        }
     }
 }
 
@@ -476,6 +606,103 @@ mod tests {
                 assert!(
                     gpu.last_present_skipped(),
                     "coalesced sizes do not invalidate unchanged content"
+                );
+                // A controlled in-flight real surface acquisition must not
+                // block a changed frame, nor advance damage into a false skip.
+                let (release, gate) = std::sync::mpsc::channel();
+                let (began, begins) = std::sync::mpsc::channel();
+                let (wake, wakes) = std::sync::mpsc::channel();
+                let wake: plico_renderer::WakeCallback = Arc::new(move || {
+                    let _ = wake.send(());
+                });
+                gpu.set_surface_wake(wake.clone());
+                // The controlled resource protocol test also runs when the
+                // process uses the synchronous A/B comparison switch.
+                gpu.surface_wake = Some(wake.clone());
+                let surface = gpu.surface.clone();
+                let mut first = true;
+                gpu.surface_acquire = Some(
+                    crate::surface_acquire::Acquire::new(
+                        move || {
+                            if first {
+                                first = false;
+                                began.send(()).unwrap();
+                                gate.recv().unwrap();
+                            }
+                            surface.get_current_texture()
+                        },
+                        wake,
+                    )
+                    .unwrap(),
+                );
+                gpu.surface_acquire.as_ref().unwrap().start();
+                begins
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap();
+                let (returned, received) = std::sync::mpsc::channel();
+                let rescue = std::thread::spawn(move || {
+                    let nonblocking = received
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .is_ok();
+                    release.send(()).unwrap();
+                    nonblocking
+                });
+                let pending = gpu.present(&scene, Color::WHITE).unwrap();
+                let _ = returned.send(());
+                assert!(
+                    rescue.join().unwrap(),
+                    "UI waited for the acquisition worker"
+                );
+                assert!(!pending);
+                assert!(gpu.surface_acquire_pending());
+                assert!(
+                    gpu.maintenance_deadline().is_none(),
+                    "waiting for a frame is active work, not idle"
+                );
+                wakes
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap();
+                assert!(gpu.take_surface_ready());
+                assert!(!gpu.take_surface_ready());
+                assert!(gpu.present(&scene, Color::WHITE).unwrap());
+                assert!(
+                    !gpu.last_present_skipped(),
+                    "a pending plan never established retained pixels"
+                );
+                let pixels = gpu
+                    .capture_rgba(&scene, [actual.width, actual.height], Color::WHITE)
+                    .unwrap();
+                assert!(
+                    pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|pixel| *pixel == [255; 4])
+                );
+                gpu.trim_gpu_cache();
+                // configure() would panic if the prefetched SurfaceTexture
+                // were still live; this exercises drain with real GPU owners.
+                gpu.renderer.configure_surface(&gpu.surface, &small);
+                gpu.configured_size = [1, 1];
+                assert!(gpu.present(&scene, Color::BLACK).unwrap());
+                gpu.surface_acquire = None;
+                let wake = gpu.surface_wake.clone().unwrap();
+                gpu.surface_acquire = Some(
+                    crate::surface_acquire::Acquire::new(
+                        || panic!("controlled acquisition failure"),
+                        wake,
+                    )
+                    .unwrap(),
+                );
+                assert!(!gpu.present(&scene, Color::WHITE).unwrap());
+                wakes
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap();
+                assert!(gpu.present(&scene, Color::WHITE).is_err());
+                assert!(gpu.surface_acquire.is_none());
+                assert!(
+                    gpu.present(&scene, Color::WHITE).unwrap(),
+                    "a failed worker must leave synchronous recovery available"
                 );
                 self.0.store(true, Ordering::SeqCst);
                 event_loop.exit();

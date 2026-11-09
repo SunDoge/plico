@@ -222,6 +222,7 @@ impl Shell {
         }
     }
     pub(crate) fn observe_native_events(&mut self, _wake: crate::WakeCallback) {
+        self.renderer.set_surface_wake(_wake.clone());
         #[cfg(target_os = "macos")]
         {
             self.frame_clock = crate::macos_frame_clock::NativeFrameClock::new(
@@ -239,6 +240,9 @@ impl Shell {
             return clock.frame_ready(_continuous);
         }
         true
+    }
+    pub(crate) fn take_surface_ready(&self) -> bool {
+        self.renderer.take_surface_ready()
     }
     pub(crate) fn refresh_display_preferences(&mut self) -> bool {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -419,6 +423,9 @@ impl Shell {
             .damage_coverage(self.surface_size[0], self.surface_size[1])
     }
 
+    pub(crate) fn surface_acquire_pending(&self) -> bool {
+        self.renderer.surface_acquire_pending()
+    }
     pub(crate) fn present_skipped(&self) -> bool {
         self.renderer.present_skipped()
     }
