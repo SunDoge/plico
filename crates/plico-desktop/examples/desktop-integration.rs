@@ -17,11 +17,14 @@ impl HostView for Demo {
             if button(cx).text("Send notification").clicked() {
                 self.next += 1;
                 let request = plico_desktop::NotificationRequest {
-                    title: "Plico desktop example".into(), body: Some("Click to restore this window.".into()),
-                    icon: None, silent: true,
+                    title: "Plico desktop example".into(),
+                    body: Some("Click to restore this window.".into()),
+                    icon: None,
+                    silent: true,
                 };
                 self.status = match self.native.handle().notify(self.next, request) {
-                    Ok(()) => "Notification queued".into(), Err(error) => error.to_string(),
+                    Ok(()) => "Notification queued".into(),
+                    Err(error) => error.to_string(),
                 };
             }
         };
