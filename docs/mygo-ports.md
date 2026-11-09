@@ -96,3 +96,7 @@ wgpu 材质包含 Regular/Clear/Clarity、悬停／按压反馈、连续内外�
 - 组件与行为测试：`crates/plico/tests/{desktop,indicator,navigation,search,tree,color,form,radio,date,find,alert,split}_widgets.rs`。
 - 语义投影：`crates/plico-runtime/tests/indicator_semantics.rs`、`alert_dialog.rs`。
 - 各控件的 API 与已知差异：`docs/components.md`、`docs/desktop-widgets.md`。
+
+## 呈现与合成架构
+
+退出子树、字形几何变换与背景采样顺序的本轮对照见 [呈现生命周期](presentation.md)，包含具体 MyGO revision、源文件、测试与限制。

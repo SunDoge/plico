@@ -9,6 +9,7 @@ struct Entry {
     target: [f64; 42],
     shape: (bool, bool, bool, [u8; 26]),
     duration: u16,
+    raster_scale: f64,
 }
 pub(crate) struct StyleMotions {
     arena: MotionArena<42>,
@@ -96,6 +97,13 @@ impl StyleMotions {
         self.buttons
             .style(entity, style, theme, input, self.enabled)
     }
+    pub fn raster_scale(&self, entity: Entity) -> Option<f64> {
+        self.entries
+            .get(&entity)
+            .filter(|entry| self.arena.is_running(entry.id))
+            .map(|entry| entry.raster_scale)
+            .filter(|scale| scale.is_finite() && *scale > 0.)
+    }
     pub fn checked(&self, entity: Entity, target: bool) -> f32 {
         self.entries
             .get(&entity)
@@ -157,8 +165,16 @@ impl StyleMotions {
         }
         let entry = self.entries.entry(entity).or_insert_with(|| {
             let mut initial = target;
-            if entering && style.modal_open && style.overlay {
-                initial[4] = 0.;
+            if entering {
+                if let Some(from) = style.enter_from {
+                    initial[4] = f64::from(from.opacity);
+                    initial[12] = f64::from(from.translate[0]);
+                    initial[13] = f64::from(from.translate[1]);
+                    initial[14] = f64::from(from.scale[0]);
+                    initial[15] = f64::from(from.scale[1]);
+                } else if style.modal_open && style.overlay {
+                    initial[4] = 0.;
+                }
             }
             Entry {
                 id: self.arena.insert_tween(
@@ -169,15 +185,20 @@ impl StyleMotions {
                     } else {
                         0
                     }),
-                    Easing::EaseInOut,
+                    Easing::EaseOut,
                 ),
                 target,
                 shape,
                 duration: style.transition_ms,
+                raster_scale: initial[14].max(initial[15]).max(target[14]).max(target[15]),
             }
         });
         self.owners.insert(entry.id, entity);
         if entry.target != target || entry.duration != style.transition_ms {
+            entry.raster_scale = entry.target[14]
+                .max(entry.target[15])
+                .max(target[14])
+                .max(target[15]);
             self.arena.retarget_tween(
                 entry.id,
                 target,

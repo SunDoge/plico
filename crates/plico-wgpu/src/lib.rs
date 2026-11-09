@@ -4,6 +4,7 @@
 //! remain separate features. The rendering path does not invoke Vello.
 mod backdrop_batch;
 mod backdrop_composite;
+mod backdrop_context;
 mod backdrop_prefilter;
 mod blit;
 mod blur;

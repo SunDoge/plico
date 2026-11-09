@@ -14,6 +14,7 @@ pub struct PreparedScene {
 }
 /// An isolated source-over or additive group. Children are drawn into a transparent GPU
 /// texture, then alpha/clip are applied once to the completed group.
+#[derive(Clone)]
 pub struct PreparedLayer {
     pub(crate) scene: std::rc::Rc<PreparedScene>,
     pub(crate) quad: Quad,
@@ -34,6 +35,7 @@ struct Payloads {
 struct PreparedText {
     layout: std::rc::Rc<crate::text::GlyphLayout>,
     origin: [f64; 2],
+    scale: f64,
     color: [f32; 4],
     clip: [f32; 4],
 }
@@ -80,10 +82,10 @@ impl PreparedDraw {
                         let [x, y, w, h] = glyph.ink_bounds;
                         (w > 0. && h > 0.).then(|| {
                             Rect::new(
-                                text.origin[0] + glyph.x + x,
-                                text.origin[1] + glyph.y + y,
-                                text.origin[0] + glyph.x + x + w,
-                                text.origin[1] + glyph.y + y + h,
+                                text.origin[0] + (glyph.x + x) * text.scale,
+                                text.origin[1] + (glyph.y + y) * text.scale,
+                                text.origin[0] + (glyph.x + x + w) * text.scale,
+                                text.origin[1] + (glyph.y + y + h) * text.scale,
                             )
                             .inflate(4., 4.)
                         })
@@ -111,6 +113,33 @@ impl PreparedScene {
     /// Conservative submitted ink, including AA, scissor and mask limits.
     /// Opacity groups use it to avoid allocating a viewport-sized target for
     /// a small disabled control whose logical group clip spans the window.
+    pub(crate) fn backdrop_bounds(&self) -> Option<Rect> {
+        let mut bounds = None::<Rect>;
+        for (effect, quad) in &self.payloads.effects {
+            if effect.reads_backdrop() {
+                let [x, y, w, h] = quad.rect;
+                let rect = Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
+                bounds = Some(bounds.map_or(rect, |old| old.union(rect)));
+            }
+        }
+        for layer in &self.payloads.layers {
+            if let Some(rect) = layer.scene.backdrop_bounds() {
+                bounds = Some(bounds.map_or(rect, |old| old.union(rect)));
+            }
+        }
+        bounds
+    }
+    pub(crate) fn reads_backdrop(&self) -> bool {
+        self.payloads
+            .effects
+            .iter()
+            .any(|(effect, _)| effect.reads_backdrop())
+            || self
+                .payloads
+                .layers
+                .iter()
+                .any(|layer| layer.scene.reads_backdrop())
+    }
     fn content_bounds(&self) -> Option<Rect> {
         let mut mask = None;
         let mut result: Option<Rect> = None;
@@ -219,6 +248,7 @@ impl PreparedScene {
                 PreparedDraw::Text(i) => {
                     let text = &data.text[*i];
                     let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
+                    run.scale = text.scale;
                     run.clip = Some(text.clip);
                     run.clip_antialias = true;
                     Draw::Text(run)
@@ -241,6 +271,27 @@ fn unsupported(index: usize, reason: impl Into<String>) -> Error {
         command: index,
         reason: reason.into(),
     }
+}
+fn paragraph_raster(
+    request: &std::sync::Arc<plico_renderer::paragraph::ParagraphRequest>,
+    scale: f64,
+    index: usize,
+) -> Result<(
+    std::sync::Arc<plico_renderer::paragraph::ParagraphRequest>,
+    f64,
+)> {
+    let density = request.raster_scale_hint.unwrap_or(scale);
+    if !density.is_finite() || density <= 0. {
+        return Err(unsupported(index, "invalid paragraph raster density"));
+    }
+    let request = if request.raster_scale_hint.is_some() {
+        let mut request = (**request).clone();
+        request.raster_scale_hint = None;
+        std::sync::Arc::new(request)
+    } else {
+        request.clone()
+    };
+    Ok((request, density))
 }
 pub(crate) fn uniform(transform: Affine, index: usize) -> Result<(f64, [f64; 2])> {
     let [a, b, c, d, e, f] = transform.as_coeffs();
@@ -1075,10 +1126,12 @@ impl Renderer {
                         #[cfg(all(target_os = "linux", feature = "system-text"))]
                         {
                             let (scale, origin) = uniform(*transform, index)?;
-                            let layout = self.paragraph_layout(request.clone(), scale)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let layout = self.paragraph_layout(request.clone(), density)?;
                             payloads.text.push(PreparedText {
                                 layout,
                                 origin,
+                                scale: scale / density,
                                 color: request.color.map(|c| c as f32 / 255.),
                                 clip: [
                                     clip.x0 as f32,
@@ -1092,13 +1145,19 @@ impl Renderer {
                         #[cfg(all(target_os = "windows", feature = "system-text"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
                             // Four horizontal phases, snapped vertical baselines.
                             // Integer movement never creates a new raster entry.
-                            let snapped_x = (x * 4.).round() / 4.;
-                            let base_x = snapped_x.floor();
+                            let snapped_x = if ratio == 1. {
+                                (x * 4.).round() / 4.
+                            } else {
+                                x
+                            };
+                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
                             let Some(images) = self.windows_paragraph_images(
                                 request.clone(),
-                                scale,
+                                density,
                                 snapped_x - base_x,
                                 |[left, top, right, bottom]| {
                                     // Allow for native coordinate precision,
@@ -1123,13 +1182,14 @@ impl Renderer {
                             };
                             let mut bounds: Option<Rect> = None;
                             for (image, origin) in images.iter() {
-                                let left = base_x + f64::from(origin[0]);
-                                let top = y.round() + f64::from(origin[1]);
+                                let left = base_x + f64::from(origin[0]) * ratio;
+                                let top = if ratio == 1. { y.round() } else { y }
+                                    + f64::from(origin[1]) * ratio;
                                 let rect = Rect::new(
                                     left,
                                     top,
-                                    left + f64::from(image.width),
-                                    top + f64::from(image.height),
+                                    left + f64::from(image.width) * ratio,
+                                    top + f64::from(image.height) * ratio,
                                 );
                                 bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
                                 if rect.intersect(clip).is_zero_area() {
@@ -1146,18 +1206,24 @@ impl Renderer {
                         #[cfg(all(target_os = "macos", feature = "system-text"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
-                            let snapped_x = (x * 4.).round() / 4.;
-                            let base_x = snapped_x.floor();
-                            let base_y = y.round();
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
+                            let snapped_x = if ratio == 1. {
+                                (x * 4.).round() / 4.
+                            } else {
+                                x
+                            };
+                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
+                            let base_y = if ratio == 1. { y.round() } else { y };
                             let paragraph = self.macos_paragraph_images(
                                 request.clone(),
-                                scale,
+                                density,
                                 snapped_x - base_x,
                                 [
-                                    clip.x0 - base_x,
-                                    clip.y0 - base_y,
-                                    clip.x1 - base_x,
-                                    clip.y1 - base_y,
+                                    (clip.x0 - base_x) / ratio,
+                                    (clip.y0 - base_y) / ratio,
+                                    (clip.x1 - base_x) / ratio,
+                                    (clip.y1 - base_y) / ratio,
                                 ],
                             )?;
                             let bounds = paragraph.ink;
@@ -1166,7 +1232,7 @@ impl Renderer {
                                     clip.x0,
                                     clip.y0,
                                     clip.x1,
-                                    clip.y1.min(base_y + height).max(clip.y0),
+                                    clip.y1.min(base_y + height * ratio).max(clip.y0),
                                 )
                             } else {
                                 clip
@@ -1184,10 +1250,12 @@ impl Renderer {
                             });
                             for (image, origin) in paragraph.images.iter() {
                                 let rect = Rect::new(
-                                    base_x + f64::from(origin[0]),
-                                    base_y + f64::from(origin[1]),
-                                    base_x + f64::from(origin[0]) + f64::from(image.width),
-                                    base_y + f64::from(origin[1]) + f64::from(image.height),
+                                    base_x + f64::from(origin[0]) * ratio,
+                                    base_y + f64::from(origin[1]) * ratio,
+                                    base_x
+                                        + (f64::from(origin[0]) + f64::from(image.width)) * ratio,
+                                    base_y
+                                        + (f64::from(origin[1]) + f64::from(image.height)) * ratio,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
@@ -1199,14 +1267,16 @@ impl Renderer {
                         #[cfg(all(target_arch = "wasm32", feature = "web"))]
                         {
                             let (scale, [x, y]) = uniform(*transform, index)?;
+                            let (request, density) = paragraph_raster(request, scale, index)?;
+                            let ratio = scale / density;
                             if let Some((image, offset)) =
-                                self.web_paragraph_image(request.clone(), scale)?
+                                self.web_paragraph_image(request.clone(), density)?
                             {
                                 let rect = Rect::new(
-                                    x + offset[0],
-                                    y + offset[1],
-                                    x + offset[0] + f64::from(image.width),
-                                    y + offset[1] + f64::from(image.height),
+                                    x + offset[0] * ratio,
+                                    y + offset[1] * ratio,
+                                    x + (offset[0] + f64::from(image.width)) * ratio,
+                                    y + (offset[1] + f64::from(image.height)) * ratio,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
@@ -1330,7 +1400,17 @@ impl Renderer {
         // scissors costs more than one full pass (notably while scrolling).
         // Keep the tracker's new history: a full replay still establishes the
         // correct retained target for a later small update or unchanged frame.
-        let full_redraw = matches!(region, plico_renderer::DamageRegion::Full)
+        // Group backdrop inputs can extend outside their output clip. Until
+        // those cross-target dependencies are tracked individually, rebuild
+        // the parent prefix on a changed frame; retain truly unchanged frames.
+        let grouped_backdrop = prepared
+            .payloads
+            .layers
+            .iter()
+            .any(|layer| layer.scene.reads_backdrop());
+        let full_redraw = grouped_backdrop
+            && !matches!(region, plico_renderer::DamageRegion::Empty)
+            || matches!(region, plico_renderer::DamageRegion::Full)
             || self.scene_damage.damage_rects().coverage(size[0], size[1]) >= 0.5;
         tracing::trace!(target: "plico::perf",
             damage_coverage = self.scene_damage.damage_rects().coverage(size[0], size[1]),

@@ -382,7 +382,7 @@ impl<V: HostView> Source<V> {
         self.pending |= scroll.declarations;
         if self
             .engine
-            .presence_deadline()
+            .wake_deadline()
             .is_some_and(|deadline| self.engine.time().now >= deadline)
         {
             self.pending = true;
@@ -834,7 +834,7 @@ impl<V: HostView> FrameSource for Source<V> {
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
             || self.requests.contains(plico::Changes::ANIMATE)
-            || self.engine.presence_deadline().is_some()
+            || self.engine.wake_deadline().is_some()
             || self.adapter.tips.needs_frame()
             || self.adapter.scrollbars.needs_frame()
     }

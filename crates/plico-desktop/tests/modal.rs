@@ -251,8 +251,11 @@ fn small_window_scrolls_dialog_content_without_scrolling_background() {
     }
     let mut state = ModalState::default();
     state.open();
-    let mut s = Source::new(Tall { state });
+    let clock = plico::VirtualClock::default();
+    let mut s = Source::with_clock(Tall { state }, clock.clone());
     let mut text = TextContext::new();
+    s.build_frame(&mut text, 320, 240);
+    clock.advance(Duration::from_millis(150)).unwrap();
     s.build_frame(&mut text, 320, 240);
     let semantics = s.adapter.semantics(&s.engine, 0);
     let dialog = semantics
@@ -349,4 +352,155 @@ fn fades_sample_in_host_without_redeclaring_and_reopen_reverses_the_exit() {
     s.build_frame(&mut text, 600, 500);
     assert_eq!(opacity(&s), 1.);
     assert!(s.view.dialog.is_open());
+}
+
+#[test]
+fn dialog_uses_one_entrance_progress_and_freezes_content_during_exit() {
+    #[derive(Default)]
+    struct Atomic {
+        state: ModalState,
+        label: String,
+        builds: usize,
+    }
+    impl HostView for Atomic {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            modal(cx, &mut self.state)
+                .title("Atomic dialog")
+                .material(plico::LiquidGlass::default())
+                .children(|cx| {
+                    self.builds += 1;
+                    let local = cx.state(|| self.builds);
+                    text(cx, &self.label);
+                    text!(cx, "Local {}", local.get());
+                    button(cx).text("Commit").clicked();
+                });
+        }
+    }
+    let mut view = Atomic {
+        label: "Original body".into(),
+        ..Default::default()
+    };
+    view.state.open();
+    let clock = plico::VirtualClock::default();
+    let mut s = Source::with_clock(view, clock.clone());
+    let mut text = TextContext::new();
+    s.build_frame(&mut text, 600, 500);
+    let builds = s.view.builds;
+    let overlay = *s
+        .engine
+        .node(s.engine.root())
+        .unwrap()
+        .children
+        .iter()
+        .find(|&&e| s.engine.node(e).unwrap().kind == plico::Kind::Overlay)
+        .unwrap();
+    let panel = *s
+        .engine
+        .node(overlay)
+        .unwrap()
+        .children
+        .iter()
+        .find(|&&e| s.engine.node(e).unwrap().kind == plico::Kind::Dialog)
+        .unwrap();
+    let paint = |s: &Source<Atomic>, e| {
+        let id = s.adapter.backend_id(e).unwrap();
+        s.adapter
+            .placed
+            .iter()
+            .find(|p| p.node_id == id)
+            .unwrap()
+            .paint
+            .clone()
+    };
+    for ms in [16, 35, 70, 140] {
+        clock.set(Duration::from_millis(ms)).unwrap();
+        s.build_frame(&mut text, 600, 500);
+        let progress = paint(&s, overlay).opacity;
+        let y = paint(&s, panel).runtime_transform.unwrap()[5];
+        assert!(
+            (y - 8. * (1. - progress)).abs() < 0.001,
+            "overlay and panel desynchronised at {ms}"
+        );
+        assert_eq!(s.view.builds, builds);
+    }
+    s.update(|view| {
+        view.state.close();
+        view.label.clear();
+    });
+    s.build_frame(&mut text, 600, 500);
+    assert_eq!(s.view.builds, builds, "exit evaluated application content");
+    let snapshot = s.adapter.semantics(&s.engine, 0);
+    assert!(
+        snapshot
+            .node_by_role(SemanticRole::Label, "Original body", None)
+            .is_some()
+    );
+    let commit = snapshot
+        .node_by_role(SemanticRole::Button, "Commit", None)
+        .unwrap();
+    assert!(commit.disabled);
+    assert!(!s.handle_semantic_action(SemanticAction::Click { target: commit.id }));
+    clock.set(Duration::from_millis(210)).unwrap();
+    s.build_frame(&mut text, 600, 500);
+    assert_eq!(s.view.builds, builds);
+    assert!(
+        s.adapter
+            .semantics(&s.engine, 0)
+            .node_by_role(SemanticRole::Label, "Original body", None)
+            .is_some()
+    );
+    // Reopening an exit retains component-local editor state as well.
+    s.update(|view| {
+        view.state.open();
+        view.label = "Fresh body".into();
+    });
+    s.build_frame(&mut text, 600, 500);
+    assert!(
+        s.adapter
+            .semantics(&s.engine, 0)
+            .node_by_role(SemanticRole::Label, "Local 1", None)
+            .is_some()
+    );
+    assert!(
+        s.adapter
+            .semantics(&s.engine, 0)
+            .node_by_role(SemanticRole::Label, "Fresh body", None)
+            .is_some()
+    );
+}
+
+#[test]
+fn reduced_motion_material_mounts_and_unmounts_without_partial_frames() {
+    #[derive(Default)]
+    struct Reduced(ModalState);
+    impl HostView for Reduced {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            modal(cx, &mut self.0)
+                .title("Reduced")
+                .material(plico::LiquidGlass {
+                    reduce_motion: true,
+                    ..Default::default()
+                })
+                .children(|cx| {
+                    text(cx, "Body");
+                });
+        }
+    }
+    let mut view = Reduced::default();
+    view.0.open();
+    let mut s = Source::new(view);
+    let mut text = TextContext::new();
+    s.build_frame(&mut text, 600, 500);
+    assert!(!s.has_anim());
+    s.update(|view| view.0.close());
+    s.build_frame(&mut text, 600, 500);
+    assert!(
+        s.adapter
+            .semantics(&s.engine, 0)
+            .node_by_role(SemanticRole::Label, "Body", None)
+            .is_none()
+    );
+    assert!(!s.has_anim());
 }

@@ -410,6 +410,30 @@ impl Engine {
             values: std::mem::take(&mut self.unmatched_values),
         }
     }
+    /// Presence exit keeps the last committed child tree, not a fresh
+    /// evaluation of application state that may already have been cleared.
+    pub(crate) fn retain_exiting_children(&mut self, parent: Entity) {
+        let children = self.nodes.get(parent).unwrap().children.clone();
+        self.nodes.get_mut(parent).unwrap().declared_children = children.len();
+        self.nodes.get_mut(parent).unwrap().retained_exit = true;
+        for child in children {
+            if self.nodes.get(child).unwrap().touched == self.epoch {
+                self.error.get_or_insert(FrameError::DuplicateKey {
+                    parent,
+                    key: self.nodes.get(child).unwrap().identity.key,
+                });
+                continue;
+            }
+            let node = self.nodes.get_mut(child).unwrap();
+            node.touched = self.epoch;
+            node.retained_exit = true;
+            node.wake_at = None;
+            node.order_dirty = false;
+            self.stats.visited += 1;
+            self.declarations.push((parent, child));
+            self.retain_exiting_children(child);
+        }
+    }
     pub fn dirty_nodes(&self) -> &[Entity] {
         &self.dirty_nodes
     }
@@ -419,6 +443,22 @@ impl Engine {
             .filter_map(|(_, n)| n.style.presence_until_ms)
             .min()
             .map(std::time::Duration::from_millis)
+    }
+    /// Earliest retained component deadline, including presence exits.
+    pub fn wake_deadline(&self) -> Option<std::time::Duration> {
+        self.nodes
+            .iter()
+            .filter_map(|(_, n)| {
+                n.wake_at
+                    .into_iter()
+                    .chain(
+                        n.style
+                            .presence_until_ms
+                            .map(std::time::Duration::from_millis),
+                    )
+                    .min()
+            })
+            .min()
     }
     pub fn changes(&self) -> Changes {
         self.changes
@@ -784,6 +824,8 @@ impl Engine {
         node.scroll_observed.set(false);
         node.auto = 0;
         node.touched = self.epoch;
+        node.wake_at = None;
+        node.retained_exit = false;
         if node.kind != kind {
             self.inputs.remove(&entity);
             node.pending_changes |= Changes::STRUCTURE
@@ -1028,6 +1070,8 @@ impl Engine {
         let in_button = false;
         let root = self.nodes.get_mut(frame_root).unwrap();
         root.touched = self.epoch;
+        root.wake_at = None;
+        root.retained_exit = false;
         root.auto = 0;
         root.scroll_observed.set(false);
         root.declared_children = 0;
@@ -1070,7 +1114,7 @@ impl Engine {
             if self.nodes.get(parent).is_none() {
                 return false;
             }
-            if epoch == self.epoch {
+            if epoch == self.epoch || self.nodes.get(parent).unwrap().retained_exit {
                 return true;
             }
             false

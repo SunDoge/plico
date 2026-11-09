@@ -144,6 +144,7 @@ pub(super) struct PaintKey {
     focused: bool,
     checked_progress: f32,
     focus_progress: f32,
+    raster_correction: Option<f32>,
 }
 
 pub(super) type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;

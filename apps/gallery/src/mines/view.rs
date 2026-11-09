@@ -41,13 +41,6 @@ fn ease(t: f32) -> f32 {
     let t = t.clamp(0., 1.);
     1. - (1. - t).powi(3)
 }
-fn pop(t: f32) -> f32 {
-    if t <= 0. {
-        0.
-    } else {
-        1. - (-12. * t).exp() * (19. * t).cos()
-    }
-}
 
 impl Mines {
     #[component]
@@ -236,10 +229,32 @@ impl Mines {
         let tile = pitch - gap;
         let now = self.time.as_secs_f64();
         let result = self.ended() && now >= self.result_at;
-        let animating = self.cells.iter().any(|c| c.open && now < c.reveal_at + 0.6)
-            || (self.ended() && now < self.result_at + 2.5);
-        if animating || self.status == Status::Running {
+        // The app schedules state boundaries. Between them the retained host
+        // samples transforms; no full-board declaration runs for a glyph tween.
+        for cell in &self.cells {
+            if cell.open
+                && cell.reveal_at > now
+                && let Ok(at) = std::time::Duration::try_from_secs_f64(cell.reveal_at)
+            {
+                cx.request_rebuild_at(at);
+            }
+        }
+        if self.ended()
+            && self.result_at > now
+            && let Ok(at) = std::time::Duration::try_from_secs_f64(self.result_at)
+        {
+            cx.request_rebuild_at(at);
+        }
+        let manual_animation = !self.reduced_motion
+            && self.ended()
+            && now
+                < self.finished.as_secs_f64() + if self.status == Status::Won { 2.5 } else { 0.9 };
+        if manual_animation {
             cx.request_animation_frame();
+        }
+        if self.status == Status::Running {
+            cx.request_rebuild_at(self.started.saturating_add(std::time::Duration::from_secs(
+                self.elapsed().as_secs().saturating_add(1))));
         }
         column(cx).width_percent(100.).height_percent(100.).padding(margin).gap(16) + |cx| {
             row(cx).width_percent(100.).height(40.).align(Align::Center).justify(Justify::SpaceBetween) + |cx| {
@@ -287,7 +302,7 @@ impl Mines {
                         };
                         let name = if c.flagged {
                             "flagged".to_string()
-                        } else if !revealed {
+                        } else if !c.open {
                             "hidden".into()
                         } else if c.mine {
                             "mine".into()
@@ -301,9 +316,7 @@ impl Mines {
                         );
                         let response = button_base(cx, &label).key(i as u64).absolute(
                             pad + (i % self.columns) as f32 * pitch + gap / 2.,
-                            pad + (i / self.columns) as f32 * pitch + gap / 2.,
-                        ).width(tile).height(tile).radius(tile * 0.2).padding(0).background(PANEL)
-                            .hover_background(PANEL).pressed_background(PANEL).border(
+                            pad + (i / self.columns) as f32 * pitch + gap / 2.).width(tile).height(tile).radius(tile * 0.2).padding(0).border(
                                 if self.cursor == i && self.keyboard_cursor && !result { 1.5 } else { 0. },
                                 ACCENT).children(|cx| {
                             if request_focus && self.cursor == i {
@@ -326,29 +339,44 @@ impl Mines {
                                     (1. - d * d / (radius * radius)).max(0.).powi(2)
                                 })
                             };
-                            let size = feedback(
-                                cx,
-                                1. + if hovered && !revealed { 0.07 } else { 0. }
-                                    - pressure * 0.2,
-                                self.reduced_motion,
-                            );
-                            let k = if self.reduced_motion || !revealed { 1. } else { pop(age) };
+                            let size = 1.
+                                + if hovered && !revealed { 0.07 } else { 0. }
+                                - pressure * 0.2;
+                            let glyph_scale =
+                                if c.flagged || revealed { 1. } else { 0. };
+                            let duration =
+                                if self.reduced_motion { 0 } else { 240 };
                             column(cx).width_percent(100.).height_percent(100.).radius(tile * 0.2)
                                 .background(if hovered && !revealed {
                                 Color::Literal(0xdce2d8)
                             } else {
                                 Color::Literal(tint)
-                            }).scale(size, size).align(Align::Center).justify(Justify::Center) + |cx|
+                            }).scale(size, size).transition(duration).align(Align::Center)
+                                .justify(Justify::Center) + |cx|
                             {
-                                column(cx).width_percent(100.).height_percent(100.)
-                                    .align(Align::Center).justify(Justify::Center).scale(k, k) + |cx|
+                                // The logical reveal creates glyphs once. The wave
+                                // only changes presentation, never mounts per frame.
+                                if tile >= 10.
+                                    && (c.flagged
+                                        || c.open && (c.mine || c.adjacent > 0))
                                 {
-                                    if tile >= 10. {
+                                    column(cx).width_percent(100.).height_percent(100.)
+                                        .align(Align::Center).justify(Justify::Center)
+                                        .scale(glyph_scale, glyph_scale).transition(duration)
+                                        .enter_from(plico::Presentation {
+                                        scale: if self.reduced_motion {
+                                            [1., 1.]
+                                        } else {
+                                            [0., 0.]
+                                        },
+                                        ..Default::default()
+                                    }) + |cx|
+                                    {
                                         if c.flagged {
                                             cx.svg(&FLAG).size(tile * 0.58, tile * 0.58);
-                                        } else if revealed && c.mine {
+                                        } else if c.mine {
                                             cx.svg(&MINE).size(tile * 0.6, tile * 0.6);
-                                        } else if revealed && c.adjacent > 0 {
+                                        } else {
                                             plico::text!(
                                                 cx, "{}", c.adjacent
                                             ).font_size(
@@ -365,8 +393,8 @@ impl Mines {
                                         {
                                             text(cx, "×").font_size((tile * 0.7) as u16).color(INK);
                                         }
-                                    }
-                                };
+                                    };
+                                }
                             };
                             secondary
                         });
@@ -406,21 +434,23 @@ impl Mines {
                         confetti(cx, bw, bh, (now - self.finished.as_secs_f64()) as f32);
                     }
                     if result {
-                        let progress = if self.reduced_motion {
-                            1.
-                        } else {
-                            ease(((now - self.result_at) / 0.35) as f32)
-                        };
+                        let duration = if self.reduced_motion { 0 } else { 240 };
                         column(cx).absolute(0., 0.).width(bw).height(bh).radius(16.).background(PAGE)
-                            .opacity(0.86 * progress) + |_cx|
+                            .opacity(0.86).transition(duration).enter_from(plico::Presentation {
+                            opacity: 0.,
+                            ..Default::default()
+                        }) + |_cx|
                         {};
                         // The result is a sibling above the veil, so its text
                         // and actions retain full contrast and hit testing.
                         let cw = 340_f32.min((w - 48.).max(220.));
                         column(cx).absolute((bw - cw) / 2., (bh - 232.) / 2.).width(cw).height(232.)
                             .radius(22.).background(PANEL).border(1., LINE).shadow(shadow(12., 48., 0.15))
-                            .opacity(progress).translate(0., (1. - progress) * 18.).align(Align::Center)
-                            .justify(Justify::Center).gap(12) + |cx|
+                            .transition(duration).enter_from(plico::Presentation {
+                            opacity: 0.,
+                            translate: [0., 18.],
+                            ..Default::default()
+                        }).align(Align::Center).justify(Justify::Center).gap(12) + |cx|
                         {
                             cx.svg(if self.status == Status::Won { &FLAG } else { &MINE })
                                 .size(44., 44.);
@@ -516,52 +546,13 @@ fn confetti(cx: &mut UiContext, w: f32, h: f32, elapsed: f32) {
         let vy = -100. - ((hash >> 8) & 255) as f32;
         let x = w / 2. + vx * elapsed;
         let y = h * 0.4 + vy * elapsed + 160. * elapsed * elapsed;
-        if x >= 0. && x <= w && y >= 0. && y <= h {
-            column(cx).key(i as u64).absolute(x, y).width(5.).height(8.).radius(1.5)
-                .background(Color::Literal(TINTS[1 + i as usize % 8])).opacity((2.5 - elapsed).min(1.)) + |_cx|
-            {};
-        }
+        // Keep particle geometry and identities stable; moving absolute
+        // coordinates would invalidate layout for the entire board each tick.
+        column(cx).key(i as u64).absolute(0., 0.).translate(x, y).width(5.).height(8.).radius(1.5)
+            .background(Color::Literal(TINTS[1 + i as usize % 8]))
+            .opacity(if x >= 0. && x <= w && y >= 0. && y <= h { (2.5 - elapsed).min(1.) } else { 0. }) + |_cx|
+        {};
     }
-}
-
-#[derive(Clone, Debug)]
-struct Feedback {
-    target: f32,
-    spring: plico_motion::Animated,
-}
-impl PartialEq for Feedback {
-    fn eq(&self, other: &Self) -> bool {
-        self.target == other.target
-    }
-}
-fn feedback(cx: &mut UiContext, target: f32, reduced: bool) -> f32 {
-    if reduced {
-        return target;
-    }
-    let now = cx.now();
-    let state = cx.state(|| Feedback {
-        target: 1.,
-        spring: plico_motion::Animated::new(1.),
-    });
-    state.update(|s| {
-        if s.target != target {
-            s.target = target;
-            s.spring.retarget_spring(
-                now,
-                target as f64,
-                plico_motion::SpringOptions {
-                    stiffness: 187.,
-                    damping: 10.,
-                    ..Default::default()
-                },
-            );
-        }
-    });
-    let sample = state.read();
-    if sample.spring.active(now) {
-        cx.request_animation_frame();
-    }
-    sample.spring.value(now) as f32
 }
 
 #[component]
@@ -573,8 +564,9 @@ fn explosion(cx: &mut UiContext, x: f32, y: f32, pitch: f32, age: f32) {
     let k = ease(age / 0.9);
     for i in 0..2_u64 {
         let radius = pitch * (0.4 + k * (1.5 + i as f32 * 0.7));
-        column(cx).key(i).absolute(x - radius, y - radius).width(radius * 2.).height(radius * 2.).radius(radius)
-            .border(2., Color::Literal(0xe07f6e)).opacity((1. - k) * 0.8) + |_cx|
+        column(cx).key(i).absolute(x - pitch, y - pitch).width(pitch * 2.).height(pitch * 2.).radius(pitch)
+            .scale(radius / pitch, radius / pitch).border(2., Color::Literal(0xe07f6e)).opacity((1. - k) * 0.8)
+        + |_cx|
         {};
     }
 }

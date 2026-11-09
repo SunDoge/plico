@@ -48,6 +48,10 @@ struct Target {
     size: [u32; 2],
     pitch: u32,
 }
+struct LayerRaster {
+    image: std::rc::Rc<crate::image::GpuImage>,
+    texture: wgpu::Texture,
+}
 struct LayerTarget {
     target: Target,
     image: std::rc::Rc<crate::image::GpuImage>,
@@ -71,6 +75,8 @@ pub struct LayerPoolStats {
     pub filter_reuses: u64,
     pub entries: usize,
     pub retained_bytes: u64,
+    pub backdrop_context_entries: usize,
+    pub backdrop_context_bytes: u64,
 }
 /// Work encoded by the most recent root scene attempt, including child layers.
 /// Counts exclude effect/blur pipelines, target readback and presentation blits.
@@ -140,10 +146,10 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
                 && h > 0.
                 && intersects(
                     [
-                        run.origin[0] + glyph.x + x - 4.,
-                        run.origin[1] + glyph.y + y - 4.,
-                        run.origin[0] + glyph.x + x + w + 4.,
-                        run.origin[1] + glyph.y + y + h + 4.,
+                        run.origin[0] + (glyph.x + x) * run.scale - 4.,
+                        run.origin[1] + (glyph.y + y) * run.scale - 4.,
+                        run.origin[0] + (glyph.x + x + w) * run.scale + 4.,
+                        run.origin[1] + (glyph.y + y + h) * run.scale + 4.,
                     ],
                     run.clip,
                 )
@@ -188,6 +194,10 @@ pub struct Renderer {
     capacity: usize,
     /// Backdrop-reading effects collected during encode, in paint order.
     backdrop_effects: Vec<plico_renderer::ShaderEffect>,
+    deferred_layers: Vec<crate::scene::PreparedLayer>,
+    inherited_backdrop: Option<crate::backdrop_context::Context>,
+    backdrop_contexts: Vec<Option<crate::backdrop_context::Context>>,
+    context_charged: Vec<bool>,
     /// Reused instance staging vector: every frame keeps the capacity the
     /// previous frame grew instead of allocating from empty. Rust pattern:
     /// std::mem::take + clear + write back on success.
@@ -482,6 +492,10 @@ impl Renderer {
             capacity,
             instance_scratch: Vec::new(),
             backdrop_effects: Vec::new(),
+            deferred_layers: Vec::new(),
+            inherited_backdrop: None,
+            backdrop_contexts: Vec::new(),
+            context_charged: Vec::new(),
             compilations: 0,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             paragraphs: None,
@@ -708,6 +722,7 @@ impl Renderer {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
@@ -819,6 +834,22 @@ impl Renderer {
                     .any(|item| matches!(item, crate::Draw::Layer(_))),
             );
         }
+        if !unchanged {
+            let mut bytes = 0u64;
+            for (depth, context) in self.backdrop_contexts.iter_mut().enumerate() {
+                if let Some(entry) = context {
+                    let payload = u64::from(entry.size[0]) * u64::from(entry.size[1]) * 4;
+                    if result.is_err()
+                        || !self.context_charged.get(depth).copied().unwrap_or(false)
+                        || bytes + payload > 64 * 1024 * 1024
+                    {
+                        *context = None;
+                    } else {
+                        bytes += payload;
+                    }
+                }
+            }
+        }
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
             let stats = self.layer_pool_stats();
             let effect_stats = self.effect_cache_stats();
@@ -873,6 +904,7 @@ impl Renderer {
     ) -> Result<wgpu::CommandEncoder> {
         if self.layer_depth == 0 {
             self.frame_layer_bytes = 0;
+            self.context_charged.fill(false);
             self.layer_used.clear();
             self.layer_used.resize(self.layer_pool.len(), false);
         }
@@ -976,224 +1008,353 @@ impl Renderer {
         let mut flush_draws: u64 = 0;
         let mut flush_plain_draws: u64 = 0;
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        if let Some(base) = &self.inherited_backdrop {
+            base.seed(
+                &mut encoder,
+                &self.target.as_ref().unwrap().texture,
+                origin,
+                size,
+            );
+        }
         self.batch_stats.instances += instances.len() as u64;
         self.batch_stats.passes += 1;
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Plico quad draw"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: if regions.is_some() {
-                            wgpu::LoadOp::Load
-                        } else {
-                            wgpu::LoadOp::Clear(wgpu::Color {
-                                r: f64::from(background[0] * background[3]),
-                                g: f64::from(background[1] * background[3]),
-                                b: f64::from(background[2] * background[3]),
-                                a: f64::from(background[3]),
-                            })
+        let mut segment_start = 0;
+        loop {
+            let marker = (segment_start..instances.len()).find(|&i| instances[i].color[3] == 3.);
+            let segment_end = marker.unwrap_or(instances.len());
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Plico quad draw"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: if regions.is_some()
+                                || segment_start > 0
+                                || self.inherited_backdrop.is_some()
+                            {
+                                wgpu::LoadOp::Load
+                            } else {
+                                wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: f64::from(background[0] * background[3]),
+                                    g: f64::from(background[1] * background[3]),
+                                    b: f64::from(background[2] * background[3]),
+                                    a: f64::from(background[3]),
+                                })
+                            },
+                            store: wgpu::StoreOp::Store,
                         },
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            let full = [[0, 0, width, height]];
-            let areas = regions.unwrap_or(&full);
-            let mut scissor = None;
-            if regions.is_some() {
-                // Disjoint damage regions can all be cleared before replay. Each
-                // batch then preserves painter order within every affected pixel.
-                pass.set_pipeline(&self.clear_pipeline);
-                pass.set_bind_group(0, &self.bind, &[]);
-                for &[x, y, w, h] in areas {
-                    pass.set_scissor_rect(x, y, w, h);
-                    scissor = Some([x, y, w, h]);
-                    pass.draw(0..3, 0..1);
-                    self.batch_stats.clears += 1;
-                }
-            }
-            pass.set_bind_group(0, &self.bind, &[]);
-            pass.set_vertex_buffer(0, self.instances.slice(..));
-            // Like MyGO drawBuilt: bind each ordered batch once, then draw only
-            // the disjoint damage rectangles it can actually reach. No sorting.
-            let mut first = 0;
-            // mygo joinLast: scenes that interleave classes op by op - a
-            // shadow then its fill per box, a label then its icon per row -
-            // would otherwise draw a call per instance. Adjacent runs that
-            // differ only in their class and each cover few pixels merge
-            // into one run drawn through the general pipeline; plain
-            // instances render identically there (tests/classes.rs), and at
-            // mygo's measured 128x128-pixel trade-off the saved call costs
-            // the CPU less than the specialized shader saves on those pixels.
-            let mut scissor_run = scissor;
-            let force_general = self.force_general;
-            let mut pending: Option<(RunFlush, bool)> = None;
-            while first < instances.len() {
-                let key = |i: usize| {
-                    (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
-                };
-                let texture = key(first);
-                // Class runs: adjacent plain fills share the specialized
-                // pipeline, everything else keeps the general shader. The
-                // run boundary never reorders painter sequence.
-                // Backdrop markers (color[3] == 2) are singleton runs: they
-                // never join a class run or the joiner.
-                let backdrop_at =
-                    (instances[first].color[3] == 2.).then(|| instances[first].config[3] as usize);
-                let plain =
-                    backdrop_at.is_none() && !self.force_general && is_plain(&instances[first]);
-                let mut end = first + 1;
-                while backdrop_at.is_none()
-                    && end < instances.len()
-                    && instances[end].color[3] != 2.
-                    && key(end) == texture
-                    && instances[end].clip_params[2] == instances[first].clip_params[2]
-                    && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
-                        == (instances[first].config[2] == 4. && instances[first].config[1] == 1.)
-                    && (!force_general && is_plain(&instances[end])) == plain
-                {
-                    end += 1;
-                }
-                let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
-                let mask = instances[first].clip_params[2] as u32;
-                let small = backdrop_at.is_none() && run_area(&instances, first, end) <= JOIN_AREA;
-                let run = RunFlush {
-                    start: first,
-                    end,
-                    plain,
-                    plus,
-                    texture,
-                    mask,
-                };
-                if let Some((previous, previous_small)) = &mut pending
-                    && *previous_small
-                    && small
-                    && previous.texture == texture
-                    && previous.mask == mask
-                    && !previous.plus
-                    && !plus
-                    && backdrop_at.is_none()
-                {
-                    // Only the class differs; extend the pending run. The
-                    // merged run keeps the plain pipeline only if every
-                    // merged part was plain.
-                    previous.end = run.end;
-                    previous.plain = previous.plain && run.plain;
-                } else {
-                    if let Some((previous, _)) = pending.take() {
-                        self.flush_run(
-                            &mut pass,
-                            previous,
-                            &instances,
-                            regions,
-                            areas,
-                            &mut scissor_run,
-                            &mut flush_draws,
-                            &mut flush_plain_draws,
-                        );
+                    })],
+                    ..Default::default()
+                });
+                let full = [[0, 0, width, height]];
+                let areas = regions.unwrap_or(&full);
+                let mut scissor = None;
+                if regions.is_some() && segment_start == 0 {
+                    // Disjoint damage regions can all be cleared before replay. Each
+                    // batch then preserves painter order within every affected pixel.
+                    pass.set_pipeline(&self.clear_pipeline);
+                    pass.set_bind_group(0, &self.bind, &[]);
+                    for &[x, y, w, h] in areas {
+                        pass.set_scissor_rect(x, y, w, h);
+                        scissor = Some([x, y, w, h]);
+                        pass.draw(0..3, 0..1);
+                        self.batch_stats.clears += 1;
                     }
-                    if let Some(effect_index) = backdrop_at {
-                        let marker = instances[run.start];
-                        let [x, y, w, h] = marker.rect;
-                        let [cx, cy, cw, ch] = marker.clip;
-                        if x.max(cx).max(origin[0])
-                            >= (x + w).min(cx + cw).min(origin[0] + width as f32)
-                            || y.max(cy).max(origin[1])
-                                >= (y + h).min(cy + ch).min(origin[1] + height as f32)
-                        {
+                }
+                pass.set_bind_group(0, &self.bind, &[]);
+                pass.set_vertex_buffer(0, self.instances.slice(..));
+                // Like MyGO drawBuilt: bind each ordered batch once, then draw only
+                // the disjoint damage rectangles it can actually reach. No sorting.
+                let mut first = segment_start;
+                // mygo joinLast: scenes that interleave classes op by op - a
+                // shadow then its fill per box, a label then its icon per row -
+                // would otherwise draw a call per instance. Adjacent runs that
+                // differ only in their class and each cover few pixels merge
+                // into one run drawn through the general pipeline; plain
+                // instances render identically there (tests/classes.rs), and at
+                // mygo's measured 128x128-pixel trade-off the saved call costs
+                // the CPU less than the specialized shader saves on those pixels.
+                let mut scissor_run = scissor;
+                let force_general = self.force_general;
+                let mut pending: Option<(RunFlush, bool)> = None;
+                while first < segment_end {
+                    let key = |i: usize| {
+                        (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
+                    };
+                    let texture = key(first);
+                    // Class runs: adjacent plain fills share the specialized
+                    // pipeline, everything else keeps the general shader. The
+                    // run boundary never reorders painter sequence.
+                    // Backdrop markers (color[3] == 2) are singleton runs: they
+                    // never join a class run or the joiner.
+                    let backdrop_at = (instances[first].color[3] == 2.)
+                        .then(|| instances[first].config[3] as usize);
+                    let plain =
+                        backdrop_at.is_none() && !self.force_general && is_plain(&instances[first]);
+                    let mut end = first + 1;
+                    while backdrop_at.is_none()
+                        && end < segment_end
+                        && instances[end].color[3] != 2.
+                        && key(end) == texture
+                        && instances[end].clip_params[2] == instances[first].clip_params[2]
+                        && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
+                            == (instances[first].config[2] == 4.
+                                && instances[first].config[1] == 1.)
+                        && (!force_general && is_plain(&instances[end])) == plain
+                    {
+                        end += 1;
+                    }
+                    let plus = instances[first].config[2] == 4. && instances[first].config[1] == 1.;
+                    let mask = instances[first].clip_params[2] as u32;
+                    let small =
+                        backdrop_at.is_none() && run_area(&instances, first, end) <= JOIN_AREA;
+                    let run = RunFlush {
+                        start: first,
+                        end,
+                        plain,
+                        plus,
+                        texture,
+                        mask,
+                    };
+                    if let Some((previous, previous_small)) = &mut pending
+                        && *previous_small
+                        && small
+                        && previous.texture == texture
+                        && previous.mask == mask
+                        && !previous.plus
+                        && !plus
+                        && backdrop_at.is_none()
+                    {
+                        // Only the class differs; extend the pending run. The
+                        // merged run keeps the plain pipeline only if every
+                        // merged part was plain.
+                        previous.end = run.end;
+                        previous.plain = previous.plain && run.plain;
+                    } else {
+                        if let Some((previous, _)) = pending.take() {
+                            self.flush_run(
+                                &mut pass,
+                                previous,
+                                &instances,
+                                regions,
+                                areas,
+                                &mut scissor_run,
+                                &mut flush_draws,
+                                &mut flush_plain_draws,
+                            );
+                        }
+                        if let Some(effect_index) = backdrop_at {
+                            let marker = instances[run.start];
+                            let [x, y, w, h] = marker.rect;
+                            let [cx, cy, cw, ch] = marker.clip;
+                            if x.max(cx).max(origin[0])
+                                >= (x + w).min(cx + cw).min(origin[0] + width as f32)
+                                || y.max(cy).max(origin[1])
+                                    >= (y + h).min(cy + ch).min(origin[1] + height as f32)
+                            {
+                                first = end;
+                                continue;
+                            }
+                            // Split the pass: everything before the effect is
+                            // now in the target; copy that region out, render
+                            // the effect with it bound, then continue the rest
+                            // in a fresh pass (mygo's Backdrop step between
+                            // batches).
+                            drop(pass);
+
+                            let shared =
+                                backdrop_plan.members.get(run.start).copied().flatten().map(
+                                    |(group, slot)| {
+                                        if backdrop_snapshots[group].is_none() {
+                                            let requests = &backdrop_plan.groups[group];
+                                            let views = crate::backdrop_batch::capture(
+                                                &self.device,
+                                                &mut encoder,
+                                                &self.target.as_ref().unwrap().texture,
+                                                requests,
+                                                &mut self.backdrop_batch_prefilter,
+                                            );
+                                            let levels =
+                                                requests.iter().map(|r| r.levels).max().unwrap();
+                                            self.batch_stats.backdrop_copies +=
+                                                requests.len() as u64;
+                                            self.batch_stats.backdrop_textures += 1;
+                                            self.batch_stats.backdrop_mip_passes +=
+                                                u64::from(levels - 1);
+                                            self.batch_stats.backdrop_bytes +=
+                                                crate::backdrop_prefilter::bytes(
+                                                    requests[0].region[2],
+                                                    requests[0].region[3],
+                                                    levels,
+                                                ) * requests.len() as u64;
+                                            backdrop_snapshots[group] = Some(views);
+                                        }
+                                        backdrop_snapshots[group].as_ref().unwrap()[slot].clone()
+                                    },
+                                );
+                            let effect = self.backdrop_effects[effect_index].clone();
+                            let mut effects = self.effects.take();
+                            let mut compositor = self.backdrop_compositor.take();
+                            pass = encode_backdrop_step(
+                                &self.device,
+                                &self.queue,
+                                self.target.as_ref(),
+                                &mut effects,
+                                &mut compositor,
+                                &mut self.backdrop_prefilter,
+                                &mut self.batch_stats,
+                                shared.as_ref(),
+                                &self.atlas_texture.layout,
+                                if run.mask > 0 {
+                                    &self.frame_images[run.mask as usize - 1].bind
+                                } else {
+                                    &self.atlas_texture.bind
+                                },
+                                instances[run.start],
+                                origin,
+                                &mut encoder,
+                                &view,
+                                {
+                                    let [x, y, w, h] = instances[run.start].rect;
+                                    [x - origin[0], y - origin[1], w, h]
+                                },
+                                &effect,
+                                size,
+                            );
+                            self.effects = effects;
+                            self.backdrop_compositor = compositor;
+                            self.batch_stats.passes += 1;
+                            pass.set_bind_group(0, &self.bind, &[]);
+                            pass.set_vertex_buffer(0, self.instances.slice(..));
+                            scissor_run = None;
                             first = end;
                             continue;
                         }
-                        // Split the pass: everything before the effect is
-                        // now in the target; copy that region out, render
-                        // the effect with it bound, then continue the rest
-                        // in a fresh pass (mygo's Backdrop step between
-                        // batches).
-                        drop(pass);
-                        let shared = backdrop_plan.members.get(run.start).copied().flatten().map(
-                            |(group, slot)| {
-                                if backdrop_snapshots[group].is_none() {
-                                    let requests = &backdrop_plan.groups[group];
-                                    let views = crate::backdrop_batch::capture(
-                                        &self.device,
-                                        &mut encoder,
-                                        &self.target.as_ref().unwrap().texture,
-                                        requests,
-                                        &mut self.backdrop_batch_prefilter,
-                                    );
-                                    let levels = requests.iter().map(|r| r.levels).max().unwrap();
-                                    self.batch_stats.backdrop_copies += requests.len() as u64;
-                                    self.batch_stats.backdrop_textures += 1;
-                                    self.batch_stats.backdrop_mip_passes += u64::from(levels - 1);
-                                    self.batch_stats.backdrop_bytes +=
-                                        crate::backdrop_prefilter::bytes(
-                                            requests[0].region[2],
-                                            requests[0].region[3],
-                                            levels,
-                                        ) * requests.len() as u64;
-                                    backdrop_snapshots[group] = Some(views);
-                                }
-                                backdrop_snapshots[group].as_ref().unwrap()[slot].clone()
-                            },
-                        );
-                        let effect = self.backdrop_effects[effect_index].clone();
-                        let mut effects = self.effects.take();
-                        let mut compositor = self.backdrop_compositor.take();
-                        pass = encode_backdrop_step(
-                            &self.device,
-                            &self.queue,
-                            self.target.as_ref(),
-                            &mut effects,
-                            &mut compositor,
-                            &mut self.backdrop_prefilter,
-                            &mut self.batch_stats,
-                            shared.as_ref(),
-                            &self.atlas_texture.layout,
-                            if run.mask > 0 {
-                                &self.frame_images[run.mask as usize - 1].bind
-                            } else {
-                                &self.atlas_texture.bind
-                            },
-                            instances[run.start],
-                            origin,
-                            &mut encoder,
-                            &view,
-                            {
-                                let [x, y, w, h] = instances[run.start].rect;
-                                [x - origin[0], y - origin[1], w, h]
-                            },
-                            &effect,
-                            size,
-                        );
-                        self.effects = effects;
-                        self.backdrop_compositor = compositor;
-                        self.batch_stats.passes += 1;
-                        pass.set_bind_group(0, &self.bind, &[]);
-                        pass.set_vertex_buffer(0, self.instances.slice(..));
-                        scissor_run = None;
-                        first = end;
+                        pending = Some((run, small));
+                    }
+                    first = end;
+                }
+                if let Some((previous, _)) = pending.take() {
+                    self.flush_run(
+                        &mut pass,
+                        previous,
+                        &instances,
+                        regions,
+                        areas,
+                        &mut scissor_run,
+                        &mut flush_draws,
+                        &mut flush_plain_draws,
+                    );
+                }
+            }
+            let Some(marker) = marker else {
+                break;
+            };
+            let layer = self.deferred_layers[instances[marker].config[3] as usize].clone();
+            let [x, y, w, h] = layer.quad.rect;
+            let output = kurbo::Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
+            let input = layer
+                .scene
+                .backdrop_bounds()
+                .map_or(output, |rect| rect.union(output));
+            let context = self.capture_backdrop_context(&mut encoder, origin, size, input)?;
+            let previous = std::mem::replace(
+                &mut encoder,
+                self.device.create_command_encoder(&Default::default()),
+            );
+            self.queue.submit([previous.finish()]);
+
+            let resource = self.render_layer(&layer, Some(context.clone()))?;
+            let output_view = resource.texture.create_view(&Default::default());
+            let base_view = context.texture.create_view(&Default::default());
+            let mask = instances[marker].clip_params[2] as usize;
+            let compositor = self.backdrop_compositor.get_or_insert_with(|| {
+                crate::backdrop_composite::Compositor::new(&self.device, &self.atlas_texture.layout)
+            });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("atomic backdrop group"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+                let i = instances[marker];
+                let [x, y, w, h] = i.rect;
+                let full = [[0, 0, width, height]];
+                for &[rx, ry, rw, rh] in regions.unwrap_or(&full) {
+                    let x0 = (x - origin[0]).floor().max(rx as f32).max(0.) as u32;
+                    let y0 = (y - origin[1]).floor().max(ry as f32).max(0.) as u32;
+                    let x1 = (x + w - origin[0])
+                        .ceil()
+                        .min((rx + rw).min(width) as f32)
+                        .max(0.) as u32;
+                    let y1 = (y + h - origin[1])
+                        .ceil()
+                        .min((ry + rh).min(height) as f32)
+                        .max(0.) as u32;
+                    if x1 <= x0 || y1 <= y0 {
                         continue;
                     }
-                    pending = Some((run, small));
+                    pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
+                    compositor.encode_group(
+                        &self.device,
+                        &output_view,
+                        &base_view,
+                        if mask > 0 {
+                            &self.frame_images[mask - 1].bind
+                        } else {
+                            &self.atlas_texture.bind
+                        },
+                        [
+                            [x - origin[0], y - origin[1], w, h],
+                            i.clip,
+                            i.mask_rect,
+                            [origin[0], origin[1], f32::from(mask > 0), i.clip_params[0]],
+                        ],
+                        layer.alpha,
+                        [origin[0] - context.origin[0], origin[1] - context.origin[1]],
+                        &mut pass,
+                    );
+                    flush_draws += 1;
                 }
-                first = end;
             }
-            if let Some((previous, _)) = pending.take() {
-                self.flush_run(
-                    &mut pass,
-                    previous,
-                    &instances,
-                    regions,
-                    areas,
-                    &mut scissor_run,
-                    &mut flush_draws,
-                    &mut flush_plain_draws,
-                );
+            // Child passes use the same upload buffers. Restore the parent's
+            // data after their submissions, before resuming this target.
+            if instances.len() > self.capacity {
+                self.capacity = instances.len().next_power_of_two();
+                self.instances = Self::instance_buffer(&self.device, self.capacity);
             }
+            self.queue
+                .write_buffer(&self.instances, 0, bytemuck::cast_slice(&instances));
+            self.queue.write_buffer(
+                &self.frame,
+                0,
+                bytemuck::cast_slice(&[
+                    width as f32,
+                    height as f32,
+                    time,
+                    1.,
+                    background[0] * background[3],
+                    background[1] * background[3],
+                    background[2] * background[3],
+                    background[3],
+                    origin[0],
+                    origin[1],
+                    0.,
+                    0.,
+                ]),
+            );
+            self.batch_stats.passes += 1;
+            segment_start = marker + 1;
         }
         self.batch_stats.draw_calls += flush_draws;
         self.batch_stats.plain_draw_calls += flush_plain_draws;
@@ -1503,6 +1664,7 @@ impl Renderer {
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
         self.backdrop_effects.clear();
+        self.deferred_layers.clear();
         self.clear_frame_images();
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for item in items {
@@ -1650,14 +1812,21 @@ impl Renderer {
                     {
                         continue;
                     }
-                    let resource = self.render_layer(layer)?;
-                    let slot = self.intern_frame_image(resource);
+                    let deferred = layer.scene.reads_backdrop();
+                    let slot = if deferred {
+                        let slot = self.deferred_layers.len();
+                        self.deferred_layers.push((*layer).clone());
+                        slot
+                    } else {
+                        let resource = self.render_layer(layer, None)?;
+                        self.intern_frame_image(resource.image)
+                    };
                     let q = &layer.quad;
                     instances.push(Instance {
                         mask_rect: [0.; 4],
                         radii: shrink_radii([q.rect[2], q.rect[3]], q.radii),
                         rect: q.rect,
-                        color: [0., 0., 0., layer.alpha],
+                        color: [0., 0., 0., if deferred { 3. } else { layer.alpha }],
                         color2: [0.; 4],
                         border: [0.; 4],
                         config: [0., if layer.additive { 1. } else { 0. }, 4., slot as f32],
@@ -1791,7 +1960,9 @@ impl Renderer {
         size: [u32; 2],
         instances: &mut Vec<Instance>,
     ) -> Result<()> {
-        if !run.origin.iter().all(|v| v.is_finite() && v.abs() < 1e9)
+        if !run.scale.is_finite()
+            || run.scale <= 0.
+            || !run.origin.iter().all(|v| v.is_finite() && v.abs() < 1e9)
             || !run
                 .color
                 .iter()
@@ -1811,10 +1982,10 @@ impl Renderer {
         let atlas = self.atlas.as_mut().unwrap();
         let side = plico_native::text::atlas::ATLAS_SIZE as f32;
         for glyph in &run.layout.glyphs {
-            let x = glyph.x + run.origin[0];
-            let y = glyph.y + run.origin[1];
+            let x = glyph.x * run.scale + run.origin[0];
+            let y = glyph.y * run.scale + run.origin[1];
             let quantized = (x * 4.).round() as i64;
-            let (x, y, phase) = if run.continuous {
+            let (x, y, phase) = if run.continuous || run.scale != 1. {
                 (x, y, 0)
             } else {
                 (
@@ -1827,20 +1998,20 @@ impl Renderer {
             // Cull before rasterization/upload. Include hinting/phase/padding fringe.
             if iw <= 0.
                 || ih <= 0.
-                || x + ix + iw + 3. < f64::from(clip[0])
-                || y + iy + ih + 3. < f64::from(clip[1])
-                || x + ix - 3. > f64::from(clip[0] + clip[2])
-                || y + iy - 3. > f64::from(clip[1] + clip[3])
+                || x + (ix + iw) * run.scale + 3. < f64::from(clip[0])
+                || y + (iy + ih) * run.scale + 3. < f64::from(clip[1])
+                || x + ix * run.scale - 3. > f64::from(clip[0] + clip[2])
+                || y + iy * run.scale - 3. > f64::from(clip[1] + clip[3])
             {
                 continue;
             }
             let entry = atlas.get(glyph, phase).context(crate::TextSnafu)?;
             let [ax, ay, w, h] = entry.rect;
             let rect = [
-                x as f32 + entry.origin[0] as f32,
-                y as f32 + entry.origin[1] as f32,
-                w as f32,
-                h as f32,
+                (x + entry.origin[0] as f64 * run.scale) as f32,
+                (y + entry.origin[1] as f64 * run.scale) as f32,
+                w as f32 * run.scale as f32,
+                h as f32 * run.scale as f32,
             ];
             if rect[0] + rect[2] < clip[0]
                 || rect[1] + rect[3] < clip[1]
@@ -2036,10 +2207,17 @@ impl Renderer {
             stats.entries += 1;
             stats.retained_bytes += entry.bytes();
         }
+        for context in self.backdrop_contexts.iter().flatten() {
+            stats.backdrop_context_entries += 1;
+            stats.backdrop_context_bytes +=
+                u64::from(context.size[0]) * u64::from(context.size[1]) * 4;
+        }
         stats
     }
     /// Release idle intermediate targets without invalidating retained final pixels.
     pub fn trim_layer_pool(&mut self) {
+        self.backdrop_contexts.clear();
+        self.context_charged.clear();
         self.layer_pool.clear();
         self.layer_used.clear();
         self.clear_frame_images();
@@ -2067,10 +2245,77 @@ impl Renderer {
             self.layer_pool.pop();
         }
     }
+    fn capture_backdrop_context(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        origin: [f32; 2],
+        size: [u32; 2],
+        input: kurbo::Rect,
+    ) -> Result<crate::backdrop_context::Context> {
+        let input = input.expand().intersect(kurbo::Rect::new(
+            origin[0] as f64,
+            origin[1] as f64,
+            origin[0] as f64 + size[0] as f64,
+            origin[1] as f64 + size[1] as f64,
+        ));
+        let source_offset = wgpu::Origin3d {
+            x: (input.x0 - origin[0] as f64).max(0.) as u32,
+            y: (input.y0 - origin[1] as f64).max(0.) as u32,
+            z: 0,
+        };
+        let origin = [input.x0 as f32, input.y0 as f32];
+        let size = [
+            (input.width() as u32).max(1),
+            (input.height() as u32).max(1),
+        ];
+        let depth = self.layer_depth as usize;
+        self.backdrop_contexts
+            .resize_with(self.backdrop_contexts.len().max(depth + 1), || None);
+        self.context_charged
+            .resize(self.context_charged.len().max(depth + 1), false);
+        let replace = self.backdrop_contexts[depth]
+            .as_ref()
+            .is_none_or(|context| context.size != size);
+        if replace || !self.context_charged[depth] {
+            let bytes = u64::from(size[0]) * u64::from(size[1]) * 4;
+            if self.frame_layer_bytes + bytes > 128 * 1024 * 1024 {
+                return Err(Error::InvalidInput {
+                    reason: "group backdrop context exceeds 128 MiB frame budget".into(),
+                });
+            }
+            self.frame_layer_bytes += bytes;
+            self.context_charged[depth] = true;
+        }
+        if replace {
+            self.backdrop_contexts[depth] = Some(crate::backdrop_context::Context::new(
+                &self.device,
+                size,
+                origin,
+            ));
+        }
+        let mut output = self.backdrop_contexts[depth].as_ref().unwrap().clone();
+        output.origin = origin;
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                origin: source_offset,
+                ..self.target.as_ref().unwrap().texture.as_image_copy()
+            },
+            output.texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+
+        Ok(output)
+    }
+
     fn render_layer(
         &mut self,
         layer: &crate::scene::PreparedLayer,
-    ) -> Result<std::rc::Rc<crate::image::GpuImage>> {
+        inherited: Option<crate::backdrop_context::Context>,
+    ) -> Result<LayerRaster> {
         let [x, y, width, height] = layer.quad.rect;
         let size = [width as u32, height as u32];
         let _span = tracing::trace_span!(
@@ -2149,6 +2394,8 @@ impl Renderer {
         // encode_items clears/rebuilds the marker table for each render target.
         // Child layers must not discard the parent's pending backdrop markers.
         let parent_backdrops = std::mem::take(&mut self.backdrop_effects);
+        let parent_layers = std::mem::take(&mut self.deferred_layers);
+        let parent_context = std::mem::replace(&mut self.inherited_backdrop, inherited);
         let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
         let mut resource = cached_image;
         let result = encoded.map(|mut encoder| {
@@ -2165,7 +2412,7 @@ impl Renderer {
                 resource = Some(image.clone());
                 image
             };
-            let image = if let Some(blur) = layer.blur.filter(|b| b.sigma > 0.) {
+            let (image, texture) = if let Some(blur) = layer.blur.filter(|b| b.sigma > 0.) {
                 let pipeline = self
                     .blur
                     .get_or_insert_with(|| crate::blur::Blur::new(&self.device));
@@ -2187,12 +2434,12 @@ impl Renderer {
                 }
                 let (work, image) = workspace.as_ref().unwrap();
                 pipeline.encode(&self.queue, &mut encoder, work, blur.sigma, blur.edge);
-                image.clone()
+                (image.clone(), work.output.clone())
             } else {
-                image
+                (image, self.target.as_ref().unwrap().texture.clone())
             };
             self.queue.submit([encoder.finish()]);
-            image
+            LayerRaster { image, texture }
         });
         if let (Some(target), Some(image)) = (self.target.take(), resource) {
             self.layer_pool[slot] = Some(LayerTarget {
@@ -2205,6 +2452,8 @@ impl Renderer {
         self.frame_images = parent_images;
         self.frame_image_slots = parent_slots;
         self.backdrop_effects = parent_backdrops;
+        self.deferred_layers = parent_layers;
+        self.inherited_backdrop = parent_context;
         self.layer_depth -= 1;
         result
     }

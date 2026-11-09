@@ -321,9 +321,95 @@ mod ui {
         clock.advance(Duration::from_secs(5)).unwrap();
         frame(&mut s, &mut t, 1120, 820);
         assert_eq!(s.view.mines.status, Status::Won);
+        // A newly observed result mounts one host-owned entrance timeline.
+        clock.advance(Duration::from_millis(300)).unwrap();
+        frame(&mut s, &mut t, 1120, 820);
         assert!(!s.has_anim());
         activate(&mut s, "Play again");
         frame(&mut s, &mut t, 1120, 820);
         assert_eq!(s.view.mines.status, Status::Ready);
+    }
+    #[test]
+    fn reveal_wave_keeps_geometry_and_timer_waits_without_redeclaring() {
+        let clock = VirtualClock::default();
+        let mut app = app();
+        app.mines.configure(30, 16, 99);
+        let mut s = Source::with_clock(app, clock.clone());
+        let mut t = TextContext::new();
+        let mut scene = plico_renderer::Scene::new();
+        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+            .unwrap();
+        activate(&mut s, "Row 9, column 16: hidden");
+        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+            .unwrap();
+        for tick in 1..45 {
+            clock.set(Duration::from_millis(tick * 17)).unwrap();
+            s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+                .unwrap();
+            assert!(s.last_error.is_none());
+            let stats = s.adapter.stats;
+            assert_eq!(
+                (
+                    stats.layout_runs,
+                    stats.flatten_visits,
+                    stats.created,
+                    stats.removed
+                ),
+                (0, 0, 0, 0),
+                "wave tick {tick}"
+            );
+        }
+        clock.set(Duration::from_secs(2)).unwrap();
+        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+            .unwrap();
+        assert_eq!(s.engine.wake_deadline(), Some(Duration::from_secs(3)));
+        clock.set(Duration::from_millis(2500)).unwrap();
+        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+            .unwrap();
+        assert_eq!(s.adapter.stats.sync_visits, 0);
+        assert_eq!(s.declaration_micros, 0);
+    }
+    #[test]
+    fn victory_particles_move_without_layout_or_identity_churn() {
+        let clock = VirtualClock::default();
+        let mut app = app();
+        app.mines.configure(9, 9, 0);
+        app.mines.reveal(40);
+        let mut s = Source::with_clock(app, clock.clone());
+        let mut t = TextContext::new();
+        let mut scene = plico_renderer::Scene::new();
+        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+            .unwrap();
+        for ms in (20..1200).step_by(20) {
+            clock.set(Duration::from_millis(ms)).unwrap();
+            s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
+                .unwrap();
+            assert!(s.last_error.is_none());
+            let stats = s.adapter.stats;
+            assert_eq!(
+                (
+                    stats.layout_runs,
+                    stats.flatten_visits,
+                    stats.created,
+                    stats.removed
+                ),
+                (0, 0, 0, 0),
+                "confetti at {ms} ms"
+            );
+        }
+    }
+    #[test]
+    fn reduced_motion_result_has_no_animation_polling() {
+        let mut app = app();
+        app.mines.reduced_motion = true;
+        app.mines.configure(9, 9, 0);
+        app.mines.reveal(40);
+        let mut s = Source::new(app);
+        let mut text = TextContext::new();
+        let mut scene = plico_renderer::Scene::new();
+        s.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+            .unwrap();
+        assert!(s.last_error.is_none());
+        assert!(!s.has_anim());
     }
 }

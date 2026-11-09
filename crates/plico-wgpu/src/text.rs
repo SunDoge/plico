@@ -6,6 +6,8 @@ pub use plico_native::text::{TextRequest, atlas::GlyphLayout};
 pub struct TextRun<'a> {
     pub layout: &'a GlyphLayout,
     pub origin: [f64; 2],
+    /// Presentation-only scale of retained native coverage; defaults to exact native size.
+    pub scale: f64,
     pub color: [f32; 4],
     pub clip: Option<[f32; 4]>,
     pub clip_antialias: bool,
@@ -18,6 +20,7 @@ impl<'a> TextRun<'a> {
         Self {
             layout,
             origin,
+            scale: 1.,
             color,
             clip: None,
             clip_antialias: false,

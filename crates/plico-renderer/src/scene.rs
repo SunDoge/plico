@@ -143,7 +143,9 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
 
 fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool {
     let bounds = transform.transform_rect_bbox(visual_bounds(node));
-    bounds.x1 >= viewport.x0
+    bounds.width() > 0.
+        && bounds.height() > 0.
+        && bounds.x1 >= viewport.x0
         && bounds.x0 <= viewport.x1
         && bounds.y1 >= viewport.y0
         && bounds.y0 <= viewport.y1
@@ -267,13 +269,40 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
         scene.pop_layer();
     }
     if let Some(background) = node.paint.background {
-        scene.fill(
-            Fill::NonZero,
-            transform,
-            background,
-            None,
-            &corner_shape(rect, radii, node.paint.corner_smoothing),
-        );
+        let [a, b, c, d, _, _] = transform.as_coeffs();
+        let uniform = radii.top_left == radii.top_right
+            && radii.top_left == radii.bottom_right
+            && radii.top_left == radii.bottom_left;
+        if uniform
+            && node.paint.corner_smoothing > 0.
+            && radii.max() > 0.
+            && a > 0.
+            && (a - d).abs() < 1e-9
+            && b.abs() < 1e-9
+            && c.abs() < 1e-9
+        {
+            // A zero-sigma contour is a solid fill. The analytical contour
+            // backend batches these without a separate raster/texture per tile;
+            // other backends retain the same compatible continuous geometry.
+            scene.draw_box_shadow_profile(
+                transform,
+                rect,
+                background,
+                crate::ShadowProfile {
+                    radius: f64::from(radii.max()),
+                    std_dev: 0.,
+                    corner_smoothing: node.paint.corner_smoothing,
+                },
+            );
+        } else {
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                background,
+                None,
+                &corner_shape(rect, radii, node.paint.corner_smoothing),
+            );
+        }
     }
     for shadow in node
         .paint
@@ -483,12 +512,13 @@ fn draw_image(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     );
 }
 
-fn draw_text(
+fn draw_text_at_raster_scale(
     scene: &mut Scene,
     node: &PlacedNode,
     tcx: &mut TextContext,
     transform: Affine,
     device_scale: f64,
+    raster_factor: f64,
 ) {
     if tcx.has_native_paragraphs() {
         let Some(request) = node_paragraph_request(tcx, node) else {
@@ -507,6 +537,18 @@ fn draw_text(
         }
         // Measurements and hit-testing populate the host's shared paragraph cache.
         tcx.native_paragraph(request.clone());
+        let request = if raster_factor != 1. {
+            let [a, b, c, d, _, _] = origin.as_coeffs();
+            if a > 0. && (a - d).abs() < 1e-9 && b.abs() < 1e-9 && c.abs() < 1e-9 {
+                let mut request = (*request).clone();
+                request.raster_scale_hint = Some((a * raster_factor * 10000.).round() / 10000.);
+                Arc::new(request)
+            } else {
+                request
+            }
+        } else {
+            request
+        };
         scene.draw_paragraph(request, origin);
         return;
     }
@@ -763,7 +805,7 @@ pub fn build_scene_scaled_layers(
         cache: None,
     };
     for nodes in roots {
-        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg);
+        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg, 1.);
     }
 }
 
@@ -786,6 +828,7 @@ struct CachedSubtree {
     scene: Scene,
     parent_transform: Affine,
     inherited_clip: Rect,
+    raster_factor: f64,
 }
 impl SceneCache {
     /// Drop every retained fragment and its surface context.
@@ -854,7 +897,7 @@ pub fn build_scene_cached(
         cache: Some(cache),
     };
     for nodes in roots {
-        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg);
+        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg, 1.);
     }
 }
 
@@ -875,13 +918,20 @@ impl Encoder<'_> {
         mut nodes: &[PlacedNode],
         parent_transform: Affine,
         inherited_clip: Rect,
+        raster_factor: f64,
     ) {
         while let Some(first) = nodes.first() {
             let len = nodes[1..]
                 .iter()
                 .position(|node| node.depth <= first.depth)
                 .map_or(nodes.len(), |index| index + 1);
-            self.encode_one(scene, &nodes[..len], parent_transform, inherited_clip);
+            self.encode_one(
+                scene,
+                &nodes[..len],
+                parent_transform,
+                inherited_clip,
+                raster_factor,
+            );
             nodes = &nodes[len..];
         }
     }
@@ -892,6 +942,7 @@ impl Encoder<'_> {
         nodes: &[PlacedNode],
         parent_transform: Affine,
         inherited_clip: Rect,
+        raster_factor: f64,
     ) {
         let node = &nodes[0];
         if self.cache_roots.contains(&node.node_id) {
@@ -899,7 +950,8 @@ impl Encoder<'_> {
                 cache.entries.get(&node.node_id).and_then(|cached| {
                     (!self.invalid.contains(&node.node_id)
                         && cached.parent_transform == parent_transform
-                        && cached.inherited_clip == inherited_clip)
+                        && cached.inherited_clip == inherited_clip
+                        && cached.raster_factor == raster_factor)
                         .then(|| cached.scene.clone())
                 })
             });
@@ -915,7 +967,13 @@ impl Encoder<'_> {
             let independent = !nodes.iter().any(|node| node.paint.backdrop_blur > 0.0);
             if independent {
                 let mut fragment = Scene::new();
-                self.encode_contents(&mut fragment, nodes, parent_transform, inherited_clip);
+                self.encode_contents(
+                    &mut fragment,
+                    nodes,
+                    parent_transform,
+                    inherited_clip,
+                    raster_factor,
+                );
                 scene.append_cached_scene(fragment.clone(), Affine::IDENTITY);
                 if let Some(cache) = self.cache.as_deref_mut() {
                     cache.built += 1;
@@ -925,13 +983,20 @@ impl Encoder<'_> {
                             scene: fragment,
                             parent_transform,
                             inherited_clip,
+                            raster_factor,
                         },
                     );
                 }
                 return;
             }
         }
-        self.encode_contents(scene, nodes, parent_transform, inherited_clip);
+        self.encode_contents(
+            scene,
+            nodes,
+            parent_transform,
+            inherited_clip,
+            raster_factor,
+        );
     }
 
     fn encode_contents(
@@ -940,6 +1005,7 @@ impl Encoder<'_> {
         nodes: &[PlacedNode],
         parent_transform: Affine,
         inherited_clip: Rect,
+        raster_factor: f64,
     ) {
         let n = &nodes[0];
         if let Some(cache) = self.cache.as_deref_mut() {
@@ -952,6 +1018,12 @@ impl Encoder<'_> {
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
         let css_transform = resolve_node_transform(n, parent_transform);
         let node_transform = self.device * css_transform;
+        let raster_factor = raster_factor
+            * f64::from(if n.paint.raster_scale_correction > 0. {
+                n.paint.raster_scale_correction
+            } else {
+                1.
+            });
         let paints_node = paints_viewport(n, css_transform, inherited_clip);
         let child_clip = n
             .own_clip
@@ -966,10 +1038,11 @@ impl Encoder<'_> {
             bg: &self.bg,
             viewport: self.viewport,
             device_scale: self.device_scale,
+            raster_factor,
         };
         let mut layers = Vec::new();
         encode_node(scene, self.tcx, &enc, &mut layers);
-        self.encode_nodes(scene, &nodes[1..], css_transform, child_clip);
+        self.encode_nodes(scene, &nodes[1..], css_transform, child_clip, raster_factor);
         if paints_viewport(n, css_transform, self.viewport) {
             draw_scrollbars(scene, n, node_transform);
         }
@@ -989,6 +1062,7 @@ struct EncodeCtx<'a> {
     bg: &'a Rect,
     viewport: Rect,
     device_scale: f64,
+    raster_factor: f64,
 }
 fn encode_node(
     scene: &mut Scene,
@@ -1005,6 +1079,7 @@ fn encode_node(
         bg,
         viewport,
         device_scale,
+        raster_factor,
     } = enc;
     let n: &PlacedNode = n;
     let device = *device;
@@ -1103,7 +1178,7 @@ fn encode_node(
     }
 
     if paints_node {
-        draw_text(scene, n, tcx, *node_transform, device_scale);
+        draw_text_at_raster_scale(scene, n, tcx, *node_transform, device_scale, *raster_factor);
     }
 }
 
@@ -1111,6 +1186,40 @@ fn encode_node(
 mod tests {
     use super::*;
     use crate::style::Shadow;
+
+    #[test]
+    fn uniform_continuous_fills_are_analytical_without_changing_other_geometry() {
+        let mut node = test_node(0, [0., 0., 40., 30.]);
+        node.paint.background = Some(Color::WHITE);
+        node.paint.border_radii = CornerRadii::uniform(6.);
+        node.paint.corner_smoothing = 1.;
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::scale(1.5));
+        assert!(matches!(
+            scene.commands[0],
+            crate::PaintCommand::BoxShadow {
+                radius: 6.,
+                std_dev: 0.,
+                corner_smoothing: 1.,
+                ..
+            }
+        ));
+        for transform in [Affine::scale_non_uniform(1., 2.), Affine::rotate(0.1)] {
+            let mut scene = Scene::new();
+            draw_node_box(&mut scene, &node, transform);
+            assert!(matches!(
+                scene.commands[0],
+                crate::PaintCommand::Fill { .. }
+            ));
+        }
+        node.paint.border_radii.top_left = 2.;
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        assert!(matches!(
+            scene.commands[0],
+            crate::PaintCommand::Fill { .. }
+        ));
+    }
 
     #[test]
     fn inset_shadow_follows_background_and_continuous_clip_without_expanding_bounds() {
@@ -1132,7 +1241,7 @@ mod tests {
         draw_node_box(&mut scene, &node, Affine::IDENTITY);
         assert!(matches!(
             scene.commands[0],
-            crate::PaintCommand::Fill { .. }
+            crate::PaintCommand::BoxShadow { std_dev: 0., .. }
         ));
         let crate::PaintCommand::PushClip { clip, .. } = &scene.commands[1] else {
             panic!("inset requires contour clip");
@@ -1192,10 +1301,9 @@ mod tests {
         scene = Scene::new();
         draw_node_box(&mut scene, &node, Affine::IDENTITY);
         assert!(
-            !scene
-                .commands
-                .iter()
-                .any(|c| matches!(c, crate::PaintCommand::BoxShadow { .. }))
+            !scene.commands.iter().any(
+                |c| matches!(c, crate::PaintCommand::BoxShadow { std_dev, .. } if *std_dev > 0.)
+            )
         );
     }
 

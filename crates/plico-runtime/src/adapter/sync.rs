@@ -97,6 +97,14 @@ impl Adapter {
             (visual_style, 0.)
         };
         let checked_progress = self.motions.checked(e, n.style.checked);
+        let raster_correction = self
+            .motions
+            .raster_scale(e)
+            .filter(|_| {
+                visual_style.scale[0] > 0. && visual_style.scale[0] == visual_style.scale[1]
+            })
+            .map(|scale| (scale / f64::from(visual_style.scale[0])) as f32)
+            .filter(|correction| (*correction - 1.).abs() > 1e-6);
         let svg = if n.kind == Kind::Svg {
             cached_svg(
                 &mut self.svg_cache,
@@ -296,6 +304,7 @@ impl Adapter {
             focused: (self.focus_visible || n.kind == Kind::TextInput) && self.focused == Some(e),
             checked_progress,
             focus_progress,
+            raster_correction,
         };
         let visual_style = key.style;
         let font_family = resolve_font_family(visual_style.font_family, &self.font_family);
@@ -340,6 +349,7 @@ impl Adapter {
                 engine.theme(),
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
+            paint.raster_scale_correction = raster_correction.unwrap_or(1.);
             paint.svg = svg.clone();
             paint.image = image.clone();
             self.tree.set_node_context(id, Some(paint)).unwrap();
@@ -395,7 +405,8 @@ impl Adapter {
                 .font_family
                 .as_deref()
                 != Some(font_family.as_ref());
-        if paint_needed {
+        if paint_needed || retained.paint_key.raster_correction != raster_correction {
+            self.stats.changes.insert(plico::Changes::PAINT);
             // This is the single retained paint mutation path: invalidate all
             // text-affecting values conservatively, including rich runs/theme.
             self.control_metrics.remove(&e);
@@ -418,6 +429,7 @@ impl Adapter {
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             retained.spans = n.spans.to_vec();
+            paint.raster_scale_correction = raster_correction.unwrap_or(1.);
             paint.svg = svg;
             paint.image = image;
             // Paint-only changes must not invalidate Taffy's text measurement cache.

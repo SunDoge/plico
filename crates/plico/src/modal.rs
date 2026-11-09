@@ -158,6 +158,11 @@ impl<'s> Modal<'_, '_, 's> {
             material,
             scrim_opacity,
         } = self;
+        let motion = if material.is_some_and(|material| material.reduce_motion) {
+            Motion::None
+        } else {
+            motion
+        };
         let now = ui.now().as_millis().min(u64::MAX as u128) as u64;
         if ui.inherited.disabled {
             state.close();
@@ -256,13 +261,26 @@ impl<'s> Modal<'_, '_, 's> {
                 padding: if anchor.is_some() { 8. } else { 24. },
                 gap: if anchor.is_some() { 8. } else { 18. },
                 radius: 12.,
+                enter_from: anchor.is_none().then(|| crate::Presentation {
+                    translate: [0., 8.],
+                    ..Default::default()
+                }),
+                translate: [
+                    0.,
+                    if state.open || anchor.is_some() {
+                        0.
+                    } else {
+                        8.
+                    },
+                ],
+                transition_ms: motion.duration_ms(),
                 background: Some(Color::Panel),
                 border_width: 1.,
                 border_color: Color::Border,
                 scroll_y: true,
                 max_height,
                 role: panel_role,
-                disabled: !state.open,
+                disabled: false,
                 font_size: cx.theme().metrics.font_size,
                 ..Default::default()
             };
@@ -316,7 +334,11 @@ impl<'s> Modal<'_, '_, 's> {
                 build(cx)
             };
             cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
-                if let Some(material) = material {
+                if !state.open {
+                    cx.engine.retain_exiting_children(cx.parent);
+                    return None;
+                }
+                Some(if let Some(material) = material {
                     material.show(cx, panel.radius, panel.corner_smoothing);
                     let content_style = Style {
                         width_percent: Some(100.),
@@ -339,7 +361,7 @@ impl<'s> Modal<'_, '_, 's> {
                     .0
                 } else {
                     content(cx)
-                }
+                })
             })
             .0
         });
@@ -347,10 +369,7 @@ impl<'s> Modal<'_, '_, 's> {
         if dismissed && state.open {
             state.close();
         }
-        ModalResponse {
-            inner: Some(inner),
-            dismissed,
-        }
+        ModalResponse { inner, dismissed }
     }
 }
 

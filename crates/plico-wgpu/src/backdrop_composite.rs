@@ -80,6 +80,50 @@ impl Compositor {
         data: [[f32; 4]; 4],
         mut pass: wgpu::RenderPass<'_>,
     ) {
+        self.encode_mix(
+            device,
+            output,
+            backdrop,
+            mask,
+            data,
+            [1., 0., 0., 0.],
+            &mut pass,
+        );
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_group(
+        &self,
+        device: &wgpu::Device,
+        output: &wgpu::TextureView,
+        backdrop: &wgpu::TextureView,
+        mask: &wgpu::BindGroup,
+        data: [[f32; 4]; 4],
+        alpha: f32,
+        offset: [f32; 2],
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        self.encode_mix(
+            device,
+            output,
+            backdrop,
+            mask,
+            data,
+            [alpha, 1., offset[0], offset[1]],
+            pass,
+        );
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn encode_mix(
+        &self,
+        device: &wgpu::Device,
+        output: &wgpu::TextureView,
+        backdrop: &wgpu::TextureView,
+        mask: &wgpu::BindGroup,
+        data: [[f32; 4]; 4],
+        mix: [f32; 4],
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        let data = [data[0], data[1], data[2], data[3], mix];
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("backdrop clip state"),
             contents: bytemuck::cast_slice(&data),

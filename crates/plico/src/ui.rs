@@ -439,6 +439,13 @@ impl<'e> UiContext<'e> {
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
     }
+    /// Re-evaluate the view at an injected-clock deadline, retaining its
+    /// declarations before then. Re-declaring or removing this component
+    /// cancels its old deadline; multiple requests keep the earliest one.
+    pub fn request_rebuild_at(&mut self, deadline: std::time::Duration) {
+        let node = self.engine.nodes.get_mut(self.parent).unwrap();
+        node.wake_at = Some(node.wake_at.map_or(deadline, |old| old.min(deadline)));
+    }
     /// Whether the host pointer targets the current parent control. Used by
     /// composed framework controls and logical-path replay adapters.
     pub fn hovered(&self) -> bool {
@@ -1054,6 +1061,13 @@ impl Layout<'_, '_> {
     pub fn motion(self, preset: Motion) -> Self {
         self.transition(preset.duration_ms())
     }
+    /// Mount at this presentation, then animate to the authored target using
+    /// the host's motion clock. Descendants share the group's transform.
+    pub fn enter_from(mut self, presentation: crate::Presentation) -> Self {
+        self.style.enter_from = Some(presentation);
+        self
+    }
+
     #[inline(always)]
     pub fn transition(mut self, milliseconds: u16) -> Self {
         self.style.transition_ms = milliseconds;
@@ -1659,6 +1673,11 @@ macro_rules! common {
             pub fn motion(self, preset: Motion) -> Self {
                 self.transition(preset.duration_ms())
             }
+            pub fn enter_from(mut self, presentation: crate::Presentation) -> Self {
+                self.inner.style.enter_from = Some(presentation);
+                self
+            }
+
             #[inline(always)]
             pub fn transition(mut self, milliseconds: u16) -> Self {
                 self.inner.style.transition_ms = milliseconds;

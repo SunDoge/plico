@@ -715,6 +715,7 @@ mod tests {
     fn request() -> Arc<ParagraphRequest> {
         Arc::new(ParagraphRequest {
             font_revision: 0,
+            raster_scale_hint: None,
             text: "Hello ffi 中文🙂".into(),
             font_size: 16.,
             font_weight: 500.,
@@ -966,6 +967,7 @@ mod gpu_tests {
         let make = |text: &str, max_lines| {
             Arc::new(ParagraphRequest {
                 font_revision: 0,
+                raster_scale_hint: None,
                 text: text.into(),
                 font_size: 20.,
                 font_weight: 500.,
@@ -1028,6 +1030,7 @@ mod gpu_tests {
         assert_eq!(text.raster_backend_name(), "coretext-wgpu");
         let request = Arc::new(ParagraphRequest {
             font_revision: 0,
+            raster_scale_hint: None,
             text: "CoreText S 中文 日本語🙂".into(),
             font_size: 20.,
             font_weight: 500.,

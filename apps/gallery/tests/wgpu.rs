@@ -295,3 +295,152 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         assert!(source.animation_deadline().is_some());
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn mines_reveal_reuses_native_paragraphs_and_partial_pixels_match_full() {
+    let clock = VirtualClock::default();
+    let mut game = gallery::mines::Mines::default();
+    game.configure(16, 16, 40);
+    game.reveal(8 * 16 + 8);
+    let mut source = Source::with_clock(
+        Gallery {
+            router: Router::new(Page::Mines),
+            mines: game,
+            ..Default::default()
+        },
+        clock.clone(),
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    clock.set(Duration::from_millis(300)).unwrap();
+    source
+        .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
+    renderer
+        .render_scene(&scene, [1120, 820], [1.; 4], true)
+        .unwrap();
+    let mut misses = None;
+    for ms in [350, 367, 400, 450, 500, 600] {
+        clock.set(Duration::from_millis(ms)).unwrap();
+        source
+            .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+            .unwrap();
+        assert!(source.last_error.is_none());
+        let actual = renderer
+            .render_scene(&scene, [1120, 820], [1.; 4], true)
+            .unwrap();
+        let expected = full
+            .render_scene(&scene, [1120, 820], [1.; 4], false)
+            .unwrap();
+        assert_eq!(actual, expected, "partial replay at {ms} ms");
+        let current = renderer.paragraph_cache_stats().misses;
+        if let Some(misses) = misses {
+            assert_eq!(current, misses, "animation reshaped native text at {ms} ms");
+        }
+        misses = Some(current);
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
+    struct Demo {
+        scale: f32,
+        shows: usize,
+    }
+    impl Default for Demo {
+        fn default() -> Self {
+            Self {
+                scale: 1.,
+                shows: 0,
+            }
+        }
+    }
+    impl plico_dev::App for Demo {
+        #[plico::component]
+        fn show(&mut self, cx: &mut plico::UiContext) {
+            self.shows += 1;
+            plico::widgets::column(cx)
+                .width(260.)
+                .height(100.)
+                .padding(24)
+                .scale(self.scale, self.scale)
+                .transition(240)
+                .children(|cx| {
+                    plico::widgets::text(cx, "Native 123 中文")
+                        .font_size(24)
+                        .weight(600);
+                });
+        }
+    }
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(plico_desktop::NativeApp(Demo::default()), clock.clone());
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .unwrap();
+    renderer
+        .render_scene(&scene, [400, 200], [1.; 4], false)
+        .unwrap();
+    source.update(|view| view.0.scale = 1.2);
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .unwrap();
+    renderer
+        .render_scene(&scene, [400, 200], [1.; 4], false)
+        .unwrap();
+    let shows = source.view.0.shows;
+    let mut misses = None;
+    for ms in [16, 32, 64, 100, 160, 220] {
+        clock.set(Duration::from_millis(ms)).unwrap();
+        source
+            .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+            .unwrap();
+        renderer
+            .render_scene(&scene, [400, 200], [1.; 4], false)
+            .unwrap();
+        assert_eq!(
+            source.view.0.shows, shows,
+            "motion re-evaluated the application"
+        );
+        assert_eq!(source.adapter.stats.layout_runs, 0);
+        let current = renderer.paragraph_cache_stats().misses;
+        if let Some(misses) = misses {
+            assert_eq!(current, misses, "scale motion reshaped text at {ms} ms");
+        }
+        misses = Some(current);
+    }
+    clock.set(Duration::from_millis(260)).unwrap();
+    source
+        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .unwrap();
+    let animated = renderer
+        .render_scene(&scene, [400, 200], [1.; 4], false)
+        .unwrap();
+    let mut baseline = Source::new(plico_desktop::NativeApp(Demo {
+        scale: 1.2,
+        shows: 0,
+    }));
+    let mut direct = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    direct.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    baseline
+        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .unwrap();
+    let expected = direct
+        .render_scene(&scene, [400, 200], [1.; 4], false)
+        .unwrap();
+    assert_eq!(
+        animated, expected,
+        "settled text differs from exact native rasterization"
+    );
+    assert!(!source.has_anim());
+}

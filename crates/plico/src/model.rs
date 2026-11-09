@@ -153,6 +153,31 @@ pub enum Color {
     /// Informational state, independent of the interactive accent.
     Info,
 }
+/// Initial presentation for a newly mounted group. Geometry is laid out at
+/// its target size; the host samples these paint-only channels as one timeline.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Presentation {
+    pub opacity: f32,
+    pub scale: [f32; 2],
+    pub translate: [f32; 2],
+}
+impl Default for Presentation {
+    fn default() -> Self {
+        Self {
+            opacity: 1.,
+            scale: [1., 1.],
+            translate: [0., 0.],
+        }
+    }
+}
+impl Presentation {
+    pub fn valid(self) -> bool {
+        self.opacity.is_finite()
+            && (0. ..=1.).contains(&self.opacity)
+            && self.scale.iter().all(|v| v.is_finite() && *v >= 0.)
+            && self.translate.iter().all(|v| v.is_finite())
+    }
+}
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
@@ -415,6 +440,8 @@ pub struct Style {
     /// Tween explicit dimensions, spacing and paint properties; zero snaps.
     #[invalidates(PAINT)]
     pub transition_ms: u16,
+    #[invalidates(PAINT)]
+    pub enter_from: Option<Presentation>,
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub gap: f32,
     #[invalidates(padding as horizontal_padding, LAYOUT, HIT_TEST, SEMANTICS)]
@@ -527,6 +554,7 @@ impl Default for Style {
             scale: [1., 1.],
             radius: 0.,
             transition_ms: 0,
+            enter_from: None,
             gap: 0.,
             padding: 0.,
             padding_x: None,
@@ -597,6 +625,7 @@ impl Style {
             && self.inset_shadow.is_none_or(BoxShadow::valid)
             && self.background_alpha.is_finite()
             && (0. ..=1.).contains(&self.background_alpha)
+            && self.enter_from.is_none_or(Presentation::valid)
             && self.opacity.is_finite()
             && (0. ..=1.).contains(&self.opacity)
             && self.translate.iter().all(|v| v.is_finite())
@@ -707,6 +736,8 @@ pub(crate) struct Node {
     pub touched: u64,
     pub auto: u32,
     pub scroll_observed: std::cell::Cell<bool>,
+    pub wake_at: Option<std::time::Duration>,
+    pub retained_exit: bool,
     pub order_dirty: bool,
     /// Invalidation accumulated where declarations mutate the node, drained by
     /// the commit pass. Replaces a retained style snapshot per node.
@@ -735,6 +766,8 @@ impl Node {
             touched: 0,
             auto: 0,
             scroll_observed: std::cell::Cell::new(false),
+            wake_at: None,
+            retained_exit: false,
             order_dirty: true,
             // A fresh node paints for the first time: every channel is stale.
             pending_changes: Changes::LAYOUT

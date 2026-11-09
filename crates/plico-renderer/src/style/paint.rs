@@ -400,6 +400,7 @@ impl DeclaredPaint {
             transform_origin: self.transform_origin.clone(),
             runtime_transform: host.runtime_transform,
             motion_transform: host.motion_transform,
+            raster_scale_correction: host.raster_scale_correction,
             motion_opacity: host.motion_opacity,
             overlay_plane: host.overlay_plane,
             scrollbar: host.scrollbar,
@@ -543,6 +544,8 @@ pub struct HostPaint {
     pub runtime_transform: Option<[f32; 6]>,
     /// Renderer-owned animated affine coefficients.
     pub motion_transform: Option<[f32; 6]>,
+    /// Stable raster scale divided by sampled scale during motion; zero means identity.
+    pub raster_scale_correction: f32,
     /// Renderer-owned opacity multiplier.
     pub motion_opacity: Option<f32>,
     /// Host-owned stacking plane.
@@ -577,6 +580,8 @@ pub struct Paint {
     pub runtime_transform: Option<[f32; 6]>,
     /// Renderer-owned animation composed after the authored runtime transform.
     pub motion_transform: Option<[f32; 6]>,
+    /// Stable raster scale divided by sampled scale during motion; zero means identity.
+    pub raster_scale_correction: f32,
     /// Renderer-owned multiplier composed with the authored opacity.
     pub motion_opacity: Option<f32>,
     /// Explicit host stacking plane, ordered before sibling `z-index`.
@@ -668,6 +673,7 @@ impl Clone for Paint {
             transform_origin: self.transform_origin.clone(),
             runtime_transform: self.runtime_transform,
             motion_transform: self.motion_transform,
+            raster_scale_correction: self.raster_scale_correction,
             motion_opacity: self.motion_opacity,
             overlay_plane: self.overlay_plane,
             scrollbar: self.scrollbar.clone(),
@@ -719,6 +725,7 @@ impl Clone for Paint {
             transform_origin,
             runtime_transform,
             motion_transform,
+            raster_scale_correction,
             motion_opacity,
             overlay_plane,
             scrollbar,
@@ -764,6 +771,7 @@ impl Clone for Paint {
         transform_origin.clone_from(&source.transform_origin);
         *runtime_transform = source.runtime_transform;
         *motion_transform = source.motion_transform;
+        *raster_scale_correction = source.raster_scale_correction;
         *motion_opacity = source.motion_opacity;
         *overlay_plane = source.overlay_plane;
         if !matches!((scrollbar.as_ref(), source.scrollbar.as_ref()), (Some(a), Some(b)) if Arc::ptr_eq(a, b))

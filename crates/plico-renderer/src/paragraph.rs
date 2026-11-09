@@ -11,6 +11,8 @@ use std::{rc::Rc, sync::Arc};
 pub struct ParagraphRequest {
     /// Host font-collection revision, so retained drawing detects font changes.
     pub font_revision: u64,
+    /// Paint-only physical raster density for an active transform. Layout stays logical.
+    pub raster_scale_hint: Option<f64>,
     /// Original UTF-8 contents.
     pub text: Arc<str>,
     /// Base font size.
@@ -45,6 +47,7 @@ impl ParagraphRequest {
     pub fn from_paint(paint: &Paint, width: Option<f32>) -> Option<Self> {
         Some(Self {
             font_revision: 0,
+            raster_scale_hint: None,
             text: paint.text.clone()?,
             font_size: paint.font_size,
             font_weight: paint.font_weight,
