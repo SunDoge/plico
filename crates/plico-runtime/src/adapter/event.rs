@@ -282,7 +282,24 @@ impl Adapter {
                         }
                         handled = true;
                     }
+                    PointerPhase::Down if p.button == Some(PointerButton::Secondary) => {
+                        self.hovered = hit;
+                        self.secondary_pressed = hit;
+                        handled = true;
+                    }
+                    PointerPhase::Up if p.button == Some(PointerButton::Secondary) => {
+                        self.hovered = hit;
+                        if let Some(e) = self.secondary_pressed.take().filter(|e| Some(*e) == hit)
+                            && engine.node(e).is_some_and(|n| {
+                                n.kind.capabilities().contains(Capabilities::ACTIVATE)
+                            })
+                        {
+                            engine.queue_secondary_click(e);
+                        }
+                        handled = true;
+                    }
                     PointerPhase::Cancel | PointerPhase::Leave => {
+                        self.secondary_pressed = None;
                         self.pressed = None;
                         self.hovered = None;
                         handled = true;
@@ -360,6 +377,7 @@ impl Adapter {
                 }
             }
             UiEvent::Focus(false) => {
+                self.secondary_pressed = None;
                 self.blurred_focus = self.focused;
                 self.scrollbar_drag = None;
                 self.scroll_motions.clear();

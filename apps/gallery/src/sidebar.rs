@@ -63,6 +63,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                         Page::Images,
                         Page::Markdown,
                         Page::Game2048,
+                        Page::Mines,
                     ][..],
                 ),
             ] {
@@ -126,7 +127,7 @@ fn entry(
 fn route_icon(page: Page) -> &'static SvgAsset {
     match page {
         Page::Workspace => &icons::FOLDER,
-        Page::Layout | Page::Game2048 => &icons::LAYOUT_GRID,
+        Page::Layout | Page::Game2048 | Page::Mines => &icons::LAYOUT_GRID,
         Page::Controls | Page::Localization => &icons::SLIDERS_HORIZONTAL,
         Page::Lists | Page::DataTable | Page::TreeView => &icons::LIST,
         Page::Calendar => &icons::LAYOUT_GRID,

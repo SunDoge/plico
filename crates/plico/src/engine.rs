@@ -48,6 +48,7 @@ pub struct Engine {
     pointer_observed: std::cell::Cell<bool>,
     hover_regions: std::cell::RefCell<HashMap<Entity, bool>>,
     clicks: Vec<Entity>,
+    secondary_clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
     high_values: Vec<(Entity, f64)>,
@@ -109,6 +110,7 @@ impl Default for Engine {
             pointer_observed: std::cell::Cell::new(false),
             hover_regions: Default::default(),
             clicks: Vec::new(),
+            secondary_clicks: Vec::new(),
             click_paths: Vec::new(),
             values: Vec::new(),
             high_values: Vec::new(),
@@ -627,6 +629,21 @@ impl Engine {
             }
         });
         changed
+    }
+    /// Queue a secondary-button activation. It never triggers primary activation.
+    pub fn queue_secondary_click(&mut self, entity: Entity) {
+        if !self.secondary_clicks.contains(&entity) {
+            self.secondary_clicks.push(entity);
+        }
+    }
+    pub(crate) fn secondary_clicked(&mut self, entity: Entity) -> bool {
+        if let Some(i) = self.secondary_clicks.iter().position(|id| *id == entity) {
+            self.secondary_clicks.swap_remove(i);
+            self.changes.insert(Changes::VIEW);
+            true
+        } else {
+            false
+        }
     }
     pub fn queue_click(&mut self, entity: Entity) {
         // A declaration exposes a boolean click. Coalesce repeated activation
@@ -1155,6 +1172,7 @@ impl Engine {
         self.theme_dirty = false;
         self.viewport_dirty = false;
         self.clicks.clear();
+        self.secondary_clicks.clear();
         // Leftover path-addressed events survived no declaration this pass;
         // keep them observable instead of silently discarding them.
         self.unmatched_clicks.append(&mut self.click_paths);

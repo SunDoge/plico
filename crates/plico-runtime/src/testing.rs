@@ -41,6 +41,14 @@ pub enum Command {
         #[serde(default)]
         occurrence: Option<usize>,
     },
+    /// Secondary mouse activation at the center of a named control. Uses the
+    /// actual hit-testing route, never translates into a primary semantic click.
+    SecondaryClick {
+        role: String,
+        label: String,
+        #[serde(default)]
+        occurrence: Option<usize>,
+    },
     Focus {
         role: String,
         label: String,
@@ -168,6 +176,34 @@ pub fn dispatch<V: HostView>(
                 modifiers: Modifiers::empty(),
                 properties: PointerProperties::default(),
             }));
+        }
+        Command::SecondaryClick {
+            role,
+            label,
+            occurrence,
+        } => {
+            let target = find_target(source, role, label, *occurrence)?;
+            let tree = source.adapter.semantics(&source.engine, 0);
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|node| node.id == target)
+                .expect("resolved target")
+                .bounds;
+            let position = Point {
+                x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
+                y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
+            };
+            for phase in [PointerPhase::Down, PointerPhase::Up] {
+                source.handle_event(UiEvent::Pointer(PointerEvent {
+                    phase,
+                    position,
+                    button: Some(PointerButton::Secondary),
+                    buttons: if phase == PointerPhase::Down { 2 } else { 0 },
+                    modifiers: Modifiers::empty(),
+                    properties: PointerProperties::default(),
+                }));
+            }
         }
         Command::Click {
             role,

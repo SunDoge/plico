@@ -455,6 +455,24 @@ impl<'e> UiContext<'e> {
     pub fn pressed(&self) -> bool {
         self.engine.pressed(self.parent)
     }
+    /// Whether the current composed control owns keyboard focus.
+    pub fn is_focused(&self) -> bool {
+        self.engine.focused() == Some(self.parent)
+    }
+    /// Request keyboard focus for the current composed control once in response
+    /// to an application action (for example, grid arrow-key navigation).
+    pub fn request_focus(&mut self) {
+        if !self.inherited.disabled {
+            self.engine.focus_request = Some(self.parent);
+        }
+    }
+    /// Consume a secondary-button click on the current composed control.
+    /// Like primary activation, the press and release must target the same
+    /// enabled control; dragging away cancels the click.
+    pub fn secondary_clicked(&mut self) -> bool {
+        let clicked = self.engine.secondary_clicked(self.parent);
+        clicked && !self.inherited.disabled
+    }
     /// Current host pointer position in window logical pixels, when the
     /// pointer is inside the window. Read during declarations; pointer
     /// movement triggers a settling re-declaration like other input state.

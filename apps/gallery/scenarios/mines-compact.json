@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 640,
+    "height": 740,
+    "scale": 1
+  },
+  "state": {
+    "router": {
+      "current": "Mines"
+    },
+    "sidebar_collapsed": true
+  },
+  "time_ms": 1000,
+  "steps": [
+    {
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Medium"
+      }
+    },
+    {
+      "after_ms": 50,
+      "command": {
+        "action": "click",
+        "role": "button",
+        "label": "Row 9, column 9: hidden"
+      }
+    }
+  ]
+}

@@ -213,6 +213,7 @@ pub struct Adapter {
     /// Latest pointer position in window logical pixels; None outside.
     pub(super) pointer_position: Option<(f64, f64)>,
     pub(super) pressed: Option<Entity>,
+    pub(super) secondary_pressed: Option<Entity>,
     pub(super) presentation: HashMap<NodeId, presentation::Presentation>,
     pub(super) presentation_dirty: bool,
     pub(super) presentation_roots: HashSet<NodeId>,
@@ -293,6 +294,7 @@ impl Default for Adapter {
             hovered: None,
             pointer_position: None,
             pressed: None,
+            secondary_pressed: None,
             presentation: HashMap::new(),
             presentation_dirty: false,
             presentation_roots: HashSet::new(),
