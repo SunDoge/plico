@@ -212,6 +212,10 @@ impl WgpuWindow {
             worker.drain();
         }
     }
+    /// Adapter selected for this window; useful for native-backend diagnostics.
+    pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
+        self.renderer.adapter_info()
+    }
     /// Whether a background acquisition worker is installed. Useful for A/B
     /// diagnostics to distinguish requested configuration from a sync fallback.
     pub fn surface_prefetch_enabled(&self) -> bool {

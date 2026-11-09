@@ -98,7 +98,7 @@ jobs:
         run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p plico-bevy --lib
 
   macos-native:
-    name: macOS native text and scheduling
+    name: macOS native text and Metal lifecycle
     runs-on: macos-15
     timeout-minutes: 25
     steps:
@@ -112,9 +112,9 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Run native CoreText and scheduling checks
+      - name: Run native CoreText, Metal and live-window checks
         env:
-          PLICO_MACOS_CHECK_MODE: cpu
+          PLICO_MACOS_CHECK_MODE: full
           PLICO_MACOS_CHECK_REPORT_DIR: reports/macos-native-ci
         run: scripts/check-macos-native.sh
       - name: Publish native check summary

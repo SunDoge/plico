@@ -235,6 +235,17 @@ impl ApplicationHandler for Probe {
                     .map_err(error)?,
             );
             let mut gpu = WgpuWindow::new(window.clone(), false).map_err(error)?;
+            let adapter = gpu.adapter_info();
+            #[cfg(target_os = "macos")]
+            if adapter.backend != wgpu::Backend::Metal {
+                return Err(error(
+                    "native macOS surface check requires the Metal backend",
+                ));
+            }
+            println!(
+                "surface-adapter: backend={:?} device_type={:?} name={:?}",
+                adapter.backend, adapter.device_type, adapter.name
+            );
             gpu.set_surface_wake(self.wake.clone());
             #[cfg(target_os = "macos")]
             if !matches!(

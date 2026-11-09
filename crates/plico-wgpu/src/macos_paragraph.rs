@@ -1185,10 +1185,16 @@ mod tests {
 #[cfg(test)]
 mod gpu_tests {
     use super::*;
+    fn metal_renderer() -> Renderer {
+        let renderer = pollster::block_on(Renderer::new()).unwrap();
+        assert_eq!(renderer.adapter_info().backend, wgpu::Backend::Metal);
+        eprintln!("native Metal adapter: {:?}", renderer.adapter_info());
+        renderer
+    }
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn scrolling_native_line_reuses_cpu_raster_and_gpu_upload() {
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut renderer = metal_renderer();
         let request = Arc::new(ParagraphRequest {
             font_revision: 0,
             raster_scale_hint: None,
@@ -1243,7 +1249,7 @@ mod gpu_tests {
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn fractional_line_limit_matches_an_explicit_clip_of_only_visible_content() {
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut renderer = metal_renderer();
         let make = |text: &str, max_lines| {
             Arc::new(ParagraphRequest {
                 font_revision: 0,
@@ -1304,7 +1310,7 @@ mod gpu_tests {
     #[test]
     #[ignore = "requires a macOS GPU adapter and installed system fonts"]
     fn coretext_scene_pixels_survive_reuse_damage_and_cache_trim() {
-        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let mut renderer = metal_renderer();
         let mut text = TextContext::new();
         renderer.configure_text(&mut text, 1.25).unwrap();
         assert_eq!(text.raster_backend_name(), "coretext-wgpu");

@@ -87,6 +87,7 @@ run_surface_window() {
     if cargo run --color never --locked -p plico-wgpu --no-default-features --features window,system-text --example surface-lifecycle 2>&1 | tee "$report_dir/live-window.log"; then
         while IFS= read -r line; do
             if [[ $line == 'surface-lifecycle: PASS '* ]]; then marker=$line; fi
+            if [[ $line == 'surface-adapter: '* ]]; then printf '%s\n' "$line" >> "$summary"; fi
             if [[ $line =~ $memory_pattern ]]; then
                 phase=${BASH_REMATCH[1]}
                 memory_phases+="$phase "
