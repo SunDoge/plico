@@ -36,6 +36,7 @@ impl FaceKey {
 struct Fonts {
     families: HashMap<String, HashMap<FaceKey, CFRetained<CTFont>>>,
     count: usize,
+    registered: HashMap<String, Vec<RegisteredFace>>,
 }
 impl Fonts {
     fn resolve(&mut self, request: &Request<'_>) -> Result<CFRetained<CTFont>> {
@@ -59,7 +60,33 @@ impl Fonts {
         if let Some(font) = self.families.get(family).and_then(|faces| faces.get(&key)) {
             return Ok(font.clone());
         }
-        let font = create(request)?;
+        let font = if let Some(faces) = self.registered.get(&family.to_lowercase()) {
+            let style = request.style.unwrap_or_default();
+            let weight = match style.weight {
+                FontWeight::Regular => 0.,
+                FontWeight::Bold => match FontWeight::from_css(700.)? {
+                    FontWeight::Normalized(w) => w,
+                    _ => unreachable!(),
+                },
+                FontWeight::Normalized(w) => w,
+            };
+            let face = faces
+                .iter()
+                .min_by(|a, b| {
+                    let score = |face: &RegisteredFace| {
+                        (face.weight - weight).abs()
+                            + if face.italic == style.italic { 0. } else { 10. }
+                    };
+                    score(a).total_cmp(&score(b))
+                })
+                .ok_or(Error::UnavailableStyle)?;
+            // SAFETY: Collection retains the descriptor; no optional matrix.
+            unsafe {
+                CTFont::with_font_descriptor(&face.descriptor, request.size, std::ptr::null())
+            }
+        } else {
+            create(request)?
+        };
         // Continuous font-size animations must not keep every sampled size.
         // Live lines retain their own face, so eviction cannot invalidate them.
         if self.count >= MAX_FONTS {
@@ -80,7 +107,11 @@ thread_local! {
     static FONTS: RefCell<Fonts> = RefCell::new(Fonts::default());
 }
 pub(super) fn resolve(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
-    FONTS.with_borrow_mut(|fonts| fonts.resolve(request))
+    if let Some(collection) = request.fonts {
+        collection.inner.borrow_mut().resolve(request)
+    } else {
+        FONTS.with_borrow_mut(|fonts| fonts.resolve(request))
+    }
 }
 fn create(request: &Request<'_>) -> Result<CFRetained<CTFont>> {
     let name = CFString::from_str(request.family);
@@ -235,5 +266,181 @@ mod tests {
                 other.rasterize(1.25, [0.25, 0.], [255; 4]).unwrap()
             );
         }
+    }
+}
+
+struct RegisteredFace {
+    descriptor: CFRetained<CTFontDescriptor>,
+    weight: f64,
+    italic: bool,
+}
+/// Thread-confined, privately owned application fonts and bounded face cache.
+/// Based on MyGO's descriptor-based registration: aliases do not affect other
+/// windows or applications, and existing lines retain their native fonts.
+#[derive(Default)]
+pub struct FontCollection {
+    inner: RefCell<Fonts>,
+    _thread: PhantomData<Rc<()>>,
+    registrations: usize,
+    font_bytes: usize,
+}
+impl std::fmt::Debug for FontCollection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FontCollection").finish_non_exhaustive()
+    }
+}
+impl FontCollection {
+    /// Add TTF/OTF/TTC bytes under their native family and an optional alias.
+    /// Invalid data leaves the collection and its existing face cache intact.
+    /// Each collection accepts at most 64 registrations and 128 MiB of font data.
+    pub fn register(&mut self, bytes: &[u8], alias: Option<&str>) -> Result<()> {
+        use objc2_core_foundation::{CFArray, CFData};
+        if self.registrations >= 64
+            || bytes.len() > (128 * 1024 * 1024_usize).saturating_sub(self.font_bytes)
+            || bytes.is_empty()
+            || alias.is_some_and(|name| name.is_empty() || name.len() > 4096 || name.contains('\0'))
+        {
+            return Err(Error::InvalidRequest);
+        }
+        // The generated binding assumes a nonnull result, but CoreText can
+        // return NULL for invalid data. Keep that failure observable as Result.
+        unsafe extern "C-unwind" {
+            #[link_name = "CTFontManagerCreateFontDescriptorsFromData"]
+            fn descriptors(data: &CFData) -> Option<std::ptr::NonNull<CFArray<CTFontDescriptor>>>;
+        }
+        let data = CFData::from_bytes(bytes);
+        // SAFETY: CFData lives through the synchronous call. CoreText returns
+        // a create-rule array containing CTFontDescriptor objects or NULL.
+        let descriptors =
+            unsafe { CFRetained::from_raw(descriptors(&data).ok_or(Error::InvalidRequest)?) };
+        let mut additions = Vec::new();
+        for descriptor in descriptors.iter() {
+            // SAFETY: The descriptor is retained by the array and valid.
+            let font = unsafe { CTFont::with_font_descriptor(&descriptor, 12., std::ptr::null()) };
+            let family = unsafe { font.family_name() }.to_string();
+            let traits = unsafe { font.symbolic_traits() };
+            let weight = unsafe {
+                let dictionary =
+                    CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(font.traits());
+                dictionary.get(kCTFontWeightTrait)
+            }
+            .and_then(|value| value.downcast::<CFNumber>().ok())
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.);
+            let mut names = vec![family.to_lowercase()];
+            if let Some(alias) = alias {
+                let alias = alias.to_lowercase();
+                if !names.contains(&alias) {
+                    names.push(alias);
+                }
+            }
+            additions.push((
+                names,
+                RegisteredFace {
+                    descriptor,
+                    weight,
+                    italic: traits.contains(CTFontSymbolicTraits::TraitItalic),
+                },
+            ));
+        }
+        if additions.is_empty() {
+            return Err(Error::InvalidRequest);
+        }
+        self.registrations += 1;
+        self.font_bytes += bytes.len();
+        let fonts = self.inner.get_mut();
+        for (names, face) in additions {
+            for name in names {
+                fonts
+                    .registered
+                    .entry(name)
+                    .or_default()
+                    .push(RegisteredFace {
+                        descriptor: face.descriptor.clone(),
+                        weight: face.weight,
+                        italic: face.italic,
+                    });
+            }
+        }
+        fonts.families.clear();
+        fonts.count = 0;
+        Ok(())
+    }
+    /// Whether a private family or alias is available (case insensitive).
+    pub fn contains_family(&self, family: &str) -> bool {
+        self.inner
+            .borrow()
+            .registered
+            .contains_key(&family.to_lowercase())
+    }
+}
+
+#[cfg(test)]
+mod application_font_tests {
+    use super::*;
+    const FONT: &[u8] =
+        include_bytes!("../../../../backend/examples/web-preview/public/DejaVuSans.ttf");
+
+    #[test]
+    fn aliases_are_private_and_registration_invalidates_cached_substitution() {
+        let mut fonts = FontCollection::default();
+        let request = Request {
+            family: "Plico Private Face",
+            fonts: Some(&fonts),
+            ..Request::new("iiii WWWW")
+        };
+        let fallback = Line::new(&request).unwrap();
+        assert!(!fallback.font_family().eq_ignore_ascii_case("DejaVu Sans"));
+        fonts.register(FONT, Some("Plico Private Face")).unwrap();
+        for family in ["Plico Private Face", "plico private face", "DejaVu Sans"] {
+            let line = Line::new(&Request {
+                family,
+                fonts: Some(&fonts),
+                ..Request::new("iiii WWWW")
+            })
+            .unwrap();
+            assert_eq!(line.font_family(), "DejaVu Sans");
+            let again = Line::new(&Request {
+                family,
+                fonts: Some(&fonts),
+                ..Request::new("iiii WWWW")
+            })
+            .unwrap();
+            assert_eq!(line.metrics().width, again.metrics().width);
+            assert_eq!(
+                line.rasterize(2., [0., 0.], [255; 4]).unwrap(),
+                again.rasterize(2., [0., 0.], [255; 4]).unwrap()
+            );
+        }
+        let other = FontCollection::default();
+        assert!(!other.contains_family("Plico Private Face"));
+        let line = Line::new(&Request {
+            family: "Plico Private Face",
+            fonts: Some(&other),
+            ..Request::new("iiii WWWW")
+        })
+        .unwrap();
+        assert_eq!(line.font_family(), fallback.font_family());
+    }
+
+    #[test]
+    fn invalid_registration_preserves_faces_and_live_lines_outlive_collection() {
+        let line = {
+            let mut fonts = FontCollection::default();
+            fonts.register(FONT, Some("Private")).unwrap();
+            for data in [&[][..], &[0, 1, 2][..]] {
+                assert!(fonts.register(data, Some("Private")).is_err());
+                assert!(fonts.contains_family("Private"));
+            }
+            Line::new(&Request {
+                family: "Private",
+                fonts: Some(&fonts),
+                ..Request::new("AV office")
+            })
+            .unwrap()
+        };
+        assert_eq!(line.font_family(), "DejaVu Sans");
+        assert!(line.rasterize(2., [0., 0.], [255; 4]).is_ok());
     }
 }

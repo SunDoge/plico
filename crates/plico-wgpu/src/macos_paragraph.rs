@@ -1,7 +1,7 @@
 //! Experimental retained CoreText geometry and bounded per-line RGBA cache.
 use crate::{Error, Renderer, Result};
 use plico_native::macos_text::{
-    Alignment, FontStyle, FontWeight, Line, Paragraph as Layout, Request, StyleSpan,
+    Alignment, FontCollection, FontStyle, FontWeight, Line, Paragraph as Layout, Request, StyleSpan,
 };
 use plico_renderer::{
     TextContext,
@@ -161,7 +161,8 @@ pub(crate) struct Cache {
     rasters: lru::LruCache<RasterKey, Raster>,
     raster_bytes: usize,
     rasterizations: u64,
-    font_error: bool,
+    fonts: FontCollection,
+    font_assets: Vec<FontAsset>,
     intrinsic: lru::LruCache<u64, Intrinsic>,
     intrinsic_bytes: usize,
     intrinsic_measurements: u64,
@@ -174,7 +175,8 @@ impl Cache {
             rasters: lru::LruCache::new(NonZeroUsize::new(1024).unwrap()),
             raster_bytes: 0,
             rasterizations: 0,
-            font_error: false,
+            fonts: FontCollection::default(),
+            font_assets: Vec::new(),
             intrinsic: lru::LruCache::new(NonZeroUsize::new(128).unwrap()),
             intrinsic_bytes: 0,
             intrinsic_measurements: 0,
@@ -193,11 +195,6 @@ impl Cache {
         &mut self,
         request: Arc<ParagraphRequest>,
     ) -> std::result::Result<Rc<Paragraph>, ParagraphError> {
-        if self.font_error {
-            return Err(rejected(
-                "CoreText application font registration is not implemented",
-            ));
-        }
         if request.runs.len() > 4096 {
             return Err(rejected("too many CoreText rich spans"));
         }
@@ -251,8 +248,10 @@ impl Cache {
             };
             let mut probe = Request::new("");
             probe.family = mapped;
+            probe.fonts = Some(&self.fonts);
             let face = Line::new(&probe).map_err(|e| rejected(e.to_string()))?;
-            if mapped == "system-ui"
+            if self.fonts.contains_family(mapped)
+                || mapped == "system-ui"
                 || face.font_family().eq_ignore_ascii_case(mapped)
                 || face.font_postscript_name().eq_ignore_ascii_case(mapped)
             {
@@ -263,6 +262,7 @@ impl Cache {
         let family = family.ok_or_else(|| rejected("no requested CoreText family is installed"))?;
         let mut source_native = Request::new(&request.text);
         source_native.family = family;
+        source_native.fonts = Some(&self.fonts);
         source_native.size = request.font_size as f64;
         source_native.letter_spacing = request.letter_spacing as f64;
         source_native.style = Some(FontStyle {
@@ -300,7 +300,7 @@ impl Cache {
             (true, None) | (true, Some(f64::INFINITY)) => None,
             // A collapsed flex item has no visible text area. Keep the request
             // valid and clamp its editing geometry to the source start.
-            (true, Some(width)) if width == 0. => Some((String::new(), 0)),
+            (true, Some(0.)) => Some((String::new(), 0)),
             (true, Some(width)) => {
                 Line::ellipsized_text_styled(&source_native, &source_spans, width)
                     .map_err(|e| rejected(e.to_string()))?
@@ -318,11 +318,10 @@ impl Cache {
         let native_spans = if let Some((_, end)) = &ellipsized {
             source_spans
                 .iter()
-                .filter_map(|span| {
-                    (span.range.start < *end).then(|| StyleSpan {
-                        range: span.range.start..span.range.end.min(*end),
-                        ..span.clone()
-                    })
+                .filter(|span| span.range.start < *end)
+                .map(|span| StyleSpan {
+                    range: span.range.start..span.range.end.min(*end),
+                    ..span.clone()
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -616,10 +615,20 @@ impl ParagraphEngine for Engine {
             .layout(request)
             .map(|p| p as Rc<dyn NativeParagraph>)
     }
-    fn register_font(&mut self, _asset: &FontAsset) {
+    fn register_font(&mut self, asset: &FontAsset) {
         let mut cache = self.cache.borrow_mut();
-        cache.font_error = true;
-        cache.clear();
+        if cache.font_assets.iter().any(|registered| {
+            registered.family() == asset.family() && std::ptr::eq(registered.bytes(), asset.bytes())
+        }) {
+            return;
+        }
+        match cache.fonts.register(asset.bytes(), asset.family()) {
+            Ok(()) => {
+                cache.font_assets.push(asset.clone());
+                cache.clear();
+            }
+            Err(error) => tracing::warn!(%error, "CoreText rejected application font"),
+        }
     }
     fn clear(&mut self) {
         self.cache.borrow_mut().clear();
@@ -731,6 +740,41 @@ mod tests {
             max_lines: 0,
             ellipsis: false,
         })
+    }
+    #[test]
+    fn application_font_alias_survives_engine_reinstallation_and_cache_trim() {
+        let asset = FontAsset::from_static(include_bytes!(
+            "../../../backend/examples/web-preview/public/DejaVuSans.ttf"
+        ))
+        .with_family("Private CoreText Fixture");
+        let cache = Rc::new(RefCell::new(Cache::new()));
+        let mut engine = Engine {
+            cache: cache.clone(),
+            scale: 1.,
+        };
+        let mut request = (*request()).clone();
+        request.family = "Private CoreText Fixture".into();
+        assert!(engine.layout(Arc::new(request.clone())).is_err());
+        engine.register_font(&asset);
+        let first = engine.layout(Arc::new(request.clone())).unwrap();
+        assert!(first.metrics().width > 0.);
+        for scale in [1.25, 2., 1.] {
+            // configure_text replays assets when reinstalling the provider.
+            let mut next = Engine {
+                cache: cache.clone(),
+                scale,
+            };
+            next.register_font(&asset.clone());
+            assert_eq!(cache.borrow().font_assets.len(), 1);
+            next.clear();
+            let restored = next.layout(Arc::new(request.clone())).unwrap();
+            assert_eq!(restored.metrics().width, first.metrics().width);
+            assert!(restored.caret_rect(1).is_some());
+            assert!(
+                next.layout(self::request()).is_ok(),
+                "system text must remain usable"
+            );
+        }
     }
     #[test]
     fn geometry_is_color_independent_and_per_line_rasters_are_reused() {

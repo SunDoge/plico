@@ -53,3 +53,9 @@ these attribution notes do not relicense them.
   MIT notices remain in those files and `licenses/microsoft-terminal-MIT.txt`.
   The fixed legacy thin-family list/detection is not copied; callers explicitly
   choose the thin-family contrast policy.
+
+- MyGO, MIT, commit `ee3d4bd9bd741f197de231b9fd9b002e9db55577`:
+  `internal/text/coretext_darwin.go` registration and nearest-face selection.
+  The CoreText application font collection uses private descriptors and family
+  aliases rather than process-global registration. Ownership, per-collection
+  caches and validation are Rust implementations. See `licenses/mygo-MIT.txt`.

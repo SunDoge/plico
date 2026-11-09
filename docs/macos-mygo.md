@@ -70,3 +70,20 @@ Linux / Vulkan，不能证明 macOS 窗口服务器的首次曝光已经无闪�
 `toast_motion` 的虚拟时钟回归检查停留期间无动画请求、无 adapter 同步访问、
 到期正常关闭，并检查悬停取消 deadline。此调度优化适用于所有宿主，
 macOS 桌面复用已有 WaitUntil 调度，无新增平台计时器。
+
+## 私有 CoreText 应用字体
+
+对照 MyGO `internal/text/coretext_darwin.go` 的 `register`，使用
+`CTFontManagerCreateFontDescriptorsFromData` 保留私有描述符，按原生 family 和应用别名
+查找最近的字重/斜体 face。没有进程级字体注册，不修改系统字体环境。
+`macos_text::FontCollection` 独立拥有描述符与最多 256 个尺寸/样式缓存；
+`Request::fonts` 可选择私有集合。已创建的 Line / Paragraph 自己保留原生字体，
+不依赖集合的后续缓存存活。每个集合最多接受 64 次注册和 128 MiB 字体数据。
+
+wgpu CoreText 桥接不再因应用注册字体而拒绝所有后续布局。有效注册清除派生布局和
+栅格缓存；非法数据返回错误或警告，保留现有字体。引擎重装（如 DPI 更新）按共享
+FontAsset 存储身份去重，不反复积累描述符。普通系统字体仍可使用。
+
+原生字体与渲染桥接回归包括别名、上下文隔离、缓存替换、非法数据、集合销毁后的
+存活 Line 和引擎重装。Linux 环境只能对 Apple Silicon 目标编译这些测试，
+不能声称已运行 CoreText 像素断言；macOS 运行验证仍由用户执行。

@@ -19,6 +19,7 @@ pub(crate) fn rasterize(request: &VerticalRequest<'_>) -> Result<Bitmap> {
         } else {
             request.family
         },
+        fonts: None,
         size: request.size,
         letter_spacing: 0.,
         style: Some(FontStyle {

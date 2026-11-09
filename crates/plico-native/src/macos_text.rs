@@ -11,6 +11,7 @@ mod raster;
 pub(crate) mod vertical;
 mod wrapping;
 use crate::text_indices::TextIndices;
+pub use fonts::FontCollection;
 use objc2_core_foundation::{
     CFBoolean, CFDictionary, CFMutableAttributedString, CFNumber, CFRange, CFRetained, CFString,
     CFType, CGPoint,
@@ -157,6 +158,8 @@ pub struct Request<'a> {
     /// System/PostScript family name; `system-ui` or empty selects the UI font.
     /// CoreText may fall back for unknown names; inspect [`Line::font_family`].
     pub family: &'a str,
+    /// Private application faces; no process-wide font registration is performed.
+    pub fonts: Option<&'a FontCollection>,
     /// Logical font size, finite and in `(0, 4096]`.
     pub size: f64,
     /// Native tracking in logical points, finite and within `[-4096, 4096]`.
@@ -172,6 +175,7 @@ impl<'a> Request<'a> {
         Self {
             text,
             family: "system-ui",
+            fonts: None,
             size: 14.,
             letter_spacing: 0.,
             style: None,
