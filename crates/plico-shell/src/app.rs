@@ -837,6 +837,14 @@ impl App {
         changed
     }
 
+    fn fail_initial_frame(&mut self, error: crate::Error) {
+        *self
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned") = Some(error);
+        self.application_exit_requested = true;
+    }
+
     fn redraw(&mut self) {
         let frame_measurement = crate::telemetry::span("frame", "redraw.cpu");
         self.performance_hud.begin_frame(Instant::now());
@@ -852,6 +860,13 @@ impl App {
         );
         #[cfg(feature = "profiling")]
         let _frame_guard = frame_span.enter();
+        let resized = self
+            .state
+            .as_mut()
+            .is_some_and(|shell| shell.sync_surface_size());
+        if resized {
+            self.sync_window_metrics();
+        }
         let Some(shell) = self.state.as_mut() else {
             return;
         };
@@ -869,6 +884,9 @@ impl App {
                     if let Some(request) = self.source.take_screenshot_request() {
                         self.source
                             .complete_screenshot(&request.path, Err(error.to_string()));
+                    }
+                    if shell.initial_show_pending() {
+                        self.fail_initial_frame(error);
                     }
                     return;
                 }
@@ -919,6 +937,12 @@ impl App {
             phase.attribute("parent", frame_measurement.id());
             shell.present(base_color)
         };
+        if let Some(message) = shell.initial_show_error() {
+            // A failed hidden startup must not become an invisible animation
+            // loop continually submitting work (e.g. after a GPU wait timeout).
+            self.fail_initial_frame(crate::Error::Renderer { message });
+            return;
+        }
         let present_ms = ms(Instant::now() - t2);
         let present_skipped = shell.present_skipped();
         self.skipped_present_deadline = present_skipped.then(|| {
@@ -1228,6 +1252,7 @@ impl ApplicationHandler for App {
         };
         if let Some(wake) = self.wake_callback.clone() {
             shell.observe_display_preferences(wake);
+            shell.refresh_display_preferences();
         }
         let window = shell.window().clone();
         self.state = Some(shell);
@@ -1278,6 +1303,10 @@ impl ApplicationHandler for App {
                 self.sync_window_metrics();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(shell) = self.state.as_mut() {
+                    shell.sync_surface_size();
+                }
+                self.present_retry_pending = false;
                 self.sync_window_metrics();
                 if let Some(shell) = self.state.as_ref() {
                     shell.window().request_redraw();
@@ -2615,7 +2644,8 @@ impl ApplicationHandler for MultiWindowApp {
             }
             return;
         }
-        let surface_resized = matches!(&event, WindowEvent::SurfaceResized(size) if size.width > 0 && size.height > 0);
+        let geometry_changed = matches!(&event, WindowEvent::SurfaceResized(size) if size.width > 0 && size.height > 0)
+            || matches!(&event, WindowEvent::ScaleFactorChanged { .. });
         let metrics_changed = matches!(
             &event,
             WindowEvent::SurfaceResized(_)
@@ -2691,7 +2721,7 @@ impl ApplicationHandler for MultiWindowApp {
             // proxy wake (which may be coalesced while handling this event).
             if let Some(app) = self.windows.get_mut(&window_id) {
                 app.drain_proxy_wake_up();
-                if surface_resized {
+                if geometry_changed {
                     // Submit the first frame at the new extent in this event,
                     // rather than exposing the resized window with its old
                     // buffer until a later RedrawRequested is dispatched.

@@ -2114,18 +2114,47 @@ impl Renderer {
         let encoder = self.encode_frame(items, size, background, time)?;
         self.submit_to_view(encoder, destination, format)
     }
-    #[tracing::instrument(
-        level = "debug",
-        target = "plico::perf",
-        name = "wgpu.submit",
-        skip_all
-    )]
-    pub(crate) fn submit_to_view(
+    /// One startup frame, with no drawable held and no readback texture/buffer.
+    /// Complete it before window exposure; regular frames never use this wait.
+    #[cfg(feature = "window")]
+    #[tracing::instrument(name = "wgpu.startup_prime", skip_all)]
+    pub(crate) fn prime_scene_plan(
         &mut self,
-        mut encoder: wgpu::CommandEncoder,
-        destination: &wgpu::TextureView,
+        plan: crate::scene::SceneFramePlan,
         format: wgpu::TextureFormat,
-    ) -> Result<()> {
+    ) -> Result<wgpu::CommandEncoder> {
+        let result = (|| {
+            self.prepare_present(format)?;
+            let encoder = self.encode_scene_plan(plan)?;
+            let submission = self.queue.submit([encoder.finish()]);
+            self.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(std::time::Duration::from_secs(1)),
+                })
+                .map_err(|source| Error::Poll { source })?;
+            Ok(self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("initial window copy"),
+                }))
+        })();
+        if result.is_err() {
+            self.scene_damage.invalidate();
+        }
+        result
+    }
+
+    /// Drop unsubmitted draw commands after failed acquisition, while flushing
+    /// pending write_buffer/write_texture staging. Otherwise repeated failures
+    /// can retain upload staging until some future successful submission.
+    #[cfg(feature = "window")]
+    pub(crate) fn abandon_scene_frame(&mut self, encoder: wgpu::CommandEncoder) {
+        drop(encoder);
+        self.queue.submit([]);
+        self.invalidate_scene_damage();
+    }
+    pub(crate) fn prepare_present(&mut self, format: wgpu::TextureFormat) -> Result<()> {
         if !matches!(
             format,
             wgpu::TextureFormat::Rgba8Unorm
@@ -2140,6 +2169,21 @@ impl Renderer {
         if self.blitter.as_ref().is_none_or(|b| b.format != format) {
             self.blitter = Some(crate::blit::Blitter::new(&self.device, format));
         }
+        Ok(())
+    }
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.submit",
+        skip_all
+    )]
+    pub(crate) fn submit_to_view(
+        &mut self,
+        mut encoder: wgpu::CommandEncoder,
+        destination: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> Result<()> {
+        self.prepare_present(format)?;
         let view = &self.target.as_ref().unwrap().view;
         self.blitter
             .as_mut()
@@ -3429,6 +3473,91 @@ mod tests {
                 .render_items(&[Draw::Image(&image)], [16, 16], [0.; 4], 0.)
                 .unwrap(),
             pixels
+        );
+    }
+
+    #[cfg(feature = "window")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn startup_frame_is_complete_before_exposure_without_readback_allocation() {
+        use plico_renderer::{PaintScene, Scene};
+        let mut scene = Scene::new();
+        scene.fill(
+            peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            peniko::Color::from_rgba8(55, 120, 190, 210),
+            None,
+            &kurbo::Rect::new(3., 2., 41., 28.).to_rounded_rect(7.),
+        );
+        let mut reference = pollster::block_on(Renderer::new()).unwrap();
+        let expected = reference
+            .render_scene(&scene, [48, 32], [0.; 4], false)
+            .unwrap();
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        let plan = renderer
+            .plan_scene_frame(&scene, [48, 32], [0.; 4], true)
+            .unwrap();
+        assert!(!plan.unchanged());
+        let copy = renderer
+            .prime_scene_plan(plan, wgpu::TextureFormat::Bgra8Unorm)
+            .unwrap();
+        assert_eq!(
+            renderer.target_storage_bytes().1,
+            0,
+            "startup must not allocate screenshot storage"
+        );
+        assert!(
+            renderer.blitter.is_some(),
+            "the present pipeline must be ready before exposure"
+        );
+        let actual = renderer.read_frame(copy, [48, 32]).unwrap();
+        assert_eq!(actual, expected);
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, [48, 32], [0.; 4], true)
+                .unwrap()
+                .unchanged(),
+            "startup retains the complete target, not a duplicate image"
+        );
+    }
+    #[cfg(feature = "window")]
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn failed_acquisition_discards_encoded_work_and_requires_a_fresh_frame() {
+        use plico_renderer::Scene;
+        let scene = Scene::new();
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        for _ in 0..32 {
+            let plan = renderer
+                .plan_scene_frame(&scene, [32, 24], [0.2, 0.3, 0.4, 1.], true)
+                .unwrap();
+            assert!(
+                !plan.unchanged(),
+                "unsubmitted work is never a retained frame"
+            );
+            let encoder = renderer.encode_scene_plan(plan).unwrap();
+            renderer.abandon_scene_frame(encoder);
+            assert_eq!(renderer.target_storage_bytes().1, 0);
+        }
+        let plan = renderer
+            .plan_scene_frame(&scene, [32, 24], [0.2, 0.3, 0.4, 1.], true)
+            .unwrap();
+        assert!(!plan.unchanged());
+        let encoder = renderer.encode_scene_plan(plan).unwrap();
+        let actual = renderer.read_frame(encoder, [32, 24]).unwrap();
+        let mut reference = pollster::block_on(Renderer::new()).unwrap();
+        let expected = reference
+            .render_scene(&scene, [32, 24], [0.2, 0.3, 0.4, 1.], false)
+            .unwrap();
+        assert_eq!(
+            actual, expected,
+            "acquisition recovery matches a fresh complete frame"
+        );
+        assert!(
+            renderer
+                .plan_scene_frame(&scene, [32, 24], [0.2, 0.3, 0.4, 1.], true)
+                .unwrap()
+                .unchanged()
         );
     }
 

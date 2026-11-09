@@ -53,6 +53,7 @@ pub struct WgpuWindow {
     config: wgpu::SurfaceConfiguration,
     damage_enabled: bool,
     present_skipped: bool,
+    initial_frame_ready: bool,
     #[cfg(all(
         any(target_os = "linux", target_os = "windows", target_os = "macos"),
         feature = "system-text"
@@ -117,6 +118,7 @@ impl WgpuWindow {
             config,
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
+            initial_frame_ready: false,
             #[cfg(all(
                 any(target_os = "linux", target_os = "windows", target_os = "macos"),
                 feature = "system-text"
@@ -172,12 +174,25 @@ impl WgpuWindow {
     /// Compile supported paint, submit on the GPU, then present. An unsupported
     /// command returns before acquiring/submitting a partial application frame.
     pub fn present(&mut self, scene: &Scene, background: Color) -> Result<bool> {
+        self.present_frame(scene, background, false)
+    }
+    /// Complete the initial retained GPU frame before making a hidden window
+    /// visible, then copy it to the surface. A single bounded GPU wait occurs
+    /// here; no CPU pixel readback is used. Retries do not show/focus it twice.
+    pub fn present_initial(&mut self, scene: &Scene, background: Color) -> Result<bool> {
+        self.present_frame(scene, background, !self.initial_frame_ready)
+    }
+    fn present_frame(&mut self, scene: &Scene, background: Color, initial: bool) -> Result<bool> {
         self.present_skipped = false;
         let size = self.window.surface_size();
         if size.width == 0 || size.height == 0 {
             return Ok(false);
         }
         self.resize(size.width, size.height);
+        self.renderer.prepare_present(self.config.format)?;
+        if initial {
+            self.renderer.invalidate_scene_damage();
+        }
         let plan = self.renderer.plan_scene_frame(
             scene,
             [size.width, size.height],
@@ -188,16 +203,27 @@ impl WgpuWindow {
             self.present_skipped = true;
             return Ok(true);
         }
+        // Match MyGO's ready-to-show ordering without acquiring a drawable
+        // for a hidden window (wgpu Metal deliberately rejects that). Normal
+        // frames also finish all scene encoding before holding the drawable.
+        let encoder = if initial {
+            let encoder = self.renderer.prime_scene_plan(plan, self.config.format)?;
+            self.initial_frame_ready = true;
+            self.window.set_visible(true);
+            encoder
+        } else {
+            self.renderer.encode_scene_plan(plan)?
+        };
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             wgpu::CurrentSurfaceTexture::Outdated => {
-                self.renderer.invalidate_scene_damage();
+                self.renderer.abandon_scene_frame(encoder);
                 self.renderer.configure_surface(&self.surface, &self.config);
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Lost => {
-                self.renderer.invalidate_scene_damage();
+                self.renderer.abandon_scene_frame(encoder);
                 self.surface = self
                     .instance
                     .create_surface(SharedWindow(self.window.clone()))
@@ -208,21 +234,25 @@ impl WgpuWindow {
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                self.renderer.invalidate_scene_damage();
+                self.renderer.abandon_scene_frame(encoder);
                 return Ok(false);
             }
             other => {
-                self.renderer.invalidate_scene_damage();
+                self.renderer.abandon_scene_frame(encoder);
                 return Err(Error::Surface {
                     message: format!("acquire failed: {other:?}"),
                 });
             }
         };
-        self.renderer.submit_scene_plan(
-            plan,
+        let submitted = self.renderer.submit_to_view(
+            encoder,
             &frame.texture.create_view(&Default::default()),
             self.config.format,
-        )?;
+        );
+        if submitted.is_err() {
+            self.renderer.invalidate_scene_damage();
+        }
+        submitted?;
         self.window.pre_present_notify();
         self.renderer.present(frame);
         Ok(true)

@@ -1475,6 +1475,24 @@ impl Renderer {
             regions,
         })
     }
+    /// Encode before acquiring a scarce swapchain drawable. The encoder keeps
+    /// its GPU resources alive; callers invalidate damage if acquisition fails.
+    pub(crate) fn encode_scene_plan(
+        &mut self,
+        plan: SceneFramePlan,
+    ) -> Result<wgpu::CommandEncoder> {
+        let result = self.encode_frame_regions(
+            &plan.prepared.draws(),
+            plan.size,
+            plan.background,
+            0.,
+            plan.regions.as_deref(),
+        );
+        if result.is_err() {
+            self.scene_damage.invalidate();
+        }
+        result
+    }
     pub(crate) fn submit_scene_plan(
         &mut self,
         plan: SceneFramePlan,
@@ -1482,20 +1500,13 @@ impl Renderer {
         format: wgpu::TextureFormat,
     ) -> Result<()> {
         let result = self
-            .encode_frame_regions(
-                &plan.prepared.draws(),
-                plan.size,
-                plan.background,
-                0.,
-                plan.regions.as_deref(),
-            )
+            .encode_scene_plan(plan)
             .and_then(|encoder| self.submit_to_view(encoder, destination, format));
         if result.is_err() {
             self.scene_damage.invalidate();
         }
         result
     }
-
     /// Forget retained presentation after target loss, external replacement or resource changes.
     pub fn invalidate_scene_damage(&mut self) {
         self.scene_damage.invalidate();

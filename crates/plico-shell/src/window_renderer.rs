@@ -21,6 +21,44 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn defers_initial_show(&self) -> bool {
+        #[cfg(all(target_os = "macos", feature = "wgpu"))]
+        {
+            matches!(
+                self,
+                Self::Wgpu {
+                    active: Some(_),
+                    ..
+                }
+            )
+        }
+        #[cfg(not(all(target_os = "macos", feature = "wgpu")))]
+        {
+            false
+        }
+    }
+    pub(crate) fn render_initial(
+        &mut self,
+        scene: &mut Scene,
+        width: u32,
+        height: u32,
+        color: Color,
+    ) -> crate::Result<bool> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            renderer.resize(width, height);
+            return renderer
+                .present_initial(scene, color)
+                .map_err(|e| crate::Error::Renderer {
+                    message: e.to_string(),
+                });
+        }
+        self.render(scene, width, height, color)
+    }
     pub(crate) fn configure_text(
         &mut self,
         _text: &mut plico_renderer::TextContext,

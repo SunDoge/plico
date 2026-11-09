@@ -14,6 +14,8 @@
 | `ui/input.go::scroll` 的 `glide := !precise` | 精确触控板位移立即生效，鼠标刻度按配置平滑；精确事件取消已有滚轮动画，基于已呈现位置继续 | 像素小数增量、正反方向、零增量接管、取消旧目标、虚拟列表与嵌套滚动回归 |
 | 空闲暂停原则在 runtime 的适配 | tooltip 的 600ms 延迟、滚动条的 800ms 停留使用 deadline；只有实际淡出期间采样帧 | 599/600ms tooltip，799/800/900/1000ms scrollbar，静止无重声明或布局，结束/移除清理 |
 | `internal/darwin/{system,app}.go` 和 `ui/preferences.go` | NSWorkspace 初始快照和变化通知，UiContext 可读；系统减少动效不被应用 false 覆盖、玻璃自动不透明回退、语义边框和次要文字增强对比 | 原生模块 Apple Silicon 类型/Clippy 检查；注入偏好测试覆盖恢复、无累积调色和空闲复用；系统设置实机通知仍待用户验收 |
+| `internal/surface` FirstFrame / `Window.OnReadyToShow` | macOS + wgpu 启动时保持隐藏，先完成首帧保留纹理和呈现 pipeline，再显示并复制到 drawable；普通帧先编码再获取 drawable | GPU 像素与完整渲染一致、无读回缓冲；实际窗口首次曝光仍由用户在 macOS 验收 |
+| `internal/darwin/surface.go` resize / backing properties | 渲染前同步 native surface 尺寸；DPI 事件先同步尺寸再上报 metrics，resize/scale 变化在同次事件中提交新几何；相同尺寸不重复配置 | 共享宿主编译/测试；连续缩放与跨屏实机时序仍待验证 |
 
 精确滚动的 `Pixel` 输入已包含平台提供的细粒度移动和惯性，不再叠加 160ms 插值。
 `Line` 输入的 delta 仍由宿主归一化为逻辑像素，`smooth_scroll` 控制其插值。
@@ -24,7 +26,7 @@
 
 ## 后续检查
 
-- 对照 MyGO 的 FirstFrame / OnReadyToShow，检查窗口首次呈现前曝光和空白闪烁。
+- 由用户实测首次显示是否仍有闪烁，以及跨屏 DPI 和 live resize 的呈现时序。
 - 继续核对自定义应用颜色是否采用语义 token；自绘控件可读取 `UiContext::display_preferences()`。
 - 对照 macOS live resize 的事务呈现，检查连续缩放和跨屏 DPI 变化时的重复配置与资源生命周期。
 
@@ -40,3 +42,22 @@ macOS 通过通知唤醒后才重新读取设置；没有周期性计时器。ru
 不透明 fallback；Modal 在系统减少动效时直接完成挂载和卸载。高对比度按 MyGO 的比例
 增强 `Theme.border` 和 `Theme.muted`，保留应用品牌色；每次从原始主题计算，避免反复
 声明导致颜色持续漂移。应用硬编码的颜色不会自动变换，推荐使用语义颜色 token。
+
+## 首帧与 drawable 生命周期
+
+wgpu 30 的 Metal 后端会拒绝为隐藏窗口获取 drawable；不能简单地把显示操作移动到
+`present` 成功之后，否则窗口永远无法完成首帧。Plico 因此先在已有保留纹理中完成
+首帧，提前创建格式匹配的复制 pipeline，在显示前对该次 GPU submission 做一次
+最多 1 秒的完成等待，然后显示窗口并获取 drawable、提交 GPU 复制。
+这只用于 macOS + wgpu 的首次显示，普通帧不做该等待；没有 CPU 像素读回或额外
+窗口大小的截图缓冲。失败会返回错误并使 damage 失效，不把未提交帧记为已呈现。
+隐藏首帧在构建或准备阶段遇到不可恢复错误时，宿主返回启动错误并退出，避免窗口
+始终不可见、动画循环却不断重试；普通 acquire 的 Outdated / Occluded 等仍走恢复路径。
+
+所有 wgpu 窗口帧都先完成 scene 编码，再持有 drawable。获取失败时丢弃编码，提交
+空命令批以刷新 `write_buffer` / `write_texture` 的暂存，并要求下一帧完整重绘。
+这避免反复失败时把上传暂存一直留到未来某次成功提交。
+
+这轮没有迁移 MyGO 的 CADisplayLink 或动态 `presentsWithTransaction` 切换；
+不声称与它的 Core Animation 事务时序完全一致。启动准备完成的像素测试运行于
+Linux / Vulkan，不能证明 macOS 窗口服务器的首次曝光已经无闪烁。
