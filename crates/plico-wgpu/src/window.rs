@@ -592,7 +592,7 @@ impl WgpuWindow {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.used(std::time::Instant::now());
         self.renderer
-            .render_items(&prepared.draws(), size, background.components, 0.)
+            .render_prepared(&prepared, size, background.components, 0.)
     }
 }
 

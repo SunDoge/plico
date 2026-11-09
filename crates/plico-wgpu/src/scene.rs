@@ -4,6 +4,27 @@ use kurbo::{Affine, Rect};
 use peniko::Brush;
 use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
+/// Reborrow either an existing draw slice or a prepared payload without materialization.
+#[derive(Clone, Copy)]
+pub(crate) enum DrawSource<'a> {
+    Borrowed(&'a [Draw<'a>]),
+    Prepared(&'a PreparedScene),
+}
+impl<'a> DrawSource<'a> {
+    pub(crate) fn len(self) -> usize {
+        match self {
+            Self::Borrowed(items) => items.len(),
+            Self::Prepared(scene) => scene.draws.len(),
+        }
+    }
+    pub(crate) fn iter(self) -> impl ExactSizeIterator<Item = Draw<'a>> + Clone {
+        (0..self.len()).map(move |index| match self {
+            Self::Borrowed(items) => items[index],
+            Self::Prepared(scene) => scene.draw_at(index),
+        })
+    }
+}
+
 /// Retained prepared draws. Font layouts remain owned until the frame is discarded.
 pub struct PreparedScene {
     draws: Vec<PreparedDraw>,
@@ -231,30 +252,34 @@ impl PreparedScene {
         }
     }
     pub fn draws(&self) -> Vec<Draw<'_>> {
+        self.draw_iter().collect()
+    }
+    /// Traverse immutable prepared draws without allocating a temporary command vector.
+    pub fn draw_iter(&self) -> impl ExactSizeIterator<Item = Draw<'_>> + Clone {
+        DrawSource::Prepared(self).iter()
+    }
+    fn draw_at(&self, index: usize) -> Draw<'_> {
         let data = &self.payloads;
-        self.draws
-            .iter()
-            .map(|draw| match draw {
-                PreparedDraw::Quad(i) => Draw::Quad(&data.quads[*i]),
-                PreparedDraw::Layer(i) => Draw::Layer(&data.layers[*i]),
-                PreparedDraw::Effect(i) => {
-                    let (effect, q) = &data.effects[*i];
-                    Draw::Effect(effect, q)
-                }
-                PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
-                PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
-                PreparedDraw::ResetMask => Draw::ResetMask,
-                #[cfg(all(target_os = "linux", feature = "system-text"))]
-                PreparedDraw::Text(i) => {
-                    let text = &data.text[*i];
-                    let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
-                    run.scale = text.scale;
-                    run.clip = Some(text.clip);
-                    run.clip_antialias = true;
-                    Draw::Text(run)
-                }
-            })
-            .collect()
+        match &self.draws[index] {
+            PreparedDraw::Quad(i) => Draw::Quad(&data.quads[*i]),
+            PreparedDraw::Layer(i) => Draw::Layer(&data.layers[*i]),
+            PreparedDraw::Effect(i) => {
+                let (effect, q) = &data.effects[*i];
+                Draw::Effect(effect, q)
+            }
+            PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
+            PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
+            PreparedDraw::ResetMask => Draw::ResetMask,
+            #[cfg(all(target_os = "linux", feature = "system-text"))]
+            PreparedDraw::Text(i) => {
+                let text = &data.text[*i];
+                let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
+                run.scale = text.scale;
+                run.clip = Some(text.clip);
+                run.clip_antialias = true;
+                Draw::Text(run)
+            }
+        }
     }
 }
 fn root_clip_key(rect: Rect) -> [u64; 4] {
@@ -1530,7 +1555,7 @@ impl Renderer {
         plan: SceneFramePlan,
     ) -> Result<wgpu::CommandEncoder> {
         let result = self.encode_frame_regions(
-            &plan.prepared.draws(),
+            DrawSource::Prepared(&plan.prepared),
             plan.size,
             plan.background,
             0.,
@@ -1576,7 +1601,13 @@ impl Renderer {
         let prepared = self.prepare_scene(scene, size)?;
         let regions = self.scene_regions(&prepared, size, background, damage);
         let result = self
-            .encode_frame_regions(&prepared.draws(), size, background, 0., regions.as_deref())
+            .encode_frame_regions(
+                DrawSource::Prepared(&prepared),
+                size,
+                background,
+                0.,
+                regions.as_deref(),
+            )
             .and_then(|encoder| self.read_frame(encoder, size));
         if result.is_err() {
             self.scene_damage.invalidate();
@@ -1600,7 +1631,7 @@ impl Renderer {
             return Ok(None);
         }
         self.encode_frame_regions(
-            &plan.prepared.draws(),
+            DrawSource::Prepared(&plan.prepared),
             plan.size,
             plan.background,
             0.,

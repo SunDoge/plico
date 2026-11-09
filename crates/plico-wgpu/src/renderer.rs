@@ -1,4 +1,4 @@
-use crate::{DEFAULT_MATERIAL, Error, Quad, Result};
+use crate::{DEFAULT_MATERIAL, Error, Quad, Result, scene::DrawSource};
 use snafu::ResultExt;
 use wgpu::util::DeviceExt;
 
@@ -786,7 +786,7 @@ impl Renderer {
         time: f32,
     ) -> Result<wgpu::CommandEncoder> {
         self.scene_damage.invalidate();
-        self.encode_frame_regions(items, size, background, time, None)
+        self.encode_frame_regions(DrawSource::Borrowed(items), size, background, time, None)
     }
 
     #[tracing::instrument(
@@ -799,7 +799,7 @@ impl Renderer {
     /// replays the full target; an empty set preserves all retained pixels.
     pub(crate) fn encode_frame_regions(
         &mut self,
-        items: &[crate::Draw<'_>],
+        items: DrawSource<'_>,
         size: [u32; 2],
         background: [f32; 4],
         time: f32,
@@ -898,7 +898,7 @@ impl Renderer {
     #[tracing::instrument(name="plico_wgpu.encode_frame",skip_all,fields(width=size[0],height=size[1],draws=items.len()))]
     fn encode_frame_at(
         &mut self,
-        items: &[crate::Draw<'_>],
+        items: DrawSource<'_>,
         size: [u32; 2],
         background: [f32; 4],
         time: f32,
@@ -919,10 +919,9 @@ impl Renderer {
         let items = if let Some(regions) = regions.filter(|regions| !regions.is_empty()) {
             selected = items
                 .iter()
-                .copied()
                 .filter(|draw| draw_intersects(draw, regions))
                 .collect::<Vec<_>>();
-            selected.as_slice()
+            DrawSource::Borrowed(selected.as_slice())
         } else {
             items
         };
@@ -1468,6 +1467,25 @@ impl Renderer {
         let encoder = self.encode_frame(items, size, background, time)?;
         self.read_frame(encoder, size)
     }
+    /// Full offscreen replay of an immutable prepared scene without collecting
+    /// an intermediate vector of borrowed draw commands.
+    pub fn render_prepared(
+        &mut self,
+        prepared: &crate::scene::PreparedScene,
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+    ) -> Result<Vec<u8>> {
+        self.scene_damage.invalidate();
+        let encoder = self.encode_frame_regions(
+            DrawSource::Prepared(prepared),
+            size,
+            background,
+            time,
+            None,
+        )?;
+        self.read_frame(encoder, size)
+    }
     /// Read the retained premultiplied RGBA8 target without repainting or changing
     /// damage history. None means no target (including after trim). This explicit
     /// GPU readback waits for submitted work; it is not a WindowServer screenshot.
@@ -1561,7 +1579,7 @@ impl Renderer {
 impl Renderer {
     fn prepare_instances(
         &mut self,
-        items: &[crate::Draw<'_>],
+        items: DrawSource<'_>,
         size: [u32; 2],
     ) -> Result<Vec<Instance>> {
         #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -1616,12 +1634,12 @@ impl Renderer {
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     fn warm_layer_text(
         &mut self,
-        items: &[crate::Draw<'_>],
+        items: DrawSource<'_>,
         size: [u32; 2],
         scratch: &mut Vec<Instance>,
     ) -> Result<()> {
-        for item in items {
-            match item {
+        for item in items.iter() {
+            match &item {
                 crate::Draw::Text(run) => {
                     scratch.clear();
                     self.encode_text(run, size, scratch)?;
@@ -1630,7 +1648,7 @@ impl Renderer {
                     if layer.alpha > 0.
                         && !layer.quad.clip.is_some_and(|r| r[2] <= 0. || r[3] <= 0.) =>
                 {
-                    self.warm_layer_text(&layer.scene.draws(), size, scratch)?
+                    self.warm_layer_text(DrawSource::Prepared(&layer.scene), size, scratch)?
                 }
                 _ => {}
             }
@@ -1737,15 +1755,15 @@ impl Renderer {
         self.frame_image_slots.insert(identity, slot);
         slot
     }
-    fn encode_items(&mut self, items: &[crate::Draw<'_>], size: [u32; 2]) -> Result<Vec<Instance>> {
+    fn encode_items(&mut self, items: DrawSource<'_>, size: [u32; 2]) -> Result<Vec<Instance>> {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
         self.clear_frame_references();
         let mut active_mask: Option<(usize, [f32; 4])> = None;
-        for item in items {
+        for item in items.iter() {
             let first = instances.len();
-            match item {
+            match &item {
                 crate::Draw::SetMask(mask) => {
                     let [x, y, w, h] = mask.rect;
                     if ![x, y, w, h]
@@ -2517,7 +2535,14 @@ impl Renderer {
         let parent_backdrops = std::mem::take(&mut self.backdrop_effects);
         let parent_layers = std::mem::take(&mut self.deferred_layers);
         let parent_context = std::mem::replace(&mut self.inherited_backdrop, inherited);
-        let encoded = self.encode_frame_at(&layer.scene.draws(), size, [0.; 4], 0., None, [x, y]);
+        let encoded = self.encode_frame_at(
+            DrawSource::Prepared(&layer.scene),
+            size,
+            [0.; 4],
+            0.,
+            None,
+            [x, y],
+        );
         let mut resource = cached_image;
         let result = encoded.map(|mut encoder| {
             let image = if let Some(image) = &resource {
@@ -2580,28 +2605,28 @@ impl Renderer {
     }
 }
 
-fn visit_images(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&peniko::ImageData)) {
-    for draw in items {
+fn visit_images(items: DrawSource<'_>, visit: &mut impl FnMut(&peniko::ImageData)) {
+    for draw in items.iter() {
         match draw {
             crate::Draw::Image(image) => visit(&image.image),
             crate::Draw::SetMask(mask) => visit(&mask.image),
-            crate::Draw::Layer(layer) => visit_images(&layer.scene.draws(), visit),
+            crate::Draw::Layer(layer) => visit_images(DrawSource::Prepared(&layer.scene), visit),
             _ => {}
         }
     }
 }
 
-fn visit_effects(items: &[crate::Draw<'_>], visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
-    for draw in items {
+fn visit_effects(items: DrawSource<'_>, visit: &mut impl FnMut(&plico_renderer::ShaderEffect)) {
+    for draw in items.iter() {
         match draw {
             crate::Draw::Effect(effect, _) => visit(effect),
-            crate::Draw::Layer(layer) => visit_effects(&layer.scene.draws(), visit),
+            crate::Draw::Layer(layer) => visit_effects(DrawSource::Prepared(&layer.scene), visit),
             _ => {}
         }
     }
 }
 impl Renderer {
-    fn prepare_effect_frame(&mut self, items: &[crate::Draw<'_>]) -> Result<()> {
+    fn prepare_effect_frame(&mut self, items: DrawSource<'_>) -> Result<()> {
         self.frame_effect_draws = 0;
         self.frame_effect_bytes = 0;
         if let Some(effects) = &mut self.effects {

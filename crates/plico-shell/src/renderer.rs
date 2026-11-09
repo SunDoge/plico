@@ -32,12 +32,7 @@ pub fn render_to_image(
                 message: e.to_string(),
             })?;
         let mut pixels = renderer
-            .render_items(
-                &prepared.draws(),
-                [width, height],
-                base_color.components,
-                0.,
-            )
+            .render_prepared(&prepared, [width, height], base_color.components, 0.)
             .map_err(|e| crate::Error::Renderer {
                 message: e.to_string(),
             })?;

@@ -851,3 +851,29 @@ GPU 回归先完成一次真实读回，再注册完成回调，验证一次回�
 真实 X11 surface 恢复及 64 帧生命周期运行、Linux / Apple / WASM Clippy 均通过。
 脚本增加此回归；macOS 用户本机执行，云端保持手动。非阻塞 poll 仍有 CPU 清理
 成本，且不保证所有 GPU 工作或驱动内部缓存已经释放，不据此承诺 RSS 立即下降。
+
+## 以借用命令源替代反复物化 Vec
+
+继续沿 MyGO 按 scene 操作流遍历的结构，使用 Rust 生命周期把已有 prepared payload
+直接借给编码器。PreparedScene 新增 draw_iter；内部 DrawSource 统一现有切片与
+prepared 场景，保持单一、可重复扫描的输入类型。窗口 scene plan、离屏截图、
+嵌套图层、文字预热和 image/effect 扫描不再逐次调用 draws() 创建临时 Vec。
+公开 draws()/render_items 等切片接口继续兼容；render_prepared 提供不物化命令向量
+的离屏入口。部分 damage 的筛选列表仍保留，未声称完整渲染过程零分配。
+
+可运行独立观测程序：
+
+```sh
+cargo run --locked -p plico-wgpu --example prepared-traversal
+```
+
+GPU/场景准备在测量区外；计数仅覆盖当前线程的命令遍历，两个分支都实际消费全部
+Draw，借用分支断言零分配。当前 Linux 默认特性下，100 次、每次 10,000 条命令，
+物化分支 100 次分配 / 72,000,000 requested bytes，借用分支 0 / 0。该字节数受平台
+Draw 布局影响，是累计请求而非 RSS；不是 macOS 或 GUI 帧率的测量。
+
+编码/owner/错误路径 GPU 回归 4 项、串行 backdrop damage/group 回归 13 项、真实
+X11 surface、HUD 3 项回归通过，Linux / Apple / WASM Clippy 通过。当前环境并发
+运行 backdrop damage 测试发生 SIGSEGV；在隔离 worktree 的修改前提交 `85f8305`
+执行相同并发命令也复现，串行执行则全部通过。尚未定位该并发崩溃根因，不将它
+声称为已修复；macOS 手动脚本本就使用单线程测试。本轮不启动云端 macOS 作业。
