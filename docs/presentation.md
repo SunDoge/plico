@@ -44,3 +44,15 @@ Modal 面板为 140 ms 淡入并上移 8 px，遮罩、内容使用同一时间�
 
 本机 GPU 验证使用 Linux / Vulkan，不能替代 macOS 窗口、CoreText 和原生合成器验收。
 Gallery 另有 animated_image_surface 缓存断言失败；已在未修改的 `c03bdd7` 复现，属于独立问题。
+
+## macOS 窗口轮廓
+
+框架的 macOS 宿主参考同一 MyGO revision 的 `internal/darwin/window.go::roundContent`：
+在 NSWindow content view 的 CALayer 上设置 logical-point 半径、`continuous` 曲线和
+`masksToBounds`，窗口 backing 清空、保持系统阴影，并在尺寸或圆角改变时刷新阴影。
+Metal 子层由原生父层裁剪，不再叠加 GPU 圆弧裁剪。更新关闭隐式 Core Animation 动画，
+最大化时半径归零，恢复后重新应用；背景仍由应用完整场景绘制。
+许可证与来源保存在 `crates/plico-shell/third_party/`。
+
+Linux 的显式 `corner_radius` 仍使用原有 GPU clip；此项不改变它的行为。
+headless 截图不含 macOS compositor、窗口阴影或原生轮廓，不能用它验收原生边角画质。

@@ -41,6 +41,8 @@ pub use plico_renderer::text;
 #[cfg(target_arch = "wasm32")]
 pub use plico_renderer::web;
 pub use plico_renderer::widget;
+#[cfg(target_os = "macos")]
+mod macos_window_frame;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_state;
 

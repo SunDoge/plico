@@ -29,6 +29,8 @@ pub struct Shell {
     /// Current physical render size.
     surface_size: [u32; 2],
     corner_radius: u32,
+    #[cfg(target_os = "macos")]
+    native_frame: crate::macos_window_frame::NativeWindowFrame,
     presentation_error: Option<String>,
     /// Reused backend-neutral application scene for the current frame.
     pub scene: Scene,
@@ -130,12 +132,26 @@ impl Shell {
             text_backend = tcx.raster_backend_name(),
             "Window text layout initialized"
         );
+        // Apply native clipping after Metal creates its surface layer, before
+        // exposing the window. Core Animation owns the continuous window contour.
+        #[cfg(target_os = "macos")]
+        let mut native_frame = crate::macos_window_frame::NativeWindowFrame::default();
+        #[cfg(target_os = "macos")]
+        if options.corner_radius > 0 {
+            native_frame.apply(
+                window.as_ref(),
+                options.corner_radius,
+                [surface_width, surface_height],
+            );
+        }
         // Expose the window after its rendering resources are ready.
         window.set_visible(true);
 
         Ok(Shell {
             window,
             corner_radius: options.corner_radius,
+            #[cfg(target_os = "macos")]
+            native_frame,
             presentation_error: None,
             renderer,
             surface_size: [surface_width, surface_height],
@@ -224,6 +240,17 @@ impl Shell {
         } else {
             self.corner_radius
         };
+        #[cfg(target_os = "macos")]
+        if self.corner_radius > 0
+            && self
+                .native_frame
+                .apply(self.window.as_ref(), radius, self.surface_size)
+        {
+            // Native continuous corners clip content and compositor shadow.
+            // Preserve the scene clear; a second GPU clip would square off the
+            // continuous contour and introduce another antialiasing fringe.
+            return base_color;
+        }
         let radius = f64::from(radius) * self.scale_factor();
         crate::window_frame::clip_window_frame(
             &mut self.scene,

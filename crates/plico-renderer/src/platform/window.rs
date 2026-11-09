@@ -105,7 +105,9 @@ pub struct WindowOptions {
     /// native traffic lights. Ignored on other platforms or without decorations.
     #[serde(default)]
     pub titlebar_overlay: bool,
-    /// Visual client-area corner radius in logical pixels. Requires compositor alpha.
+    /// Client-area corner radius in logical pixels. macOS uses native continuous
+    /// content-layer corners and a system shadow; other hosts use a visual GPU
+    /// clip. Requires compositor alpha.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.

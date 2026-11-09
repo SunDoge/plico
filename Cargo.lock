@@ -6388,6 +6388,7 @@ dependencies = [
  "kurbo",
  "notify-rust",
  "objc2-app-kit 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "open",
  "parley 0.12.0",
  "peniko",
