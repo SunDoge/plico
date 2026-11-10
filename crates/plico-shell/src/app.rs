@@ -1714,6 +1714,20 @@ pub struct ExtensionContext<'a> {
 }
 
 impl ExtensionContext<'_> {
+    /// Serialize the primary window's persisted state, when its source has any.
+    pub fn persisted_snapshot(&mut self) -> Option<Vec<u8>> {
+        self.windows
+            .values_mut()
+            .next()
+            .and_then(|app| app.source.persisted_snapshot())
+    }
+    /// Replace the primary window's persisted state before the first frame.
+    pub fn restore_persisted(&mut self, bytes: &[u8]) -> bool {
+        self.windows.values_mut().next().is_some_and(|app| {
+            app.source.restore_persisted(bytes);
+            true
+        })
+    }
     /// Render the latest completed native scene for a visible window.
     pub fn render_screenshot(
         &mut self,

@@ -24,6 +24,8 @@ pub mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod headless;
 pub use plico_renderer::{image, layout, motion, paint};
+mod persisted_state;
+pub use persisted_state::PersistedStatePersistence;
 #[cfg(not(target_arch = "wasm32"))]
 mod performance_hud;
 #[cfg(not(target_arch = "wasm32"))]

@@ -26,6 +26,32 @@ pub fn run<A: plico_dev::App + 'static>(app: A, title: &str) -> Result<(), Deskt
     run_with_options(app, WindowOptions::new().title(title))
 }
 
+/// Run an application with durable persisted state (MyGO's WindowStateStore
+/// contract): every value an app declared through `persisted_state` is one
+/// host file under the application's data directory - restored before the
+/// first frame, saved atomically at window close and quit. Sources without
+/// persisted state never write the file. The first launch has none yet.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_with_persistence<A: plico_dev::App + 'static>(
+    app: A,
+    options: WindowOptions,
+    directories: &plico_renderer::platform::AppDirectoryConfig,
+) -> Result<(), DesktopError> {
+    use plico_renderer::platform::AppDirectories;
+    let state_path = AppDirectories::resolve(directories, "")
+        .map(|dirs| dirs.data_dir.join("persisted-state.plico"));
+    let mut extensions: Vec<Box<dyn plico_shell::ShellExtension>> = Vec::new();
+    if let Some(path) = state_path {
+        extensions.push(Box::new(plico_shell::PersistedStatePersistence::new(path)));
+    }
+    plico_shell::run_windows_with_factory_and_extensions(
+        vec![(Box::new(Source::new(NativeApp(app))), options)],
+        None,
+        extensions,
+    )
+    .map(|_| ())
+}
+
 /// Launch an ordinary application view without serializable application state.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_view_with_options<V: plico::View + 'static>(
@@ -103,6 +129,8 @@ pub use preview::{
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 pub mod recipe;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use plico_shell::PersistedStatePersistence;
 /// Optional tray, native-menu and actionable-notification services.
 #[cfg(all(not(target_arch = "wasm32"), feature = "desktop-integration"))]
 pub use plico_shell::desktop;

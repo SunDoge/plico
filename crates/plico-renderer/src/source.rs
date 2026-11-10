@@ -78,6 +78,16 @@ pub trait FrameSource {
     /// it builds widget scene fragments for this frame.
     fn set_device_scale(&mut self, _scale: f64) {}
 
+    /// Serialize the source's persisted-state storage for durable host
+    /// persistence (MyGO's WindowStateStore contract: a host file holds every
+    /// persisted value, saved at close and quit). None opts the source out.
+    fn persisted_snapshot(&mut self) -> Option<Vec<u8>> {
+        None
+    }
+    /// Replace persisted storage from host bytes before the first frame.
+    /// Malformed input is rejected atomically and keeps the defaults.
+    fn restore_persisted(&mut self, _bytes: &[u8]) {}
+
     /// Update native multi-click thresholds. Sources which perform their own
     /// click classification should consume these without reading OS settings.
     fn set_multi_click_settings(&mut self, _settings: MultiClickSettings) {}

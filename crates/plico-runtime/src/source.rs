@@ -761,6 +761,16 @@ impl<V: HostView> FrameSource for Source<V> {
     fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
         Source::set_multi_click_settings(self, settings);
     }
+    // The engine's persisted-state storage is the durable payload: the host
+    // writes these bytes to its own file and hands them back on launch.
+    fn persisted_snapshot(&mut self) -> Option<Vec<u8>> {
+        self.engine.dump_persisted().ok()
+    }
+    fn restore_persisted(&mut self, bytes: &[u8]) {
+        if let Err(error) = self.engine.load_persisted(bytes) {
+            tracing::warn!(%error, "persisted state could not be restored; defaults are active");
+        }
+    }
     fn take_host_action(&mut self) -> Option<HostAction> {
         self.view.take_host_action()
     }

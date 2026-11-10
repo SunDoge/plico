@@ -94,6 +94,13 @@ impl FrameSource for ZoomSource {
         self.zoom = self.controller.factor();
         self.forward_click_settings();
     }
+    // Persistence is the inner source's; zoom is presentation only.
+    fn persisted_snapshot(&mut self) -> Option<Vec<u8>> {
+        self.inner.persisted_snapshot()
+    }
+    fn restore_persisted(&mut self, bytes: &[u8]) {
+        self.inner.restore_persisted(bytes);
+    }
     fn set_device_scale(&mut self, scale: f64) {
         self.sync();
         self.inner.set_device_scale(scale * self.zoom);
