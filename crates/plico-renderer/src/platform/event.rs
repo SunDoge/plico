@@ -66,6 +66,8 @@ pub struct WindowMetrics {
     pub scale_factor: f64,
     /// Whether the native window is maximized.
     pub maximized: bool,
+    /// Whether the native window is fullscreen.
+    pub fullscreen: bool,
     /// Whether the native window owns keyboard focus.
     pub focused: bool,
     /// Outer-window horizontal desktop coordinate, when the platform exposes it.
@@ -113,6 +115,7 @@ impl Default for WindowMetrics {
             physical_height: 0,
             scale_factor: 1.0,
             maximized: false,
+            fullscreen: false,
             focused: false,
             outer_x: None,
             outer_y: None,

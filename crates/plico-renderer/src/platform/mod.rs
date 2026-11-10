@@ -20,12 +20,13 @@ pub mod window_lifecycle;
 pub use app_dirs::{AppDirectories, AppDirectoryConfig};
 pub use color::RgbaColor;
 pub use effect::{
-    CapabilityId, ContextMenuItem, ContextMenuRequest, DialogFilter, EFFECT_ABI_VERSION,
-    EffectCompletion, EffectDispatch, EffectErrorCode, EffectExecutor, EffectId, EffectOp,
-    EffectPayload, EffectRequest, EffectResult, EffectScope, EffectTapeEntry, MenuPosition,
-    MessageDialogButtons, MessageDialogLevel, MessageDialogRequest, MethodId, NotificationRequest,
-    OpenDialogRequest, PickDirectoryRequest, RecordingEffectExecutor, ReplayEffectExecutor,
-    SaveDialogRequest, WindowCreateRequest, WindowResourceKey, initial_window_resource_key,
+    CapabilityId, ClipboardContent, ClipboardImage, ContextMenuItem, ContextMenuRequest,
+    DialogFilter, EFFECT_ABI_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
+    EffectExecutor, EffectId, EffectOp, EffectPayload, EffectRequest, EffectResult, EffectScope,
+    EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel, MessageDialogRequest,
+    MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,
+    RecordingEffectExecutor, ReplayEffectExecutor, SaveDialogRequest, WindowCreateRequest,
+    WindowResourceKey, initial_window_resource_key,
 };
 pub use event::*;
 pub use floating::{

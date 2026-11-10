@@ -99,6 +99,15 @@ impl Shell {
                     .with_movable_by_window_background(false),
             ));
         }
+        if let Some((x, y)) = options.initial_position {
+            attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
+        }
+        if options.maximized {
+            attrs = attrs.with_maximized(true);
+        }
+        if options.fullscreen {
+            attrs = attrs.with_fullscreen(Some(winit::monitor::Fullscreen::Borderless(None)));
+        }
         if let Some((width, height)) = options.min_inner_size {
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
@@ -349,6 +358,17 @@ impl Shell {
         }
         #[cfg(not(target_os = "macos"))]
         self.window.is_maximized()
+    }
+
+    /// Set or clear borderless fullscreen on the primary monitor.
+    ///
+    /// Winit exposes exclusive video modes too; Plico deliberately uses the
+    /// borderless variant so desktop shortcuts and multi-monitor movement keep
+    /// working. Platforms may ignore the request while the window is not yet
+    /// visible.
+    pub fn set_fullscreen(&self, fullscreen: bool) {
+        self.window
+            .set_fullscreen(fullscreen.then_some(winit::monitor::Fullscreen::Borderless(None)));
     }
 
     /// CSS/layout viewport in logical pixels; the surface remains physical.

@@ -35,7 +35,9 @@ cargo run -p plico-desktop --features desktop-integration --example desktop-inte
 本能力不默认启用，不增加普通 GUI 应用的托盘依赖。目前每个进程只支持一个集成实例，
 因为原生菜单库的回调是进程级的；第二个实例报告托盘不可用，不覆盖第一个实例。
 macOS/Windows 的权限、通知身份、签名／打包与原生视觉仍需各平台验证。
-不含开机启动、全局快捷键、单实例／深链路和系统屏幕锁定处理。
+不含开机启动、全局快捷键、原生应用菜单栏和系统屏幕锁定处理。
+单实例激活、深链路参数解析与窗口状态恢复由 `plico-desktop` 的常驻 API 提供，
+不依赖 `desktop-integration`；URL scheme／文件关联的系统注册仍未实现。
 
 ## 验证
 

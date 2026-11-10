@@ -156,6 +156,7 @@ impl App {
             physical_height,
             scale_factor: shell.scale_factor(),
             maximized: shell.is_maximized(),
+            fullscreen: shell.window().fullscreen().is_some(),
             focused: shell.window().has_focus(),
             outer_x: outer_position.map(|position| position.x),
             outer_y: outer_position.map(|position| position.y),

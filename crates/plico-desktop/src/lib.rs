@@ -12,7 +12,8 @@ pub use capture::{Capture, CaptureError, CapturedFrame, capture};
 pub use plico_shell::Error as DesktopError;
 
 pub use plico_renderer::platform::{
-    NotificationRequest, WindowResourceKey, initial_window_resource_key,
+    ClipboardContent, ClipboardImage, NotificationRequest, WindowResourceKey,
+    initial_window_resource_key,
 };
 
 pub use plico_renderer::{
@@ -31,18 +32,27 @@ pub fn run<A: plico_dev::App + 'static>(app: A, title: &str) -> Result<(), Deskt
 /// host file under the application's data directory - restored before the
 /// first frame, saved atomically at window close and quit. Sources without
 /// persisted state never write the file. The first launch has none yet.
+///
+/// The window's normal size, position, maximized and fullscreen flags are
+/// restored from and saved to `window-state.json` in the same directory.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_with_persistence<A: plico_dev::App + 'static>(
     app: A,
-    options: WindowOptions,
+    mut options: WindowOptions,
     directories: &plico_renderer::platform::AppDirectoryConfig,
 ) -> Result<(), DesktopError> {
     use plico_renderer::platform::AppDirectories;
-    let state_path = AppDirectories::resolve(directories, "")
-        .map(|dirs| dirs.data_dir.join("persisted-state.plico"));
+    let data_dir = AppDirectories::resolve(directories, "").map(|dirs| dirs.data_dir);
     let mut extensions: Vec<Box<dyn plico_shell::ShellExtension>> = Vec::new();
-    if let Some(path) = state_path {
-        extensions.push(Box::new(plico_shell::PersistedStatePersistence::new(path)));
+    if let Some(data_dir) = &data_dir {
+        extensions.push(Box::new(plico_shell::PersistedStatePersistence::new(
+            data_dir.join("persisted-state.plico"),
+        )));
+        extensions.push(Box::new(plico_shell::WindowStatePersistence::restore(
+            data_dir.join("window-state.json"),
+            initial_window_resource_key(0),
+            &mut options,
+        )));
     }
     plico_shell::run_windows_with_factory_and_extensions(
         vec![(Box::new(Source::new(NativeApp(app))), options)],
@@ -129,11 +139,15 @@ pub use preview::{
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 pub mod recipe;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use plico_shell::PersistedStatePersistence;
 /// Optional tray, native-menu and actionable-notification services.
 #[cfg(all(not(target_arch = "wasm32"), feature = "desktop-integration"))]
 pub use plico_shell::desktop;
+#[cfg(not(target_arch = "wasm32"))]
+pub use plico_shell::{
+    AppActivation, FileWatchError, FileWatchEvent, FileWatchKind, FileWatcher,
+    PersistedStatePersistence, SingleInstance, SingleInstanceError, SingleInstanceOutcome,
+    WindowStatePersistence,
+};
 /// Native window services available to desktop integrations.
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::{ExtensionContext, RunOutcome, ShellExtension};

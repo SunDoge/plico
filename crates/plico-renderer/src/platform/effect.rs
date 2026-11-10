@@ -265,6 +265,42 @@ pub struct NotificationRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One RGBA8 image representation of clipboard content.
+pub struct ClipboardImage {
+    /// Pixel width.
+    pub width: u32,
+    /// Pixel height.
+    pub height: u32,
+    /// Row-major RGBA pixels, exactly `width * height * 4` bytes.
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// A clipboard payload carrying any combination of text, HTML, an image, and
+/// file paths.
+///
+/// Native clipboards cannot always publish every representation at once. A
+/// writer picks the richest supported family in this order: file list, image,
+/// HTML (with plain-text fallback), then text. A reader fills in whichever
+/// representations the current clipboard exposes.
+pub struct ClipboardContent {
+    /// Plain UTF-8 text.
+    #[serde(default)]
+    pub text: Option<String>,
+    /// HTML fragment. When present, `text` is used as the plain-text fallback.
+    #[serde(default)]
+    pub html: Option<String>,
+    /// Decoded RGBA8 image.
+    #[serde(default)]
+    pub image: Option<ClipboardImage>,
+    /// Absolute native file paths.
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 /// Typed payload for a built-in or application-defined effect operation.
 pub enum EffectPayload {
@@ -275,6 +311,10 @@ pub enum EffectPayload {
         /// Text to write.
         text: String,
     },
+    /// Read every available clipboard representation.
+    ClipboardReadContent,
+    /// Write a rich clipboard payload.
+    ClipboardWriteContent(ClipboardContent),
     /// Create a native window.
     WindowCreate(WindowCreateRequest),
     /// Control an existing native window.
@@ -324,6 +364,8 @@ impl EffectPayload {
         match self {
             Self::ClipboardRead => builtin::CLIPBOARD_READ,
             Self::ClipboardWrite { .. } => builtin::CLIPBOARD_WRITE,
+            Self::ClipboardReadContent => builtin::CLIPBOARD_READ_CONTENT,
+            Self::ClipboardWriteContent(_) => builtin::CLIPBOARD_WRITE_CONTENT,
             Self::WindowCreate(_) => builtin::WINDOW_CREATE,
             Self::WindowControl {
                 command: WindowCommand::Close,
@@ -333,6 +375,10 @@ impl EffectPayload {
                 command: WindowCommand::SetMaximized(_) | WindowCommand::ToggleMaximized,
                 ..
             } => builtin::WINDOW_SET_MAXIMIZED,
+            Self::WindowControl {
+                command: WindowCommand::SetFullscreen(_) | WindowCommand::ToggleFullscreen,
+                ..
+            } => builtin::WINDOW_SET_FULLSCREEN,
             Self::WindowControl {
                 command: WindowCommand::SetTitle(_),
                 ..
@@ -397,6 +443,8 @@ pub enum EffectResult {
     Unit,
     /// Clipboard contents, or `None` when no text is available.
     ClipboardText(Option<String>),
+    /// Rich clipboard contents; missing fields were absent or unreadable.
+    ClipboardContent(ClipboardContent),
     /// Selected context-menu item identifier, or `None` when dismissed.
     ContextMenuSelection(Option<String>),
     /// Resolved platform application directories.

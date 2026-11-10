@@ -24,6 +24,85 @@ impl App {
             }
         }
     }
+
+    /// Read every representation the platform clipboard exposes. Formats the
+    /// clipboard does not hold are left empty rather than treated as failure.
+    pub(super) fn read_clipboard_content(&mut self) -> crate::ClipboardContent {
+        use crate::ClipboardImage;
+        let Some(clipboard) = self.clipboard_mut() else {
+            return crate::ClipboardContent::default();
+        };
+        let text = clipboard.get().text().ok();
+        let html = clipboard.get().html().ok();
+        let files = clipboard
+            .get()
+            .file_list()
+            .map(|paths| {
+                paths
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let image = clipboard.get().image().ok().map(|image| ClipboardImage {
+            width: u32::try_from(image.width).unwrap_or(0),
+            height: u32::try_from(image.height).unwrap_or(0),
+            rgba: image.bytes.into_owned(),
+        });
+        crate::ClipboardContent {
+            text,
+            html,
+            image,
+            files,
+        }
+    }
+
+    /// Publish the richest representation a native clipboard can accept in one
+    /// operation: files, else image, else HTML with a text fallback, else text.
+    pub(super) fn write_clipboard_content(
+        &mut self,
+        content: crate::ClipboardContent,
+    ) -> Result<(), String> {
+        let clipboard = self
+            .clipboard_mut()
+            .ok_or_else(|| "native clipboard is unavailable".to_owned())?;
+        if !content.files.is_empty() {
+            return clipboard
+                .set()
+                .file_list(&content.files)
+                .map_err(|error| format!("native clipboard file write failed: {error}"));
+        }
+        if let Some(image) = content.image {
+            let expected = (image.width as usize)
+                .checked_mul(image.height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .ok_or_else(|| "clipboard image dimensions overflow".to_owned())?;
+            if image.width == 0 || image.height == 0 || image.rgba.len() != expected {
+                return Err("clipboard image must contain width * height RGBA pixels".into());
+            }
+            return clipboard
+                .set()
+                .image(arboard::ImageData {
+                    width: image.width as usize,
+                    height: image.height as usize,
+                    bytes: image.rgba.into(),
+                })
+                .map_err(|error| format!("native clipboard image write failed: {error}"));
+        }
+        if let Some(html) = content.html {
+            return clipboard
+                .set()
+                .html(html.as_str(), content.text.as_deref())
+                .map_err(|error| format!("native clipboard HTML write failed: {error}"));
+        }
+        if let Some(text) = content.text {
+            return clipboard
+                .set()
+                .text(text)
+                .map_err(|error| format!("native clipboard text write failed: {error}"));
+        }
+        Err("clipboard content is empty".into())
+    }
     /// Run a modal effect (dialog) future to completion on the event loop.
     pub(super) fn push_modal_effect<F, T>(
         &mut self,
@@ -117,6 +196,25 @@ impl App {
                             code: crate::EffectErrorCode::PlatformFailure,
                             message: "native clipboard write failed".into(),
                         }
+                    };
+                    self.source
+                        .complete_effect(crate::EffectCompletion { id, op, result });
+                }
+                crate::EffectPayload::ClipboardReadContent => {
+                    let content = self.read_clipboard_content();
+                    self.source.complete_effect(crate::EffectCompletion {
+                        id,
+                        op,
+                        result: crate::EffectResult::ClipboardContent(content),
+                    });
+                }
+                crate::EffectPayload::ClipboardWriteContent(content) => {
+                    let result = match self.write_clipboard_content(content) {
+                        Ok(()) => crate::EffectResult::Unit,
+                        Err(message) => crate::EffectResult::Error {
+                            code: crate::EffectErrorCode::PlatformFailure,
+                            message,
+                        },
                     };
                     self.source
                         .complete_effect(crate::EffectCompletion { id, op, result });

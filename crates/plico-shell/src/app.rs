@@ -318,6 +318,16 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
                 shell.window().set_maximized(!shell.is_maximized());
             }
         }
+        WindowCommand::SetFullscreen(fullscreen) => {
+            if let Some(shell) = app.state.as_ref() {
+                shell.set_fullscreen(fullscreen);
+            }
+        }
+        WindowCommand::ToggleFullscreen => {
+            if let Some(shell) = app.state.as_ref() {
+                shell.set_fullscreen(shell.window().fullscreen().is_none());
+            }
+        }
         WindowCommand::SetTitle(title) => {
             if let Some(shell) = app.state.as_ref() {
                 shell.window().set_title(&title);

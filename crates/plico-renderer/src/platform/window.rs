@@ -89,6 +89,16 @@ pub struct WindowOptions {
     pub title: String,
     /// Requested logical client-area size.
     pub initial_inner_size: (u32, u32),
+    /// Requested initial outer-window position in logical desktop coordinates.
+    /// Platforms that do not support programmatic placement ignore it.
+    #[serde(default)]
+    pub initial_position: Option<(i32, i32)>,
+    /// Start the window maximized.
+    #[serde(default)]
+    pub maximized: bool,
+    /// Start the window fullscreen.
+    #[serde(default)]
+    pub fullscreen: bool,
     /// Optional minimum logical client-area size.
     pub min_inner_size: Option<(u32, u32)>,
     /// Optional maximum logical client-area size. A conflicting minimum wins.
@@ -135,6 +145,9 @@ impl Default for WindowOptions {
             renderer: RenderBackend::Auto,
             title: "plico".into(),
             initial_inner_size: (800, 600),
+            initial_position: None,
+            maximized: false,
+            fullscreen: false,
             min_inner_size: None,
             max_inner_size: None,
             resize_edges: WindowResizeEdges::all(),
@@ -187,6 +200,24 @@ impl WindowOptions {
     /// Set the requested logical client-area size, clamped to at least 1×1.
     pub fn initial_inner_size(mut self, width: u32, height: u32) -> Self {
         self.initial_inner_size = (width.max(1), height.max(1));
+        self
+    }
+
+    /// Request an initial outer-window position in logical desktop coordinates.
+    pub fn initial_position(mut self, x: i32, y: i32) -> Self {
+        self.initial_position = Some((x, y));
+        self
+    }
+
+    /// Start the window maximized.
+    pub fn maximized(mut self, maximized: bool) -> Self {
+        self.maximized = maximized;
+        self
+    }
+
+    /// Start the window fullscreen.
+    pub fn fullscreen(mut self, fullscreen: bool) -> Self {
+        self.fullscreen = fullscreen;
         self
     }
 
@@ -318,6 +349,10 @@ pub enum WindowCommand {
     SetMaximized(bool),
     /// Toggle maximization using the current native state.
     ToggleMaximized,
+    /// Set or clear borderless fullscreen.
+    SetFullscreen(bool),
+    /// Toggle fullscreen using the current native state.
+    ToggleFullscreen,
     /// Replace the native window title.
     SetTitle(String),
     /// Begin an OS-managed window drag from the current pointer gesture.
