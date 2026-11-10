@@ -351,7 +351,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         if clip_alpha <= 0. {
             discard;
         }
-    } else if any(world < clip.xy) || any(world >= clip.xy + clip.zw) {
+    } else if input.clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
         discard;
     }
     if input.clip_params.z > 0. {

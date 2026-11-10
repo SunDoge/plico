@@ -90,6 +90,9 @@ pub struct FrameBatchStats {
     pub draw_calls: u64,
     /// Draw calls through the specialized plain-fill pipeline.
     pub plain_draw_calls: u64,
+    /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
+    /// Counted before damage filtering, rather than once per scissor replay.
+    pub clip_coverage_skips: u64,
     /// Scene color render passes, including isolated layers.
     pub passes: u64,
     /// Explicit partial-damage replacement clears (not load-op clears).
@@ -188,6 +191,8 @@ pub struct Renderer {
     force_general: bool,
     #[cfg(test)]
     profile_no_batch_cull: bool,
+    #[cfg(test)]
+    profile_no_clip_skip: bool,
     material_module: Option<wgpu::ShaderModule>,
     clear_pipeline: wgpu::RenderPipeline,
     source: String,
@@ -261,7 +266,7 @@ const PLAIN_FRAGMENT: &str = r#"
     if input.clip_params.x>0.5 {
         clip_alpha=coverage(world-clip.xy,clip.zw,vec4f(0.));
         if clip_alpha<=0. { discard; }
-    } else if any(world<clip.xy) || any(world>=clip.xy+clip.zw) { discard; }
+    } else if input.clip_params.x >= 0. && (any(world<clip.xy) || any(world>=clip.xy+clip.zw)) { discard; }
     let outer=coverage(input.local,input.size,input.radii);
     let alpha=input.color.a*outer*clip_alpha;
     return vec4f(input.color.rgb*alpha,alpha);
@@ -310,6 +315,23 @@ fn is_plain(instance: &Instance) -> bool {
         && instance.config[1] == 0.
         && instance.clip_params[2] == 0.
         && instance.color == instance.color2
+}
+
+/// MyGO Builder.markFill (MIT, ee3d4bd9): leave three physical pixels for
+/// the vertex AA fringe and clip coverage. Masked and non-fill instances keep
+/// the general path. Negative clip_params.x means coverage is identically one.
+fn skip_interior_clip(instance: &mut Instance) -> bool {
+    if !is_plain(instance) || !(0. ..=1.).contains(&instance.color[3]) {
+        return false;
+    }
+    let [x, y, w, h] = instance.rect;
+    let [cx, cy, cw, ch] = instance.clip;
+    const ROOM: f32 = 3.;
+    if cx <= x - ROOM && cy <= y - ROOM && cx + cw >= x + w + ROOM && cy + ch >= y + h + ROOM {
+        instance.clip_params[0] = -1.;
+        return true;
+    }
+    false
 }
 
 impl Renderer {
@@ -486,6 +508,8 @@ impl Renderer {
             force_general: false,
             #[cfg(test)]
             profile_no_batch_cull: false,
+            #[cfg(test)]
+            profile_no_clip_skip: false,
             material_module: None,
             clear_pipeline,
             source: String::new(),
@@ -2008,6 +2032,15 @@ impl Renderer {
                     instance.mask_rect = rect;
                 }
             }
+            #[cfg(test)]
+            let skip_clip = !self.profile_no_clip_skip;
+            #[cfg(not(test))]
+            let skip_clip = true;
+            if skip_clip {
+                for instance in &mut instances[first..] {
+                    self.batch_stats.clip_coverage_skips += u64::from(skip_interior_clip(instance));
+                }
+            }
             if instances.len() > 1_000_000 {
                 return Err(Error::InvalidInput {
                     reason: "too many visible instances".into(),
@@ -2970,6 +3003,165 @@ fn encode_backdrop_step<'p>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn interior_clip_preserves_edges_masks_and_nonfill_instances() {
+        use bytemuck::Zeroable;
+        let mut base = super::Instance::zeroed();
+        base.rect = [10., 10., 20., 20.];
+        base.clip = [0., 0., 40., 40.];
+        base.clip_params[0] = 1.;
+        for (rect, expected) in [
+            ([10., 10., 20., 20.], -1.),
+            ([3., 3., 34., 34.], -1.),
+            ([2.99, 3., 34., 34.], 1.),
+            ([10., 10., 27.01, 20.], 1.),
+            ([0., 0., 40., 40.], 1.),
+        ] {
+            let mut i = base;
+            i.rect = rect;
+            super::skip_interior_clip(&mut i);
+            assert_eq!(i.clip_params[0], expected, "{rect:?}");
+        }
+        for kind in 0..5 {
+            let mut i = base;
+            match kind {
+                0 => i.clip_params[2] = 1., // rounded/path mask
+                1 => i.config[1] = 1.,      // material
+                2 => i.config[2] = 1.,      // shadow
+                3 => i.color2[0] = 1.,      // gradient
+                _ => i.color[3] = 3.,       // deferred layer marker
+            }
+            super::skip_interior_clip(&mut i);
+            assert_eq!(i.clip_params[0], 1.);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a working wgpu adapter"]
+    fn interior_clip_matches_reference_pixels() {
+        let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+        for general in [false, true] {
+            renderer.force_general_pipelines(general);
+            for aa in [false, true] {
+                for clip in [
+                    [0., 0., 96., 80.],
+                    [4.25, 5.75, 75.5, 60.25],
+                    [15.25, 8.5, 20.5, 40.25],
+                ] {
+                    let quads: Vec<_> = (0..8)
+                        .map(|i| {
+                            let mut q = crate::Quad::new(
+                                [8.25 + i as f32 * 8., 12.5, 18.25, 33.75],
+                                [0.2, 0.6, 0.9, 0.6],
+                            );
+                            q.radii = [0., 3., 7., 9.];
+                            q.clip = Some(clip);
+                            q.clip_antialias = aa;
+                            q
+                        })
+                        .collect();
+                    renderer.profile_no_clip_skip = true;
+                    let reference = renderer
+                        .render(&quads, [96, 80], [0.1, 0.2, 0.3, 1.], 0.)
+                        .unwrap();
+                    assert_eq!(renderer.batch_stats().clip_coverage_skips, 0);
+                    renderer.profile_no_clip_skip = false;
+                    let actual = renderer
+                        .render(&quads, [96, 80], [0.1, 0.2, 0.3, 1.], 0.)
+                        .unwrap();
+                    if clip[0] == 0. {
+                        assert_eq!(renderer.batch_stats().clip_coverage_skips, 8);
+                    }
+                    assert_eq!(actual, reference, "general={general} aa={aa} clip={clip:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual timing experiment; includes GPU completion wait, no CI threshold"]
+    fn profile_interior_clip() {
+        let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+        let size = [1536, 1024];
+        let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("interior clip benchmark"),
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let quads: Vec<_> = (0..2000)
+            .map(|i| {
+                let mut q = crate::Quad::new(
+                    [
+                        8. + (i % 40) as f32 * 37.,
+                        8. + (i / 40) as f32 * 19.,
+                        32.,
+                        14.,
+                    ],
+                    [0.2, 0.5, 0.8, 0.8],
+                );
+                q.clip_antialias = true;
+                q
+            })
+            .collect();
+        let items: Vec<_> = quads.iter().map(crate::Draw::Quad).collect();
+        eprintln!("adapter={:?}", renderer.adapter_info());
+        for general in [false, true] {
+            renderer.force_general_pipelines(general);
+            let mut reference = Vec::new();
+            let mut optimized = Vec::new();
+            let mut skipped = 0;
+            // Alternate the paths per pair, and reverse order to avoid one path
+            // always paying the first-use/clock-ramp cost. No pixel readback.
+            for pair in 0..120 {
+                for off in if pair % 2 == 0 {
+                    [true, false]
+                } else {
+                    [false, true]
+                } {
+                    renderer.profile_no_clip_skip = off;
+                    let start = std::time::Instant::now();
+                    renderer
+                        .render_to_view(
+                            &items,
+                            size,
+                            [1.; 4],
+                            0.,
+                            &view,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        )
+                        .unwrap();
+                    renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    if !off {
+                        skipped = renderer.batch_stats().clip_coverage_skips;
+                        assert_eq!(skipped, 2000);
+                    }
+                    if pair >= 20 {
+                        if off { &mut reference } else { &mut optimized }
+                            .push(start.elapsed().as_secs_f64() * 1e6);
+                    }
+                }
+            }
+            reference.sort_by(f64::total_cmp);
+            optimized.sort_by(f64::total_cmp);
+            eprintln!(
+                "general={general} completed_frame_us reference_p50={:.2} reference_p95={:.2} optimized_p50={:.2} optimized_p95={:.2} skipped={}",
+                reference[50], reference[95], optimized[50], optimized[95], skipped
+            );
+        }
+    }
     #[test]
     #[ignore = "requires a working wgpu adapter"]
     fn abandoned_prepared_frames_preserve_partial_damage_and_pixels() {
