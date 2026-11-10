@@ -6274,6 +6274,7 @@ dependencies = [
 name = "plico-motion"
 version = "0.3.1"
 dependencies = [
+ "plico",
  "serde",
  "serde_json",
  "slotmap",
