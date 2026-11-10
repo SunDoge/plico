@@ -189,7 +189,7 @@ fn string_binding_drop_commits_and_disabled_edits_are_discarded() {
 }
 
 #[test]
-fn text_input_has_quiet_hover_and_pressed_feedback() {
+fn text_input_keeps_its_fill_and_leaves_hover_to_the_border() {
     let mut engine = Engine::default();
     let buffer = TextBuffer::new();
     engine
@@ -199,9 +199,9 @@ fn text_input_has_quiet_hover_and_pressed_feedback() {
         .unwrap();
     let input = engine.node(engine.root()).unwrap().children[0];
     let style = engine.node(input).unwrap().style;
-    assert_eq!(style.background, Some(Color::Panel));
-    assert_eq!(style.hover_background, Some(Color::Control));
-    assert_eq!(style.pressed_background, Some(Color::ControlHover));
+    assert_eq!(style.background, Some(Color::Control));
+    assert_eq!(style.hover_background, None);
+    assert_eq!(style.pressed_background, None);
     assert_eq!(style.transition_ms, engine.theme().metrics.interaction_ms);
 }
 

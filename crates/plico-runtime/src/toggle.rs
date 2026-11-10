@@ -4,6 +4,8 @@ use peniko::{BlendMode, Fill};
 use plico::{Kind, Style, Theme};
 use plico_renderer::{PaintScene, Scene};
 
+use super::recipe;
+
 struct Geometry {
     unit: f64,
     width: f64,
@@ -36,21 +38,16 @@ pub(crate) fn paint(
     theme: Theme,
     progress: f32,
     line_height: f32,
+    hovered: bool,
     check: Option<&plico_renderer::svg::SvgImage>,
 ) -> Scene {
     let g = Geometry::new(kind, style, theme);
     let progress = progress.clamp(0., 1.) as f64;
-    let mix = |from: u32, shift: u32| {
-        let from = ((from >> shift) & 255) as f64;
-        let to = ((theme.accent >> shift) & 255) as f64;
-        (from + (to - from) * progress).round() as u32
-    };
-    let from = if kind == Kind::Switch {
-        theme.muted
-    } else {
-        theme.panel
-    };
-    let bg = super::rgb((mix(from, 16) << 16) | (mix(from, 8) << 8) | mix(from, 0));
+    let amount = progress as f32;
+    let bg = super::rgb(match kind {
+        Kind::Switch => recipe::switch_track(theme, amount),
+        _ => recipe::checkbox_face(theme, amount),
+    });
     // Scene fragments are relative to content origin; indicator lives in left padding.
     let x = -g.width - g.gap;
     let y = (line_height as f64 - g.height) / 2.;
@@ -58,7 +55,7 @@ pub(crate) fn paint(
     let radius = if kind == Kind::Switch {
         g.height / 2.
     } else {
-        (theme.metrics.radius as f64 / 2.).min(g.height / 2.)
+        g.unit.min(g.height / 2.)
     };
     scene.fill(
         Fill::NonZero,
@@ -68,15 +65,12 @@ pub(crate) fn paint(
         &RoundedRect::new(x, y, x + g.width, y + g.height, radius),
     );
     if kind == Kind::Checkbox {
-        let border = super::rgb(
-            (mix(theme.muted, 16) << 16) | (mix(theme.muted, 8) << 8) | mix(theme.muted, 0),
-        );
         // Stroke inside the allocated indicator box; density does not change
         // the one-logical-pixel outline or its alignment with the label.
         scene.stroke(
             &Stroke::new(1.),
             Affine::IDENTITY,
-            border,
+            super::rgb(recipe::checkbox_rim(theme, amount, hovered)),
             None,
             &RoundedRect::new(
                 x + 0.5,
@@ -87,13 +81,15 @@ pub(crate) fn paint(
             ),
         );
     }
-    let foreground = super::rgb(theme.on_accent);
     if kind == Kind::Switch {
+        // A physical thumb stays light in both appearances (MyGO's white
+        // face, softened in the dark); `on_accent` is text, not the thumb.
+        let face = recipe::thumb_face(theme);
         let center = g.height / 2.;
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            foreground,
+            super::rgb(face),
             None,
             &Circle::new(
                 (x + center + (g.width - g.height) * progress, y + center),

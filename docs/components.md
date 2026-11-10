@@ -80,7 +80,7 @@ if checkbox(cx, "Save automatically", &mut settings.autosave)
 
 Context 首参的 switch/checkbox 从旧的直接 bool 返回值改为 builder；原来 `if switch(...)` 应改为 `if switch(...).changed()`，原来的 `switch(...);` 不需要改。兼容路径 Ui.switch/checkbox 与独立值 Switch/Checkbox.show 仍返回 bool。
 
-默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。关闭色使用 muted，开启色使用 accent，thumb/SVG 勾选标记使用 on_accent，不再写死灰色和白色。
+默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。颜色参照 MyGO：switch 关闭轨道为 border 向 foreground 混合 15%，checkbox 未选中面为 panel、描边为 border 向 foreground 混合 25%（悬停时描边转为 accent），选中面混合到 accent；thumb 在亮色下为白色、暗色下为 #e0e1e1，SVG 勾选标记使用 on_accent。
 
 
 ## 图标与文字对齐
@@ -385,14 +385,23 @@ rounded overflow clipping and excludes clipped controls from pointer hit testing
 Theme includes ControlHover/ControlPressed, AccentHover/AccentPressed and Focus.
 Control/Accent button backgrounds infer their corresponding state colors;
 `hover_background` and `pressed_background` explicitly style custom button bases.
-Disabled controls skip interaction colors. Keyboard/assistive focus shows the
-focus ring; primary pointer-down preserves focus without showing the ring.
+Disabled controls skip interaction colors. Keyboard/assistive focus shows a
+2px focus ring with a 1px offset; primary pointer-down preserves focus without
+showing the ring. Text inputs keep their fill while the border turns accent on
+focus and mixes 25% toward the text under the pointer, following MyGO's
+`inputBorder`.
 Axis padding transitions use the injected clock without view redeclaration.
 
 Desktop metrics now default to 14px text, 6px radius, 32px minimum controls;
 compact uses 13px, 5px and 28px. Actual content may require greater height.
 The neutral surfaces, thin borders and separate button axis padding follow the
 local MyGO theme/widgets/gallery reference, with Plico's own implementation.
+
+控制样式按组合而不是逐控件复制：控件只声明 `button_base`、`text_input`、
+`radio`、`switch`、`slider` 等语义角色，运行时的共享 recipe（quiet border、
+switch 轨道、checkbox 面板与描边、thumb 面、input 边框）负责 MyGO 的混色规则，
+应用只覆盖 token 或 builder 颜色。新增控件组合这些 recipe 即可，不需要再写一套
+主题常量。
 
 ### Bounded vertical scroll ports and native state
 

@@ -30,10 +30,12 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
         .radius(m.radius as f32)
         .selected(selected)
         .color(Color::Foreground)
-        .hover_background(Color::ControlHover)
-        .pressed_background(Color::ControlPressed)
         .semantic_role(WidgetRole::RadioButton)
         .children(|cx| {
+            // MyGO's radio row has no hover fill; only the unselected rim
+            // turns accent under the pointer.
+            let theme = cx.theme();
+            let hovered = cx.hovered();
             let mut dot = column(cx)
                 .width(m.space(4) as f32)
                 .height(m.space(4) as f32)
@@ -44,7 +46,12 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
             dot = if selected {
                 dot.background(Color::Accent)
             } else {
-                dot.background(Color::Panel).border(1., Color::Border)
+                let border = if hovered {
+                    Color::Accent
+                } else {
+                    theme.blend(Color::Border, Color::Foreground, 0.25)
+                };
+                dot.background(Color::Panel).border(1., border)
             };
             let _ = dot.children(|cx| {
                 if selected {

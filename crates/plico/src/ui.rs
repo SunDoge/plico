@@ -287,9 +287,9 @@ impl<'e> UiContext<'e> {
         inner.style.padding_y = Some(m.space(1) as f32);
         inner.style.radius = m.radius as f32;
         inner.style.border_width = 1.;
-        inner.style.background = Some(Color::Panel);
-        inner.style.hover_background = Some(Color::Control);
-        inner.style.pressed_background = Some(Color::ControlHover);
+        // MyGO text inputs keep their fill and shift the border on hover and
+        // focus instead of repainting the whole field.
+        inner.style.background = Some(Color::Control);
         inner.style.transition_ms = m.interaction_ms;
         inner.style.clip = true;
         Input {
@@ -585,8 +585,6 @@ impl<'e> UiContext<'e> {
         let checked = *value;
         let mut inner = self.leaf(kind, label.into());
         inner.style.checked = checked;
-        inner.style.hover_background = Some(Color::ControlHover);
-        inner.style.pressed_background = Some(Color::ControlPressed);
         inner.style.transition_ms = metrics.interaction_ms;
         inner.style.padding = metrics.space(2) as f32;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
@@ -2517,7 +2515,6 @@ impl<'e> UiContext<'e> {
         inner.style.height = Some(height);
         inner.style.min_height = Some(height);
         inner.style.radius = metrics.radius as f32;
-        inner.style.hover_background = Some(Color::ControlHover);
         inner.style.transition_ms = Motion::Quick.duration_ms();
         let range = crate::NumericRange {
             min: *range.start(),

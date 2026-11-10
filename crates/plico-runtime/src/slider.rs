@@ -1,7 +1,27 @@
+use super::recipe;
 use super::*;
-use kurbo::{Affine, Circle, Rect};
-use peniko::Fill;
+use kurbo::{Affine, Rect, RoundedRect, Stroke};
+use peniko::{Color as PaintColor, Fill};
 use plico_renderer::PaintScene;
+
+/// MyGO's slider proportions: a 5x4-unit capsule knob on a 1.5-unit track.
+/// The 5-unit axis follows the track, so the knob's centre stops half that
+/// length from each end.
+fn metrics(theme: Theme) -> (f32, f32, f32) {
+    let unit = theme.metrics.spacing.max(1) as f32;
+    let (knob_w, knob_h) = (5. * unit, 4. * unit);
+    (knob_w / 2., knob_w, knob_h)
+}
+
+fn paint_color(rgb: u32, alpha: f32) -> PaintColor {
+    PaintColor::from_rgba8(
+        ((rgb >> 16) & 255) as u8,
+        ((rgb >> 8) & 255) as u8,
+        (rgb & 255) as u8,
+        (alpha.clamp(0., 1.) * 255.).round() as u8,
+    )
+}
+
 impl Adapter {
     pub(super) fn align_sliders(&mut self, engine: &Engine) {
         for &entity in &self.slider_nodes {
@@ -22,11 +42,13 @@ impl Adapter {
             let Some(range) = n.numeric else {
                 continue;
             };
+            let theme = engine.theme();
             let [w, h] = node.content_size;
             let vertical = range.vertical;
             let length = if vertical { h } else { w };
             let cross = if vertical { w } else { h };
-            let margin = 8_f32.min(length / 2.);
+            let (margin, knob_w, knob_h) = metrics(theme);
+            let margin = margin.min(length / 2.);
             let available = (length - margin * 2.).max(0.);
             let position = |value: f64| {
                 margin
@@ -40,12 +62,11 @@ impl Adapter {
             let at = position(range.value);
             let high_at = range.high.map(position);
             let center = cross / 2.;
-            let thickness = 4_f32.min(cross);
-            let pressed = self.motions.checked(entity, false) as f64;
-            let knob = (8_f64 + pressed * 2.)
-                .min(cross as f64 / 2.)
-                .min(length as f64 / 2.);
-            let rect = |start: f32, end: f32| {
+            let thickness = (1.5 * theme.metrics.spacing.max(1) as f32).min(cross);
+            let radius = thickness / 2.;
+            let held = self.motions.checked(entity, false).clamp(0., 1.);
+            let grow = 1. + 0.35 * held;
+            let span = |start: f32, end: f32| {
                 if vertical {
                     Rect::new(
                         (center - thickness / 2.) as f64,
@@ -62,51 +83,97 @@ impl Adapter {
                     )
                 }
             };
+            let knob_rect = |at: f32| {
+                let (nw, nh) = if vertical {
+                    (knob_h * grow, knob_w * grow)
+                } else {
+                    (knob_w * grow, knob_h * grow)
+                };
+                let (cx, cy) = if vertical { (center, at) } else { (at, center) };
+                Rect::new(
+                    (cx - nw / 2.) as f64,
+                    (cy - nh / 2.) as f64,
+                    (cx + nw / 2.) as f64,
+                    (cy + nh / 2.) as f64,
+                )
+            };
             let mut scene = Scene::default();
+            // Held, the knob becomes a lens: the track shows through it, so
+            // the lightening layer sits under the track (MyGO paintKnob).
+            if held > 0. {
+                for knob_at in std::iter::once(at).chain(high_at) {
+                    let k = knob_rect(knob_at);
+                    let lens =
+                        PaintColor::from_rgba8(255, 255, 255, (0.1 * held * 255.).round() as u8);
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        lens,
+                        None,
+                        &k.to_rounded_rect(k.width().min(k.height()) / 2.),
+                    );
+                }
+            }
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                rgb(engine.theme().border),
+                rgb(theme.border),
                 None,
-                &rect(margin, length - margin).to_rounded_rect(2.),
+                &span(0., length).to_rounded_rect(radius as f64),
             );
             let fill = if let Some(high_at) = high_at {
-                rect(at.min(high_at), at.max(high_at))
+                span(at.min(high_at), at.max(high_at))
             } else {
                 let from_max = range.reversed ^ vertical;
                 if from_max {
-                    rect(at, length - margin)
+                    span(at, length)
                 } else {
-                    rect(margin, at)
+                    span(0., at)
                 }
             };
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                rgb(engine.theme().accent),
+                rgb(theme.accent),
                 None,
-                &fill.to_rounded_rect(2.),
+                &fill.to_rounded_rect(radius as f64),
             );
-            let mut knob_at = |at: f32| {
-                let (x, y) = if vertical { (center, at) } else { (at, center) };
-                scene.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    rgb(engine.theme().accent),
-                    None,
-                    &Circle::new((x as f64, y as f64), knob),
-                );
-                scene.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    rgb(engine.theme().panel),
-                    None,
-                    &Circle::new((x as f64, y as f64), knob * 0.625),
-                );
-            };
-            knob_at(at);
-            if let Some(high_at) = high_at {
-                knob_at(high_at);
+            let face = recipe::thumb_face(theme);
+            let rim = paint_color(0, recipe::knob_rim_alpha(theme) * held);
+            for knob_at in std::iter::once(at).chain(high_at) {
+                let k = knob_rect(knob_at);
+                let rad = k.width().min(k.height()) / 2.;
+                if held < 1. {
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        paint_color(face, 1. - held),
+                        None,
+                        &k.to_rounded_rect(rad),
+                    );
+                }
+                if held > 0. {
+                    scene.stroke(
+                        &Stroke::new(1.),
+                        Affine::IDENTITY,
+                        rim,
+                        None,
+                        &k.to_rounded_rect(rad),
+                    );
+                    scene.stroke(
+                        &Stroke::new(1.),
+                        Affine::IDENTITY,
+                        paint_color(0xffffff, 0.25 * held),
+                        None,
+                        &RoundedRect::new(
+                            k.x0 + 1.,
+                            k.y0 + 1.,
+                            k.x1 - 1.,
+                            k.y1 - 1.,
+                            (rad - 1.).max(0.),
+                        ),
+                    );
+                }
             }
             let fragment = Arc::new(scene);
             node.paint.widget = Some(fragment.clone());
@@ -184,7 +251,8 @@ impl Adapter {
                     } else {
                         placed.content_size[0]
                     };
-                    let margin = 8_f64.min(length as f64 / 2.);
+                    let (margin, _, _) = metrics(engine.theme());
+                    let margin = (margin as f64).min(length as f64 / 2.);
                     let available = (length as f64 - margin * 2.).max(0.);
                     let point =
                         self.layout_point(placed.node_id, pointer.position.x, pointer.position.y)?;

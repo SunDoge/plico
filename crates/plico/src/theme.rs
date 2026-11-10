@@ -146,6 +146,19 @@ impl Theme {
         self.metrics = other.metrics;
         self == other
     }
+    /// Blend `from` toward `to` by `amount` in `0..=1`, resolving both tokens
+    /// against this theme (MyGO's `Color.Mix`). Useful for derived control
+    /// borders without adding another theme token.
+    pub fn blend(self, from: Color, to: Color, amount: f32) -> Color {
+        let amount = amount.clamp(0., 1.);
+        let (from, to) = (self.resolve(from), self.resolve(to));
+        let mix = |shift: u32| {
+            let from = ((from >> shift) & 255) as f32;
+            let to = ((to >> shift) & 255) as f32;
+            (from + (to - from) * amount).round().clamp(0., 255.) as u32
+        };
+        Color::Literal((mix(16) << 16) | (mix(8) << 8) | mix(0))
+    }
     pub const fn resolve(self, color: Color) -> u32 {
         match color {
             Color::Literal(v) => v,
