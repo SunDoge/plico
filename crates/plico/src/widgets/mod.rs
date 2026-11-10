@@ -245,8 +245,8 @@ pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use colorpicker::{color_picker, color_well};
 pub use composite::{
-    Panel, accordion, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented,
-    separator, stat,
+    Panel, accordion, badge, choice, collapsible, nav_entry, nav_item, nav_menu, panel, progress,
+    segmented, separator, stat,
 };
 pub use dateinput::{date_input, date_input_with};
 pub use desktop::{

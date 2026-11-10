@@ -112,16 +112,13 @@ pub fn stat(cx: &mut UiContext, label: &str, value: &str, caption: Option<&str>)
     });
 }
 
-/// A sidebar navigation entry bound to a [`crate::Router`]-owned route.
-/// Selected state colors follow the theme; the icon is optional. The
-/// declaration site owns the navigation call on [`Response::clicked`].
-#[component]
-pub fn nav_item(
-    cx: &mut UiContext,
-    label: &str,
+/// A navigation entry with framework-owned selection, hover and press motion.
+/// Add custom children (icons, counts or badges) and disable it like a button.
+pub fn nav_entry<'u, 'e, 't>(
+    cx: &'u mut UiContext<'e>,
+    label: impl Into<std::borrow::Cow<'t, str>>,
     selected: bool,
-    icon: Option<&crate::SvgAsset>,
-) -> Response {
+) -> crate::ButtonBase<'u, 'e, 't> {
     let m = cx.theme().metrics;
     button_base(cx, label)
         .width_percent(100.)
@@ -144,6 +141,20 @@ pub fn nav_item(
         .selected(selected)
         .transition(m.interaction_ms)
         .gap(m.space(2))
+}
+
+/// A sidebar navigation entry bound to a [`crate::Router`]-owned route.
+/// Selected state colors follow the theme; the icon is optional. The
+/// declaration site owns the navigation call on [`Response::clicked`].
+#[component]
+pub fn nav_item(
+    cx: &mut UiContext,
+    label: &str,
+    selected: bool,
+    icon: Option<&crate::SvgAsset>,
+) -> Response {
+    let m = cx.theme().metrics;
+    nav_entry(cx, label, selected)
         .children(|cx| {
             if let Some(icon) = icon {
                 crate::widgets::icon(cx, icon);
