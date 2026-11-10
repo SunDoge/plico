@@ -12,7 +12,7 @@ struct Demo {
     calls: usize,
     observe: bool,
     virtualized: bool,
-    direct: bool,
+
     first: usize,
     clicks: usize,
     last_clicked: Option<usize>,
@@ -26,7 +26,6 @@ impl HostView for Demo {
                 .key("port")
                 .width(300.)
                 .height(240.)
-                .smooth_scroll(!self.direct)
                 .rows(
                     |i| i,
                     |cx, i| {
@@ -41,7 +40,6 @@ impl HostView for Demo {
                 .width(300.)
                 .height(240.)
                 .scroll_y(true)
-                .smooth_scroll(!self.direct)
                 .children(|cx| {
                     if self.observe {
                         let _ = cx.scroll_viewport();
@@ -170,13 +168,15 @@ fn repeated_wheel_events_only_redeclare_when_scroll_is_observed() {
             let clock = VirtualClock::default();
             let mut source = Source::with_clock(
                 Demo {
-                    direct,
                     observe,
                     ..Default::default()
                 },
                 clock.clone(),
             );
             let mut text = TextContext::new();
+            if direct {
+                source.set_reduced_motion(true);
+            }
             sample(&mut source, &mut text);
             let initial_calls = source.view.calls;
             for _ in 0..8 {
@@ -224,12 +224,15 @@ fn direct_scroll_prepares_click_geometry_and_preserves_external_updates() {
     let clock = VirtualClock::default();
     let mut source = Source::with_clock(
         Demo {
-            direct: true,
             ..Default::default()
         },
         clock,
     );
     let mut text = TextContext::new();
+    // Reduced motion is the only direct scroll: the wheel notch lands at
+    // once, preparing click geometry before the next event, as the former
+    // per-container opt-out did.
+    source.set_reduced_motion(true);
     sample(&mut source, &mut text);
     let calls = source.view.calls;
     source.handle_event(wheel(480.));
@@ -251,13 +254,13 @@ fn direct_scroll_prepares_click_geometry_and_preserves_external_updates() {
 fn direct_virtual_scroll_mounts_rows_before_the_next_event() {
     let mut source = Source::with_clock(
         Demo {
-            direct: true,
             virtualized: true,
             ..Default::default()
         },
         VirtualClock::default(),
     );
     let mut text = TextContext::new();
+    source.set_reduced_motion(true);
     sample(&mut source, &mut text);
     let calls = source.view.calls;
     source.handle_event(wheel(480.));

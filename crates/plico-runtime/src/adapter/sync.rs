@@ -51,7 +51,8 @@ impl Adapter {
             target.checked = self.pressed == Some(e);
         }
         if styled_button && !target.material_background {
-            target.background = target.background.or(Some(Token::Control));
+            // Constructors give ordinary buttons their face. An explicitly
+            // empty face (ghost / toolbar) must stay transparent at rest.
             let inferred = match target.background {
                 Some(Token::Control) => (Some(Token::ControlHover), Some(Token::ControlPressed)),
                 Some(Token::Accent) => (Some(Token::AccentHover), Some(Token::AccentPressed)),
@@ -60,7 +61,10 @@ impl Adapter {
             target.hover_background = target.hover_background.or(inferred.0);
             target.pressed_background = target.pressed_background.or(inferred.1);
         }
-        if interactive(n.kind) && !styled_button && !target.disabled {
+        // Text inputs keep their fill under the pointer and report hover on
+        // the border instead (MyGO `inputBorder`), so they never infer a
+        // Control/Accent hover fill from their base color.
+        if interactive(n.kind) && !styled_button && !target.disabled && n.kind != Kind::TextInput {
             let base = target
                 .background
                 .or((n.kind == Kind::Button).then_some(Token::Control));
@@ -125,6 +129,7 @@ impl Adapter {
             && is_control
             && n.kind != Kind::Overlay
             && !visual_style.disabled
+            && visual_style.tab_stop
         {
             self.tab_order.push(e);
         }
@@ -506,7 +511,7 @@ fn rich_runs(
 }
 fn apply_button_focus(paint: &mut Paint, styled: bool, progress: f32, theme: Theme) {
     if styled {
-        paint.outline_width = if progress > 0. { 1.5 } else { 0. };
+        paint.outline_width = if progress > 0. { 2. } else { 0. };
         paint.outline_offset = 1.;
         paint.outline_color =
             (progress > 0.).then(|| resolve(Token::Focus, theme).with_alpha(progress));
@@ -521,7 +526,7 @@ pub(crate) fn make_paint(
     interaction: (bool, bool, bool, f32),
     font_family: Arc<str>,
 ) -> Paint {
-    let (_, _, focus, _) = interaction;
+    let (hovered, _, focus, _) = interaction;
     let mut p = Paint {
         text: (!text.is_empty()
             && !matches!(
@@ -530,6 +535,7 @@ pub(crate) fn make_paint(
                     | Kind::Shader
                     | Kind::Image
                     | Kind::Slider
+                    | Kind::ValueControl
                     | Kind::ButtonBase
                     | Kind::TextInput
                     | Kind::Dialog
@@ -558,8 +564,17 @@ pub(crate) fn make_paint(
             style.translate[1],
         ]),
         border_radii: CornerRadii::uniform(style.radius),
-        border: (style.border_width > 0.)
-            .then(|| (style.border_width, resolve(style.border_color, theme))),
+        border: (style.border_width > 0.).then(|| {
+            // Explicit invalid or custom borders (Danger, literals) stay
+            // exactly as declared; the default border follows the recipe.
+            let color = match kind {
+                Kind::TextInput if style.border_color == Token::Border => {
+                    rgb(crate::recipe::input_border(theme, focus, hovered))
+                }
+                _ => resolve(style.border_color, theme),
+            };
+            (style.border_width, color)
+        }),
         wrap_text: !style.text_ellipsis,
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
@@ -603,11 +618,10 @@ pub(crate) fn make_paint(
         if style.disabled && !matches!(kind, Kind::ButtonBase | Kind::Button) {
             p.opacity *= 0.45;
         }
-        if kind == Kind::Button && p.background.is_none() {
-            p.background = Some(resolve(Token::Control, theme));
-        }
-        if focus && style.control_chrome {
-            p.outline_width = 1.5;
+        // MyGO paint.go explicitly excludes kindInput from the generic
+        // keyboard ring: inputBorder already provides its focus indicator.
+        if focus && style.control_chrome && kind != Kind::TextInput {
+            p.outline_width = 2.;
             p.outline_offset = 1.;
             p.outline_color = Some(resolve(Token::Focus, theme));
         }

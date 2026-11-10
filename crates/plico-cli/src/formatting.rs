@@ -1141,9 +1141,9 @@ fn unrelated( ) { let n= 2; }
         let input = br#"#[component]
 #[rustfmt::skip]
 fn screen(cx: &mut UiContext) {
-    column(cx).grow(1.).min_height(0.).padding_x(28).padding_y(8).gap(16).scroll_y(true).smooth_scroll(true) + |cx| {
+    column(cx).grow(1.).min_height(0.).padding_x(28).padding_y(8).gap(16).scroll_y(true) + |cx| {
         match page {
-            0 => virtual_list(cx, items.len(), 94.).height(430.).smooth_scroll(true).rows(
+            0 => virtual_list(cx, items.len(), 94.).height(430.).rows(
                 |index| items[index].id,
                 |cx, index| {
                     row(cx).height(94.).gap(14).padding(10).align(Align::Center) + |cx| {

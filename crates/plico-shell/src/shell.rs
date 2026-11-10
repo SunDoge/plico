@@ -58,8 +58,9 @@ impl Shell {
         options: &WindowOptions,
     ) -> crate::Result<Shell> {
         let options = options.clone().normalized();
-        let transparent =
-            options.background != WindowBackground::Opaque || options.corner_radius > 0;
+        let corner_radius =
+            crate::window_frame::client_corner_radius(options.corner_radius, options.decorations);
+        let transparent = options.background != WindowBackground::Opaque || corner_radius > 0;
         if matches!(
             options.background,
             WindowBackground::Blurred | WindowBackground::Mica | WindowBackground::MicaAlt
@@ -97,6 +98,15 @@ impl Shell {
                     .with_fullsize_content_view(true)
                     .with_movable_by_window_background(false),
             ));
+        }
+        if let Some((x, y)) = options.initial_position {
+            attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
+        }
+        if options.maximized {
+            attrs = attrs.with_maximized(true);
+        }
+        if options.fullscreen {
+            attrs = attrs.with_fullscreen(Some(winit::monitor::Fullscreen::Borderless(None)));
         }
         if let Some((width, height)) = options.min_inner_size {
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
@@ -166,7 +176,7 @@ impl Shell {
             #[cfg(target_os = "macos")]
             frame_clock: None,
             window,
-            corner_radius: options.corner_radius,
+            corner_radius,
             deferred_show,
             #[cfg(target_os = "macos")]
             native_frame,
@@ -350,6 +360,17 @@ impl Shell {
         self.window.is_maximized()
     }
 
+    /// Set or clear borderless fullscreen on the primary monitor.
+    ///
+    /// Winit exposes exclusive video modes too; Plico deliberately uses the
+    /// borderless variant so desktop shortcuts and multi-monitor movement keep
+    /// working. Platforms may ignore the request while the window is not yet
+    /// visible.
+    pub fn set_fullscreen(&self, fullscreen: bool) {
+        self.window
+            .set_fullscreen(fullscreen.then_some(winit::monitor::Fullscreen::Borderless(None)));
+    }
+
     /// CSS/layout viewport in logical pixels; the surface remains physical.
     /// Current logical client-area size, clamped to at least 1×1.
     pub fn logical_size(&self) -> (u32, u32) {
@@ -448,6 +469,10 @@ impl Shell {
     pub(crate) fn damage_coverage(&self) -> Option<f64> {
         self.renderer
             .damage_coverage(self.surface_size[0], self.surface_size[1])
+    }
+
+    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        self.renderer.frame_budget()
     }
 
     pub(crate) fn surface_acquire_pending(&self) -> bool {

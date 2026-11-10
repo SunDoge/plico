@@ -19,7 +19,6 @@ impl HostView for Demo {
                 .width(200.)
                 .height(200.)
                 .scroll_y(true)
-                .smooth_scroll(true)
                 .children(|cx| {
                     column(cx)
                         .width(200.)

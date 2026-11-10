@@ -371,7 +371,7 @@ fn actual_gpu_tooltip_is_present_with_shader_and_scene_cache_removes_it_on_escap
     let mut scene = plico_renderer::Scene::default();
     s.paint_scene(&mut scene, &nodes, &mut tcx, (400, 240), 1.);
     let image = plico_shell::renderer::render_to_image(&scene, 400, 240, s.base_color()).unwrap();
-    assert_eq!(image.get_pixel(x, y).0, [32, 32, 36, 255]);
+    assert_eq!(image.get_pixel(x, y).0, [24, 24, 27, 255]);
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut tcx, 400, 240);
     assert_eq!(s.adapter.stats.tooltip_layout_runs, 0);

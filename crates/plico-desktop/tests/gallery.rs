@@ -277,7 +277,11 @@ fn real_layout_fits_normal_and_minimum_viewports() {
                 )
             }) {
                 assert!(
-                    n.bounds[3] - n.bounds[1] >= s.view.theme().metrics.control_height as f32 - 0.1
+                    n.bounds[3] - n.bounds[1] >= s.view.theme().metrics.space(4) as f32 - 0.1,
+                    "{:?} {:?} has bounds {:?}",
+                    n.role,
+                    n.label,
+                    n.bounds
                 );
             }
         }

@@ -15,7 +15,6 @@ impl HostView for Demo {
             .width(120.)
             .height(100.)
             .scroll_y(true)
-            .smooth_scroll(true)
             .background(Color::Literal(0x000000))
             + |cx| {
                 column(cx).height(300.).shrink(0.).padding(20.)

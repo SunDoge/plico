@@ -8,7 +8,6 @@ use std::time::Duration;
 struct Demo {
     count: usize,
     built: Vec<usize>,
-    smooth: bool,
 }
 impl HostView for Demo {
     #[component]
@@ -17,7 +16,6 @@ impl HostView for Demo {
         virtual_list(cx, self.count, 40.)
             .width(240.)
             .height(180.)
-            .smooth_scroll(self.smooth)
             .rows(
                 |i| i as u64,
                 |cx, i| {
@@ -52,7 +50,6 @@ fn setup() -> (Source<Demo>, VirtualClock, TextContext) {
         Demo {
             count: 10_000,
             built: vec![],
-            smooth: true,
         },
         clock.clone(),
     );
@@ -209,14 +206,12 @@ fn nested_smooth_ports_chain_to_ancestors_and_settle() {
                 .width(240.)
                 .height(180.)
                 .scroll_y(true)
-                .smooth_scroll(true)
                 .children(|cx| {
                     text(cx, "Before").height(100.).motion(Motion::None);
                     column(cx)
                         .height(120.)
                         .shrink(0.)
                         .scroll_y(true)
-                        .smooth_scroll(true)
                         .children(|cx| {
                             for i in 0..10u64 {
                                 cx.keyed(i, |cx| {
@@ -264,7 +259,6 @@ fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
                 .height(180.)
                 .width(240.)
                 .scroll_y(true)
-                .smooth_scroll(true)
                 .children(|cx| {
                     for i in 0..20u64 {
                         cx.keyed(i, |cx| {

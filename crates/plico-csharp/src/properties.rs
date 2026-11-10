@@ -22,7 +22,6 @@ pub struct Properties {
     pub selectable: bool,
     pub sticky: Option<f32>,
     pub follow_end: bool,
-    pub smooth_scroll: bool,
     pub mono: bool,
     pub placeholder: Option<String>,
     pub focus: bool,
@@ -143,7 +142,6 @@ impl Properties {
         style.input_password_visible = self.password_visible;
         style.sticky_top = self.sticky;
         style.follow_end = self.follow_end;
-        style.smooth_scroll = self.smooth_scroll;
         if self.mono {
             style.font_family = plico::FontFamily::Monospace;
         }

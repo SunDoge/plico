@@ -17,6 +17,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::Duration,
 };
 use taffy::{geometry::Rect, prelude::*};
 use web_time::Instant;
@@ -251,6 +252,7 @@ pub struct Adapter {
     pub(super) shader_motion_enabled: bool,
     pub(super) shader_reset_time: bool,
     pub(super) tab_order: Vec<Entity>,
+    pub(super) tree_typeahead: (Option<NodeId>, String, Duration),
     pub(super) motions: style_motion::StyleMotions,
     pub(super) reverse: HashMap<NodeId, Entity>,
     pub(super) placed_indices: HashMap<NodeId, usize>,
@@ -332,6 +334,7 @@ impl Default for Adapter {
             shader_motion_enabled: true,
             shader_reset_time: false,
             tab_order: Vec::new(),
+            tree_typeahead: (None, String::new(), Duration::ZERO),
             motions: Default::default(),
             reverse: HashMap::new(),
             placed_indices: HashMap::new(),
@@ -535,6 +538,9 @@ impl Adapter {
                 if let Some(node) = engine.node(e) {
                     if let Some(previous) = self.nodes.get(&e) {
                         tab_dirty |= previous.paint_key.style.disabled != node.style.disabled
+                            || previous.paint_key.style.tab_stop != node.style.tab_stop
+                            || previous.paint_key.style.selected != node.style.selected
+                            || previous.paint_key.style.role != node.style.role
                             || previous.paint_key.kind != node.kind;
                     }
                     self.sync(
@@ -632,7 +638,7 @@ impl Adapter {
             self.reverse
                 .get(id)
                 .and_then(|e| engine.node(*e))
-                .is_some_and(|n| n.style.smooth_scroll && n.style.scroll_y)
+                .is_some_and(|n| n.style.scroll_y)
         });
         for (entity, offset) in std::mem::take(&mut self.requested_scroll) {
             if engine.node(entity).is_some_and(|n| n.style.scroll_y)
@@ -779,16 +785,19 @@ impl Adapter {
             }
         }
         if tab_dirty {
-            self.tab_order = self
+            let candidates = self
                 .placed
                 .iter()
                 .filter_map(|n| self.reverse.get(&n.node_id).copied())
                 .filter(|e| {
                     engine.node(*e).is_some_and(|n| {
-                        n.kind.capabilities().contains(Capabilities::TAB_STOP) && !n.style.disabled
+                        n.kind.capabilities().contains(Capabilities::TAB_STOP)
+                            && !n.style.disabled
+                            && n.style.tab_stop
                     })
                 })
                 .collect();
+            self.tab_order = self.roving_tab_order(engine, candidates);
         }
         if self.focused.is_some_and(|e| {
             !self.tab_order.contains(&e) && engine.node(e).is_none_or(|n| n.kind != Kind::Dialog)

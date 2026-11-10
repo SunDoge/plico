@@ -2,6 +2,51 @@
 use crate::{Key, WidgetRole, prelude::*};
 use std::borrow::Cow;
 
+/// Menu commands and select options compose the same base row. Only semantic
+/// role, chosen face and MyGO's horizontal inset differ.
+fn popup_entry<'u, 'e, 't>(
+    cx: &'u mut UiContext<'e>,
+    key: Key,
+    label: impl Into<Cow<'t, str>>,
+    selected: Option<bool>,
+) -> (crate::ButtonBase<'u, 'e, 't>, bool) {
+    let m = cx.theme().metrics;
+    let highlighted = cx.engine.focus_within(crate::model::Identity {
+        parent: cx.parent,
+        key,
+        scope: cx.scope,
+    });
+    let control = button_base(cx, label)
+        .key(key)
+        .semantic_role(if selected.is_some() {
+            WidgetRole::Option
+        } else {
+            WidgetRole::MenuItem
+        })
+        .width_percent(100.)
+        .min_height(m.control_height as f32)
+        .padding_x(m.spacing as f32 * if selected.is_some() { 2.5 } else { 2. })
+        .padding_y(m.spacing as f32 * 1.5)
+        .gap(m.space(2))
+        .align(Align::Center)
+        .radius(m.radius as f32)
+        .hover_background(Color::Accent)
+        .pressed_background(Color::Accent);
+    let control = if highlighted {
+        control.background(Color::Accent)
+    } else if selected == Some(true) {
+        control.background(Color::Control)
+    } else {
+        control
+    };
+    let control = if let Some(on) = selected {
+        control.selected(on)
+    } else {
+        control
+    };
+    (control, highlighted)
+}
+
 pub fn menu<'u, 'e, 's>(
     cx: &'u mut UiContext<'e>,
     state: &'s mut PopoverState,
@@ -58,27 +103,24 @@ impl<'s> MenuItem<'_, '_, 's> {
     }
     fn finish(&mut self) -> Response {
         let cx = self.cx.take().expect("one declaration");
-        let m = cx.theme().metrics;
         let disabled = self.disabled || cx.inherited.disabled;
-        let response = button_base(cx, self.label.as_ref())
-            .key(self.key)
-            .semantic_role(WidgetRole::MenuItem)
+        let (control, highlighted) = popup_entry(cx, self.key, self.label.as_ref(), None);
+        let response = control
             .disabled(disabled)
             .opacity(if disabled { 0.45 } else { 1. })
-            .width_percent(100.)
-            .min_height(m.control_height as f32)
-            .padding_x(m.space(2))
-            .padding_y(m.space(1))
-            .gap(m.space(2))
-            .align(Align::Center)
-            .radius(m.radius as f32)
-            .background(Color::Panel)
-            .hover_background(Color::ControlHover)
             .children(|cx| {
+                let color = if highlighted || cx.hovered() {
+                    Color::OnAccent
+                } else {
+                    Color::Foreground
+                };
                 if let Some(icon) = self.icon {
-                    crate::widgets::icon(cx, icon);
+                    crate::widgets::icon(cx, icon).color(color);
                 }
-                text(cx, self.label.as_ref()).grow(1.).ellipsis(true);
+                text(cx, self.label.as_ref())
+                    .color(color)
+                    .grow(1.)
+                    .ellipsis(true);
             })
             .response;
         if response.clicked() {
@@ -239,29 +281,22 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
                 {
                     shown_count += 1;
                     let on = option.value == *selected;
-                    let m = cx.theme().metrics;
-                    let response = button_base(cx, option.label)
-                        .key(option.key)
-                        .semantic_role(WidgetRole::Option)
-                        .selected(on)
+                    let (control, highlighted) =
+                        popup_entry(cx, option.key, option.label, Some(on));
+                    let response = control
                         .disabled(option.disabled)
                         .opacity(if option.disabled { 0.45 } else { 1. })
-                        .width_percent(100.)
-                        .min_height(m.control_height as f32)
-                        .padding_x(m.space(2))
-                        .padding_y(m.space(1))
-                        .gap(m.space(2))
-                        .align(Align::Center)
-                        .radius(m.radius as f32)
-                        .background(if on { Color::Selection } else { Color::Panel })
-                        .hover_background(Color::ControlHover)
-                        .pressed_background(Color::ControlPressed)
                         .motion(motion)
                         .children(|cx| {
-                            text(cx, option.label).grow(1.).ellipsis(true);
+                            let color = if highlighted || cx.hovered() {
+                                Color::OnAccent
+                            } else {
+                                Color::Foreground
+                            };
+                            text(cx, option.label).color(color).grow(1.).ellipsis(true);
                             let side = cx.inherited.font_size.saturating_add(2) as f32;
                             if on {
-                                svg(cx, &crate::icons::CHECK).size(side, side);
+                                svg(cx, &crate::icons::CHECK).size(side, side).color(color);
                             } else {
                                 let _ = column(cx)
                                     .width(side)

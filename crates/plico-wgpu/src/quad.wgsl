@@ -86,7 +86,13 @@ fn corner_radius(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
     return select(bottom, top, p.y < size.y * 0.5);
 }
 fn distance_to_round_rect(p: vec2f, size: vec2f, radii: vec4f) -> f32 {
-    let r = clamp(corner_radius(p, size, radii), 0., min(size.x, size.y) * 0.5);
+    // Most controls share one radius; skip the per-corner quadrant selects
+    // and only evaluate them for explicitly asymmetric boxes.
+    var radius = radii.x;
+    if any(radii != vec4f(radii.x)) {
+        radius = corner_radius(p, size, radii);
+    }
+    let r = clamp(radius, 0., min(size.x, size.y) * 0.5);
     let q = abs(p - size * 0.5) - size * 0.5 + r;
     return length(max(q, vec2f(0))) + min(max(q.x, q.y), 0.) - r;
 }
@@ -351,7 +357,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
         if clip_alpha <= 0. {
             discard;
         }
-    } else if any(world < clip.xy) || any(world >= clip.xy + clip.zw) {
+    } else if input.clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
         discard;
     }
     if input.clip_params.z > 0. {
@@ -418,30 +424,37 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
     }
     let outer = coverage(input.local, input.size, input.radii);
     let width = min(input.config.y, min(input.size.x, input.size.y) * 0.5);
+    var fill = input.color;
+    // Flat fills carry identical gradient endpoints; skip both dot products.
+    if any(input.gradient.xy != input.gradient.zw) || input.clip_params.y > 0.5 {
+        let start = input.gradient.xy * input.size;
+        let direction = (input.gradient.zw - input.gradient.xy) * input.size;
+        let t = clamp(dot(input.local - start, direction) / max(dot(direction, direction), 0.000001), 0., 1.);
+        fill = mix(input.color, input.color2, t);
+        if input.clip_params.y > 0.5 {
+            let a = vec4f(input.color.rgb * input.color.a, input.color.a);
+            let b = vec4f(input.color2.rgb * input.color2.a, input.color2.a);
+            let premultiplied = mix(a, b, t);
+            fill = vec4f(premultiplied.rgb / max(premultiplied.a, 0.000001), premultiplied.a);
+        }
+    }
+    if input.config.z > 0.5 {
+        let uv = input.local / input.size;
+        fill = plico_material(
+                Material(uv, input.size, input.color, input.color2, frame.size_time_scale.z, input.config.w),
+            );
+    }
+    if width <= 0. {
+        // Borderless quads fill the whole outer coverage; no inner solve.
+        let alpha = fill.a * outer;
+        return vec4f(fill.rgb * alpha, alpha) * clip_alpha;
+    }
     let inner_size = max(input.size - 2. * width, vec2f(0));
     var inner = 0.;
     if all(inner_size > vec2f(0)) {
         inner = coverage(input.local - vec2f(width), inner_size, max(input.radii - vec4f(width), vec4f(0.)));
     }
-    let border_coverage = max(outer - inner, 0.);
-    let uv = input.local / input.size;
-    let start = input.gradient.xy * input.size;
-    let direction = (input.gradient.zw - input.gradient.xy) * input.size;
-    let t = clamp(dot(input.local - start, direction) / max(dot(direction, direction), 0.000001), 0., 1.);
-    var fill = mix(input.color, input.color2, t);
-    if input.clip_params.y > 0.5 {
-        let a = vec4f(input.color.rgb * input.color.a, input.color.a);
-        let b = vec4f(input.color2.rgb * input.color2.a, input.color2.a);
-        let premultiplied = mix(a, b, t);
-        fill = vec4f(premultiplied.rgb / max(premultiplied.a, 0.000001), premultiplied.a);
-    }
-    if input.config.z > 0.5 {
-        fill = plico_material(
-                Material(uv, input.size, input.color, input.color2, frame.size_time_scale.z, input.config.w),
-            );
-    }
-    let fill_coverage = select(outer, inner, width > 0.);
-    let alpha = fill.a * fill_coverage;
-    let border_alpha = input.border.a * border_coverage;
+    let alpha = fill.a * inner;
+    let border_alpha = input.border.a * max(outer - inner, 0.);
     return vec4f(fill.rgb * alpha + input.border.rgb * border_alpha, alpha + border_alpha) * clip_alpha;
 }

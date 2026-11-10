@@ -15,10 +15,10 @@ response().changed 只表示本次消费的输入改变了规范化后的值，�
 
 ## 交互与呈现
 
-- 点击轨道、拖动圆形 thumb；拖出控件后继续捕获并限制到端点。主键释放或取消停止拖动，次键不改值。
+- 点击轨道、拖动胶囊形 thumb；拖出控件后继续捕获并限制到端点。主键释放或取消停止拖动，次键不改值。
 - Left/Down 减少，Right/Up 增加；PageUp/PageDown 调整十个步长，Home/End 到达端点；Tab/Shift+Tab 使用正常焦点顺序。
 - 父容器禁用、modal 输入边界与 focus/IME 切换同样适用。背景滑块不能通过语义动作绕过 modal。
-- 主题配色、默认桌面尺寸和 disabled/focus 外观来自同一套控件规则。thumb 位置直接跟随受控值；按压时的轻微增大由宿主 Motion 采样，不重新声明 UI。motion(Motion::None) 可关闭该反馈。
+- 主题配色、默认桌面尺寸和 disabled/focus 外观来自同一套控件规则。几何参照 MyGO：轨道厚 1.5 个单位、圆角为厚度的一半；thumb 是 5×4 个单位的胶囊，中心距离两端半个 thumb；按住时放大到 1.35 倍并转为玻璃透镜。thumb 位置直接跟随受控值；按压时的轻微增大由宿主 Motion 采样，不重新声明 UI。motion(Motion::None) 可关闭该反馈。
 - 语义节点包含 Slider role、label、当前值和上下界。AccessKit 发布 SetValue / Increment / Decrement 并回送数值事件，不把无效 Click 作为滑块动作。
 
 尚未提供双 thumb 范围选择、tick label、自定义 value-text、本地化数字输入或 RTL 专门策略；不将它们视为已经实现。

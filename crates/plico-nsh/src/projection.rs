@@ -125,7 +125,7 @@ fn validate_node(node: &NodeRef<'_>) -> Result<(), Error> {
         Some("portable widget roles")
     } else if style.presence_until_ms.is_some() {
         Some("presence deadlines")
-    } else if style.scroll_y || style.smooth_scroll || style.follow_end {
+    } else if style.scroll_y || style.follow_end {
         Some("scrolling")
     } else if style.translate != [0., 0.] || style.scale != [1., 1.] {
         Some("transforms")

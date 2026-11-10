@@ -128,7 +128,7 @@ fn ghost_buttons_have_explicit_hover_and_pressed_colors() {
         })
         .unwrap();
     let style = engine.node(root_child(&engine, 0)).unwrap().style;
-    assert_eq!(style.background, Some(Color::Surface));
+    assert_eq!(style.background, None);
     assert_eq!(style.hover_background, Some(Color::ControlHover));
     assert_eq!(style.pressed_background, Some(Color::ControlPressed));
 }

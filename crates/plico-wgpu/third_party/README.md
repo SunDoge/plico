@@ -19,3 +19,9 @@ handling. See `mygo-LICENSE`.
 frame-derived geometry storage while keeping reusable pipelines. Plico retains
 its startup-sized instance buffer and relies on wgpu command ownership for
 already encoded/submitted buffers.
+
+`renderer::skip_interior_clip` follows MyGO `internal/gpu/gpu.go`
+`Builder.markFill` at the same MIT revision. A plain, unmasked fill at least
+three physical pixels inside its rectangular clip skips redundant fragment clip
+coverage. Plico retains its own instance layout and shader flag; edge-adjacent,
+masked, material and gradient draws retain the existing coverage path.

@@ -58,6 +58,18 @@ impl Adapter {
             .filter_map(|p| {
                 let e = *self.reverse.get(&p.node_id)?;
                 let n = engine.node(e)?;
+                let mut cursor = Some(p.node_id);
+                while let Some(id) = cursor {
+                    if self
+                        .reverse
+                        .get(&id)
+                        .and_then(|entity| engine.node(*entity))
+                        .is_some_and(|node| node.style.semantic_hidden)
+                    {
+                        return None;
+                    }
+                    cursor = self.tree.parent(id);
+                }
                 let cacheable =
                     n.kind != Kind::ButtonBase && n.style.role != Some(plico::WidgetRole::ComboBox);
                 let cached = cacheable
@@ -85,6 +97,7 @@ impl Adapter {
                             Some(plico::WidgetRole::Link) => Role::Link,
                             Some(plico::WidgetRole::Meter) => Role::Meter,
                             Some(plico::WidgetRole::ProgressBar) => Role::ProgressBar,
+                            Some(plico::WidgetRole::Slider) => Role::Slider,
                             Some(plico::WidgetRole::SpinButton) => Role::SpinButton,
                             Some(plico::WidgetRole::Separator) => Role::Separator,
                             Some(plico::WidgetRole::Tree) => Role::Tree,
@@ -96,7 +109,7 @@ impl Adapter {
                             Some(plico::WidgetRole::AlertDialog) => Role::AlertDialog,
                             None => match n.kind {
                                 Kind::Button | Kind::ButtonBase => Role::Button,
-                                Kind::Slider => Role::Slider,
+                                Kind::Slider | Kind::ValueControl => Role::Slider,
                                 Kind::Dialog => Role::Dialog,
                                 Kind::TextInput => Role::TextInput,
                                 Kind::Switch => Role::Switch,
@@ -119,7 +132,16 @@ impl Adapter {
                         min_numeric_value: n.numeric.map(|range| range.min),
                         max_numeric_value: n.numeric.map(|range| range.max),
                         bounds: p.rect,
-                        children: n.children.iter().map(|e| semantic_id(*e)).collect(),
+                        children: n
+                            .children
+                            .iter()
+                            .filter(|e| {
+                                engine
+                                    .node(**e)
+                                    .is_some_and(|node| !node.style.semantic_hidden)
+                            })
+                            .map(|e| semantic_id(*e))
+                            .collect(),
                         controls: Vec::new(),
                         described_by: Vec::new(),
                         active_descendant: None,
@@ -144,6 +166,16 @@ impl Adapter {
                 if cacheable {
                     self.semantic.borrow_mut().nodes.insert(e, semantic.clone());
                 }
+                semantic.children = n
+                    .children
+                    .iter()
+                    .filter(|e| {
+                        engine
+                            .node(**e)
+                            .is_some_and(|node| !node.style.semantic_hidden)
+                    })
+                    .map(|e| semantic_id(*e))
+                    .collect();
                 // Bound input values live outside declaration text. Read only the
                 // ordinary projection; TextBuffer::text deliberately excludes secrets.
                 if n.kind == Kind::TextInput {

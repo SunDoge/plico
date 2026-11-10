@@ -120,6 +120,18 @@ impl PreviewSession {
             dimensions: (0, 0),
         }
     }
+    /// Renderer CPU stages and GPU time from the most recent capture.
+    pub fn last_frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        self.renderer
+            .as_ref()
+            .and_then(|renderer| renderer.frame_budget())
+    }
+    /// Name reported by the active GPU adapter, for reproducible profiling.
+    pub fn adapter_name(&self) -> Option<&str> {
+        self.renderer
+            .as_ref()
+            .and_then(|renderer| renderer.adapter_name())
+    }
     pub(crate) fn renderer(
         &mut self,
         width: u32,

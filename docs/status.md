@@ -24,6 +24,26 @@ wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有
 macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、系统锁屏或账户服务。
 详见 [桌面集成](desktop-integration.md)。
 
+## 窗口状态、激活与文件监视
+
+`WindowOptions` 支持初始位置、最大化和无边框全屏，`WindowCommand::SetFullscreen` /
+`ToggleFullscreen` 可在运行时切换，`WindowMetrics.fullscreen` 向应用报告当前状态。
+`WindowStatePersistence` 保存普通尺寸、外框位置以及最大化／全屏标志，关闭和退出时原子写入；
+旧的仅含尺寸的 JSON 仍然兼容。`run_with_persistence` 默认在应用数据目录恢复
+`window-state.json`。
+
+剪贴板在原有文本 effect 之外增加 `ClipboardReadContent` / `ClipboardWriteContent`：
+读取时返回可用的文本、HTML、RGBA 图像与文件列表；写入按文件列表、图像、HTML（带纯文本
+回退）、文本的顺序选择平台能承载的最丰富表示。
+
+`FileWatcher` 封装 notify 的平台后端，在通知线程中入队并通过 `WakeCallback` 唤醒事件循环；
+应用调用 `drain` 消费创建、修改、删除、重命名事件，不轮询文件系统。
+
+`AppActivation` 从启动参数提取已声明的 URL scheme 与文件关联参数，
+`SingleInstance::acquire` 使用按用户隔离的本地套接字：首个进程持有监听并在后台接收，
+后续进程转发自己的激活后返回 `Secondary`，由宿主决定退出。URL scheme／文件关联的
+系统注册、原生应用菜单栏和原生右键菜单执行器仍未实现。
+
 ## 原生显示偏好
 
 macOS 监听 NSWorkspace 辅助功能偏好，Linux 在后台共享 portal Settings 连接并监听变化。
@@ -194,6 +214,11 @@ cache recycling and a GPU-only winit window demo. It supports analytical shared 
 Default shared-scene damage replay (`PLICO_WGPU_DAMAGE=0` disables it) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
 window exercise pass. A controlled [Linux damage benchmark](experiments/wgpu-damage.md) now records local GPU gains and a scrolling CPU regression; broader application performance and physical-display verification remain pending.
+`plico_wgpu::FrameBudget` reports per-frame prepare/upload/encode/submit/wait CPU
+time, upload bytes, instance and draw counts, and optional root-encoder GPU
+timestamps (`PLICO_GPU_TIMER=1`). The shell HUD and the offscreen `--frames`
+capture expose it; definitions and measurement caveats are in
+[performance](performance.md).
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG

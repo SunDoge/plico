@@ -22,11 +22,13 @@ impl<'a> TableColumn<'a> {
 /// Matching header/cell geometry for a bounded, application-owned list of rows.
 #[component]
 pub fn table_header(cx: &mut UiContext, columns: &[TableColumn<'_>]) {
+    let m = cx.theme().metrics;
     row(cx)
+        .min_height(m.space(8) as f32)
         .width_percent(100.)
-        .gap(12)
-        .padding_x(12)
-        .padding_y(10)
+        .gap(0)
+        .padding_x(m.spacing as f32 * 2.5)
+        .padding_y(m.spacing as f32 * 1.5)
         .background(Color::Control)
         .children(|cx| {
             for (i, c) in columns.iter().enumerate() {
@@ -35,7 +37,7 @@ pub fn table_header(cx: &mut UiContext, columns: &[TableColumn<'_>]) {
                         .width(0.)
                         .grow(c.flex())
                         .min_width(0.)
-                        .font_size(12)
+                        .font_size(m.font_size)
                         .weight(600)
                         .color(Color::Muted)
                         .ellipsis(true);
@@ -53,20 +55,34 @@ pub fn table_row(
     columns: &[TableColumn<'_>],
     cells: &[&str],
 ) -> Response {
+    let m = cx.theme().metrics;
     button_base(cx, label)
         .width_percent(100.)
-        .min_height(42.)
-        .padding_x(12)
-        .padding_y(10)
-        .gap(12)
+        .min_height(m.space(8) as f32)
+        .padding_x(m.spacing as f32 * 2.5)
+        .padding_y(m.spacing as f32 * 1.5)
+        .gap(0)
         .selected(selected)
+        .color(if selected {
+            Color::OnAccent
+        } else {
+            Color::Foreground
+        })
         .background(if selected {
-            Color::Selection
+            Color::Accent
         } else {
             Color::Panel
         })
-        .hover_background(Color::ControlHover)
-        .pressed_background(Color::ControlPressed)
+        .hover_background(if selected {
+            Color::Accent
+        } else {
+            Color::ControlHover
+        })
+        .pressed_background(if selected {
+            Color::Accent
+        } else {
+            Color::ControlPressed
+        })
         .children(|cx| {
             for (i, c) in columns.iter().enumerate() {
                 cx.keyed(i as u64, |cx| {
@@ -74,7 +90,7 @@ pub fn table_row(
                         .width(0.)
                         .grow(c.flex())
                         .min_width(0.)
-                        .font_size(13)
+                        .font_size(m.font_size)
                         .ellipsis(true);
                 });
             }

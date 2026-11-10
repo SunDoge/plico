@@ -245,8 +245,8 @@ pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use colorpicker::{color_picker, color_well};
 pub use composite::{
-    Panel, accordion, badge, choice, collapsible, nav_item, nav_menu, panel, progress, segmented,
-    separator, stat,
+    Panel, accordion, badge, choice, collapsible, nav_entry, nav_item, nav_menu, panel, progress,
+    segmented, separator, stat,
 };
 pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
@@ -254,7 +254,9 @@ pub use desktop::{
 };
 pub use find::{FindResponse, find_bar};
 pub use form::{Field, field, fieldset, form};
-pub use indicators::{MeterLevels, meter, rating, spinner, spinner_sized, stepper};
+pub use indicators::{
+    MeterLevels, meter, rating, rating_labeled, spinner, spinner_sized, stepper, stepper_labeled,
+};
 pub use media::{Avatar, RubyText, avatar, ruby_text};
 pub use navigation::{
     back_button, breadcrumbs, forward_button, link, sidebar, sidebar_item, sidebar_section,

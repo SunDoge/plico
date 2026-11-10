@@ -66,6 +66,8 @@ pub struct WindowMetrics {
     pub scale_factor: f64,
     /// Whether the native window is maximized.
     pub maximized: bool,
+    /// Whether the native window is fullscreen.
+    pub fullscreen: bool,
     /// Whether the native window owns keyboard focus.
     pub focused: bool,
     /// Outer-window horizontal desktop coordinate, when the platform exposes it.
@@ -113,6 +115,7 @@ impl Default for WindowMetrics {
             physical_height: 0,
             scale_factor: 1.0,
             maximized: false,
+            fullscreen: false,
             focused: false,
             outer_x: None,
             outer_y: None,
@@ -502,6 +505,28 @@ pub struct FrameStats {
     /// Renderer submission and presentation time in milliseconds, or zero when
     /// the active native toolkit does not expose a reliable completion time.
     pub present_ms: f64,
+    /// CPU time building the renderer's instance stream.
+    pub prepare_ms: f64,
+    /// CPU time in instance and frame-uniform uploads.
+    pub upload_ms: f64,
+    /// CPU time recording render passes and blits.
+    pub encode_ms: f64,
+    /// CPU time submitting command buffers.
+    pub submit_ms: f64,
+    /// Queue submissions issued for the latest frame.
+    pub submissions: u64,
+    /// Blocking GPU wait for offscreen readback; zero for window presentation.
+    pub wait_ms: f64,
+    /// Bytes uploaded for the instance stream and frame uniforms.
+    pub upload_bytes: u64,
+    /// Instances prepared across the root scene and child layers.
+    pub instances: u64,
+    /// Instanced scene draw calls, including damage-scissor replays.
+    pub draw_calls: u64,
+    /// GPU frame time when timestamp queries are enabled. `None` when the
+    /// backend does not report it. Blended like the other timings; the first
+    /// sample is kept at full weight.
+    pub gpu_ms: Option<f64>,
     /// Actual fraction of the acquired target redrawn in the last successful
     /// frame, including buffer history. `None` means the backend does not
     /// report it. This is a raw sample, unlike the timing EMAs.
@@ -522,8 +547,53 @@ pub struct ScreenshotRequest {
     pub file: std::fs::File,
 }
 
+/// Backend-neutral renderer work for one frame, blended into [`FrameStats`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FrameBudgetSample {
+    /// CPU time building the instance stream.
+    pub prepare_ms: f64,
+    /// CPU time in instance and frame-uniform uploads.
+    pub upload_ms: f64,
+    /// CPU time recording render passes and blits.
+    pub encode_ms: f64,
+    /// CPU time submitting command buffers.
+    pub submit_ms: f64,
+    /// Queue submissions issued for this frame.
+    pub submissions: u64,
+    /// Blocking GPU wait for offscreen readback; zero for window presentation.
+    pub wait_ms: f64,
+    /// GPU frame time, when the backend reports timestamps.
+    pub gpu_ms: Option<f64>,
+    /// Bytes uploaded for the instance stream and frame uniforms.
+    pub upload_bytes: u64,
+    /// Instances prepared across the root scene and child layers.
+    pub instances: u64,
+    /// Instanced scene draw calls, including damage-scissor replays.
+    pub draw_calls: u64,
+}
+
 impl FrameStats {
     const ALPHA: f64 = 0.1;
+
+    /// Blend the renderer's CPU stages and GPU time into their EMAs and store
+    /// this frame's raw counts.
+    pub fn apply_budget(&mut self, budget: FrameBudgetSample) {
+        let prev = 1.0 - Self::ALPHA;
+        self.prepare_ms = self.prepare_ms * prev + budget.prepare_ms * Self::ALPHA;
+        self.upload_ms = self.upload_ms * prev + budget.upload_ms * Self::ALPHA;
+        self.encode_ms = self.encode_ms * prev + budget.encode_ms * Self::ALPHA;
+        self.submit_ms = self.submit_ms * prev + budget.submit_ms * Self::ALPHA;
+        self.wait_ms = self.wait_ms * prev + budget.wait_ms * Self::ALPHA;
+        self.gpu_ms = match (self.gpu_ms, budget.gpu_ms) {
+            (Some(current), Some(sample)) => Some(current * prev + sample * Self::ALPHA),
+            (None, sample) => sample,
+            (current, None) => current,
+        };
+        self.upload_bytes = budget.upload_bytes;
+        self.submissions = budget.submissions;
+        self.instances = budget.instances;
+        self.draw_calls = budget.draw_calls;
+    }
 
     /// Blend this frame's raw samples into the EMA and refresh the node count.
     pub fn update(
@@ -560,5 +630,54 @@ impl EventResponse {
             text_input: None,
             clipboard: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn frame_budget_blends_stages_and_keeps_raw_counts() {
+        let mut stats = FrameStats::default();
+        stats.apply_budget(FrameBudgetSample {
+            prepare_ms: 4.0,
+            upload_ms: 2.0,
+            encode_ms: 1.0,
+            submit_ms: 3.0,
+            submissions: 1,
+            wait_ms: 0.0,
+            gpu_ms: Some(8.0),
+            upload_bytes: 4096,
+            instances: 700,
+            draw_calls: 90,
+        });
+        assert!((stats.prepare_ms - 0.4).abs() < 1e-9);
+        assert!((stats.upload_ms - 0.2).abs() < 1e-9);
+        assert!((stats.encode_ms - 0.1).abs() < 1e-9);
+        assert!((stats.submit_ms - 0.3).abs() < 1e-9);
+        // The first GPU sample bootstraps the average at full weight.
+        assert_eq!(stats.gpu_ms, Some(8.0));
+        assert_eq!(stats.upload_bytes, 4096);
+        assert_eq!(stats.submissions, 1);
+        assert_eq!(stats.instances, 700);
+        assert_eq!(stats.draw_calls, 90);
+
+        stats.apply_budget(FrameBudgetSample {
+            prepare_ms: 0.0,
+            upload_ms: 0.0,
+            encode_ms: 0.0,
+            submit_ms: 0.0,
+            submissions: 2,
+            wait_ms: 0.0,
+            gpu_ms: None,
+            upload_bytes: 2048,
+            instances: 10,
+            draw_calls: 2,
+        });
+        assert!((stats.prepare_ms - 0.36).abs() < 1e-9);
+        // A backend without timestamps keeps the previous GPU average.
+        assert_eq!(stats.gpu_ms, Some(8.0));
+        assert_eq!(stats.upload_bytes, 2048);
     }
 }

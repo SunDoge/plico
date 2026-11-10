@@ -1,4 +1,4 @@
-//! Interaction coverage for the shadcn-style calendar widget: day picking,
+//! Interaction coverage for the MyGO-styled calendar widget: day picking,
 //! range completion, month navigation, outside-month days and the year-one
 //! boundary. Each test uses its own card, so day-label occurrence indices
 //! resolve within a single visible grid (October 2026, Monday-first: leading

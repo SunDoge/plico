@@ -262,3 +262,32 @@ counts, bytes and pixels, including two occurrences of one effect ID.
 These counters describe owned texture payload and caches, not process RSS or
 Metal driver allocation. Plicowarden's independent `memory_probe` example records
 both cache counters and RSS for synthetic scrolling and resize/page stress.
+
+## 矩形裁剪内部的填充快路径
+
+Plico 参考 MyGO `Builder.markFill`（`ee3d4bd9`），对普通实色填充检查其
+抗锯齿 quad 是否完全位于矩形 clip 内，四侧保留 3 个物理像素；满足时不再
+执行 fragment 的 clip coverage。靠近边缘、遮罩、渐变、材质、阴影及层标记
+保留原路径。专用填充管线与通用管线均识别这个内部标记，不新增 shader
+编译或 GPU buffer 布局，也不要求应用修改声明。实例准备时顺带累计
+`FrameBatchStats::clip_coverage_skips`，不额外扫描实例流；计数先于 damage
+过滤，不等于实际绘制次数。
+
+复现（GPU 测试串行运行）：
+
+```sh
+cargo test --locked -p plico-wgpu --lib interior_clip -- --include-ignored --test-threads=1
+cargo test --locked --release -p plico-wgpu --lib profile_interior_clip -- --ignored --nocapture --test-threads=1
+```
+
+像素对照覆盖两种填充管线、hard/AA clip、fractional clip 和相交边缘，要求
+逐字节一致；CPU 断言保证遮罩等不安全情况不会进入快路径。
+性能探针在 1536×1024 离屏目标绘制 2,000 个小填充，预热 20 对、采样
+100 对，交替开关并反转顺序，等待 GPU 完成但不回读像素。每次优化路径
+断言有 2,000 个填充省去 clip 计算。它测的是 CPU 编码、提交和 GPU 等待
+的总墙钟，不是 GPU timestamp，也不是桌面 FPS。
+
+2026-11-10 Linux、Intel ARL 核显、Mesa 25.0.7 Vulkan、release 单次配对样本：
+专用管线 p50 约 878→877µs，通用管线约 1196→1191µs，变化小于稳定收益
+所需的证据，因此只确认减少了冗余计算，不宣称整体性能提升。macOS/Metal
+尚未实测；原始日志为本地产物，不提交。

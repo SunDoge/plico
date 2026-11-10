@@ -77,7 +77,7 @@ impl HostView for App {
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
         if matches!(self.case, Case::VirtualScroll) {
-            virtual_list(cx, self.rows, 24.).width(780.).height(560.).smooth_scroll(false).rows(
+            virtual_list(cx, self.rows, 24.).width(780.).height(560.).rows(
                 |i| i,
                 |cx, _| {
                     text(cx, "Retained row");
@@ -86,7 +86,7 @@ impl HostView for App {
             return;
         }
         let alpha = if self.flip && matches!(self.case, Case::Opacity) { 0.8 } else { 1. };
-        column(cx).width(780.).height(560.).scroll_y(true).smooth_scroll(false).opacity(alpha) + |cx| {
+        column(cx).width(780.).height(560.).scroll_y(true).opacity(alpha) + |cx| {
             for index in 0..self.rows {
                 let first = index == 0;
                 let fill = if first && self.flip && matches!(self.case, Case::Color) {

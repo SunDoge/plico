@@ -34,11 +34,14 @@ fn fs(@builtin(position) position: vec4f) -> @location(0) vec4f {
         return vec4f(0.);
     }
     let radius = i32(ceil(4. * params.sigma));
+    // Uniform for the pass; hoist out of the tap loop.
+    let falloff = -0.5 / (params.sigma * params.sigma);
+    let delta = select(vec2i(0, 1), vec2i(1, 0), params.axis == 0u);
     var sum = vec4f(0.);
     var weight = 0.;
     for(var i = -radius; i <= radius; i++) {
-        let w = exp(-0.5 * f32(i * i) / (params.sigma * params.sigma));
-        var p = pixel + select(vec2i(0, i), vec2i(i, 0), params.axis == 0u);
+        let w = exp(falloff * f32(i * i));
+        var p = pixel + delta * i;
         weight += w;
         if params.edge == 0u && (any(p < vec2i(0)) || any(p >= size)) {
             continue;

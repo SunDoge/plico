@@ -1,12 +1,31 @@
 //! A color picker ported from MyGO's `ui/colorpicker.go`.
 //!
 //! Plico's [`Color`] is a theme token or an RGB literal without alpha, so the
-//! port edits an RGB literal through hue, saturation and brightness sliders
-//! instead of MyGO's saturation/brightness square, and leaves out the opacity
-//! slider and hex editing.
+//! opacity channel is the only MyGO control that cannot be represented.
 use crate::WidgetRole;
 use crate::prelude::*;
-use crate::text;
+use crate::{ShaderAsset, fr, text};
+
+static SATURATION_VALUE: ShaderAsset = ShaderAsset::new(
+    r#"fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+        let hue = plico.values[0].xyz;
+        let saturated = mix(vec3<f32>(1.0), hue, uv.x);
+        return vec4<f32>(mix(saturated, vec3<f32>(0.0), uv.y), 1.0);
+    }"#,
+);
+static HUE_TRACK: ShaderAsset = ShaderAsset::new(
+    r#"fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+        let h = uv.x * 6.0;
+        let x = 1.0 - abs((h % 2.0) - 1.0);
+        var rgb = vec3<f32>(1.0, x, 0.0);
+        if h >= 1.0 && h < 2.0 { rgb = vec3<f32>(x, 1.0, 0.0); }
+        if h >= 2.0 && h < 3.0 { rgb = vec3<f32>(0.0, 1.0, x); }
+        if h >= 3.0 && h < 4.0 { rgb = vec3<f32>(0.0, x, 1.0); }
+        if h >= 4.0 && h < 5.0 { rgb = vec3<f32>(x, 0.0, 1.0); }
+        if h >= 5.0 { rgb = vec3<f32>(1.0, 0.0, x); }
+        return vec4<f32>(rgb, 1.0);
+    }"#,
+);
 
 /// The colors a picker offers, named for assistive technology (MyGO's
 /// swatch list).
@@ -85,22 +104,82 @@ fn channel(value: f64) -> u32 {
 
 /// The picker's transient memory per declaration: its hue while the color is
 /// a gray, and the color it last set or saw. It never enters checkpoints.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct PickerEntry {
     hsv: Hsva,
     last: u32,
+    hex: String,
+}
+
+fn hex_of(rgb: u32) -> String {
+    format!("#{rgb:06x}")
+}
+
+fn parse_hex(value: &str) -> Option<u32> {
+    let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
+    match value.len() {
+        3 => {
+            let value = u16::from_str_radix(value, 16).ok()? as u32;
+            let r = (value >> 8) & 0xf;
+            let g = (value >> 4) & 0xf;
+            let b = value & 0xf;
+            Some((r * 17) << 16 | (g * 17) << 8 | (b * 17))
+        }
+        6 => u32::from_str_radix(value, 16).ok(),
+        _ => None,
+    }
+}
+
+fn hue_slider(cx: &mut UiContext<'_>, hue: &mut f64) -> crate::SliderResponse {
+    let m = cx.theme().metrics;
+    let width = m.space(60) as f32;
+    let knob = m.space(3) as f32;
+    row(cx)
+        .width_percent(100.)
+        .height(m.space(4))
+        .position(crate::Position::Relative)
+        .children(|cx| {
+            shader(cx, &HUE_TRACK)
+                .absolute(0., m.spacing as f32 * 0.5)
+                .width_percent(100.)
+                .height(m.space(3))
+                .radius(m.spacing as f32 * 1.5)
+                .corner_smoothing(0.);
+            let x = knob / 2. + (width - knob) * (*hue as f32 / 360.) - knob / 2.;
+            column(cx)
+                .absolute(x, 0.)
+                .width(knob)
+                .height(m.space(4))
+                .radius(knob / 2.)
+                .corner_smoothing(0.)
+                .background(Color::Literal(0xffffff))
+                .shadow(crate::BoxShadow {
+                    offset_x: 0.,
+                    offset_y: 1.,
+                    blur: 3.,
+                    spread: 0.,
+                    color: Color::Literal(0),
+                    opacity: 0.3,
+                })
+                .children(|_cx| {});
+            slider(cx, "Hue", hue, 0.0..=360.0)
+                .unstyled()
+                .absolute(0., 0.)
+                .width_percent(100.)
+                .height(m.space(4))
+                .response()
+        })
+        .inner
 }
 
 /// A picker for an RGB [`Color`] (MyGO `ColorPicker`): a preview swatch and
-/// its hex value, Hue/Saturation/Brightness sliders and twelve named swatch
-/// buttons. Returns whether the color changed this frame.
+/// its editable hex value, MyGO's saturation/brightness square, hue control
+/// and twelve named swatch buttons. Returns whether the color changed this
+/// frame.
 ///
 /// `*color` becomes [`Color::Literal`] on the first edit; theme tokens can be
 /// edited too, from the color they currently resolve to. MyGO's
-/// saturation/brightness square, opacity slider and editable hex field are not
-/// ported: Plico has no local pointer coordinates for a custom-painted square
-/// and no alpha channel on [`Color`], so the port uses three sliders and a
-/// read-only hex readout.
+/// The opacity slider is omitted because [`Color`] has no alpha channel.
 ///
 /// ```text
 /// if color_picker(cx, &mut tint) {
@@ -114,75 +193,160 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
     let state = cx.state(|| PickerEntry {
         hsv: Hsva::from_rgb(current),
         last: current,
+        hex: hex_of(current),
     });
     let mut entry = state.get();
     if entry.last != current {
         entry = PickerEntry {
             hsv: Hsva::from_rgb(current),
             last: current,
+            hex: hex_of(current),
         };
     }
 
-    let before = entry.hsv;
-    let mut hue = entry.hsv.h;
-    let mut saturation = entry.hsv.s * 100.;
-    let mut brightness = entry.hsv.v * 100.;
-    let _ = slider(cx, "Hue", &mut hue, 0.0..=360.0).response();
-    entry.hsv.h = hue;
-    let _ = slider(cx, "Saturation", &mut saturation, 0.0..=100.0).response();
-    entry.hsv.s = saturation / 100.;
-    let _ = slider(cx, "Brightness", &mut brightness, 0.0..=100.0).response();
-    entry.hsv.v = brightness / 100.;
-
-    let shown = entry.hsv.rgb();
-    row(cx).gap(m.space(2)).align(Align::Center).children(|cx| {
-        let _ = column(cx)
-            .width(28.)
-            .height(28.)
-            .radius(m.radius as f32)
-            .shrink(0.)
-            .border(1., Color::Border)
-            .background(Color::Literal(shown))
-            .children(|_cx| {});
-        text!(cx, "#{shown:06x}")
-            .font_size(m.font_size)
-            .color(Color::Muted);
-    });
-
-    row(cx).gap(m.space(1)).wrap(true).children(|cx| {
-        for (name, swatch) in SWATCHES {
-            let mut button = button_base(cx, name)
-                .width(24.)
-                .height(24.)
-                .min_width(0.)
+    let mut changed = false;
+    column(cx)
+        .width(m.space(60))
+        .shrink(0.)
+        .gap(m.spacing as f32 * 2.5)
+        .children(|cx| {
+            let hue = Hsva {
+                h: entry.hsv.h,
+                s: 1.,
+                v: 1.,
+            }
+            .rgb();
+            let hue_rgb = [
+                ((hue >> 16) & 0xff) as f32 / 255.,
+                ((hue >> 8) & 0xff) as f32 / 255.,
+                (hue & 0xff) as f32 / 255.,
+            ];
+            let mut picked = None;
+            let square = button_base(cx, "Saturation and brightness")
+                .width_percent(100.)
+                .height(m.space(40))
                 .min_height(0.)
                 .padding(0.)
-                .radius(4.)
-                .background(Color::Literal(swatch))
-                .hover_background(Color::Literal(swatch))
-                .pressed_background(Color::Literal(swatch));
-            button = if shown == swatch {
-                button.border(2., Color::Foreground)
-            } else {
-                button.border(1., Color::Border)
-            };
-            if button.children(|_cx| {}).response.clicked() {
-                entry.hsv = Hsva::from_rgb(swatch);
+                .position(crate::Position::Relative)
+                .radius(m.radius as f32)
+                .clip(true)
+                .semantic_role(WidgetRole::Slider)
+                .children(|cx| {
+                    let pointer = cx.pointer_fraction();
+                    if cx.pressed() {
+                        picked = pointer;
+                    }
+                    shader(cx, &SATURATION_VALUE)
+                        .absolute(0., 0.)
+                        .width_percent(100.)
+                        .height_percent(100.)
+                        .radius(m.radius as f32)
+                        .values(&hue_rgb);
+                    let diameter = m.spacing as f32 * 3.5;
+                    let x = entry.hsv.s as f32 * m.space(60) as f32 - diameter / 2.;
+                    let y = (1. - entry.hsv.v as f32) * m.space(40) as f32 - diameter / 2.;
+                    column(cx)
+                        .absolute(x, y)
+                        .width(diameter)
+                        .height(diameter)
+                        .radius(diameter / 2.)
+                        .corner_smoothing(0.)
+                        .border(2., Color::Literal(0xffffff))
+                        .shadow(crate::BoxShadow {
+                            offset_x: 0.,
+                            offset_y: 0.,
+                            blur: 0.,
+                            spread: 1.,
+                            color: Color::Literal(0),
+                            opacity: 0.3,
+                        })
+                        .children(|_cx| {});
+                });
+            if let Some([x, y]) = picked {
+                entry.hsv.s = f64::from(x.clamp(0., 1.));
+                entry.hsv.v = 1. - f64::from(y.clamp(0., 1.));
+                let next = entry.hsv.rgb();
+                if next != current {
+                    *color = Color::Literal(next);
+                    entry.last = next;
+                    entry.hex = hex_of(next);
+                    changed = true;
+                }
             }
-        }
-    });
+            let _ = square.response;
 
-    let mut changed = false;
-    let next = entry.hsv.rgb();
-    // Slider normalization and an external reset do not edit; only a user
-    // move or swatch click (which changes the HSV state) does. Moving the
-    // hue of a gray leaves the RGB color alone but keeps the hue in the
-    // transient state for the next edit.
-    if entry.hsv != before && next != current {
-        *color = Color::Literal(next);
-        entry.last = next;
-        changed = true;
-    }
+            let mut hue = entry.hsv.h;
+            if hue_slider(cx, &mut hue).changed {
+                entry.hsv.h = hue;
+                let next = entry.hsv.rgb();
+                if next != cx.theme().resolve(*color) {
+                    *color = Color::Literal(next);
+                    entry.last = next;
+                    entry.hex = hex_of(next);
+                    changed = true;
+                }
+            }
+
+            row(cx).gap(m.space(2)).align(Align::Center).children(|cx| {
+                column(cx)
+                    .width(m.space(7))
+                    .height(m.space(7))
+                    .radius(m.radius as f32)
+                    .shrink(0.)
+                    .clip(true)
+                    .border(1., Color::Border)
+                    .background(Color::Literal(entry.hsv.rgb()))
+                    .children(|_cx| {});
+                let response = cx
+                    .text_input_string("Hex", &mut entry.hex)
+                    .grow(1.)
+                    .response();
+                if response.changed
+                    && let Some(next) = parse_hex(&entry.hex)
+                {
+                    entry.hsv = Hsva::from_rgb(next);
+                    entry.last = next;
+                    if next != cx.theme().resolve(*color) {
+                        *color = Color::Literal(next);
+                        changed = true;
+                    }
+                }
+                if !response.focused && parse_hex(&entry.hex).is_none() {
+                    entry.hex = hex_of(entry.hsv.rgb());
+                }
+            });
+
+            grid(cx)
+                .width_percent(100.)
+                .grid_columns([fr(1.); 6])
+                .gap(m.spacing as f32 * 1.5)
+                .children(|cx| {
+                    for (name, swatch) in SWATCHES {
+                        let mut button = button_base(cx, name)
+                            .width_percent(100.)
+                            .height(m.space(5))
+                            .min_width(0.)
+                            .min_height(0.)
+                            .padding(0.)
+                            .radius(m.radius as f32)
+                            .background(Color::Literal(swatch))
+                            .hover_background(Color::Literal(swatch))
+                            .pressed_background(Color::Literal(swatch));
+                        if entry.hsv.rgb() == swatch {
+                            button = button.border(2., Color::Foreground);
+                        }
+                        if button.children(|_cx| {}).response.clicked() {
+                            entry.hsv = Hsva::from_rgb(swatch);
+                            entry.last = swatch;
+                            entry.hex = hex_of(swatch);
+                            if swatch != cx.theme().resolve(*color) {
+                                *color = Color::Literal(swatch);
+                                changed = true;
+                            }
+                        }
+                    }
+                });
+        });
     state.set(entry);
     changed
 }

@@ -67,10 +67,6 @@ impl<'u, 'e> VirtualList<'u, 'e> {
         self.reveal = index;
         self
     }
-    pub fn smooth_scroll(mut self, enabled: bool) -> Self {
-        self.layout = self.layout.smooth_scroll(enabled);
-        self
-    }
     pub fn overscan(mut self, rows: usize) -> Self {
         self.overscan = rows;
         self

@@ -25,6 +25,7 @@ mod layout_style;
 mod modal;
 mod popover;
 mod presentation;
+mod recipe;
 pub mod regions;
 mod scroll_motion;
 mod scrollbar_visibility;
@@ -61,6 +62,25 @@ pub use surface::SurfaceSource;
 
 mod zoom;
 pub use zoom::{ZoomController, ZoomSource};
+
+/// Blend two packed RGB colors (`0xRRGGBB`) channel-wise.
+///
+/// `amount` is clamped to `0..=1`; alpha is carried by the caller.
+pub(crate) fn mix_rgb(from: u32, to: u32, amount: f32) -> u32 {
+    let amount = amount.clamp(0., 1.);
+    let mix = |shift: u32| {
+        let from = ((from >> shift) & 255) as f32;
+        let to = ((to >> shift) & 255) as f32;
+        (from + (to - from) * amount).round().clamp(0., 255.) as u32
+    };
+    (mix(16) << 16) | (mix(8) << 8) | mix(0)
+}
+
+/// Whether a theme's window surface reads as dark (MyGO `Theme.Dark`).
+pub(crate) fn is_dark(theme: Theme) -> bool {
+    let [r, g, b] = [16, 8, 0].map(|shift| ((theme.surface >> shift) & 255) as f32);
+    0.2126 * r + 0.7152 * g + 0.0722 * b < 128.
+}
 
 /// Semantic command protocol and deterministic headless test driver.
 pub mod testing;

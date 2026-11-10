@@ -47,6 +47,7 @@ pub struct Engine {
     pointer_position: Option<(f64, f64)>,
     pointer_observed: std::cell::Cell<bool>,
     hover_regions: std::cell::RefCell<HashMap<Entity, bool>>,
+    pointer_regions: std::cell::RefCell<HashMap<Entity, Option<[f32; 2]>>>,
     clicks: Vec<Entity>,
     secondary_clicks: Vec<Entity>,
     click_paths: Vec<Vec<crate::PathKey>>,
@@ -111,6 +112,7 @@ impl Default for Engine {
             pointer_position: None,
             pointer_observed: std::cell::Cell::new(false),
             hover_regions: Default::default(),
+            pointer_regions: Default::default(),
             clicks: Vec::new(),
             secondary_clicks: Vec::new(),
             click_paths: Vec::new(),
@@ -690,6 +692,35 @@ impl Engine {
         });
         changed
     }
+    /// Last host-projected pointer position relative to an entity's layout
+    /// rectangle. Values are normalized to its width and height and may be
+    /// outside 0..=1 while a drag continues beyond the rectangle.
+    pub(crate) fn pointer_fraction(&self, entity: Entity) -> Option<[f32; 2]> {
+        *self
+            .pointer_regions
+            .borrow_mut()
+            .entry(entity)
+            .or_insert(None)
+    }
+    /// Refresh normalized pointer readers from the host's transformed layout.
+    pub fn update_pointer_regions(
+        &self,
+        mut sample: impl FnMut(Entity) -> Option<[f32; 2]>,
+    ) -> bool {
+        let mut changed = false;
+        self.pointer_regions
+            .borrow_mut()
+            .retain(|entity, position| {
+                if self.nodes.get(*entity).is_none() {
+                    return false;
+                }
+                let next = sample(*entity);
+                changed |= next != *position;
+                *position = next;
+                true
+            });
+        changed
+    }
     /// Queue a secondary-button activation. It never triggers primary activation.
     pub fn queue_secondary_click(&mut self, entity: Entity) {
         if !self.secondary_clicks.contains(&entity) {
@@ -859,7 +890,7 @@ impl Engine {
             if kind != Kind::Text {
                 node.spans.clear();
             }
-            if kind != Kind::Slider {
+            if !matches!(kind, Kind::Slider | Kind::ValueControl) {
                 node.numeric = None;
             }
             if kind != Kind::Shader {
@@ -1105,6 +1136,9 @@ impl Engine {
             scope: namespace,
             inherited,
             in_button,
+            toolbar_buttons: false,
+            accordion_items: false,
+            accordion_index: 0,
         });
         if let Some(error) = self.error.take() {
             return Err(error);
@@ -1125,6 +1159,7 @@ impl Engine {
         for id in self.removed.iter().copied() {
             self.scroll_viewports.remove(&id);
             self.hover_regions.get_mut().remove(&id);
+            self.pointer_regions.get_mut().remove(&id);
             let node = self.nodes.remove(id).unwrap();
             self.lookup.remove(&node.identity);
             self.inputs.remove(&id);

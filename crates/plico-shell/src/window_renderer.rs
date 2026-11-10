@@ -104,6 +104,35 @@ impl WindowRenderer {
             Self::Skia { active: None, .. } => None,
         }
     }
+    /// Renderer CPU stages and GPU time for the last submitted frame.
+    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        match self {
+            Self::Unavailable => None,
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu {
+                active: Some(renderer),
+                ..
+            } => {
+                let budget = renderer.frame_budget();
+                Some(plico_renderer::FrameBudgetSample {
+                    prepare_ms: budget.prepare_ms,
+                    upload_ms: budget.upload_ms,
+                    encode_ms: budget.encode_ms,
+                    submit_ms: budget.submit_ms,
+                    submissions: budget.submissions,
+                    wait_ms: budget.wait_ms,
+                    gpu_ms: budget.gpu_ms,
+                    upload_bytes: budget.upload_bytes,
+                    instances: budget.instances,
+                    draw_calls: budget.draw_calls,
+                })
+            }
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu { active: None, .. } => None,
+            #[cfg(feature = "skia")]
+            Self::Skia { .. } => None,
+        }
+    }
     #[cfg_attr(not(any(feature = "skia", feature = "wgpu")), allow(unused_variables))]
     pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
         match backend {

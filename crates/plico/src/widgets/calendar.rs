@@ -1,7 +1,13 @@
-//! A shadcn-style month calendar card. State is controlled and serializable;
+//! Month calendar composed from ordinary controls, styled after MyGO ui/date.go.
 //! the widget never reads a clock, so "today" is whatever the caller injects.
 use super::{button, column, grid, row, text};
-use crate::icons;
+// MyGO date.go monthChevron, expressed with the shared SVG primitive.
+const PREVIOUS: crate::SvgAsset = crate::SvgAsset::new(
+    r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 6 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.1 1L.9 5l4.2 4"/></svg>"#,
+);
+const NEXT: crate::SvgAsset = crate::SvgAsset::new(
+    r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 6 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M.9 1L5.1 5 .9 9"/></svg>"#,
+);
 use crate::{Align, CalendarDate, CalendarState, Color, Justify, UiContext, WeekStart};
 
 /// Whether the user picked a day this frame. Month navigation mutates
@@ -19,7 +25,7 @@ impl CalendarResponse {
 /// Show a month grid bound to `state`. Clicking a day selects it; in
 /// [`crate::CalendarMode::Range`] a second click completes the range and the next
 /// click starts over. Days outside the focused month stay clickable but render
-/// muted, matching the shadcn calendar.
+/// muted, following MyGO.
 pub fn calendar(
     cx: &mut UiContext,
     state: &mut CalendarState,
@@ -37,22 +43,11 @@ pub fn calendar_with(
     week_start: WeekStart,
     today: Option<CalendarDate>,
 ) -> CalendarResponse {
-    let mut response = CalendarResponse::default();
-    column(cx)
-        .width(292.)
-        .padding(12.)
-        .radius(10.)
-        .background(Color::Panel)
-        .border(1., Color::Border)
-        .children(|cx| {
-            response = calendar_content(cx, state, week_start, today);
-        });
-    response
+    calendar_content(cx, state, week_start, today)
 }
 
-/// The month picker without an outer card, for popovers and custom surfaces.
-/// The parent supplies width, padding, border and background; 266 logical pixels
-/// gives each day a 38-pixel column with the default typography.
+/// The month picker for popovers and custom surfaces.
+/// The parent supplies the surface; MyGO uses seven 32-pixel day columns.
 pub fn calendar_content(
     cx: &mut UiContext,
     state: &mut CalendarState,
@@ -60,7 +55,8 @@ pub fn calendar_content(
     today: Option<CalendarDate>,
 ) -> CalendarResponse {
     let mut day_selected = false;
-    column(cx).gap(8.).children(|cx| {
+    let m = cx.theme().metrics;
+    column(cx).gap(m.spacing as f32 * 0.5).children(|cx| {
         header(cx, state);
         weekday_row(cx, week_start);
         day_selected = day_grid(cx, state, week_start, today);
@@ -73,11 +69,12 @@ fn header(cx: &mut UiContext, state: &mut CalendarState) {
     let heading = cx.localizer().month_year(month);
     let previous = cx.tr("calendar-previous-month", "Previous month");
     let next = cx.tr("calendar-next-month", "Next month");
-    row(cx).align(Align::Center).children(|cx| {
+    let m = cx.theme().metrics;
+    row(cx).gap(m.spacing).align(Align::Center).children(|cx| {
         nav_button(
             cx,
             &previous,
-            &icons::CHEVRON_LEFT,
+            &PREVIOUS,
             month.checked_add_months(-1),
             state,
         );
@@ -86,15 +83,11 @@ fn header(cx: &mut UiContext, state: &mut CalendarState) {
             .align(Align::Center)
             .justify(Justify::Center)
             .children(|cx| {
-                text(cx, heading.as_str()).font_size(14).weight(600);
+                text(cx, heading.as_str())
+                    .font_size(m.font_size)
+                    .weight(700);
             });
-        nav_button(
-            cx,
-            &next,
-            &icons::CHEVRON_RIGHT,
-            month.checked_add_months(1),
-            state,
-        );
+        nav_button(cx, &next, &NEXT, month.checked_add_months(1), state);
     });
 }
 
@@ -106,19 +99,17 @@ fn nav_button(
     state: &mut CalendarState,
 ) {
     let disabled = target.is_none();
+    let m = cx.theme().metrics;
     if button(cx)
-        .width(28.)
-        .height(28.)
-        .padding(0)
-        .radius(6.)
-        .background(Color::Panel)
-        .border(1., Color::Border)
-        .hover_background(Color::Control)
-        .pressed_background(Color::ControlHover)
-        .icon(icon)
-        .text("")
+        .min_height(0.)
+        .padding_x(m.spacing as f32 * 2.5)
+        .padding_y(m.space(1))
         .aria_label(label)
         .disabled(disabled)
+        .children(|cx| {
+            super::svg(cx, icon).size(m.spacing as f32 * 1.5, m.spacing as f32 * 2.5);
+        })
+        .response
         .clicked()
         && let Some(target) = target
     {
@@ -127,18 +118,20 @@ fn nav_button(
 }
 
 fn weekday_row(cx: &mut UiContext, week_start: WeekStart) {
+    let m = cx.theme().metrics;
     let mut labels = std::array::from_fn::<_, 7, _>(|day| cx.localizer().weekday(day));
     if week_start == WeekStart::Monday {
         labels.rotate_left(1);
     }
-    let row = grid(cx).grid_columns([crate::fr(1.); 7]);
+    let row = grid(cx)
+        .width(m.space(56) as f32)
+        .grid_columns([crate::fr(1.); 7]);
     row.children(|cx| {
         for label in labels {
             text(cx, label)
-                .font_size(12)
+                .font_size(m.font_size.saturating_sub(2))
                 .weight(400)
                 .color(Color::Muted)
-                .height(24.)
                 .align_self(Align::Center)
                 .justify_self(Align::Center);
         }
@@ -157,7 +150,11 @@ fn day_grid(
         WeekStart::Sunday => (first.weekday() + 1) % 7,
         WeekStart::Monday => first.weekday(),
     };
-    let grid = grid(cx).grid_columns([crate::fr(1.); 7]).row_gap(4.);
+    let m = cx.theme().metrics;
+    let grid = grid(cx)
+        .width(m.space(56) as f32)
+        .grid_columns([crate::fr(1.); 7])
+        .row_gap(m.spacing as f32 * 0.5);
     let mut picked = false;
     grid.children(|cx| {
         for index in 0..42i32 {
@@ -166,7 +163,7 @@ fn day_grid(
                 // Grid cells before year 1 or past year 9999 have no date;
                 // an inert placeholder keeps the columns aligned.
                 None => {
-                    let _ = column(cx).height(36.);
+                    let _ = column(cx).height(m.space(7) as f32);
                 }
             }
         }
@@ -180,31 +177,32 @@ fn day_cell(
     date: CalendarDate,
     today: Option<CalendarDate>,
 ) -> bool {
+    let m = cx.theme().metrics;
     let outside = date.month() != state.month().month();
     let selected = state.selected_day(date);
     let in_range = !selected && state.in_range(date);
     let mut cell = button(cx)
         .text(date.day().to_string())
-        .height(36.)
+        .height(m.space(7) as f32)
+        .min_height(0.)
         .padding(0)
-        .font_size(14)
+        .font_size(m.font_size)
         .weight(400)
         .border(0., Color::Border)
-        .background(Color::Panel)
+        .ghost()
         .hover_background(Color::ControlHover)
         .pressed_background(Color::ControlPressed)
-        .radius(6.);
+        .radius(m.radius as f32);
     if selected {
         cell = cell
-            .background(Color::Foreground)
-            .color(Color::Panel)
-            .hover_background(Color::Foreground)
-            .pressed_background(Color::Foreground)
-            .weight(500);
+            .background(Color::Accent)
+            .color(Color::OnAccent)
+            .hover_background(Color::Accent)
+            .pressed_background(Color::Accent);
     } else if in_range {
-        cell = cell.background(Color::Control).radius(0.);
+        cell = cell.background(Color::Selection).radius(0.);
     } else if today == Some(date) {
-        cell = cell.background(Color::Control).weight(600);
+        cell = cell.border(1., Color::Accent);
     } else if outside {
         cell = cell.color(Color::Muted);
     }

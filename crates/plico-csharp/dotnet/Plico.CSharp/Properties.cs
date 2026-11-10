@@ -29,7 +29,6 @@ public sealed unsafe partial class Ui
         public bool Selectable { get; set; }
         public float? Sticky { get; set; }
         public bool FollowEnd { get; set; }
-        public bool SmoothScroll { get; set; }
         public bool Mono { get; set; }
         public string? Placeholder { get; set; }
         public bool Focus { get; set; }
@@ -127,6 +126,5 @@ public sealed unsafe partial class Ui
         public Container Selectable(bool enabled = true) { _ = Current; ui.Properties(index).Selectable = enabled; return this; }
         public Container Sticky(float top = 0) { _ = Current; ui.Properties(index).Sticky = top; return this; }
         public Container FollowEnd(bool enabled = true) { _ = Current; ui.Properties(index).FollowEnd = enabled; return this; }
-        public Container SmoothScroll(bool enabled = true) { _ = Current; ui.Properties(index).SmoothScroll = enabled; return this; }
     }
 }

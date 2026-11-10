@@ -9,6 +9,9 @@ pub struct UiContext<'e> {
     pub(crate) scope: u64,
     pub(crate) inherited: Style,
     pub(crate) in_button: bool,
+    pub(crate) toolbar_buttons: bool,
+    pub(crate) accordion_items: bool,
+    pub(crate) accordion_index: usize,
 }
 impl<'e> UiContext<'e> {
     /// Native accessibility preferences. Custom drawing can follow the same
@@ -33,14 +36,23 @@ impl<'e> UiContext<'e> {
         localizer: &dyn crate::Localizer,
         build: impl FnOnce(&mut UiContext<'_>) -> R,
     ) -> R {
-        build(&mut UiContext {
-            engine: &mut *self.engine,
-            localizer,
-            parent: self.parent,
-            scope: self.scope,
-            inherited: self.inherited,
-            in_button: self.in_button,
-        })
+        let (result, accordion_index) = {
+            let mut ui = UiContext {
+                engine: &mut *self.engine,
+                localizer,
+                parent: self.parent,
+                scope: self.scope,
+                inherited: self.inherited,
+                in_button: self.in_button,
+                toolbar_buttons: self.toolbar_buttons,
+                accordion_items: self.accordion_items,
+                accordion_index: self.accordion_index,
+            };
+            let result = build(&mut ui);
+            (result, ui.accordion_index)
+        };
+        self.accordion_index = accordion_index;
+        result
     }
 
     /// Component-local storage. Call sites are independent of declaration order.
@@ -147,6 +159,9 @@ impl<'e> UiContext<'e> {
             scope: 0,
             inherited: Style::default(),
             in_button: false,
+            toolbar_buttons: false,
+            accordion_items: false,
+            accordion_index: 0,
         };
         portal.element(key, kind, style, text, children)
     }
@@ -270,6 +285,8 @@ impl<'e> UiContext<'e> {
             kind,
             style,
             grid: None,
+            toolbar_buttons: false,
+            accordion_items: false,
             material: None,
         }
     }
@@ -279,18 +296,10 @@ impl<'e> UiContext<'e> {
         label: impl Into<Cow<'t, str>>,
         buffer: &crate::TextBuffer,
     ) -> Input<'u, 'e, 't> {
-        let m = self.theme().metrics;
+        let theme = self.theme();
         let mut inner = self.leaf(Kind::TextInput, label.into());
+        style_input(&mut inner.style, theme);
         inner.style.width = Some(240.);
-        inner.style.height = Some(m.control_height as f32 + 4.);
-        inner.style.padding_x = Some(m.space(2) as f32);
-        inner.style.padding_y = Some(m.space(1) as f32);
-        inner.style.radius = m.radius as f32;
-        inner.style.border_width = 1.;
-        inner.style.background = Some(Color::Panel);
-        inner.style.hover_background = Some(Color::Control);
-        inner.style.pressed_background = Some(Color::ControlHover);
-        inner.style.transition_ms = m.interaction_ms;
         inner.style.clip = true;
         Input {
             inner,
@@ -301,6 +310,15 @@ impl<'e> UiContext<'e> {
             focus: false,
         }
     }
+    /// Composite fields reuse the same chrome as TextInput and supply their
+    /// own editor/icon children, following MyGO's field constructor.
+    pub(crate) fn input_field(&mut self) -> Layout<'_, 'e> {
+        let theme = self.theme();
+        let mut field = self.row();
+        style_input(&mut field.style, theme);
+        field.focus_within_border(1., Color::Accent)
+    }
+
     /// Backend text-editing surface with caller-owned appearance. Retains only
     /// editor mechanics (selection, caret, IME and platform text operations).
     pub fn text_edit_surface<'u, 't>(
@@ -401,16 +419,14 @@ impl<'e> UiContext<'e> {
     }
     #[inline(always)]
     pub fn button<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Button<'u, 'e, 't> {
-        let metrics = self.theme().metrics;
+        let theme = self.theme();
+        let appearance = if self.toolbar_buttons {
+            ButtonAppearance::Toolbar
+        } else {
+            ButtonAppearance::Ordinary
+        };
         let mut inner = self.leaf(Kind::Button, text.into());
-        inner.style.transition_ms = metrics.interaction_ms;
-        inner.style.padding = 0.;
-        inner.style.padding_x = Some(metrics.spacing as f32 * 3.5);
-        inner.style.padding_y = Some(metrics.spacing as f32 * 1.5);
-        inner.style.border_width = 1.;
-        inner.style.radius = metrics.radius as f32;
-        inner.style.min_height = Some(metrics.control_height as f32);
-        inner.style.background = Some(Color::Control);
+        style_button(&mut inner.style, theme, appearance);
         Button {
             inner,
             icon: None,
@@ -443,6 +459,33 @@ impl<'e> UiContext<'e> {
     /// Schedule a future frame without repeating this frame's declarations.
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
+    }
+    /// The progress of an animation that starts over every `period`, from
+    /// 0 toward 1, sampled at the injected frame clock (MyGO's Loop).
+    /// The call site is the animation's identity; `key` tells apart several
+    /// loops of one site. While a call site runs, frames keep coming, and
+    /// when it stops being declared the loop simply stops sampling:
+    /// `elapsed` tracks the time since the first frame, so a loop resumes
+    /// in phase after the site disappears and returns.
+    ///
+    /// A spinner turns with `loop_progress("spin", 900, Ease::Linear) * 360`
+    /// and a placeholder pulses with an opacity of
+    /// `0.5 + 0.5 * loop_progress("pulse", period, Ease::EaseInOut)`.
+    pub fn loop_progress(
+        &mut self,
+        _key: &'static str,
+        period: std::time::Duration,
+        ease: crate::Easing,
+    ) -> f32 {
+        // The call site is the loop's identity (state() keys on it); the
+        // start is the first frame this site was declared on.
+        let now = self.now();
+        let start = *self.state::<std::time::Duration>(|| now).read();
+        self.request_animation_frame();
+        let period = period.max(std::time::Duration::from_millis(1));
+        let elapsed = self.now() - start;
+        let phase = elapsed.as_nanos() % period.as_nanos();
+        ease.sample(phase as f64 / period.as_nanos() as f64) as f32
     }
     /// Re-evaluate the view at an injected-clock deadline, retaining its
     /// declarations before then. Re-declaring or removing this component
@@ -491,6 +534,16 @@ impl<'e> UiContext<'e> {
     pub fn pointer_position(&self) -> Option<(f64, f64)> {
         self.engine.pointer_position()
     }
+    /// Pointer position normalized to the current composed control's layout
+    /// rectangle. This is renderer-independent geometry feedback for direct
+    /// manipulation surfaces such as color fields and canvases.
+    ///
+    /// Values may leave 0..=1 while the pointer is dragged outside; controls
+    /// decide whether to clamp them. The first declaration registers the
+    /// reader and returns `None` until the host has presented its geometry.
+    pub fn pointer_fraction(&self) -> Option<[f32; 2]> {
+        self.engine.pointer_fraction(self.parent)
+    }
     /// Request another declaration for a non-event update performed during show.
     pub fn request_rebuild(&mut self) {
         self.engine.changes.insert(Changes::VIEW);
@@ -507,15 +560,22 @@ impl<'e> UiContext<'e> {
         let parent = self.parent;
         let previous_auto = self.engine.nodes.get(parent).unwrap().auto;
         self.engine.nodes.get_mut(parent).unwrap().auto = 0;
-        let mut ui = UiContext {
-            engine: &mut *self.engine,
-            localizer: self.localizer,
-            parent,
-            scope,
-            inherited: self.inherited,
-            in_button: self.in_button,
+        let (result, accordion_index) = {
+            let mut ui = UiContext {
+                engine: &mut *self.engine,
+                localizer: self.localizer,
+                parent,
+                scope,
+                inherited: self.inherited,
+                in_button: self.in_button,
+                toolbar_buttons: self.toolbar_buttons,
+                accordion_items: self.accordion_items,
+                accordion_index: self.accordion_index,
+            };
+            let result = build(&mut ui);
+            (result, ui.accordion_index)
         };
-        let result = build(&mut ui);
+        self.accordion_index = accordion_index;
         self.engine.nodes.get_mut(parent).unwrap().auto = previous_auto;
         result
     }
@@ -558,13 +618,12 @@ impl<'e> UiContext<'e> {
         let checked = *value;
         let mut inner = self.leaf(kind, label.into());
         inner.style.checked = checked;
-        inner.style.hover_background = Some(Color::ControlHover);
-        inner.style.pressed_background = Some(Color::ControlPressed);
         inner.style.transition_ms = metrics.interaction_ms;
-        inner.style.padding = metrics.space(2) as f32;
+        inner.style.padding = 0.;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
         inner.style.radius = metrics.radius as f32;
-        inner.style.min_height = Some(metrics.control_height as f32);
+        inner.style.min_height =
+            Some(metrics.space(if kind == Kind::Switch { 5 } else { 4 }) as f32);
         Toggle { inner, value }
     }
     #[inline(always)]
@@ -593,9 +652,28 @@ pub struct Layout<'u, 'e> {
     kind: Kind,
     style: Style,
     grid: Option<crate::GridTemplate>,
+    toolbar_buttons: bool,
+    accordion_items: bool,
     material: Option<crate::LiquidGlass>,
 }
 impl Layout<'_, '_> {
+    pub(crate) fn focus_group(mut self, axis: crate::FocusAxis) -> Self {
+        self.style.focus_axis = Some(axis);
+        self
+    }
+    pub(crate) fn selection_follows_focus(mut self, value: bool) -> Self {
+        self.style.selection_follows_focus = value;
+        self
+    }
+    pub(crate) fn accordion_items(mut self) -> Self {
+        self.accordion_items = true;
+        self
+    }
+    pub(crate) fn toolbar_buttons(mut self) -> Self {
+        self.toolbar_buttons = true;
+        self
+    }
+
     /// Fill this container with a scene-backed material. Establishes a positioned
     /// container for its absolute background without overriding absolute layout.
     #[inline(always)]
@@ -961,11 +1039,6 @@ impl Layout<'_, '_> {
     /// A bounded vertical viewport. Its children keep their intrinsic height.
     /// Animate wheel scrolling and scrollbar track paging (160ms ease-out).
     #[inline(always)]
-    pub fn smooth_scroll(mut self, enabled: bool) -> Self {
-        self.style.smooth_scroll = enabled;
-        self
-    }
-    #[inline(always)]
     pub fn selectable(mut self, value: bool) -> Self {
         self.style.selectable = value;
         self
@@ -1123,7 +1196,19 @@ impl Layout<'_, '_> {
             if let Some(material) = self.material {
                 material.show(cx, self.style.radius, self.style.corner_smoothing);
             }
-            build(cx)
+            let previous_accordion = cx.accordion_items;
+            let previous_accordion_index = cx.accordion_index;
+            if self.accordion_items {
+                cx.accordion_items = true;
+                cx.accordion_index = 0;
+            }
+            let previous = cx.toolbar_buttons;
+            cx.toolbar_buttons |= self.toolbar_buttons;
+            let result = build(cx);
+            cx.toolbar_buttons = previous;
+            cx.accordion_items = previous_accordion;
+            cx.accordion_index = previous_accordion_index;
+            result
         });
         InnerResponse {
             inner,
@@ -1179,7 +1264,7 @@ impl Leaf<'_, '_, '_> {
             style.align.get_or_insert(Align::Center);
             style.justify.get_or_insert(Justify::Center);
             // Button spacing is shared by shortcuts and custom content.
-            style.gap = ui.theme().metrics.space(2) as f32;
+            style.gap = ui.theme().metrics.spacing as f32 * 1.5;
         }
         style.disabled |= ui.inherited.disabled;
         style.styled_button = styled;
@@ -1385,6 +1470,11 @@ macro_rules! common {
             #[inline(always)]
             pub fn position(mut self, value: crate::Position) -> Self {
                 self.inner.style.layout.position = value;
+                self
+            }
+            #[inline(always)]
+            pub fn clip(mut self, value: bool) -> Self {
+                self.inner.style.clip = value;
                 self
             }
             #[inline(always)]
@@ -1814,14 +1904,16 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     #[inline(always)]
     pub fn primary(mut self) -> Self {
         self.inner.style.background = Some(Color::Accent);
+        self.inner.style.hover_background = Some(Color::AccentHover);
+        self.inner.style.pressed_background = Some(Color::AccentPressed);
         self.inner.style.border_width = 0.;
         self.inner.style.foreground = Color::OnAccent;
         self
     }
-    /// Use the surface color as a quiet button background.
+    /// MyGO toolbar appearance: transparent at rest, filled on hover or press.
     #[inline(always)]
     pub fn ghost(mut self) -> Self {
-        self.inner.style.background = Some(Color::Surface);
+        self.inner.style.background = None;
         self.inner.style.hover_background = Some(Color::ControlHover);
         self.inner.style.pressed_background = Some(Color::ControlPressed);
         self.inner.style.border_width = 0.;
@@ -2084,11 +2176,97 @@ pub struct InnerResponse<R> {
     pub response: Response,
 }
 
+fn style_input(style: &mut Style, theme: Theme) {
+    let m = theme.metrics;
+    style.min_height = Some(m.control_height as f32);
+    style.padding = 0.;
+    style.padding_x = Some(m.spacing as f32 * 2.5);
+    style.padding_y = Some(m.spacing as f32 * 1.5);
+    style.radius = m.radius as f32;
+    style.border_width = 1.;
+    style.background = Some(Color::Control);
+    style.transition_ms = m.interaction_ms;
+}
+
+/// Visual contexts for the same composed button, following MyGO styleButton.
+/// Kept outside widgets so shortcut and custom-content buttons share it.
+enum ButtonAppearance {
+    Ordinary,
+    Toolbar,
+    Segment(bool),
+}
+fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAppearance) {
+    let m = theme.metrics;
+    style.transition_ms = m.interaction_ms;
+    style.padding = 0.;
+    style.padding_x = Some(m.spacing as f32 * 3.5);
+    style.padding_y = Some(m.spacing as f32 * 1.5);
+    style.gap = m.spacing as f32 * 1.5;
+    style.border_width = 1.;
+    style.radius = m.radius as f32;
+    style.min_height = Some(m.control_height as f32);
+    style.background = Some(Color::Control);
+    style.hover_background = Some(Color::ControlHover);
+    style.pressed_background = Some(Color::ControlPressed);
+    match appearance {
+        ButtonAppearance::Ordinary => {
+            // Infer native faces from the untouched base color. An explicit
+            // application background then keeps its own look, as MyGO does.
+            style.hover_background = None;
+            style.pressed_background = None;
+        }
+        ButtonAppearance::Toolbar => {
+            style.padding_x = Some(m.spacing as f32 * 2.5);
+            style.background = None;
+            style.border_width = 0.;
+        }
+        ButtonAppearance::Segment(on) => {
+            style.padding_x = Some(m.space(3) as f32);
+            style.padding_y = Some(m.space(1) as f32);
+            style.radius = (m.radius as f32 - m.spacing as f32 * 0.5).max(0.);
+            style.min_height = Some(0.);
+            style.border_width = 0.;
+            style.background = on.then_some(if theme.surface & 0xff < 128 {
+                Color::ControlPressed
+            } else {
+                Color::Panel
+            });
+            if on {
+                // A chosen segment keeps its raised face while hovered.
+                style.hover_background = style.background;
+                style.pressed_background = style.background;
+                style.shadow = Some(BoxShadow {
+                    offset_x: 0.,
+                    offset_y: 1.,
+                    blur: 2.,
+                    spread: 0.,
+                    color: Color::Literal(0),
+                    opacity: 0.12,
+                });
+            }
+        }
+    }
+}
+
 pub struct ButtonBase<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
     styled: bool,
 }
 impl ButtonBase<'_, '_, '_> {
+    /// A segment is an ordinary button with a different face, not another
+    /// interaction implementation. All focus/disabled/motion stays shared.
+    pub(crate) fn segment(mut self, selected: bool) -> Self {
+        let theme = self.inner.ui.as_ref().expect("button context").theme();
+        style_button(
+            &mut self.inner.style,
+            theme,
+            ButtonAppearance::Segment(selected),
+        );
+        self.inner.style.selected = Some(selected);
+        self.styled = true;
+        self
+    }
+
     /// Scene-backed glass for custom button content, with native button semantics.
     pub fn material(mut self, material: crate::LiquidGlass) -> Self {
         self.inner.material = Some(material);
@@ -2097,6 +2275,24 @@ impl ButtonBase<'_, '_, '_> {
     #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);
+        self
+    }
+
+    #[inline(always)]
+    pub(crate) fn tab_stop(mut self, value: bool) -> Self {
+        self.inner.style.tab_stop = value;
+        self
+    }
+
+    #[inline(always)]
+    pub(crate) fn semantic_hidden(mut self, value: bool) -> Self {
+        self.inner.style.semantic_hidden = value;
+        self
+    }
+
+    #[inline(always)]
+    pub(crate) fn tree_depth(mut self, depth: usize) -> Self {
+        self.inner.style.tree_depth = Some(depth.min(u16::MAX as usize) as u16);
         self
     }
 
@@ -2190,6 +2386,23 @@ impl<'t> Input<'_, '_, 't> {
         self.inner.style.control_chrome = false;
         self.inner.style.background = None;
         self.inner.style.border_width = 0.;
+        self.inner.style.padding = 0.;
+        self.inner.style.padding_x = None;
+        self.inner.style.padding_y = None;
+        // Even an empty editor needs one line for caret, IME and semantics.
+        // Remove the shared frame's vertical insets from its control minimum.
+        let m = self
+            .inner
+            .ui
+            .as_ref()
+            .expect("input context")
+            .theme()
+            .metrics;
+        self.inner.style.min_height = Some(
+            (m.control_height as f32 - m.spacing as f32 * 3.)
+                .max(self.inner.style.font_size as f32),
+        );
+        self.inner.style.radius = 0.;
         self
     }
 
@@ -2473,6 +2686,110 @@ impl Drop for Shader<'_, '_, '_> {
     }
 }
 
+impl UiContext<'_> {
+    /// Declare a composed scalar editor. The container owns one numeric value,
+    /// keyboard focus, arrow/Home/End handling and slider accessibility; its
+    /// children provide all visuals and pointer targets.
+    pub fn value_control<R>(
+        &mut self,
+        label: &str,
+        value: &mut f64,
+        range: std::ops::RangeInclusive<f64>,
+        build: impl FnOnce(&mut UiContext<'_>, &mut f64) -> R,
+    ) -> crate::ValueControlResponse<R> {
+        self.value_control_with(
+            label,
+            value,
+            range,
+            1.,
+            crate::WidgetRole::Slider,
+            crate::FlexDirection::Row,
+            |style| style,
+            build,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn value_control_with<R>(
+        &mut self,
+        label: &str,
+        value: &mut f64,
+        range: std::ops::RangeInclusive<f64>,
+        step: f64,
+        role: crate::WidgetRole,
+        direction: crate::FlexDirection,
+        configure: impl FnOnce(Style) -> Style,
+        build: impl FnOnce(&mut UiContext<'_>, &mut f64) -> R,
+    ) -> crate::ValueControlResponse<R> {
+        let key = self.engine.auto_key(self.parent);
+        let mut style = self.inherited_style();
+        style.control_chrome = false;
+        style.role = Some(role);
+        style.layout.flex_direction = Some(direction);
+        style.align = Some(crate::Align::Center);
+        style = configure(style);
+        let mut numeric = crate::NumericRange {
+            min: *range.start(),
+            max: *range.end(),
+            value: *value,
+            high: None,
+            step,
+            vertical: false,
+            reversed: false,
+        };
+        if !numeric.valid() {
+            self.engine.error.get_or_insert(FrameError::InvalidStyle);
+        } else {
+            numeric.value = numeric.normalize(numeric.value);
+        }
+        let identity = Identity {
+            parent: self.parent,
+            key,
+            scope: self.scope,
+        };
+        if let Some(revision) = self.engine.lookup_numeric(identity) {
+            style.numeric_revision = revision;
+        }
+        let entity = self.engine.declare(
+            self.parent,
+            key,
+            self.scope,
+            Kind::ValueControl,
+            style,
+            Cow::Borrowed(label),
+        );
+        let input = (!style.disabled)
+            .then(|| self.engine.value(entity))
+            .flatten();
+        if let Some(input) = input
+            && numeric.valid()
+        {
+            numeric.value = numeric.normalize(input);
+        }
+        let node = self.engine.nodes.get_mut(entity).unwrap();
+        if node.numeric != Some(numeric) {
+            node.numeric = Some(numeric);
+            node.style.numeric_revision = node.style.numeric_revision.wrapping_add(1);
+            node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
+        }
+        self.engine.set_grid(entity, None);
+        let before = *value;
+        *value = numeric.value;
+        let focused = self.engine.focused() == Some(entity);
+        let inner = self.with_parent(entity, style, false, |cx| build(cx, value));
+        if before != *value {
+            self.request_rebuild();
+        }
+        crate::ValueControlResponse {
+            inner,
+            input: input.is_some(),
+            changed: before != *value,
+            value: *value,
+            focused,
+        }
+    }
+}
+
 /// Controlled numeric input; configuration is applied before consuming input.
 pub struct Slider<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
@@ -2495,7 +2812,6 @@ impl<'e> UiContext<'e> {
         inner.style.height = Some(height);
         inner.style.min_height = Some(height);
         inner.style.radius = metrics.radius as f32;
-        inner.style.hover_background = Some(Color::ControlHover);
         inner.style.transition_ms = Motion::Quick.duration_ms();
         let range = crate::NumericRange {
             min: *range.start(),
@@ -2603,6 +2919,16 @@ impl crate::ImplicitKey for Slider<'_, '_, '_> {
     }
 }
 impl Slider<'_, '_, '_> {
+    /// Keep native slider input, keyboard handling and semantics while a
+    /// composed parent supplies the track and thumb visuals.
+    #[inline(always)]
+    pub fn unstyled(mut self) -> Self {
+        self.inner.style.control_chrome = false;
+        self.inner.style.background = None;
+        self.inner.style.border_width = 0.;
+        self
+    }
+
     #[inline(always)]
     pub fn step(mut self, step: f64) -> Self {
         self.range.step = step;

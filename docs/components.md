@@ -80,7 +80,7 @@ if checkbox(cx, "Save automatically", &mut settings.autosave)
 
 Context 首参的 switch/checkbox 从旧的直接 bool 返回值改为 builder；原来 `if switch(...)` 应改为 `if switch(...).changed()`，原来的 `switch(...);` 不需要改。兼容路径 Ui.switch/checkbox 与独立值 Switch/Checkbox.show 仍返回 bool。
 
-默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。关闭色使用 muted，开启色使用 accent，thumb/SVG 勾选标记使用 on_accent，不再写死灰色和白色。
+默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。颜色参照 MyGO：switch 关闭轨道为 border 向 foreground 混合 15%，checkbox 未选中面为 panel、描边为 border 向 foreground 混合 25%（悬停时描边转为 accent），选中面混合到 accent；thumb 在亮色下为白色、暗色下为 #e0e1e1，SVG 勾选标记使用 on_accent。
 
 
 ## 图标与文字对齐
@@ -122,7 +122,8 @@ fn release(cx: &mut UiContext, channel: &mut usize, details: &mut bool) {
 - `collapsible` accepts an application-owned bool and returns `Option<R>` from
   its immediate content callback. Enter/Space toggle its button; assistive
   technology receives `expanded`. Closed content is unmounted. Keep durable
-  state in the application. Content height and chevron changes currently snap.
+  state in the application. Inside `accordion`, Up/Down/Home/End move between
+  headers and clamp at the ends. Content height and chevron changes currently snap.
 - `progress` shows a labeled fraction and percentage, clamps finite values to
   0..=1 and maps non-finite values to zero. It is currently a composed meter
   with accessible text, without native progress-bar semantics or fill animation.
@@ -131,14 +132,24 @@ fn release(cx: &mut UiContext, channel: &mut usize, details: &mut bool) {
 
 Reference comparison: local MyGO `ui/tabs.go` and `ui/collapsible.go` separate
 behavior from appearance and keep selected/open state with the application.
-Its tabs also implement arrows/Home/End and its disclosure clips animated
-content; those behaviors are not yet implemented here. Local Wabou
+Its tabs also implement arrows/Home/End; accordion header traversal is shared
+with the runtime focus-group path. Disclosure content clipping animation is not
+yet implemented here. Local Wabou
 `crates/plico-shell/src/widgets/controls.rs` uses native painting/event handling
 for slider and progress controls. Plico's simple meter currently needs only
 layout primitives; slider dragging, text editing, scrolling and overlays still
 need dedicated input/layout infrastructure. No source was copied for this batch.
 
 ### Navigation and indicators (MyGO ports)
+
+`tree`/`tree_item` use one sequential keyboard stop per visible row; the
+pointer disclosure arrow does not add another Tab stop. Up/Down/Home/End,
+Right/Left parent-child traversal and one-second buffered prefix selection
+follow MyGO's visible-tree behavior. The application continues to own open and
+selected values. `sidebar` enables the source-list variant of the same host
+policy: only its selected item is in sequential Tab order, and arrow/Home/End
+or prefix movement activates the destination so the application's selected
+value changes. Section disclosures are not mixed into that item sequence.
 
 `breadcrumbs`, `meter`, `spinner` and `rating` port the local MyGO
 `ui/feedback.go` breadcrumb path and `ui/indicators.go` Meter, Spinner and
@@ -176,17 +187,22 @@ fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) 
   per-container accessible-name API yet, so place explanatory text beside it.
 - `rating(cx, &mut value, max)` renders `max` stars, `value` filled in the
   warning color. A click sets that star and a click on the set star clears the
-  rating; each star is a button named "N of MAX stars". Values above `max` are
-  clamped and the clamp is reported as a change. MyGO's hover preview and its
-  arrow/Home/End handling on a single slider are not ported: Plico has no
-  per-widget focus action wiring, and every star is its own focus stop.
+  rating. Hover previews the pending choice. The stars are pointer-only visual
+  parts of one slider semantic control: it occupies one Tab stop, arrows step
+  by one, Home clears and End chooses the maximum. Values above `max` are
+  clamped and the clamp is reported as a change. This is built on
+  `UiContext::value_control`, which lets other custom numeric widgets reuse the
+  same value queue, focus, keyboard and accessibility behavior. Use
+  `rating_labeled` when the accessible name needs application context.
 - `stepper(cx, &mut value, range, step)` puts two arrow buttons in a bordered
   column, snapping the value to a step grid anchored at the low bound and
   clamping it to the range. A press steps once, and holding repeats after
   400 ms every 80 ms; the release adds no extra step, while keyboard activation
-  steps once. The container carries the spin-button role and the arrows are
-  named "Increase" and "Decrease". MyGO's single `.Label` name and its
-  Up/Down/Home/End handling are not ported.
+  steps once. The container is one spin-button focus stop: Up/Right increment,
+  Down/Left decrement and Home/End choose the bounds. The pointer arrows are
+  excluded from accessibility because the parent owns the value semantics.
+  `stepper_labeled` supplies the caller-specific accessible name; `stepper`
+  keeps `Stepper` as its convenience default.
 
 The split panes (`split`, `split_vertical`, `split_percent`,
 `split_vertical_percent`) are documented in [desktop widgets](desktop-widgets.md).
@@ -248,10 +264,11 @@ form(cx, |cx| {
 - `radio(cx, label, selected)` draws the dot and label and returns the normal
   response; the caller owns the chosen value and sets it on `clicked`. The
   button carries the radio-button role and its selected state.
-- `radio_group(cx, content)` is the column with the radio-group role. MyGO
-  makes the group one Tab stop whose arrows and Home/End move the choice;
-  Plico has no per-container focus action wiring, so every radio is its own
-  focus stop and Enter/Space activates it.
+- `radio_group(cx, content)` is the column with the radio-group role and one
+  sequential Tab stop. Tab enters at the chosen radio (or the first enabled
+  one); either arrow axis wraps through enabled radios and chooses, while
+  Home/End choose the first/last. Enter/Space still activates the focused
+  radio.
 - `link(cx, label)` is accent-colored text with the link role; the declaration
   site decides what a click does, because Plico core does not open URLs. Plico
   text has no underline, so the hover background is the affordance.
@@ -336,9 +353,11 @@ The runtime now exposes the backend focus to declarations: `UiContext::focused()
 returns the focused entity, and `Response::focused()` /
 `InputResponse::focused()` report it for the control just declared. Controls
 inside a tab strip, radio group, toolbar, tree, list box or menu move focus with
-the arrow keys, Home and End; Tab keeps the sequential traversal. The focused
-entity is synchronized from the backend at the start of each frame, so a
-declaration reads the previous frame's focus.
+the arrow keys, Home and End; Tab keeps the sequential traversal. Tree and
+radio groups use roving Tab order, so only their current item participates in
+sequential traversal; radio movement also chooses the focused option. The
+focused entity is synchronized from the backend at the start of each frame, so
+a declaration reads the previous frame's focus.
 
 ### Date input (MyGO port)
 
@@ -385,14 +404,23 @@ rounded overflow clipping and excludes clipped controls from pointer hit testing
 Theme includes ControlHover/ControlPressed, AccentHover/AccentPressed and Focus.
 Control/Accent button backgrounds infer their corresponding state colors;
 `hover_background` and `pressed_background` explicitly style custom button bases.
-Disabled controls skip interaction colors. Keyboard/assistive focus shows the
-focus ring; primary pointer-down preserves focus without showing the ring.
+Disabled controls skip interaction colors. Keyboard/assistive focus shows a
+2px focus ring with a 1px offset; primary pointer-down preserves focus without
+showing the ring. Text inputs keep their fill while the border turns accent on
+focus and mixes 25% toward the text under the pointer, following MyGO's
+`inputBorder`.
 Axis padding transitions use the injected clock without view redeclaration.
 
 Desktop metrics now default to 14px text, 6px radius, 32px minimum controls;
 compact uses 13px, 5px and 28px. Actual content may require greater height.
 The neutral surfaces, thin borders and separate button axis padding follow the
 local MyGO theme/widgets/gallery reference, with Plico's own implementation.
+
+控制样式按组合而不是逐控件复制：控件只声明 `button_base`、`text_input`、
+`radio`、`switch`、`slider` 等语义角色，运行时的共享 recipe（quiet border、
+switch 轨道、checkbox 面板与描边、thumb 面、input 边框）负责 MyGO 的混色规则，
+应用只覆盖 token 或 builder 颜色。新增控件组合这些 recipe 即可，不需要再写一套
+主题常量。
 
 ### Bounded vertical scroll ports and native state
 
@@ -463,3 +491,5 @@ loop require `cx.keyed` with a stable item key, as do other stateful components.
 Range sliders retain their active thumb per control; removing a slider also
 removes its thumb selection. The two thumbs still share one focus stop and
 only the low value is exposed in the accessibility tree.
+
+默认控件外观和组合边界见 [MyGO 样式对齐](mygo-style.md)。工具栏内直接使用普通 `button`，不需要逐个 `.ghost()` 或指定投影。

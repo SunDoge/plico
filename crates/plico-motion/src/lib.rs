@@ -242,38 +242,21 @@ new_key_type! {
     pub struct MotionId;
 }
 
-/// Timing curve for a finite tween.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Easing {
-    /// Constant velocity.
-    Linear,
-    /// Symmetric cubic acceleration and deceleration.
-    EaseInOut,
-    /// Cubic deceleration.
-    #[default]
-    EaseOut,
-}
+/// The timing curve now lives in `plico::Easing`, shared with the UI
+/// declaration layer's `loop_progress`; this crate re-exports it.
+pub use plico::Easing;
 
-impl Easing {
-    /// Exact derivative of [`sample`](Self::sample), used to hand a tween's
-    /// visible momentum to a spring retarget.
-    fn slope(self, progress: f64) -> f64 {
-        let progress = progress.clamp(0.0, 1.0);
-        match self {
-            Self::Linear => 1.0,
-            Self::EaseOut => 3.0 * (1.0 - progress).powi(2),
-            Self::EaseInOut if progress < 0.5 => 12.0 * progress.powi(2),
-            Self::EaseInOut => 12.0 * (1.0 - progress).powi(2),
-        }
-    }
-    fn sample(self, progress: f64) -> f64 {
-        let progress = progress.clamp(0.0, 1.0);
-        match self {
-            Self::Linear => progress,
-            Self::EaseInOut if progress < 0.5 => 4.0 * progress.powi(3),
-            Self::EaseInOut => 1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0,
-            Self::EaseOut => 1.0 - (1.0 - progress).powi(3),
-        }
+/// The tween engine's extension of [`Easing`]: the exact derivative of
+/// its `sample`, used to hand a tween's visible momentum to a spring
+/// retarget. Orphan rules keep this here, not on the shared type.
+pub(crate) fn easing_slope(easing: Easing, progress: f64) -> f64 {
+    let progress = progress.clamp(0.0, 1.0);
+    match easing {
+        Easing::Linear => 1.0,
+        Easing::EaseIn => 3.0 * progress.powi(2),
+        Easing::EaseOut => 3.0 * (1.0 - progress).powi(2),
+        Easing::EaseInOut if progress < 0.5 => 12.0 * progress.powi(2),
+        Easing::EaseInOut => 12.0 * (1.0 - progress).powi(2),
     }
 }
 
@@ -773,7 +756,7 @@ impl Animated {
                 if progress >= 1.0 || from == self.target {
                     return 0.;
                 }
-                (self.target - from) * easing.slope(progress) / duration.as_secs_f64()
+                (self.target - from) * easing_slope(easing, progress) / duration.as_secs_f64()
             }
             Flight::Spring {
                 from,

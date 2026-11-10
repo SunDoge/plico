@@ -22,6 +22,34 @@ fn heading_x(driver: &Driver<Gallery>) -> f32 {
         .bounds[0]
 }
 #[test]
+fn expanding_never_squeezes_the_header_title() {
+    let mut driver = Driver::new(Gallery::default(), 1120, 820).unwrap();
+    click(&mut driver, "Toggle navigation");
+    driver.advance(Duration::from_millis(400)).unwrap();
+    click(&mut driver, "Toggle navigation");
+    for _ in 0..25 {
+        driver.advance(Duration::from_millis(10)).unwrap();
+        if let Some(node) = driver
+            .snapshot()
+            .node_by_role(SemanticRole::Label, "plico", None)
+        {
+            let width = node.bounds[2] - node.bounds[0];
+            assert!(
+                width >= 40.,
+                "header title squeezed to {width} px during the expand animation"
+            );
+        }
+    }
+    assert!(
+        driver
+            .snapshot()
+            .node_by_role(SemanticRole::Label, "plico", None)
+            .is_some(),
+        "header title should be visible once the sidebar is expanded"
+    );
+}
+
+#[test]
 fn collapsing_animates_layout_without_replacing_navigation_targets() {
     let mut driver = Driver::new(
         Gallery {

@@ -137,6 +137,50 @@ trace 的 `plico::perf / damage_coverage` 使用同一已应用区域。
 布局运行、flatten 次数继续保留为独立成本指标，不再冒充 redraw damage。
 HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外部采样。
 
+## Frame budget 测量（CPU 阶段与 GPU 时间）
+
+`plico_wgpu::FrameBudget` 记录最近一帧渲染器的工作，窗口宿主经
+`FrameStats::apply_budget` 以 EMA 合并到既有诊断；计数类字段保留当帧原值。
+
+| 字段 | 含义 |
+|---|---|
+| `prepare_ms` | 生成有序 instance 流（scene flatten、文字/glyph 准备、damage 过滤） |
+| `upload_ms` / `upload_bytes` | instance 与 frame uniform 的 `write_buffer` 时间和字节数 |
+| `encode_ms` | 录制 render pass、批处理与 blit 的 CPU 时间 |
+| `submit_ms` | 提交本帧全部有序 command buffers 的单次 `queue.submit` |
+| `submissions` | 本帧实际调用 `queue.submit` 的次数；正常路径为 1 |
+| `wait_ms` | 仅在离屏读回时阻塞等待 GPU 的时间；窗口路径为 0 |
+| `instances` / `draw_calls` | 根场景与子层准备的 instance 数、含 damage scissor 重放的 draw call 数 |
+| `gpu_ms` | 根帧首尾时间戳之间的 GPU 时间 |
+
+`gpu_ms` 需要 `wgpu::Features::TIMESTAMP_QUERY`，默认不请求；设置
+`PLICO_GPU_TIMER=1`（或使用 profiling renderer）后启用。它用空 compute pass
+在根 encoder 首尾写入时间戳，提交后再异步映射读回，4 个 slot 轮转，
+不会让窗口帧等待 GPU。子层 command buffer 与根帧作为一个有序批次提交，其 GPU
+工作计入该区间；结束时间戳之前编码的呈现 blit 或读回拷贝也计入。离屏
+capture 在读回后同步取得该帧数值。
+
+`PLICO_PERFORMANCE_HUD=1` 的卡片新增 Prepare / Upload / Encode、GPU、
+Draws / Instances 与上传字节行（`n/a` 表示该后端不上报 GPU 时间）。
+HUD 自身的绘制会进入 scene，正式测量时关闭 HUD 或使用 trace。
+
+离屏场景可打印同一份预算：
+
+```sh
+PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 target/release/gallery \
+  --scenario apps/gallery/scenarios/controls.json \
+  --capture reports/controls.png --frames 8
+```
+
+`--frames` 重复渲染并在最后一帧打印，使 pipeline 和缓存预热。该数字只覆盖
+渲染器阶段，不含应用声明与 scene 构建（这两项在窗口 path 由 build/scene
+统计）；capture 中的 settle pass 也不属于单帧成本。结论应使用同一机器、
+同一 backend 的对照，而不是跨设备比较绝对值。本机样例（默认 low-power
+adapter，Intel ARL iGPU / Vulkan，1120×820，controls/effects 场景，8 帧预热）
+渲染器 CPU 各阶段合计约
+1–4 ms，其中 `queue.submit` 通常最大（约 0.9–2.1 ms）；GPU 约 2–7 ms。
+玻璃/backdrop 场景的 submit 与 GPU 时间均最高。
+
 ## 可选的局部绘制能力
 
 `plico_renderer::DamageRegion` 使用物理像素描述 Full / Empty / Rect，
@@ -806,3 +850,30 @@ damage 行只用于定位共享后端成本，默认路径没有改变。它平�
 尚未解决：全量 Immediate 声明及离屏子树 Scene 遍历成本、普通 Skia 全量 replay 成本、
 present 等待中的具体 CPU/WSI 分解，以及此前 Wayland 只 show 首帧的问题。本轮只在
 XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland 或其他应用。
+
+## WGPU 单次提交与 adapter 选择
+
+隔离子层、backdrop 分段、自定义 effect 和最终呈现仍分别录制保持 painter order 的
+command buffer，但不再在各段之间调用 `queue.submit`。每个子层使用独立且跨帧复用的
+uniform/instance buffer，因此父层也无需在子层返回后重新上传。正常帧把全部 command
+buffers 作为一个有序批次提交；`PLICO_SPLIT_SUBMITS=1` 仅用于与原多次提交路径做 A/B。
+
+本机 `effects-glass-hover` 场景中，实际提交次数从 6 降到 1。Intel iGPU 离屏 capture
+的 `submit_ms` 噪声较大，三组交错样本的中位数约为 1.71ms（合并）与 1.75ms（拆分），
+不能据此声称显著时延收益；这次优化确定消除的是 CPU/driver 提交边界和父层重复上传。
+嵌套隔离层、backdrop 与最终像素由真实 adapter 回归测试覆盖。
+
+### GPU adapter selection
+
+The desktop renderer keeps `LowPower` as its default. For repeatable adapter
+comparisons, select explicitly before renderer creation:
+
+```sh
+PLICO_POWER_PREFERENCE=high PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 \
+  target/release/gallery --scenario apps/gallery/scenarios/controls.json \
+  --capture /tmp/controls.png --frames 10
+```
+
+Accepted values are `high`/`high-performance`, `low` (the default), and
+`none`. The frame-budget line reports the raw queue submission count; a normal
+frame, including isolated child layers and backdrop segments, is submitted once.

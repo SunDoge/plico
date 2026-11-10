@@ -32,8 +32,8 @@ fn search_filters_without_mutating_choice_and_selection_closes_popup() {
     assert!(option(&engine, engine.root(), "Alpha").is_none());
     let beta = option(&engine, engine.root(), "Beta").expect("filtered option");
     let style = engine.node(beta).unwrap().style;
-    assert_eq!(style.hover_background, Some(Color::ControlHover));
-    assert_eq!(style.pressed_background, Some(Color::ControlPressed));
+    assert_eq!(style.hover_background, Some(Color::Accent));
+    assert_eq!(style.pressed_background, Some(Color::Accent));
     let trigger = option(&engine, engine.root(), "Model").expect("select trigger");
     assert!(engine.node(trigger).unwrap().style.styled_button);
     engine.queue_click(beta);

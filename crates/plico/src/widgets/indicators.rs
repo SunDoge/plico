@@ -162,47 +162,64 @@ const STAR_FILLED: SvgAsset = SvgAsset::new(
 /// A row of `max` stars, `*value` of them filled (MyGO `Rating`).
 ///
 /// A click on a star sets the rating to that star, and a click on the
-/// already-set star clears it to zero, as MyGO does. Each star is a button
-/// named "N of MAX stars", so assistive technology and the keyboard can
-/// choose one directly. Values above `max` are clamped; zero means no
-/// rating. Returns whether the value changed this frame.
-///
-/// MyGO's hover preview and its arrow/Home/End handling on one slider are
-/// not ported yet: Plico has no per-widget focus action wiring, and every
-/// star is its own focus stop.
+/// already-set star clears it to zero, as MyGO does. The whole rating is one
+/// slider focus stop: arrows change it by one, Home clears it and End chooses
+/// the maximum. Hovering previews the stars that a click would choose. Values
+/// above `max` are clamped; zero means no rating. Returns whether the value
+/// changed this frame.
 ///
 /// ```text
 /// if rating(cx, &mut stars, 5) { save(); }
 /// ```
 pub fn rating(cx: &mut UiContext, value: &mut u8, max: u8) -> bool {
+    rating_labeled(cx, "Rating", value, max)
+}
+
+/// [`rating`] with an application-specific accessible name.
+pub fn rating_labeled(cx: &mut UiContext, label: &str, value: &mut u8, max: u8) -> bool {
     let max = max.max(1);
     let before = *value;
     *value = before.min(max);
     let m = cx.theme().metrics;
     let star = m.font_size as f32 * 1.3;
-    row(cx).gap(m.space(1)).align(Align::Center).children(|cx| {
+    let mut numeric = f64::from(*value);
+    cx.value_control(label, &mut numeric, 0. ..=f64::from(max), |cx, current| {
+        let preview = cx.pointer_fraction().and_then(|fraction| {
+            cx.hovered_within()
+                .then(|| ((fraction[0].clamp(0., 0.999_999) * f32::from(max)).floor() as u8) + 1)
+        });
         for index in 0..max {
             let number = index + 1;
-            let filled = index < *value;
+            let shown = preview.unwrap_or(current.round().clamp(0., f64::from(max)) as u8);
+            let filled = index < shown;
             let response = button_base(cx, format!("{number} of {max} stars"))
                 .width(star)
                 .height(star)
                 .padding(0.)
                 .min_height(0.)
                 .radius(m.radius as f32)
+                .tab_stop(false)
+                .semantic_hidden(true)
                 .color(if filled { Color::Warning } else { Color::Muted })
                 .hover_background(Color::ControlHover)
                 .pressed_background(Color::ControlPressed)
+                .opacity(if preview.is_some() { 0.72 } else { 1. })
                 .children(|cx| {
                     let _ =
                         svg(cx, if filled { &STAR_FILLED } else { &STAR_OUTLINE }).size(star, star);
                 })
                 .response;
             if response.clicked() {
-                *value = if *value == number { 0 } else { number };
+                *current = if current.round() as u8 == number {
+                    0.
+                } else {
+                    f64::from(number)
+                };
+                cx.request_focus();
             }
         }
     });
+    *value = numeric.round().clamp(0., f64::from(max)) as u8;
     *value != before
 }
 
@@ -266,7 +283,7 @@ pub fn spinner_sized(cx: &mut UiContext, size: f32) {
 }
 
 /// The chevron-up for [`stepper`]'s increment arrow (Lucide `chevron-up`).
-const CHEVRON_UP: SvgAsset = SvgAsset::new(
+pub(super) const CHEVRON_UP: SvgAsset = SvgAsset::new(
     r#"<svg
   xmlns="http://www.w3.org/2000/svg"
   width="24"
@@ -309,11 +326,10 @@ struct StepperHolds {
 /// as MyGO's does. Values are snapped to the step grid anchored at the low
 /// bound and clamped to the range. Returns whether the value changed.
 ///
-/// The arrows are buttons named "Increase" and "Decrease"; the container
-/// carries the spin-button role. MyGO names the whole stepper with
-/// `.Label(...)` and handles Up/Down/Home/End on it; Plico has no
-/// per-container accessible-name API and no focus action wiring yet, so the
-/// two arrows are separate focus stops without arrow-key handling.
+/// The whole control is one spin-button focus stop. Up/Right increment,
+/// Down/Left decrement, and Home/End choose the bounds. Its pointer-only
+/// arrows are hidden from the accessibility projection so they do not
+/// duplicate the parent value semantics.
 ///
 /// ```text
 /// row(cx).gap(6) + |cx| {
@@ -324,6 +340,18 @@ struct StepperHolds {
 #[track_caller]
 pub fn stepper(
     cx: &mut UiContext,
+    value: &mut f64,
+    range: std::ops::RangeInclusive<f64>,
+    step: f64,
+) -> bool {
+    stepper_labeled(cx, "Stepper", value, range, step)
+}
+
+/// [`stepper`] with an application-specific accessible name.
+#[track_caller]
+pub fn stepper_labeled(
+    cx: &mut UiContext,
+    label: &str,
     value: &mut f64,
     range: std::ops::RangeInclusive<f64>,
     step: f64,
@@ -348,18 +376,28 @@ pub fn stepper(
     let up_id = 0;
     let down_id = 1;
     let height = m.space(4) as f32;
-    column(cx)
-        .width(m.space(5) as f32)
-        .radius(m.radius as f32)
-        .border(1., Color::Border)
-        .background(Color::Surface)
-        .clip(true)
-        .semantic_role(WidgetRole::SpinButton)
-        .children(|cx| {
+    cx.value_control_with(
+        label,
+        value,
+        low..=high,
+        step.abs(),
+        WidgetRole::SpinButton,
+        crate::FlexDirection::Column,
+        |mut style| {
+            style.width = Some(m.space(5) as f32);
+            style.radius = m.radius as f32;
+            style.border_width = 1.;
+            style.border_color = Color::Border;
+            style.background = Some(Color::Surface);
+            style.clip = true;
+            style
+        },
+        |cx, value| {
             let holds = cx.state(StepperHolds::default);
             stepper_arrow(cx, value, low, high, step, true, height, up_id, &holds);
             stepper_arrow(cx, value, low, high, step, false, height, down_id, &holds);
-        });
+        },
+    );
     *value != before
 }
 
@@ -382,6 +420,8 @@ fn stepper_arrow(
         .height(height)
         .padding(0.)
         .min_height(0.)
+        .tab_stop(false)
+        .semantic_hidden(true)
         .align(Align::Center)
         .justify(Justify::Center)
         .hover_background(Color::ControlHover)
@@ -428,6 +468,7 @@ fn stepper_arrow(
         })
         .response;
     if pressing {
+        cx.request_focus();
         return;
     }
     let was_holding = holds.read().arrows.contains_key(&id);
@@ -443,6 +484,7 @@ fn stepper_arrow(
     if response.clicked() && can {
         let direction = if up { step } else { -step };
         *value = snap_value(*value + direction, low, high, step);
+        cx.request_focus();
     }
 }
 

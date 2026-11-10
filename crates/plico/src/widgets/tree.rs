@@ -20,7 +20,7 @@ use crate::{WidgetRole, icons};
 /// ```
 pub fn tree(cx: &mut UiContext, content: impl FnOnce(&mut UiContext)) {
     column(cx)
-        .gap(1.)
+        .gap(0.)
         .width_percent(100.)
         .semantic_role(WidgetRole::Tree)
         .children(|cx| content(cx));
@@ -33,10 +33,10 @@ pub fn tree(cx: &mut UiContext, content: impl FnOnce(&mut UiContext)) {
 /// passes `None` and no content.
 ///
 /// The label carries the tree-item role and its selected state; branches also
-/// report `expanded`. The arrow is a separate button ("Expand"/"Collapse"),
-/// because Plico does not allow controls nested in a control, so a branch row
-/// has two focus stops where MyGO's row has one. MyGO's Up/Down/Home/End,
-/// Right/Left and type-selection traversal is not ported.
+/// report `expanded`. The arrow remains a pointer-activated subcontrol but is
+/// excluded from sequential focus, so the row is the tree's only keyboard
+/// stop. Up/Down/Home/End traverse visible rows, Right opens or enters a branch,
+/// Left closes or returns to its parent, and buffered typing selects by prefix.
 ///
 /// Returns the label button's response so the caller can choose on
 /// [`crate::Response::clicked`].
@@ -54,18 +54,24 @@ pub fn tree_item(
     let mut row = row(cx)
         .width_percent(100.)
         .align(Align::Center)
-        .gap(m.space(1));
-    row = row.padding_x(m.space(1));
+        .gap(m.spacing as f32 * 0.5)
+        .height(m.space(7) as f32)
+        .radius(m.radius as f32);
+    row = row.padding_left(m.space(1)).padding_right(m.space(2));
+    if selected {
+        row = row.background(Color::Accent);
+    }
     row.children(|cx| {
-        let indent = depth as f32 * 16.;
+        let indent = depth as f32 * m.space(4) as f32;
         if indent > 0. {
             let _ = column(cx).width(indent).height(1.).children(|_cx| {});
         }
         match open.as_deref_mut() {
             Some(open) => {
                 let arrow = button_base(cx, if *open { "Collapse" } else { "Expand" })
-                    .width(18.)
-                    .height(24.)
+                    .tab_stop(false)
+                    .width(m.space(4) as f32)
+                    .height(m.space(7) as f32)
                     .min_width(0.)
                     .min_height(0.)
                     .padding(0.)
@@ -81,8 +87,12 @@ pub fn tree_item(
                                 &icons::CHEVRON_RIGHT
                             },
                         )
-                        .size(14., 14.)
-                        .color(Color::Muted);
+                        .size(m.space(4) as f32, m.space(4) as f32)
+                        .color(if selected {
+                            Color::OnAccent
+                        } else {
+                            Color::Muted
+                        });
                     })
                     .response;
                 if arrow.clicked() {
@@ -91,30 +101,36 @@ pub fn tree_item(
                 }
             }
             None => {
-                let _ = column(cx).width(18.).height(1.).children(|_cx| {});
+                let _ = column(cx)
+                    .width(m.space(4) as f32)
+                    .height(1.)
+                    .children(|_cx| {});
             }
         }
         let expanded = open.as_deref().copied().unwrap_or(false);
-        let mut item = button_base(cx, label)
+        let item = button_base(cx, label)
             .grow(1.)
             .min_width(0.)
-            .height(24.)
-            .padding_x(m.space(2))
+            .height(m.space(7) as f32)
+            .padding_x(0)
             .gap(m.space(1))
             .radius(m.radius as f32)
             .selected(selected)
             .color(if selected {
-                Color::Accent
+                Color::OnAccent
             } else {
                 Color::Foreground
             })
             .hover_background(Color::ControlHover)
             .pressed_background(Color::ControlPressed)
             .semantic_role(WidgetRole::TreeItem);
+        let mut item = item.tree_depth(depth);
         // Unstyled when unselected so the tree background shows through;
         // button bases paint no background of their own.
         if selected {
-            item = item.background(Color::Selection);
+            item = item
+                .hover_background(Color::Accent)
+                .pressed_background(Color::Accent);
         }
         if open.is_some() {
             item = item.expanded(expanded);
@@ -123,7 +139,7 @@ pub fn tree_item(
             item.children(|cx| {
                 let _ = text(cx, label)
                     .font_size(m.font_size)
-                    .weight(if selected { 600 } else { 400 })
+                    .weight(400)
                     .ellipsis(true)
                     .min_width(0.);
             })

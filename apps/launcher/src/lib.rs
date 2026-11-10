@@ -482,8 +482,7 @@ fn results(cx: &mut UiContext, model: State<LauncherModel>) {
             return;
         }
         let state = model.handle();
-        virtual_list(cx, current.matches.len(), 56.).height(336.).smooth_scroll(true)
-            .reveal_once(current.reveal, state, |state| {
+        virtual_list(cx, current.matches.len(), 56.).height(336.).reveal_once(current.reveal, state, |state| {
             state.update_if(|model| {
                 model.reveal = None;
                 false

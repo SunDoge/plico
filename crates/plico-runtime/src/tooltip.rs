@@ -281,7 +281,15 @@ impl Adapter {
             font_size: metrics.font_size.saturating_sub(1).max(1),
             foreground: Token::Literal(engine.theme().surface),
             background: Some(Token::Literal(engine.theme().foreground)),
-            radius: 6.,
+            radius: metrics.spacing as f32 * 1.25,
+            shadow: Some(plico::BoxShadow {
+                offset_x: 0.,
+                offset_y: 2.,
+                blur: 8.,
+                spread: 0.,
+                color: Token::Literal(0),
+                opacity: 0.2,
+            }),
             ..Default::default()
         };
         let paint = make_paint(
@@ -295,13 +303,13 @@ impl Adapter {
         let size = taffy::Style {
             align_self: Some(AlignItems::START),
             padding: Rect {
-                left: length(8.),
-                right: length(8.),
-                top: length(5.),
-                bottom: length(5.),
+                left: length(metrics.space(2) as f32),
+                right: length(metrics.space(2) as f32),
+                top: length(metrics.spacing as f32 * 1.25),
+                bottom: length(metrics.spacing as f32 * 1.25),
             },
             max_size: Size {
-                width: length(320f32.min((width as f32 - 16.).max(0.))),
+                width: length((metrics.space(80) as f32).min((width as f32 - 16.).max(0.))),
                 height: length((height as f32 - 16.).max(0.)),
             },
             ..Default::default()

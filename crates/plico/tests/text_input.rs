@@ -1,4 +1,5 @@
 use plico::{Engine, InputEdit, Kind, prelude::*};
+use zeroize::Zeroizing;
 
 #[test]
 fn unicode_selection_editing_and_secret_presentation() {
@@ -188,7 +189,7 @@ fn string_binding_drop_commits_and_disabled_edits_are_discarded() {
 }
 
 #[test]
-fn text_input_has_quiet_hover_and_pressed_feedback() {
+fn text_input_keeps_its_fill_and_leaves_hover_to_the_border() {
     let mut engine = Engine::default();
     let buffer = TextBuffer::new();
     engine
@@ -198,9 +199,9 @@ fn text_input_has_quiet_hover_and_pressed_feedback() {
         .unwrap();
     let input = engine.node(engine.root()).unwrap().children[0];
     let style = engine.node(input).unwrap().style;
-    assert_eq!(style.background, Some(Color::Panel));
-    assert_eq!(style.hover_background, Some(Color::Control));
-    assert_eq!(style.pressed_background, Some(Color::ControlHover));
+    assert_eq!(style.background, Some(Color::Control));
+    assert_eq!(style.hover_background, None);
+    assert_eq!(style.pressed_background, None);
     assert_eq!(style.transition_ms, engine.theme().metrics.interaction_ms);
 }
 
@@ -274,4 +275,31 @@ fn visual_line_selection_trims_separators_and_secret_selection_stays_masked() {
     let presentation = secret.presentation();
     assert_eq!(presentation.text, "•••");
     assert_eq!((presentation.head, presentation.anchor), (9, 0));
+}
+
+#[test]
+fn revealing_a_secret_paints_real_bytes_without_losing_protections() {
+    let buffer = TextBuffer::secret();
+    buffer.edit(InputEdit::Insert(Zeroizing::new("s3cret!".to_owned())));
+    // Masked: bullets at bullet offsets, content never readable.
+    assert_eq!(buffer.presentation().text, "•••••••");
+    assert_eq!(buffer.presentation().head, 21); // seven bullets at 3 bytes each
+    // Revealed through the host's explicit visibility: the real text at
+    // true byte offsets, so caret navigation matches what is painted.
+    let revealed = buffer.presentation_with(true);
+    assert_eq!(revealed.text, "s3cret!");
+    assert_eq!(revealed.head, 7);
+    buffer.edit(InputEdit::Left(false));
+    // Hiding again returns to bullet offsets without losing the content,
+    // and the no-op set_secret keeps the layout revision stable.
+    buffer.set_secret(true);
+    assert_eq!(buffer.presentation().text, "•••••••");
+    // The buffer keeps its input-method protections: the value never leaves
+    // through text(), and selection_utf16 stays withheld while masked.
+    assert!(buffer.text().is_none());
+    assert_eq!(buffer.selection_utf16(), 0..0);
+    // An ordinary buffer ignores the reveal flag entirely.
+    let plain = TextBuffer::new();
+    plain.set("ordinary".to_owned().into());
+    assert_eq!(plain.presentation_with(true).text, "ordinary");
 }

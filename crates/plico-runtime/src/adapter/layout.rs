@@ -301,6 +301,7 @@ impl Adapter {
             kind,
             theme,
             checked_progress: progress,
+            hovered,
             ..
         } = retained.paint_key;
         if !matches!(kind, Kind::Button | Kind::Switch | Kind::Checkbox) {
@@ -369,6 +370,7 @@ impl Adapter {
             theme,
             progress,
             line_height,
+            hovered,
             check.as_deref(),
         ));
         placed.paint.widget = Some(widget.clone());

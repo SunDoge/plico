@@ -7,10 +7,9 @@ use crate::prelude::*;
 /// label. The declaration site owns the choice on [`crate::Response::clicked`]
 /// and passes whether this radio is the chosen one.
 ///
-/// The button carries the radio-button role and its selected state. MyGO's
-/// group is one Tab stop with arrow/Home/End selection; Plico has no
-/// per-container focus action wiring yet, so every radio is its own focus
-/// stop and Enter/Space activates it.
+/// The button carries the radio-button role and its selected state. Inside a
+/// [`radio_group`], the chosen radio is the group's one Tab stop and the arrow
+/// keys, Home and End choose among the enabled radios.
 ///
 /// ```text
 /// radio_group(cx, |cx| {
@@ -30,10 +29,12 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
         .radius(m.radius as f32)
         .selected(selected)
         .color(Color::Foreground)
-        .hover_background(Color::ControlHover)
-        .pressed_background(Color::ControlPressed)
         .semantic_role(WidgetRole::RadioButton)
         .children(|cx| {
+            // MyGO's radio row has no hover fill; only the unselected rim
+            // turns accent under the pointer.
+            let theme = cx.theme();
+            let hovered = cx.hovered();
             let mut dot = column(cx)
                 .width(m.space(4) as f32)
                 .height(m.space(4) as f32)
@@ -44,7 +45,12 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
             dot = if selected {
                 dot.background(Color::Accent)
             } else {
-                dot.background(Color::Panel).border(1., Color::Border)
+                let border = if hovered {
+                    Color::Accent
+                } else {
+                    theme.blend(Color::Border, Color::Foreground, 0.25)
+                };
+                dot.background(Color::Panel).border(1., border)
             };
             let _ = dot.children(|cx| {
                 if selected {
@@ -63,12 +69,14 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
 }
 
 /// A column of [`radio`] buttons (MyGO `RadioGroup`) carrying the radio-group
-/// role. MyGO makes the group one Tab stop whose arrows choose; Plico cannot
-/// wire that yet, so the group is only a semantic container.
+/// role. The group is one Tab stop: Tab enters at the chosen radio (or the
+/// first enabled radio), while either arrow axis wraps and chooses. Home and
+/// End choose the first and last enabled radios.
 pub fn radio_group(cx: &mut UiContext, content: impl FnOnce(&mut UiContext)) {
     let m = cx.theme().metrics;
     column(cx)
         .gap(m.space(1))
         .semantic_role(WidgetRole::RadioGroup)
+        .selection_follows_focus(true)
         .children(|cx| content(cx));
 }

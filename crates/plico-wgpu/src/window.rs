@@ -722,6 +722,10 @@ impl WgpuWindow {
         self.renderer
             .scene_damage_coverage([self.config.width, self.config.height])
     }
+    /// CPU and GPU work for the most recently submitted frame.
+    pub fn frame_budget(&self) -> crate::FrameBudget {
+        self.renderer.frame_budget()
+    }
     /// Next one-shot idle maintenance wake on macOS/Linux.
     pub fn maintenance_deadline(&self) -> Option<std::time::Instant> {
         if self.acquire_pending {

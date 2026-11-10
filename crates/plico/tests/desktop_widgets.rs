@@ -1,6 +1,7 @@
 //! The desktop-paradigm widgets: tab strips, toasts and the transient-state
 //! layer they rely on. Interaction flows run through the real Engine so the
 //! semantic nodes and changes surface exactly as applications see them.
+use plico::Easing;
 use plico::prelude::*;
 use plico::{Engine, Entity, FrameTime};
 use std::time::Duration;
@@ -406,4 +407,78 @@ fn dismissing_after_idle_starts_exit_on_the_next_frame() {
     assert!(engine.node(card).unwrap().style.opacity < 1.);
     toast_frame(&mut engine, &mut host, 60_140);
     assert!(toast_card(&engine).is_none());
+}
+
+#[test]
+fn loop_progress_samples_the_injected_clock_and_keeps_site_identity() {
+    let mut engine = Engine::default();
+    let mut pulse_a = 0.;
+    let mut pulse_b = 0.;
+    let mut spin = 0.;
+    engine.set_time(FrameTime {
+        now: Duration::ZERO,
+        delta: Duration::ZERO,
+    });
+    frame(&mut engine, |cx| {
+        pulse_a = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
+        pulse_b = cx.loop_progress("pulse", Duration::from_millis(500), Easing::Linear);
+        spin = cx.loop_progress("spin", Duration::from_millis(900), Easing::Linear);
+    });
+    assert_eq!((pulse_a, pulse_b, spin), (0., 0., 0.));
+    // Halfway through the period: 0.5, and the shorter loop wrapped.
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(500),
+        delta: Duration::from_millis(500),
+    });
+    frame(&mut engine, |cx| {
+        pulse_a = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
+        pulse_b = cx.loop_progress("pulse", Duration::from_millis(500), Easing::Linear);
+        spin = cx.loop_progress("spin", Duration::from_millis(900), Easing::Linear);
+    });
+    assert!((pulse_a - 0.5).abs() < 1e-6, "{pulse_a}");
+    assert_eq!(pulse_b, 0., "the 500ms loop wrapped at 500ms");
+    assert!((spin - 5. / 9.).abs() < 1e-6, "{spin}");
+    // Easing shapes the same phase: EaseOut at 0.5 is 1 - 0.5^3.
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(1500),
+        delta: Duration::from_millis(1000),
+    });
+    frame(&mut engine, |cx| {
+        pulse_a = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::EaseOut);
+    });
+    assert!((pulse_a - 0.875).abs() < 1e-6, "{pulse_a}");
+}
+
+#[test]
+fn loop_progress_restarts_in_phase_when_its_site_returns() {
+    let mut engine = Engine::default();
+    let mut pulse = 0.;
+    engine.set_time(FrameTime {
+        now: Duration::ZERO,
+        delta: Duration::ZERO,
+    });
+    frame(&mut engine, |cx| {
+        pulse = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
+    });
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(300),
+        delta: Duration::from_millis(300),
+    });
+    frame(&mut engine, |cx| {
+        pulse = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
+    });
+    assert!((pulse - 0.3).abs() < 1e-6);
+    // The site disappears: nothing samples, no state is left that could make
+    // the next appearance continue an old phase.
+    engine.set_time(FrameTime {
+        now: Duration::from_secs(10),
+        delta: Duration::from_secs(10),
+    });
+    frame(&mut engine, |_| {});
+    // It returns late in the clock: the loop starts fresh from that frame.
+    let mut resumed = 0.;
+    frame(&mut engine, |cx| {
+        resumed = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
+    });
+    assert_eq!(resumed, 0., "a returning site starts its loop anew");
 }
