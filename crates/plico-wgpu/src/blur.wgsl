@@ -27,11 +27,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         return;
     }
     let radius = i32(ceil(4. * params.sigma));
+    // Sigma and axis are uniform for the whole pass; hoist them out of the
+    // tap loop so each texel only does one multiply and one exp.
+    let falloff = -0.5 / (params.sigma * params.sigma);
+    let delta = select(vec2i(0, 1), vec2i(1, 0), params.axis == 0u);
     var sum = vec4f(0.);
     var weight = 0.;
     for(var i = -radius; i <= radius; i++) {
-        let w = exp(-0.5 * f32(i * i) / (params.sigma * params.sigma));
-        var p = vec2i(id.xy) + select(vec2i(0, i), vec2i(i, 0), params.axis == 0u);
+        let w = exp(falloff * f32(i * i));
+        var p = vec2i(id.xy) + delta * i;
         weight += w;
         if params.edge == 0u && (any(p < vec2i(0)) || any(p >= size)) {
             continue;
