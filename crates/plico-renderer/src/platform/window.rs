@@ -106,8 +106,9 @@ pub struct WindowOptions {
     #[serde(default)]
     pub titlebar_overlay: bool,
     /// Client-area corner radius in logical pixels. macOS uses native continuous
-    /// content-layer corners and a system shadow; other hosts use a visual GPU
-    /// clip. Requires compositor alpha.
+    /// content-layer corners and a system shadow. Linux decorated windows leave
+    /// their contour to the window system and ignore this radius. Other paths
+    /// use a visual GPU clip, which requires compositor alpha.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.
@@ -251,13 +252,16 @@ impl WindowOptions {
     }
 
     /// Clip client content to rounded corners on an alpha-capable native surface.
-    /// Native decorations and the OS input region remain separate.
+    /// Ignored for Linux decorated windows. The OS input region remains separate.
     pub fn corner_radius(mut self, radius: u32) -> Self {
         self.corner_radius = radius;
         self
     }
 
     /// Enable or disable native window-manager decorations.
+    /// On Linux, decorated windows leave the outer contour to the window system;
+    /// `corner_radius` does not additionally clip their client area. A compositor
+    /// may choose square corners. Frameless windows retain renderer clipping.
     pub fn decorations(mut self, decorations: bool) -> Self {
         self.decorations = decorations;
         self

@@ -3,6 +3,18 @@ use kurbo::{Affine, Rect};
 use peniko::Color;
 use plico_renderer::{PaintCommand, Scene};
 
+/// Linux decorated windows leave the outer contour to the window system
+/// (server decorations or winit's negotiated client decorations). Do not cut
+/// transparent holes into their rectangular content surface as well.
+/// Explicit frameless windows retain the renderer fallback.
+pub(crate) fn client_corner_radius(requested: u32, decorations: bool) -> u32 {
+    if cfg!(target_os = "linux") && decorations {
+        0
+    } else {
+        requested
+    }
+}
+
 /// Clip a completed physical-pixel scene and select a transparent renderer clear.
 ///
 /// The scene must be freshly assembled, before calling this once per frame.
@@ -42,6 +54,60 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
 mod tests {
     use super::*;
     use crate::PaintScene;
+    #[cfg(all(target_os = "linux", feature = "wgpu"))]
+    #[test]
+    #[ignore = "requires an X11 display and working wgpu adapter; Xvfb is sufficient"]
+    fn native_linux_decorations_do_not_clip_the_client_area_twice() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        use winit::{
+            application::ApplicationHandler,
+            event::WindowEvent,
+            event_loop::{ActiveEventLoop, EventLoop},
+            window::WindowId,
+        };
+        struct Probe(Arc<AtomicBool>);
+        impl ApplicationHandler for Probe {
+            fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+                // Xvfb may expose only opaque surfaces. This test deliberately
+                // exercises the decorated path: a requested radius must not
+                // force an alpha swapchain or client-area clipping.
+                let options = crate::WindowOptions::new()
+                    .decorations(true)
+                    .corner_radius(16)
+                    .initial_inner_size(160, 120)
+                    .renderer(crate::RenderBackend::Wgpu);
+                let mut shell = crate::shell::Shell::create(event_loop, &options).unwrap();
+                assert!(shell.window().is_decorated());
+                assert_eq!(shell.prepare_window_frame(Color::BLACK), Color::BLACK);
+                assert!(shell.scene.commands.is_empty());
+                self.0.store(true, Ordering::SeqCst);
+                event_loop.exit();
+            }
+            fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+        }
+        let checked = Arc::new(AtomicBool::new(false));
+        let mut builder = EventLoop::builder();
+        builder.with_x11().with_any_thread(true);
+        builder
+            .build()
+            .unwrap()
+            .run_app(Probe(checked.clone()))
+            .unwrap();
+        assert!(checked.load(Ordering::SeqCst));
+    }
+    #[test]
+    fn decorated_linux_windows_delegate_the_contour_but_frameless_keeps_fallback() {
+        assert_eq!(client_corner_radius(16, false), 16);
+        assert_eq!(client_corner_radius(0, true), 0);
+        assert_eq!(
+            client_corner_radius(16, true),
+            if cfg!(target_os = "linux") { 0 } else { 16 }
+        );
+    }
     #[test]
     fn rounded_window_has_transparent_corners_at_both_scales() {
         let folder = tempfile::tempdir().unwrap();

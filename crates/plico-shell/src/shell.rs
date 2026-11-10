@@ -58,8 +58,9 @@ impl Shell {
         options: &WindowOptions,
     ) -> crate::Result<Shell> {
         let options = options.clone().normalized();
-        let transparent =
-            options.background != WindowBackground::Opaque || options.corner_radius > 0;
+        let corner_radius =
+            crate::window_frame::client_corner_radius(options.corner_radius, options.decorations);
+        let transparent = options.background != WindowBackground::Opaque || corner_radius > 0;
         if matches!(
             options.background,
             WindowBackground::Blurred | WindowBackground::Mica | WindowBackground::MicaAlt
@@ -166,7 +167,7 @@ impl Shell {
             #[cfg(target_os = "macos")]
             frame_clock: None,
             window,
-            corner_radius: options.corner_radius,
+            corner_radius,
             deferred_show,
             #[cfg(target_os = "macos")]
             native_frame,

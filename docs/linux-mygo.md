@@ -155,3 +155,25 @@ resize / idle / hide 恢复。测试零命中、命令失败或生命周期程�
 触控板或 RSS 测量。生命周期输出的 present_p95_us 只衡量成功 present 调用的
 CPU 耗时，不作为帧率或端到端延迟。这里补充的是可复建的验证基础，没有据此声称
 新增了 Linux 性能收益。
+
+## 窗口装饰优先于客户端圆角
+
+参考 MyGO `internal/linux/window.go::useCSD/decorate` 与 `titlebar.go`
+（`ee3d4bd9`）：装饰由平台宿主协商，不把窗口内容先裁圆再交给系统边框。
+MyGO 的 GTK 空标题栏、GTK 阴影和按钮覆盖层依赖 GTK 宿主，未复制到 winit。
+
+Plico 的 Linux 窗口显式启用 `WindowOptions::decorations(true)` 时，使用
+winit 的原生装饰协商路径，禁用额外的客户端圆角裁切；不再仅因设置了
+`corner_radius` 就申请透明内容 surface。显式透明背景仍保持透明。
+无边框窗口 `decorations(false)` 继续使用现有透明 surface + 渲染圆角后备。
+macOS 与其他平台不改变此策略。
+
+系统装饰的按钮、边框、阴影和圆角服从 compositor / 窗口管理器 / winit
+装饰实现；不保证每个 Linux 桌面都呈现圆角，也不设置私有圆角协议。
+不存在对合成器绘制结果的自动圆角检测；这个后备是显式无边框模式，
+不是“检测到方角后自动替换”。GTK 隐藏标题栏方案仍未实现。
+
+本轮验证：共享宿主单元测试通过；Xvfb 上创建请求 16px radius 的装饰窗口，
+实际通过 wgpu 创建 opaque surface，断言没有额外客户端 clip。无边框后备
+由 1×/2× 像素测试覆盖。Xvfb 没有桌面窗口管理器，这不验证原生标题栏、
+阴影或圆角外观；Wayland/GNOME/KDE 实机外观仍待验证。
