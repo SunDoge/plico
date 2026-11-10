@@ -188,3 +188,21 @@ fn accordion_frames_collapsible_sections() {
     .unwrap();
     assert!(!open);
 }
+
+#[test]
+fn composable_navigation_entry_keeps_shared_selection_motion_and_custom_content() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            nav_entry(cx, "Inbox", true).disabled(true).children(|cx| {
+                text(cx, "Inbox");
+                badge(cx, "12");
+            });
+        })
+        .unwrap();
+    let entry = engine.node(named(&engine, "Inbox")).unwrap();
+    assert_eq!(entry.style.selected, Some(true));
+    assert!(entry.style.disabled);
+    assert!(entry.style.transition_ms > 0);
+    assert!(!engine.node(named(&engine, "12")).unwrap().text.is_empty());
+}
