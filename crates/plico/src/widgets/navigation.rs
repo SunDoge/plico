@@ -70,10 +70,9 @@ pub fn breadcrumbs(cx: &mut UiContext, items: &[&str], chosen: &mut usize) -> bo
 /// role. Give it a width and a bounded height, then declare sections and
 /// items inside it; the application owns the chosen item.
 ///
-/// MyGO's sidebar is one Tab stop that handles Up/Down/Home/End and
-/// type-selection; Plico has no per-container keyboard action wiring yet, so
-/// every item and section header is its own focus stop and the pointer
-/// chooses.
+/// The selected row is the sidebar's one Tab stop. Up/Down/Home/End and
+/// buffered prefix typing move to and activate another item; section headers
+/// remain pointer/assistive-technology disclosures rather than list choices.
 ///
 /// ```text
 /// sidebar(cx).width(220.).height(320.) + |cx| {
@@ -87,12 +86,13 @@ pub fn breadcrumbs(cx: &mut UiContext, items: &[&str], chosen: &mut usize) -> bo
 pub fn sidebar<'u, 'e>(cx: &'u mut UiContext<'e>) -> crate::Layout<'u, 'e> {
     let m = cx.theme().metrics;
     column(cx)
-        .padding(m.space(2))
-        .gap(m.space(1))
-        .background(Color::Panel)
+        .padding(m.spacing as f32 * 2.5)
+        .gap(m.spacing as f32 * 0.5)
+        .background(Color::Control)
         .clip(true)
         .scroll_y(true)
         .semantic_role(WidgetRole::Tree)
+        .selection_follows_focus(true)
 }
 
 /// A section of a [`sidebar`] (MyGO `SidebarSection`): a title that shows and
@@ -113,6 +113,7 @@ pub fn sidebar_section(
         match open.as_deref_mut() {
             Some(open) => {
                 let response = button_base(cx, title)
+                    .tab_stop(false)
                     .width_percent(100.)
                     .height(m.space(7) as f32)
                     .min_width(0.)
@@ -165,8 +166,9 @@ pub fn sidebar_section(
 }
 
 /// One item of a [`sidebar`] (MyGO `SidebarItem`): an icon (optional) and a
-/// single-line label, selected with the theme's selection background and the
-/// accent color. It carries the tree-item role and its selected state; the
+/// single-line label. The chosen row is gray outside the sidebar's focus scope
+/// and uses the accent face while its scope holds focus, following MyGO.
+/// It carries the tree-item role and its selected state; the
 /// declaration site owns the choice on [`crate::Response::clicked`].
 pub fn sidebar_item(
     cx: &mut UiContext,
@@ -175,36 +177,19 @@ pub fn sidebar_item(
     icon: Option<&crate::SvgAsset>,
 ) -> crate::Response {
     let m = cx.theme().metrics;
-    button_base(cx, label)
-        .width_percent(100.)
-        .height(m.space(7) as f32)
+    super::nav_entry(cx, label, selected)
         .min_width(0.)
-        .min_height(0.)
-        .padding_x(m.space(2))
-        .gap(m.space(2))
-        .radius(m.radius as f32)
-        .selected(selected)
-        .background(if selected {
-            Color::Selection
-        } else {
-            Color::Panel
-        })
-        .hover_background(Color::ControlHover)
-        .pressed_background(Color::ControlPressed)
-        .color(if selected {
-            Color::Accent
-        } else {
-            Color::Foreground
-        })
-        .transition(m.interaction_ms)
         .semantic_role(WidgetRole::TreeItem)
         .children(|cx| {
             if let Some(asset) = icon {
-                let _ = svg(cx, asset).size(16., 16.);
+                let glyph = svg(cx, asset).size(16., 16.);
+                if !selected {
+                    glyph.color(Color::Accent);
+                }
             }
             let _ = text(cx, label)
                 .font_size(m.font_size)
-                .weight(if selected { 600 } else { 400 })
+                .weight(400)
                 .ellipsis(true)
                 .min_width(0.)
                 .grow(1.);

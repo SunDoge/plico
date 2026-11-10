@@ -42,7 +42,7 @@ fn focused_borders(ui: &Driver<Demo>) -> usize {
     count(&ui.declarations())
 }
 #[test]
-fn composite_focus_follows_scoped_descendants_without_hiding_ordinary_input_focus() {
+fn composite_and_ordinary_fields_use_one_border_focus_indicator() {
     let mut ui = Driver::new(Demo::default(), 600, 400).unwrap();
     assert_eq!(focused_borders(&ui), 0);
     for label in ["First", "Second"] {
@@ -73,7 +73,20 @@ fn composite_focus_follows_scoped_descendants_without_hiding_ordinary_input_focu
             .adapter
             .placed
             .iter()
-            .any(|n| n.paint.outline_width > 0.)
+            .all(|n| n.paint.outline_width == 0.)
+    );
+    let accent = ui.source.engine.theme().accent;
+    assert!(
+        ui.source
+            .adapter
+            .placed
+            .iter()
+            .any(|node| node.paint.border.is_some_and(|(width, color)| {
+                let rgb = color.to_rgba8();
+                width == 1.
+                    && [rgb.r, rgb.g, rgb.b]
+                        == [(accent >> 16) as u8, (accent >> 8) as u8, accent as u8]
+            }))
     );
 }
 
@@ -113,7 +126,7 @@ fn builtin_search_uses_one_outer_focus_border_and_keeps_native_text_input() {
             .iter()
             .map(|node| {
                 usize::from(
-                    node.kind == plico::Kind::Row && node.style.border_color == Color::Focus,
+                    node.kind == plico::Kind::Row && node.style.border_color == Color::Accent,
                 ) + focused(&node.children)
             })
             .sum()

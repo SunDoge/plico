@@ -49,7 +49,8 @@ pub fn validate_nodes(nodes: &[plico::ViewNode]) -> Result<()> {
                 }
             );
             snafu::ensure!(
-                (n.kind == plico::Kind::Slider) == n.numeric.is_some()
+                matches!(n.kind, plico::Kind::Slider | plico::Kind::ValueControl)
+                    == n.numeric.is_some()
                     && n.numeric.is_none_or(|range| range.valid()
                         && range.value >= range.min
                         && range.value <= range.max),

@@ -363,6 +363,7 @@ impl<V: HostView> Source<V> {
         // backend focus before this frame's traversal moves it.
         self.engine.set_focused(self.adapter.focused());
         self.pending |= self.adapter.update_hover_regions(&self.engine);
+        self.pending |= self.adapter.update_pointer_regions(&self.engine);
         let mut fonts_changed = false;
         for font in &self.fonts {
             fonts_changed |= tcx.register_font(font);

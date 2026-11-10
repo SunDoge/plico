@@ -25,10 +25,15 @@ fn knob(s: &Source<Feedback>) -> f64 {
         .widget
         .as_ref()
         .unwrap();
-    match &scene.commands[1] {
-        PaintCommand::Fill { shape, .. } => shape.bounding_box().center().x,
-        _ => panic!("expected switch thumb"),
-    }
+    scene
+        .commands
+        .iter()
+        .rev()
+        .find_map(|command| match command {
+            PaintCommand::Fill { shape, .. } => Some(shape.bounding_box().center().x),
+            _ => None,
+        })
+        .expect("expected switch thumb fill")
 }
 fn click(s: &mut Source<Feedback>, tcx: &mut TextContext) {
     let id = s

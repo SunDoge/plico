@@ -8,8 +8,9 @@ pub struct Avatar<'u, 'e> {
     image: Option<&'u ImageAsset>,
     fallback: &'u str,
     size: f32,
-    font_size: u16,
+    font_size: Option<u16>,
     color: Color,
+    custom_background: bool,
 }
 /// Start a decorative avatar; callers provide initials or other fallback text.
 pub fn avatar<'u, 'e>(cx: &'u mut UiContext<'e>) -> Avatar<'u, 'e> {
@@ -20,14 +21,14 @@ pub fn avatar<'u, 'e>(cx: &'u mut UiContext<'e>) -> Avatar<'u, 'e> {
                 .clip(true)
                 .shrink(0.)
                 .align(Align::Center)
-                .justify(Justify::Center)
-                .background(Color::Control),
+                .justify(Justify::Center),
         ),
         image: None,
         fallback: "",
-        size: 32.,
-        font_size,
-        color: Color::Muted,
+        size: font_size as f32 * 2.25,
+        font_size: None,
+        color: Color::Literal(0xffffff),
+        custom_background: false,
     }
 }
 impl<'u> Avatar<'u, '_> {
@@ -44,7 +45,7 @@ impl<'u> Avatar<'u, '_> {
         self
     }
     pub fn font_size(mut self, size: u16) -> Self {
-        self.font_size = size;
+        self.font_size = Some(size);
         self
     }
     pub fn color(mut self, color: Color) -> Self {
@@ -52,6 +53,7 @@ impl<'u> Avatar<'u, '_> {
         self
     }
     pub fn background(mut self, color: Color) -> Self {
+        self.custom_background = true;
         self.layout = self.layout.take().map(|layout| layout.background(color));
         self
     }
@@ -67,22 +69,50 @@ impl ImplicitKey for Avatar<'_, '_> {
 }
 impl Drop for Avatar<'_, '_> {
     fn drop(&mut self) {
-        self.layout
-            .take()
-            .unwrap()
+        let layout = self.layout.take().unwrap();
+        let layout = if self.image.is_none() && !self.custom_background {
+            layout.background(avatar_color(self.fallback))
+        } else {
+            layout
+        };
+        layout
             .width(self.size)
             .height(self.size)
             .radius(self.size / 2.)
+            .corner_smoothing(0.)
             .children(|cx| {
                 if let Some(asset) = self.image {
                     image(cx, asset).size(self.size, self.size);
                 } else {
                     text(cx, self.fallback)
-                        .font_size(self.font_size)
-                        .color(self.color);
+                        .font_size(self.font_size.unwrap_or((self.size * 0.4).round() as u16))
+                        .weight(600)
+                        .color(self.color)
+                        .ellipsis(true);
                 }
             });
     }
+}
+
+/// MyGO indicators.go: FNV-1a name hue, HSL saturation .45 / lightness .55.
+fn avatar_color(name: &str) -> Color {
+    let hash = name.bytes().fold(2166136261_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(16777619)
+    });
+    let hue = f64::from(hash % 360);
+    let lightness = 0.55_f64;
+    let c = (1. - (2. * lightness - 1.).abs()) * 0.45;
+    let x = c * (1. - ((hue / 60.) % 2. - 1.).abs());
+    let rgb = match (hue / 60.) as u32 {
+        0 => [c, x, 0.],
+        1 => [x, c, 0.],
+        2 => [0., c, x],
+        3 => [0., x, c],
+        4 => [x, 0., c],
+        _ => [c, 0., x],
+    }
+    .map(|channel| ((channel + lightness - c / 2.) * 255.) as u32);
+    Color::Literal((rgb[0] << 16) | (rgb[1] << 8) | rgb[2])
 }
 
 /// Annotation above a text fragment. The reserved annotation slot keeps adjacent

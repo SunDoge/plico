@@ -36,7 +36,7 @@ impl Kind {
                 .union(C::TEXT_SELECT)
                 .union(C::FOCUS)
                 .union(C::TAB_STOP),
-            Self::Slider => C::VALUE_EDIT.union(C::FOCUS).union(C::TAB_STOP),
+            Self::Slider | Self::ValueControl => C::VALUE_EDIT.union(C::FOCUS).union(C::TAB_STOP),
             Self::Text => C::TEXT_SELECT,
             Self::Overlay => C::ACTIVATE,
             Self::Dialog => C::FOCUS,

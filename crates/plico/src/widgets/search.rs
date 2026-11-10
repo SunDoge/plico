@@ -72,15 +72,9 @@ pub(crate) fn search_field_with(
     let m = cx.theme().metrics;
     let mut changed = false;
     let mut submitted = false;
-    row(cx)
-        .height(m.control_height as f32)
+    cx.input_field()
         .align(Align::Center)
-        .gap(m.space(1))
-        .padding_x(m.space(2))
-        .radius(m.radius as f32)
-        .background(Color::Control)
-        .border(1., Color::Border)
-        .focus_within_border(1., Color::Focus)
+        .gap(m.spacing as f32 * 1.5)
         .children(|cx| {
             let _ = svg(cx, &SEARCH)
                 .size(m.font_size as f32, m.font_size as f32)
@@ -92,7 +86,7 @@ pub(crate) fn search_field_with(
                 .width(0.)
                 .min_width(0.)
                 .grow(1.)
-                .height(m.control_height as f32 - 2.)
+                .height(m.font_size as f32 * 1.4)
                 .min_height(0.)
                 .response();
             changed |= response.changed;

@@ -9,6 +9,9 @@ pub struct ExperimentContext {
     scope: u64,
     inherited: Style,
     in_button: bool,
+    toolbar_buttons: bool,
+    accordion_items: bool,
+    accordion_index: usize,
 }
 /// Value-only text attributes available to the explicit property experiment.
 #[doc(hidden)]
@@ -143,6 +146,9 @@ impl UiContext<'_> {
             scope: context.scope,
             inherited: context.inherited,
             in_button: context.in_button,
+            toolbar_buttons: context.toolbar_buttons,
+            accordion_items: context.accordion_items,
+            accordion_index: context.accordion_index,
         });
     }
     /// Stable logical identity, suitable for experimental reload checkpoints.
@@ -155,6 +161,9 @@ impl UiContext<'_> {
             scope: self.scope,
             inherited: self.inherited,
             in_button: self.in_button,
+            toolbar_buttons: self.toolbar_buttons,
+            accordion_items: self.accordion_items,
+            accordion_index: self.accordion_index,
         }
     }
     /// Keep an empty conditional Region boundary out of its parent's flex flow.
@@ -231,6 +240,9 @@ impl Engine {
             scope: context.scope,
             inherited: context.inherited,
             in_button: context.in_button,
+            toolbar_buttons: context.toolbar_buttons,
+            accordion_items: context.accordion_items,
+            accordion_index: context.accordion_index,
         });
         if let Some(error) = self.error.take() {
             return Err(error);
@@ -326,6 +338,9 @@ impl Engine {
             scope: context.scope,
             inherited: context.inherited,
             in_button: context.in_button,
+            toolbar_buttons: context.toolbar_buttons,
+            accordion_items: context.accordion_items,
+            accordion_index: context.accordion_index,
         });
         self.experiment_active = false;
         if self

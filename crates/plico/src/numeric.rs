@@ -69,3 +69,14 @@ pub struct SliderResponse {
     /// The upper thumb value for a range slider.
     pub high: Option<f64>,
 }
+
+/// Result from a composed [`crate::UiContext::value_control`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueControlResponse<R> {
+    pub inner: R,
+    /// True when this declaration consumed a new numeric input value.
+    pub input: bool,
+    pub changed: bool,
+    pub value: f64,
+    pub focused: bool,
+}

@@ -94,3 +94,30 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         "focus turns the border accent"
     );
 }
+
+#[test]
+fn focused_text_input_uses_one_accent_border_without_a_generic_outer_ring() {
+    let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
+    let input = |ui: &Driver<Demo>| {
+        ui.source
+            .adapter
+            .placed
+            .iter()
+            .find(|node| node.paint.border.is_some())
+            .unwrap()
+            .clone()
+    };
+    let rest = input(&ui);
+    ui.execute(Command::Focus {
+        role: "textbox".into(),
+        label: "Name".into(),
+        occurrence: None,
+    })
+    .unwrap();
+    let focused = input(&ui);
+    assert_eq!(focused.paint.border.unwrap().0, 1.);
+    assert_eq!(focused.paint.outline_width, 0.);
+    assert_eq!(focused.paint.outline_color, None);
+    assert_eq!(focused.paint.background, rest.paint.background);
+    assert_eq!(focused.rect, rest.rect);
+}

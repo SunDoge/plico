@@ -1,3 +1,5 @@
+// Theme values follow MyGO ui/theme.go at 9b26576752f47b8334b67ed60bd4ce0f663cc6de.
+// MyGO Copyright (c) 2026 MyGo contributors, MIT; see licenses/MyGo-MIT.txt.
 use crate::Color;
 
 /// Shared component measurements. A copy belongs to the theme, not to each widget.
@@ -17,7 +19,7 @@ impl Default for Metrics {
         Self {
             spacing: 4,
             radius: 6,
-            font_size: 14,
+            font_size: if cfg!(target_os = "macos") { 13 } else { 14 },
             label_size: 12,
             title_size: 26,
             control_height: 32,
@@ -71,24 +73,24 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            foreground: 0x202024,
-            surface: 0xf7f7f8,
-            accent: 0x2266dd,
+            foreground: 0x18181b,
+            surface: 0xffffff,
+            accent: 0x2563eb,
             on_accent: 0xffffff,
             muted: 0x71717a,
             panel: 0xffffff,
             control: 0xf4f4f5,
-            selection: 0xdde9ff,
+            selection: 0xc9d8fa,
             border: 0xd9d9de,
             control_hover: 0xe9e9ec,
             control_pressed: 0xdddde1,
             accent_hover: 0x1d4ed8,
             accent_pressed: 0x1e40af,
-            focus: 0x6094ef,
+            focus: 0x87a9f4,
             info: 0x1d4ed8,
-            success: 0x15803d,
-            warning: 0x92400e,
-            danger: 0xb91c1c,
+            success: 0x16a34a,
+            warning: 0xd97706,
+            danger: 0xdc2626,
             metrics: Metrics::default(),
         }
     }
@@ -112,33 +114,28 @@ impl Theme {
         self
     }
     pub fn light() -> Self {
-        Self {
-            foreground: 0x202024,
-            surface: 0xf7f7f8,
-            accent: 0x285bd6,
-            ..Self::default()
-        }
+        Self::default()
     }
     pub fn dark() -> Self {
         Self {
             foreground: 0xf4f4f5,
             surface: 0x18181b,
-            accent: 0x94b5ff,
-            on_accent: 0x10213e,
+            accent: 0x3b82f6,
+            on_accent: 0xffffff,
             muted: 0xa1a1aa,
-            panel: 0x202023,
+            panel: 0x18181b,
             control: 0x27272a,
-            selection: 0x263d65,
+            selection: 0x264273,
             border: 0x3f3f46,
             control_hover: 0x323236,
             control_pressed: 0x3c3c41,
-            accent_hover: 0xb0c8ff,
-            accent_pressed: 0x78a0ed,
-            focus: 0x94b5ff,
+            accent_hover: 0x60a5fa,
+            accent_pressed: 0x2563eb,
+            focus: 0x436da1,
             info: 0x93c5fd,
-            success: 0x86efac,
-            warning: 0xfcd34d,
-            danger: 0xfca5a5,
+            success: 0x22c55e,
+            warning: 0xf59e0b,
+            danger: 0xef4444,
             metrics: Metrics::default(),
         }
     }

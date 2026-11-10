@@ -144,7 +144,7 @@ fn focus_ring_fades_without_layout_and_cleans_up_on_blur() {
     clock.advance(Duration::from_millis(32)).unwrap();
     let nodes = source.build_frame(&mut text, 300, 200);
     let paint = &nodes.iter().find(|n| n.depth == 1).unwrap().paint;
-    assert_eq!(paint.outline_width, 1.5);
+    assert_eq!(paint.outline_width, 2.); // MyGO FocusRingWidth default.
     let alpha = paint.outline_color.unwrap().to_rgba8().a;
     assert!(
         alpha > 0 && alpha < 255,
@@ -160,4 +160,90 @@ fn focus_ring_fades_without_layout_and_cleans_up_on_blur() {
     assert_eq!(paint.outline_width, 0.);
     assert_eq!(paint.outline_color, None);
     assert!(!source.has_anim());
+}
+
+#[test]
+fn composed_toolbar_buttons_are_transparent_at_rest_and_hover_without_rebuilding() {
+    #[derive(Default)]
+    struct Toolbar {
+        calls: usize,
+    }
+    impl HostView for Toolbar {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            self.calls += 1;
+            toolbar(cx).children(|cx| {
+                button(cx).text("Action").width(120.).height(40.);
+            });
+        }
+    }
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(Toolbar::default(), clock.clone());
+    let mut text = TextContext::new();
+    let nodes = source.build_frame(&mut text, 300, 200);
+    assert_eq!(
+        nodes
+            .iter()
+            .find(|n| n.depth == 2)
+            .unwrap()
+            .paint
+            .background,
+        None
+    );
+    source.handle_event(pointer(PointerPhase::Move));
+    source.build_frame(&mut text, 300, 200);
+    let calls = source.view.calls;
+    clock.advance(Duration::from_millis(50)).unwrap();
+    let nodes = source.build_frame(&mut text, 300, 200);
+    assert!(
+        nodes
+            .iter()
+            .find(|n| n.depth == 2)
+            .unwrap()
+            .paint
+            .background
+            .is_some()
+    );
+    assert_eq!(source.view.calls, calls);
+    assert_eq!(source.adapter.stats.layout_runs, 0);
+    clock.advance(Duration::from_secs(1)).unwrap();
+    source.build_frame(&mut text, 300, 200);
+    assert!(!source.has_anim());
+}
+
+#[test]
+fn sidebar_selection_follows_its_focus_scope_without_application_focus_state() {
+    use plico_renderer::{SemanticAction, SemanticRole};
+    struct Sidebar;
+    impl HostView for Sidebar {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            sidebar(cx).width(220.).height(160.).children(|cx| {
+                sidebar_item(cx, "Inbox", true, None);
+                sidebar_item(cx, "Archive", false, None);
+            });
+        }
+    }
+    let mut source = Source::new(Sidebar);
+    source.set_reduced_motion(true);
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 300, 200);
+    let selected = |source: &Source<Sidebar>| {
+        let root = source.engine.node(source.engine.root()).unwrap().children[0];
+        let child = source.engine.node(root).unwrap().children[0];
+        source.engine.node(child).unwrap().style.background
+    };
+    assert_eq!(selected(&source), Some(Color::ControlPressed));
+    let target = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::TreeItem, "Inbox", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Focus { target }));
+    source.build_frame(&mut text, 300, 200);
+    assert_eq!(selected(&source), Some(Color::Accent));
+    assert!(source.handle_semantic_action(SemanticAction::Blur { target }));
+    source.build_frame(&mut text, 300, 200);
+    assert_eq!(selected(&source), Some(Color::ControlPressed));
 }

@@ -1,5 +1,5 @@
-//! MyGO's color picker: named swatches and the hue/saturation/brightness
-//! sliders write an RGB literal into the caller's color.
+//! MyGO's color picker: named swatches, saturation/value field, hue control
+//! and editable hex input write an RGB literal into the caller's color.
 use plico::prelude::*;
 use plico::{Engine, Entity};
 
@@ -27,6 +27,13 @@ fn named(engine: &Engine, label: &str) -> Entity {
     find(engine, label).unwrap_or_else(|| panic!("no node named {label:?}"))
 }
 
+fn input_text(engine: &Engine, label: &str) -> String {
+    engine
+        .input(named(engine, label))
+        .and_then(|(buffer, _)| buffer.text())
+        .unwrap_or_default()
+}
+
 #[test]
 fn swatches_set_an_rgb_literal_and_the_hex_readout_follows() {
     let mut color = Color::Literal(0xef4444);
@@ -37,7 +44,7 @@ fn swatches_set_an_rgb_literal_and_the_hex_readout_follows() {
     });
     assert!(!changed, "declaring a picker does not change the color");
     assert_eq!(color, Color::Literal(0xef4444));
-    assert!(find(&engine, "#ef4444").is_some());
+    assert_eq!(input_text(&engine, "Hex"), "#ef4444");
 
     engine.queue_click(named(&engine, "Blue"));
     frame(&mut engine, |cx| {
@@ -48,7 +55,7 @@ fn swatches_set_an_rgb_literal_and_the_hex_readout_follows() {
     frame(&mut engine, |cx| {
         color_picker(cx, &mut color);
     });
-    assert!(find(&engine, "#3b82f6").is_some());
+    assert_eq!(input_text(&engine, "Hex"), "#3b82f6");
 
     // Clicking the selected swatch keeps the color and reports no change.
     engine.queue_click(named(&engine, "Blue"));
@@ -57,6 +64,14 @@ fn swatches_set_an_rgb_literal_and_the_hex_readout_follows() {
     });
     assert!(!changed);
     assert_eq!(color, Color::Literal(0x3b82f6));
+
+    let hex = named(&engine, "Hex");
+    engine.input(hex).unwrap().0.set("#0f0".to_owned().into());
+    frame(&mut engine, |cx| {
+        changed = color_picker(cx, &mut color);
+    });
+    assert!(changed);
+    assert_eq!(color, Color::Literal(0x00ff00));
 }
 
 #[test]

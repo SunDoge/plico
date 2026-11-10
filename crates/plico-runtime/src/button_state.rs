@@ -120,33 +120,41 @@ impl ButtonStates {
             }
             entry.value
         };
-        if let Some(base) = style.background {
-            let inferred = match base {
-                Color::Control => (Some(Color::ControlHover), Some(Color::ControlPressed)),
-                Color::Accent => (Some(Color::AccentHover), Some(Color::AccentPressed)),
-                _ => (None, None),
-            };
-            let rgb = |color| {
-                let v = theme.resolve(color);
-                [
-                    (v >> 16 & 255) as f32,
-                    (v >> 8 & 255) as f32,
-                    (v & 255) as f32,
-                ]
-            };
-            let mut color = rgb(base);
-            for (over, weight) in [
-                (style.hover_background.or(inferred.0), weights[0]),
-                (style.pressed_background.or(inferred.1), weights[1]),
-            ] {
-                if let Some(over) = over {
-                    for (channel, target) in color.iter_mut().zip(rgb(over)) {
-                        *channel += (target - *channel) * weight;
-                    }
+        let inferred = match style.background {
+            Some(Color::Control) => (Some(Color::ControlHover), Some(Color::ControlPressed)),
+            Some(Color::Accent) => (Some(Color::AccentHover), Some(Color::AccentPressed)),
+            _ => (None, None),
+        };
+        let rgb = |color| {
+            let v = theme.resolve(color);
+            [
+                (v >> 16 & 255) as f32,
+                (v >> 8 & 255) as f32,
+                (v & 255) as f32,
+            ]
+        };
+        // Composite interaction faces over a possibly transparent base. MyGO
+        // toolbar buttons have no face until hover; opacity belongs to the
+        // background, never the icon or label.
+        let mut alpha = if style.background.is_some() { 1. } else { 0. };
+        let mut color = style.background.map(rgb).unwrap_or([0.; 3]);
+        for (over, weight) in [
+            (style.hover_background.or(inferred.0), weights[0]),
+            (style.pressed_background.or(inferred.1), weights[1]),
+        ] {
+            if let Some(over) = over {
+                for (channel, target) in color.iter_mut().zip(rgb(over)) {
+                    *channel = *channel * (1. - weight) + target * weight;
                 }
+                alpha = alpha * (1. - weight) + weight;
             }
-            let [r, g, b] = color.map(|v| v.round().clamp(0., 255.) as u32);
+        }
+        if alpha > 0. {
+            let [r, g, b] = color.map(|v| (v / alpha).round().clamp(0., 255.) as u32);
             style.background = Some(Color::Literal((r << 16) | (g << 8) | b));
+            style.background_alpha *= alpha;
+        } else {
+            style.background = None;
         }
         style.opacity *= 1. - 0.55 * weights[3];
         (style, weights[2])
@@ -170,6 +178,36 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+    #[test]
+    fn toolbar_face_fades_in_without_fading_content_or_painting_at_rest() {
+        let (mut states, entity, mut style) = setup();
+        style.background = None;
+        let theme = Theme::light();
+        let (rest, _) = states.style(entity, style, theme, Interaction::default(), true);
+        assert_eq!(rest.background, None);
+        let hover = Interaction {
+            hovered: true,
+            ..Default::default()
+        };
+        states.style(entity, style, theme, hover, true);
+        states.advance(Duration::from_millis(50), &mut Vec::new());
+        let (mid, _) = states.style(entity, style, theme, hover, true);
+        assert!(mid.background_alpha > 0. && mid.background_alpha < 1.);
+        assert_eq!(mid.opacity, 1.);
+        assert_eq!(mid.background, Some(Color::Literal(0xffffff)));
+        states.advance(Duration::from_secs(1), &mut Vec::new());
+        let (end, _) = states.style(entity, style, theme, hover, true);
+        assert_eq!(end.background_alpha, 1.);
+        states.style(entity, style, theme, Interaction::default(), true);
+        states.advance(Duration::from_secs(1), &mut Vec::new());
+        assert_eq!(
+            states
+                .style(entity, style, theme, Interaction::default(), true)
+                .0
+                .background,
+            None
+        );
     }
     #[test]
     fn interruption_is_continuous_and_only_active_entities_are_sampled() {

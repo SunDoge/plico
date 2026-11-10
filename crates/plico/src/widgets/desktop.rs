@@ -11,20 +11,23 @@ use std::time::Duration;
 /// Declare a tab strip and return whether the selection changed this frame.
 ///
 /// A click chooses a tab; the chosen tab underlines itself with the accent
-/// color and carries the tab semantic role. Keyboard traversal (arrows,
-/// Home, End while focused) follows MyGO's Tabs and still needs
-/// adapter-side focus wiring; today the pointer is the selection path.
+/// color and carries the tab semantic role. The strip is one sequential Tab
+/// stop: horizontal arrows wrap and choose, while Home/End choose the ends.
 ///
 /// ```text
 /// if tabs(cx, &mut page, &["General", "Appearance", "Advanced"]) { .. }
 /// ```
 pub fn tabs(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> bool {
     let before = *selected;
+    if !labels.is_empty() {
+        *selected = (*selected).min(labels.len() - 1);
+    }
     let metrics = cx.theme().metrics;
     row(cx)
         .gap(2)
         .width_percent(100.)
         .semantic_role(crate::WidgetRole::TabList)
+        .selection_follows_focus(true)
         .children(|cx| {
             for (index, label) in labels.iter().enumerate() {
                 let on = index == *selected;
@@ -372,6 +375,9 @@ pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
         inherited: cx.inherited,
         localizer: cx.localizer,
         in_button: false,
+        toolbar_buttons: false,
+        accordion_items: false,
+        accordion_index: 0,
         engine: &mut *cx.engine,
     };
     let cx = &mut portal;
@@ -560,9 +566,9 @@ pub fn toast_viewport(cx: &mut UiContext, host: &mut ToastHost) -> bool {
 pub fn toolbar<'u, 'e>(cx: &'u mut UiContext<'e>) -> crate::Layout<'u, 'e> {
     let metrics = cx.theme().metrics;
     row(cx)
-        .gap(metrics.space(2))
-        .padding_y(metrics.space(2))
-        .padding_x(metrics.space(3))
+        .toolbar_buttons()
+        .gap(metrics.space(1))
+        .padding(metrics.space(1))
         .align(Align::Center)
         .width_percent(100.)
 }

@@ -226,6 +226,9 @@ impl<'s> Modal<'_, '_, 's> {
             scope,
             inherited: Style::default(),
             in_button: false,
+            toolbar_buttons: false,
+            accordion_items: false,
+            accordion_index: 0,
         };
         let entity = portal.engine.declare(
             portal.parent,
@@ -248,7 +251,7 @@ impl<'s> Modal<'_, '_, 's> {
                             if material.is_some_and(|glass| glass.enabled) {
                                 0.18
                             } else {
-                                0.38
+                                0.4
                             },
                         ),
                         ..Default::default()
@@ -262,9 +265,13 @@ impl<'s> Modal<'_, '_, 's> {
                 width: anchor.map(|_| width),
                 max_width: Some(width),
                 shrink: 1.,
-                padding: if anchor.is_some() { 8. } else { 24. },
-                gap: if anchor.is_some() { 8. } else { 18. },
-                radius: 12.,
+                padding: if anchor.is_some() { 4. } else { 20. },
+                gap: if anchor.is_some() { 4. } else { 12. },
+                radius: if anchor.is_some() {
+                    cx.theme().metrics.radius as f32 + 2.
+                } else {
+                    10.
+                },
                 enter_from: anchor.is_none().then(|| crate::Presentation {
                     translate: [0., 8.],
                     ..Default::default()
@@ -279,8 +286,16 @@ impl<'s> Modal<'_, '_, 's> {
                 ],
                 transition_ms: motion.duration_ms(),
                 background: Some(Color::Panel),
-                border_width: 1.,
+                border_width: if anchor.is_some() { 1. } else { 0. },
                 border_color: Color::Border,
+                shadow: Some(crate::BoxShadow {
+                    offset_y: if anchor.is_some() { 6. } else { 10. },
+                    blur: if anchor.is_some() { 20. } else { 30. },
+                    opacity: if anchor.is_some() { 0.18 } else { 0.3 },
+                    color: Color::Literal(0),
+                    offset_x: 0.,
+                    spread: 0.,
+                }),
                 scroll_y: true,
                 max_height,
                 role: panel_role,
@@ -324,9 +339,7 @@ impl<'s> Modal<'_, '_, 's> {
                                         .min_height(32.)
                                         .max_height(32.)
                                         .padding(7)
-                                        .radius(16.)
-                                        .corner_smoothing(0.)
-                                        .elevation(crate::Elevation::SUBTLE)
+                                        .radius(6.)
                                         .clicked()
                                 })
                                 .inner;
@@ -346,8 +359,8 @@ impl<'s> Modal<'_, '_, 's> {
                     material.show(cx, panel.radius, panel.corner_smoothing);
                     let content_style = Style {
                         width_percent: Some(100.),
-                        padding: if anchor.is_some() { 8. } else { 24. },
-                        gap: if anchor.is_some() { 8. } else { 18. },
+                        padding: if anchor.is_some() { 4. } else { 20. },
+                        gap: if anchor.is_some() { 4. } else { 12. },
                         scroll_y: true,
                         max_height,
                         radius: panel.radius,

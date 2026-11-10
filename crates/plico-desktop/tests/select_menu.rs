@@ -328,3 +328,45 @@ fn pointer_highlight_can_be_activated_by_keyboard_without_changing_value_on_hove
     assert_eq!(s.view.value, 2);
     assert_eq!(s.view.changes, 1);
 }
+
+#[test]
+fn popup_keyboard_highlights_use_mygo_accent_with_legible_text() {
+    let mut s = Source::new(Demo::default());
+    s.set_reduced_motion(true);
+    let mut tcx = TextContext::new();
+    s.view.select_state.open();
+    frame(&mut s, &mut tcx);
+    focus(&mut s, SemanticRole::Option, "Nightly");
+    frame(&mut s, &mut tcx);
+    let label = s
+        .adapter
+        .placed
+        .iter()
+        .find(|node| node.paint.text.as_deref() == Some("Nightly"))
+        .unwrap();
+    assert_eq!(
+        label.paint.text_color.to_rgba8(),
+        peniko::Color::from_rgb8(255, 255, 255).to_rgba8()
+    );
+    assert!(s.adapter.placed.iter().any(|node| {
+        node.paint.background.is_some_and(|color| {
+            color.to_rgba8() == peniko::Color::from_rgb8(37, 99, 235).to_rgba8()
+        })
+    }));
+    s.view.select_state.close();
+    s.view.menu_state.open();
+    s.request_rebuild();
+    frame(&mut s, &mut tcx);
+    focus(&mut s, SemanticRole::MenuItem, "Duplicate");
+    frame(&mut s, &mut tcx);
+    let label = s
+        .adapter
+        .placed
+        .iter()
+        .find(|node| node.paint.text.as_deref() == Some("Duplicate"))
+        .unwrap();
+    assert_eq!(
+        label.paint.text_color.to_rgba8(),
+        peniko::Color::from_rgb8(255, 255, 255).to_rgba8()
+    );
+}

@@ -6,12 +6,14 @@ use crate::{Key, Layout, icons, prelude::*};
 pub fn badge(cx: &mut UiContext, label: &str) {
     let m = cx.theme().metrics;
     text(cx, label)
-        .font_size(m.label_size)
-        .weight(600)
-        .padding(m.space(1))
-        .radius(m.radius as f32)
-        .background(Color::Selection)
-        .color(Color::Accent);
+        .font_size(m.font_size.saturating_sub(2))
+        .padding_x(m.spacing as f32 * 1.5)
+        .padding_y(0)
+        .radius(999.)
+        .corner_smoothing(0.)
+        .shrink(0.)
+        .background(Color::Foreground)
+        .background_alpha(0.1);
 }
 
 /// A titled content panel: the card container repeated across applications
@@ -120,27 +122,54 @@ pub fn nav_entry<'u, 'e, 't>(
     selected: bool,
 ) -> crate::ButtonBase<'u, 'e, 't> {
     let m = cx.theme().metrics;
-    button_base(cx, label)
+    // Sections are composition containers, not separate sidebar focus scopes.
+    let mut owner = cx.parent;
+    let mut cursor = cx.parent;
+    while let Some(node) = cx.engine.nodes.get(cursor) {
+        if node.style.role == Some(crate::WidgetRole::Tree) {
+            owner = cursor;
+            break;
+        }
+        if cursor == cx.engine.root {
+            break;
+        }
+        cursor = node.identity.parent;
+    }
+    let focused = cx
+        .engine
+        .nodes
+        .get(owner)
+        .is_some_and(|node| cx.engine.focus_within(node.identity));
+    let control = button_base(cx, label)
         .width_percent(100.)
         .padding_x(m.space(2))
-        .padding_y(m.space(1))
-        .height(m.control_height as f32 + 4.)
+        .padding_y(m.spacing as f32 * 1.5)
+        .min_height(m.control_height as f32)
         .radius(m.radius as f32)
-        .background(if selected {
-            Color::Selection
-        } else {
-            Color::Panel
-        })
-        .hover_background(Color::ControlHover)
-        .pressed_background(Color::ControlPressed)
-        .color(if selected {
-            Color::Accent
-        } else {
-            Color::Muted
-        })
         .selected(selected)
         .transition(m.interaction_ms)
-        .gap(m.space(2))
+        .gap(m.space(2));
+    if selected {
+        let face = if focused {
+            Color::Accent
+        } else {
+            Color::ControlPressed
+        };
+        control
+            .background(face)
+            .hover_background(face)
+            .pressed_background(face)
+            .color(if focused {
+                Color::OnAccent
+            } else {
+                Color::Foreground
+            })
+    } else {
+        control
+            .hover_background(Color::ControlHover)
+            .pressed_background(Color::ControlPressed)
+            .color(Color::Foreground)
+    }
 }
 
 /// A sidebar navigation entry bound to a [`crate::Router`]-owned route.
@@ -200,9 +229,9 @@ pub fn nav_menu<Route: crate::Route + Copy + Eq>(
 /// A bordered box of collapsible sections (MyGO `Accordion`): each item opens
 /// and closes on its own, and `collapsible` is the item (MyGO `AccordionItem`).
 ///
-/// MyGO makes the headers one Tab stop with Up/Down/Home/End; Plico has no
-/// per-container focus action wiring, so each header is its own stop and Enter
-/// or Space toggles it.
+/// Headers retain ordinary Tab/Enter/Space behavior. While one is focused,
+/// Up/Down/Home/End traverse the accordion's visible headers and clamp at its
+/// ends, matching MyGO's group keyboard handling.
 ///
 /// ```text
 /// accordion(cx, |cx| {
@@ -214,10 +243,10 @@ pub fn accordion(cx: &mut UiContext, content: impl FnOnce(&mut UiContext)) {
     let m = cx.theme().metrics;
     column(cx)
         .width_percent(100.)
-        .padding(m.space(1))
-        .gap(m.space(1))
-        .radius(m.radius as f32 + 4.)
-        .background(Color::Panel)
+        .focus_group(FocusAxis::Vertical)
+        .accordion_items()
+        .radius(m.radius as f32)
+        .clip(true)
         .border(1., Color::Border)
         .children(|cx| content(cx));
 }
@@ -273,13 +302,28 @@ pub fn choice<T: PartialEq>(
 pub fn segmented(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> bool {
     let m = cx.theme().metrics;
     let before = *selected;
-    row(cx).gap(m.space(1)).wrap(true).children(|cx| {
-        for (index, label) in labels.iter().enumerate() {
-            cx.keyed(index as u64, |cx| {
-                choice(cx, label, selected, index);
-            });
-        }
-    });
+    row(cx)
+        .padding(m.spacing as f32 * 0.5)
+        .gap(m.spacing as f32 * 0.5)
+        .radius(m.radius as f32)
+        .background(Color::Control)
+        .border(1., Color::Border)
+        .children(|cx| {
+            for (index, label) in labels.iter().enumerate() {
+                cx.keyed(index as u64, |cx| {
+                    if button_base(cx, *label)
+                        .segment(*selected == index)
+                        .children(|cx| {
+                            text(cx, *label);
+                        })
+                        .response
+                        .clicked()
+                    {
+                        *selected = index;
+                    }
+                });
+            }
+        });
     before != *selected
 }
 
@@ -294,29 +338,63 @@ pub fn collapsible<R>(
     content: impl FnOnce(&mut UiContext) -> R,
 ) -> Option<R> {
     let m = cx.theme().metrics;
+    let accordion = cx.accordion_items;
+    let separated = accordion && cx.accordion_index > 0;
+    if accordion {
+        cx.accordion_index += 1;
+    }
     column(cx)
-        .gap(m.space(2))
         .children(|cx| {
-            let response = button_base(cx, label)
+            if separated {
+                column(cx)
+                    .width_percent(100.)
+                    .height(1.)
+                    .background(Color::Border)
+                    .children(|_cx| {});
+            }
+            let trigger = button_base(cx, label)
                 .expanded(*open)
-                .min_height(m.control_height as f32)
-                .padding_x(m.space(2))
-                .padding_y(m.space(1))
-                .gap(m.space(2))
-                .radius(m.radius as f32)
-                .background(Color::Control)
+                .min_height(0.)
+                .gap(m.space(if accordion { 2 } else { 1 }))
+                .padding_y(m.spacing as f32 * if accordion { 2.5 } else { 1. })
+                .padding_left(m.spacing as f32 * if accordion { 3. } else { 0.5 })
+                .padding_right(m.space(if accordion { 3 } else { 2 }))
+                .align_self(if accordion {
+                    Align::Stretch
+                } else {
+                    Align::Start
+                })
+                .radius(if accordion { 0. } else { m.radius as f32 })
+                .hover_background(Color::ControlHover)
+                .pressed_background(Color::ControlPressed)
                 .align(Align::Center)
-                .motion(Motion::Quick)
+                .motion(Motion::Quick);
+            let response = trigger
                 .children(|cx| {
-                    icon(
-                        cx,
-                        if *open {
-                            &icons::CHEVRON_DOWN
-                        } else {
-                            &icons::CHEVRON_RIGHT
-                        },
-                    );
-                    text(cx, label).weight(600);
+                    if !accordion {
+                        icon(
+                            cx,
+                            if *open {
+                                &icons::CHEVRON_DOWN
+                            } else {
+                                &icons::CHEVRON_RIGHT
+                            },
+                        )
+                        .size(14., 14.);
+                    }
+                    let title = text(cx, label).weight(if accordion { 500 } else { 400 });
+                    if accordion {
+                        title.grow(1.);
+                        icon(
+                            cx,
+                            if *open {
+                                &super::indicators::CHEVRON_UP
+                            } else {
+                                &icons::CHEVRON_DOWN
+                            },
+                        )
+                        .size(14., 14.);
+                    }
                 })
                 .response;
             if response.clicked() {
@@ -325,9 +403,12 @@ pub fn collapsible<R>(
             if *open {
                 Some(
                     column(cx)
-                        .padding(m.space(2))
+                        .padding_top(if accordion { 0. } else { m.space(1) as f32 })
+                        .padding_bottom(m.space(if accordion { 3 } else { 1 }))
+                        .padding_left(m.spacing as f32 * if accordion { 3. } else { 5.5 })
+                        .padding_right(if accordion { m.space(3) as f32 } else { 0. })
                         .gap(m.space(2))
-                        .children(|cx| content(cx))
+                        .children(content)
                         .inner,
                 )
             } else {
@@ -356,15 +437,17 @@ pub fn progress(cx: &mut UiContext, label: &str, fraction: f32) {
                 .color(Color::Muted);
         });
         row(cx)
-            .height(m.spacing.max(1) as f32 * 2.)
+            .height(m.spacing.max(1) as f32 * 1.5)
             .width_percent(100.)
-            .radius(m.radius as f32)
-            .background(Color::Control)
+            .radius(m.spacing as f32 * 0.75)
+            .corner_smoothing(0.)
+            .background(Color::Border)
             .children(|cx| {
                 let _ = column(cx)
                     .width_percent(fraction * 100.)
                     .height_percent(100.)
-                    .radius(m.radius as f32)
+                    .radius(m.spacing as f32 * 0.75)
+                    .corner_smoothing(0.)
                     .background(Color::Accent)
                     .children(|_cx| {});
             })

@@ -18,7 +18,7 @@ impl Geometry {
         let (width, height) = if kind == Kind::Switch {
             (9. * unit, 5. * unit)
         } else {
-            (4.5 * unit, 4.5 * unit)
+            (4. * unit, 4. * unit)
         };
         Self {
             unit,
@@ -84,8 +84,18 @@ pub(crate) fn paint(
     if kind == Kind::Switch {
         // A physical thumb stays light in both appearances (MyGO's white
         // face, softened in the dark); `on_accent` is text, not the thumb.
-        let face = recipe::thumb_face(theme);
+        let face = 0xffffff;
         let center = g.height / 2.;
+        let cx = x + center + (g.width - g.height) * progress;
+        let cy = y + center;
+        let r = center - g.unit / 2.;
+        scene.draw_box_shadow(
+            Affine::translate((0., 1.)),
+            Rect::new(cx - r, cy - r, cx + r, cy + r),
+            peniko::Color::from_rgba8(0, 0, 0, 64),
+            r,
+            1.5,
+        );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,

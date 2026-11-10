@@ -1,0 +1,109 @@
+// Reference-only probe; copied into reports and run without changing MyGO.
+package main
+import (
+    "image/png"
+    "os"
+    "time"
+    "path/filepath"
+    "github.com/egoist/mygo/ui"
+)
+func main() {
+    for _, dark := range []bool{false, true} {
+        name := "light"
+        if dark { name = "dark" }
+        value := "Agjpqy 中文 É"
+        checked := true
+        selected := 0
+        folder := "inbox"
+        date := time.Date(2026, time.October, 8, 0, 0, 0, 0, time.UTC)
+        tt := ui.NewTesterWith(func(c *ui.Context) {
+            ui.Column(c).Padding(20).Gap(12).Children(func() {
+                ui.Text(c, "MyGO reference controls")
+                ui.Row(c).Gap(8).Children(func() {
+                    ui.Button(c, "Ordinary")
+                    ui.PrimaryButton(c, "Primary")
+                    ui.Button(c, "Disabled").Disabled(true)
+                })
+                ui.Toolbar(c, func() { ui.Button(c, "Toolbar action") })
+                ui.TextInput(c, &value).Width(240).Label("Name")
+                ui.Checkbox(c, &checked, "Remember this device")
+                ui.Switch(c, &checked)
+                ui.Segmented(c, &selected, "Password", "Passphrase", "Username")
+                ui.Sidebar(c, &folder, func() {
+                    ui.SidebarItem(c, "inbox", nil, "Inbox")
+                    ui.SidebarItem(c, "archive", nil, "Archive")
+                }).Width(240).Height(120)
+                ui.Calendar(c, &date)
+                ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+                    ui.Badge(c, "12")
+                    ui.Avatar(c, "A", nil)
+                    ui.Avatar(c, "花", nil)
+                })
+                ui.Column(c).Gap(4).Children(func() {
+                    ui.Row(c).Gap(8).Children(func() {
+                        ui.Text(c, "Download").FontSize(12).Grow(1)
+                        ui.Text(c, "50%").FontSize(12).TextColor(c.Theme().TextMuted)
+                    })
+                    ui.Progress(c, .5)
+                })
+            })
+        }, 560, 760, ui.TesterOptions{Dark: dark})
+        save := func(suffix string) {
+            file, err := os.Create(filepath.Join(os.Getenv("PLICO_STYLE_OUTPUT"), "mygo-"+name+suffix+".png"))
+            if err != nil { panic(err) }
+            if err := png.Encode(file, tt.Image()); err != nil { panic(err) }
+            if err := file.Close(); err != nil { panic(err) }
+        }
+        save("")
+        tt.Move(40, 166)
+        save("-hover")
+        tt.Press(40, 166)
+        tt.Release(40, 166)
+        if !tt.Focused("Name") { panic("reference input did not receive focus") }
+        save("-focus")
+
+        treeOpen, generalOpen := true, true
+        choice := "Stable"
+        tint := ui.Hex("#3b82f6")
+        table := ui.ListState{}
+        families := ui.NewTesterWith(func(c *ui.Context) {
+            ui.Column(c).Padding(20).Gap(12).Children(func() {
+                ui.Text(c, "MyGO component families")
+                ui.Row(c).Gap(24).AlignItems(ui.Start).Children(func() {
+                    ui.Column(c).Width(320).Gap(12).Children(func() {
+                        ui.Tree(c, func() {
+                            ui.TreeItem(c, "src", &treeOpen, func() {
+                                ui.TreeItem(c, "main.rs", nil, nil).Selected(true)
+                                ui.TreeItem(c, "lib.rs", nil, nil)
+                            })
+                            ui.TreeItem(c, "Cargo.toml", nil, nil)
+                        })
+                        ui.Accordion(c, func() {
+                            ui.AccordionItem(c, "General", &generalOpen, func() {
+                                ui.Text(c, "Shared settings")
+                            })
+                            closed := false
+                            ui.AccordionItem(c, "Privacy", &closed, func() {
+                                ui.Text(c, "Private settings")
+                            })
+                        })
+                        ui.Select(c, &choice, []string{"Stable", "Beta", "Nightly"}).Width(220)
+                        ui.Button(c, "Tooltip anchor").Tooltip("Reference tooltip")
+                    })
+                    ui.Column(c).Width(400).Gap(12).Children(func() {
+                        columns := []ui.TableColumn{{Title: "Name"}, {Title: "Status", Width: 120}}
+                        ui.Table(c, &table, columns, 3, func(row, col int) {
+                            cells := [3][2]string{{"Renderer", "Ready"}, {"Runtime", "Active"}, {"Desktop", "Review"}}
+                            ui.Text(c, cells[row][col]).SingleLine()
+                        }).Width(400).Height(170)
+                        ui.ColorPicker(c, &tint)
+                    })
+                })
+            })
+        }, 800, 760, ui.TesterOptions{Dark: dark})
+        file, err := os.Create(filepath.Join(os.Getenv("PLICO_STYLE_OUTPUT"), "mygo-families-"+name+".png"))
+        if err != nil { panic(err) }
+        if err := png.Encode(file, families.Image()); err != nil { panic(err) }
+        if err := file.Close(); err != nil { panic(err) }
+    }
+}

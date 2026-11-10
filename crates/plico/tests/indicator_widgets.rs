@@ -187,6 +187,19 @@ fn rating_sets_and_clears_the_stars() {
     });
     let stars_nodes = buttons(&engine);
     assert_eq!(stars_nodes.len(), 5, "one button per star");
+    let mut value_controls = Vec::new();
+    collect(
+        &engine,
+        engine.root(),
+        &mut |entity, node| (node.kind == Kind::ValueControl).then_some(entity),
+        &mut value_controls,
+    );
+    assert_eq!(value_controls.len(), 1, "the stars share one value control");
+    let range = engine.node(value_controls[0]).unwrap().numeric.unwrap();
+    assert_eq!(
+        (range.min, range.max, range.value, range.step),
+        (0., 5., 0., 1.)
+    );
     let names = stars_nodes
         .iter()
         .map(|entity| engine.node(*entity).unwrap().text.to_string())
@@ -206,6 +219,13 @@ fn rating_sets_and_clears_the_stars() {
         changed = rating(cx, &mut stars, 5);
     });
     assert_eq!(stars, 0, "clicking the set star clears the rating");
+    assert!(changed);
+
+    engine.queue_value(value_controls[0], 4.);
+    frame(&mut engine, |cx| {
+        changed = rating(cx, &mut stars, 5);
+    });
+    assert_eq!(stars, 4, "numeric input updates the composed rating");
     assert!(changed);
 }
 

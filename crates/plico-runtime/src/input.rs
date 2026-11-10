@@ -41,6 +41,7 @@ struct GeometryKey {
     multiline: bool,
     epoch: usize,
     size: [f32; 2],
+    clip: [f32; 4],
     font_family: Option<Arc<str>>,
     font_size: f32,
     font_weight: f32,
@@ -66,11 +67,26 @@ impl Adapter {
         };
         let style = &engine.node(entity).unwrap().style;
         let focused = self.focused == Some(entity) && !style.disabled;
+        let multiline = buffer.is_multiline();
+        // MyGO editor_layout.go clips to the inner border, not the padded
+        // content box. Font descenders may legitimately use that padding.
+        let border = node.paint.border.map_or(0., |(width, _)| width);
+        let clip = if multiline {
+            [0., 0., node.content_size[0], node.content_size[1]]
+        } else {
+            [
+                node.rect[0] + border - node.content_origin[0],
+                node.rect[1] + border - node.content_origin[1],
+                node.rect[2] - border - node.content_origin[0],
+                node.rect[3] - border - node.content_origin[1],
+            ]
+        };
         let key = GeometryKey {
             revision: buffer.revision(),
             multiline: buffer.is_multiline(),
             epoch: tcx.cache_generation(),
             size: node.content_size,
+            clip,
             font_family: node.paint.font_family.clone(),
             font_size: node.paint.font_size,
             font_weight: node.paint.font_weight,
@@ -187,12 +203,17 @@ impl Adapter {
             }
             -scroll.clamp(0., (metrics.height - height).max(0.))
         } else {
-            ((height - metrics.height) / 2.).max(0.)
+            (height - metrics.height) / 2.
         };
         let mut scene = Scene::default();
         scene.push_clip_layer(
             Affine::IDENTITY,
-            &Rect::new(0., 0., width as f64, height as f64),
+            &Rect::new(
+                clip[0] as f64,
+                clip[1] as f64,
+                clip[2] as f64,
+                clip[3] as f64,
+            ),
         );
         let transform = Affine::translate((-(offset as f64), y as f64));
         if focused && !empty {
@@ -818,6 +839,37 @@ mod multiline_tests {
         source.adapter.focused = None;
         source.build_frame(&mut text, 240, 180);
         assert_eq!(source.adapter.input_layouts[&entity].y, 0.);
+    }
+    #[test]
+    fn single_line_descenders_and_cjk_fit_inside_the_border_not_the_padding() {
+        struct Compact(plico::TextBuffer);
+        impl crate::HostView for Compact {
+            fn show(&mut self, cx: &mut plico::UiContext) {
+                plico::widgets::text_input(cx, "Compact", &self.0)
+                    .key("compact")
+                    .font_size(18)
+                    .width(240.)
+                    .height(36.)
+                    .padding_y(10);
+            }
+        }
+        for value in ["", "gjpqy ÅÉ", "中文测试 gjpqy"] {
+            let buffer = plico::TextBuffer::new();
+            buffer.set(value.to_owned().into());
+            let mut source = crate::Source::new(Compact(buffer));
+            source.build_frame(&mut TextContext::new(), 300, 100);
+            let entity = source.engine.find(source.engine.root(), "compact").unwrap();
+            let geometry = &source.adapter.input_layouts[&entity];
+            let height = geometry.layout.metrics().height;
+            assert!(
+                height > geometry.key.size[1],
+                "fixture must exceed the padded content box"
+            );
+            assert!(geometry.y >= geometry.key.clip[1]);
+            assert!(geometry.y + height <= geometry.key.clip[3]);
+            assert!(geometry.caret[1] >= geometry.key.clip[1] as f64);
+            assert!(geometry.caret[3] <= geometry.key.clip[3] as f64);
+        }
     }
     #[test]
     fn single_line_retains_vertical_centering() {

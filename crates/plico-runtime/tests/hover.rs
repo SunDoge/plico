@@ -30,15 +30,90 @@ impl HostView for Demo {
     }
 }
 fn pointer(phase: PointerPhase) -> UiEvent {
+    pointer_at(phase, 20., 20.)
+}
+fn pointer_at(phase: PointerPhase, x: f64, y: f64) -> UiEvent {
     UiEvent::Pointer(PointerEvent {
         phase,
-        position: Point { x: 20., y: 20. },
+        position: Point { x, y },
         button: matches!(phase, PointerPhase::Down | PointerPhase::Up)
             .then_some(PointerButton::Primary),
         buttons: u32::from(phase == PointerPhase::Down),
         modifiers: Modifiers::empty(),
         properties: PointerProperties::default(),
     })
+}
+
+#[derive(Default)]
+struct PointerField {
+    fraction: Option<[f32; 2]>,
+}
+impl HostView for PointerField {
+    fn show(&mut self, cx: &mut UiContext) {
+        button_base(cx, "Field")
+            .width(200.)
+            .height(100.)
+            .padding(0.)
+            .children(|cx| {
+                let fraction = cx.pointer_fraction();
+                if cx.pressed() {
+                    self.fraction = fraction;
+                }
+            });
+    }
+}
+
+#[test]
+fn composed_controls_receive_transformed_normalized_pointer_geometry() {
+    let mut source = Source::new(PointerField::default());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 320, 180);
+    let [x0, y0, x1, y1] = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Button, "Field", None)
+        .unwrap()
+        .bounds;
+    let x = f64::from(x0 + (x1 - x0) * 0.25);
+    let y = f64::from(y0 + (y1 - y0) * 0.75);
+    source.handle_event(pointer_at(PointerPhase::Down, x, y));
+    source.build_frame(&mut text, 320, 180);
+    let [fx, fy] = source.view.fraction.expect("pressed pointer fraction");
+    assert!((fx - 0.25).abs() < 0.01, "fx={fx}");
+    assert!((fy - 0.75).abs() < 0.01, "fy={fy}");
+}
+
+struct ColorField {
+    color: Color,
+    changed: bool,
+}
+impl HostView for ColorField {
+    fn show(&mut self, cx: &mut UiContext) {
+        self.changed = color_picker(cx, &mut self.color);
+    }
+}
+
+#[test]
+fn color_picker_uses_the_shared_pointer_geometry_for_its_two_axis_field() {
+    let mut source = Source::new(ColorField {
+        color: Color::Literal(0xff0000),
+        changed: false,
+    });
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 320, 360);
+    let [x0, y0, x1, y1] = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Slider, "Saturation and brightness", None)
+        .expect("two-axis color field exposes slider semantics")
+        .bounds;
+    source.handle_event(pointer_at(
+        PointerPhase::Down,
+        f64::from(x0 + x1) / 2.,
+        f64::from(y0 + y1) / 2.,
+    ));
+    source.build_frame(&mut text, 320, 360);
+    assert_eq!(source.view.color, Color::Literal(0x804040));
 }
 #[test]
 fn pointer_hover_and_click_are_independent_borrow_free_response_values() {

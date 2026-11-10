@@ -103,6 +103,9 @@ pub enum Kind {
     Image,
     #[kind(family = Control, interactive, leaf)]
     Slider,
+    /// A composed numeric editor whose children provide its visuals.
+    #[kind(family = Container, interactive)]
+    ValueControl,
     #[kind(family = Control, interactive, leaf)]
     Button,
     #[kind(family = Control, interactive, leaf)]
@@ -122,7 +125,7 @@ pub enum KindFamily {
     Container,
     /// Renders its label: Text, TextInput.
     Text,
-    /// Leaf control reporting clicks: Button, ButtonBase, Switch, Checkbox, Slider.
+    /// Interactive control, including composed ValueControl containers.
     Control,
     /// Visual content without interaction: Svg, Shader, Image.
     Media,
@@ -244,6 +247,13 @@ pub enum Justify {
     SpaceEvenly,
     Stretch,
 }
+/// Keyboard traversal axis for a composed group whose accessibility role does
+/// not itself imply arrow-key navigation (for example an accordion).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FocusAxis {
+    Horizontal,
+    Vertical,
+}
 /// Specialized semantics for composed popup controls, independent of a backend.
 /// Portable generic font choice; Default uses the configured window family.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -282,6 +292,8 @@ pub enum WidgetRole {
     Meter,
     /// A work indicator, determinate or not (mygo Spinner).
     ProgressBar,
+    /// A directly adjustable scalar or multi-axis value.
+    Slider,
     /// A pair of arrows stepping a bounded value (mygo Stepper).
     SpinButton,
     /// An adjustable divider between regions (mygo Split).
@@ -424,6 +436,31 @@ pub struct Style {
     pub anchor_id: Option<u64>,
     #[invalidates(SEMANTICS)]
     pub role: Option<WidgetRole>,
+    /// Whether an otherwise focusable control participates in sequential Tab
+    /// navigation. Pointer-only subcontrols such as a tree disclosure arrow
+    /// keep activation without becoming a second keyboard stop.
+    #[serde(default = "control_chrome_default")]
+    #[invalidates(SEMANTICS)]
+    pub tab_stop: bool,
+    /// Keep a purely visual implementation subtree out of the accessibility
+    /// projection while its composed parent owns the semantic contract.
+    #[serde(default)]
+    #[invalidates(SEMANTICS)]
+    pub semantic_hidden: bool,
+    /// Zero-based logical depth for a visible tree item. Hosts use this for
+    /// parent/child keyboard traversal independently of visual indentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(SEMANTICS)]
+    pub tree_depth: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(SEMANTICS)]
+    pub focus_axis: Option<FocusAxis>,
+    /// Arrow/type-ahead focus movement also activates the destination. Source
+    /// list sidebars use this to move application-owned selection; ordinary
+    /// trees leave selection independent from focus.
+    #[serde(default)]
+    #[invalidates(SEMANTICS)]
+    pub selection_follows_focus: bool,
     /// Position this overlay beside the corresponding trigger.
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub popup_anchor: Option<u64>,
@@ -561,6 +598,11 @@ impl Default for Style {
             absolute: None,
             anchor_id: None,
             role: None,
+            tab_stop: true,
+            semantic_hidden: false,
+            tree_depth: None,
+            focus_axis: None,
+            selection_follows_focus: false,
             popup_anchor: None,
             modal_open: false,
             dismiss_on_escape: true,

@@ -155,19 +155,25 @@ fn panel_stat_and_nav_item_mount_with_expected_structure() {
     }
     assert_eq!(
         styled(&e, "Overview").background,
-        Some(plico::Color::Selection)
+        Some(plico::Color::ControlPressed)
     );
-    assert_eq!(styled(&e, "Activity").background, Some(plico::Color::Panel));
+    assert_eq!(styled(&e, "Activity").background, None);
 }
 
 #[test]
 fn accordion_frames_collapsible_sections() {
     let mut e = Engine::default();
     let mut open = true;
+    let mut other_open = false;
     e.frame_declarations(|cx| {
         accordion(cx, |cx| {
-            let _ = collapsible(cx, "General", &mut open, |cx| {
-                text(cx, "General content");
+            cx.keyed("general", |cx| {
+                let _ = collapsible(cx, "General", &mut open, |cx| {
+                    text(cx, "General content");
+                });
+            });
+            cx.keyed("advanced", |cx| {
+                let _ = collapsible(cx, "Advanced", &mut other_open, |_cx| {});
             });
         });
     })
@@ -175,13 +181,33 @@ fn accordion_frames_collapsible_sections() {
     assert!(e.node(named(&e, "General")).is_some());
     assert!(e.node(named(&e, "General content")).is_some());
     let frame = e.node(e.root()).unwrap().children[0];
-    assert_eq!(e.node(frame).unwrap().style.background, Some(Color::Panel));
-    assert_eq!(e.node(frame).unwrap().style.border_width, 1.);
+    let frame_style = e.node(frame).unwrap().style;
+    assert_eq!(frame_style.background, None);
+    assert_eq!(frame_style.border_width, 1.);
+    assert_eq!(frame_style.radius, 6.);
+    assert!(frame_style.clip);
+    let trigger = e.node(named(&e, "General")).unwrap();
+    let padding = trigger
+        .style
+        .layout
+        .padding
+        .expect("accordion trigger padding");
+    assert_eq!(padding.top, plico::Length::Px(10.));
+    assert_eq!(padding.left, plico::Length::Px(12.));
+    let advanced_item = e.node(e.node(frame).unwrap().children[1]).unwrap();
+    let separator = e.node(advanced_item.children[0]).unwrap();
+    assert_eq!(separator.style.height, Some(1.));
+    assert_eq!(separator.style.background, Some(Color::Border));
     e.queue_click(named(&e, "General"));
     e.frame_declarations(|cx| {
         accordion(cx, |cx| {
-            let _ = collapsible(cx, "General", &mut open, |cx| {
-                text(cx, "General content");
+            cx.keyed("general", |cx| {
+                let _ = collapsible(cx, "General", &mut open, |cx| {
+                    text(cx, "General content");
+                });
+            });
+            cx.keyed("advanced", |cx| {
+                let _ = collapsible(cx, "Advanced", &mut other_open, |_cx| {});
             });
         });
     })

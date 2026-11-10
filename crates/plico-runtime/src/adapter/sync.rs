@@ -51,7 +51,8 @@ impl Adapter {
             target.checked = self.pressed == Some(e);
         }
         if styled_button && !target.material_background {
-            target.background = target.background.or(Some(Token::Control));
+            // Constructors give ordinary buttons their face. An explicitly
+            // empty face (ghost / toolbar) must stay transparent at rest.
             let inferred = match target.background {
                 Some(Token::Control) => (Some(Token::ControlHover), Some(Token::ControlPressed)),
                 Some(Token::Accent) => (Some(Token::AccentHover), Some(Token::AccentPressed)),
@@ -128,6 +129,7 @@ impl Adapter {
             && is_control
             && n.kind != Kind::Overlay
             && !visual_style.disabled
+            && visual_style.tab_stop
         {
             self.tab_order.push(e);
         }
@@ -533,6 +535,7 @@ pub(crate) fn make_paint(
                     | Kind::Shader
                     | Kind::Image
                     | Kind::Slider
+                    | Kind::ValueControl
                     | Kind::ButtonBase
                     | Kind::TextInput
                     | Kind::Dialog
@@ -615,10 +618,9 @@ pub(crate) fn make_paint(
         if style.disabled && !matches!(kind, Kind::ButtonBase | Kind::Button) {
             p.opacity *= 0.45;
         }
-        if kind == Kind::Button && p.background.is_none() {
-            p.background = Some(resolve(Token::Control, theme));
-        }
-        if focus && style.control_chrome {
+        // MyGO paint.go explicitly excludes kindInput from the generic
+        // keyboard ring: inputBorder already provides its focus indicator.
+        if focus && style.control_chrome && kind != Kind::TextInput {
             p.outline_width = 2.;
             p.outline_offset = 1.;
             p.outline_color = Some(resolve(Token::Focus, theme));

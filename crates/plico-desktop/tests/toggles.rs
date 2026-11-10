@@ -123,8 +123,8 @@ fn density_changes_indicator_and_label_geometry_together() {
         (full_indicator.width(), full_indicator.height()),
         (36., 20.)
     );
-    assert_eq!(full_switch.content_origin[0] - full_switch.rect[0], 50.);
-    assert_eq!(indicator(placed(&s, "Locked")).width(), 18.);
+    assert_eq!(full_switch.content_origin[0] - full_switch.rect[0], 42.);
+    assert_eq!(indicator(placed(&s, "Locked")).width(), 16.);
     s.view.compact = true;
     s.request_rebuild();
     s.build_frame(&mut tcx, 400, 240);
@@ -134,10 +134,10 @@ fn density_changes_indicator_and_label_geometry_together() {
         (compact_indicator.width(), compact_indicator.height()),
         (27., 15.)
     );
-    assert_eq!(compact.content_origin[0] - compact.rect[0], 38.);
-    assert!(compact.rect[3] - compact.rect[1] >= Metrics::compact().control_height as f32);
+    assert_eq!(compact.content_origin[0] - compact.rect[0], 32.);
+    assert!(compact.rect[3] - compact.rect[1] >= Metrics::compact().space(5) as f32);
     assert!(compact.rect[3] - compact.rect[1] < 36.);
-    assert_eq!(indicator(placed(&s, "Locked")).width(), 13.5);
+    assert_eq!(indicator(placed(&s, "Locked")).width(), 12.);
     assert!(!s.has_anim());
 }
 #[test]
@@ -154,9 +154,7 @@ fn animated_gap_keeps_the_indicator_anchored_to_padding() {
     s.build_frame(&mut tcx, 400, 240);
     let mid = placed(&s, "Editable");
     assert!(mid.content_origin[0] > start && mid.content_origin[0] < start + 14.);
-    assert!(
-        (mid.content_origin[0] as f64 + indicator(mid).x0 - mid.rect[0] as f64 - 8.).abs() < 0.001
-    );
+    assert!((mid.content_origin[0] as f64 + indicator(mid).x0 - mid.rect[0] as f64).abs() < 0.001);
     clock.set(Duration::from_millis(140)).unwrap();
     s.build_frame(&mut tcx, 400, 240);
     let end = placed(&s, "Editable");

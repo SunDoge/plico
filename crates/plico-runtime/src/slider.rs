@@ -194,9 +194,9 @@ impl Adapter {
         };
         let enabled = |adapter: &Self, e| {
             adapter.modal_allows(engine, e)
-                && engine
-                    .node(e)
-                    .is_some_and(|n| n.kind == Kind::Slider && !n.style.disabled)
+                && engine.node(e).is_some_and(|n| {
+                    matches!(n.kind, Kind::Slider | Kind::ValueControl) && !n.style.disabled
+                })
         };
         match event {
             UiEvent::Focus(false) => {
@@ -211,7 +211,12 @@ impl Adapter {
                     && pointer.button == Some(PointerButton::Primary);
                 let entity = if start {
                     self.hit(engine, pointer.position.x, pointer.position.y)
-                        .filter(|e| enabled(self, *e))
+                        // Composed value controls own keyboard/range semantics;
+                        // their descendants define pointer hit regions.
+                        .filter(|e| {
+                            enabled(self, *e)
+                                && engine.node(*e).is_some_and(|n| n.kind == Kind::Slider)
+                        })
                 } else {
                     self.slider_drag.filter(|e| enabled(self, *e))
                 }?;
