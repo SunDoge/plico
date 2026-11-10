@@ -214,6 +214,11 @@ cache recycling and a GPU-only winit window demo. It supports analytical shared 
 Default shared-scene damage replay (`PLICO_WGPU_DAMAGE=0` disables it) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
 window exercise pass. A controlled [Linux damage benchmark](experiments/wgpu-damage.md) now records local GPU gains and a scrolling CPU regression; broader application performance and physical-display verification remain pending.
+`plico_wgpu::FrameBudget` reports per-frame prepare/upload/encode/submit/wait CPU
+time, upload bytes, instance and draw counts, and optional root-encoder GPU
+timestamps (`PLICO_GPU_TIMER=1`). The shell HUD and the offscreen `--frames`
+capture expose it; definitions and measurement caveats are in
+[performance](performance.md).
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG

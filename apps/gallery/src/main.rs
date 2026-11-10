@@ -6,6 +6,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scenario: Option<std::path::PathBuf>,
         #[usage(long)]
         capture: Option<std::path::PathBuf>,
+        /// Capture the scenario repeatedly and keep the last frame, so caches
+        /// and pipelines are warm when `PLICO_FRAME_BUDGET` is printed.
+        #[usage(long)]
+        frames: Option<u32>,
     }
     let options = Options::parse();
     #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
@@ -14,14 +18,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     #[cfg(any(feature = "desktop", feature = "wgpu", feature = "skia"))]
     if let Some(output) = options.capture {
-        let scenario = if let Some(path) = options.scenario {
-            plico_desktop::PreviewScenario::<gallery::Gallery>::load(path)?
-        } else {
-            Default::default()
-        };
-        scenario
-            .render(plico_desktop::NativeApp)?
+        let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Auto);
+        let mut captured = None;
+        for _ in 0..options.frames.unwrap_or(1).max(1) {
+            let scenario = if let Some(path) = &options.scenario {
+                plico_desktop::PreviewScenario::<gallery::Gallery>::load(path)?
+            } else {
+                Default::default()
+            };
+            captured = Some(scenario.render_in(&mut session, plico_desktop::NativeApp)?);
+        }
+        captured
+            .expect("at least one frame was captured")
             .write_png(output)?;
+        if std::env::var_os("PLICO_FRAME_BUDGET").is_some()
+            && let Some(budget) = session.last_frame_budget()
+        {
+            println!("adapter: {}", session.adapter_name().unwrap_or("unknown"));
+            println!(
+                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} instances, {} draws, {} KiB uploaded",
+                budget.prepare_ms,
+                budget.upload_ms,
+                budget.encode_ms,
+                budget.submit_ms,
+                budget.wait_ms,
+                budget
+                    .gpu_ms
+                    .map_or_else(|| "n/a".to_owned(), |ms| format!("{ms:.2}ms")),
+                budget.submissions,
+                budget.instances,
+                budget.draw_calls,
+                budget.upload_bytes / 1024,
+            );
+        }
         return Ok(());
     }
     plico_desktop::run_source_with_options(

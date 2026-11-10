@@ -66,7 +66,7 @@ mod svg;
 pub mod text;
 mod texture;
 pub use renderer::LayerPoolStats;
-pub use renderer::{FrameBatchStats, Renderer};
+pub use renderer::{FrameBatchStats, FrameBudget, Renderer};
 
 use snafu::Snafu;
 

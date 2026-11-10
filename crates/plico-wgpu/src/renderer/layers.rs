@@ -1,6 +1,29 @@
 use super::*;
 
 impl Renderer {
+    fn new_layer_buffers(&self) -> LayerBuffers {
+        let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Plico layer frame"),
+            size: 48,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Plico layer frame bind"),
+            layout: &self.frame_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame.as_entire_binding(),
+            }],
+        });
+        LayerBuffers {
+            frame,
+            bind,
+            instances: Self::instance_buffer(&self.device, INITIAL_INSTANCE_CAPACITY),
+            capacity: INITIAL_INSTANCE_CAPACITY,
+        }
+    }
+
     /// Intermediate color-texture pixel payload requested by isolated layers
     /// in the most recently encoded frame (excluding driver overhead/in-flight frames).
     pub fn layer_frame_bytes(&self) -> u64 {
@@ -192,13 +215,21 @@ impl Renderer {
         self.layer_used[slot] = true;
         let saved = self.layer_pool[slot].take();
         let parent_target = self.target.take();
-        let mut workspace = None;
-        let cached_image = if let Some(entry) = saved {
-            workspace = entry.blur;
+        let (cached_image, mut workspace, child_buffers) = if let Some(entry) = saved {
             self.target = Some(entry.target);
-            Some(entry.image)
+            (Some(entry.image), entry.blur, entry.buffers)
         } else {
-            None
+            (None, None, self.new_layer_buffers())
+        };
+        // Each child target owns its instance and frame buffers. This lets the
+        // parent's already-recorded commands and the child commands coexist in
+        // one queue submission without later write_buffer calls changing what
+        // an earlier command buffer observes.
+        let parent_buffers = LayerBuffers {
+            frame: std::mem::replace(&mut self.frame, child_buffers.frame),
+            bind: std::mem::replace(&mut self.bind, child_buffers.bind),
+            instances: std::mem::replace(&mut self.instances, child_buffers.instances),
+            capacity: std::mem::replace(&mut self.capacity, child_buffers.capacity),
         };
         let parent_images = std::mem::take(&mut self.frame_images);
         let parent_slots = std::mem::take(&mut self.frame_image_slots);
@@ -256,14 +287,21 @@ impl Renderer {
             } else {
                 (image, self.target.as_ref().unwrap().texture.clone())
             };
-            self.queue.submit([encoder.finish()]);
+            self.pending_commands.push(encoder.finish());
             LayerRaster { image, texture }
         });
+        let child_buffers = LayerBuffers {
+            frame: std::mem::replace(&mut self.frame, parent_buffers.frame),
+            bind: std::mem::replace(&mut self.bind, parent_buffers.bind),
+            instances: std::mem::replace(&mut self.instances, parent_buffers.instances),
+            capacity: std::mem::replace(&mut self.capacity, parent_buffers.capacity),
+        };
         if let (Some(target), Some(image)) = (self.target.take(), resource) {
             self.layer_pool[slot] = Some(LayerTarget {
                 target,
                 image,
                 blur: workspace,
+                buffers: child_buffers,
             });
         }
         self.target = parent_target;

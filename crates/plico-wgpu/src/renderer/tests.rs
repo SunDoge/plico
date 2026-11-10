@@ -982,6 +982,11 @@ fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
     let expected = renderer
         .render_scene(&scene, [32, 32], [0.; 4], false)
         .unwrap();
+    assert_eq!(
+        renderer.frame_budget().submissions,
+        1,
+        "isolated and backdrop-reading child layers share the frame submission"
+    );
     let broken = crate::image::ImageQuad::new(
         Quad::new([0., 0., 1., 1.], [1.; 4]),
         peniko::ImageData {
@@ -1605,5 +1610,29 @@ fn profile_gaussian_workspace_cost() {
                 stats.retained_bytes
             );
         }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn frame_budget_reports_stages_and_collects_gpu_timestamps() {
+    let instance = wgpu::Instance::new(crate::instance_descriptor());
+    let mut renderer =
+        pollster::block_on(super::Renderer::new_compatible(&instance, None, true)).unwrap();
+    let pixels = renderer
+        .render_items(&[], [32, 32], [0., 0., 0., 1.], 0.)
+        .unwrap();
+    assert_eq!(pixels.len(), 32 * 32 * 4);
+    let budget = renderer.frame_budget();
+    assert_eq!(budget.instances, 0);
+    assert_eq!(budget.draw_calls, 0);
+    assert_eq!(budget.submissions, 1);
+    assert!(budget.upload_bytes >= 48, "frame uniform upload is counted");
+    assert!((budget.prepare_ms + budget.encode_ms + budget.submit_ms).is_finite());
+    if renderer.gpu_timer.is_some() {
+        assert!(
+            budget.gpu_ms.is_some(),
+            "timestamp queries are available but no sample was collected"
+        );
     }
 }

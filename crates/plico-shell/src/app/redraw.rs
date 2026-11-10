@@ -155,6 +155,12 @@ impl App {
         );
         self.frame_stats
             .update(build_frame_ms, scene_ms, present_ms, node_count);
+        if presented
+            && !present_skipped
+            && let Some(budget) = shell.frame_budget()
+        {
+            self.frame_stats.apply_budget(budget);
+        }
         self.frame_stats.damage_coverage = if presented {
             shell.damage_coverage()
         } else {

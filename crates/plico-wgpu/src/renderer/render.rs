@@ -70,27 +70,30 @@ impl Renderer {
         size: [u32; 2],
     ) -> Result<Vec<u8>> {
         let [width, height] = size;
-        let target = self.target.as_mut().expect("encode_frame created target");
-        let readback = target.readback.get_or_insert_with(|| {
-            self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Plico readback"),
-                size: u64::from(target.pitch) * u64::from(height),
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        });
+        let (texture, pitch, readback) = {
+            let target = self.target.as_mut().expect("encode_frame created target");
+            let readback = target.readback.get_or_insert_with(|| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Plico readback"),
+                    size: u64::from(target.pitch) * u64::from(height),
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            });
+            (target.texture.clone(), target.pitch, readback.clone())
+        };
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target.texture,
+                texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: readback,
+                buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(target.pitch),
+                    bytes_per_row: Some(pitch),
                     rows_per_image: Some(height),
                 },
             },
@@ -100,16 +103,23 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit([encoder.finish()]);
+        let submit_started = Instant::now();
+        let slot = self.end_gpu_budget(&mut encoder);
+        self.submit_frame_commands(encoder);
+        self.arm_gpu_budget(slot);
+        self.frame_budget.submit_ms += submit_started.elapsed().as_secs_f64() * 1e3;
         let (tx, rx) = std::sync::mpsc::channel();
         readback
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
+        let wait_started = Instant::now();
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .context(crate::PollSnafu)?;
+        self.frame_budget.wait_ms += wait_started.elapsed().as_secs_f64() * 1e3;
+        self.poll_gpu_budget();
         rx.recv()
             .map_err(|e| Error::Readback {
                 message: e.to_string(),
@@ -124,7 +134,7 @@ impl Renderer {
                 message: e.to_string(),
             })?;
         let mut pixels = Vec::with_capacity((width * height * 4) as usize);
-        for row in data.chunks_exact(target.pitch as usize) {
+        for row in data.chunks_exact(pitch as usize) {
             pixels.extend_from_slice(&row[..(width * 4) as usize]);
         }
         drop(data);

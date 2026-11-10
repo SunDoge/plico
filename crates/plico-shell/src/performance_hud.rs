@@ -8,7 +8,7 @@ use peniko::{Color, Fill};
 use crate::{FrameStats, PaintScene, Scene, TextContext};
 
 const PANEL_WIDTH: f64 = 320.0;
-const PANEL_HEIGHT: f64 = 140.0;
+const PANEL_HEIGHT: f64 = 212.0;
 const PANEL_MARGIN: f64 = 12.0;
 const PRIMARY_TEXT: [u8; 4] = [15, 23, 42, 255];
 const SECONDARY_TEXT: [u8; 4] = [71, 85, 105, 255];
@@ -241,7 +241,7 @@ impl PerformanceHud {
             scene,
             text,
             "Damage",
-            [left + 14.0, top + 112.0],
+            [left + 14.0, top + 136.0],
             12.5,
             400.0,
             SECONDARY_TEXT,
@@ -254,12 +254,91 @@ impl PerformanceHud {
             scene,
             text,
             &coverage,
-            [left + 66.0, top + 112.0],
+            [left + 66.0, top + 136.0],
             12.5,
             600.0,
             PRIMARY_TEXT,
             scale,
         );
+        self.text(
+            scene,
+            text,
+            "GPU",
+            [left + 188.0, top + 136.0],
+            12.5,
+            400.0,
+            SECONDARY_TEXT,
+            scale,
+        );
+        self.text(
+            scene,
+            text,
+            &stats
+                .gpu_ms
+                .map_or_else(|| "n/a".to_owned(), |value| format!("{value:.2} ms")),
+            [left + 224.0, top + 136.0],
+            12.5,
+            600.0,
+            PRIMARY_TEXT,
+            scale,
+        );
+        for (label, value, label_x, value_x) in [
+            ("Prepare", stats.prepare_ms, 14.0, 68.0),
+            ("Upload", stats.upload_ms, 118.0, 170.0),
+            ("Encode", stats.encode_ms, 218.0, 270.0),
+        ] {
+            self.text(
+                scene,
+                text,
+                label,
+                [left + label_x, top + 160.0],
+                12.5,
+                400.0,
+                SECONDARY_TEXT,
+                scale,
+            );
+            self.text(
+                scene,
+                text,
+                &format!("{value:.2}"),
+                [left + value_x, top + 160.0],
+                12.5,
+                600.0,
+                PRIMARY_TEXT,
+                scale,
+            );
+        }
+        for (label, value, label_x, value_x) in [
+            ("Draws", stats.draw_calls.to_string(), 14.0, 60.0),
+            ("Instances", stats.instances.to_string(), 118.0, 182.0),
+            (
+                "Up",
+                format!("{}K", stats.upload_bytes / 1024),
+                238.0,
+                262.0,
+            ),
+        ] {
+            self.text(
+                scene,
+                text,
+                label,
+                [left + label_x, top + 184.0],
+                12.5,
+                400.0,
+                SECONDARY_TEXT,
+                scale,
+            );
+            self.text(
+                scene,
+                text,
+                &value,
+                [left + value_x, top + 184.0],
+                12.5,
+                600.0,
+                PRIMARY_TEXT,
+                scale,
+            );
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -368,7 +447,7 @@ mod tests {
             &mut scene,
             &mut text,
             FrameStats::default(),
-            [700, 180],
+            [700, 260],
             1.0,
         );
         assert!(scene.commands.is_empty());
@@ -385,11 +464,11 @@ mod tests {
                 viewport_h: 480,
                 ..FrameStats::default()
             },
-            [700, 180],
+            [700, 260],
             1.0,
         );
         assert!(scene.commands.len() >= 20);
-        let image = crate::renderer::render_to_image(&scene, 700, 180, Color::BLACK).unwrap();
+        let image = crate::renderer::render_to_image(&scene, 700, 260, Color::BLACK).unwrap();
         let panel = image.get_pixel(500, 52).0;
         assert_ne!(panel, [0, 0, 0, 255]);
         assert!(panel[0] > 220, "expected light HUD surface: {panel:?}");
@@ -426,11 +505,11 @@ mod tests {
                 &mut scene,
                 &mut text,
                 FrameStats::default(),
-                [700, 180],
+                [700, 260],
                 f64::from(scale),
             );
             let image =
-                crate::renderer::render_to_image(&scene, 700 * scale, 180 * scale, Color::BLACK)
+                crate::renderer::render_to_image(&scene, 700 * scale, 260 * scale, Color::BLACK)
                     .unwrap();
             let header = image.view(390 * scale, 18 * scale, 110 * scale, 24 * scale);
             let dark_pixels = header

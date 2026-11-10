@@ -471,6 +471,10 @@ impl Shell {
             .damage_coverage(self.surface_size[0], self.surface_size[1])
     }
 
+    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        self.renderer.frame_budget()
+    }
+
     pub(crate) fn surface_acquire_pending(&self) -> bool {
         self.renderer.surface_acquire_pending()
     }

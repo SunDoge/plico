@@ -1,5 +1,6 @@
 use crate::{DEFAULT_MATERIAL, Error, Quad, Result, scene::DrawSource};
 use snafu::ResultExt;
+use std::time::Instant;
 use wgpu::util::DeviceExt;
 
 const INITIAL_INSTANCE_CAPACITY: usize = 64;
@@ -54,16 +55,25 @@ struct LayerRaster {
     image: std::rc::Rc<crate::image::GpuImage>,
     texture: wgpu::Texture,
 }
+struct LayerBuffers {
+    frame: wgpu::Buffer,
+    bind: wgpu::BindGroup,
+    instances: wgpu::Buffer,
+    capacity: usize,
+}
 struct LayerTarget {
     target: Target,
     image: std::rc::Rc<crate::image::GpuImage>,
     blur: Option<(crate::blur::Workspace, std::rc::Rc<crate::image::GpuImage>)>,
+    buffers: LayerBuffers,
 }
 impl LayerTarget {
     fn bytes(&self) -> u64 {
-        u64::from(self.target.size[0])
+        let textures = u64::from(self.target.size[0])
             * u64::from(self.target.size[1])
-            * if self.blur.is_some() { 12 } else { 4 }
+            * if self.blur.is_some() { 12 } else { 4 };
+        let buffers = (self.buffers.capacity * std::mem::size_of::<Instance>()) as u64 + 48;
+        textures + buffers
     }
 }
 /// Cumulative layer allocation work and currently retained pool payload.
@@ -109,6 +119,39 @@ pub struct FrameBatchStats {
     /// Effects reading slices of a same-stage snapshot array.
     pub backdrop_shared_reads: u64,
 }
+/// CPU and GPU work spent on the most recently encoded frame, in milliseconds.
+///
+/// CPU stages are measured with `Instant` and are always available. `gpu_ms`
+/// brackets the frame between timestamp queries, which requires
+/// `wgpu::Features::TIMESTAMP_QUERY` and the `PLICO_GPU_TIMER` environment
+/// variable (or a profiling renderer). Child-layer command buffers and the
+/// closing presentation blit or readback copy execute in the same ordered queue
+/// submission and are therefore included.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FrameBudget {
+    /// Building the instance stream: scene flattening, text/glyph preparation.
+    pub prepare_ms: f64,
+    /// CPU time in instance and frame-uniform `write_buffer` calls.
+    pub upload_ms: f64,
+    /// Recording render passes, batching decisions and blits.
+    pub encode_ms: f64,
+    /// CPU time for the frame's queue submission.
+    pub submit_ms: f64,
+    /// Queue submissions issued for the frame. Normal rendering should use
+    /// one even when it contains several painter-ordered command buffers.
+    pub submissions: u64,
+    /// Blocking GPU wait for offscreen readback; zero for window presentation.
+    pub wait_ms: f64,
+    /// Instance-stream and frame-uniform bytes written this frame.
+    pub upload_bytes: u64,
+    /// Instances prepared across the root scene and child layers.
+    pub instances: u64,
+    /// Instanced scene draw calls, including damage-scissor replays.
+    pub draw_calls: u64,
+    /// GPU time of the root command encoder, when timestamps are available.
+    pub gpu_ms: Option<f64>,
+}
+
 // Preserve scope markers while culling expensive child layers before encoding.
 // The later instance filter remains useful for glyph-level pruning.
 fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
@@ -179,6 +222,7 @@ pub struct Renderer {
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
     force_separate_backdrops: bool,
+    frame_layout: wgpu::BindGroupLayout,
     layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -247,11 +291,45 @@ pub struct Renderer {
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     frame_image_slots: std::collections::HashMap<usize, usize>,
     batch_stats: FrameBatchStats,
+    frame_budget: FrameBudget,
+    gpu_timer: Option<gpu_timer::GpuTimer>,
+    pending_gpu_slot: Option<usize>,
+    /// Painter-ordered command buffers from effects and isolated layer
+    /// segments. The frame's final encoder is appended and all are submitted
+    /// together, preserving dependencies without repeated queue submissions.
+    pending_commands: Vec<wgpu::CommandBuffer>,
+    /// Profiling-only A/B switch that submits each recorded segment
+    /// separately while keeping the same independent layer buffers.
+    split_submits: bool,
     atlas_texture: crate::texture::AtlasTexture,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     atlas: Option<plico_native::text::atlas::Atlas>,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     text_stats: crate::text::TextStats,
+}
+
+impl Renderer {
+    pub(super) fn submit_frame_commands(
+        &mut self,
+        encoder: wgpu::CommandEncoder,
+    ) -> wgpu::SubmissionIndex {
+        self.pending_commands.push(encoder.finish());
+        let commands = std::mem::take(&mut self.pending_commands);
+        if self.split_submits {
+            let mut commands = commands.into_iter();
+            let first = commands.next().expect("a frame has a final command buffer");
+            let mut submission = self.queue.submit([first]);
+            self.frame_budget.submissions += 1;
+            for command in commands {
+                submission = self.queue.submit([command]);
+                self.frame_budget.submissions += 1;
+            }
+            submission
+        } else {
+            self.frame_budget.submissions += 1;
+            self.queue.submit(commands)
+        }
+    }
 }
 /// The specialized plain-fill fragment: the strict subset of the general
 /// fs_main that covers solid colors under the analytic SDF coverage and the
@@ -339,6 +417,7 @@ mod batch;
 mod cache;
 mod effects;
 mod encode;
+mod gpu_timer;
 mod layers;
 mod render;
 mod setup;

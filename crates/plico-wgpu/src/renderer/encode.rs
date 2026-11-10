@@ -70,6 +70,11 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
         self.batch_stats = FrameBatchStats::default();
+        self.frame_budget = FrameBudget::default();
+        if self.layer_depth == 0 {
+            self.pending_commands.clear();
+            self.poll_gpu_budget();
+        }
         self.validate_frame(items.len(), size, background, time)?;
         let unchanged = regions.is_some_and(|r| r.is_empty())
             && self.target.as_ref().is_some_and(|t| t.size == size);
@@ -80,6 +85,9 @@ impl Renderer {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        if result.is_err() {
+            self.pending_commands.clear();
+        }
         // Encoded commands retain their own GPU references. Pass-local image
         // bindings, deferred layer scenes and effects must not keep evicted
         // textures/CPU raster payload alive until another frame or after trim.
@@ -189,6 +197,7 @@ impl Renderer {
         } else {
             items
         };
+        let prepare_started = Instant::now();
         let mut instances = if regions.is_some_and(|r| r.is_empty()) {
             Vec::new()
         } else {
@@ -205,6 +214,7 @@ impl Renderer {
                 })
             });
         }
+        self.frame_budget.prepare_ms += prepare_started.elapsed().as_secs_f64() * 1e3;
         let backdrop_plan = plan_backdrops(
             &instances,
             &self.backdrop_effects,
@@ -242,6 +252,7 @@ impl Renderer {
             self.capacity = instances.len().next_power_of_two();
             self.instances = Self::instance_buffer(&self.device, self.capacity);
         }
+        let upload_started = Instant::now();
         if !instances.is_empty() {
             self.queue
                 .write_buffer(&self.instances, 0, bytemuck::cast_slice(&instances));
@@ -264,6 +275,9 @@ impl Renderer {
                 0.,
             ]),
         );
+        self.frame_budget.upload_ms += upload_started.elapsed().as_secs_f64() * 1e3;
+        self.frame_budget.upload_bytes +=
+            (instances.len() * std::mem::size_of::<Instance>()) as u64 + 48;
         self.target(size);
         let view = self
             .target
@@ -273,7 +287,9 @@ impl Renderer {
             .clone();
         let mut flush_draws: u64 = 0;
         let mut flush_plain_draws: u64 = 0;
+        let encode_started = Instant::now();
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.begin_gpu_budget(&mut encoder);
         if let Some(base) = &self.inherited_backdrop {
             base.seed(
                 &mut encoder,
@@ -530,7 +546,7 @@ impl Renderer {
                 &mut encoder,
                 self.device.create_command_encoder(&Default::default()),
             );
-            self.queue.submit([previous.finish()]);
+            self.pending_commands.push(previous.finish());
 
             let resource = self.render_layer(&layer, Some(context.clone()))?;
             let output_view = resource.texture.create_view(&Default::default());
@@ -593,37 +609,14 @@ impl Renderer {
                     flush_draws += 1;
                 }
             }
-            // Child passes use the same upload buffers. Restore the parent's
-            // data after their submissions, before resuming this target.
-            if instances.len() > self.capacity {
-                self.capacity = instances.len().next_power_of_two();
-                self.instances = Self::instance_buffer(&self.device, self.capacity);
-            }
-            self.queue
-                .write_buffer(&self.instances, 0, bytemuck::cast_slice(&instances));
-            self.queue.write_buffer(
-                &self.frame,
-                0,
-                bytemuck::cast_slice(&[
-                    width as f32,
-                    height as f32,
-                    time,
-                    1.,
-                    background[0] * background[3],
-                    background[1] * background[3],
-                    background[2] * background[3],
-                    background[3],
-                    origin[0],
-                    origin[1],
-                    0.,
-                    0.,
-                ]),
-            );
             self.batch_stats.passes += 1;
             segment_start = marker + 1;
         }
         self.batch_stats.draw_calls += flush_draws;
         self.batch_stats.plain_draw_calls += flush_plain_draws;
+        self.frame_budget.instances += instances.len() as u64;
+        self.frame_budget.draw_calls += flush_draws;
+        self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;

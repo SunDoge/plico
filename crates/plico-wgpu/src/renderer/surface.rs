@@ -48,14 +48,21 @@ impl Renderer {
     ) -> Result<wgpu::CommandEncoder> {
         let result = (|| {
             self.prepare_present(format)?;
-            let encoder = self.encode_scene_plan(plan)?;
-            let submission = self.queue.submit([encoder.finish()]);
+            let mut encoder = self.encode_scene_plan(plan)?;
+            let submit_started = std::time::Instant::now();
+            let slot = self.end_gpu_budget(&mut encoder);
+            let submission = self.submit_frame_commands(encoder);
+            self.arm_gpu_budget(slot);
+            self.frame_budget.submit_ms += submit_started.elapsed().as_secs_f64() * 1e3;
+            let wait_started = std::time::Instant::now();
             self.device
                 .poll(wgpu::PollType::Wait {
                     submission_index: Some(submission),
                     timeout: Some(std::time::Duration::from_secs(1)),
                 })
                 .map_err(|source| Error::Poll { source })?;
+            self.frame_budget.wait_ms += wait_started.elapsed().as_secs_f64() * 1e3;
+            self.poll_gpu_budget();
             Ok(self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -73,6 +80,8 @@ impl Renderer {
     /// can retain upload staging until some future successful submission.
     #[cfg(feature = "window")]
     pub(crate) fn abandon_scene_frame(&mut self, encoder: wgpu::CommandEncoder) {
+        self.cancel_gpu_budget();
+        self.pending_commands.clear();
         drop(encoder);
         self.queue.submit([]);
         self.invalidate_scene_damage();
@@ -107,12 +116,16 @@ impl Renderer {
         format: wgpu::TextureFormat,
     ) -> Result<()> {
         self.prepare_present(format)?;
+        let submit_started = Instant::now();
         let view = &self.target.as_ref().unwrap().view;
         self.blitter
             .as_mut()
             .unwrap()
             .encode(&self.device, &mut encoder, view, destination);
-        self.queue.submit([encoder.finish()]);
+        let slot = self.end_gpu_budget(&mut encoder);
+        self.submit_frame_commands(encoder);
+        self.arm_gpu_budget(slot);
+        self.frame_budget.submit_ms += submit_started.elapsed().as_secs_f64() * 1e3;
         Ok(())
     }
 }

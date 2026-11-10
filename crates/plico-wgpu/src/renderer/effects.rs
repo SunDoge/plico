@@ -90,7 +90,7 @@ impl Renderer {
                 message: error.to_string(),
             });
         }
-        self.queue.submit([encoder.finish()]);
+        self.pending_commands.push(encoder.finish());
         Ok(crate::image::GpuImage::from_view(
             &self.device,
             &self.atlas_texture.layout,

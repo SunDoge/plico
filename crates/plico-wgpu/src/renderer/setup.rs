@@ -1,5 +1,22 @@
 use super::*;
 
+/// `PLICO_GPU_TIMER=1` requests timestamp queries for ad-hoc frame profiling.
+fn gpu_timer_requested() -> bool {
+    std::env::var_os("PLICO_GPU_TIMER").is_some_and(|value| value != "0")
+}
+
+fn power_preference() -> wgpu::PowerPreference {
+    match std::env::var("PLICO_POWER_PREFERENCE")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "high" | "high-performance" | "highperformance" => wgpu::PowerPreference::HighPerformance,
+        "none" => wgpu::PowerPreference::None,
+        _ => wgpu::PowerPreference::LowPower,
+    }
+}
+
 impl Renderer {
     pub async fn new() -> Result<Self> {
         // Share the backend instance across default renderers. Besides avoiding
@@ -29,7 +46,7 @@ impl Renderer {
     ) -> Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
+                power_preference: power_preference(),
                 compatible_surface: surface,
                 ..Default::default()
             })
@@ -44,7 +61,7 @@ impl Renderer {
                 } else {
                     wgpu::Limits::default()
                 },
-                required_features: if profiling {
+                required_features: if profiling || gpu_timer_requested() {
                     adapter.features() & wgpu::Features::TIMESTAMP_QUERY
                 } else {
                     wgpu::Features::empty()
@@ -155,6 +172,7 @@ impl Renderer {
             &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             "Plico plain quads",
         );
+        let gpu_timer = gpu_timer::GpuTimer::new(&device);
         let mut renderer = Self {
             device,
             queue,
@@ -165,6 +183,7 @@ impl Renderer {
             backdrop_prefilter: None,
             backdrop_batch_prefilter: None,
             force_separate_backdrops: false,
+            frame_layout: group,
             layout,
             frame,
             bind,
@@ -224,6 +243,12 @@ impl Renderer {
             frame_images: Vec::new(),
             frame_image_slots: Default::default(),
             batch_stats: Default::default(),
+            frame_budget: FrameBudget::default(),
+            gpu_timer,
+            pending_gpu_slot: None,
+            pending_commands: Vec::new(),
+            split_submits: std::env::var_os("PLICO_SPLIT_SUBMITS")
+                .is_some_and(|value| value != "0"),
             atlas_texture,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             atlas: None,

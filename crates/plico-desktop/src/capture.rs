@@ -81,6 +81,15 @@ pub(crate) enum CaptureRenderer {
     Wgpu(Box<plico_wgpu::Renderer>),
 }
 impl CaptureRenderer {
+    pub(crate) fn adapter_name(&self) -> Option<&str> {
+        match self {
+            #[cfg(feature = "skia")]
+            Self::Skia(_) => None,
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(renderer) => Some(renderer.adapter_info().name.as_str()),
+        }
+    }
+
     pub(crate) fn new(
         backend: crate::RenderBackend,
         width: u32,
@@ -135,6 +144,29 @@ impl CaptureRenderer {
                         backend: crate::RenderBackend::Wgpu,
                     })
                 }
+            }
+        }
+    }
+    /// Renderer stages and GPU time for the last drawn frame, when reported.
+    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        match self {
+            #[cfg(feature = "skia")]
+            Self::Skia(_) => None,
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(renderer) => {
+                let budget = renderer.frame_budget();
+                Some(plico_renderer::FrameBudgetSample {
+                    prepare_ms: budget.prepare_ms,
+                    upload_ms: budget.upload_ms,
+                    encode_ms: budget.encode_ms,
+                    submit_ms: budget.submit_ms,
+                    submissions: budget.submissions,
+                    wait_ms: budget.wait_ms,
+                    gpu_ms: budget.gpu_ms,
+                    upload_bytes: budget.upload_bytes,
+                    instances: budget.instances,
+                    draw_calls: budget.draw_calls,
+                })
             }
         }
     }

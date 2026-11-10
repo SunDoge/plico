@@ -72,6 +72,11 @@ cargo run --locked -p gallery --no-default-features --features wgpu -- \
   --capture reports/gallery-wgpu.png
 ```
 
+加 `--frames N` 可重复渲染并在最后一帧读取渲染器预算；`PLICO_FRAME_BUDGET=1`
+打印 prepare/upload/encode/submit/wait/GPU、instance、draw 与上传字节，
+`PLICO_GPU_TIMER=1` 请求 timestamp query。两者只用于本机测量，字段含义见
+[性能](performance.md)。
+
 本机已实际生成并检查 Controls 截图，配置计数 4 加一次脚本点击后显示 5。
 GPU 测试验证 1.5× DPI 的重复像素、脚本点击与虚拟时钟 210ms；另验证 capture
 保持预乘 RGBA，而 PNG 写出为直通 alpha。此前 Skia 配置的七项 capture／preview
