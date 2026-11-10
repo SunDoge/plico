@@ -15,11 +15,7 @@ impl HostView for Demo {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
-        column(cx)
-            .width(300.)
-            .height(240.)
-            .scroll_y(true)
-            .smooth_scroll(true)
+        column(cx).width(300.).height(240.).scroll_y(true)
             + |cx| {
                 if self.observe {
                     let _ = cx.scroll_viewport();

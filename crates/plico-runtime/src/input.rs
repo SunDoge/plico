@@ -64,7 +64,8 @@ impl Adapter {
         let Some((buffer, placeholder)) = engine.input(entity) else {
             return;
         };
-        let focused = self.focused == Some(entity) && !engine.node(entity).unwrap().style.disabled;
+        let style = &engine.node(entity).unwrap().style;
+        let focused = self.focused == Some(entity) && !style.disabled;
         let key = GeometryKey {
             revision: buffer.revision(),
             multiline: buffer.is_multiline(),
@@ -87,7 +88,8 @@ impl Adapter {
             return;
         }
         self.stats.input_rebuilds += 1;
-        let input = buffer.presentation();
+        let reveal = buffer.is_secret() && style.input_password_visible;
+        let input = buffer.presentation_with(reveal);
         let empty = input.text.is_empty();
         let text: Arc<str> = Arc::from(if empty {
             if placeholder.is_empty() {
@@ -435,6 +437,13 @@ impl Adapter {
         if engine.node(entity)?.style.disabled {
             return None;
         }
+        // Caret math matches what is painted: a revealed secret navigates by
+        // its real bytes, a masked one by bullet offsets.
+        let reveal = buffer.is_secret()
+            && engine
+                .node(entity)
+                .is_some_and(|node| node.style.input_password_visible);
+        let presentation = buffer.presentation_with(reveal);
         let mut response = EventResponse {
             handled: true,
             request_redraw: true,
@@ -520,7 +529,7 @@ impl Adapter {
                     "Home" | "End" if buffer.is_multiline() && !command => {
                         if let Some(geometry) = self.input_layouts.get(&entity)
                             && let Some([_, y0, _, y1]) =
-                                geometry.layout.caret_rect(buffer.presentation().head)
+                                geometry.layout.caret_rect(presentation.head)
                         {
                             let x = if editing_key == "Home" {
                                 -1.
@@ -538,7 +547,7 @@ impl Adapter {
                     }
                     "ArrowUp" | "ArrowDown" if buffer.is_multiline() => {
                         if let Some(geometry) = self.input_layouts.get(&entity) {
-                            let head = buffer.presentation().head;
+                            let head = presentation.head;
                             if let Some([x0, y0, _, y1]) = geometry.layout.caret_rect(head) {
                                 let direction = if editing_key == "ArrowUp" { -1. } else { 1. };
                                 let line = geometry.layout.metrics().first_line_height;
@@ -570,6 +579,9 @@ impl Adapter {
         if engine.node(entity)?.style.disabled {
             return None;
         }
+        // IME keeps the secret protections (surrounding text withheld,
+        // Password purpose) even while the painted presentation reveals the
+        // value: reveal is a display concern, not an input-method one.
         let geometry = self.input_layouts.get(&entity)?;
         let placed = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
         let (head, anchor) = buffer.selection_bytes();

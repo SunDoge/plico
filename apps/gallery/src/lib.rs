@@ -250,7 +250,7 @@ impl Gallery {
             "only-the-visible-rows-are-built-scroll-to-explore", "Only the visible rows are built. Scroll to explore."))
         + |ui|
         {
-            virtual_list(ui, 10_000, 36.).height(216.).smooth_scroll(true).rows(
+            virtual_list(ui, 10_000, 36.).height(216.).rows(
                 |i| i as u64,
                 |ui, i| {
                     let _ = row(ui).height(36.).padding(8).align(Align::Center).children(|ui| {

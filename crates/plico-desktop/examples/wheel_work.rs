@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 struct Log {
     rows: Vec<String>,
     virtualized: bool,
-    smooth: bool,
     calls: usize,
 }
 impl HostView for Log {
@@ -22,14 +21,14 @@ impl HostView for Log {
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
         if self.virtualized {
-            virtual_list(cx, self.rows.len(), 24.).width(600.).height(360.).smooth_scroll(self.smooth).rows(
+            virtual_list(cx, self.rows.len(), 24.).width(600.).height(360.).rows(
                 |i| i,
                 |cx, i| {
                     text(cx, &self.rows[i]);
                 },
             );
         } else {
-            column(cx).width(600.).height(360.).scroll_y(true).smooth_scroll(self.smooth) + |cx| {
+            column(cx).width(600.).height(360.).scroll_y(true) + |cx| {
                 for (i, line) in self.rows.iter().enumerate() {
                     column(cx).key(i).height(24.) + |cx| {
                         text(cx, line);
@@ -59,12 +58,12 @@ fn main() {
                         .map(|i| format!("Log {i}: completed operation"))
                         .collect(),
                     virtualized,
-                    smooth,
                     calls: 0,
                 },
                 clock.clone(),
             );
             let mut text = TextContext::new();
+            source.set_reduced_motion(smooth);
             let mut scene = Scene::new();
             source
                 .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
@@ -95,7 +94,7 @@ fn main() {
             }
             samples.sort_unstable();
             println!(
-                "virtual={virtualized} rows={count} smooth={smooth}: p50={}us p95={}us show/sample={:.2} layouts/sample={:.2}",
+                "virtual={virtualized} rows={count} reduced={smooth}: p50={}us p95={}us show/sample={:.2} layouts/sample={:.2}",
                 samples[100] / 1000,
                 samples[190] / 1000,
                 calls as f64 / 200.,

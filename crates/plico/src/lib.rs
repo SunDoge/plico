@@ -52,9 +52,9 @@ pub use asset::{ImageAsset, SvgAsset};
 pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
-    Align, BoxShadow, Changes, Color, FontFamily, FrameDelta, FrameError, FrameStats, ImplicitKey,
-    Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Presentation, Size, SliderSpec,
-    Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
+    Align, BoxShadow, Changes, Color, Easing, FontFamily, FrameDelta, FrameError, FrameStats,
+    ImplicitKey, Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef, Presentation, Size,
+    SliderSpec, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text};
 pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router};

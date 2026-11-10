@@ -444,6 +444,33 @@ impl<'e> UiContext<'e> {
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
     }
+    /// The progress of an animation that starts over every `period`, from
+    /// 0 toward 1, sampled at the injected frame clock (MyGO's Loop).
+    /// The call site is the animation's identity; `key` tells apart several
+    /// loops of one site. While a call site runs, frames keep coming, and
+    /// when it stops being declared the loop simply stops sampling:
+    /// `elapsed` tracks the time since the first frame, so a loop resumes
+    /// in phase after the site disappears and returns.
+    ///
+    /// A spinner turns with `loop_progress("spin", 900, Ease::Linear) * 360`
+    /// and a placeholder pulses with an opacity of
+    /// `0.5 + 0.5 * loop_progress("pulse", period, Ease::EaseInOut)`.
+    pub fn loop_progress(
+        &mut self,
+        _key: &'static str,
+        period: std::time::Duration,
+        ease: crate::Easing,
+    ) -> f32 {
+        // The call site is the loop's identity (state() keys on it); the
+        // start is the first frame this site was declared on.
+        let now = self.now();
+        let start = *self.state::<std::time::Duration>(|| now).read();
+        self.request_animation_frame();
+        let period = period.max(std::time::Duration::from_millis(1));
+        let elapsed = self.now() - start;
+        let phase = elapsed.as_nanos() % period.as_nanos();
+        ease.sample(phase as f64 / period.as_nanos() as f64) as f32
+    }
     /// Re-evaluate the view at an injected-clock deadline, retaining its
     /// declarations before then. Re-declaring or removing this component
     /// cancels its old deadline; multiple requests keep the earliest one.
@@ -960,11 +987,6 @@ impl Layout<'_, '_> {
     }
     /// A bounded vertical viewport. Its children keep their intrinsic height.
     /// Animate wheel scrolling and scrollbar track paging (160ms ease-out).
-    #[inline(always)]
-    pub fn smooth_scroll(mut self, enabled: bool) -> Self {
-        self.style.smooth_scroll = enabled;
-        self
-    }
     #[inline(always)]
     pub fn selectable(mut self, value: bool) -> Self {
         self.style.selectable = value;

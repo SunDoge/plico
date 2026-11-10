@@ -143,6 +143,18 @@ impl TextBuffer {
     pub fn is_secret(&self) -> bool {
         self.0.lock().unwrap().secret
     }
+    /// Show or hide the secret without losing content or caret state.
+    /// Revealing keeps the buffer's secret protections for IME and clipboard
+    /// away from the editor; only the painted presentation changes. Bumps
+    /// the revision so dependent layouts repaint.
+    pub fn set_secret(&self, secret: bool) {
+        let mut state = self.0.lock().unwrap();
+        if state.secret == secret {
+            return;
+        }
+        state.secret = secret;
+        state.revision = state.revision.wrapping_add(1);
+    }
     pub fn is_empty(&self) -> bool {
         self.0.lock().unwrap().value.is_empty()
     }
@@ -207,10 +219,16 @@ impl TextBuffer {
         s.value[..r.start].encode_utf16().count()..s.value[..r.end].encode_utf16().count()
     }
     pub fn presentation(&self) -> InputPresentation {
+        self.presentation_with(false)
+    }
+    /// [`Self::presentation`] with an explicit reveal: a secret buffer
+    /// whose host shows it paints its real text at true byte offsets,
+    /// keeping caret, selection and preedit in sync with what is shown.
+    pub fn presentation_with(&self, reveal: bool) -> InputPresentation {
         let s = self.0.lock().unwrap();
         let range = s.range();
         let composing = !s.preedit.is_empty();
-        if s.secret {
+        if s.secret && !reveal {
             let count = s.value.graphemes(true).count();
             let start = s.value[..range.start].graphemes(true).count();
             let head = s.value[..s.head].graphemes(true).count();

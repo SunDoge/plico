@@ -216,9 +216,7 @@ impl Adapter {
                             .map_or(node.scroll.offset[1], |m| m.target)
                             + direction * (node.scroll.port[3] - node.scroll.port[1]) * 0.9)
                             .clamp(0., node.scroll.range[1]);
-                        let smooth = engine
-                            .node(self.reverse[&id])
-                            .is_some_and(|n| n.style.smooth_scroll);
+                        let smooth = self.smooth_scroll_enabled;
                         *declare = engine.observes_scroll(self.reverse[&id])
                             && !(smooth && self.smooth_scroll_enabled)
                             && next != node.scroll.offset[1];
@@ -368,8 +366,11 @@ impl Adapter {
                         // fingers (including native momentum). Interpolate only
                         // wheel notches; touching the trackpad takes over at the
                         // visible offset, never the old wheel destination.
-                        let smooth = w.delta_mode == WheelDeltaMode::Line
-                            && engine.node(entity).is_some_and(|n| n.style.smooth_scroll);
+                        // Smooth is the only wheel scroll (MyGO has no
+                        // per-container opt-out; reduced motion is the only
+                        // exit, through smooth_scroll_enabled).
+                        let smooth =
+                            w.delta_mode == WheelDeltaMode::Line && self.smooth_scroll_enabled;
                         let destination = if smooth {
                             self.scroll_motions.get(&id).map_or(old[1], |m| m.target)
                         } else {

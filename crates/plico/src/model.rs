@@ -178,6 +178,35 @@ impl Presentation {
             && self.translate.iter().all(|v| v.is_finite())
     }
 }
+/// Timing curve an animation maps its progress through, as CSS's do
+/// (MyGO's Easing). `sample` is exact and `slope` its derivative, for
+/// handing momentum on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Easing {
+    /// Constant velocity.
+    Linear,
+    /// Cubic acceleration.
+    EaseIn,
+    /// Cubic deceleration.
+    #[default]
+    EaseOut,
+    /// Symmetric cubic acceleration and deceleration.
+    EaseInOut,
+}
+impl Easing {
+    /// Map loop progress in 0..=1 through the curve.
+    pub fn sample(self, progress: f64) -> f64 {
+        let progress = progress.clamp(0., 1.);
+        match self {
+            Self::Linear => progress,
+            Self::EaseIn => progress.powi(3),
+            Self::EaseOut => 1. - (1. - progress).powi(3),
+            Self::EaseInOut if progress < 0.5 => 4. * progress.powi(3),
+            Self::EaseInOut => 1. - (-2. * progress + 2.).powi(3) / 2.,
+        }
+    }
+}
+
 /// Shared timing presets for interaction feedback and property transitions.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
@@ -412,9 +441,6 @@ pub struct Style {
     pub clip: bool,
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub scroll_y: bool,
-    /// Smooth wheel/track paging; direct thumb dragging remains immediate.
-    #[invalidates(HIT_TEST)]
-    pub smooth_scroll: bool,
     /// Follow growing content while the host scroll position remains at its end.
     #[invalidates(HIT_TEST)]
     pub follow_end: bool,
@@ -543,7 +569,6 @@ impl Default for Style {
             wrap: false,
             clip: false,
             scroll_y: false,
-            smooth_scroll: false,
             follow_end: false,
             align: None,
             justify: None,

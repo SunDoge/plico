@@ -13,8 +13,8 @@ impl HostView for ScrollGlass {
     #[rustfmt::skip]
     fn show(&mut self, cx: &mut UiContext) {
         column(cx).width(200).height(160).background(Color::Literal(0xe2e8ec)) + |cx| {
-            column(cx).absolute(24., 24.).width(120).height(100).clip(true).scroll_y(true).smooth_scroll(false)
-                .radius(16.).corner_smoothing(1.).padding(8).gap(10).background(Color::Panel) + |cx|
+            column(cx).absolute(24., 24.).width(120).height(100).clip(true).scroll_y(true).radius(16.)
+                .corner_smoothing(1.).padding(8).gap(10).background(Color::Panel) + |cx|
             {
                 for i in 0usize..8 {
                     cx.keyed(i, |cx| {

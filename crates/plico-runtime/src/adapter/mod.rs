@@ -632,7 +632,7 @@ impl Adapter {
             self.reverse
                 .get(id)
                 .and_then(|e| engine.node(*e))
-                .is_some_and(|n| n.style.smooth_scroll && n.style.scroll_y)
+                .is_some_and(|n| n.style.scroll_y)
         });
         for (entity, offset) in std::mem::take(&mut self.requested_scroll) {
             if engine.node(entity).is_some_and(|n| n.style.scroll_y)
