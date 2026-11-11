@@ -40,14 +40,13 @@ fn generic_families_reach_text_layout_and_clean_frames_keep_the_paint_cache() {
         .unwrap();
     assert_eq!(normal.paint.font_family.as_deref(), Some("Noto Sans"));
     source.build_frame(&mut text, 500, 300);
-    assert_eq!(source.adapter.stats.paint_writes, 0);
-    source.view.family = FontFamily::Serif;
-    source.request_rebuild();
+    assert_eq!(source.frame_diagnostics().backend.paint_writes, 0);
+    source.update(|view| view.family = FontFamily::Serif);
     let nodes = source.build_frame(&mut text, 500, 300);
     let code = nodes
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("let value = 42;"))
         .unwrap();
     assert_eq!(code.paint.font_family.as_deref(), Some("serif"));
-    assert!(source.adapter.stats.layout_runs > 0);
+    assert!(source.frame_diagnostics().backend.layout_runs > 0);
 }

@@ -55,7 +55,7 @@ fn breadcrumbs_and_meter_project_their_semantic_roles() {
     let mut source = Source::new(Trails { disk: 90. });
     let mut text = TextContext::new();
     let _ = source.build_frame(&mut text, 500, 500);
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     let count = |role: SemanticRole| semantics.nodes.iter().filter(|n| n.role == role).count();
     assert_eq!(count(SemanticRole::Navigation), 1);
     assert_eq!(count(SemanticRole::Link), 2);
@@ -99,10 +99,9 @@ fn breadcrumbs_and_meter_project_their_semantic_roles() {
         "visual labels are not announced twice"
     );
 
-    source.view.disk = 25.;
-    source.request_rebuild();
+    source.update(|view| view.disk = 25.);
     let _ = source.build_frame(&mut text, 500, 500);
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     assert_eq!(
         semantics
             .nodes

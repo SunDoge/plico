@@ -72,8 +72,7 @@ fn smooth_scroll_advances_during_unrelated_layout_changes() {
     let mut previous = 0.;
     for step in 1..=10 {
         clock.advance(Duration::from_millis(16)).unwrap();
-        source.view.height = 20. + step as f32;
-        source.request_rebuild();
+        source.update(|view| view.height = 20. + step as f32);
         source
             .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
@@ -116,8 +115,7 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
     source
         .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
-    source.view.height = 100.;
-    source.request_rebuild();
+    source.update(|view| view.height = 100.);
     source
         .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
@@ -133,7 +131,7 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
             }))
             .handled
     );
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     let mut previous = 0.;
     for step in 1..=10 {
         clock.advance(Duration::from_millis(16)).unwrap();
@@ -141,12 +139,14 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
             .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
         assert_eq!(
-            source.view.shows, shows,
+            source.view().shows,
+            shows,
             "host animation should retain declarations"
         );
         if step == 1 {
             assert_eq!(
-                source.adapter.stats.layout_runs, 1,
+                source.frame_diagnostics().backend.layout_runs,
+                1,
                 "the regression must include an actual layout animation"
             );
         }

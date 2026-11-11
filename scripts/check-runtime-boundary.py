@@ -28,11 +28,26 @@ migrated_test_roots = {
     ("apps", "services-demo", "tests"),
     ("crates", "plico-wgpu", "tests"),
 }
+migrated_test_files = {
+    Path("crates/plico-runtime/tests/alert_dialog.rs"),
+    Path("crates/plico-runtime/tests/deadline.rs"),
+    Path("crates/plico-runtime/tests/display_preferences.rs"),
+    Path("crates/plico-runtime/tests/focus_navigation.rs"),
+    Path("crates/plico-runtime/tests/font_family.rs"),
+    Path("crates/plico-runtime/tests/indicator_semantics.rs"),
+    Path("crates/plico-runtime/tests/retained_frame.rs"),
+    Path("crates/plico-runtime/tests/scroll_layout_motion.rs"),
+    Path("crates/plico-runtime/tests/secondary_click.rs"),
+    Path("crates/plico-runtime/tests/test_protocol.rs"),
+    Path("crates/plico-runtime/tests/toast_motion.rs"),
+    Path("crates/plico-runtime/tests/user_activity.rs"),
+    Path("crates/plico-runtime/tests/virtual_table_width.rs"),
+}
 for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):
         relative = path.relative_to(ROOT)
         parts = relative.parts
-        migrated_test = parts[:3] in migrated_test_roots
+        migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
         if "tests" in parts and not migrated_test:
             continue
         if parts[:2] in (("crates", "plico-runtime"), ("crates", "plico-csharp")):

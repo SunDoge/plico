@@ -34,11 +34,11 @@ fn user_input_and_accessibility_actions_count_but_frames_and_hover_do_not() {
     };
     source.handle_event(pointer(PointerPhase::Move, 0));
     source.handle_event(UiEvent::Focus(true));
-    assert_eq!(source.view.count, 0);
+    assert_eq!(source.view().count, 0);
     source.handle_event(pointer(PointerPhase::Down, 1));
     source.handle_event(pointer(PointerPhase::Move, 1));
     source.handle_event(UiEvent::TextInput("synthetic".into()));
-    assert_eq!(source.view.count, 3);
+    assert_eq!(source.view().count, 3);
     let tree = source.semantic_snapshot().unwrap();
     let target = tree
         .nodes
@@ -47,7 +47,7 @@ fn user_input_and_accessibility_actions_count_but_frames_and_hover_do_not() {
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target }));
-    assert_eq!(source.view.count, 4);
+    assert_eq!(source.view().count, 4);
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.count, 4);
+    assert_eq!(source.view().count, 4);
 }

@@ -39,9 +39,11 @@ impl HostView for Demo {
             });
     }
 }
-fn frame<V: HostView>(s: &mut Source<V>, text: &mut TextContext) {
-    s.render_retained_frame(&mut Scene::new(), text, (500, 350), 1.)
+fn frame<V: HostView>(s: &mut Source<V>, text: &mut TextContext) -> Scene {
+    let mut scene = Scene::new();
+    s.render_retained_frame(&mut scene, text, (500, 350), 1.)
         .unwrap();
+    scene
 }
 fn preferences<V: HostView>(s: &mut Source<V>, p: DisplayPreferences) -> bool {
     s.handle_event(UiEvent::WindowMetrics(WindowMetrics {
@@ -52,14 +54,13 @@ fn preferences<V: HostView>(s: &mut Source<V>, p: DisplayPreferences) -> bool {
     }))
     .request_redraw
 }
-fn shaders<V: HostView>(s: &Source<V>) -> usize {
-    fn count(nodes: &[plico::ViewNode]) -> usize {
-        nodes
-            .iter()
-            .map(|n| usize::from(n.kind == plico::Kind::Shader) + count(&n.children))
-            .sum()
-    }
-    count(&s.engine.snapshot())
+fn shaders(scene: &Scene) -> usize {
+    scene
+        .flattened()
+        .commands
+        .iter()
+        .filter(|command| matches!(command, plico_renderer::PaintCommand::Shader { .. }))
+        .count()
 }
 #[test]
 fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_policy() {
@@ -72,8 +73,8 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
         clock.clone(),
     );
     let mut text = TextContext::new();
-    frame(&mut s, &mut text);
-    assert!(shaders(&s) > 0);
+    let mut scene = frame(&mut s, &mut text);
+    assert!(shaders(&scene) > 0);
     assert!(s.has_anim());
     let requested = DisplayPreferences {
         reduce_motion: true,
@@ -81,15 +82,23 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
         high_contrast: true,
     };
     assert!(preferences(&mut s, requested));
-    frame(&mut s, &mut text);
-    assert_eq!(s.view.seen, requested);
-    assert_eq!(shaders(&s), 0, "opaque fallback must remove backdrop work");
+    scene = frame(&mut s, &mut text);
+    assert_eq!(s.view().seen, requested);
+    assert_eq!(
+        shaders(&scene),
+        0,
+        "opaque fallback must remove backdrop work"
+    );
     assert!(!s.has_anim());
-    assert_ne!(s.engine.theme().border, Theme::default().border);
-    let calls = s.view.calls;
+    assert_ne!(s.theme().border, Theme::default().border);
+    let calls = s.view().calls;
     assert!(!preferences(&mut s, requested));
     frame(&mut s, &mut text);
-    assert_eq!(s.view.calls, calls, "identical metrics must not redeclare");
+    assert_eq!(
+        s.view().calls,
+        calls,
+        "identical metrics must not redeclare"
+    );
     s.set_reduced_motion(false);
     s.update(|view| view.x = 100.);
     frame(&mut s, &mut text);
@@ -98,8 +107,7 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
         "app false must not override the native reduce-motion request"
     );
     let bounds = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Target", None)
         .unwrap()
         .bounds;
@@ -110,17 +118,16 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
     s.update(|view| view.modal.close());
     frame(&mut s, &mut text);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Dialog, "Accessible dialog", None)
             .is_none(),
         "system reduction skips modal exit retention too"
     );
     s.set_reduced_motion(true);
     assert!(preferences(&mut s, DisplayPreferences::default()));
-    frame(&mut s, &mut text);
+    scene = frame(&mut s, &mut text);
     assert!(
-        shaders(&s) > 0,
+        shaders(&scene) > 0,
         "turning native transparency reduction off restores material"
     );
     s.update(|view| {
@@ -139,7 +146,7 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
     clock.advance(Duration::from_millis(250)).unwrap();
     frame(&mut s, &mut text);
     assert!(!s.has_anim());
-    assert_eq!(s.engine.theme(), Theme::default());
+    assert_eq!(s.theme(), Theme::default());
 }
 
 #[test]
@@ -159,8 +166,8 @@ fn native_preferences_refresh_the_immediate_view_with_pending_state() {
     let app = App::default();
     let mut s = Source::with_clock(app, VirtualClock::default());
     let mut text = TextContext::new();
-    frame(&mut s, &mut text);
-    assert!(shaders(&s) > 0);
+    let mut scene = frame(&mut s, &mut text);
+    assert!(shaders(&scene) > 0);
     s.update(|view| view.0 += 1);
     preferences(
         &mut s,
@@ -169,15 +176,14 @@ fn native_preferences_refresh_the_immediate_view_with_pending_state() {
             ..Default::default()
         },
     );
-    frame(&mut s, &mut text);
+    scene = frame(&mut s, &mut text);
     assert_eq!(
-        shaders(&s),
+        shaders(&scene),
         0,
         "the complete view must follow native preferences"
     );
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .any(|node| node.paint.text.as_deref() == Some("Count 1"))
     );

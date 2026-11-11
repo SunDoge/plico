@@ -42,7 +42,7 @@ fn earliest_deadline_retains_declarations_until_due_then_cancels() {
     let mut t = TextContext::new();
     let mut scene = Scene::new();
     render(&mut s, &mut t, &mut scene);
-    let initial = s.view.declarations;
+    let initial = s.view().declarations;
     assert!(
         !s.has_anim(),
         "a future deadline must not start a vsync loop"
@@ -51,8 +51,8 @@ fn earliest_deadline_retains_declarations_until_due_then_cancels() {
     for ms in [100, 500, 999] {
         clock.set(Duration::from_millis(ms)).unwrap();
         render(&mut s, &mut t, &mut scene);
-        assert_eq!(s.view.declarations, initial);
-        assert_eq!(s.adapter.stats.sync_visits, 0);
+        assert_eq!(s.view().declarations, initial);
+        assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
         assert!(!s.has_anim());
         assert_eq!(
             s.animation_deadline(),
@@ -63,7 +63,7 @@ fn earliest_deadline_retains_declarations_until_due_then_cancels() {
     for second in 1..=3 {
         clock.set(Duration::from_secs(second)).unwrap();
         render(&mut s, &mut t, &mut scene);
-        assert_eq!(s.view.declarations, initial + second as usize);
+        assert_eq!(s.view().declarations, initial + second as usize);
         assert!(!s.has_anim());
         assert_eq!(
             s.animation_deadline(),
@@ -71,7 +71,7 @@ fn earliest_deadline_retains_declarations_until_due_then_cancels() {
         );
     }
     assert!(!s.has_anim());
-    assert_eq!(s.engine.wake_deadline(), None);
+    assert_eq!(s.animation_deadline(), None);
 }
 #[test]
 fn removing_the_owner_cancels_its_deadline() {
@@ -82,13 +82,12 @@ fn removing_the_owner_cancels_its_deadline() {
     render(&mut s, &mut t, &mut scene);
     s.update(|view| view.hidden = true);
     render(&mut s, &mut t, &mut scene);
-    assert_eq!(s.engine.wake_deadline(), None);
     assert_eq!(s.animation_deadline(), None);
     assert!(!s.has_anim());
-    let declarations = s.view.declarations;
+    let declarations = s.view().declarations;
     clock.set(Duration::from_secs(5)).unwrap();
     render(&mut s, &mut t, &mut scene);
-    assert_eq!(s.view.declarations, declarations);
+    assert_eq!(s.view().declarations, declarations);
 }
 
 #[test]
@@ -136,7 +135,7 @@ fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
     source
         .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
-    let started = source.view.declarations;
+    let started = source.view().declarations;
     assert!(source.has_anim());
     assert_eq!(source.animation_deadline(), None);
 
@@ -144,14 +143,14 @@ fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
     source
         .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
-    assert_eq!(source.view.declarations, started + 1);
-    assert!((source.view.sampled - 87.5).abs() < 1e-4);
+    assert_eq!(source.view().declarations, started + 1);
+    assert!((source.view().sampled - 87.5).abs() < 1e-4);
     assert!(source.has_anim());
 
     clock.advance(Duration::from_millis(50)).unwrap();
     source
         .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
-    assert_eq!(source.view.sampled, 100.);
+    assert_eq!(source.view().sampled, 100.);
     assert!(!source.has_anim());
 }

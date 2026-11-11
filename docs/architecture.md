@@ -37,6 +37,10 @@ Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics`
 Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。
 `plico-wgpu` 后端测试也只读取 retained nodes、语义、shader diagnostics 与帧诊断，不再将
 runtime 的 Engine/Adapter 当作渲染器测试接口。
+Runtime 外部测试按功能分批迁移；焦点、字体、语义指示器、retained frame、滚动布局动效、
+测试协议、toast、用户活动与虚拟表格宽度测试已进入同一边界守卫。
+Alert dialog、deadline、系统显示偏好与 secondary-click 生命周期测试也已迁移；shader 存在性
+直接从生成的 Scene 断言，不再读取 Engine 声明树。
 
 ## 当前实现
 

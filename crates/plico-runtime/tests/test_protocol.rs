@@ -158,18 +158,17 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
     source
         .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
-    assert_eq!(source.view.seen, Some((675., 480.)));
+    assert_eq!(source.view().seen, Some((675., 480.)));
     dispatch(&mut source, &mut text, &Command::PointerLeave).unwrap();
     source
         .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
-    assert_eq!(source.view.seen, None);
-    source.view.read = false;
-    source.request_rebuild();
+    assert_eq!(source.view().seen, None);
+    source.update(|view| view.read = false);
     source
         .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     dispatch(
         &mut source,
         &mut text,
@@ -180,7 +179,8 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
         .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     assert_eq!(
-        source.view.shows, shows,
+        source.view().shows,
+        shows,
         "unobserved pointer movement should not redeclare"
     );
 }

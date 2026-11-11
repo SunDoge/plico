@@ -298,6 +298,12 @@ suites are migrated and guarded test groups.
 The complete Gallery integration suite is also migrated and guarded.
 The plico-wgpu backend suite now uses retained/runtime queries rather than
 Engine or Adapter fields and is guarded by the same boundary check.
+Nine plico-runtime integration fixtures covering focus, fonts, semantics,
+retained frames, motion, protocol input, toasts, activity and virtual tables
+are migrated and guarded; the remaining runtime fixtures are staged next.
+Alert-dialog, deadline, display-preference and secondary-click fixtures are
+also migrated; scene assertions replace declaration-tree inspection where the
+test is about rendered shader presence.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

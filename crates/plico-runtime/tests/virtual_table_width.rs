@@ -70,7 +70,7 @@ fn virtual_rows_and_flex_cells_follow_viewport_width_after_resize() {
             "cells collapsed: {name_width}, {status_width}"
         );
         assert!((name_width / status_width - 2.).abs() < 0.05);
-        for cell in source.adapter.placed.iter().filter(|node| {
+        for cell in source.placed_nodes().iter().filter(|node| {
             node.paint
                 .text
                 .as_deref()
