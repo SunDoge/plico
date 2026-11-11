@@ -45,20 +45,77 @@ fn unavailable_class_pipelines_fall_back_to_identical_general_pixels() {
 
     renderer.force_general_pipelines(true);
     let general = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
+    let image = crate::image::ImageQuad::new(
+        crate::Quad::new([0., 0., 128., 128.], [1.; 4]),
+        peniko::ImageData {
+            data: peniko::Blob::new(std::sync::Arc::new(vec![255, 0, 0, 255, 0, 0, 255, 255])),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+            width: 2,
+            height: 1,
+        },
+    );
+    let general_image = renderer
+        .render_items(&[crate::Draw::Image(&image)], [128, 128], [0.; 4], 0.)
+        .unwrap();
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    let (layout, general_glyphs) = {
+        let mut request = crate::text::TextRequest::new("AA🙂");
+        request.family = "Noto Sans, Noto Color Emoji, sans-serif";
+        request.size = 180.;
+        let layout = renderer.layout_text(&request).unwrap();
+        let pixels = renderer
+            .render_items(
+                &[crate::Draw::Text(crate::text::TextRun::new(
+                    &layout,
+                    [8., 8.],
+                    [0.2, 0.4, 0.8, 0.9],
+                ))],
+                [640, 240],
+                [0.; 4],
+                0.,
+            )
+            .unwrap();
+        (layout, pixels)
+    };
 
     // Keep a sender alive so polling sees a genuinely pending warmup rather
-    // than a disconnected worker. Every class must use the general pipeline.
+    // than a disconnected worker. Every exercised class must use the general pipeline.
     let (_pending, receiver) = std::sync::mpsc::channel();
     renderer.class_pipeline_rx = receiver;
-    renderer.plain_pipeline = None;
-    renderer.fill_pipeline = None;
-    renderer.shadow_pipeline = None;
+    renderer.class_pipelines = std::array::from_fn(|_| None);
     renderer.force_general_pipelines(false);
     let fallback = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
     assert_eq!(fallback, general);
     assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
     assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
     assert_eq!(renderer.batch_stats().shadow_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().glyph_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().color_glyph_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().image_draw_calls, 0);
+    let fallback_image = renderer
+        .render_items(&[crate::Draw::Image(&image)], [128, 128], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(fallback_image, general_image);
+    assert_eq!(renderer.batch_stats().image_draw_calls, 0);
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    {
+        let fallback_glyphs = renderer
+            .render_items(
+                &[crate::Draw::Text(crate::text::TextRun::new(
+                    &layout,
+                    [8., 8.],
+                    [0.2, 0.4, 0.8, 0.9],
+                ))],
+                [640, 240],
+                [0.; 4],
+                0.,
+            )
+            .unwrap();
+        assert_eq!(fallback_glyphs, general_glyphs);
+        assert_eq!(renderer.batch_stats().glyph_draw_calls, 0);
+        assert_eq!(renderer.batch_stats().color_glyph_draw_calls, 0);
+    }
 }
 
 #[test]

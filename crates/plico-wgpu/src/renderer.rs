@@ -118,6 +118,12 @@ pub struct FrameBatchStats {
     pub fill_draw_calls: u64,
     /// Draw calls through the specialized box-shadow pipeline.
     pub shadow_draw_calls: u64,
+    /// Draw calls through the specialized monochrome-glyph pipeline.
+    pub glyph_draw_calls: u64,
+    /// Draw calls through the specialized color-glyph pipeline.
+    pub color_glyph_draw_calls: u64,
+    /// Draw calls through the specialized image pipeline.
+    pub image_draw_calls: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -255,15 +261,9 @@ pub struct Renderer {
     bind: wgpu::BindGroup,
     pipeline: Option<wgpu::RenderPipeline>,
     plus_pipeline: Option<wgpu::RenderPipeline>,
-    /// Specialized pipeline for plain solid fills (mygo's ClassPlain). Static
-    /// source: it never recompiles and is not part of pipeline_compilations.
-    plain_pipeline: Option<wgpu::RenderPipeline>,
-    /// Specialized pipeline for ordinary gradients and borders (mygo's
-    /// ClassFill). Materials, images and glyphs stay general.
-    fill_pipeline: Option<wgpu::RenderPipeline>,
-    /// Specialized pipeline for outer and inset box shadows (mygo's
-    /// ClassShadow). Images, glyphs, fills and materials are absent.
-    shadow_pipeline: Option<wgpu::RenderPipeline>,
+    /// Static specialized pipelines indexed by `PipelineClass::slot`. They
+    /// never recompile and are not part of `pipeline_compilations`.
+    class_pipelines: [Option<wgpu::RenderPipeline>; PipelineClass::COUNT],
     /// Native backends compile class pipelines away from startup. Until each
     /// arrives, its runs use the pixel-identical general pipeline.
     #[cfg(not(target_arch = "wasm32"))]
@@ -559,6 +559,151 @@ struct ShadowVertex {
 }
 "#;
 
+/// Monochrome atlas glyphs only need tint, UV and clip coverage.
+const GLYPH_CLASS_SHADER: &str = r#"
+struct GlyphVertex {
+    @builtin(position) position: vec4f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_glyph(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> GlyphVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: GlyphVertex;
+    out.position=geometry.position;
+    out.color=color;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: GlyphVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    let alpha=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.).a*input.color.a;
+    return vec4f(input.color.rgb*alpha,alpha)*clip_alpha;
+}
+"#;
+
+/// Color atlas glyphs preserve their premultiplied channels and apply opacity.
+const COLOR_GLYPH_CLASS_SHADER: &str = r#"
+struct ColorGlyphVertex {
+    @builtin(position) position: vec4f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_color_glyph(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> ColorGlyphVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: ColorGlyphVertex;
+    out.position=geometry.position;
+    out.color=color;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: ColorGlyphVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    return textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.)*input.color.a*clip_alpha;
+}
+"#;
+
+/// Images retain only their sampling, rounded coverage and clip paths.
+const IMAGE_CLASS_SHADER: &str = r#"
+struct ImageVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(3) color2: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_image(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(2) color2: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> ImageVertex {
+    let geometry=quad_geometry(index,rect);
+    let world=rect.xy+geometry.local;
+    var out: ImageVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.color2=color2;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    if clip_params.y>0.5 {
+        out.uv=vec2f(uv.x*world.x+uv.z*world.y,uv.y*world.x+uv.w*world.y)+gradient.zw;
+    }
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: ImageVertex) -> @location(0) vec4f {
+    let source_size=vec2f(textureDimensions(glyph_atlas,0));
+    let footprint=max(length(dpdx(input.uv)*source_size),length(dpdy(input.uv)*source_size));
+    let lod=clamp(log2(max(footprint,1.)),0.,max(input.color2.x-1.,0.));
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    let extend=input.gradient.xy;
+    let uv=vec2f(image_uv_axis(input.uv.x,extend.x),image_uv_axis(input.uv.y,extend.y));
+    var pixel: vec4f;
+    if input.clip_params.w>0.5 {
+        let lower=i32(floor(lod));
+        let upper=min(lower+1,i32(max(input.color2.x,1.))-1);
+        pixel=bicubic(uv,extend,lower);
+        if upper!=lower && fract(lod)>0.0001 {
+            pixel=mix(pixel,bicubic(uv,extend,upper),fract(lod));
+        }
+    } else {
+        pixel=textureSampleLevel(glyph_atlas,glyph_sampler,uv,select(lod,0.,input.clip_params.w< -0.5));
+    }
+    return pixel*input.color.a*coverage(input.local,input.size,input.radii)*clip_alpha;
+}
+"#;
+
 /// A plain fill: solid color (equal endpoint colors make the gradient mix a
 /// no-op), no border, no material, and not an image/glyph/shadow instance.
 /// A coverage mask is clip state and remains eligible, as in mygo's classOf.
@@ -590,6 +735,26 @@ enum PipelineClass {
     Plain,
     Fill,
     Shadow,
+    Glyph,
+    ColorGlyph,
+    Image,
+}
+type ClassPipelineSpec = (PipelineClass, &'static str, &'static str, &'static str);
+
+impl PipelineClass {
+    const COUNT: usize = 6;
+
+    const fn slot(self) -> Option<usize> {
+        match self {
+            Self::General => None,
+            Self::Plain => Some(0),
+            Self::Fill => Some(1),
+            Self::Shadow => Some(2),
+            Self::Glyph => Some(3),
+            Self::ColorGlyph => Some(4),
+            Self::Image => Some(5),
+        }
+    }
 }
 
 fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
@@ -617,6 +782,12 @@ fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
         PipelineClass::Fill
     } else if instance.config[2] == 5. || instance.config[2] == 6. {
         PipelineClass::Shadow
+    } else if instance.config[2] == 2. {
+        PipelineClass::Glyph
+    } else if instance.config[2] == 3. {
+        PipelineClass::ColorGlyph
+    } else if instance.config[2] == 4. {
+        PipelineClass::Image
     } else {
         PipelineClass::General
     }

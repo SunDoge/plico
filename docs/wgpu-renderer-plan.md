@@ -58,14 +58,16 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    longer fall back to CPU raster. Gaussian box shadows stay on the uniform-radius path,
    matching the single-radius shared command. Class specialization follows mygo's
    `ClassOf`: adjacent plain solid fills draw through a minimal fragment pipeline, while
-   ordinary gradients and borders use a `ClassFill` pipeline, and outer/inset box shadows
-   use `ClassShadow`; each paired vertex/fragment interface omits unrelated varyings and
-   paths. Native class pipelines warm sequentially on a worker; an early frame preserves
+   ordinary gradients and borders use a `ClassFill` pipeline, outer/inset box shadows use
+   `ClassShadow`, monochrome/color atlas glyphs use two glyph classes, and sampled images
+   use `ClassImage`; each paired vertex/fragment interface omits unrelated varyings and
+   paths. This follows MyGO's full class split while retaining Plico's distinct colored-glyph
+   instance kind. Native class pipelines warm sequentially on a worker; an early frame preserves
    identical pixels through the general pipeline for each class that has not arrived yet.
    WebAssembly keeps synchronous creation because browser threads are not assumed.
    `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
-   comparison; `FrameBatchStats::{plain,fill,shadow}_draw_calls` report actual specialized
-   draws. mygo's joinLast is
+   comparison; `FrameBatchStats` reports actual specialized draws for every class. mygo's
+   joinLast is
    applied: adjacent runs that differ only in their class and each cover at most 128x128 pixels
    (mygo's measured call-vs-specialization trade-off) merge into one general-pipeline call, so
    class-interleaved scenes - a shadow then its fill per box - no longer pay one call per

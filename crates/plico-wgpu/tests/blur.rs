@@ -141,7 +141,15 @@ fn sibling_filter_workspaces_are_distinct_and_reused_across_frames() {
     assert_eq!(stats.filter_allocations, 3);
     assert_eq!(stats.filter_reuses, 33);
     assert_eq!(stats.entries, 3);
-    assert_eq!(stats.retained_bytes, 3 * 72 * 72 * 12);
+    let texture_bytes = pooled.layer_frame_bytes();
+    assert!(stats.retained_bytes > texture_bytes);
+    let buffer_bytes = stats.retained_bytes - texture_bytes;
+    assert_eq!(buffer_bytes % stats.entries as u64, 0);
+    let buffers_per_entry = buffer_bytes / stats.entries as u64;
+    assert!(
+        (48..64 * 1024).contains(&buffers_per_entry),
+        "each retained layer owns one bounded instance/uniform buffer set"
+    );
     assert_eq!(fresh.layer_pool_stats().filter_allocations, 36);
     pooled.trim_layer_pool();
     assert_eq!(pooled.layer_pool_stats().retained_bytes, 0);

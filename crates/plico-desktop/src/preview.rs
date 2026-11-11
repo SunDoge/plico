@@ -111,6 +111,8 @@ pub struct PreviewSession {
     backend: crate::RenderBackend,
     renderer: Option<crate::capture::CaptureRenderer>,
     dimensions: (u32, u32),
+    #[cfg(feature = "wgpu")]
+    force_general_pipelines: bool,
 }
 impl PreviewSession {
     pub fn new(backend: crate::RenderBackend) -> Self {
@@ -118,6 +120,16 @@ impl PreviewSession {
             backend,
             renderer: None,
             dimensions: (0, 0),
+            #[cfg(feature = "wgpu")]
+            force_general_pipelines: false,
+        }
+    }
+    /// Compare captures with every quad class drawn by the general shader.
+    #[cfg(feature = "wgpu")]
+    pub fn force_general_pipelines(&mut self, force: bool) {
+        self.force_general_pipelines = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_general_pipelines(force);
         }
     }
     /// Renderer CPU stages and GPU time from the most recent capture.
@@ -125,6 +137,13 @@ impl PreviewSession {
         self.renderer
             .as_ref()
             .and_then(|renderer| renderer.frame_budget())
+    }
+    /// Renderer batching and specialized-pipeline counters from the latest capture.
+    #[cfg(feature = "wgpu")]
+    pub fn last_batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
+        self.renderer
+            .as_ref()
+            .and_then(|renderer| renderer.batch_stats())
     }
     /// Name reported by the active GPU adapter, for reproducible profiling.
     pub fn adapter_name(&self) -> Option<&str> {
@@ -141,11 +160,10 @@ impl PreviewSession {
         let fixed_size = matches!(self.backend, crate::RenderBackend::Skia)
             || (matches!(self.backend, crate::RenderBackend::Auto) && !cfg!(feature = "wgpu"));
         if self.renderer.is_none() || (fixed_size && self.dimensions != (width, height)) {
-            self.renderer = Some(crate::capture::CaptureRenderer::new(
-                self.backend,
-                width,
-                height,
-            )?);
+            let mut renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
+            #[cfg(feature = "wgpu")]
+            renderer.force_general_pipelines(self.force_general_pipelines);
+            self.renderer = Some(renderer);
             self.dimensions = (width, height);
         }
         Ok(self.renderer.as_mut().unwrap())

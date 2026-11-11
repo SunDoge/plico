@@ -3,7 +3,7 @@
 //! ClassFill and ClassShadow). Specialized paths must be pixel-identical to the
 //! general shader, and class runs must never reorder painter sequence.
 use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
-use plico_wgpu::{Draw, Quad, Renderer, mask::CoverageMask};
+use plico_wgpu::{Draw, Quad, Renderer, image::ImageQuad, mask::CoverageMask};
 use std::sync::Arc;
 
 fn fixture() -> Vec<Quad> {
@@ -46,16 +46,178 @@ fn fixture() -> Vec<Quad> {
 }
 
 fn warm_classes(renderer: &mut Renderer, quads: &[Quad], size: [u32; 2]) -> Vec<u8> {
-    for _ in 0..64 {
+    let mut last = Default::default();
+    for _ in 0..2_000 {
         let pixels = renderer.render(quads, size, [0.05; 4], 0.).unwrap();
         let stats = renderer.batch_stats();
+        last = stats;
         if stats.plain_draw_calls == 1 && stats.fill_draw_calls == 1 && stats.shadow_draw_calls == 1
         {
             return pixels;
         }
-        std::thread::yield_now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    panic!("class pipeline warmup did not finish");
+    panic!("class pipeline warmup did not finish: {last:?}");
+}
+
+fn image_fixture() -> ImageQuad {
+    let pixels = (0..64)
+        .flat_map(|i| {
+            [
+                ((i * 47) % 256) as u8,
+                ((i * 83 + 11) % 256) as u8,
+                ((i * 29 + 37) % 256) as u8,
+                255,
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut image = ImageQuad::new(
+        Quad::new([8., 8., 176., 128.], [1.; 4]),
+        ImageData {
+            data: Blob::new(Arc::new(pixels)),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+            width: 8,
+            height: 8,
+        },
+    );
+    image.quad.radii = [18., 4., 12., 24.];
+    image.quad.clip = Some([12., 10., 164., 120.]);
+    image.quad.clip_antialias = true;
+    image.quality = peniko::ImageQuality::High;
+    image
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn specialized_image_pipeline_is_pixel_identical_to_general_sampling() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let image = image_fixture();
+    let items = [Draw::Image(&image)];
+    let mut specialized = Vec::new();
+    for _ in 0..2_000 {
+        specialized = renderer
+            .render_items(&items, [192, 144], [0.03; 4], 0.)
+            .unwrap();
+        if renderer.batch_stats().image_draw_calls == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(renderer.batch_stats().image_draw_calls, 1);
+    renderer.force_general_pipelines(true);
+    let general = renderer
+        .render_items(&items, [192, 144], [0.03; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.batch_stats().image_draw_calls, 0);
+    assert_eq!(specialized, general);
+}
+
+#[cfg(all(target_os = "linux", feature = "system-text"))]
+#[test]
+#[ignore = "requires system fonts and a working wgpu adapter"]
+fn specialized_glyph_pipelines_are_pixel_identical_to_general_sampling() {
+    use plico_wgpu::text::{TextRequest, TextRun};
+
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    // Each class must exceed joinArea independently; otherwise MyGO's
+    // joinLast intentionally draws the adjacent glyph classes as one general
+    // run, which is correct but cannot exercise these two pipelines.
+    let mut request = TextRequest::new("AA🙂");
+    request.family = "Noto Sans, Noto Sans CJK SC, Noto Color Emoji, sans-serif";
+    request.size = 180.;
+    let layout = renderer.layout_text(&request).unwrap();
+    assert_eq!(layout.missing_glyphs, 0);
+    let run = TextRun::new(&layout, [8., 8.], [0.1, 0.3, 0.8, 0.85]);
+    let items = [Draw::Text(run)];
+    let mut specialized = Vec::new();
+    for _ in 0..2_000 {
+        specialized = renderer
+            .render_items(&items, [640, 240], [1.; 4], 0.)
+            .unwrap();
+        let stats = renderer.batch_stats();
+        if stats.glyph_draw_calls > 0 && stats.color_glyph_draw_calls > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let stats = renderer.batch_stats();
+    assert!(stats.glyph_draw_calls > 0, "{stats:?}");
+    assert!(stats.color_glyph_draw_calls > 0, "{stats:?}");
+    renderer.force_general_pipelines(true);
+    let general = renderer
+        .render_items(&items, [640, 240], [1.; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.batch_stats().glyph_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().color_glyph_draw_calls, 0);
+    assert_eq!(specialized, general);
+}
+
+#[cfg(all(target_os = "linux", feature = "system-text"))]
+#[test]
+#[ignore = "manual GPU profile"]
+fn profile_glyph_and_image_class_gpu_cost() {
+    use plico_wgpu::text::{TextRequest, TextRun};
+
+    fn median(values: &mut [f64]) -> f64 {
+        values.sort_by(f64::total_cmp);
+        let middle = values.len() / 2;
+        if values.len().is_multiple_of(2) {
+            (values[middle - 1] + values[middle]) * 0.5
+        } else {
+            values[middle]
+        }
+    }
+
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let image = image_fixture();
+    let image_items = [Draw::Image(&image)];
+    let text = "Plico Aa 中文 0123456789 ".repeat(12);
+    let mut request = TextRequest::new(&text);
+    request.family = "Noto Sans, Noto Sans CJK SC, sans-serif";
+    request.size = 64.;
+    let layout = renderer.layout_text(&request).unwrap();
+    assert_eq!(layout.missing_glyphs, 0);
+    let run = TextRun::new(&layout, [8., 8.], [0.1, 0.3, 0.8, 0.9]);
+    let text_items = [Draw::Text(run)];
+
+    // Let every background pipeline arrive before alternating modes.
+    for _ in 0..2_000 {
+        renderer
+            .render_items(&image_items, [192, 144], [0.; 4], 0.)
+            .unwrap();
+        if renderer.batch_stats().image_draw_calls > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    for (name, items, size) in [
+        ("image", image_items.as_slice(), [192, 144]),
+        ("glyph", text_items.as_slice(), [1920, 160]),
+    ] {
+        let mut general = Vec::new();
+        let mut classes = Vec::new();
+        for sample in 0..42 {
+            let force = sample % 2 == 0;
+            renderer.force_general_pipelines(force);
+            renderer.render_items(items, size, [0.; 4], 0.).unwrap();
+            if sample >= 10
+                && let Some(gpu) = renderer.frame_budget().gpu_ms
+            {
+                if force {
+                    general.push(gpu);
+                } else {
+                    classes.push(gpu);
+                }
+            }
+        }
+        assert!(!general.is_empty() && !classes.is_empty());
+        eprintln!(
+            "{name} general_gpu_ms={:.3} class_gpu_ms={:.3}",
+            median(&mut general),
+            median(&mut classes)
+        );
+    }
 }
 
 #[test]

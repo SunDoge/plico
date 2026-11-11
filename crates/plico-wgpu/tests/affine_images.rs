@@ -164,7 +164,11 @@ fn affine_image_motion_clips_and_mask_restoration_match_full_redraw() {
     partial
         .render_items(&[plico_wgpu::Draw::Image(&quad)], [80, 64], [0.; 4], 0.)
         .unwrap();
-    assert_eq!(uploads, partial.image_cache_stats().2);
+    assert_eq!(
+        uploads + 1,
+        partial.image_cache_stats().2,
+        "a source absent from the completed root frame is released and uploaded again"
+    );
 }
 
 #[test]

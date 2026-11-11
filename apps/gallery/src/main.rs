@@ -10,6 +10,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         /// and pipelines are warm when `PLICO_FRAME_BUDGET` is printed.
         #[usage(long)]
         frames: Option<u32>,
+        /// Draw every wgpu quad class through the general shader for A/B profiles.
+        #[usage(long)]
+        general_classes: bool,
     }
     let options = Options::parse();
     #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
@@ -19,6 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(any(feature = "desktop", feature = "wgpu", feature = "skia"))]
     if let Some(output) = options.capture {
         let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Auto);
+        #[cfg(feature = "wgpu")]
+        session.force_general_pipelines(options.general_classes);
         let mut captured = None;
         for _ in 0..options.frames.unwrap_or(1).max(1) {
             let scenario = if let Some(path) = &options.scenario {
@@ -51,6 +56,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 budget.draw_calls,
                 budget.upload_bytes / 1024,
             );
+            #[cfg(feature = "wgpu")]
+            if let Some(stats) = session.last_batch_stats() {
+                println!(
+                    "class draws: plain={} fill={} shadow={} glyph={} color-glyph={} image={} general-or-joined={}",
+                    stats.plain_draw_calls,
+                    stats.fill_draw_calls,
+                    stats.shadow_draw_calls,
+                    stats.glyph_draw_calls,
+                    stats.color_glyph_draw_calls,
+                    stats.image_draw_calls,
+                    stats.draw_calls.saturating_sub(
+                        stats.plain_draw_calls
+                            + stats.fill_draw_calls
+                            + stats.shadow_draw_calls
+                            + stats.glyph_draw_calls
+                            + stats.color_glyph_draw_calls
+                            + stats.image_draw_calls
+                    ),
+                );
+            }
         }
         return Ok(());
     }

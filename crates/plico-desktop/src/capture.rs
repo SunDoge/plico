@@ -85,6 +85,22 @@ pub(crate) enum CaptureRenderer {
     Wgpu(Box<plico_wgpu::Renderer>),
 }
 impl CaptureRenderer {
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn force_general_pipelines(&mut self, force: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::Wgpu(renderer) = self {
+            renderer.force_general_pipelines(force);
+        }
+    }
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
+        match self {
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(renderer) => Some(renderer.batch_stats()),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
     pub(crate) fn adapter_name(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "skia")]

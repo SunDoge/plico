@@ -258,22 +258,28 @@ threshold; Clippy passed.
 
 ## Class shader specialization
 
-Plico carries MyGO's ordinary `ClassPlain`, `ClassFill`, and `ClassShadow` paths.
+Plico carries MyGO's ordinary `ClassPlain`, `ClassFill`, `ClassShadow`,
+`ClassGlyph`, and `ClassImage` split. Plico's atlas distinguishes monochrome and
+color glyph instances, so they have separate small pipelines rather than MyGO's
+subpixel class.
 Gradients and bordered fills use a static `ClassFill` fragment pipeline containing
 only clip/shape coverage, gradient interpolation and border composition. Runtime
-materials, images, glyphs and backdrop markers remain on the general pipeline;
-outer and inset box shadows use an analytical shadow-only vertex/fragment pair.
+materials and backdrop markers remain on the general pipeline; outer and inset
+box shadows use an analytical shadow-only vertex/fragment pair, glyph pipelines
+retain only atlas sampling/tint/clip inputs, and images retain only sampling,
+rounded coverage and clip inputs.
 Small adjacent runs of different classes still use the existing
 `joinLast` threshold and merge into the general pipeline, avoiding extra draw calls.
 `Renderer::force_general_pipelines(true)` provides the pixel oracle, and
-`FrameBatchStats::fill_draw_calls` proves that the specialized path was selected.
+Per-class `FrameBatchStats` counters prove which specialized paths were selected.
 The class pipelines also use dedicated vertex entry points and fragment input
 structures: `ClassPlain` does not export the second color, border, configuration,
-UV or gradient varyings, and `ClassFill` does not export image UVs. Coverage masks
-remain clip state and can use `ClassPlain`; they do not force a solid into the
-larger fill class. This follows MyGO's paired class vertex/pixel shaders instead
-of relying on a backend compiler to discover that the general vertex interface
-is mostly unused.
+UV or gradient varyings, `ClassFill` does not export image UVs, and glyphs do not
+export shape fields. Coverage masks remain clip state and can use `ClassPlain`;
+they do not force a solid into the larger fill class. This follows MyGO's paired
+class vertex/pixel shaders instead of relying on a backend compiler to discover
+that the general vertex interface is mostly unused. Pipelines live in one
+class-indexed array rather than adding renderer fields per specialization.
 
 On native backends the class pipelines compile sequentially on a worker, following
 MyGO's nonblocking Metal warmup. A frame whose class is not ready uses the general
@@ -289,6 +295,8 @@ cargo test --locked -p plico-wgpu --test classes -- --ignored --test-threads=1
 cargo test --locked -p plico-wgpu --lib \
   unavailable_class_pipelines_fall_back_to_identical_general_pixels \
   -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 cargo test --locked -p plico-wgpu --test classes \
+  profile_glyph_and_image_class_gpu_cost -- --ignored --test-threads=1 --nocapture
 cargo test --locked -p plico-wgpu \
   --test gradients --test render --test scene --test shadows \
   --test inset_shadows --test continuous_shadows --test batching --test join \
@@ -296,6 +304,7 @@ cargo test --locked -p plico-wgpu \
 PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 target/release/gallery \
   --scenario apps/gallery/scenarios/controls.json \
   --capture /tmp/controls.png --frames 10
+# Add --general-classes for the same-binary NoClasses comparison.
 ```
 
 On 2026-11-12, Linux, Intel ARL integrated graphics and Mesa Vulkan, the three
@@ -322,6 +331,24 @@ byte-identical. These are local Intel/Mesa results, not cross-adapter guarantees
 or CI thresholds. The final path passed three class-oracle tests, the forced
 pending fallback test, and 48 broader real-adapter regressions including outer,
 inset, continuous-corner, mask, partial-damage and painter-order coverage.
+
+The glyph/image extension was compared with `0184960` (Plain/Fill/Shadow only).
+Ten alternating 20-frame process pairs reversed binary order on every pair.
+`data-table` and `workspace` GPU medians were unchanged (3.21→3.20 ms and
+3.00→3.01 ms); `controls` moved 3.18→3.41 ms. Process medians were effectively
+unchanged across the three scenes, and every PNG was byte-identical. The current
+renderer nevertheless selected 25–31 glyph and 27–39 image draws per frame in
+those fixtures, so the neutral page result is not a failure to exercise the code.
+
+The same-process isolated fill-rate profile removes process startup and alternates
+general/specialized frames. Five runs on the same Intel/Mesa adapter measured
+image medians of 0.260–0.303 ms general versus 0.210–0.244 ms specialized, and
+glyph medians of 0.612–0.773 versus 0.564–0.713 ms. Thus the smaller shaders have
+a repeatable isolated GPU benefit, but normal pages remain draw/submit dominated;
+this is not presented as a page-level FPS improvement. All 137 integration
+hardware tests passed, including byte-exact monochrome, color-emoji and
+high-quality rounded-image oracles plus affine sampling, masks, damage, layers,
+painter order and native text coverage.
 
 ## Scene and image residency
 

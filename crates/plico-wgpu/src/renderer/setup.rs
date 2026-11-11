@@ -162,7 +162,7 @@ impl Renderer {
             .rfind("@fragment")
             .expect("the quad shader defines one fragment entry point")];
         #[cfg(not(target_arch = "wasm32"))]
-        let (plain_pipeline, fill_pipeline, shadow_pipeline, class_pipeline_rx) = {
+        let (class_pipelines, class_pipeline_rx) = {
             let (sender, receiver) = std::sync::mpsc::channel();
             let warm_device = device.clone();
             let warm_layout = layout.clone();
@@ -170,26 +170,7 @@ impl Renderer {
             let worker = std::thread::Builder::new()
                 .name("plico-class-pipelines".into())
                 .spawn(move || {
-                    for (class, source, vertex, label) in [
-                        (
-                            PipelineClass::Plain,
-                            PLAIN_CLASS_SHADER,
-                            "vs_plain",
-                            "Plico plain quads",
-                        ),
-                        (
-                            PipelineClass::Fill,
-                            FILL_CLASS_SHADER,
-                            "vs_fill",
-                            "Plico fill quads",
-                        ),
-                        (
-                            PipelineClass::Shadow,
-                            SHADOW_CLASS_SHADER,
-                            "vs_shadow",
-                            "Plico shadow quads",
-                        ),
-                    ] {
+                    for (class, source, vertex, label) in Self::class_pipeline_specs() {
                         let pipeline = Self::class_pipeline(
                             &warm_device,
                             &warm_layout,
@@ -204,17 +185,16 @@ impl Renderer {
                     }
                 });
             if worker.is_ok() {
-                (None, None, None, receiver)
+                (std::array::from_fn(|_| None), receiver)
             } else {
-                let (plain, fill, shadow) = Self::class_pipelines(&device, &layout, class_common);
-                (Some(plain), Some(fill), Some(shadow), receiver)
+                (
+                    Self::class_pipelines(&device, &layout, class_common),
+                    receiver,
+                )
             }
         };
         #[cfg(target_arch = "wasm32")]
-        let (plain_pipeline, fill_pipeline, shadow_pipeline) = {
-            let (plain, fill, shadow) = Self::class_pipelines(&device, &layout, class_common);
-            (Some(plain), Some(fill), Some(shadow))
-        };
+        let class_pipelines = Self::class_pipelines(&device, &layout, class_common);
         let gpu_timer = gpu_timer::GpuTimer::new(&device);
         let mut renderer = Self {
             device,
@@ -233,9 +213,7 @@ impl Renderer {
             bind,
             pipeline: None,
             plus_pipeline: None,
-            plain_pipeline,
-            fill_pipeline,
-            shadow_pipeline,
+            class_pipelines,
             #[cfg(not(target_arch = "wasm32"))]
             class_pipeline_rx,
             force_general: false,
@@ -328,12 +306,8 @@ impl Renderer {
     pub(super) fn poll_class_pipelines(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         while let Ok((class, pipeline)) = self.class_pipeline_rx.try_recv() {
-            match class {
-                PipelineClass::Plain => self.plain_pipeline = Some(pipeline),
-                PipelineClass::Fill => self.fill_pipeline = Some(pipeline),
-                PipelineClass::Shadow => self.shadow_pipeline = Some(pipeline),
-                PipelineClass::General => unreachable!("general pipeline is not warmed"),
-            }
+            self.class_pipelines[class.slot().expect("general pipeline is not warmed")] =
+                Some(pipeline);
         }
     }
     /// Disable same-stage backdrop batching for pixel/performance comparisons.
@@ -464,41 +438,57 @@ impl Renderer {
             label,
         )
     }
-    fn class_pipelines(
-        device: &wgpu::Device,
-        layout: &wgpu::PipelineLayout,
-        common: &str,
-    ) -> (
-        wgpu::RenderPipeline,
-        wgpu::RenderPipeline,
-        wgpu::RenderPipeline,
-    ) {
-        (
-            Self::class_pipeline(
-                device,
-                layout,
-                common,
+    fn class_pipeline_specs() -> [ClassPipelineSpec; PipelineClass::COUNT] {
+        [
+            (
+                PipelineClass::Plain,
                 PLAIN_CLASS_SHADER,
                 "vs_plain",
                 "Plico plain quads",
             ),
-            Self::class_pipeline(
-                device,
-                layout,
-                common,
+            (
+                PipelineClass::Glyph,
+                GLYPH_CLASS_SHADER,
+                "vs_glyph",
+                "Plico glyph quads",
+            ),
+            (
+                PipelineClass::Image,
+                IMAGE_CLASS_SHADER,
+                "vs_image",
+                "Plico image quads",
+            ),
+            (
+                PipelineClass::Fill,
                 FILL_CLASS_SHADER,
                 "vs_fill",
                 "Plico fill quads",
             ),
-            Self::class_pipeline(
-                device,
-                layout,
-                common,
+            (
+                PipelineClass::Shadow,
                 SHADOW_CLASS_SHADER,
                 "vs_shadow",
                 "Plico shadow quads",
             ),
-        )
+            (
+                PipelineClass::ColorGlyph,
+                COLOR_GLYPH_CLASS_SHADER,
+                "vs_color_glyph",
+                "Plico color glyph quads",
+            ),
+        ]
+    }
+    fn class_pipelines(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        common: &str,
+    ) -> [Option<wgpu::RenderPipeline>; PipelineClass::COUNT] {
+        let mut pipelines = std::array::from_fn(|_| None);
+        for (class, source, vertex, label) in Self::class_pipeline_specs() {
+            let pipeline = Self::class_pipeline(device, layout, common, source, vertex, label);
+            pipelines[class.slot().expect("class pipeline must be specialized")] = Some(pipeline);
+        }
+        pipelines
     }
     fn material_pipeline(
         &self,
