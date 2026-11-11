@@ -5,9 +5,9 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    EventResponse, FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton,
-    PointerEvent, PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot,
-    TextContext, UiEvent, layout::PlacedNode,
+    EventResponse, FrameSource, KeyEvent, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
+    PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
+    UiEvent, layout::PlacedNode,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -249,18 +249,11 @@ pub fn dispatch<V: HostView>(
             source.handle_event(UiEvent::Key(event.clone()));
         }
         Command::Key { key } => {
-            source.handle_event(UiEvent::Key(KeyEvent {
-                phase: KeyPhase::Down,
-                key: key.clone(),
-                key_without_modifiers: key.clone(),
-                code: String::new(),
-                text: None,
-                text_with_all_modifiers: None,
-                location: KeyLocation::Standard,
-                modifiers: Modifiers::empty(),
-                repeat: false,
-                synthetic: false,
-            }));
+            source.handle_event(UiEvent::Key(KeyEvent::logical(
+                KeyPhase::Down,
+                key.clone(),
+                Modifiers::empty(),
+            )));
         }
     }
     Ok(())

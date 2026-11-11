@@ -122,6 +122,25 @@ pub enum StandardShortcut {
 }
 
 impl KeyEvent {
+    /// Construct a logical key transition without committed text or a physical
+    /// code. Recipe runners, synthetic navigation buttons and test hosts use
+    /// this so they share the same defaults instead of hand-building events.
+    pub fn logical(phase: KeyPhase, key: impl Into<String>, modifiers: Modifiers) -> Self {
+        let key = key.into();
+        Self {
+            phase,
+            key_without_modifiers: key.clone(),
+            key,
+            code: String::new(),
+            text: None,
+            text_with_all_modifiers: None,
+            location: KeyLocation::Standard,
+            modifiers,
+            repeat: false,
+            synthetic: false,
+        }
+    }
+
     /// Match a platform-standard editing shortcut. Physical combinations such
     /// as terminal Control+C should continue to inspect `modifiers` directly.
     pub fn matches_standard_shortcut(&self, shortcut: StandardShortcut) -> bool {
@@ -265,18 +284,21 @@ impl<A> ShortcutMap<A> {
 mod tests {
     use super::*;
     fn event() -> KeyEvent {
-        KeyEvent {
-            phase: KeyPhase::Down,
-            key: "K".into(),
-            key_without_modifiers: "k".into(),
-            code: "KeyK".into(),
-            text: None,
-            text_with_all_modifiers: None,
-            location: KeyLocation::Standard,
-            modifiers: Shortcut::primary("k").modifiers,
-            repeat: false,
-            synthetic: false,
-        }
+        let mut event = KeyEvent::logical(KeyPhase::Down, "K", Shortcut::primary("k").modifiers);
+        event.key_without_modifiers = "k".into();
+        event.code = "KeyK".into();
+        event
+    }
+    #[test]
+    fn logical_events_have_backend_neutral_defaults() {
+        let event = KeyEvent::logical(KeyPhase::Up, "BrowserBack", Modifiers::ALT);
+        assert_eq!(event.key, "BrowserBack");
+        assert_eq!(event.key_without_modifiers, "BrowserBack");
+        assert!(event.code.is_empty());
+        assert_eq!(event.location, KeyLocation::Standard);
+        assert_eq!(event.modifiers, Modifiers::ALT);
+        assert!(!event.repeat && !event.synthetic);
+        assert!(event.text.is_none() && event.text_with_all_modifiers.is_none());
     }
     #[test]
     fn exact_modifiers_physical_keys_repeat_and_recovery() {

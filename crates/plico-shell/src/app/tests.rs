@@ -436,7 +436,7 @@ fn mouse_history_buttons_are_delivered_as_navigation_keys() {
         };
         assert_eq!(event.phase, phase);
         assert_eq!(event.key, "BrowserBack");
-        assert_eq!(event.code, "BrowserBack");
+        assert!(event.code.is_empty());
         assert!(event.modifiers.is_empty());
     }
 }

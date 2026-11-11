@@ -203,18 +203,7 @@ fn logical_key_press(key: &str) -> KeyEvent {
         modifiers |= modifier;
         logical = rest;
     }
-    KeyEvent {
-        phase: KeyPhase::Down,
-        key: logical.into(),
-        key_without_modifiers: logical.into(),
-        code: String::new(),
-        text: None,
-        text_with_all_modifiers: None,
-        location: KeyLocation::Standard,
-        modifiers,
-        repeat: false,
-        synthetic: false,
-    }
+    KeyEvent::logical(KeyPhase::Down, logical, modifiers)
 }
 
 impl<A: App> ProtocolApp for PlainModule<A> {}

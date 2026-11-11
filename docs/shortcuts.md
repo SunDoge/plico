@@ -5,6 +5,9 @@ Services<_, _>)` receive full fallback events, including modifiers, the logical
 key without modifiers, physical code, location and repeat/synthetic flags. The
 same event type is exported by `plico`, `plico-dev` and `plico-renderer`.
 It has no renderer/window dependency in the application protocol.
+Synthetic hosts use `KeyEvent::logical(phase, key, modifiers)` for transitions
+without committed text or a physical code; desktop and browser recipes share
+these defaults.
 
 ```rust
 use plico::{KeyEvent, Shortcut};

@@ -144,22 +144,15 @@ impl<V: HostView> WebHost<V> {
         {
             let response = self.dispatch(
                 time,
-                UiEvent::Key(KeyEvent {
-                    phase: if phase == PointerPhase::Down {
+                UiEvent::Key(KeyEvent::logical(
+                    if phase == PointerPhase::Down {
                         KeyPhase::Down
                     } else {
                         KeyPhase::Up
                     },
-                    key: key.into(),
-                    key_without_modifiers: key.into(),
-                    code: key.into(),
-                    text: None,
-                    text_with_all_modifiers: None,
-                    location: KeyLocation::Standard,
+                    key,
                     modifiers,
-                    repeat: false,
-                    synthetic: false,
-                }),
+                )),
             )?;
             if response.handled {
                 event.prevent_default();

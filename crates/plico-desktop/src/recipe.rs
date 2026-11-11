@@ -499,22 +499,15 @@ fn run_case<S, V: HostView>(
                                 occurrence,
                             },
                             Command::KeyEvent {
-                                event: plico_renderer::KeyEvent {
-                                    phase: plico_renderer::KeyPhase::Down,
-                                    key: "a".into(),
-                                    key_without_modifiers: "a".into(),
-                                    code: "KeyA".into(),
-                                    text: None,
-                                    text_with_all_modifiers: None,
-                                    location: plico_renderer::KeyLocation::Standard,
-                                    modifiers: if cfg!(target_os = "macos") {
+                                event: plico_renderer::KeyEvent::logical(
+                                    plico_renderer::KeyPhase::Down,
+                                    "a",
+                                    if cfg!(target_os = "macos") {
                                         plico::Modifiers::META
                                     } else {
                                         plico::Modifiers::CONTROL
                                     },
-                                    repeat: false,
-                                    synthetic: false,
-                                },
+                                ),
                             },
                             Command::Key {
                                 key: "Backspace".into(),
