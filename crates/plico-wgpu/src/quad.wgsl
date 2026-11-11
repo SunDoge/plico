@@ -341,6 +341,26 @@ fn bicubic(uv: vec2f, extend: vec2f, level: i32) -> vec4f {
     let alpha = clamp(result.a, 0., 1.);
     return vec4f(clamp(result.rgb, vec3f(0.), vec3f(alpha)), alpha);
 }
+fn clip_coverage(input: Vertex, world: vec2f) -> f32 {
+    let clip = input.clip;
+    var alpha = 1.;
+    if input.clip_params.x > 0.5 {
+        alpha = coverage(world - clip.xy, clip.zw, vec4f(0.));
+        if alpha <= 0. {
+            return 0.;
+        }
+    } else if input.clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
+        return 0.;
+    }
+    if input.clip_params.z > 0. {
+        let m = input.mask_rect;
+        if any(world < m.xy) || any(world >= m.xy + m.zw) {
+            return 0.;
+        }
+        alpha *= textureSampleLevel(clip_mask, clip_sampler, (world - m.xy) / m.zw, 0.).r;
+    }
+    return alpha;
+}
 @fragment
 fn fs_main(input: Vertex) -> @location(0) vec4f {
     // Derivatives precede clipping/discard and extension folding. This avoids
@@ -349,26 +369,9 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
     let footprint = max(length(dpdx(input.uv) * source_size), length(dpdy(input.uv) * source_size));
     let lod = clamp(log2(max(footprint, 1.)), 0., max(input.color2.x - 1., 0.));
     let world = input.position.xy + frame.origin.xy;
-    let clip = input.clip;
-    // Clip rectangle is a hard scissor equivalent, in physical pixels.
-    var clip_alpha = 1.;
-    if input.clip_params.x > 0.5 {
-        clip_alpha = coverage(world - clip.xy, clip.zw, vec4f(0.));
-        if clip_alpha <= 0. {
-            discard;
-        }
-    } else if input.clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
+    let clip_alpha = clip_coverage(input, world);
+    if clip_alpha <= 0. {
         discard;
-    }
-    if input.clip_params.z > 0. {
-        let m = input.mask_rect;
-        if any(world < m.xy) || any(world >= m.xy + m.zw) {
-            discard;
-        }
-        clip_alpha *= textureSampleLevel(clip_mask, clip_sampler, (world - m.xy) / m.zw, 0.).r;
-        if clip_alpha <= 0. {
-            discard;
-        }
     }
     if input.config.z >= 6. {
         let hole = input.gradient;

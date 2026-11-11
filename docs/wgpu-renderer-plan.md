@@ -56,11 +56,12 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    borders, rounded image corners and mitered strokes keep every corner's own arc, adjacent
    corners shrink proportionally on the CPU before upload, and nonuniform corner radii no
    longer fall back to CPU raster. Gaussian box shadows stay on the uniform-radius path,
-   matching the single-radius shared command. Class specialization has begun following
-   mygo's `ClassOf`: adjacent plain solid fills (no border, gradient, material, image or
-   mask) draw through a small dedicated fragment pipeline in their own instance runs;
-   `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
-   comparison, and `FrameBatchStats::plain_draw_calls` reports the split. mygo's joinLast is
+   matching the single-radius shared command. Class specialization follows mygo's
+   `ClassOf`: adjacent plain solid fills draw through a minimal fragment pipeline, while
+   ordinary gradients and borders use a second `ClassFill` pipeline that omits material,
+   image, glyph and shadow paths. `Renderer::force_general_pipelines` reproduces mygo's
+   NoClasses for pixel-identity comparison; `FrameBatchStats::plain_draw_calls` and
+   `fill_draw_calls` report the split. mygo's joinLast is
    applied: adjacent runs that differ only in their class and each cover at most 128x128 pixels
    (mygo's measured call-vs-specialization trade-off) merge into one general-pipeline call, so
    class-interleaved scenes - a shadow then its fill per box - no longer pay one call per

@@ -148,7 +148,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -317,6 +317,7 @@ impl Renderer {
             .clone();
         let mut flush_draws: u64 = 0;
         let mut flush_plain_draws: u64 = 0;
+        let mut flush_fill_draws: u64 = 0;
         let encode_started = Instant::now();
         if let Some(base) = &self.inherited_backdrop {
             base.seed(
@@ -394,15 +395,19 @@ impl Renderer {
                         (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
                     };
                     let texture = key(first);
-                    // Class runs: adjacent plain fills share the specialized
-                    // pipeline, everything else keeps the general shader. The
-                    // run boundary never reorders painter sequence.
+                    // Class runs: adjacent plain and ordinary fills use their
+                    // specialized pipelines; images, glyphs, shadows and
+                    // materials keep the general shader. Painter order stays
+                    // unchanged.
                     // Backdrop markers (color[3] == 2) are singleton runs: they
                     // never join a class run or the joiner.
                     let backdrop_at = (instances[first].color[3] == 2.)
                         .then(|| instances[first].config[3] as usize);
-                    let plain =
-                        backdrop_at.is_none() && !self.force_general && is_plain(&instances[first]);
+                    let class = if backdrop_at.is_some() {
+                        PipelineClass::General
+                    } else {
+                        pipeline_class(&instances[first], force_general)
+                    };
                     let mut end = first + 1;
                     while backdrop_at.is_none()
                         && end < segment_end
@@ -412,7 +417,7 @@ impl Renderer {
                         && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
                             == (instances[first].config[2] == 4.
                                 && instances[first].config[1] == 1.)
-                        && (!force_general && is_plain(&instances[end])) == plain
+                        && pipeline_class(&instances[end], force_general) == class
                     {
                         end += 1;
                     }
@@ -423,7 +428,7 @@ impl Renderer {
                     let run = RunFlush {
                         start: first,
                         end,
-                        plain,
+                        class,
                         plus,
                         texture,
                         mask,
@@ -437,11 +442,12 @@ impl Renderer {
                         && !plus
                         && backdrop_at.is_none()
                     {
-                        // Only the class differs; extend the pending run. The
-                        // merged run keeps the plain pipeline only if every
-                        // merged part was plain.
+                        // Only the class differs; extend the pending run. A
+                        // mixed-class run uses the general pipeline.
                         previous.end = run.end;
-                        previous.plain = previous.plain && run.plain;
+                        if previous.class != run.class {
+                            previous.class = PipelineClass::General;
+                        }
                     } else {
                         if let Some((previous, _)) = pending.take() {
                             self.flush_run(
@@ -453,6 +459,7 @@ impl Renderer {
                                 &mut scissor_run,
                                 &mut flush_draws,
                                 &mut flush_plain_draws,
+                                &mut flush_fill_draws,
                             );
                         }
                         if let Some(effect_index) = backdrop_at {
@@ -551,6 +558,7 @@ impl Renderer {
                         &mut scissor_run,
                         &mut flush_draws,
                         &mut flush_plain_draws,
+                        &mut flush_fill_draws,
                     );
                 }
             }
@@ -648,6 +656,7 @@ impl Renderer {
         }
         self.batch_stats.draw_calls += flush_draws;
         self.batch_stats.plain_draw_calls += flush_plain_draws;
+        self.batch_stats.fill_draw_calls += flush_fill_draws;
         self.frame_budget.instances += instances.len() as u64;
         self.frame_budget.draw_calls += flush_draws;
         self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
@@ -667,6 +676,7 @@ impl Renderer {
         scissor_run: &mut Option<[u32; 4]>,
         draw_calls: &mut u64,
         plain_draw_calls: &mut u64,
+        fill_draw_calls: &mut u64,
     ) {
         // Resolve every self borrow before the pass ops so the caller's
         // encoder/pass lifetimes stay disjoint from self.
@@ -697,10 +707,12 @@ impl Renderer {
         });
         let pipeline = if run.plus {
             self.plus_pipeline.as_ref().expect("plus pipeline prepared") as &wgpu::RenderPipeline
-        } else if run.plain {
-            &self.plain_pipeline
         } else {
-            self.pipeline.as_ref().expect("material installed")
+            match run.class {
+                PipelineClass::General => self.pipeline.as_ref().expect("material installed"),
+                PipelineClass::Plain => &self.plain_pipeline,
+                PipelineClass::Fill => &self.fill_pipeline,
+            }
         };
         let atlas_bind = &self.atlas_texture.bind;
         let texture_bind = run
@@ -729,8 +741,10 @@ impl Renderer {
             }
             pass.draw(0..6, run.start as u32..run.end as u32);
             *draw_calls += 1;
-            if run.plain {
-                *plain_draw_calls += 1;
+            match run.class {
+                PipelineClass::Plain => *plain_draw_calls += 1,
+                PipelineClass::Fill => *fill_draw_calls += 1,
+                PipelineClass::General => {}
             }
         }
     }

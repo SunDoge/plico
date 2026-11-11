@@ -256,6 +256,39 @@ pools, other drivers, release profiles and real app concurrency are not evaluate
 by this experiment. The diagnostic remains ignored by default, with no timing
 threshold; Clippy passed.
 
+## ClassFill shader specialization
+
+Plico now carries MyGO's second ordinary-shape class in addition to `ClassPlain`.
+Gradients and bordered fills use a static `ClassFill` fragment pipeline containing
+only clip/shape coverage, gradient interpolation and border composition. Runtime
+materials, images, glyphs, shadows and backdrop markers remain on the general
+pipeline. Small adjacent runs of different classes still use the existing
+`joinLast` threshold and merge into the general pipeline, avoiding extra draw calls.
+`Renderer::force_general_pipelines(true)` provides the pixel oracle, and
+`FrameBatchStats::fill_draw_calls` proves that the specialized path was selected.
+
+Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --test classes -- --ignored --test-threads=1
+cargo test --locked -p plico-wgpu \
+  --test gradients --test render --test scene --test shadows \
+  --test inset_shadows --test batching --test join \
+  -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 target/release/gallery \
+  --scenario apps/gallery/scenarios/controls.json \
+  --capture /tmp/controls.png --frames 10
+```
+
+On 2026-11-12, Linux, Intel ARL integrated graphics and Mesa Vulkan, the three
+class tests and 45 broader real-adapter regressions passed. Six alternating
+release pairs per scene produced byte-identical PNGs for both `controls` and
+`effects`. Median prepare/encode times were effectively unchanged: controls
+0.25/0.02 ms for both variants; effects 0.25/0.115 ms general versus
+0.255/0.12 ms specialized. Submit and GPU measurements varied in opposite
+directions between the two scenes, so this is evidence of a smaller selected
+shader with unchanged output, not evidence of a wall-time or FPS improvement.
+
 ## Scene and image residency
 
 Prepared snapshots retain only the graph reachable from the current root. Image

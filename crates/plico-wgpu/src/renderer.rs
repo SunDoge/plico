@@ -114,6 +114,8 @@ pub struct FrameBatchStats {
     pub draw_calls: u64,
     /// Draw calls through the specialized plain-fill pipeline.
     pub plain_draw_calls: u64,
+    /// Draw calls through the specialized gradient/border fill pipeline.
+    pub fill_draw_calls: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -254,6 +256,9 @@ pub struct Renderer {
     /// Specialized pipeline for plain solid fills (mygo's ClassPlain). Static
     /// source: it never recompiles and is not part of pipeline_compilations.
     plain_pipeline: wgpu::RenderPipeline,
+    /// Specialized pipeline for ordinary gradients and borders (mygo's
+    /// ClassFill). Materials, images, glyphs and shadows stay general.
+    fill_pipeline: wgpu::RenderPipeline,
     /// Comparison switch disabling class specialization (mygo's NoClasses).
     force_general: bool,
     #[cfg(test)]
@@ -366,15 +371,49 @@ impl Renderer {
 const PLAIN_FRAGMENT: &str = r#"
 @fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
-    let clip=input.clip;
-    var clip_alpha=1.;
-    if input.clip_params.x>0.5 {
-        clip_alpha=coverage(world-clip.xy,clip.zw,vec4f(0.));
-        if clip_alpha<=0. { discard; }
-    } else if input.clip_params.x >= 0. && (any(world<clip.xy) || any(world>=clip.xy+clip.zw)) { discard; }
+    let clip_alpha=clip_coverage(input,world);
+    if clip_alpha<=0. { discard; }
     let outer=coverage(input.local,input.size,input.radii);
     let alpha=input.color.a*outer*clip_alpha;
     return vec4f(input.color.rgb*alpha,alpha);
+}
+"#;
+
+/// MyGO's ClassFill counterpart: gradients and borders share only analytical
+/// shape/clip coverage and never compile the image, glyph, shadow or material
+/// paths into their fragment pipeline.
+const FILL_FRAGMENT: &str = r#"
+@fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(input,world);
+    if clip_alpha<=0. { discard; }
+    let outer=coverage(input.local,input.size,input.radii);
+    let width=min(input.config.y,min(input.size.x,input.size.y)*0.5);
+    var fill=input.color;
+    if any(input.gradient.xy!=input.gradient.zw) || input.clip_params.y>0.5 {
+        let start=input.gradient.xy*input.size;
+        let direction=(input.gradient.zw-input.gradient.xy)*input.size;
+        let t=clamp(dot(input.local-start,direction)/max(dot(direction,direction),0.000001),0.,1.);
+        fill=mix(input.color,input.color2,t);
+        if input.clip_params.y>0.5 {
+            let a=vec4f(input.color.rgb*input.color.a,input.color.a);
+            let b=vec4f(input.color2.rgb*input.color2.a,input.color2.a);
+            let premultiplied=mix(a,b,t);
+            fill=vec4f(premultiplied.rgb/max(premultiplied.a,0.000001),premultiplied.a);
+        }
+    }
+    if width<=0. {
+        let alpha=fill.a*outer;
+        return vec4f(fill.rgb*alpha,alpha)*clip_alpha;
+    }
+    let inner_size=max(input.size-2.*width,vec2f(0));
+    var inner=0.;
+    if all(inner_size>vec2f(0)) {
+        inner=coverage(input.local-vec2f(width),inner_size,max(input.radii-vec4f(width),vec4f(0.)));
+    }
+    let alpha=fill.a*inner;
+    let border_alpha=input.border.a*max(outer-inner,0.);
+    return vec4f(fill.rgb*alpha+input.border.rgb*border_alpha,alpha+border_alpha)*clip_alpha;
 }
 "#;
 
@@ -397,10 +436,17 @@ const JOIN_AREA: f32 = 128. * 128.;
 struct RunFlush {
     start: usize,
     end: usize,
-    plain: bool,
+    class: PipelineClass,
     plus: bool,
     texture: Option<usize>,
     mask: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PipelineClass {
+    General,
+    Plain,
+    Fill,
 }
 
 fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
@@ -420,6 +466,18 @@ fn is_plain(instance: &Instance) -> bool {
         && instance.config[1] == 0.
         && instance.clip_params[2] == 0.
         && instance.color == instance.color2
+}
+
+fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
+    if force_general {
+        PipelineClass::General
+    } else if is_plain(instance) {
+        PipelineClass::Plain
+    } else if instance.config[2] == 0. {
+        PipelineClass::Fill
+    } else {
+        PipelineClass::General
+    }
 }
 
 /// MyGO Builder.markFill (MIT, ee3d4bd9): leave three physical pixels for

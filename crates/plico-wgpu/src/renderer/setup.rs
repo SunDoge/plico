@@ -156,14 +156,14 @@ impl Renderer {
         let capacity = INITIAL_INSTANCE_CAPACITY;
         let instances = Self::instance_buffer(&device, capacity);
         // Everything up to the general fragment entry point is shared vertex
-        // and SDF code; the plain fragment below is a strict subset of it.
+        // and SDF code; class fragments below are strict subsets of it.
         let quad_source = include_str!("../quad.wgsl");
-        let plain_common = &quad_source[..quad_source
+        let class_common = &quad_source[..quad_source
             .rfind("@fragment")
             .expect("the quad shader defines one fragment entry point")];
         let plain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Plico plain quads"),
-            source: wgpu::ShaderSource::Wgsl(format!("{plain_common}\n{PLAIN_FRAGMENT}").into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{PLAIN_FRAGMENT}").into()),
         });
         let plain_pipeline = Self::quad_pipeline(
             &device,
@@ -171,6 +171,17 @@ impl Renderer {
             &plain_shader,
             &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             "Plico plain quads",
+        );
+        let fill_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Plico fill quads"),
+            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{FILL_FRAGMENT}").into()),
+        });
+        let fill_pipeline = Self::quad_pipeline(
+            &device,
+            &layout,
+            &fill_shader,
+            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            "Plico fill quads",
         );
         let gpu_timer = gpu_timer::GpuTimer::new(&device);
         let mut renderer = Self {
@@ -191,6 +202,7 @@ impl Renderer {
             pipeline: None,
             plus_pipeline: None,
             plain_pipeline,
+            fill_pipeline,
             force_general: false,
             #[cfg(test)]
             profile_no_batch_cull: false,
@@ -270,9 +282,9 @@ impl Renderer {
     pub fn pipeline_compilations(&self) -> usize {
         self.compilations
     }
-    /// Draw plain fills through the general shader instead of the specialized
-    /// plain pipeline, so tests and measurements can compare the two (mygo's
-    /// NoClasses). Pixels must be identical either way.
+    /// Draw every class through the general shader instead of the specialized
+    /// plain/fill pipelines, so tests and measurements can compare the two
+    /// (mygo's NoClasses). Pixels must be identical either way.
     pub fn force_general_pipelines(&mut self, force: bool) {
         self.force_general = force;
     }

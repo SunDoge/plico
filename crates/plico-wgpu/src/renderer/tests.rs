@@ -1095,8 +1095,7 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
     use std::sync::Arc;
     let instance = wgpu::Instance::new(crate::instance_descriptor());
-    let mut renderer =
-        pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
     let image = ImageQuad::new(
         Quad::new([0., 0., 8., 8.], [1.; 4]),
         ImageData {
