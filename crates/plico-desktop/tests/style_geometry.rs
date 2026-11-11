@@ -62,7 +62,7 @@ fn borders_padding_clips_and_keyboard_only_focus_are_real_backend_properties() {
         .unwrap();
     assert_eq!(action.rect[0], 12.);
     assert_eq!(action.rect[1], 8.);
-    assert_eq!(action.paint.border, Some((1., rgb(s.view.theme().border))));
+    assert_eq!(action.paint.border, Some((1., rgb(s.theme().border))));
     let clipped = nodes
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Clipped content"))
@@ -76,14 +76,13 @@ fn borders_padding_clips_and_keyboard_only_focus_are_real_backend_properties() {
         .unwrap();
     assert_eq!(
         action.paint.background,
-        Some(rgb(s.view.theme().control_pressed))
+        Some(rgb(s.theme().control_pressed))
     );
     assert_eq!(action.paint.outline_width, 0.);
     s.handle_event(pointer(PointerPhase::Up));
     s.build_frame(&mut tcx, 400, 300);
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Action", None)
         .unwrap()
         .id;
@@ -94,10 +93,10 @@ fn borders_padding_clips_and_keyboard_only_focus_are_real_backend_properties() {
         .find(|n| n.paint.border.is_some_and(|(width, _)| width == 1.))
         .unwrap();
     assert_eq!(action.paint.outline_width, 2.);
-    assert_eq!(action.paint.outline_color, Some(rgb(s.view.theme().focus)));
-    s.view.locked = true;
+    assert_eq!(action.paint.outline_color, Some(rgb(s.theme().focus)));
+    s.update(|view| view.locked = true);
     s.build_frame(&mut tcx, 400, 300);
-    assert!(s.adapter.focused().is_none());
+    assert!(s.focused().is_none());
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: id }));
 }
 
@@ -107,10 +106,9 @@ fn axis_padding_animates_with_virtual_clock_without_redeclaring_view() {
     let mut s = Source::with_clock(Demo::default(), clock.clone());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 300);
-    s.view.roomy = true;
-    s.request_rebuild();
+    s.update(|view| view.roomy = true);
     s.build_frame(&mut tcx, 400, 300);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     clock.advance(Duration::from_millis(120)).unwrap();
     let nodes = s.build_frame(&mut tcx, 400, 300);
     let action = nodes
@@ -118,7 +116,7 @@ fn axis_padding_animates_with_virtual_clock_without_redeclaring_view() {
         .find(|n| n.paint.border.is_some_and(|(width, _)| width == 1.))
         .unwrap();
     assert!(action.rect[0] > 12. && action.rect[0] < 32.);
-    assert_eq!(s.view.calls, calls);
+    assert_eq!(s.view().calls, calls);
     clock.advance(Duration::from_millis(120)).unwrap();
     let nodes = s.build_frame(&mut tcx, 400, 300);
     let action = nodes
@@ -126,5 +124,5 @@ fn axis_padding_animates_with_virtual_clock_without_redeclaring_view() {
         .find(|n| n.paint.border.is_some_and(|(width, _)| width == 1.))
         .unwrap();
     assert_eq!(action.rect[0], 32.);
-    assert_eq!(s.view.calls, calls);
+    assert_eq!(s.view().calls, calls);
 }

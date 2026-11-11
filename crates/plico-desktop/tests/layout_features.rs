@@ -215,13 +215,11 @@ fn frame(s: &mut Source<Demo>, tcx: &mut TextContext, w: u32) {
 }
 fn parent_rect(s: &Source<Demo>, label: &str) -> [f32; 4] {
     let p = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some(label))
         .unwrap();
-    s.adapter
-        .placed
+    s.placed_nodes()
         .iter()
         .find(|n| Some(n.node_id) == p.parent_node_id)
         .unwrap()
@@ -244,11 +242,11 @@ fn grid_fraction_tracks_span_resize_and_template_invalidation() {
     assert_eq!(parent_rect(&s, "C"), [200., 0., 400., 30.]);
     assert_eq!(parent_rect(&s, "Span"), [0., 38., 190., 62.]);
     frame(&mut s, &mut tcx, 400);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    s.view.expanded = true;
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    s.update(|view| view.expanded = true);
     frame(&mut s, &mut tcx, 400);
     assert_eq!(parent_rect(&s, "A")[2], 120.);
-    assert_eq!(s.adapter.stats.created, 0);
+    assert_eq!(s.frame_diagnostics().backend.created, 0);
     frame(&mut s, &mut tcx, 700);
     assert_eq!(parent_rect(&s, "C")[2], 700.);
 }
@@ -280,8 +278,7 @@ fn reverse_flow_content_box_percentage_bounds_and_hidden_nodes() {
     let (s, _) = setup(7);
     assert_eq!(parent_rect(&s, "Bounded")[2], 240.);
     assert!(
-        !s.adapter
-            .placed
+        !s.placed_nodes()
             .iter()
             .any(|p| p.paint.text.as_deref() == Some("Hidden"))
     );
@@ -298,15 +295,14 @@ fn typed_percentage_and_edge_motion_use_virtual_clock() {
     );
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 400);
-    s.view.expanded = true;
+    s.update(|view| view.expanded = true);
     frame(&mut s, &mut tcx, 400);
     clock.advance(Duration::from_millis(120)).unwrap();
     frame(&mut s, &mut tcx, 400);
     let r = parent_rect(&s, "Animated");
     assert!((r[2] - 200.).abs() < 1., "{r:?}");
     let p = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Animated"))
         .unwrap();
@@ -318,8 +314,17 @@ fn typed_percentage_and_edge_motion_use_virtual_clock() {
 }
 #[test]
 fn grid_payload_roundtrips_and_invalid_areas_are_rejected() {
-    let (s, _) = setup(1);
-    let nodes = s.engine.snapshot();
+    let mut engine = plico::Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            grid(cx)
+                .grid_columns([Track::Px(80.), fr(1.)])
+                .grid_rows([Track::Px(40.), fr(1.)])
+                .grid_areas(["header header", "side main"])
+                .children(|_| {});
+        })
+        .unwrap();
+    let nodes = engine.snapshot();
     let json = serde_json::to_string(&nodes).unwrap();
     let nodes: Vec<plico::ViewNode> = serde_json::from_str(&json).unwrap();
     plico_dev::validate_nodes(&nodes).unwrap();
@@ -341,7 +346,7 @@ fn grid_payload_roundtrips_and_invalid_areas_are_rejected() {
 fn shaped_text_baselines_align_across_sizes_and_padding() {
     let (mut s, mut tcx) = setup(8);
     let mut baselines = Vec::new();
-    for p in &s.adapter.placed {
+    for p in s.placed_nodes() {
         if p.paint
             .text
             .as_deref()
@@ -354,7 +359,7 @@ fn shaped_text_baselines_align_across_sizes_and_padding() {
     assert_eq!(baselines.len(), 2);
     assert!((baselines[0] - baselines[1]).abs() < 1., "{baselines:?}");
     frame(&mut s, &mut tcx, 400);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 }
 #[test]
 fn column_flow_dense_packing_minmax_fit_content_and_rtl() {

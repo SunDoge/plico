@@ -53,6 +53,9 @@ route menu、材质与滚动裁剪首批只使用 `Source` 查询、更新和统
 第二批覆盖 atomic compact metrics、feedback motion、玻璃像素/交互、native surface、scene layer、
 密码输入与保存按钮稳定性。密码声明快照的核心保密断言保留在 `plico` Engine 测试；desktop
 只验证宿主可观察的 IME、剪贴板与 retained paint，避免重复暴露声明树。
+第三批覆盖 grid/flex 布局、平滑滚动、样式几何和图标缓存。SVG 与 WGSL 资源错误都通过只读
+diagnostics 查询，业务状态统一经 `Source::update` 修改；独立验证序列化声明的测试直接使用
+renderer-free `Engine`，不再借 `Source` 穿透运行时实现。
 
 ## 当前实现
 

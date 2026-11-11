@@ -239,6 +239,11 @@ impl<V: HostView> Source<V> {
         self.adapter.shader_diagnostics()
     }
 
+    /// SVG parse diagnostics retained for currently mounted assets.
+    pub fn svg_diagnostics(&self) -> impl Iterator<Item = &str> {
+        self.adapter.svg_diagnostics()
+    }
+
     /// Entity currently holding keyboard focus.
     pub fn focused(&self) -> Option<Entity> {
         self.adapter.focused()
