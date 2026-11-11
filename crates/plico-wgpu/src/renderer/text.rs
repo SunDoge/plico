@@ -1,3 +1,4 @@
+#[cfg(all(target_os = "linux", feature = "system-text"))]
 use super::*;
 
 #[cfg(all(target_os = "linux", feature = "system-text"))]
