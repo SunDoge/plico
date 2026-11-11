@@ -9,8 +9,7 @@ use std::time::Duration;
 
 fn click(source: &mut Source<Settings>, label: &str) {
     let id = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, label, None)
         .unwrap_or_else(|| panic!("missing button {label}"))
         .id;
@@ -23,8 +22,7 @@ fn frame(source: &mut Source<Settings>, tcx: &mut TextContext, width: u32) {
 
 fn sidebar_opacity(source: &Source<Settings>, label: &str) -> f32 {
     source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some(label))
         .unwrap_or_else(|| panic!("missing placed text {label}"))
@@ -38,7 +36,7 @@ fn sidebar_tween_hits_exact_midpoint_and_reverses_continuously() {
     let mut source = Source::with_clock(Settings::default(), clock.clone());
     let mut tcx = TextContext::new();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
+    assert_eq!(source.view().sidebar_width(), 200.);
 
     // Collapse: 200 -> 72 over 260ms, EaseOut. The click settles in a frame
     // at t=0 (handle_semantic_action only retargets during the next
@@ -48,9 +46,9 @@ fn sidebar_tween_hits_exact_midpoint_and_reverses_continuously() {
     frame(&mut source, &mut tcx, 1100);
     clock.set(Duration::from_millis(130)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert!((source.view.sidebar_width() - 88.).abs() < 0.01);
+    assert!((source.view().sidebar_width() - 88.).abs() < 0.01);
     assert!((sidebar_opacity(&source, "plico") - 0.125).abs() < 0.001);
-    assert!(source.view.animation_active());
+    assert!(source.view().animation_active());
 
     // Rapid reversal: the new flight continues from the value visible at the
     // click instant (88), not from 200 or 72.
@@ -61,24 +59,24 @@ fn sidebar_tween_hits_exact_midpoint_and_reverses_continuously() {
     // 10ms into 88 -> 200 with EaseOut: 88 + 112 * (1 - (1 - 10/260)^3).
     let expected = 88. + 112. * (1. - (1. - 10. / 260_f64).powi(3));
     assert!(
-        (source.view.sidebar_width() as f64 - expected).abs() < 0.15,
+        (source.view().sidebar_width() as f64 - expected).abs() < 0.15,
         "reversal must continue from the visible value: {} vs {expected}",
-        source.view.sidebar_width()
+        source.view().sidebar_width()
     );
 
     // Finite: the exact target lands and the app stops requesting frames.
     clock.set(Duration::from_millis(500)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
+    assert_eq!(source.view().sidebar_width(), 200.);
     assert!((sidebar_opacity(&source, "plico") - 1.).abs() < 0.001);
     assert!(
-        !source.view.animation_active(),
+        !source.view().animation_active(),
         "an idle app must not keep the frame loop spinning"
     );
     // Idempotent rest: re-declaring at the same instant changes nothing.
-    let width = source.view.sidebar_width();
+    let width = source.view().sidebar_width();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), width);
+    assert_eq!(source.view().sidebar_width(), width);
 }
 
 #[test]
@@ -91,20 +89,20 @@ fn reduced_motion_snaps_mid_flight_and_completes_immediately() {
     frame(&mut source, &mut tcx, 1100); // settle the click at t=0
     clock.set(Duration::from_millis(100)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert!(source.view.sidebar_width() > 72.);
+    assert!(source.view().sidebar_width() > 72.);
 
     // Enabling reduced motion mid-flight lands on the target in the same frame.
-    source.view.reduced_motion = true;
+    source.update(|view| view.reduced_motion = true);
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 72.);
-    assert!(!source.view.animation_active());
+    assert_eq!(source.view().sidebar_width(), 72.);
+    assert!(!source.view().animation_active());
     assert_eq!(sidebar_opacity(&source, "plico"), 0.);
 
     // Later retargets complete immediately while the preference is on.
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
-    assert!(!source.view.animation_active());
+    assert_eq!(source.view().sidebar_width(), 200.);
+    assert!(!source.view().animation_active());
 }
 
 #[test]
@@ -113,7 +111,7 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     let mut source = Source::with_clock(Settings::default(), clock.clone());
     let mut tcx = TextContext::new();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
+    assert_eq!(source.view().sidebar_width(), 200.);
 
     // Below the breakpoint the sidebar collapses even though the user kept it
     // expanded; the preference field itself stays untouched.
@@ -121,9 +119,9 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     frame(&mut source, &mut tcx, 700); // settle the retarget at t=400
     clock.set(Duration::from_millis(800)).unwrap();
     frame(&mut source, &mut tcx, 700);
-    assert_eq!(source.view.sidebar_width(), 72.);
+    assert_eq!(source.view().sidebar_width(), 72.);
     assert!(
-        !source.view.compact,
+        !source.view().compact,
         "auto-collapse must not edit the preference"
     );
 
@@ -132,20 +130,20 @@ fn narrow_viewport_auto_collapses_and_restores_the_user_preference() {
     frame(&mut source, &mut tcx, 1100);
     clock.set(Duration::from_millis(1200)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
-    assert!(!source.view.compact);
+    assert_eq!(source.view().sidebar_width(), 200.);
+    assert!(!source.view().compact);
 
     // A user collapse sticks when the window narrows and widens again.
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100); // settle the click at t=1200
     clock.set(Duration::from_millis(1600)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 72.);
+    assert_eq!(source.view().sidebar_width(), 72.);
     frame(&mut source, &mut tcx, 700);
-    assert_eq!(source.view.sidebar_width(), 72.);
+    assert_eq!(source.view().sidebar_width(), 72.);
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 72.);
-    assert!(source.view.compact);
+    assert_eq!(source.view().sidebar_width(), 72.);
+    assert!(source.view().compact);
 }
 
 #[test]
@@ -159,7 +157,8 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
     // whose row sibling is the route label, and the row parent resolves to
     // the button - no depth or coordinate filters anywhere.
     let probe = |source: &Source<Settings>, sidebar: f32, phase: &str| {
-        let snapshot = source.adapter.semantics(&source.engine, 0);
+        let snapshot = source.semantics();
+        let placed = source.placed_nodes();
         for label in ["Overview", "Activity", "Preferences"] {
             // Accessible name preserved at every width.
             assert!(
@@ -180,14 +179,12 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
             // The nav label: a route-labeled text whose parent row also
             // parents an svg - the icon sibling - which the content-column
             // heading of the same name does not have.
-            let row = source
-                .adapter
-                .placed
+            let row = placed
                 .iter()
                 .find(|p| {
                     p.paint.text.as_deref() == Some(label)
                         && p.parent_node_id.is_some_and(|row| {
-                            source.adapter.placed.iter().any(|candidate| {
+                            placed.iter().any(|candidate| {
                                 candidate.paint.svg.is_some()
                                     && candidate.parent_node_id == Some(row)
                             })
@@ -195,9 +192,7 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
                 })
                 .map(|p| p.parent_node_id.expect("label has a row parent"))
                 .unwrap_or_else(|| panic!("nav label {label} not placed ({phase})"));
-            let icon = source
-                .adapter
-                .placed
+            let icon = placed
                 .iter()
                 .find(|p| p.paint.svg.is_some() && p.parent_node_id == Some(row))
                 .unwrap_or_else(|| panic!("nav icon missing under {label} ({phase})"));
@@ -218,16 +213,12 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
 
         // The logo stays 26x26, separate from the 16px nav icons: it is
         // the svg that shares a row with the "plico" title text.
-        let title_row = source
-            .adapter
-            .placed
+        let title_row = placed
             .iter()
             .find(|p| p.paint.text.as_deref() == Some("plico"))
             .map(|p| p.parent_node_id.expect("title has a row parent"))
             .expect("sidebar title placed");
-        let logo = source
-            .adapter
-            .placed
+        let logo = placed
             .iter()
             .find(|p| p.paint.svg.is_some() && p.parent_node_id == Some(title_row))
             .unwrap_or_else(|| panic!("logo missing ({phase})"));
@@ -245,9 +236,7 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
 
         // The footer must not wrap into extra lines while it fades: it stays
         // single-line (ellipsis policy), so the toggle above it never jumps.
-        let footer = source
-            .adapter
-            .placed
+        let footer = placed
             .iter()
             .find(|p| p.paint.text.as_deref() == Some("Backend playground"))
             .unwrap_or_else(|| panic!("footer missing ({phase})"));
@@ -271,7 +260,7 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
     frame(&mut source, &mut tcx, 1100); // settle the click at t=0
     clock.set(Duration::from_millis(130)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    probe(&source, source.view.sidebar_width(), "intermediate");
+    probe(&source, source.view().sidebar_width(), "intermediate");
 
     // Compact: label at opacity 0 still occupies flex space, but the icon
     // must neither shrink nor be pushed out of the clipped column.
@@ -283,7 +272,7 @@ fn icon_only_navigation_stays_accessible_and_layout_coexists_at_every_width() {
     // accessible name routes the app without any explicit request_rebuild.
     click(&mut source, "Activity");
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.current_page(), Page::Activity);
+    assert_eq!(source.view().current_page(), Page::Activity);
 }
 
 #[test]
@@ -333,9 +322,9 @@ fn sidebar_motion_coexists_with_the_open_inspector() {
     frame(&mut source, &mut tcx, 1100);
     // EaseOut at half the duration: 248 * (1 - (1 - 0.5)^3) = 217.
     assert!(
-        (source.view.inspector_width() - 217.).abs() < 0.01,
+        (source.view().inspector_width() - 217.).abs() < 0.01,
         "inspector halfway: {}",
-        source.view.inspector_width()
+        source.view().inspector_width()
     );
 
     // Collapse the sidebar while the inspector is still animating.
@@ -343,7 +332,7 @@ fn sidebar_motion_coexists_with_the_open_inspector() {
     frame(&mut source, &mut tcx, 1100); // settle the sidebar collapse at t=130
     clock.set(Duration::from_millis(260)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    let sidebar = source.view.sidebar_width();
+    let sidebar = source.view().sidebar_width();
     // The sidebar collapse is 130ms into its own 260ms flight: EaseOut from
     // 200 gives exactly 88 at this instant, mid-flight alongside the pane.
     assert!(
@@ -352,7 +341,7 @@ fn sidebar_motion_coexists_with_the_open_inspector() {
     );
     // The content column ends where the inspector pane begins; with the
     // sidebar at any width the two panes stay disjoint.
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     let details = semantics
         .node_by_role(SemanticRole::Button, "Details", None)
         .expect("Details entry point");
@@ -365,8 +354,8 @@ fn sidebar_motion_coexists_with_the_open_inspector() {
     // Both tweens finish together and the app returns to idle.
     clock.set(Duration::from_millis(600)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 72.);
-    assert_eq!(source.view.inspector_width(), 248.);
+    assert_eq!(source.view().sidebar_width(), 72.);
+    assert_eq!(source.view().inspector_width(), 248.);
     use plico_renderer::FrameSource as _;
     assert!(!source.has_anim());
 }
@@ -381,12 +370,12 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
     frame(&mut source, &mut tcx, 1100);
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100);
-    assert!(source.view.compact);
+    assert!(source.view().compact);
 
     // Back to expanded for a clean state.
     click(&mut source, "Toggle sidebar");
     frame(&mut source, &mut tcx, 1100);
-    assert!(!source.view.compact);
+    assert!(!source.view().compact);
 
     // Narrow: the viewport forces the collapse and the toggle is disabled.
     // A semantic activation is refused, so the saved preference stays
@@ -395,8 +384,7 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
     clock.set(Duration::from_millis(300)).unwrap();
     frame(&mut source, &mut tcx, 700);
     let id = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Toggle sidebar", None)
         .unwrap()
         .id;
@@ -404,9 +392,9 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
         !source.handle_semantic_action(SemanticAction::Click { target: id }),
         "the disabled toggle must refuse activation while narrow"
     );
-    assert!(!source.view.compact, "the saved preference is untouched");
+    assert!(!source.view().compact, "the saved preference is untouched");
     assert_eq!(
-        source.view.sidebar_width(),
+        source.view().sidebar_width(),
         72.,
         "the viewport-enforced collapse still applies"
     );
@@ -416,6 +404,6 @@ fn narrow_mode_activation_cannot_mutate_the_saved_preference() {
     frame(&mut source, &mut tcx, 1100);
     clock.set(Duration::from_millis(1000)).unwrap();
     frame(&mut source, &mut tcx, 1100);
-    assert_eq!(source.view.sidebar_width(), 200.);
-    assert!(!source.view.compact);
+    assert_eq!(source.view().sidebar_width(), 200.);
+    assert!(!source.view().compact);
 }

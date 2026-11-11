@@ -32,7 +32,7 @@ Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics`
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
 `scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
 穿透这条边界；runtime 内部与暂停维护的 C# ABI 兼容层按各自边界单独处理。历史集成测试分批
-迁往 `testing::Driver`。
+迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings` 测试也由边界脚本守卫。
 
 ## 当前实现
 

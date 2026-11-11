@@ -25,7 +25,8 @@ for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):
         relative = path.relative_to(ROOT)
         parts = relative.parts
-        if "tests" in parts:
+        migrated_test = parts[:3] == ("apps", "backend-settings", "tests")
+        if "tests" in parts and not migrated_test:
             continue
         if parts[:2] in (("crates", "plico-runtime"), ("crates", "plico-csharp")):
             continue
