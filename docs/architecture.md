@@ -68,6 +68,9 @@ paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，�
 按钮状态、slider、style motion 与跨段文字选择也只从业务 view、语义、retained paint 和诊断
 观察行为。Sidebar 的焦点选中测试以语义 bounds 关联最终 paint，不再读取 Engine 声明节点；
 文本选择统一通过 `selected_text` 查询，保留复制、反向拖选、重声明和卸载覆盖。
+Popover、search input 与 tooltip 的 overlay、焦点、IME 和退出动效测试也已迁移。禁用 popup
+通过最终语义树不出现 dialog 验证，而不是读取内部 anchor 声明；tooltip 继续覆盖真实 GPU 像素、
+延迟唤醒、modal 内 Escape 优先级和 retained scene 清理。
 
 ## 当前实现
 

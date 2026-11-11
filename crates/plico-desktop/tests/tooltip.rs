@@ -54,8 +54,7 @@ fn frame(s: &mut Source<Demo>, tcx: &mut TextContext) -> Vec<plico_renderer::lay
     s.build_frame(tcx, 500, 350)
 }
 fn bounds(s: &Source<Demo>, name: &str) -> [f32; 4] {
-    s.adapter
-        .semantics(&s.engine, 0)
+    s.semantics()
         .node_by_role(SemanticRole::Button, name, None)
         .unwrap()
         .bounds
@@ -105,7 +104,7 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
         &frame(&mut s, &mut tcx),
         "First helpful description"
     ));
-    let shows = s.view.shows;
+    let shows = s.view().shows;
     let deadline = s
         .animation_deadline()
         .expect("tooltip needs a delayed wake");
@@ -114,8 +113,8 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
         &frame(&mut s, &mut tcx),
         "First helpful description"
     ));
-    assert_eq!(s.view.shows, shows);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.view().shows, shows);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     assert!(!s.has_anim(), "waiting for a tooltip must not spin frames");
     assert_eq!(s.animation_deadline(), Some(deadline));
     clock.advance(Duration::from_millis(1)).unwrap();
@@ -123,7 +122,7 @@ fn injected_clock_delay_after_long_idle_and_waiting_frames_do_not_redeclare() {
         &frame(&mut s, &mut tcx),
         "First helpful description"
     ));
-    assert_eq!(s.view.shows, shows);
+    assert_eq!(s.view().shows, shows);
     assert!(!s.has_anim());
     assert_eq!(s.animation_deadline(), None);
 }
@@ -133,7 +132,7 @@ fn keyboard_focus_is_immediate_described_and_escape_suppresses_until_leave() {
     let mut s = Source::with_clock(Demo::default(), clock.clone());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx);
-    let initial = s.adapter.semantics(&s.engine, 0);
+    let initial = s.semantics();
     let description = initial
         .node_by_role(SemanticRole::Tooltip, "First helpful description", None)
         .unwrap();
@@ -146,8 +145,7 @@ fn keyboard_focus_is_immediate_described_and_escape_suppresses_until_leave() {
         vec![description.id]
     );
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "First", None)
         .unwrap()
         .id;
@@ -156,7 +154,7 @@ fn keyboard_focus_is_immediate_described_and_escape_suppresses_until_leave() {
         &frame(&mut s, &mut tcx),
         "First helpful description"
     ));
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let button = snapshot
         .node_by_role(SemanticRole::Button, "First", None)
         .unwrap();
@@ -227,9 +225,8 @@ fn overlay_does_not_intercept_pointer_and_removed_disabled_anchors_do_not_show()
         s.handle_event(pointer(phase, rect));
     }
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.clicks, 1);
-    s.view.disabled = true;
-    s.request_rebuild();
+    assert_eq!(s.view().clicks, 1);
+    s.update(|view| view.disabled = true);
     frame(&mut s, &mut tcx);
     hover(&mut s, "First");
     frame(&mut s, &mut tcx);
@@ -238,12 +235,10 @@ fn overlay_does_not_intercept_pointer_and_removed_disabled_anchors_do_not_show()
         &frame(&mut s, &mut tcx),
         "First helpful description"
     ));
-    s.view.removed = true;
-    s.request_rebuild();
+    s.update(|view| view.removed = true);
     frame(&mut s, &mut tcx);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Tooltip, "First helpful description", None)
             .is_none()
     );
@@ -257,8 +252,7 @@ fn tooltip_in_modal_escapes_clip_and_escape_hides_tip_before_dialog() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Inside", None)
         .unwrap()
         .id;
@@ -272,10 +266,10 @@ fn tooltip_in_modal_escapes_clip_and_escape_hides_tip_before_dialog() {
         &frame(&mut s, &mut tcx),
         "Inside dialog description"
     ));
-    assert!(s.view.dialog.is_open());
+    assert!(s.view().dialog.is_open());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(!s.view.dialog.is_open());
+    assert!(!s.view().dialog.is_open());
 }
 
 #[derive(Default)]
@@ -296,8 +290,7 @@ fn ime_gets_escape_before_tooltip_and_window_blur_hides_tip() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::TextInput, "Name", None)
         .unwrap()
         .id;
@@ -311,7 +304,7 @@ fn ime_gets_escape_before_tooltip_and_window_blur_hides_tip() {
         cursor: None,
     }));
     s.handle_event(key("Escape"));
-    assert!(!s.view.buffer.is_composing());
+    assert!(!s.view().buffer.is_composing());
     assert!(visible(
         &s.build_frame(&mut tcx, 400, 200),
         "Type a project name"
@@ -353,8 +346,7 @@ fn actual_gpu_tooltip_is_present_with_shader_and_scene_cache_removes_it_on_escap
     let baseline =
         plico_shell::renderer::render_to_image(&base_scene, 400, 240, s.base_color()).unwrap();
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Help", None)
         .unwrap()
         .id;
@@ -372,8 +364,8 @@ fn actual_gpu_tooltip_is_present_with_shader_and_scene_cache_removes_it_on_escap
     assert_eq!(image.get_pixel(x, y).0, [24, 24, 27, 255]);
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut tcx, 400, 240);
-    assert_eq!(s.adapter.stats.tooltip_layout_runs, 0);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.tooltip_layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 
     s.handle_event(key("Escape"));
     let nodes = s.build_frame(&mut tcx, 400, 240);
@@ -397,8 +389,7 @@ fn long_description_wraps_flips_and_repositions_on_resize() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 220, 180);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Edge", None)
         .unwrap()
         .id;
@@ -423,12 +414,11 @@ fn long_description_wraps_flips_and_repositions_on_resize() {
             tip.rect
         );
         let button = s
-            .adapter
-            .semantics(&s.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, "Edge", None)
             .unwrap()
             .bounds;
         assert!(tip.rect[3] < button[1]);
-        assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(target));
+        assert_eq!(s.semantics().focus, Some(target));
     }
 }

@@ -40,46 +40,35 @@ fn autofocus_is_mount_scoped_explicit_request_and_focus_restore_are_one_shot() {
     });
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 300);
-    let input = s.adapter.focused().unwrap();
+    let input = s.focused().unwrap();
     let other = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Other", None)
         .unwrap()
         .id;
     s.handle_semantic_action(SemanticAction::Focus { target: other });
     s.build_frame(&mut tcx, 400, 300);
-    assert_ne!(
-        s.adapter.focused(),
-        Some(input),
-        "autofocus must not steal focus"
-    );
-    s.view.request = true;
-    s.request_rebuild();
+    assert_ne!(s.focused(), Some(input), "autofocus must not steal focus");
+    s.update(|view| view.request = true);
     s.build_frame(&mut tcx, 400, 300);
-    assert_eq!(s.adapter.focused(), Some(input));
+    assert_eq!(s.focused(), Some(input));
     s.handle_event(UiEvent::Focus(false));
-    assert!(s.adapter.focused().is_none());
+    assert!(s.focused().is_none());
     s.handle_event(UiEvent::Focus(true));
-    assert_eq!(s.adapter.focused(), Some(input));
-    s.view.mount = false;
-    s.request_rebuild();
+    assert_eq!(s.focused(), Some(input));
+    s.update(|view| view.mount = false);
     s.build_frame(&mut tcx, 400, 300);
-    assert!(s.adapter.focused().is_none());
-    s.view.mount = true;
-    s.request_rebuild();
+    assert!(s.focused().is_none());
+    s.update(|view| view.mount = true);
     s.build_frame(&mut tcx, 400, 300);
-    assert!(s.adapter.focused().is_some());
-    assert_ne!(
-        s.adapter.focused(),
-        Some(input),
-        "remount gets a fresh entity"
-    );
-    s.view.disabled = true;
-    s.view.request = true;
-    s.request_rebuild();
+    assert!(s.focused().is_some());
+    assert_ne!(s.focused(), Some(input), "remount gets a fresh entity");
+    s.update(|view| {
+        view.disabled = true;
+        view.request = true;
+    });
     s.build_frame(&mut tcx, 400, 300);
-    assert!(s.adapter.focused().is_none());
+    assert!(s.focused().is_none());
 }
 
 fn key(value: &str, modifiers: plico_renderer::Modifiers) -> UiEvent {
@@ -107,25 +96,24 @@ fn window_key_fallback_does_not_intercept_editing_composition_or_modal_input() {
     s.build_frame(&mut tcx, 400, 300);
     s.handle_event(UiEvent::TextInput("query".into()));
     assert!(!s.handle_event(key("r", Modifiers::empty())).handled);
-    assert_eq!(s.view.fallback, 0);
+    assert_eq!(s.view().fallback, 0);
     s.handle_event(key("a", Modifiers::CONTROL));
-    assert_eq!(s.view.fallback, 0);
+    assert_eq!(s.view().fallback, 0);
     s.handle_event(UiEvent::Ime(ImeEvent::Preedit {
         text: "input".into(),
         cursor: None,
     }));
     assert!(!s.handle_event(key("F2", Modifiers::empty())).handled);
-    assert_eq!(s.view.fallback, 0);
+    assert_eq!(s.view().fallback, 0);
     s.handle_event(UiEvent::Ime(ImeEvent::Disabled));
     assert!(s.handle_event(key("F2", Modifiers::empty())).handled);
-    assert_eq!(s.view.fallback, 1);
-    s.view.dialog.open();
+    assert_eq!(s.view().fallback, 1);
+    s.update(|view| view.dialog.open());
     s.build_frame(&mut tcx, 400, 300);
     s.handle_event(key("F2", Modifiers::empty()));
-    assert_eq!(s.view.fallback, 1);
+    assert_eq!(s.view().fallback, 1);
     // Repeated requests for an input behind a modal must not break the focus trap.
-    s.view.request = true;
-    s.request_rebuild();
+    s.update(|view| view.request = true);
     s.build_frame(&mut tcx, 400, 300);
     assert!(s.ime_state().is_none());
 }
