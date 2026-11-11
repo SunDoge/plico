@@ -14,8 +14,9 @@ fn on_key_event(&mut self, event: &KeyEvent) -> bool {
     if Shortcut::primary("k").matches(event) {
         self.command_palette_open = true;
         true
-    } else if event.modifiers.is_empty() {
-        self.on_key(&event.key) // Keep existing F5/arrow-key handlers.
+    } else if event.modifiers.is_empty() && event.key == "F5" {
+        self.reload_requested = true;
+        true
     } else {
         false
     }
@@ -29,9 +30,11 @@ exact: additional Alt/Shift/Meta/Control modifiers do not accidentally trigger
 a binding. Automatic repeats are ignored unless `.repeating()` is requested.
 Key-up and synthetic focus-recovery events never trigger `Shortcut`.
 
-The default `on_key_event` forwards only unmodified real key presses to the
-existing `on_key(&str)` method. Existing applications need no changes. If you
-override it, explicitly delegate legacy keys as above if you still use them.
+There is one application keyboard hook. Recipe/protocol shorthand such as
+`keys: ["F5", "Alt+ArrowLeft"]` is normalized into the same `KeyEvent` path
+rather than invoking a second string-only callback. `Shift`, `Ctrl`/`Control`,
+`Alt`/`Option`, and `Meta`/`Cmd`/`Command` prefixes are accepted. This keeps
+native, WASM and scripted input semantics identical.
 
 ## Optional action map and explicit scopes
 

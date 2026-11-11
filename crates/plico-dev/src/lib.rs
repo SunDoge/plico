@@ -42,11 +42,13 @@ pub struct Request {
     #[serde(default)]
     pub services: serde_json::Value,
     #[serde(default)]
+    /// Shorthand logical key presses, optionally prefixed by modifiers such as
+    /// `Alt+ArrowLeft`. The protocol normalizes these into `KeyEvent`.
     pub keys: Vec<String>,
     /// Current hovered control by logical identity; persistent across settle passes.
     #[serde(default)]
     pub hovered: Option<Vec<PathKey>>,
-    /// Full fallback keyboard events, including modifiers. Legacy keys remain accepted.
+    /// Full fallback keyboard events, including modifiers and physical codes.
     #[serde(default)]
     pub key_events: Vec<KeyEvent>,
     #[serde(default)]
@@ -139,17 +141,9 @@ impl<A: App> plico::View for AppView<'_, A> {
 /// Its `show` and `theme` methods are the ordinary application UI surface.
 pub trait App {
     fn set_frame_time(&mut self, _time: plico::FrameTime) {}
-    /// Unmodified window-local fallback keys, after controls/IME decline them.
-    fn on_key(&mut self, _key: &str) -> bool {
-        false
-    }
     /// Window-local fallback after focused controls/IME decline a key.
-    /// Override for combinations; the default preserves legacy unmodified keys.
-    fn on_key_event(&mut self, key: &KeyEvent) -> bool {
-        key.phase == KeyPhase::Down
-            && !key.synthetic
-            && key.modifiers.is_empty()
-            && self.on_key(&key.key)
+    fn on_key_event(&mut self, _key: &KeyEvent) -> bool {
+        false
     }
     fn show(&mut self, ui: &mut UiContext<'_>);
     fn theme(&self) -> Theme {
@@ -175,9 +169,6 @@ impl<A: App> App for PlainModule<A> {
     fn set_frame_time(&mut self, time: plico::FrameTime) {
         self.0.set_frame_time(time);
     }
-    fn on_key(&mut self, key: &str) -> bool {
-        self.0.on_key(key)
-    }
     fn on_key_event(&mut self, key: &KeyEvent) -> bool {
         self.0.on_key_event(key)
     }
@@ -186,6 +177,43 @@ impl<A: App> App for PlainModule<A> {
     }
     fn theme(&self) -> Theme {
         self.0.theme()
+    }
+}
+
+fn logical_key_press(key: &str) -> KeyEvent {
+    let mut logical = key;
+    let mut modifiers = Modifiers::empty();
+    while let Some((prefix, rest)) = logical.split_once('+') {
+        let modifier = match prefix {
+            "Shift" => Modifiers::SHIFT,
+            "Control" | "Ctrl" => Modifiers::CONTROL,
+            "Alt" | "Option" => Modifiers::ALT,
+            "Meta" | "Command" | "Cmd" => Modifiers::META,
+            _ => {
+                modifiers = Modifiers::empty();
+                logical = key;
+                break;
+            }
+        };
+        if rest.is_empty() {
+            modifiers = Modifiers::empty();
+            logical = key;
+            break;
+        }
+        modifiers |= modifier;
+        logical = rest;
+    }
+    KeyEvent {
+        phase: KeyPhase::Down,
+        key: logical.into(),
+        key_without_modifiers: logical.into(),
+        code: String::new(),
+        text: None,
+        text_with_all_modifiers: None,
+        location: KeyLocation::Standard,
+        modifiers,
+        repeat: false,
+        synthetic: false,
     }
 }
 
@@ -266,7 +294,7 @@ pub(crate) fn render_protocol<A: ProtocolApp + Default + Serialize + Deserialize
             }
         }
         for key in &request.keys {
-            key_handled |= app.on_key(key);
+            key_handled |= app.on_key_event(&logical_key_press(key));
         }
         if let Some([width, height]) = request.viewport {
             engine.set_viewport(width, height).context(FrameSnafu)?;

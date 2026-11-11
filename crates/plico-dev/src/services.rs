@@ -98,23 +98,13 @@ pub trait ServiceApp {
         Theme::default()
     }
     fn set_frame_time(&mut self, _time: FrameTime) {}
-    fn on_key(
-        &mut self,
-        _key: &str,
-        _services: &mut Services<Self::Snapshot, Self::Command>,
-    ) -> bool {
-        false
-    }
     /// Full fallback event; standard controls and IME retain priority.
     fn on_key_event(
         &mut self,
-        key: &crate::KeyEvent,
-        services: &mut Services<Self::Snapshot, Self::Command>,
+        _key: &crate::KeyEvent,
+        _services: &mut Services<Self::Snapshot, Self::Command>,
     ) -> bool {
-        key.phase == crate::KeyPhase::Down
-            && !key.synthetic
-            && key.modifiers.is_empty()
-            && self.on_key(&key.key, services)
+        false
     }
 }
 struct ServiceModule<A: ServiceApp> {
@@ -162,9 +152,6 @@ impl<A: ServiceApp> App for ServiceModule<A> {
     }
     fn on_key_event(&mut self, key: &crate::KeyEvent) -> bool {
         self.app.on_key_event(key, &mut self.services)
-    }
-    fn on_key(&mut self, key: &str) -> bool {
-        self.app.on_key(key, &mut self.services)
     }
 }
 impl<A> crate::ProtocolApp for ServiceModule<A>

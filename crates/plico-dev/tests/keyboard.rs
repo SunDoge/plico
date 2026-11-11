@@ -28,36 +28,36 @@ struct Demo {
 }
 impl App for Demo {
     fn show(&mut self, _: &mut UiContext) {}
-    fn on_key(&mut self, key: &str) -> bool {
-        if key == "F5" {
-            self.count += 10;
-            true
-        } else {
-            false
-        }
-    }
     fn on_key_event(&mut self, key: &KeyEvent) -> bool {
         if Shortcut::primary("k").matches(key) {
             self.count += 1;
             true
-        } else if key.modifiers.is_empty() {
-            self.on_key(&key.key)
+        } else if key.phase == KeyPhase::Down
+            && !key.synthetic
+            && key.modifiers.is_empty()
+            && key.key == "F5"
+        {
+            self.count += 10;
+            true
+        } else if Shortcut::new("ArrowLeft", Modifiers::ALT).matches(key) {
+            self.count += 100;
+            true
         } else {
             false
         }
     }
 }
 #[test]
-fn full_events_cross_the_module_protocol_and_legacy_keys_still_work() {
+fn full_events_and_logical_key_shorthand_share_one_application_hook() {
     let request = Request {
         key_events: vec![key()],
-        keys: vec!["F5".into()],
+        keys: vec!["F5".into(), "Alt+ArrowLeft".into()],
         ..Default::default()
     };
     let wire = serde_json::to_vec(&request).unwrap();
     let frame = plico_dev::render::<Demo>(serde_json::from_slice(&wire).unwrap()).unwrap();
     assert!(frame.key_handled);
-    assert_eq!(frame.state.decode::<Demo>().unwrap().count, 11);
+    assert_eq!(frame.state.decode::<Demo>().unwrap().count, 111);
     let mut up = key();
     up.phase = KeyPhase::Up;
     let frame = plico_dev::render::<Demo>(Request {
