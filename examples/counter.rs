@@ -29,9 +29,15 @@ fn counter(cx: &mut UiContext, title: &str, count: &mut i32) {
         text(cx, title).font_size(16).weight(600);
         text!(cx, "{}", *count).font_size(36);
         row(cx).gap(8).wrap(true) + |cx| {
-            if button(cx).text("−").aria_label("Decrement").ghost().clicked() { *count -= 1; }
-            if button(cx).text("+").aria_label("Increment").primary().clicked() { *count += 1; }
-            if button(cx).text("Reset").clicked() { *count = 0; }
+            if button(cx).text("−").aria_label("Decrement").ghost().clicked() {
+                *count -= 1;
+            }
+            if button(cx).text("+").aria_label("Increment").primary().clicked() {
+                *count += 1;
+            }
+            if button(cx).text("Reset").clicked() {
+                *count = 0;
+            }
         };
     };
 }

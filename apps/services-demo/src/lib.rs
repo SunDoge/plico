@@ -96,7 +96,9 @@ fn workspace(
             + |cx|
             {
                 row(cx).gap(12).align(Align::Center) + |cx| {
-                    if button(cx).text("Increment view counter").clicked() { *counter += 1; }
+                    if button(cx).text("Increment view counter").clicked() {
+                        *counter += 1;
+                    }
                     text!(cx, "View counter: {}", *counter).font_size(18).weight(650);
                 };
                 state_details(cx, details);
@@ -109,9 +111,9 @@ fn workspace(
 #[component]
 #[rustfmt::skip]
 fn state_details(cx: &mut UiContext, details: &mut bool) {
-        checkbox(cx, "Show state details", details);
-        if *details {
-            text(cx, "This counter belongs to the interface. Starting or cancelling a task does not reset it.")
-                .color(Color::Muted);
-        }
+    checkbox(cx, "Show state details", details);
+    if *details {
+        text(cx, "This counter belongs to the interface. Starting or cancelling a task does not reset it.")
+            .color(Color::Muted);
+    }
 }

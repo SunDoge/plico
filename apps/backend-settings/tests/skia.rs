@@ -15,9 +15,9 @@ fn complete_settings_scenes_replay_on_skia_in_both_themes() {
     for dark in [false, true] {
         for page in [Page::Overview, Page::Activity, Page::Preferences] {
             for (width, height) in [(1100, 820), (520, 760)] {
-                source.view.set_dark(dark);
-                source.view.set_advanced(true);
-                source.view.set_inspector(true);
+                source.view.dark = dark;
+                source.view.advanced = true;
+                source.view.inspector = true;
                 source.view.go(page);
                 source.request_rebuild();
                 tick += 300;

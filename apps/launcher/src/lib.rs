@@ -288,10 +288,7 @@ impl Launcher {
 
 #[component]
 #[rustfmt::skip]
-fn application(
-    cx: &mut UiContext,
-    model: &mut LauncherModel,
-) {
+fn application(cx: &mut UiContext, model: &mut LauncherModel) {
     column(cx).width_percent(100.).height_percent(100.).background(Color::Surface) + |cx| {
         search(cx, model);
         separator(cx);
@@ -315,90 +312,107 @@ fn application(
 #[rustfmt::skip]
 fn search(cx: &mut UiContext, model: &mut LauncherModel) {
     row(cx).height(74.).padding_x(22).gap(16).align(Align::Center) + |cx| {
-            icon(cx, &icons::SEARCH).size(22., 22.).color(Color::Muted);
-            let response = text_input(cx, "搜索应用与命令", &model.query).placeholder("搜索应用与命令…").autofocus(true)
-                .request_focus(model.focus_search).navigation(true).width(0.).grow(1.).height(48.).font_size(20).padding(0)
-                .border(0., Color::Border).background(Color::Surface)
-                .response();
-            model.focus_search = false;
-            if response.changed { model.refresh(); }
-            if let Some(action) = response.navigation { model.navigate(action); }
-            if response.submitted && let Some(index) = model.selected { model.activate(index); }
-            let close = button_base(cx, "关闭").padding(8).radius(6.).hover_background(Color::Control).children(|cx| {
-                icon(cx, &icons::X).size(16., 16.).color(Color::Muted);
-            }).response;
-            if close.clicked() { model.actions.push_back(HostAction::Window(WindowCommand::Close)); }
+        icon(cx, &icons::SEARCH).size(22., 22.).color(Color::Muted);
+        let response = text_input(cx, "搜索应用与命令", &model.query).placeholder("搜索应用与命令…").autofocus(true)
+            .request_focus(model.focus_search).navigation(true).width(0.).grow(1.).height(48.).font_size(20)
+            .padding(0).border(0., Color::Border).background(Color::Surface).response();
+        model.focus_search = false;
+        if response.changed {
+            model.refresh();
+        }
+        if let Some(action) = response.navigation {
+            model.navigate(action);
+        }
+        if response.submitted
+            && let Some(index) = model.selected
+        {
+            model.activate(index);
+        }
+        let close = button_base(cx, "关闭").padding(8).radius(6.).hover_background(Color::Control).children(|cx| {
+            icon(cx, &icons::X).size(16., 16.).color(Color::Muted);
+        }).response;
+        if close.clicked() {
+            model.actions.push_back(HostAction::Window(WindowCommand::Close));
+        }
     };
 }
 
 #[component]
 #[rustfmt::skip]
 fn filters(cx: &mut UiContext, model: &mut LauncherModel) {
-        row(cx).padding_x(16).height(42.).gap(6).align(Align::Center) + |cx| {
-            for (category, label) in [
-                (Category::All, "全部"),
-                (Category::Applications, "应用"),
-                (Category::Commands, "命令"),
-            ] {
-                cx.keyed(label, |cx| {
-                    let response = button_base(cx, label).selected(model.category == category).padding_x(12).padding_y(5)
-                        .radius(6.)
-                        .background(if model.category == category { Color::Control } else { Color::Surface })
-                        .hover_background(Color::Control).children(|cx| {
-                        text(cx, label).font_size(12).weight(600);
-                    }).response;
-                    if response.clicked() { model.category = category; model.refresh(); model.focus_search = true; }
-                });
-            }
-            column(cx).grow(1.).end();
-            plico::text!(cx, "{} 个结果", model.matches.len()).font_size(11).color(Color::Muted);
-        };
+    row(cx).padding_x(16).height(42.).gap(6).align(Align::Center) + |cx| {
+        for (category, label) in [
+            (Category::All, "全部"),
+            (Category::Applications, "应用"),
+            (Category::Commands, "命令"),
+        ] {
+            cx.keyed(label, |cx| {
+                let response = button_base(cx, label).selected(model.category == category).padding_x(12)
+                    .padding_y(5).radius(6.)
+                    .background(if model.category == category { Color::Control } else { Color::Surface })
+                    .hover_background(Color::Control).children(|cx| {
+                    text(cx, label).font_size(12).weight(600);
+                }).response;
+                if response.clicked() {
+                    model.category = category;
+                    model.refresh();
+                    model.focus_search = true;
+                }
+            });
+        }
+        column(cx).grow(1.).end();
+        plico::text!(cx, "{} 个结果", model.matches.len()).font_size(11).color(Color::Muted);
+    };
 }
 
 #[component]
 #[rustfmt::skip]
 fn results(cx: &mut UiContext, model: &mut LauncherModel) {
-        if model.matches.is_empty() {
-            let _ = column(cx).height(336.).justify(Justify::Center).align(Align::Center).gap(12) + |cx| {
-                icon(cx, &icons::SEARCH).size(28., 28.).color(Color::Muted);
-                text(cx, "没有找到匹配项").font_size(16).weight(600);
-                text(cx, "试试应用名称，或按 Escape 清除搜索").font_size(12).color(Color::Muted);
+    if model.matches.is_empty() {
+        let _ = column(cx).height(336.).justify(Justify::Center).align(Align::Center).gap(12) + |cx| {
+            icon(cx, &icons::SEARCH).size(28., 28.).color(Color::Muted);
+            text(cx, "没有找到匹配项").font_size(16).weight(600);
+            text(cx, "试试应用名称，或按 Escape 清除搜索").font_size(12).color(Color::Muted);
+        };
+        return;
+    }
+    let matches = model.matches.clone();
+    let selected = model.selected;
+    let reveal = model.reveal.take();
+    let mut activate = None;
+    virtual_list(cx, matches.len(), 56.).height(336.).reveal(reveal).rows(
+        |i| ENTRIES[matches[i]].id,
+        |cx, i| {
+            let entry = &ENTRIES[matches[i]];
+            let is_selected = selected == Some(i);
+            let _ = column(cx).padding_x(10) + |cx| {
+                let response = button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14)
+                    .gap(14).radius(8.).align(Align::Center).selected(is_selected)
+                    .background(if is_selected { Color::Selection } else { Color::Surface })
+                    .hover_background(Color::Control).motion(Motion::Quick).children(|cx| {
+                    column(cx).width(32.).height(32.).radius(8.).align(Align::Center)
+                        .justify(Justify::Center).background(Color::Panel) + |cx|
+                    {
+                        icon(cx, entry.icon).size(19., 19.);
+                    };
+                    column(cx).grow(1.).gap(3) + |cx| {
+                        text(cx, entry.title).font_size(14).weight(600);
+                        text(cx, entry.detail).font_size(11).color(Color::Muted);
+                    };
+                    text(cx, if matches!(entry.action, Action::Preview) { "预览" } else { "执行" }).font_size(11).color(Color::Muted);
+                    if is_selected {
+                        icon(cx, &icons::CORNER_DOWN_LEFT).size(15., 15.).color(Color::Muted);
+                    }
+                }).response;
+                if response.clicked() {
+                    activate = Some(i);
+                }
             };
-            return;
-        }
-        let matches = model.matches.clone();
-        let selected = model.selected;
-        let reveal = model.reveal.take();
-        let mut activate = None;
-        virtual_list(cx, matches.len(), 56.).height(336.).reveal(reveal).rows(
-            |i| ENTRIES[matches[i]].id,
-            |cx, i| {
-                let entry = &ENTRIES[matches[i]];
-                let is_selected = selected == Some(i);
-                let _ = column(cx).padding_x(10) + |cx| {
-                    let response = button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14).gap(14)
-                        .radius(8.).align(Align::Center).selected(is_selected)
-                        .background(if is_selected { Color::Selection } else { Color::Surface })
-                        .hover_background(Color::Control).motion(Motion::Quick).children(|cx| {
-                        column(cx).width(32.).height(32.).radius(8.).align(Align::Center)
-                            .justify(Justify::Center).background(Color::Panel) + |cx|
-                        {
-                            icon(cx, entry.icon).size(19., 19.);
-                        };
-                        column(cx).grow(1.).gap(3) + |cx| {
-                            text(cx, entry.title).font_size(14).weight(600);
-                            text(cx, entry.detail).font_size(11).color(Color::Muted);
-                        };
-                        text(cx, if matches!(entry.action, Action::Preview) { "预览" } else { "执行" }).font_size(11).color(Color::Muted);
-                        if is_selected {
-                            icon(cx, &icons::CORNER_DOWN_LEFT).size(15., 15.).color(Color::Muted);
-                        }
-                    }).response;
-                    if response.clicked() { activate = Some(i); }
-                };
-            },
-        );
-        if let Some(i) = activate { model.activate(i); }
+        },
+    );
+    if let Some(i) = activate {
+        model.activate(i);
+    }
 }
 
 impl HostView for Launcher {
