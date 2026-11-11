@@ -2,7 +2,9 @@ use crate::{Entity, Theme, engine::Engine, model::*, motion::ValueChannel};
 use std::borrow::Cow;
 
 mod builders;
+mod layout;
 pub use builders::*;
+pub use layout::*;
 
 /// Context borrowed while declaring one UI tree. Widget constructors live in `widgets`.
 pub struct UiContext<'e> {
