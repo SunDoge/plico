@@ -69,8 +69,9 @@ fn stable_backdrop_snapshots_reuse_textures_until_the_pool_is_trimmed() {
         assert_eq!(first.backdrop_allocations, textures);
         assert_eq!(first.backdrop_entries as u64, textures);
         assert!(first.backdrop_bytes > 0);
-        assert_eq!(first.backdrop_uniform_entries, 2);
-        assert_eq!(first.backdrop_uniform_allocations, 2);
+        assert_eq!(first.backdrop_uniform_entries, 0);
+        assert_eq!(first.backdrop_effect_uniform_entries, 2);
+        assert_eq!(first.backdrop_effect_uniform_allocations, 2);
 
         for _ in 0..3 {
             assert_eq!(
@@ -84,16 +85,17 @@ fn stable_backdrop_snapshots_reuse_textures_until_the_pool_is_trimmed() {
         assert_eq!(reused.backdrop_allocations, first.backdrop_allocations);
         assert!(reused.backdrop_reuses >= first.backdrop_reuses + textures * 3);
         assert_eq!(
-            reused.backdrop_uniform_allocations,
-            first.backdrop_uniform_allocations
+            reused.backdrop_effect_uniform_allocations,
+            first.backdrop_effect_uniform_allocations
         );
-        assert!(reused.backdrop_uniform_reuses >= first.backdrop_uniform_reuses + 6);
+        assert!(reused.backdrop_effect_uniform_reuses >= first.backdrop_effect_uniform_reuses + 6);
 
         renderer.trim_layer_pool();
         let trimmed = renderer.layer_pool_stats();
         assert_eq!(trimmed.backdrop_entries, 0);
         assert_eq!(trimmed.backdrop_bytes, 0);
         assert_eq!(trimmed.backdrop_uniform_entries, 0);
+        assert_eq!(trimmed.backdrop_effect_uniform_entries, 2);
         assert_eq!(
             renderer
                 .render_scene(&scene, [180, 100], [1.; 4], false)

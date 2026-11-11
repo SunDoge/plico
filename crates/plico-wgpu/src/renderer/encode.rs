@@ -486,13 +486,11 @@ impl Renderer {
                                 );
                             let effect = self.backdrop_effects[effect_index].clone();
                             let mut effects = self.effects.take();
-                            let mut compositor = self.backdrop_compositor.take();
                             pass = encode_backdrop_step(
                                 &self.device,
                                 &self.queue,
                                 self.target.as_ref(),
                                 &mut effects,
-                                &mut compositor,
                                 &mut self.backdrop_prefilter,
                                 &mut self.backdrop_pool,
                                 &mut self.batch_stats,
@@ -516,7 +514,6 @@ impl Renderer {
                                 output_scissor,
                             );
                             self.effects = effects;
-                            self.backdrop_compositor = compositor;
                             self.batch_stats.passes += 1;
                             pass.set_bind_group(0, &self.bind, &[]);
                             pass.set_vertex_buffer(0, self.instances.slice(..));

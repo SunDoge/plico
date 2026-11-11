@@ -11,6 +11,8 @@ use wgpu::{
 };
 
 const UNIFORM_FLOAT_COUNT: usize = 260;
+const EFFECT_UNIFORM_BYTES: u64 = (UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>()) as u64;
+const MAPPING_BYTES: u64 = 16;
 const PIPELINE_CACHE_SIZE: usize = 16;
 const EFFECT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 const DIRECT_COMPOSITE_SUFFIX: &str = include_str!("direct_backdrop.wgsl");
@@ -27,7 +29,8 @@ struct EffectTarget {
 
 struct DirectUniform {
     buffer: Buffer,
-    bind_group: BindGroup,
+    effect_bind: BindGroup,
+    composite_bind: BindGroup,
 }
 
 impl EffectTarget {
@@ -87,6 +90,10 @@ pub struct ShaderRenderer {
     direct_used: usize,
     direct_uniform_allocations: u64,
     direct_uniform_reuses: u64,
+    direct_mapping_offset: u64,
+    direct_composite_offset: u64,
+    direct_uniform_bytes: u64,
+    direct_upload: Vec<u8>,
     targets: FxHashMap<ShaderEffectId, Vec<EffectTarget>>,
     frame: u64,
 }
@@ -164,6 +171,12 @@ impl ShaderRenderer {
                     count: None,
                 }],
             });
+        let alignment = u64::from(device.limits().min_uniform_buffer_offset_alignment).max(16);
+        let direct_mapping_offset = EFFECT_UNIFORM_BYTES.next_multiple_of(alignment);
+        let direct_composite_offset =
+            (direct_mapping_offset + MAPPING_BYTES).next_multiple_of(alignment);
+        let direct_uniform_bytes =
+            direct_composite_offset + crate::backdrop_composite::COMPOSITE_BYTES;
         Self {
             layout,
             backdrop_layout,
@@ -177,6 +190,10 @@ impl ShaderRenderer {
             direct_used: 0,
             direct_uniform_allocations: 0,
             direct_uniform_reuses: 0,
+            direct_mapping_offset,
+            direct_composite_offset,
+            direct_uniform_bytes,
+            direct_upload: vec![0; direct_uniform_bytes as usize],
             targets: FxHashMap::default(),
             frame: 0,
         }
@@ -241,8 +258,9 @@ impl ShaderRenderer {
         &mut self,
         effect: &ShaderEffect,
         backdrop: &wgpu::TextureView,
-        uniforms: &wgpu::Buffer,
-        composite_offset: u64,
+        mapping: [f32; 4],
+        composite: [[f32; 4]; 4],
+        mix: [f32; 4],
         mask_layout: &wgpu::BindGroupLayout,
         mask: &wgpu::BindGroup,
         device: &Device,
@@ -252,7 +270,8 @@ impl ShaderRenderer {
         frame_size: [u32; 2],
         scissor: [u32; 4],
     ) {
-        let effect_bind = self.direct_uniform(effect, device, queue);
+        let (uniforms, effect_bind, composite_bind) =
+            self.direct_uniform(effect, mapping, composite, mix, device, queue);
         let pipeline = Self::direct_backdrop_pipeline(
             &mut self.direct_backdrop_pipelines,
             &self.layout,
@@ -277,24 +296,12 @@ impl ShaderRenderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: uniforms,
-                        offset: 0,
-                        size: std::num::NonZeroU64::new(16),
+                        buffer: &uniforms,
+                        offset: self.direct_mapping_offset,
+                        size: std::num::NonZeroU64::new(MAPPING_BYTES),
                     }),
                 },
             ],
-        });
-        let composite_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Plico direct backdrop composite bind"),
-            layout: &self.direct_composite_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: uniforms,
-                    offset: composite_offset,
-                    size: std::num::NonZeroU64::new(crate::backdrop_composite::COMPOSITE_BYTES),
-                }),
-            }],
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Plico direct backdrop effect"),
@@ -403,35 +410,75 @@ impl ShaderRenderer {
     fn direct_uniform(
         &mut self,
         effect: &ShaderEffect,
+        mapping: [f32; 4],
+        composite: [[f32; 4]; 4],
+        mix: [f32; 4],
         device: &Device,
         queue: &Queue,
-    ) -> BindGroup {
+    ) -> (Buffer, BindGroup, BindGroup) {
         if self.direct_used == self.direct_uniforms.len() {
             self.direct_uniform_allocations += 1;
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Plico direct shader uniforms"),
-                size: (UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>()) as u64,
+                size: self.direct_uniform_bytes,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let effect_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Plico direct shader uniform bind"),
                 layout: &self.layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: buffer.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new(EFFECT_UNIFORM_BYTES),
+                    }),
                 }],
             });
-            self.direct_uniforms
-                .push(DirectUniform { buffer, bind_group });
+            let composite_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Plico direct shader composite bind"),
+                layout: &self.direct_composite_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: self.direct_composite_offset,
+                        size: std::num::NonZeroU64::new(crate::backdrop_composite::COMPOSITE_BYTES),
+                    }),
+                }],
+            });
+            self.direct_uniforms.push(DirectUniform {
+                buffer,
+                effect_bind,
+                composite_bind,
+            });
         } else {
             self.direct_uniform_reuses += 1;
         }
         let target = &self.direct_uniforms[self.direct_used];
+        let buffer = target.buffer.clone();
+        let effect_bind = target.effect_bind.clone();
+        let composite_bind = target.composite_bind.clone();
         self.direct_used += 1;
-        let uniforms = effect.uniform_words();
-        queue.write_buffer(&target.buffer, 0, bytemuck::cast_slice(&uniforms));
-        target.bind_group.clone()
+        let effect_words = effect.uniform_words();
+        let effect_bytes = bytemuck::cast_slice(&effect_words);
+        self.direct_upload[..effect_bytes.len()].copy_from_slice(effect_bytes);
+        let mapping_offset = self.direct_mapping_offset as usize;
+        self.direct_upload[mapping_offset..mapping_offset + MAPPING_BYTES as usize]
+            .copy_from_slice(bytemuck::bytes_of(&mapping));
+        let composite_offset = self.direct_composite_offset as usize;
+        self.direct_upload[composite_offset
+            ..composite_offset + crate::backdrop_composite::COMPOSITE_BYTES as usize]
+            .copy_from_slice(bytemuck::cast_slice(&[
+                composite[0],
+                composite[1],
+                composite[2],
+                composite[3],
+                mix,
+            ]));
+        queue.write_buffer(&buffer, 0, &self.direct_upload);
+        (buffer, effect_bind, composite_bind)
     }
 
     fn direct_backdrop_pipeline(

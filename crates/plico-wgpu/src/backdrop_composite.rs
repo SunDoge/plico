@@ -190,8 +190,4 @@ impl Compositor {
     pub fn uniform_stats(&self) -> (usize, u64, u64) {
         (self.uniforms.len(), self.allocations, self.reuses)
     }
-
-    pub fn composite_offset(&self) -> u64 {
-        self.composite_offset
-    }
 }

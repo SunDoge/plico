@@ -127,7 +127,6 @@ pub(super) fn encode_backdrop_step<'p>(
     queue: &wgpu::Queue,
     target: Option<&Target>,
     effects: &mut Option<crate::shader::ShaderRenderer>,
-    compositor: &mut Option<crate::backdrop_composite::Compositor>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
     textures: &mut crate::backdrop_pool::Pool,
     stats: &mut FrameBatchStats,
@@ -222,9 +221,6 @@ pub(super) fn encode_backdrop_step<'p>(
             instance.clip_params[0],
         ],
     ];
-    let compositor =
-        compositor.get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device));
-    let uniforms = compositor.prepare_uniforms(device, queue, mapping, composite, [1., 0., 0., 0.]);
     let effects = effects.get_or_insert_with(|| {
         let mut effects = crate::shader::ShaderRenderer::new(device);
         effects.begin_frame();
@@ -233,8 +229,9 @@ pub(super) fn encode_backdrop_step<'p>(
     effects.render_backdrop_direct(
         effect,
         &backdrop_view,
-        &uniforms,
-        compositor.composite_offset(),
+        mapping,
+        composite,
+        [1., 0., 0., 0.],
         mask_layout,
         mask,
         device,

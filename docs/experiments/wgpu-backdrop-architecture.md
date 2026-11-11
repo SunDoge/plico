@@ -54,6 +54,10 @@ Compositor 维护按帧占用的 uniform arena：一个 entry 包含两个按设
 和背景 replacement mix 现在合并为一次写入最终 framebuffer 的 fragment pass。采样源仍是独立的
 backdrop snapshot，不会读写同一个 color attachment。原先每个 pane 的同尺寸 RGBA effect output
 纹理和随后一次全区域 composite pass 均已删除；effect 参数改用小型跨帧 uniform arena。
+每个 direct draw 的 effect 参数、backdrop mapping 与 composite 状态位于同一对齐 buffer，CPU
+scratch 一次打包并执行一次 `queue.write_buffer`；effect/composite bind group 随 arena entry
+预建，逐 draw 只为当前 snapshot 创建含 texture 的 backdrop bind group。普通 effect 因此不再
+借用 atomic-layer compositor 的 uniform arena 或生命周期。
 两纹理 compositor 只保留给确实已有独立输出的 atomic layer，并延迟到首次使用时才编译。
 `LayerPoolStats::backdrop_effect_uniform_*` 单独报告该 arena，长序列回归验证同帧 occurrence 数
 稳定时 allocation 不再增长，effect 全部移除后 entry 归零。
@@ -123,6 +127,11 @@ ARL / Vulkan 进程环境交替运行 `effects.json` 8 对。每次 capture 10 �
 4.7–16.1 ms，所以不把该比例推广为跨机器承诺。确定性收益是每 pane 少一个同尺寸中间纹理、
 一次 effect-output render pass 和一次额外全区域纹理读取。真实 adapter 回归要求 direct path 在
 mask、scroll、cropped opacity layer、partial damage、array snapshot 与 mip prefilter 下保持原像素。
+
+随后以 `c8c2694` 的分离 uniform arenas 为基线，在相同 effects 场景交替跑 12 对 release capture。
+encode CPU 的中位数由 0.15 ms 降为 0.12 ms；输出只保留两位小数，因此这只能作为本机方向性
+证据，不能精确宣称跨机器比例。确定性变化是每个 pane 的 `queue.write_buffer` 从 3 次降为 1 次、
+逐帧 bind-group 创建从 2 次降为 1 次，且普通 effect 不再初始化或借用 atomic compositor arena。
 
 ## 复跑
 
