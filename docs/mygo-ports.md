@@ -28,7 +28,7 @@
 | Link | `link` | Link 角色与行为由调用方决定 |
 | Back/forward buttons | `back_button` / `forward_button` | 依赖 `Router`，两端禁用 |
 | Date input | `date_input` / `date_input_with` | ISO 显示 + 日历 popover |
-| Number input | `number_input` | 有界数字框 + 加减步进；Up/Down/失焦格式化未接入 |
+| Number input | `number_input` | 有界数字框、按钮与 Up/Down 步进、失焦格式化、边界禁用 |
 | Range slider | `range_slider` | 双 thumb 单轨道；共享一个焦点与一个语义值 |
 | Sticky | `Layout::sticky` | 仅顶部吸附；滚动/包含块后处理 |
 | Time input | `time_input` / `TimeOfDay` | 校验 HH:MM 文本框；非分段/12 小时制 |

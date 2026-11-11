@@ -99,6 +99,9 @@ delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar�
 真实内容高度，再以 200ms ease-out 裁剪；关闭期间保留节点但禁用交互并从语义树隐藏，结束后卸载。
 reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 
+`number_input` 复用原生编辑器的 opt-in navigation 通道处理 Up/Down，焦点边沿由声明态记录，
+因此离开输入框时可恢复／格式化暂存文字；按钮和键盘共用按 step 小数位取整的有界更新路径。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现

@@ -341,14 +341,11 @@ separate accessible slider.
 
 `number_input(cx, label, &mut f64, min, max, step)` ports MyGO's
 `NumberInput`: a bounded text field with − and + step buttons. Typed text
-applies as soon as it parses inside the bounds; Enter rewrites it with the
-decimals implied by the step, and Enter with invalid or out-of-range text
-restores the current value. Values clamp to the bounds, and an application
-change rewrites the field.
-
-MyGO moves the value with Up/Down and formats on blur; Plico has no blur
-hook here, so the buttons are the stepping path and formatting happens on
-Enter. Decimal amounts still need a decimal type, as in MyGO.
+applies as soon as it parses inside the bounds; Up/Down and the buttons move by
+one step, with the bound button disabled. Enter or leaving the field rewrites
+it with the decimals implied by the step; invalid or out-of-range text restores
+the current value. Values clamp and step-round to the bounds, and an application
+change rewrites the field. Decimal amounts still need a decimal type, as in MyGO.
 
 ### Focus traversal
 

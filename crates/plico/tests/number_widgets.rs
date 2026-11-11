@@ -1,6 +1,6 @@
 //! MyGO's number input: bounded text field with step buttons and canonical Enter.
 use plico::prelude::*;
-use plico::{Engine, Entity, InputEdit};
+use plico::{Engine, Entity, InputEdit, InputNavigation};
 
 fn frame(engine: &mut Engine, view: impl FnOnce(&mut UiContext<'_>)) {
     engine.frame_declarations(view).unwrap();
@@ -129,6 +129,45 @@ fn number_input_formats_fractional_steps() {
     buffer.edit(InputEdit::Submit);
     frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
     assert_eq!(text(&engine, "Opacity"), "0.03");
+}
+
+#[test]
+fn number_input_steps_with_arrows_formats_on_blur_and_disables_bound_buttons() {
+    let mut value = 5.0;
+    let mut engine = Engine::default();
+    let mut changed = false;
+    let view = |cx: &mut UiContext, value: &mut f64, changed: &mut bool| {
+        *changed = number_input(cx, "Count", value, 0., 10., 0.5);
+    };
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    let input = named(&engine, "Count");
+    let buffer = engine.input(input).unwrap().0.clone();
+
+    engine.set_focused(Some(input));
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    buffer.edit(InputEdit::Navigate(InputNavigation::Previous));
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    assert_eq!(value, 5.5);
+    assert!(changed);
+    assert_eq!(text(&engine, "Count"), "5.5");
+
+    buffer.edit(InputEdit::SelectAll);
+    buffer.edit(InputEdit::Insert("not a number".to_owned().into()));
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    assert_eq!(text(&engine, "Count"), "not a number");
+    assert_eq!(value, 5.5);
+    engine.set_focused(None);
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    assert_eq!(text(&engine, "Count"), "5.5");
+
+    value = 10.;
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    assert!(engine.node(button(&engine, "+")).unwrap().style.disabled);
+    assert!(!engine.node(button(&engine, "−")).unwrap().style.disabled);
+    value = 0.;
+    frame(&mut engine, |cx| view(cx, &mut value, &mut changed));
+    assert!(engine.node(button(&engine, "−")).unwrap().style.disabled);
+    assert!(!engine.node(button(&engine, "+")).unwrap().style.disabled);
 }
 
 #[test]
