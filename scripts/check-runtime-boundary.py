@@ -42,6 +42,7 @@ migrated_test_files = {
     Path("crates/plico-desktop/tests/composable_widgets.rs"),
     Path("crates/plico-desktop/tests/feedback_motion.rs"),
     Path("crates/plico-desktop/tests/font_family.rs"),
+    Path("crates/plico-desktop/tests/gallery.rs"),
     Path("crates/plico-desktop/tests/flex_layout.rs"),
     Path("crates/plico-desktop/tests/glass_pixels.rs"),
     Path("crates/plico-desktop/tests/interactive_glass.rs"),

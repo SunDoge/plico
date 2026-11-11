@@ -8,10 +8,19 @@ fn frame(s: &mut Source<Gallery>, tcx: &mut TextContext, width: u32) {
     s.build_frame(tcx, width, 780);
 }
 fn named(s: &Source<Gallery>, role: SemanticRole, label: &str) -> plico_renderer::SemanticNode {
-    s.adapter
-        .semantics(&s.engine, 0)
+    let semantics = s.semantics();
+    semantics
         .node_by_role(role, label, None)
-        .unwrap()
+        .unwrap_or_else(|| {
+            panic!(
+                "missing {role:?} {label:?}; visible nodes: {:?}",
+                semantics
+                    .nodes
+                    .iter()
+                    .map(|node| (node.role, node.label.clone()))
+                    .collect::<Vec<_>>()
+            )
+        })
         .clone()
 }
 fn pointer(phase: PointerPhase, x: f64, y: f64) -> UiEvent {
@@ -60,11 +69,11 @@ fn real_pointer_counter_reset_and_disabled() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     click(&mut s, &mut tcx, SemanticRole::Button, "Increment");
-    assert_eq!(s.view.count, 1);
+    assert_eq!(s.view().count, 1);
     click(&mut s, &mut tcx, SemanticRole::Button, "Disabled");
-    assert_eq!(s.view.count, 1);
+    assert_eq!(s.view().count, 1);
     click(&mut s, &mut tcx, SemanticRole::Button, "Reset");
-    assert_eq!(s.view.count, 0);
+    assert_eq!(s.view().count, 0);
 }
 #[test]
 fn controlled_toggles_publish_text_style_and_theme_same_frame() {
@@ -75,7 +84,7 @@ fn controlled_toggles_publish_text_style_and_theme_same_frame() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     click(&mut s, &mut tcx, SemanticRole::Switch, "Notifications");
-    assert!(s.view.notifications);
+    assert!(s.view().notifications);
     assert_eq!(
         named(&s, SemanticRole::Switch, "Notifications")
             .states
@@ -89,12 +98,12 @@ fn controlled_toggles_publish_text_style_and_theme_same_frame() {
         SemanticRole::CheckBox,
         "Save automatically",
     );
-    assert!(s.view.autosave);
+    assert!(s.view().autosave);
     click(&mut s, &mut tcx, SemanticRole::CheckBox, "Large text");
-    assert!(s.view.large);
+    assert!(s.view().large);
     click(&mut s, &mut tcx, SemanticRole::Switch, "Dark theme");
-    assert!(s.view.dark);
-    assert_eq!(s.engine.theme(), s.view.theme());
+    assert!(s.view().dark);
+    assert_eq!(s.theme(), s.view().theme());
 }
 #[test]
 fn unchanged_frame_reuses_backend_and_writes_nothing() {
@@ -104,10 +113,22 @@ fn unchanged_frame_reuses_backend_and_writes_nothing() {
     });
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
-    let id = s.adapter.backend_id(s.engine.root());
+    let id = s
+        .placed_nodes()
+        .iter()
+        .find(|p| p.depth == 0)
+        .unwrap()
+        .node_id;
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.adapter.backend_id(s.engine.root()), id);
-    let b = s.adapter.stats;
+    assert_eq!(
+        s.placed_nodes()
+            .iter()
+            .find(|p| p.depth == 0)
+            .unwrap()
+            .node_id,
+        id
+    );
+    let b = s.frame_diagnostics().backend;
     assert_eq!(
         (
             b.created,
@@ -129,10 +150,10 @@ fn theme_changes_paint_without_layout_style_writes() {
     });
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
-    s.view.dark = true;
+    s.update(|view| view.dark = true);
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.adapter.stats.style_writes, 0);
-    assert!(s.adapter.stats.paint_writes > 0);
+    assert_eq!(s.frame_diagnostics().backend.style_writes, 0);
+    assert!(s.frame_diagnostics().backend.paint_writes > 0);
 }
 #[test]
 fn tab_space_shift_tab_and_disabled_skipping() {
@@ -143,50 +164,50 @@ fn tab_space_shift_tab_and_disabled_skipping() {
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     let dark = named(&s, SemanticRole::Switch, "Dark theme").id;
-    for _ in 0..s.adapter.semantics(&s.engine, 0).nodes.len() {
+    for _ in 0..s.semantics().nodes.len() {
         s.handle_event(key("Tab", false));
-        if s.adapter.semantics(&s.engine, 0).focus == Some(dark) {
+        if s.semantics().focus == Some(dark) {
             break;
         }
     }
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(dark));
+    assert_eq!(s.semantics().focus, Some(dark));
     s.handle_event(key(" ", false));
     frame(&mut s, &mut tcx, 920);
-    assert!(s.view.dark);
+    assert!(s.view().dark);
     s.handle_event(key("Tab", false));
     s.handle_event(key(" ", false));
     frame(&mut s, &mut tcx, 920);
-    assert!(s.view.large);
+    assert!(s.view().large);
     let increment = named(&s, SemanticRole::Button, "Increment").id;
-    for _ in 0..s.adapter.semantics(&s.engine, 0).nodes.len() {
+    for _ in 0..s.semantics().nodes.len() {
         s.handle_event(key("Tab", false));
-        if s.adapter.semantics(&s.engine, 0).focus == Some(increment) {
+        if s.semantics().focus == Some(increment) {
             break;
         }
     }
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(increment));
+    assert_eq!(s.semantics().focus, Some(increment));
     s.handle_event(key("Enter", false));
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.view.count, 1);
+    assert_eq!(s.view().count, 1);
     s.handle_event(key("Tab", false));
     s.handle_event(key("Tab", false));
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(named(&s, SemanticRole::Button, "Quick settings").id)
     );
     s.handle_event(key("Tab", false));
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     assert_eq!(
         snapshot.focus,
         Some(named(&s, SemanticRole::Switch, "Notifications").id)
     );
     s.handle_event(key("Tab", true));
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(named(&s, SemanticRole::Button, "Quick settings").id)
     );
     s.handle_event(key("Tab", true));
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     assert_eq!(
         snapshot.focus,
         Some(named(&s, SemanticRole::Button, "Reset").id)
@@ -206,12 +227,12 @@ fn release_outside_cancel_and_secondary_do_not_activate() {
     s.handle_event(pointer(PointerPhase::Down, x, y));
     s.handle_event(pointer(PointerPhase::Up, 0., 0.));
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.view.count, 0);
+    assert_eq!(s.view().count, 0);
     s.handle_event(pointer(PointerPhase::Down, x, y));
     s.handle_event(pointer(PointerPhase::Cancel, x, y));
     s.handle_event(pointer(PointerPhase::Up, x, y));
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.view.count, 0);
+    assert_eq!(s.view().count, 0);
     for phase in [PointerPhase::Down, PointerPhase::Up] {
         let UiEvent::Pointer(mut p) = pointer(phase, x, y) else {
             unreachable!()
@@ -220,7 +241,7 @@ fn release_outside_cancel_and_secondary_do_not_activate() {
         s.handle_event(UiEvent::Pointer(p));
     }
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.view.count, 0);
+    assert_eq!(s.view().count, 0);
 }
 #[test]
 fn semantic_actions_route_through_controlled_state() {
@@ -233,7 +254,7 @@ fn semantic_actions_route_through_controlled_state() {
     let target = named(&s, SemanticRole::Switch, "Notifications").id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target }));
     frame(&mut s, &mut tcx, 920);
-    assert!(s.view.notifications);
+    assert!(s.view().notifications);
     let target = named(&s, SemanticRole::Button, "Disabled").id;
     assert!(!s.handle_semantic_action(SemanticAction::Click { target }));
 }
@@ -246,9 +267,9 @@ fn real_layout_fits_normal_and_minimum_viewports() {
     let mut tcx = TextContext::new();
     for width in [640, 920] {
         for large in [false, true] {
-            s.view.large = large;
+            s.update(|view| view.large = large);
             frame(&mut s, &mut tcx, width);
-            for p in &s.adapter.placed {
+            for p in s.placed_nodes() {
                 let mut r = p.rect;
                 assert!(r.iter().all(|n| n.is_finite()));
                 // Scroll content may extend beyond the viewport; its visible
@@ -269,7 +290,7 @@ fn real_layout_fits_normal_and_minimum_viewports() {
                     "{r:?}"
                 );
             }
-            let items = s.adapter.semantics(&s.engine, 0);
+            let items = s.semantics();
             for n in items.nodes.iter().filter(|n| {
                 matches!(
                     n.role,
@@ -277,7 +298,7 @@ fn real_layout_fits_normal_and_minimum_viewports() {
                 )
             }) {
                 assert!(
-                    n.bounds[3] - n.bounds[1] >= s.view.theme().metrics.space(4) as f32 - 0.1,
+                    n.bounds[3] - n.bounds[1] >= s.view().theme().metrics.space(4) as f32 - 0.1,
                     "{:?} {:?} has bounds {:?}",
                     n.role,
                     n.label,
@@ -353,19 +374,19 @@ fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     let mut source = Source::new(Invalid(false));
     let mut tcx = TextContext::new();
     let good = source.try_build_frame(&mut tcx, 640, 740).unwrap();
-    let good_retained = source.adapter.placed.len();
-    source.view.0 = true;
+    let good_retained = source.placed_nodes().len();
+    source.update(|view| view.0 = true);
     let error = match source.try_build_frame(&mut tcx, 640, 740) {
         Err(error) => error,
         Ok(_) => panic!("duplicate keys unexpectedly produced a frame"),
     };
     assert_eq!(good.len(), good_retained);
-    assert_eq!(source.adapter.placed.len(), good_retained);
+    assert_eq!(source.placed_nodes().len(), good_retained);
     assert!(matches!(
         error,
         plico_desktop::SourceError::Declaration { .. }
     ));
-    source.view.0 = false;
+    source.update(|view| view.0 = false);
     source.try_build_frame(&mut tcx, 640, 740).unwrap();
 }
 
@@ -413,23 +434,23 @@ fn typed_routes_unmount_pages_and_keep_application_state() {
     let mut s = Source::new(Gallery::default());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
-    assert!(s.view.router.show(Page::Workspace));
+    assert!(s.view().router.show(Page::Workspace));
     click(&mut s, &mut tcx, SemanticRole::Button, "Controls");
     click(&mut s, &mut tcx, SemanticRole::Button, "Increment");
     click(&mut s, &mut tcx, SemanticRole::Switch, "Notifications");
     click(&mut s, &mut tcx, SemanticRole::Button, "Motion");
-    assert!(s.view.router.show(Page::Motion));
+    assert!(s.view().router.show(Page::Motion));
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Button, "Increment", None)
             .is_none()
     );
     click(&mut s, &mut tcx, SemanticRole::Button, "Controls");
-    assert_eq!(s.view.count, 1);
-    assert!(s.view.notifications);
-    let restored: Gallery = serde_json::from_value(serde_json::to_value(&s.view).unwrap()).unwrap();
-    assert_eq!(restored, s.view);
+    assert_eq!(s.view().count, 1);
+    assert!(s.view().notifications);
+    let restored: Gallery =
+        serde_json::from_value(serde_json::to_value(s.view()).unwrap()).unwrap();
+    assert_eq!(&restored, s.view());
 }
 
 #[test]
@@ -454,7 +475,7 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             });
             let mut tcx = TextContext::new();
             s.build_frame(&mut tcx, width, 740);
-            for n in &s.adapter.placed {
+            for n in s.placed_nodes() {
                 let mut r = n.rect;
                 if let Some(clip) = n.clip {
                     r = [
@@ -493,14 +514,14 @@ fn workspace_preserves_drafts_across_selection_and_commits_or_resets_explicitly(
         SemanticRole::Switch,
         "Project notifications",
     );
-    assert!(!s.view.workspace.projects[0].draft.notifications);
+    assert!(!s.view().workspace.projects[0].draft.notifications);
     click(&mut s, &mut tcx, SemanticRole::Button, "Docs");
-    assert_eq!(s.view.workspace.selected, 2);
-    assert!(s.view.workspace.projects[1].draft.notifications);
+    assert_eq!(s.view().workspace.selected, 2);
+    assert!(s.view().workspace.projects[1].draft.notifications);
     click(&mut s, &mut tcx, SemanticRole::Button, "Plico");
-    assert!(!s.view.workspace.projects[0].draft.notifications);
+    assert!(!s.view().workspace.projects[0].draft.notifications);
     click(&mut s, &mut tcx, SemanticRole::Button, "Save changes");
-    assert!(!s.view.workspace.projects[0].saved.notifications);
+    assert!(!s.view().workspace.projects[0].saved.notifications);
     click(
         &mut s,
         &mut tcx,
@@ -508,9 +529,10 @@ fn workspace_preserves_drafts_across_selection_and_commits_or_resets_explicitly(
         "Save automatically",
     );
     click(&mut s, &mut tcx, SemanticRole::Button, "Reset changes");
-    assert!(!s.view.workspace.projects[0].draft.autosave);
-    let restored: Gallery = serde_json::from_value(serde_json::to_value(&s.view).unwrap()).unwrap();
-    assert_eq!(restored, s.view);
+    assert!(!s.view().workspace.projects[0].draft.autosave);
+    let restored: Gallery =
+        serde_json::from_value(serde_json::to_value(s.view()).unwrap()).unwrap();
+    assert_eq!(&restored, s.view());
 }
 #[test]
 fn workspace_archive_empty_state_and_restore_keep_project_data() {
@@ -520,12 +542,12 @@ fn workspace_archive_empty_state_and_restore_keep_project_data() {
     for _ in 0..3 {
         click(&mut s, &mut tcx, SemanticRole::Button, "Archive project");
     }
-    assert_eq!(s.view.workspace.selected, 0);
-    assert!(s.view.workspace.projects.iter().all(|p| p.archived));
+    assert_eq!(s.view().workspace.selected, 0);
+    assert!(s.view().workspace.projects.iter().all(|p| p.archived));
     named(&s, SemanticRole::Label, "No active projects");
     click(&mut s, &mut tcx, SemanticRole::Button, "Restore projects");
-    assert_eq!(s.view.workspace.selected, 1);
-    assert!(s.view.workspace.projects.iter().all(|p| !p.archived));
+    assert_eq!(s.view().workspace.selected, 1);
+    assert!(s.view().workspace.projects.iter().all(|p| !p.archived));
 }
 #[test]
 fn theme_density_changes_shared_widget_geometry_and_stabilizes() {
@@ -534,11 +556,11 @@ fn theme_density_changes_shared_widget_geometry_and_stabilizes() {
     frame(&mut s, &mut tcx, 920);
     let before = named(&s, SemanticRole::Button, "Save changes").bounds;
     click(&mut s, &mut tcx, SemanticRole::CheckBox, "Compact");
-    assert_eq!(s.engine.theme().metrics, plico::Metrics::compact());
+    assert_eq!(s.theme().metrics, plico::Metrics::compact());
     let after = named(&s, SemanticRole::Button, "Save changes").bounds;
     assert!(after[3] - after[1] < before[3] - before[1]);
     frame(&mut s, &mut tcx, 920);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 }
 
 #[test]
@@ -556,9 +578,9 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     );
     // The channel now lives in component-local persisted state; it must
     // survive leaving and re-entering the page without a view-struct field.
-    s.view.router.go(Page::Layout);
+    s.update(|view| view.router.go(Page::Layout));
     frame(&mut s, &mut tcx, 920);
-    s.view.router.back();
+    s.update(|view| view.router.back());
     frame(&mut s, &mut tcx, 920);
     assert_eq!(
         named(&s, SemanticRole::Button, "Beta").states.selected,
@@ -570,18 +592,32 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     s.handle_event(key("Enter", false));
     s.prepare_for_event(&mut tcx).unwrap();
     frame(&mut s, &mut tcx, 920);
-    assert!(s.view.release_details);
+    assert!(s.view().release_details);
     assert_eq!(
         named(&s, SemanticRole::Button, "Channel details")
             .states
             .expanded,
         Some(true)
     );
-    named(&s, SemanticRole::Label, "75%");
+    assert!(
+        (named(&s, SemanticRole::ProgressBar, "Validation coverage")
+            .numeric_value
+            .unwrap()
+            - 0.75)
+            .abs()
+            < 1e-6
+    );
     click(&mut s, &mut tcx, SemanticRole::Button, "Nightly");
-    named(&s, SemanticRole::Label, "40%");
+    assert!(
+        (named(&s, SemanticRole::ProgressBar, "Validation coverage")
+            .numeric_value
+            .unwrap()
+            - 0.4)
+            .abs()
+            < 1e-6
+    );
     click(&mut s, &mut tcx, SemanticRole::Button, "Channel details");
-    assert!(!s.view.release_details);
+    assert!(!s.view().release_details);
 }
 
 #[test]
@@ -601,13 +637,11 @@ fn motion_page_spring_overshoots_settles_and_returns_to_idle() {
     // true here; the spring's own idle scheduling is covered by the
     // plico-motion unit tests. This test asserts the rendered value path.
     let chip_width = |s: &Source<Gallery>| {
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .find(|p| p.paint.text.as_deref() == Some("Overshoot, then settle."))
             .map(|label| {
-                s.adapter
-                    .placed
+                s.placed_nodes()
                     .iter()
                     .find(|chip| chip.node_id == label.parent_node_id.expect("chip parent"))
                     .expect("chip placed")

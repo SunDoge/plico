@@ -85,6 +85,9 @@ declare、共享 scene cache 不可变性和零 placed-node clone 的统计断�
 Modal 综合测试也已迁移：portal clip escape、modal root、焦点陷阱、嵌套关闭、IME、backdrop、
 小窗口滚动、退出冻结和 reduced motion 均从语义与 retained presentation 验证。Overlay 与 dialog
 panel 的单一 entrance progress 通过 retained 层级和最终几何关联，不公开 Engine/backend ID 映射。
+最后的 Gallery 综合测试也已进入守卫：真实指针/键盘、主题、路由、工作区持久化、全页面布局、
+spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar.numeric_value` 验证，不要求视觉
+百分比文本重复进入可访问性树。至此 desktop 外部测试不再穿透 Source 字段。
 
 ## 当前实现
 
