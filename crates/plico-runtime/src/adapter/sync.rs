@@ -602,7 +602,10 @@ pub(crate) fn make_paint(
         let muted = theme.muted;
         p.scrollbar = Some(Arc::new(plico_renderer::style::ScrollbarStyle {
             thickness: 6.,
-            margin: 2.,
+            // Match MyGO's 12-DIP hit lane with a 6-DIP thumb centered in it:
+            // the visible thumb rests three DIPs inside the scroll-port edge.
+            margin: 3.,
+            min_thumb_length: 24.,
             thumb_color: Color::from_rgba8(
                 (muted >> 16) as u8,
                 (muted >> 8) as u8,

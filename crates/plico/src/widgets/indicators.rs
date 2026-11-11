@@ -51,6 +51,39 @@ static PROGRESS_RING: ShaderAsset = ShaderAsset::new(
     }"#,
 );
 
+// AppKit/MyGO-style twelve-spoke activity indicator. Keeping the complete
+// trail in one analytic surface avoids twelve tiny absolute nodes and gives
+// every spoke equal rounded coverage at fractional backing scales.
+static SPINNER: ShaderAsset = ShaderAsset::new(
+    r#"fn capsule_coverage(point: vec2<f32>, direction: vec2<f32>, inner: f32,
+        outer: f32, half_width: f32) -> f32 {
+        let along = clamp(dot(point, direction), inner, outer);
+        let distance = length(point - direction * along) - half_width;
+        return 1.0 - smoothstep(-0.75, 0.75, distance);
+    }
+
+    fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+        let resolution = max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
+        let point = uv * resolution - resolution * 0.5;
+        let side = min(resolution.x, resolution.y);
+        let inner = side * 0.22;
+        let outer = side * 0.46;
+        let half_width = max(side * 0.045, 0.75);
+        let phase = u32(floor(fract(plico.resolution_time_scale.z / 0.9) * 12.0)) % 12u;
+        let color = vec4<f32>(plico.values[0]);
+        var alpha = 0.0;
+        for (var index = 0u; index < 12u; index += 1u) {
+            let angle = f32(index) * 6.283185307179586 / 12.0;
+            let direction = vec2<f32>(sin(angle), -cos(angle));
+            let age = (phase + 12u - index) % 12u;
+            let trail = 1.0 - f32(age) / 12.0 * 0.85;
+            alpha = max(alpha, capsule_coverage(point, direction, inner, outer, half_width) * trail);
+        }
+        let out_alpha = color.a * alpha;
+        return vec4<f32>(color.rgb * out_alpha, out_alpha);
+    }"#,
+);
+
 fn shader_color(theme: Theme, color: Color) -> [f32; 4] {
     let value = theme.resolve(color);
     [
@@ -351,35 +384,22 @@ pub fn spinner_sized(cx: &mut UiContext, size: f32) {
     } else {
         18.
     };
-    let dot = (size * 0.16).max(2.);
-    let radius = size * 0.38;
-    let turn_ms = 900_u128;
-    let elapsed = cx.now().as_millis() % turn_ms;
-    let lead = (elapsed * 12 / turn_ms) as u32;
+    let color = shader_color(cx.theme(), Color::Muted);
+    let reduce_motion = cx.display_preferences().reduce_motion;
     column(cx)
         .width(size)
         .height(size)
+        .shrink(0.)
         .semantic_role(WidgetRole::ProgressBar)
         .children(|cx| {
-            for index in 0..12 {
-                let angle = index as f32 * std::f32::consts::TAU / 12.;
-                let x = size / 2. + angle.sin() * radius - dot / 2.;
-                let y = size / 2. - angle.cos() * radius - dot / 2.;
-                // The dot just behind the lead is brightest; the trail fades.
-                let age = (lead + 12 - index) % 12;
-                let opacity = 1. - age as f32 / 12. * 0.85;
-                let _ = column(cx)
-                    .key(index as u64)
-                    .absolute(x, y)
-                    .width(dot)
-                    .height(dot)
-                    .radius(dot / 2.)
-                    .background(Color::Muted)
-                    .background_alpha(opacity)
-                    .children(|_cx| {});
-            }
+            shader(cx, &SPINNER)
+                .width(size)
+                .height(size)
+                .radius(size * 0.5)
+                .values(&color)
+                .animated(!reduce_motion)
+                .paused(reduce_motion);
         });
-    cx.request_animation_frame();
 }
 
 /// The chevron-up for [`stepper`]'s increment arrow (Lucide `chevron-up`).

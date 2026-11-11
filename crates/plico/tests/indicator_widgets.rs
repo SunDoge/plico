@@ -146,15 +146,16 @@ fn meter_clamps_the_fill_and_shows_none_for_non_finite_values() {
 }
 
 #[test]
-fn spinner_animates_its_trail_with_the_injected_clock() {
-    fn dots(engine: &Engine) -> Vec<f32> {
+fn spinner_is_one_animated_analytic_surface() {
+    fn shaders(engine: &Engine) -> Vec<plico::ShaderParams> {
         let mut out = Vec::new();
         collect(
             engine,
             engine.root(),
             &mut |_, node| {
-                (node.style.background == Some(Color::Muted) && node.style.width.is_some())
-                    .then_some(node.style.background_alpha)
+                (node.kind == Kind::Shader)
+                    .then(|| node.shader.cloned())
+                    .flatten()
             },
             &mut out,
         );
@@ -166,16 +167,15 @@ fn spinner_animates_its_trail_with_the_injected_clock() {
         delta: Duration::ZERO,
     });
     frame(&mut engine, spinner);
-    let first = dots(&engine);
-    assert_eq!(first.len(), 12, "the spinner paints twelve spokes");
-    engine.set_time(FrameTime {
-        now: Duration::from_millis(75),
-        delta: Duration::from_millis(75),
-    });
-    frame(&mut engine, spinner);
-    let second = dots(&engine);
-    assert_eq!(second.len(), 12);
-    assert_ne!(first, second, "the fading trail advances with frame time");
+    let spinner = shaders(&engine);
+    assert_eq!(spinner.len(), 1, "the twelve spokes share one GPU surface");
+    assert!(spinner[0].animated);
+    assert!(!spinner[0].paused);
+    assert_eq!(
+        spinner[0].values.len(),
+        4,
+        "the shader receives one RGBA color"
+    );
 }
 
 #[test]
@@ -383,22 +383,14 @@ fn sized_spinners_do_not_require_per_dot_opacity_layers() {
             });
         }
     });
-    let mut dots = Vec::new();
+    let mut spinners = Vec::new();
     collect(
         &engine,
         engine.root(),
-        &mut |_, node| {
-            (node.style.background == Some(Color::Muted))
-                .then_some((node.style.opacity, node.style.background_alpha))
-        },
-        &mut dots,
+        &mut |_, node| (node.kind == Kind::Shader).then_some(node.style.width),
+        &mut spinners,
     );
-    assert_eq!(dots.len(), 48);
-    assert!(
-        dots.iter()
-            .all(|(opacity, alpha)| *opacity == 1. && (0. ..=1.).contains(alpha))
-    );
-    assert!(dots.iter().any(|(_, alpha)| *alpha < 1.));
+    assert_eq!(spinners, vec![Some(20.), Some(25.), Some(30.), Some(35.)]);
 }
 
 #[test]

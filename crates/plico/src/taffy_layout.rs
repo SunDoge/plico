@@ -286,7 +286,10 @@ pub fn style(kind: Kind, s: NodeStyle, grid: Option<&crate::GridTemplate>) -> ta
                 taffy::Overflow::Visible
             },
         },
-        scrollbar_width: if s.scroll_y { 16. } else { 0. },
+        // Native scrollbars are painted over the scroll port. Reserving a
+        // CSS-style gutter here both narrows content and then overlays it a
+        // second time, unlike MyGO/AppKit overlay scrollers.
+        scrollbar_width: 0.,
         border: Rect {
             left: length(s.border_width),
             right: length(s.border_width),

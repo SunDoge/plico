@@ -316,6 +316,44 @@ mod integration {
             .scroll
     }
     #[test]
+    fn overlay_scrollbar_uses_the_edge_lane_without_narrowing_content() {
+        struct Overlay;
+        impl HostView for Overlay {
+            fn show(&mut self, cx: &mut UiContext<'_>) {
+                column(cx)
+                    .width(200.)
+                    .height(160.)
+                    .scroll_y(true)
+                    .children(|cx| {
+                        column(cx)
+                            .width_percent(100.)
+                            .height(320.)
+                            .shrink(0.)
+                            .children(|_| {});
+                    });
+            }
+        }
+        let mut source = Source::with_clock(Overlay, VirtualClock::default());
+        source
+            .render_retained_frame(&mut Scene::new(), &mut TextContext::new(), (320, 240), 1.)
+            .unwrap();
+        let scroll = source
+            .adapter
+            .placed
+            .iter()
+            .find(|node| node.scroll.range[1] > 0.)
+            .unwrap();
+        let content = source
+            .adapter
+            .placed
+            .iter()
+            .find(|node| node.parent_node_id == Some(scroll.node_id))
+            .unwrap();
+        assert_eq!(content.rect[2] - content.rect[0], 200.);
+        let thumb = scrollbar::thumb(scroll, ScrollAxis::Vertical).unwrap();
+        assert_eq!((thumb.x0, thumb.x1), (191., 197.));
+    }
+    #[test]
     fn fade_changes_scene_without_declaring_or_layout_and_stops_when_hidden() {
         let clock = VirtualClock::default();
         let mut s = Source::with_clock(
