@@ -51,6 +51,12 @@ impl Renderer {
         stats.backdrop_bytes = bytes;
         stats.backdrop_allocations = allocations;
         stats.backdrop_reuses = reuses;
+        if let Some(compositor) = &self.backdrop_compositor {
+            let (entries, allocations, reuses) = compositor.uniform_stats();
+            stats.backdrop_uniform_entries = entries;
+            stats.backdrop_uniform_allocations = allocations;
+            stats.backdrop_uniform_reuses = reuses;
+        }
         stats
     }
     /// Release idle intermediate targets without invalidating retained final pixels.
@@ -58,6 +64,9 @@ impl Renderer {
         self.backdrop_contexts.clear();
         self.context_charged.clear();
         self.backdrop_pool.clear();
+        if let Some(compositor) = &mut self.backdrop_compositor {
+            compositor.clear_uniforms();
+        }
         self.layer_pool.clear();
         self.layer_used.clear();
         self.clear_frame_images();

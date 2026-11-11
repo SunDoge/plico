@@ -276,6 +276,13 @@ reports their entries, bytes, cumulative allocations and reuses; the ordinary
 idle cache trim releases them. GPU regressions cover stable reuse, trim/rebuild
 and byte-exact output for both paths.
 
+The paired backdrop mapping and composite uniforms use a second frame arena.
+Each draw gets one device-aligned persistent buffer entry; subsequent ordered
+frames update it instead of creating 16-byte and 80-byte buffers again. Multiple
+damage scissors for one atomic group share its entry. `LayerPoolStats` reports
+entry count and cumulative allocation/reuse, and cache trim drops the entries.
+This is an allocation-lifecycle result, not a wall-time speedup claim.
+
 These counters describe owned texture payload and caches, not process RSS or
 Metal driver allocation. Plicowarden's independent `memory_probe` example records
 both cache counters and RSS for synthetic scrolling and resize/page stress.

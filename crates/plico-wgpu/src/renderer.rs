@@ -95,6 +95,10 @@ pub struct LayerPoolStats {
     /// Cumulative snapshot texture creations and cross-frame reuses.
     pub backdrop_allocations: u64,
     pub backdrop_reuses: u64,
+    /// Retained aligned mapping/composite uniform entries and cumulative use.
+    pub backdrop_uniform_entries: usize,
+    pub backdrop_uniform_allocations: u64,
+    pub backdrop_uniform_reuses: u64,
 }
 /// Work encoded by the most recent root scene attempt, including child layers.
 /// Counts exclude effect/blur pipelines, target readback and presentation blits.

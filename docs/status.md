@@ -248,6 +248,9 @@ for retry instead of issuing or forgetting a hidden upload submission.
 Backdrop snapshots and same-stage arrays reuse exact-specification GPU textures
 across ordered frames while remaining exclusive within a frame; idle cache trim
 releases the pool.
+Backdrop mapping/composite uniforms likewise use a device-aligned frame arena;
+stable frames update retained buffers rather than creating two buffers per glass
+draw, and atomic-group damage scissors share one entry.
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG

@@ -43,6 +43,13 @@ allocations、绑定/调度及预滤波 pass。混合 mip 预算的数组按组�
 会释放整个池。这里不采用放大纹理或尺寸分桶，避免额外区域进入 mip 边缘采样。
 真实 GPU 回归覆盖独立与数组路径：稳定四帧不增加 allocation、输出逐字节一致，trim 后释放并重建。
 
+Backdrop shader 的 UV mapping 与最终 composite clip/mix 数据也不再各自逐 draw 创建小 buffer。
+Compositor 维护按帧占用的 uniform arena：一个 entry 包含两个按设备
+`min_uniform_buffer_offset_alignment` 隔开的区段，跨帧只用 `queue.write_buffer` 覆写。
+同一 atomic group 的多个 damage scissor 共享一个 entry；不同 draw 在同帧仍使用不同 entry，
+避免提交前的后一次写入改变前一次 draw。idle trim 释放 arena，但保留 compositor pipeline。
+`LayerPoolStats` 暴露 entry、累计 allocation 与 reuse，GPU 回归断言稳定帧不再增长。
+
 ## 像素及边界验证
 
 `crates/plico-wgpu/tests/backdrop_damage.rs` 对照分组/局部与独立/全量渲染，要求完整 RGBA 相等：

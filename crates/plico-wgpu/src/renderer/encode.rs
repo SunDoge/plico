@@ -75,6 +75,9 @@ impl Renderer {
             self.pending_commands.clear();
             self.poll_gpu_budget();
             self.backdrop_pool.begin_frame();
+            if let Some(compositor) = &mut self.backdrop_compositor {
+                compositor.begin_frame();
+            }
         }
         self.validate_frame(items.len(), size, background, time)?;
         let unchanged = regions.is_some_and(|r| r.is_empty())
@@ -144,7 +147,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -566,6 +569,21 @@ impl Renderer {
             let compositor = self.backdrop_compositor.get_or_insert_with(|| {
                 crate::backdrop_composite::Compositor::new(&self.device, &self.atlas_texture.layout)
             });
+            let i = instances[marker];
+            let [x, y, w, h] = i.rect;
+            let composite = [
+                [x - origin[0], y - origin[1], w, h],
+                i.clip,
+                i.mask_rect,
+                [origin[0], origin[1], f32::from(mask > 0), i.clip_params[0]],
+            ];
+            let mix = [
+                layer.alpha,
+                1.,
+                origin[0] - context.origin[0],
+                origin[1] - context.origin[1],
+            ];
+            let mut uniforms = None;
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("atomic backdrop group"),
@@ -580,8 +598,6 @@ impl Renderer {
                     })],
                     ..Default::default()
                 });
-                let i = instances[marker];
-                let [x, y, w, h] = i.rect;
                 let full = [[0, 0, width, height]];
                 for &[rx, ry, rw, rh] in regions.unwrap_or(&full) {
                     let x0 = (x - origin[0]).floor().max(rx as f32).max(0.) as u32;
@@ -597,8 +613,17 @@ impl Renderer {
                     if x1 <= x0 || y1 <= y0 {
                         continue;
                     }
+                    let uniforms = uniforms.get_or_insert_with(|| {
+                        compositor.prepare_uniforms(
+                            &self.device,
+                            &self.queue,
+                            [0.; 4],
+                            composite,
+                            mix,
+                        )
+                    });
                     pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
-                    compositor.encode_group(
+                    compositor.encode(
                         &self.device,
                         &output_view,
                         &base_view,
@@ -607,14 +632,7 @@ impl Renderer {
                         } else {
                             &self.atlas_texture.bind
                         },
-                        [
-                            [x - origin[0], y - origin[1], w, h],
-                            i.clip,
-                            i.mask_rect,
-                            [origin[0], origin[1], f32::from(mask > 0), i.clip_params[0]],
-                        ],
-                        layer.alpha,
-                        [origin[0] - context.origin[0], origin[1] - context.origin[1]],
+                        uniforms,
                         &mut pass,
                     );
                     flush_draws += 1;

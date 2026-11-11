@@ -155,6 +155,26 @@ pub(super) fn encode_backdrop_step<'p>(
         }
         backdrop.create_view(&wgpu::TextureViewDescriptor::default())
     };
+    let mapping = [
+        (x - left as f32) / region.width as f32,
+        (y - top as f32) / region.height as f32,
+        w / region.width as f32,
+        h / region.height as f32,
+    ];
+    let composite = [
+        [x, y, w, h],
+        instance.clip,
+        instance.mask_rect,
+        [
+            origin[0],
+            origin[1],
+            instance.clip_params[2],
+            instance.clip_params[0],
+        ],
+    ];
+    let compositor = compositor
+        .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
+    let uniforms = compositor.prepare_uniforms(device, queue, mapping, composite, [1., 0., 0., 0.]);
     let effects = effects.get_or_insert_with(|| {
         let mut effects = crate::shader::ShaderRenderer::new(device);
         effects.begin_frame();
@@ -163,18 +183,11 @@ pub(super) fn encode_backdrop_step<'p>(
     let output = effects.render_view_with_backdrop_mapping(
         effect,
         &backdrop_view,
-        [
-            (x - left as f32) / region.width as f32,
-            (y - top as f32) / region.height as f32,
-            w / region.width as f32,
-            h / region.height as f32,
-        ],
+        &uniforms,
         device,
         queue,
         encoder,
     );
-    let compositor = compositor
-        .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Plico backdrop effect composite"),
@@ -194,24 +207,7 @@ pub(super) fn encode_backdrop_step<'p>(
         // it. The compositor applies the inherited world-space clip and mask;
         // shrinking its viewport instead would stretch offscreen content in.
         pass.set_viewport(0., 0., size[0] as f32, size[1] as f32, 0., 1.);
-        compositor.encode(
-            device,
-            &output,
-            &backdrop_view,
-            mask,
-            [
-                [x, y, w, h],
-                instance.clip,
-                instance.mask_rect,
-                [
-                    origin[0],
-                    origin[1],
-                    instance.clip_params[2],
-                    instance.clip_params[0],
-                ],
-            ],
-            pass,
-        );
+        compositor.encode(device, &output, &backdrop_view, mask, &uniforms, &mut pass);
     }
     // Continue the frame in a fresh pass over the same target.
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

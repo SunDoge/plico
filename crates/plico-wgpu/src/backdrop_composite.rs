@@ -1,9 +1,17 @@
 //! Replace final backdrop pixels while retaining ancestor rectangle/mask coverage.
 //! SrcOver is unsuitable here: the effect already contains its sampled backdrop.
-use wgpu::util::DeviceExt;
+
+const MAPPING_BYTES: u64 = 16;
+const COMPOSITE_BYTES: u64 = 80;
+
 pub(crate) struct Compositor {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    uniforms: Vec<wgpu::Buffer>,
+    used: usize,
+    allocations: u64,
+    reuses: u64,
+    composite_offset: u64,
 }
 impl Compositor {
     pub fn new(device: &wgpu::Device, mask_layout: &wgpu::BindGroupLayout) -> Self {
@@ -68,8 +76,56 @@ impl Compositor {
             multiview_mask: None,
             cache: None,
         });
-        Self { layout, pipeline }
+        let composite_offset = u64::from(device.limits().min_uniform_buffer_offset_alignment)
+            .max(MAPPING_BYTES)
+            .next_multiple_of(MAPPING_BYTES);
+        Self {
+            layout,
+            pipeline,
+            uniforms: Vec::new(),
+            used: 0,
+            allocations: 0,
+            reuses: 0,
+            composite_offset,
+        }
     }
+
+    pub fn begin_frame(&mut self) {
+        self.used = 0;
+    }
+
+    pub fn prepare_uniforms(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mapping: [f32; 4],
+        data: [[f32; 4]; 4],
+        mix: [f32; 4],
+    ) -> wgpu::Buffer {
+        let buffer = if let Some(buffer) = self.uniforms.get(self.used) {
+            self.reuses += 1;
+            buffer.clone()
+        } else {
+            self.allocations += 1;
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Plico backdrop draw uniforms"),
+                size: self.composite_offset + COMPOSITE_BYTES,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.uniforms.push(buffer.clone());
+            buffer
+        };
+        self.used += 1;
+        queue.write_buffer(&buffer, 0, bytemuck::bytes_of(&mapping));
+        queue.write_buffer(
+            &buffer,
+            self.composite_offset,
+            bytemuck::cast_slice(&[data[0], data[1], data[2], data[3], mix]),
+        );
+        buffer
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
@@ -77,58 +133,9 @@ impl Compositor {
         output: &wgpu::TextureView,
         backdrop: &wgpu::TextureView,
         mask: &wgpu::BindGroup,
-        data: [[f32; 4]; 4],
-        mut pass: wgpu::RenderPass<'_>,
-    ) {
-        self.encode_mix(
-            device,
-            output,
-            backdrop,
-            mask,
-            data,
-            [1., 0., 0., 0.],
-            &mut pass,
-        );
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub fn encode_group(
-        &self,
-        device: &wgpu::Device,
-        output: &wgpu::TextureView,
-        backdrop: &wgpu::TextureView,
-        mask: &wgpu::BindGroup,
-        data: [[f32; 4]; 4],
-        alpha: f32,
-        offset: [f32; 2],
+        uniforms: &wgpu::Buffer,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
-        self.encode_mix(
-            device,
-            output,
-            backdrop,
-            mask,
-            data,
-            [alpha, 1., offset[0], offset[1]],
-            pass,
-        );
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn encode_mix(
-        &self,
-        device: &wgpu::Device,
-        output: &wgpu::TextureView,
-        backdrop: &wgpu::TextureView,
-        mask: &wgpu::BindGroup,
-        data: [[f32; 4]; 4],
-        mix: [f32; 4],
-        pass: &mut wgpu::RenderPass<'_>,
-    ) {
-        let data = [data[0], data[1], data[2], data[3], mix];
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("backdrop clip state"),
-            contents: bytemuck::cast_slice(&data),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.layout,
@@ -143,7 +150,11 @@ impl Compositor {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: buffer.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: uniforms,
+                        offset: self.composite_offset,
+                        size: std::num::NonZeroU64::new(COMPOSITE_BYTES),
+                    }),
                 },
             ],
         });
@@ -151,5 +162,14 @@ impl Compositor {
         pass.set_bind_group(0, &bind, &[]);
         pass.set_bind_group(1, mask, &[]);
         pass.draw(0..3, 0..1);
+    }
+
+    pub fn clear_uniforms(&mut self) {
+        self.uniforms.clear();
+        self.used = 0;
+    }
+
+    pub fn uniform_stats(&self) -> (usize, u64, u64) {
+        (self.uniforms.len(), self.allocations, self.reuses)
     }
 }

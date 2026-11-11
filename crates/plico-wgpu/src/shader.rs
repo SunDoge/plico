@@ -5,7 +5,6 @@ use std::{num::NonZeroUsize, sync::Arc};
 use lru::LruCache;
 use plico_renderer::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 use rustc_hash::FxHashMap;
-use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPipeline, Texture,
     TextureFormat, TextureView,
@@ -192,7 +191,7 @@ impl ShaderRenderer {
         &mut self,
         effect: &ShaderEffect,
         backdrop: &wgpu::TextureView,
-        mapping: [f32; 4],
+        uniforms: &wgpu::Buffer,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
@@ -205,11 +204,6 @@ impl ShaderRenderer {
             device,
             effect.source(),
         );
-        let mapping = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Plico backdrop UV mapping"),
-            contents: bytemuck::cast_slice(&mapping),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
         let backdrop_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Plico shader backdrop bind"),
             layout: &self.backdrop_layout,
@@ -224,7 +218,11 @@ impl ShaderRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: mapping.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: uniforms,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new(16),
+                    }),
                 },
             ],
         });
