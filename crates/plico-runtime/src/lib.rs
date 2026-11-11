@@ -29,7 +29,6 @@ mod recipe;
 mod scroll_motion;
 mod scrollbar_visibility;
 mod selection;
-mod services;
 mod shader;
 mod slider;
 mod source;
@@ -41,14 +40,11 @@ mod view;
 
 pub use adapter::{Adapter, BackendStats};
 pub(crate) use adapter::{interactive, make_paint, rgb, semantic_id};
-pub use services::ServiceView;
 pub use source::{BatchStats, Source, SourceError};
-pub use view::{HostView, NativeApp, NativeView};
+pub use view::{HostView, NativeView};
 
 #[doc(hidden)]
 pub use plico as __ui_core;
-#[doc(hidden)]
-pub use plico_dev as __app_protocol;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod surface;
@@ -83,7 +79,3 @@ pub mod testing;
 /// Native blocking tasks and retained worker-local services.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod background;
-/// One-shot Future lifecycle and typed task services; executors remain host-owned.
-pub mod tasks {
-    pub use plico_dev::tasks::*;
-}

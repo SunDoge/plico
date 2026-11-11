@@ -32,7 +32,9 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 
 普通 `View` 由 `NativeView<V>` 适配到 `HostView`；
 `plico_desktop::run_view_with_options` 自动完成该包装，不要求序列化应用状态。
-`NativeApp<A>` 则保留 App 的开发能力并接入原生宿主。
+`plico-app-host` 中的 `NativeApp<A>` / `ServiceView<A, S>` 把 App 与 services
+协议接入 `HostView`；桌面 crate 重新导出它们。这样 `plico-runtime` 本身不依赖
+`plico-dev`，HostView/Source 层只面向 core 与 renderer。
 
 core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
 

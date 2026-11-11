@@ -111,6 +111,9 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 区间滑块保留共享轨道绘制，但结构上是命名 group 加 minimum/maximum 两个真实数值控件；
 两个 thumb 分别参与 Tab、键盘和无障碍数值操作，轨道按最近距离选择并聚焦对应 thumb。
 
+`plico-app-host` 单独承载 `plico-dev::App` / services 到 `HostView` 的适配；
+`plico-runtime` 的正常依赖图不再包含开发协议层，desktop/web 按需依赖并重导出 bridge。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现

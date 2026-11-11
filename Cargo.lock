@@ -6190,6 +6190,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "plico-app-host"
+version = "0.3.2"
+dependencies = [
+ "plico",
+ "plico-dev",
+ "plico-renderer",
+ "plico-runtime",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "plico-bevy"
 version = "0.3.2"
 dependencies = [
@@ -6253,6 +6265,7 @@ dependencies = [
  "kurbo",
  "peniko",
  "plico",
+ "plico-app-host",
  "plico-dev",
  "plico-renderer",
  "plico-runtime",
@@ -6578,6 +6591,7 @@ dependencies = [
  "gallery",
  "js-sys",
  "plico",
+ "plico-app-host",
  "plico-dev",
  "plico-renderer",
  "plico-runtime",

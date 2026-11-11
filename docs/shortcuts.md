@@ -66,7 +66,8 @@ the field is focused. Plain text is not intercepted. During IME composition or
 while a popup/modal owns input, the application fallback is suppressed.
 These are fallback shortcuts, not a capture-phase override of editor behavior.
 
-`NativeApp`, `impl_host_view_for_app!` and `ServiceView` all forward full events.
+`plico-app-host` 的 `NativeApp`, `impl_host_view_for_app!` and `ServiceView` all
+forward full events; `plico-desktop` re-exports them for ordinary desktop apps.
 Typed service commands from a consumed shortcut follow the same outbox path as
 button clicks. Scenario recipes can send the same structured key events without
 adding a separate dynamic-module protocol.

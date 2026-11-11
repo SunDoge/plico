@@ -1,0 +1,16 @@
+[package]
+name = "plico-app-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Adapters from Plico application protocols to the host-agnostic runtime"
+
+[dependencies]
+plico.workspace = true
+plico-dev.workspace = true
+plico-runtime.workspace = true
+
+[dev-dependencies]
+plico-renderer.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

@@ -256,7 +256,7 @@ fn error(message: impl AsRef<str>) -> JsValue {
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
 pub struct Gallery {
-    host: WebHost<plico_runtime::NativeApp<gallery::Gallery>>,
+    host: WebHost<plico_app_host::NativeApp<gallery::Gallery>>,
 }
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
@@ -276,7 +276,7 @@ impl Gallery {
         Ok(Self {
             host: WebHost::new_wgpu(
                 canvas,
-                plico_runtime::NativeApp(gallery::Gallery::default()),
+                plico_app_host::NativeApp(gallery::Gallery::default()),
                 backend,
             )
             .await?,

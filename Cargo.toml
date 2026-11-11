@@ -61,6 +61,7 @@ plico-shell = { path = "crates/plico-shell", default-features = false }
 cargo_metadata = "0.23"
 notify = "8.2"
 plico-dev = { path = "crates/plico-dev" }
+plico-app-host = { path = "crates/plico-app-host" }
 plico-runtime = { path = "crates/plico-runtime" }
 tempfile = "3"
 usage-rs = "7.0.0"

@@ -19,42 +19,10 @@ impl<V: plico::View> HostView for NativeView<V> {
     }
 }
 
-/// A statically linked application using an ordinary App implementation.
-pub struct NativeApp<A>(pub A);
-/// Shared forwarding for both the wrapper and application's direct HostView implementation.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __plico_app_host_view_methods {
-    ($this:ident, $app:expr, $shared:expr) => {
-        fn set_frame_time(&mut $this, time: $crate::__ui_core::FrameTime) {
-            $crate::__app_protocol::App::set_frame_time($app, time);
-        }
-        fn on_unhandled_key(&mut $this, key: &$crate::KeyEvent) -> bool {
-            $crate::__app_protocol::App::on_key_event($app, key)
-        }
-        fn show(&mut $this, ui: &mut $crate::__ui_core::UiContext<'_>) {
-            $crate::__app_protocol::App::show($app, ui);
-        }
-        fn theme(&$this) -> $crate::__ui_core::Theme {
-            $crate::__app_protocol::App::theme($shared)
-        }
-    };
-}
-/// Implement HostView using the same forwarding as NativeApp.
-#[macro_export]
-macro_rules! impl_host_view_for_app {
-    ($app:ty) => {
-        impl $crate::HostView for $app {
-            $crate::__plico_app_host_view_methods!(self, self, self);
-        }
-    };
-}
-impl<A: plico_dev::App> HostView for NativeApp<A> {
-    crate::__plico_app_host_view_methods!(self, &mut self.0, &self.0);
-}
 /// Advanced host contract for native windows and retained frame sources.
 ///
-/// Ordinary applications implement `plico::View` or `plico_dev::App` instead.
+/// Ordinary applications implement `plico::View`; `plico-app-host` adapts
+/// `plico_dev::App` without coupling this runtime to the development protocol.
 /// `HostView` adds host actions and native wakeups.
 /// Consuming an event automatically requests a settling declaration.
 pub trait HostView {
