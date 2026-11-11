@@ -5,9 +5,9 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
-    PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
-    UiEvent,
+    EventResponse, FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton,
+    PointerEvent, PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot,
+    TextContext, UiEvent, layout::PlacedNode,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -265,7 +265,7 @@ pub fn dispatch<V: HostView>(
 /// A headless application with an explicitly advanced clock. Layout and input
 /// use the real runtime; this does not simulate an OS window or GPU swapchain.
 pub struct Driver<V: HostView> {
-    pub source: Source<V>,
+    source: Source<V>,
     text: TextContext,
     clock: VirtualClock,
     size: (u32, u32),
@@ -294,6 +294,40 @@ impl<V: HostView> Driver<V> {
             });
         }
         Ok(())
+    }
+    /// Current application/host view state after the latest settled frame.
+    pub fn view(&self) -> &V {
+        &self.source.view
+    }
+
+    /// Mutate application state, invalidate declarations and settle one frame.
+    pub fn update_view<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> Result<R, Error> {
+        let value = self.source.update(update);
+        self.frame()?;
+        Ok(value)
+    }
+
+    /// Retained layout and paint projection for structural assertions.
+    pub fn placed_nodes(&self) -> &[PlacedNode] {
+        &self.source.adapter.placed
+    }
+
+    /// Theme used by the latest settled declaration.
+    pub fn theme(&self) -> plico::Theme {
+        self.source.engine.theme()
+    }
+
+    /// Whether the real runtime currently requests further animation frames.
+    pub fn has_animation(&self) -> bool {
+        self.source.has_anim()
+    }
+
+    /// Deliver a backend-neutral event and settle the resulting frame.
+    pub fn dispatch_event(&mut self, event: UiEvent) -> Result<EventResponse, Error> {
+        self.source.prepare_for_event(&mut self.text);
+        let response = self.source.handle_event(event);
+        self.frame()?;
+        Ok(response)
     }
     pub fn execute(&mut self, command: Command) -> Result<SemanticSnapshot, Error> {
         dispatch(&mut self.source, &mut self.text, &command)?;

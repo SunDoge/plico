@@ -57,7 +57,7 @@ fn find_bar_selects_the_old_query_and_routes_native_find_shortcuts() {
     .unwrap();
 
     ui.execute(Command::Text { text: "new".into() }).unwrap();
-    assert_eq!(ui.source.view.query, "new", "opening selects the old query");
+    assert_eq!(ui.view().query, "new", "opening selects the old query");
     assert!(
         ui.snapshot().exposed_nodes().iter().any(|node| {
             node.role.as_str() == "status" && node.label.as_deref() == Some("1 of 3")
@@ -69,14 +69,14 @@ fn find_bar_selects_the_old_query_and_routes_native_find_shortcuts() {
         key: "Enter".into(),
     })
     .unwrap();
-    assert_eq!(ui.source.view.current, 1);
+    assert_eq!(ui.view().current, 1);
     ui.execute(key("Enter", Modifiers::SHIFT)).unwrap();
-    assert_eq!(ui.source.view.current, 0);
+    assert_eq!(ui.view().current, 0);
 
     ui.execute(key("F3", Modifiers::empty())).unwrap();
-    assert_eq!(ui.source.view.current, 1);
+    assert_eq!(ui.view().current, 1);
     ui.execute(key("F3", Modifiers::SHIFT)).unwrap();
-    assert_eq!(ui.source.view.current, 0);
+    assert_eq!(ui.view().current, 0);
 
     let primary = if cfg!(target_os = "macos") {
         Modifiers::META
@@ -84,11 +84,11 @@ fn find_bar_selects_the_old_query_and_routes_native_find_shortcuts() {
         Modifiers::CONTROL
     };
     ui.execute(key("g", primary)).unwrap();
-    assert_eq!(ui.source.view.current, 1);
+    assert_eq!(ui.view().current, 1);
     ui.execute(key("g", primary | Modifiers::SHIFT)).unwrap();
-    assert_eq!(ui.source.view.current, 0);
-    assert_eq!(ui.source.view.moves, 6);
+    assert_eq!(ui.view().current, 0);
+    assert_eq!(ui.view().moves, 6);
 
     ui.execute(key("Escape", Modifiers::empty())).unwrap();
-    assert!(!ui.source.view.open);
+    assert!(!ui.view().open);
 }

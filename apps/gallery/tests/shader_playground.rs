@@ -48,14 +48,14 @@ fn liquid_search_reveals_real_input_only_after_spring_settles_and_preserves_quer
             text: "Plico".into(),
         })
         .unwrap();
-    assert_eq!(driver.source.view.shader_playground.query, "Plico");
+    assert_eq!(driver.view().shader_playground.query, "Plico");
     click(&mut driver, "Attach drop");
     driver.advance(Duration::from_secs(3)).unwrap();
     assert!(!has_input(&driver));
     click(&mut driver, "Pause");
     click(&mut driver, "Release drop");
     assert!(has_input(&driver), "paused geometry snaps with its content");
-    assert_eq!(driver.source.view.shader_playground.query, "Plico");
+    assert_eq!(driver.view().shader_playground.query, "Plico");
 }
 #[test]
 fn top_edge_drag_updates_the_liquid_and_releases_to_a_capsule() {
@@ -74,13 +74,13 @@ fn top_edge_drag_updates_the_liquid_and_releases_to_a_capsule() {
         .execute(Command::PointerMove { x, y: y + 180. })
         .unwrap();
     assert!(
-        driver.source.view.shader_playground.drop > 0.5,
+        driver.view().shader_playground.drop > 0.5,
         "captured drag continues beyond handle bounds"
     );
     driver
         .execute(Command::PointerUp { x, y: y + 180. })
         .unwrap();
     driver.advance(Duration::from_secs(3)).unwrap();
-    assert_eq!(driver.source.view.shader_playground.drop, 1.);
+    assert_eq!(driver.view().shader_playground.drop, 1.);
     assert!(has_input(&driver));
 }

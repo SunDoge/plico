@@ -37,7 +37,7 @@ fn semantic_commands_drive_real_keyboard_input_without_a_window() {
     let click =
         serde_json::from_str(r#"{"action":"click","role":"button","label":"Increment"}"#).unwrap();
     driver.execute(click).unwrap();
-    assert_eq!(driver.source.view.count, 1);
+    assert_eq!(driver.view().count, 1);
     driver.resize(1000, 640).unwrap();
     driver.execute(target("Increment")).unwrap();
     driver
@@ -45,21 +45,23 @@ fn semantic_commands_drive_real_keyboard_input_without_a_window() {
             key: "Enter".into(),
         })
         .unwrap();
-    assert_eq!(driver.source.view.count, 2);
+    assert_eq!(driver.view().count, 2);
     driver.execute(Command::Key { key: "Tab".into() }).unwrap();
     driver
         .execute(Command::Key {
             key: "Enter".into(),
         })
         .unwrap();
-    assert_eq!(driver.source.view.count, 0);
+    assert_eq!(driver.view().count, 0);
+    driver.update_view(|view| view.count = 7).unwrap();
+    assert_eq!(driver.view().count, 7);
     driver.advance(Duration::from_secs(1)).unwrap();
     assert!(
         driver
             .snapshot()
             .nodes
             .iter()
-            .any(|n| n.label.as_deref() == Some("Count: 0"))
+            .any(|n| n.label.as_deref() == Some("Count: 7"))
     );
 }
 #[test]
@@ -103,16 +105,16 @@ fn json_pointer_commands_redeclare_and_clear_the_pointer_snapshot() {
     driver
         .execute(serde_json::from_str(r#"{"action":"pointer_move","x":675,"y":480}"#).unwrap())
         .unwrap();
-    assert_eq!(driver.source.view.seen, Some((675., 480.)));
+    assert_eq!(driver.view().seen, Some((675., 480.)));
     assert!(matches!(
         driver.execute(Command::PointerMove { x: f64::NAN, y: 0. }),
         Err(Error::PointerPosition)
     ));
-    assert_eq!(driver.source.view.seen, Some((675., 480.)));
+    assert_eq!(driver.view().seen, Some((675., 480.)));
     driver
         .execute(serde_json::from_str(r#"{"action":"pointer_leave"}"#).unwrap())
         .unwrap();
-    assert_eq!(driver.source.view.seen, None);
+    assert_eq!(driver.view().seen, None);
 }
 
 #[test]

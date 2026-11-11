@@ -140,13 +140,13 @@ mod tests {
     #[test]
     fn animation_probe_advances_and_requests_real_frames() {
         let mut ui = plico_desktop::testing::Driver::new(Demo::default(), 720, 640).unwrap();
-        assert!(ui.source.has_anim());
-        let before = ui.source.view.frames;
+        assert!(ui.has_animation());
+        let before = ui.view().frames;
         ui.advance(Duration::from_millis(100)).unwrap();
-        assert!(ui.source.view.frames > before);
-        assert!(ui.source.has_anim());
+        assert!(ui.view().frames > before);
+        assert!(ui.has_animation());
         ui.advance(Duration::from_secs(19)).unwrap();
-        assert!(ui.source.view.close);
+        assert!(ui.view().close);
     }
     #[test]
     fn retained_animation_probe_keeps_raf_across_native_frames() {

@@ -75,7 +75,7 @@ mod tests {
             occurrence: None,
         })
         .unwrap();
-        assert_eq!(ui.source.view.count, 1);
+        assert_eq!(ui.view().count, 1);
         ui.resize(1000, 640).unwrap();
         ui.execute(Command::Focus {
             role: "button".into(),
@@ -87,12 +87,12 @@ mod tests {
             key: "Enter".into(),
         })
         .unwrap();
-        assert_eq!(ui.source.view.count, 2);
+        assert_eq!(ui.view().count, 2);
         ui.execute(Command::Key { key: "Tab".into() }).unwrap();
         ui.execute(Command::Key {
             key: "Enter".into(),
         })
         .unwrap();
-        assert_eq!(ui.source.view.count, 0);
+        assert_eq!(ui.view().count, 0);
     }
 }

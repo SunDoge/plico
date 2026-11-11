@@ -40,12 +40,12 @@ fn number_input_routes_arrows_and_canonicalizes_when_focus_leaves() {
         key: "ArrowUp".into(),
     })
     .unwrap();
-    assert_eq!(ui.source.view.value, 5.5);
+    assert_eq!(ui.view().value, 5.5);
     assert_eq!(field_value(&ui), "5.5");
 
     ui.execute(Command::Text { text: "x".into() }).unwrap();
     assert_eq!(field_value(&ui), "5.5x");
-    assert_eq!(ui.source.view.value, 5.5);
+    assert_eq!(ui.view().value, 5.5);
     ui.execute(Command::Focus {
         role: "button".into(),
         label: "Outside".into(),
@@ -66,6 +66,6 @@ fn number_input_routes_arrows_and_canonicalizes_when_focus_leaves() {
         })
         .unwrap();
     }
-    assert_eq!(ui.source.view.value, 0.);
+    assert_eq!(ui.view().value, 0.);
     assert_eq!(field_value(&ui), "0");
 }

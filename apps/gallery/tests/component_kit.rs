@@ -26,9 +26,9 @@ fn rust_gallery_kit_routes_actions_and_exposes_the_corner_study() {
         })
         .unwrap();
     }
-    assert_eq!(ui.source.view.component_kit.page, 2);
-    assert!(ui.source.view.component_kit.pinned && ui.source.view.component_kit.cleared);
-    assert!(!ui.source.view.component_kit.tag && !ui.source.view.component_kit.notice);
+    assert_eq!(ui.view().component_kit.page, 2);
+    assert!(ui.view().component_kit.pinned && ui.view().component_kit.cleared);
+    assert!(!ui.view().component_kit.tag && !ui.view().component_kit.notice);
     ui.execute(Command::Click {
         role: "tab".into(),
         label: "Corners".into(),
@@ -40,7 +40,7 @@ fn rust_gallery_kit_routes_actions_and_exposes_the_corner_study() {
         value: 0.65,
     })
     .unwrap();
-    assert!((ui.source.view.component_kit.smoothing - 0.65).abs() < 1e-6);
+    assert!((ui.view().component_kit.smoothing - 0.65).abs() < 1e-6);
     let mut amounts = Vec::new();
     fn walk(nodes: &[plico::ViewNode], amounts: &mut Vec<f32>) {
         for node in nodes {

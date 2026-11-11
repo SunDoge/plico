@@ -9,16 +9,17 @@ let mut ui = Driver::new(MyView::default(), 820, 480)?;
 ui.execute(Command::Click {
     role: "button".into(), label: "Increment".into(), occurrence: None,
 })?;
-assert_eq!(ui.source.view.count, 1);
+assert_eq!(ui.view().count, 1);
 ui.execute(Command::Focus {
     role: "button".into(), label: "Increment".into(), occurrence: None,
 })?;
 ui.execute(Command::Key { key: "Enter".into() })?;
-assert_eq!(ui.source.view.count, 2);
+assert_eq!(ui.view().count, 2);
 ui.advance(std::time::Duration::from_millis(200))?;
 ui.resize(1000, 640)?;
 let semantics = ui.snapshot();
 let declarations = ui.declarations();
+let retained_layout = ui.placed_nodes();
 ```
 
 Commands serialize with Serde, for example:
@@ -38,10 +39,13 @@ are errors; repeated labels in click/focus commands require a zero-based `occurr
 are rejected. Declaration errors surface directly. Set explicit focus before a
 keyboard test rather than assuming an OS restored focus in a particular way.
 Key commands represent key-down events with no modifiers; specialized modifier,
-keyup or pointer tests can use the source's existing typed input APIs directly.
+keyup or pointer tests can use `Driver::dispatch_event` with a typed `UiEvent`.
 
-`source.view` exposes the application under test for assertions. When mutating
-it directly, call `source.request_rebuild()` before executing a snapshot command.
+`Driver::view` exposes immutable application state for assertions;
+`Driver::update_view` mutates it, requests a rebuild and settles the resulting
+frame as one operation. The driver deliberately keeps its `Source`, Engine and
+Adapter private. Structural tests use `placed_nodes`, `theme`, `declarations`
+and `snapshot` instead of reaching into retained runtime storage.
 The virtual clock advances only when the test asks it to; `advance` uses one
 runtime frame, not a simulated series of OS vsync events.
 

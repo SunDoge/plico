@@ -63,7 +63,7 @@ fn managed_kit_counterparts_have_bounded_pagination_and_native_actions() {
         .count();
     assert!(pages <= 5);
     click(&mut ui, "Next page");
-    assert_eq!(ui.source.view.page, usize::MAX);
+    assert_eq!(ui.view().page, usize::MAX);
     let next = ui
         .snapshot()
         .exposed_nodes()
@@ -73,19 +73,19 @@ fn managed_kit_counterparts_have_bounded_pagination_and_native_actions() {
         .clone();
     assert!(next.disabled);
     click(&mut ui, "Previous page");
-    assert_eq!(ui.source.view.page, usize::MAX - 1);
+    assert_eq!(ui.view().page, usize::MAX - 1);
     click(&mut ui, "Page 1");
-    assert_eq!(ui.source.view.page, 1);
+    assert_eq!(ui.view().page, 1);
     click(&mut ui, "Pinned");
-    assert!(ui.source.view.selected);
+    assert!(ui.view().selected);
     click(&mut ui, "Pinned");
-    assert!(!ui.source.view.selected);
+    assert!(!ui.view().selected);
     click(&mut ui, "Remove Rust");
-    assert!(!ui.source.view.tag);
+    assert!(!ui.view().tag);
     click(&mut ui, "Dismiss notification");
-    assert!(!ui.source.view.notice);
+    assert!(!ui.view().notice);
     click(&mut ui, "Clear query");
-    assert_eq!(ui.source.view.actions, 1);
+    assert_eq!(ui.view().actions, 1);
 }
 #[test]
 fn info_tone_is_theme_resolved_and_old_theme_json_remains_compatible() {

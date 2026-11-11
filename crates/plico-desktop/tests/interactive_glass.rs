@@ -241,9 +241,7 @@ fn material_background_keeps_keyboard_focus_chrome() {
     driver.advance(Duration::from_millis(160)).unwrap();
     assert!(
         driver
-            .source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|node| node.paint.outline_width > 0.),
         "glass must preserve keyboard focus indication"

@@ -1,7 +1,7 @@
 use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, prelude::*};
 use plico_app_host::{NativeApp, ServiceView};
 use plico_dev::App;
-use plico_renderer::{FrameSource, ImeEvent, UiEvent};
+use plico_renderer::{ImeEvent, UiEvent};
 use plico_runtime::testing::{Command, Driver};
 use serde::{Deserialize, Serialize};
 
@@ -50,8 +50,8 @@ fn key(name: &str) -> UiEvent {
 #[test]
 fn native_app_receives_combinations_but_text_editing_and_ime_keep_priority() {
     let mut driver = Driver::new(NativeApp(Demo::default()), 400, 300).unwrap();
-    assert!(driver.source.handle_event(key("k")).handled);
-    assert_eq!(driver.source.view.0.count, 1);
+    assert!(driver.dispatch_event(key("k")).unwrap().handled);
+    assert_eq!(driver.view().0.count, 1);
     driver
         .execute(Command::Focus {
             role: "textbox".into(),
@@ -59,16 +59,18 @@ fn native_app_receives_combinations_but_text_editing_and_ime_keep_priority() {
             occurrence: None,
         })
         .unwrap();
-    assert!(driver.source.handle_event(key("k")).handled);
-    assert_eq!(driver.source.view.0.count, 2);
-    driver.source.handle_event(key("c"));
-    assert_eq!(driver.source.view.0.count, 2);
-    driver.source.handle_event(UiEvent::Ime(ImeEvent::Preedit {
-        text: "あ".into(),
-        cursor: None,
-    }));
-    driver.source.handle_event(key("k"));
-    assert_eq!(driver.source.view.0.count, 2);
+    assert!(driver.dispatch_event(key("k")).unwrap().handled);
+    assert_eq!(driver.view().0.count, 2);
+    driver.dispatch_event(key("c")).unwrap();
+    assert_eq!(driver.view().0.count, 2);
+    driver
+        .dispatch_event(UiEvent::Ime(ImeEvent::Preedit {
+            text: "あ".into(),
+            cursor: None,
+        }))
+        .unwrap();
+    driver.dispatch_event(key("k")).unwrap();
+    assert_eq!(driver.view().0.count, 2);
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -124,5 +126,5 @@ fn static_services_and_full_testing_commands_use_the_same_hook() {
     driver
         .execute(serde_json::from_str(&wire).unwrap())
         .unwrap();
-    assert_eq!(driver.source.view.services.commands, [42]);
+    assert_eq!(driver.view().services.commands, [42]);
 }
