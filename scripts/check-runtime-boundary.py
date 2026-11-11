@@ -30,12 +30,15 @@ migrated_test_roots = {
 }
 migrated_test_files = {
     Path("crates/plico-runtime/tests/alert_dialog.rs"),
+    Path("crates/plico-runtime/tests/component_kit.rs"),
     Path("crates/plico-runtime/tests/deadline.rs"),
     Path("crates/plico-runtime/tests/display_preferences.rs"),
     Path("crates/plico-runtime/tests/focus_navigation.rs"),
     Path("crates/plico-runtime/tests/font_family.rs"),
+    Path("crates/plico-runtime/tests/hover.rs"),
     Path("crates/plico-runtime/tests/indicator_semantics.rs"),
     Path("crates/plico-runtime/tests/retained_frame.rs"),
+    Path("crates/plico-runtime/tests/range_slider.rs"),
     Path("crates/plico-runtime/tests/scroll_layout_motion.rs"),
     Path("crates/plico-runtime/tests/secondary_click.rs"),
     Path("crates/plico-runtime/tests/test_protocol.rs"),

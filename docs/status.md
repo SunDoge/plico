@@ -122,7 +122,7 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - Immediate dirty journal 贯通布局、flatten 与 Scene 失效；mount/unmount/reorder 由稳定 Entity 和业务 key 保持身份，大范围结构变化保守回退全量路径。
-- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
+- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；`HitTestDiagnostics` 提供只读 rebuild/check/pruned 计数，不公开 Adapter 缓存结构。动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
 - Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。

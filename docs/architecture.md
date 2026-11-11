@@ -27,7 +27,7 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 迁移所有旧测试。
 
 和 MyGO 将 runtime、scene 与帧统计留在内部一致，普通宿主通过 `Source::view`、`update`、
-`placed_nodes`、`semantics`、`selected_text`、`focused` 和 `theme` 读取或更新稳定能力，不拼接
+`placed_nodes`、`semantics`、`selected_text`、`focused`、`theme` 和只读 hit-test 诊断读取或更新稳定能力，不拼接
 Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
 `scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
@@ -41,6 +41,8 @@ Runtime 外部测试按功能分批迁移；焦点、字体、语义指示器、
 测试协议、toast、用户活动与虚拟表格宽度测试已进入同一边界守卫。
 Alert dialog、deadline、系统显示偏好与 secondary-click 生命周期测试也已迁移；shader 存在性
 直接从生成的 Scene 断言，不再读取 Engine 声明树。
+Component kit、hover 与 range-slider 测试也已进入守卫。Collapsible 的挂载、裁剪和退场从
+retained layout 与语义快照验证；hit-test 工作量通过类型化只读快照暴露，不泄漏 Adapter 元组。
 
 ## 当前实现
 

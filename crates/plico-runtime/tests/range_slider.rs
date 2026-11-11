@@ -47,8 +47,7 @@ fn key(value: &str) -> UiEvent {
 
 fn bounds(source: &Source<Demo>) -> [f32; 4] {
     source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Group, "Price", None)
         .expect("the range slider exposes a named group")
         .bounds
@@ -71,8 +70,8 @@ fn pressing_picks_the_nearer_thumb_and_keys_move_it() {
     });
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 100);
-    assert_eq!((source.view.low, source.view.high), (20., 80.));
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    assert_eq!((source.view().low, source.view().high), (20., 80.));
+    let semantics = source.semantics();
     let group = semantics
         .node_by_role(SemanticRole::Group, "Price", None)
         .unwrap();
@@ -101,48 +100,46 @@ fn pressing_picks_the_nearer_thumb_and_keys_move_it() {
 
     click(&mut source, &mut text, 0.9);
     assert!(
-        (source.view.high - 90.).abs() <= 5.0,
+        (source.view().high - 90.).abs() <= 5.0,
         "high={}",
-        source.view.high
+        source.view().high
     );
-    assert!((source.view.low - 20.).abs() < 1e-9);
+    assert!((source.view().low - 20.).abs() < 1e-9);
 
-    let before = source.view.high;
+    let before = source.view().high;
     source.handle_event(key("ArrowLeft"));
     source.build_frame(&mut text, 400, 100);
-    assert!((source.view.high - (before - 1.)).abs() < 1e-9);
+    assert!((source.view().high - (before - 1.)).abs() < 1e-9);
 
     let minimum = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Slider, "Price minimum", None)
         .unwrap()
         .id;
     source.handle_semantic_action(SemanticAction::Focus { target: minimum });
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 400, 100);
-    assert_eq!(source.view.low, 21.);
+    assert_eq!(source.view().low, 21.);
 
     source.handle_event(key("Tab"));
     source.handle_event(key("ArrowLeft"));
     source.build_frame(&mut text, 400, 100);
     assert_eq!(
-        source.view.high,
+        source.view().high,
         before - 2.,
         "Tab reaches the maximum thumb"
     );
 
     click(&mut source, &mut text, 0.1);
     assert!(
-        (source.view.low - 10.).abs() <= 5.0,
+        (source.view().low - 10.).abs() <= 5.0,
         "low={}",
-        source.view.low
+        source.view().low
     );
-    assert_eq!(source.view.high, before - 2.);
+    assert_eq!(source.view().high, before - 2.);
 
     let maximum = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Slider, "Price maximum", None)
         .unwrap()
         .id;
@@ -153,7 +150,7 @@ fn pressing_picks_the_nearer_thumb_and_keys_move_it() {
         })
     );
     source.build_frame(&mut text, 400, 100);
-    assert_eq!(source.view.high, 95.);
+    assert_eq!(source.view().high, 95.);
 }
 
 #[test]
@@ -182,7 +179,7 @@ fn keyboard_thumb_selection_is_local_to_each_slider() {
     });
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 160);
-    let snapshot = source.adapter.semantics(&source.engine, 0);
+    let snapshot = source.semantics();
     let first = snapshot
         .node_by_role(SemanticRole::Group, "Price", None)
         .unwrap();
@@ -199,7 +196,7 @@ fn keyboard_thumb_selection_is_local_to_each_slider() {
     source.handle_semantic_action(SemanticAction::Focus { target: other });
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 400, 160);
-    assert_eq!((source.view.b.low, source.view.b.high), (31., 70.));
+    assert_eq!((source.view().b.low, source.view().b.high), (31., 70.));
 }
 
 #[test]
@@ -220,19 +217,17 @@ fn unstyled_range_keeps_two_focusable_numeric_thumbs() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 100);
     let minimum = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Slider, "Bare minimum", None)
         .unwrap()
         .id;
     source.handle_semantic_action(SemanticAction::Focus { target: minimum });
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 400, 100);
-    assert_eq!((source.view.0.low, source.view.0.high), (26., 75.));
+    assert_eq!((source.view().0.low, source.view().0.high), (26., 75.));
     assert!(
         source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Slider, "Bare maximum", None)
             .is_some()
     );

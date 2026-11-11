@@ -69,8 +69,7 @@ fn composed_controls_receive_transformed_normalized_pointer_geometry() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 320, 180);
     let [x0, y0, x1, y1] = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Field", None)
         .unwrap()
         .bounds;
@@ -78,7 +77,7 @@ fn composed_controls_receive_transformed_normalized_pointer_geometry() {
     let y = f64::from(y0 + (y1 - y0) * 0.75);
     source.handle_event(pointer_at(PointerPhase::Down, x, y));
     source.build_frame(&mut text, 320, 180);
-    let [fx, fy] = source.view.fraction.expect("pressed pointer fraction");
+    let [fx, fy] = source.view().fraction.expect("pressed pointer fraction");
     assert!((fx - 0.25).abs() < 0.01, "fx={fx}");
     assert!((fy - 0.75).abs() < 0.01, "fy={fy}");
 }
@@ -102,8 +101,7 @@ fn color_picker_uses_the_shared_pointer_geometry_for_its_two_axis_field() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 320, 360);
     let [x0, y0, x1, y1] = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Slider, "Saturation and brightness", None)
         .expect("two-axis color field exposes slider semantics")
         .bounds;
@@ -113,46 +111,48 @@ fn color_picker_uses_the_shared_pointer_geometry_for_its_two_axis_field() {
         f64::from(y0 + y1) / 2.,
     ));
     source.build_frame(&mut text, 320, 360);
-    assert_eq!(source.view.color, Color::Literal(0x804040));
+    assert_eq!(source.view().color, Color::Literal(0x804040));
 }
 #[test]
 fn pointer_hover_and_click_are_independent_borrow_free_response_values() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
     source.build_frame(&mut text, 300, 200);
-    assert!(!source.view.hovered);
+    assert!(!source.view().hovered);
     source.handle_event(pointer(PointerPhase::Enter));
     source.build_frame(&mut text, 300, 200);
-    assert!(source.view.hovered);
-    assert_eq!(source.view.clicks, 0);
+    assert!(source.view().hovered);
+    assert_eq!(source.view().clicks, 0);
     source.handle_event(pointer(PointerPhase::Down));
-    let (builds, checks, pruned) = source.adapter.hit_cache_stats();
-    assert!(builds > 0);
-    assert!(checks < source.adapter.placed.len(), "checks={checks}");
-    assert!(pruned > 0);
+    let hit = source.frame_diagnostics().hit_test;
+    assert!(hit.rebuilds > 0);
+    assert!(
+        hit.checks < source.placed_nodes().len(),
+        "checks={}",
+        hit.checks
+    );
+    assert!(hit.pruned > 0);
     source.handle_event(pointer(PointerPhase::Up));
-    assert_eq!(source.adapter.hit_cache_stats().0, builds);
+    assert_eq!(source.frame_diagnostics().hit_test.rebuilds, hit.rebuilds);
     source.build_frame(&mut text, 300, 200);
-    assert_eq!(source.view.clicks, 1);
-    assert!(source.view.clicked_hovered);
+    assert_eq!(source.view().clicks, 1);
+    assert!(source.view().clicked_hovered);
     source.handle_event(pointer(PointerPhase::Leave));
     source.build_frame(&mut text, 300, 200);
-    assert!(!source.view.hovered);
+    assert!(!source.view().hovered);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Action", None)
         .unwrap()
         .id;
     source.handle_semantic_action(SemanticAction::Click { target });
     source.build_frame(&mut text, 300, 200);
-    assert_eq!(source.view.clicks, 2);
-    assert!(!source.view.clicked_hovered);
-    source.view.disabled = true;
-    source.request_rebuild();
+    assert_eq!(source.view().clicks, 2);
+    assert!(!source.view().clicked_hovered);
+    source.update(|view| view.disabled = true);
     source.build_frame(&mut text, 300, 200);
     source.handle_event(pointer(PointerPhase::Move));
     source.build_frame(&mut text, 300, 200);
-    assert!(!source.view.hovered);
-    assert_eq!(source.view.clicks, 2);
+    assert!(!source.view().hovered);
+    assert_eq!(source.view().clicks, 2);
 }

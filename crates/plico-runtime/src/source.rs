@@ -55,6 +55,18 @@ pub struct FrameDiagnostics {
     pub declaration: plico::FrameStats,
     pub declaration_micros: u128,
     pub backend: BackendStats,
+    /// Retained hit-test acceleration work at the time of the snapshot.
+    pub hit_test: HitTestDiagnostics,
+}
+/// Read-only counters for the retained hit-test acceleration structure.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HitTestDiagnostics {
+    /// Number of retained acceleration-structure rebuilds.
+    pub rebuilds: usize,
+    /// Candidate nodes checked by the most recent hit-test work.
+    pub checks: usize,
+    /// Candidate subtrees rejected by their retained bounds.
+    pub pruned: usize,
 }
 #[derive(Default)]
 struct WakeBatch {
@@ -189,6 +201,7 @@ impl<V: HostView> Source<V> {
     pub fn hit_test(&self, point: plico_renderer::Point) -> Option<Entity> {
         self.adapter.hit(&self.engine, point.x, point.y)
     }
+
     /// Mutate application state on the UI thread and invalidate declarations.
     /// Repeated updates before a frame coalesce; the closures themselves all run.
     pub fn update<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> R {
@@ -238,10 +251,16 @@ impl<V: HostView> Source<V> {
 
     /// Work performed by the most recently sampled frame.
     pub fn frame_diagnostics(&self) -> FrameDiagnostics {
+        let (rebuilds, checks, pruned) = self.adapter.hit_cache_stats();
         FrameDiagnostics {
             declaration: self.declaration_stats,
             declaration_micros: self.declaration_micros,
             backend: self.adapter.stats,
+            hit_test: HitTestDiagnostics {
+                rebuilds,
+                checks,
+                pruned,
+            },
         }
     }
     /// Mark externally mutated application data for declaration on the next frame.
