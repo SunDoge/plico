@@ -70,16 +70,36 @@ jobs:
           )
 
           # Azure-backed Ubuntu mirrors occasionally stop resolving on hosted
-          # runners. Apt otherwise waits once per package, which can consume the
-          # whole job timeout. Require a complete index refresh and retry the
-          # operation as a unit with bounded network waits.
+          # runners even though the rest of the network is healthy. Resolve only
+          # the official mirror names through a public resolver as a fallback.
+          for host in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
+            if timeout 5s getent ahostsv4 "${host}" >/dev/null; then
+              continue
+            fi
+
+            address=""
+            for resolver in 1.1.1.1 8.8.8.8; do
+              address="$(timeout 10s dig +short A "${host}" "@${resolver}" \
+                | awk '/^[0-9.]+$/ { print; exit }' || true)"
+              [[ -n "${address}" ]] && break
+            done
+            if [[ -z "${address}" ]]; then
+              echo "Could not resolve ${host} through the runner or fallback DNS" >&2
+              exit 1
+            fi
+            echo "${address} ${host}" | sudo tee -a /etc/hosts
+          done
+
+          # Apt otherwise waits once per package, which can consume the whole
+          # job timeout. Require a complete index refresh and retry the operation
+          # as a unit with bounded network and process waits.
           for attempt in 1 2 3; do
-            if sudo apt-get \
+            if timeout --kill-after=5s 90s sudo apt-get \
               -o Acquire::Retries=0 \
               -o Acquire::http::Timeout=10 \
               -o Acquire::https::Timeout=10 \
               update --error-on=any \
-              && sudo apt-get \
+              && timeout --kill-after=5s 120s sudo apt-get \
                 -o Acquire::Retries=0 \
                 -o Acquire::http::Timeout=10 \
                 -o Acquire::https::Timeout=10 \
