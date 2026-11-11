@@ -29,6 +29,7 @@ migrated_test_roots = {
     ("crates", "plico-wgpu", "tests"),
 }
 migrated_test_files = {
+    Path("crates/plico-runtime/tests/adapter_work.rs"),
     Path("crates/plico-runtime/tests/alert_dialog.rs"),
     Path("crates/plico-runtime/tests/component_kit.rs"),
     Path("crates/plico-runtime/tests/deadline.rs"),

@@ -44,8 +44,9 @@ Alert dialog、deadline、系统显示偏好与 secondary-click 生命周期测�
 Component kit、hover 与 range-slider 测试也已进入守卫。Collapsible 的挂载、裁剪和退场从
 retained layout 与语义快照验证；hit-test 工作量通过类型化只读快照暴露，不泄漏 Adapter 元组。
 固定／可变虚拟列表的稀疏挂载、锚点、sticky header 与 follow-end 测试也只读取 view 和
-retained placed nodes，并通过 `Source::update` 驱动业务状态；runtime 外部测试仅余专门测量
-Adapter 内部增量工作的 `adapter_work` 白盒组尚未迁移。
+retained placed nodes，并通过 `Source::update` 驱动业务状态。最后一组 `adapter_work` 缓存与
+增量测试也已改读统一的 `FrameDiagnostics.backend`、retained nodes、语义和 shader 诊断；
+runtime 的全部外部集成测试已进入同一边界守卫。
 
 ## 当前实现
 
