@@ -1,12 +1,21 @@
 //! plico-shell: render a UI tree with Winit, Taffy, Parley, and a GPU renderer.
 //!
-//! The shell is a reusable host: a [`source::FrameSource`] produces a flattened
+//! The shell is a reusable host: a [`plico_renderer::source::FrameSource`] produces a flattened
 //! layout list each frame; [`shell::Shell`] owns the window and selected
 //! GPU backend (wgpu by default). Plico supplies its immediate UI source through this boundary.
 
 #![warn(missing_docs)]
 
 extern crate self as plico_shell;
+
+// Shell implementation vocabulary. Keep this private: applications consume
+// these contracts from plico-renderer/plico-runtime instead of a second facade.
+use plico_renderer::{
+    ColorScheme, ImeState, SemanticAction, SemanticCurrent, SemanticNode, SemanticPopup,
+    SemanticRole, SemanticSnapshot, SemanticSortDirection, SemanticToggleState, WHEEL_LINE_DELTA,
+};
+#[cfg(test)]
+use plico_renderer::{PaintContext, ScreenshotRequest, SemanticStates};
 
 pub mod telemetry;
 
@@ -23,26 +32,8 @@ pub mod effect;
 pub mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod headless;
-pub use plico_renderer::{image, layout, motion, paint};
 mod persisted_state;
 pub use persisted_state::PersistedStatePersistence;
-#[cfg(not(target_arch = "wasm32"))]
-mod performance_hud;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod renderer;
-#[cfg(not(target_arch = "wasm32"))]
-mod window_renderer;
-pub use plico_renderer::{scene, scrollbar, shader};
-#[cfg(not(target_arch = "wasm32"))]
-pub mod shell;
-pub use plico_renderer::{shortcut, source, style, svg};
-#[cfg(not(target_arch = "wasm32"))]
-mod system;
-pub use plico_renderer::platform::window_lifecycle;
-pub use plico_renderer::text;
-#[cfg(target_arch = "wasm32")]
-pub use plico_renderer::web;
-pub use plico_renderer::widget;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watch;
 #[cfg(any(target_os = "macos", test))]
@@ -58,9 +49,19 @@ mod macos_preferences;
 #[cfg(target_os = "macos")]
 mod macos_window_frame;
 #[cfg(not(target_arch = "wasm32"))]
+mod performance_hud;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod renderer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shell;
+#[cfg(not(target_arch = "wasm32"))]
 mod single_instance;
+#[cfg(not(target_arch = "wasm32"))]
+mod system;
 #[cfg(any(target_os = "macos", test))]
 mod titlebar_action;
+#[cfg(not(target_arch = "wasm32"))]
+mod window_renderer;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_state;
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,36 +90,12 @@ pub use effect::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use error::{Error, Result};
-pub use paint::{Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, SvgDocument};
-pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 #[cfg(not(target_arch = "wasm32"))]
 pub use shell::Shell;
-pub use shortcut::StandardShortcut;
-pub use source::{
-    AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
-    FrameSource, FrameStats, GestureEvent, GesturePhase, HostAction, ImeEvent, ImeState, KeyEvent,
-    KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent, PointerId, PointerPhase,
-    PointerProperties, PointerType, RenderBackend, ScreenshotRequest, SemanticAction,
-    SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
-    SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
-    WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
-    WindowMetrics, WindowOptions, WindowResizeEdges,
-};
-pub use text::TextContext;
-pub use widget::{
-    MeasureContext, NativeWidgetPlugin, PaintContext, Widget, WidgetAccessibility,
-    WidgetAvailableSpace, WidgetChanges, WidgetEventResult, WidgetFactory, WidgetGeometry,
-    WidgetHarness, WidgetImePurpose, WidgetImeState, WidgetNodeEvent, WidgetRasterImage,
-    WidgetRasterImageError, WidgetStyle, WidgetTextSelection, WidgetTextSelectionKind,
-    decode_widget_config,
-};
 #[cfg(not(target_arch = "wasm32"))]
 pub use window_state::{WindowSizePersistence, WindowStatePersistence};
 #[cfg(not(target_arch = "wasm32"))]
 pub use winit::raw_window_handle;
-
-/// Shared stable vector path decoder.
-pub use plico_renderer::vector_path;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod window_frame;

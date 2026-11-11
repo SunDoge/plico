@@ -8,6 +8,11 @@
 `plico-wgpu` 所有；Skia 与其他后端只消费同一份 effect 描述。CI 通过
 `scripts/check-renderer-boundary.py` 守卫这条依赖方向。
 
+与 MyGO 的公开 `mygo`/`ui` 和私有 `internal/scene`/`internal/surface` 分界一致，
+`plico-shell` 只提供窗口循环、宿主扩展及桌面系统服务，不再二次公开整套
+`plico-renderer` API。应用从 `plico`/`plico-runtime`/`plico-desktop` 使用声明与窗口
+接口；渲染探针和后端实现直接依赖 `plico-renderer`，依赖所有权因此保持显式。
+
 ## 当前实现
 
 ```text

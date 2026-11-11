@@ -53,7 +53,7 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PaintScene;
+    use plico_renderer::PaintScene;
     #[cfg(all(target_os = "linux", feature = "wgpu"))]
     #[test]
     #[ignore = "requires an X11 display and working wgpu adapter; Xvfb is sufficient"]
@@ -75,11 +75,11 @@ mod tests {
                 // Xvfb may expose only opaque surfaces. This test deliberately
                 // exercises the decorated path: a requested radius must not
                 // force an alpha swapchain or client-area clipping.
-                let options = crate::WindowOptions::new()
+                let options = plico_renderer::WindowOptions::new()
                     .decorations(true)
                     .corner_radius(16)
                     .initial_inner_size(160, 120)
-                    .renderer(crate::RenderBackend::Wgpu);
+                    .renderer(plico_renderer::RenderBackend::Wgpu);
                 let mut shell = crate::shell::Shell::create(event_loop, &options).unwrap();
                 assert!(shell.window().is_decorated());
                 assert_eq!(shell.prepare_window_frame(Color::BLACK), Color::BLACK);

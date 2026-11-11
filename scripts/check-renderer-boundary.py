@@ -9,6 +9,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "crates/plico-renderer/Cargo.toml"
 SOURCE = ROOT / "crates/plico-renderer/src"
+SHELL_ROOT = ROOT / "crates/plico-shell/src/lib.rs"
 
 
 def main() -> int:
@@ -30,6 +31,15 @@ def main() -> int:
     if violations:
         print("plico-renderer contains concrete wgpu API usage:")
         print("\n".join(violations))
+        return 1
+
+    shell_facades = []
+    for number, line in enumerate(SHELL_ROOT.read_text().splitlines(), 1):
+        if line.strip().startswith("pub use plico_renderer"):
+            shell_facades.append(f"{SHELL_ROOT.relative_to(ROOT)}:{number}: {line.strip()}")
+    if shell_facades:
+        print("plico-shell must not republish the renderer API; import contracts from their owner:")
+        print("\n".join(shell_facades))
         return 1
     return 0
 

@@ -1,5 +1,6 @@
 use peniko::Color;
-use plico_shell::{Scene, Shell, WindowOptions};
+use plico_renderer::{Scene, WindowOptions};
+use plico_shell::Shell;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,

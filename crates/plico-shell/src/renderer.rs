@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::Scene;
 use image::ImageEncoder as _;
 use peniko::Color;
+use plico_renderer::Scene;
 #[cfg(any(feature = "skia", feature = "wgpu"))]
 use snafu::OptionExt;
 use snafu::ResultExt;
@@ -143,9 +143,9 @@ pub(crate) fn unpremultiply(pixels: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PaintScene;
     use kurbo::{Affine, Rect};
     use peniko::Fill;
+    use plico_renderer::PaintScene;
     use std::sync::Arc;
 
     #[test]
@@ -202,8 +202,9 @@ mod tests {
     #[test]
     fn gpu_renderer_draws_public_raster_images() {
         let raster =
-            crate::WidgetRasterImage::from_rgba8(2, 2, [240, 20, 60, 255].repeat(4)).unwrap();
-        let mut text = crate::TextContext::new();
+            plico_renderer::WidgetRasterImage::from_rgba8(2, 2, [240, 20, 60, 255].repeat(4))
+                .unwrap();
+        let mut text = plico_renderer::TextContext::new();
         let mut paint = crate::PaintContext::new(16.0, 16.0, 1.0, &mut text);
         paint.draw_raster_image(&raster);
         let image = render_to_image(&paint.finish(), 16, 16, Color::BLACK).unwrap();
@@ -212,13 +213,13 @@ mod tests {
 
     #[test]
     fn gpu_renderer_composites_and_resizes_custom_wgsl() {
-        let source = crate::ShaderEffectSource::new(
+        let source = plico_renderer::ShaderEffectSource::new(
             "fn plico_effect(_uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
         )
         .unwrap();
-        let id = crate::ShaderEffectId::new();
+        let id = plico_renderer::ShaderEffectId::new();
 
-        let mut text = crate::TextContext::new();
+        let mut text = plico_renderer::TextContext::new();
         let mut first = crate::PaintContext::new_clipped(18.0, 10.0, 4.0, 1.0, &mut text);
         first.draw_shader_effect(id, source.clone(), 0.0, Arc::from([]));
         let first = render_to_image(&first.finish(), 18, 10, Color::BLACK).unwrap();
@@ -233,12 +234,12 @@ mod tests {
 
     #[test]
     fn shader_versions_in_one_scene_do_not_alias_textures_or_uniform_buffers() {
-        let source = crate::ShaderEffectSource::new(
+        let source = plico_renderer::ShaderEffectSource::new(
             "fn plico_effect(_uv: vec2<f32>) -> vec4<f32> { return plico.values[0]; }",
         )
         .unwrap();
-        let id = crate::ShaderEffectId::new();
-        let mut text = crate::TextContext::new();
+        let id = plico_renderer::ShaderEffectId::new();
+        let mut text = plico_renderer::TextContext::new();
         let mut left = crate::PaintContext::new(16., 16., 1., &mut text);
         left.draw_shader_effect(id, source.clone(), 0., [1., 0., 0., 1.].into());
         let left = left.finish();
@@ -262,7 +263,7 @@ mod tests {
 
     #[test]
     fn gpu_renderer_composites_complete_shader_modules() {
-        let source = crate::ShaderEffectSource::new_module(
+        let source = plico_renderer::ShaderEffectSource::new_module(
             r#"
 struct Uniforms { size: vec2<f32>, time: f32, speed: f32, color: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -275,16 +276,16 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32, color: vec4<f32> };
         )
         .unwrap();
         let values: Arc<[f32]> = [0.0, 0.0, 0.0, 1.0, 0.2, 0.4, 0.8, 1.0].into();
-        let mut text = crate::TextContext::new();
+        let mut text = plico_renderer::TextContext::new();
         let mut paint = crate::PaintContext::new(12.0, 12.0, 1.0, &mut text);
-        paint.draw_shader_effect(crate::ShaderEffectId::new(), source, 0.0, values);
+        paint.draw_shader_effect(plico_renderer::ShaderEffectId::new(), source, 0.0, values);
         let image = render_to_image(&paint.finish(), 12, 12, Color::BLACK).unwrap();
         assert_eq!(image.get_pixel(6, 6).0, [51, 102, 204, 255]);
     }
 
     #[test]
     fn gpu_renderer_applies_retained_svg_transform() {
-        let svg = crate::svg::SvgImage::parse(
+        let svg = plico_renderer::svg::SvgImage::parse(
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#14b8a6"/></svg>"##,
         ).unwrap();
         let mut scene = Scene::new();
@@ -296,7 +297,7 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32, color: vec4<f32> };
 
     #[test]
     fn gpu_renderer_composes_svg_groups_and_clip_paths() {
-        let svg = crate::svg::SvgImage::parse(
+        let svg = plico_renderer::svg::SvgImage::parse(
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12">
                 <defs><clipPath id="clip"><path d="M0 0h4v4H0z"/></clipPath></defs>
                 <g transform="translate(3 2)" clip-path="url(#clip)">

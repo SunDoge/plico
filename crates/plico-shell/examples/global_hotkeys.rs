@@ -3,8 +3,9 @@
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use peniko::Color;
+    use plico_renderer::{FrameSource, TextContext, WindowOptions};
     use plico_shell::{
-        ExtensionContext, FrameSource, TextContext, WindowOptions,
+        ExtensionContext, WindowResourceKey,
         hotkeys::{GlobalHotkeyBinding, GlobalHotkeyExtension, HotkeyEvent},
         initial_window_resource_key, run_windows_with_factory_and_extensions,
     };
@@ -15,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _: &mut TextContext,
             _: u32,
             _: u32,
-        ) -> Vec<plico_shell::layout::PlacedNode> {
+        ) -> Vec<plico_renderer::layout::PlacedNode> {
             Vec::new()
         }
         fn base_color(&self) -> Color {
@@ -32,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             action: window,
         }],
         move |event: &HotkeyEvent,
-              window: &plico_shell::WindowResourceKey,
+              window: &WindowResourceKey,
               context: &mut ExtensionContext<'_>| {
             match event {
                 HotkeyEvent::Pressed { .. } => {

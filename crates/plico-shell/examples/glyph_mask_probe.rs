@@ -1,7 +1,8 @@
 //! Composite a pre-rasterized physical-pixel coverage mask with production Vello.
 use kurbo::{Affine, Rect};
 use peniko::{Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
-use plico_shell::{PaintScene, Scene, renderer};
+use plico_renderer::{PaintScene, Scene};
+use plico_shell::renderer;
 use std::{path::PathBuf, sync::Arc};
 
 #[derive(usage_rs::Cli)]

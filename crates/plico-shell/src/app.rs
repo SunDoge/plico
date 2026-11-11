@@ -28,17 +28,17 @@ use winit::window::{
 
 use crate::WindowResourceKey;
 use crate::shell::Shell;
-use crate::source::{
+use plico_renderer::platform::window_lifecycle::{
+    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
+};
+use plico_renderer::source::{
     AppLifecycleEvent, ClipboardRequest, EventResponse, FileDropEvent, FileDropPhase, FrameSource,
     FrameStats, GestureEvent, HostAction, ImeEvent, KeyEvent, KeyPhase, Modifiers, Point,
     PointerButton, PointerEvent, PointerId, PointerPhase, PointerProperties, PointerType,
     SemanticAction, SemanticRole, UiEvent, WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand,
     WindowMetrics, WindowOptions,
 };
-use crate::style::CursorStyle;
-use crate::window_lifecycle::{
-    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
-};
+use plico_renderer::style::CursorStyle;
 
 mod effects;
 mod event;
@@ -153,7 +153,7 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
-    multi_click_settings: Option<crate::source::MultiClickSettings>,
+    multi_click_settings: Option<plico_renderer::source::MultiClickSettings>,
     performance_hud: crate::performance_hud::PerformanceHud,
 }
 

@@ -1,7 +1,7 @@
 //! Experimental direct Skrifa outlines; no changes to production hinting defaults.
 use kurbo::{Affine, BezPath, Diagonal2, Join, expand_path};
 use peniko::Fill;
-use plico_shell::{PaintCommand, PaintScene, Scene};
+use plico_renderer::{PaintCommand, PaintScene, Scene};
 use skrifa::{
     FontRef, GlyphId, MetadataProvider,
     instance::{NormalizedCoord, Size},

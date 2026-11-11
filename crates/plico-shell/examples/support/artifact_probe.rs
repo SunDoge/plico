@@ -2,7 +2,8 @@
 use image::RgbaImage;
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
-use plico_shell::{PaintCommand, PaintScene, Scene, renderer};
+use plico_renderer::{PaintCommand, PaintScene, Scene};
+use plico_shell::renderer;
 use serde_json::{Value, json};
 use std::path::Path;
 

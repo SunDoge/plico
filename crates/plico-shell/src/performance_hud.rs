@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Instant};
 use kurbo::{Affine, Rect};
 use peniko::{Color, Fill};
 
-use crate::{FrameStats, PaintScene, Scene, TextContext};
+use plico_renderer::{FrameStats, PaintScene, Scene, TextContext};
 
 const PANEL_WIDTH: f64 = 320.0;
 const PANEL_HEIGHT: f64 = 212.0;
@@ -353,21 +353,21 @@ impl PerformanceHud {
         color: [u8; 4],
         scale: f64,
     ) {
-        let layout = crate::text::layout_text_styled(
+        let layout = plico_renderer::text::layout_text_styled(
             text,
             Arc::from(value),
             size,
             weight,
             false,
             None,
-            crate::style::TextAlign::Start,
+            plico_renderer::style::TextAlign::Start,
             color,
             Arc::from([]),
             None,
             None,
         );
         let device = Affine::scale(scale);
-        crate::scene::draw_text_layout_into(
+        plico_renderer::scene::draw_text_layout_into(
             scene,
             text,
             &layout,

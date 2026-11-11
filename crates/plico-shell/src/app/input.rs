@@ -136,7 +136,9 @@ impl App {
             }
         }
         #[cfg(target_os = "linux")]
-        if state == ElementState::Pressed && properties.pointer_type == crate::PointerType::Mouse {
+        if state == ElementState::Pressed
+            && properties.pointer_type == plico_renderer::PointerType::Mouse
+        {
             self.reset_ime_before_pointer_selection();
         }
         let phase = match state {

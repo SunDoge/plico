@@ -46,9 +46,9 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     );
     assert_eq!(scheduled, None);
 }
-use crate::layout::PlacedNode;
-use crate::source::KeyLocation;
-use crate::text::TextContext;
+use plico_renderer::layout::PlacedNode;
+use plico_renderer::source::KeyLocation;
+use plico_renderer::text::TextContext;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Waker;
@@ -65,7 +65,7 @@ fn custom_decoration_edges_map_to_native_resize_directions() {
             900.0,
             600.0,
             CUSTOM_DECORATION_RESIZE_BORDER,
-            crate::WindowResizeEdges::all(),
+            plico_renderer::WindowResizeEdges::all(),
         )
     };
 
@@ -434,7 +434,7 @@ fn ime_snapshot_maps_backend_neutral_purpose_and_hints_to_winit() {
         selection_utf16: 5..5,
         selection_reversed: false,
         marked_range_utf16: None,
-        purpose: crate::WidgetImePurpose::Terminal,
+        purpose: plico_renderer::WidgetImePurpose::Terminal,
         multiline: true,
         completion: true,
         spellcheck: false,
@@ -458,7 +458,7 @@ fn ime_session_restarts_only_when_focus_moves_between_distinct_text_clients() {
         selection_utf16: 0..0,
         selection_reversed: false,
         marked_range_utf16: None,
-        purpose: crate::WidgetImePurpose::Normal,
+        purpose: plico_renderer::WidgetImePurpose::Normal,
         multiline: false,
         completion: true,
         spellcheck: true,
@@ -670,7 +670,7 @@ fn skipped_present_keeps_animation_paced_without_polling() {
 
 #[test]
 fn restricted_edges_project_corners_onto_allowed_resize_axes() {
-    use crate::WindowResizeEdges as Edges;
+    use plico_renderer::WindowResizeEdges as Edges;
     let at = |x, y, edges| resize_direction_at(Point { x, y }, 900., 600., 12., edges);
     let vertical = Edges::TOP | Edges::BOTTOM;
     assert_eq!(at(0., 0., vertical), Some(ResizeDirection::North));

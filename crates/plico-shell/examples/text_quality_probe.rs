@@ -14,9 +14,10 @@ use std::{fmt::Write as _, fs};
 use kurbo::Affine;
 use parley::PositionedLayoutItem;
 use peniko::Color;
-use plico_shell::style::TextAlign;
-use plico_shell::text::{TextRun, layout_text_styled};
-use plico_shell::{PaintCommand, PaintContext, PaintScene, Scene, TextContext, renderer};
+use plico_renderer::style::TextAlign;
+use plico_renderer::text::{TextRun, layout_text_styled};
+use plico_renderer::{PaintCommand, PaintContext, PaintScene, Scene, TextContext};
+use plico_shell::renderer;
 use serde::Deserialize;
 use skrifa::{FontRef, MetadataProvider, string::StringId};
 
@@ -154,7 +155,7 @@ fn main() {
             cases
                 .font_family
                 .as_deref()
-                .unwrap_or(plico_shell::text::DEFAULT_UI_FONT_FAMILY)
+                .unwrap_or(plico_renderer::text::DEFAULT_UI_FONT_FAMILY)
         );
         for (row_index, (row, layout)) in cases.rows.iter().zip(&layouts).enumerate() {
             let line = layout.lines().next().expect("text quality row has a line");

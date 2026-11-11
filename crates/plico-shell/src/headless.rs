@@ -2,13 +2,13 @@
 
 use std::time::Instant;
 
-use crate::Scene;
 use peniko::Color;
+use plico_renderer::Scene;
 
-use crate::layout::PlacedNode;
-use crate::scene;
-use crate::source::{FrameSource, FrameStats};
-use crate::text::TextContext;
+use plico_renderer::layout::PlacedNode;
+use plico_renderer::scene;
+use plico_renderer::source::{FrameSource, FrameStats};
+use plico_renderer::text::TextContext;
 
 /// Persistent timing state for a headless window.
 ///

@@ -279,6 +279,10 @@ The shared `plico-renderer` crate no longer owns wgpu devices, textures, bind
 groups, pipelines or render passes. It retains the backend-neutral scene and
 validated shader-effect contract; concrete shader execution lives in
 `plico-wgpu`, so Skia and renderer-only builds do not pull in wgpu.
+`plico-shell` also no longer republishes renderer modules and scene/widget
+types as a parallel facade. Its public surface is limited to window hosting,
+extensions and desktop services; backend probes depend on `plico-renderer`
+directly.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery
