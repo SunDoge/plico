@@ -30,7 +30,7 @@ pub enum PlicoSystems {
     Input,
 }
 
-/// Errors remain visible in [`PlicoUi::last_error`] and are logged by the plugin.
+/// Errors remain visible through [`PlicoUi::error`] and are logged by the plugin.
 #[derive(Debug, snafu::Snafu)]
 pub enum Error {
     #[snafu(display("Plico GPU rendering failed: {source}"))]
@@ -86,12 +86,15 @@ impl<V: plico::View + 'static> PlicoUi<V> {
     pub fn request_rebuild(&mut self) {
         self.source.request_rebuild();
     }
-    pub fn last_error(&self) -> Option<&Error> {
+    pub fn error(&self) -> Option<&Error> {
         self.error.as_ref()
     }
     /// Native protocol injection, also useful for deterministic application tests.
     pub fn send_event(&mut self, event: plico_renderer::UiEvent) -> plico_renderer::EventResponse {
-        self.source.prepare_for_event(&mut self.text);
+        if let Err(source) = self.source.try_prepare_for_event(&mut self.text) {
+            self.error = Some(Error::Declaration { source });
+            return plico_renderer::EventResponse::default();
+        }
         self.source.handle_event(event)
     }
     /// Inspect retained layout and batching counters without a GPU readback.

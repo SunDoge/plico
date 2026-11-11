@@ -18,10 +18,11 @@
 layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
 
 `Source` 不保留可变的“上次错误”旁路状态。测试、capture、recipe、Web 与 Bevy 等需要处理
-失败的调用方使用 `try_build_frame`、`try_render_retained_frame` 和
+失败的调用方使用 `try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和
 `try_build_and_paint`，声明或时钟错误沿当前调用直接返回。动态窗口宿主的
-`FrameSource::render_retained_frame` 与 `build_and_paint` 同样返回 `FrameSourceError`；shell
-统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装成成功帧。后续按同一方向
+`FrameSource::prepare_for_event`、`render_retained_frame` 与 `build_and_paint` 同样返回
+`FrameSourceError`；shell 统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装
+成成功事务。后续按同一方向
 先补齐查询和受控更新接口，再逐步收回仍公开的 Engine、Adapter 与 view 字段，避免一次机械
 迁移所有旧测试。
 

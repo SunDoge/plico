@@ -112,7 +112,9 @@ impl<V: HostView> WebHost<V> {
         event: UiEvent,
     ) -> Result<plico_renderer::EventResponse, JsValue> {
         self.set_time(milliseconds)?;
-        self.source.prepare_for_event(&mut self.text);
+        self.source
+            .try_prepare_for_event(&mut self.text)
+            .map_err(|e| error(e.to_string()))?;
         Ok(self.source.handle_event(event))
     }
     pub fn selected_text(&self) -> Option<String> {

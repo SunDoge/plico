@@ -277,7 +277,9 @@ pub extern "C" fn plico_test_scroll(handle: u64, x: f64, y: f64, delta_y: f64) -
             return Err("invalid wheel input".into());
         }
         crate::with_host(handle, |host| {
-            host.source.prepare_for_event(&mut host.text);
+            host.source
+                .prepare_for_event(&mut host.text)
+                .map_err(|error| error.to_string())?;
             host.source.handle_event(UiEvent::Wheel(WheelEvent {
                 position: Point { x, y },
                 delta_x: 0.,
@@ -300,7 +302,9 @@ pub unsafe extern "C" fn plico_test_key(handle: u64, key: *const u8, len: u32) -
         use plico_renderer::{FrameSource, KeyEvent, KeyLocation, KeyPhase, UiEvent};
         let key = crate::utf8(key, len)?.to_owned();
         crate::with_host(handle, |host| {
-            host.source.prepare_for_event(&mut host.text);
+            host.source
+                .prepare_for_event(&mut host.text)
+                .map_err(|error| error.to_string())?;
             host.source.handle_event(UiEvent::Key(KeyEvent {
                 phase: KeyPhase::Down,
                 code: key.clone(),

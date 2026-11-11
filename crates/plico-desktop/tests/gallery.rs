@@ -28,9 +28,9 @@ fn click(s: &mut Source<Gallery>, tcx: &mut TextContext, role: SemanticRole, lab
     let b = named(s, role, label).bounds;
     let (x, y) = (((b[0] + b[2]) / 2.) as f64, ((b[1] + b[3]) / 2.) as f64);
     s.handle_event(pointer(PointerPhase::Down, x, y));
-    s.prepare_for_event(tcx);
+    s.prepare_for_event(tcx).unwrap();
     s.handle_event(pointer(PointerPhase::Up, x, y));
-    s.prepare_for_event(tcx);
+    s.prepare_for_event(tcx).unwrap();
     frame(s, tcx, 920);
 }
 fn key(key: &str, shift: bool) -> UiEvent {
@@ -334,7 +334,7 @@ fn prepare_event_commits_new_geometry_before_next_pointer_event() {
     let before = named(&s, SemanticRole::Label, "Nightly").bounds;
     let target = named(&s, SemanticRole::CheckBox, "Large text").id;
     s.handle_semantic_action(SemanticAction::Click { target });
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     let after = named(&s, SemanticRole::Label, "Nightly").bounds;
     assert!(after[3] - after[1] > before[3] - before[1]);
 }
@@ -568,7 +568,7 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     assert_eq!(details.states.expanded, Some(false));
     assert!(s.handle_semantic_action(SemanticAction::Focus { target: details.id }));
     s.handle_event(key("Enter", false));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     frame(&mut s, &mut tcx, 920);
     assert!(s.view.release_details);
     assert_eq!(

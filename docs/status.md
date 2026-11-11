@@ -285,8 +285,9 @@ extensions and desktop services; backend probes depend on `plico-renderer`
 directly.
 Runtime declaration errors have no retained side channel. Checked frame methods
 return them to tests and non-window hosts directly; retained and combined
-`FrameSource` methods return a common `FrameSourceError` to the native shell,
-which rejects the frame through its normal telemetry and initial-window path.
+`FrameSource` methods, including event preparation, return a common
+`FrameSourceError` to the native shell, which rejects the transaction through
+its normal telemetry and initial-window path.
 Hosts also have stable read-only queries for view state, retained layout,
 semantics, selection, focus, theme and per-frame diagnostics. Declaration and
 backend counters are exposed as a snapshot instead of mutable `Source` fields.

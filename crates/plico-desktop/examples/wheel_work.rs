@@ -75,7 +75,7 @@ fn main() {
                 clock.advance(Duration::from_millis(16)).unwrap();
                 let before = source.batch_stats();
                 let start = Instant::now();
-                source.prepare_for_event(&mut text);
+                source.prepare_for_event(&mut text).unwrap();
                 assert!(
                     source
                         .handle_event(wheel(if (i / 60) % 2 == 0 { 48. } else { -48. }))

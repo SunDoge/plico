@@ -87,7 +87,7 @@ fn click(source: &mut Source<Demo>, text: &mut TextContext) {
         y: f64::from((rect[1] + rect[3]) * 0.5),
     };
     for phase in [PointerPhase::Down, PointerPhase::Up] {
-        source.prepare_for_event(text);
+        source.prepare_for_event(text).unwrap();
         assert!(
             source
                 .handle_event(UiEvent::Pointer(PointerEvent {
@@ -180,7 +180,7 @@ fn repeated_wheel_events_only_redeclare_when_scroll_is_observed() {
             let initial_calls = source.view.calls;
             for _ in 0..8 {
                 clock.advance(Duration::from_millis(16)).unwrap();
-                source.prepare_for_event(&mut text);
+                source.prepare_for_event(&mut text).unwrap();
                 let calls = source.view.calls;
                 assert!(source.handle_event(wheel(48.)).request_redraw);
                 sample(&mut source, &mut text);
@@ -205,7 +205,7 @@ fn repeated_wheel_events_only_redeclare_when_scroll_is_observed() {
 fn smooth_virtual_wheel_retarget_does_not_declare_twice_at_the_same_position() {
     let (mut source, clock, mut text) = setup(false, true);
     clock.advance(Duration::from_millis(80)).unwrap();
-    source.prepare_for_event(&mut text);
+    source.prepare_for_event(&mut text).unwrap();
     assert_eq!(source.view.first, 15);
     let calls = source.view.calls;
     assert!(source.handle_event(wheel(48.)).request_redraw);
@@ -235,7 +235,7 @@ fn direct_scroll_prepares_click_geometry_and_preserves_external_updates() {
     sample(&mut source, &mut text);
     let calls = source.view.calls;
     source.handle_event(wheel(480.));
-    source.prepare_for_event(&mut text);
+    source.prepare_for_event(&mut text).unwrap();
     assert_eq!(source.view.calls, calls);
     assert_eq!(offset(&source), 480.);
     click(&mut source, &mut text);
@@ -263,7 +263,7 @@ fn direct_virtual_scroll_mounts_rows_before_the_next_event() {
     sample(&mut source, &mut text);
     let calls = source.view.calls;
     source.handle_event(wheel(480.));
-    source.prepare_for_event(&mut text);
+    source.prepare_for_event(&mut text).unwrap();
     assert_eq!(source.view.calls, calls + 1);
     assert_eq!(source.view.first, 18);
     assert_eq!(offset(&source), 480.);
@@ -306,7 +306,7 @@ fn event_preparation_commits_current_scroll_geometry_without_declaration() {
     let (mut source, clock, mut text) = setup(false, false);
     let calls = source.view.calls;
     clock.advance(Duration::from_millis(80)).unwrap();
-    source.prepare_for_event(&mut text);
+    source.prepare_for_event(&mut text).unwrap();
     assert_eq!(source.view.calls, calls);
     assert_eq!(offset(&source), 420.);
     assert_eq!(source.engine.time().now, clock.now());
@@ -340,7 +340,7 @@ fn initial_missing_feedback_is_still_observed_and_observation_is_container_local
 fn final_scroll_position_is_presented_even_when_an_event_hits_nothing() {
     let (mut source, clock, mut text) = setup(false, false);
     clock.advance(Duration::from_millis(160)).unwrap();
-    source.prepare_for_event(&mut text);
+    source.prepare_for_event(&mut text).unwrap();
     assert_eq!(offset(&source), 480.);
     assert!(!source.has_anim());
     assert!(

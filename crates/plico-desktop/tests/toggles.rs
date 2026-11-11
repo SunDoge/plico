@@ -86,10 +86,10 @@ fn keyboard_and_semantic_actions_apply_final_disabled_config_and_toggle_once() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 240);
     s.handle_event(key("Tab"));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     assert_eq!(s.adapter.focused(), Some(entity(&s, "Editable")));
     s.handle_event(key("Space"));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     s.build_frame(&mut tcx, 400, 240);
     assert!(s.view.checked);
     assert_eq!(s.view.actions, 1);
@@ -101,7 +101,7 @@ fn keyboard_and_semantic_actions_apply_final_disabled_config_and_toggle_once() {
     assert_eq!(locked.states.checked, Some(SemanticToggleState::On));
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: locked.id }));
     s.handle_event(key("Tab"));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     assert_eq!(s.adapter.focused(), Some(entity(&s, "Editable"))); // skips the disabled checkbox
     s.view.locked = true;
     s.request_rebuild();

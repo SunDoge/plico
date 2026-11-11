@@ -965,7 +965,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         let mut source =
             Source::with_clock(NativeView(Form::default()), plico::VirtualClock::default());
         let mut scene = Scene::new();
-        source.prepare_for_event(&mut text);
+        source.prepare_for_event(&mut text).unwrap();
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
@@ -980,7 +980,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         assert!(source.handle_semantic_action(SemanticAction::Focus { target: id }));
         let value = "你好🙂 e\u{301} العربية";
         assert!(source.handle_event(UiEvent::Paste(value.into())).handled);
-        source.prepare_for_event(&mut text);
+        source.prepare_for_event(&mut text).unwrap();
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
@@ -1011,7 +1011,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
             text: "にほん".into(),
             cursor: None,
         }));
-        source.prepare_for_event(&mut text);
+        source.prepare_for_event(&mut text).unwrap();
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
@@ -1021,7 +1021,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         ));
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         source.handle_event(UiEvent::Ime(ImeEvent::Commit("日本".into())));
-        source.prepare_for_event(&mut text);
+        source.prepare_for_event(&mut text).unwrap();
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
@@ -1041,7 +1041,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
             })
         };
         source.handle_event(key("a"));
-        source.prepare_for_event(&mut text);
+        source.prepare_for_event(&mut text).unwrap();
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
@@ -1177,7 +1177,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
         let mut max_scroll = 0_f32;
         for frame in 0..48 {
             if frame % 12 == 0 {
-                source.prepare_for_event(&mut text);
+                source.prepare_for_event(&mut text).unwrap();
                 source.handle_event(UiEvent::Wheel(WheelEvent {
                     position,
                     delta_x: 0.,

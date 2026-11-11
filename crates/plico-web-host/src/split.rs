@@ -347,7 +347,10 @@ impl SplitHost {
         self.host.key(time, &event)
     }
     pub fn activate(&mut self, module: Function) -> Result<(), JsValue> {
-        self.host.source.prepare_for_event(&mut self.host.text);
+        self.host
+            .source
+            .try_prepare_for_event(&mut self.host.text)
+            .map_err(err)?;
         self.host.source.update(|view| view.activate(module))?;
         Ok(())
     }

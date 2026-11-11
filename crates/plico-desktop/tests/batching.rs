@@ -166,7 +166,7 @@ fn input_boundaries_preserve_repeated_clicks() {
         .id;
     let before = source.batch_stats();
     for _ in 0..3 {
-        source.prepare_for_event(&mut tcx);
+        source.prepare_for_event(&mut tcx).unwrap();
         assert!(source.handle_semantic_action(SemanticAction::Click { target }));
     }
     source.build_frame(&mut tcx, 400, 300);

@@ -48,7 +48,7 @@ fn values(source: &Source<Demo>) -> Vec<f32> {
         .unwrap()
 }
 fn pointer(source: &mut Source<Demo>, text: &mut TextContext, phase: PointerPhase, x: f64) {
-    source.prepare_for_event(text);
+    source.prepare_for_event(text).unwrap();
     source.handle_event(UiEvent::Pointer(PointerEvent {
         phase,
         position: Point { x, y: 50. },

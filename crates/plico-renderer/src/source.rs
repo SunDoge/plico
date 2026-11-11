@@ -115,7 +115,9 @@ pub trait FrameSource {
     /// Commit state queued by a previous native event before another event is
     /// dispatched. This is distinct from painting: input ordering must remain
     /// correct even when several platform events arrive before the next vsync.
-    fn prepare_for_event(&mut self, _tcx: &mut TextContext) {}
+    fn prepare_for_event(&mut self, _tcx: &mut TextContext) -> Result<(), FrameSourceError> {
+        Ok(())
+    }
 
     /// Lay out for `width x height` and return the paint-ordered node list.
     /// Borrowed `tcx` is used for text measurement (parley).

@@ -319,6 +319,6 @@ fn event_preparation_commits_geometry_without_exporting_a_snapshot() {
         .unwrap();
     s.view.wider = true;
     s.request_rebuild();
-    s.prepare_for_event(&mut text);
+    s.prepare_for_event(&mut text).unwrap();
     assert_eq!(s.adapter.stats.placed_node_clones, 0);
 }

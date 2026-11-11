@@ -300,6 +300,12 @@ impl<V: HostView> Source<V> {
         Ok(())
     }
 
+    /// Commit state queued by the previous event and report declaration failures.
+    pub fn try_prepare_for_event(&mut self, tcx: &mut TextContext) -> Result<(), SourceError> {
+        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
+        self.prepare_for_event_at(tcx, now)
+    }
+
     /// Build a frame and report declaration or clock failures to the caller.
     pub fn try_build_frame(
         &mut self,
@@ -716,14 +722,12 @@ impl<V: HostView> FrameSource for Source<V> {
         self.pending |= changed;
         changed
     }
-    fn prepare_for_event(&mut self, tcx: &mut TextContext) {
-        let result = self
-            .clock_instant()
-            .ok_or(SourceError::ClockRange)
-            .and_then(|now| self.prepare_for_event_at(tcx, now));
-        if let Err(error) = result {
-            tracing::error!(%error, "UI event preparation failed");
-        }
+    fn prepare_for_event(
+        &mut self,
+        tcx: &mut TextContext,
+    ) -> Result<(), plico_renderer::FrameSourceError> {
+        self.try_prepare_for_event(tcx)
+            .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn build_frame(&mut self, tcx: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
         match self.try_build_frame(tcx, width, height) {

@@ -184,7 +184,9 @@ pub(super) fn pointer(id: u64, phase: u32, x: f64, y: f64, pressed: bool) -> i32
             _ => return Err("invalid pointer phase".into()),
         };
         with_host(id, |host| {
-            host.source.prepare_for_event(&mut host.text);
+            host.source
+                .prepare_for_event(&mut host.text)
+                .map_err(|error| error.to_string())?;
 
             host.source.handle_event(UiEvent::Pointer(PointerEvent {
                 phase,

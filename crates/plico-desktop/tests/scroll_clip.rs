@@ -48,7 +48,7 @@ fn scrolling_glass_and_shadows_cannot_escape_the_scrollport_at_multiple_scales()
         source.view.glass = true;
         source.request_rebuild();
         for delta in [0., -30., -70., 40., -200., 200.] {
-            source.prepare_for_event(&mut text);
+            source.prepare_for_event(&mut text).unwrap();
             source.handle_event(UiEvent::Wheel(WheelEvent {
                 position: Point { x: 60., y: 60. },
                 delta_x: 0.,

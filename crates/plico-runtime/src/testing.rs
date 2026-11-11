@@ -128,7 +128,11 @@ pub fn dispatch<V: HostView>(
     text: &mut TextContext,
     command: &Command,
 ) -> Result<(), Error> {
-    source.prepare_for_event(text);
+    source
+        .try_prepare_for_event(text)
+        .map_err(|error| Error::Declaration {
+            message: error.to_string(),
+        })?;
     match command {
         Command::Snapshot => {}
         Command::PointerMove { x, y } => {
@@ -322,7 +326,11 @@ impl<V: HostView> Driver<V> {
 
     /// Deliver a backend-neutral event and settle the resulting frame.
     pub fn dispatch_event(&mut self, event: UiEvent) -> Result<EventResponse, Error> {
-        self.source.prepare_for_event(&mut self.text);
+        self.source
+            .try_prepare_for_event(&mut self.text)
+            .map_err(|error| Error::Declaration {
+                message: error.to_string(),
+            })?;
         let response = self.source.handle_event(event);
         self.frame()?;
         Ok(response)

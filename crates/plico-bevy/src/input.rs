@@ -1,5 +1,5 @@
 //! Ordered window-event translation; Bevy input resources are never cleared.
-use crate::{PlicoClipboardRequest, PlicoUi};
+use crate::{Error, PlicoClipboardRequest, PlicoUi};
 use bevy::{
     input::{
         ButtonState,
@@ -134,7 +134,11 @@ pub(crate) fn handle_input<V: plico::View + 'static>(
     for event in events.read() {
         // Flush the previous event's state changes before hit-testing or
         // delivering another key. This preserves normal shell event ordering.
-        ui.source.prepare_for_event(&mut ui.text);
+        if let Err(source) = ui.source.try_prepare_for_event(&mut ui.text) {
+            ui.error = Some(Error::Declaration { source });
+            events.clear();
+            return;
+        }
         let mut pending = smallvec::SmallVec::<[UiEvent; 3]>::new();
         let mut pointer = false;
         let mut keyboard = false;
