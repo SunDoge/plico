@@ -67,14 +67,14 @@ fn variable_list_redeclares_from_sparse_host_measurements() {
             .render_retained_frame(&mut scene, &mut text, (300, 160), 1.)
             .unwrap();
     }
-    assert_eq!(source.view.rendered, 0..4);
-    assert!(source.view.shows >= 2);
-    assert!(source.adapter.placed.len() < 32);
-    let settled_shows = source.view.shows;
+    assert_eq!(source.view().rendered, 0..4);
+    assert!(source.view().shows >= 2);
+    assert!(source.placed_nodes().len() < 32);
+    let settled_shows = source.view().shows;
     source
         .render_retained_frame(&mut scene, &mut text, (300, 160), 1.)
         .unwrap();
-    assert_eq!(source.view.shows, settled_shows);
+    assert_eq!(source.view().shows, settled_shows);
 }
 
 #[test]
@@ -111,27 +111,26 @@ fn prepending_rows_keeps_the_anchor_item_at_the_same_visual_position() {
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
-    let anchor = source.view.base + source.view.rendered.start;
+    let anchor = source.view().base + source.view().rendered.start;
     let label = format!("item {anchor}");
     let before = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some(label.as_str()))
         .expect("anchor row is mounted")
         .rect[1];
 
-    source.view.base -= 10;
-    source.view.count += 10;
-    source.request_rebuild();
+    source.update(|view| {
+        view.base -= 10;
+        view.count += 10;
+    });
     for _ in 0..4 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let after = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some(label.as_str()))
         .expect("the previous anchor follows its business key")
@@ -144,8 +143,7 @@ fn prepending_rows_keeps_the_anchor_item_at_the_same_visual_position() {
 
 fn scroll_offset(source: &Source<Demo>) -> f32 {
     source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.scroll.scrollable[1])
         .expect("variable list scroll port")
@@ -173,8 +171,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     let initial_end = scroll_offset(&source);
     assert!(initial_end > 500.);
 
-    source.view.count += 2;
-    source.request_rebuild();
+    source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -203,8 +200,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     let history_offset = scroll_offset(&source);
     assert!(history_offset < appended_end - 100.);
 
-    source.view.count += 2;
-    source.request_rebuild();
+    source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -234,8 +230,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     }
     let resumed_end = scroll_offset(&source);
     assert!(resumed_end > history_offset);
-    source.view.count += 2;
-    source.request_rebuild();
+    source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -243,13 +238,11 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     }
     assert!(scroll_offset(&source) > resumed_end);
 
-    source.view.reveal = Some(0);
-    source.request_rebuild();
+    source.update(|view| view.reveal = Some(0));
     source
         .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
-    source.view.reveal = None;
-    source.request_rebuild();
+    source.update(|view| view.reveal = None);
     for _ in 0..3 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -292,8 +285,7 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
     }
     let offset = |source: &Source<FixedDemo>| {
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.scroll.scrollable[1])
             .unwrap()
@@ -302,8 +294,7 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
     };
     let initial_end = offset(&source);
     assert!((initial_end - 900.).abs() < 0.5);
-    source.view.count += 5;
-    source.request_rebuild();
+    source.update(|view| view.count += 5);
     for _ in 0..3 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -326,8 +317,7 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
             .unwrap();
     }
     let history = offset(&source);
-    source.view.count += 5;
-    source.request_rebuild();
+    source.update(|view| view.count += 5);
     for _ in 0..3 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
@@ -363,8 +353,7 @@ fn fixed_list_prepend_follows_the_anchor_business_key() {
             .unwrap();
     }
     let anchor = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| {
             node.paint
@@ -377,17 +366,17 @@ fn fixed_list_prepend_follows_the_anchor_business_key() {
     let label = anchor.paint.text.as_deref().unwrap().to_owned();
     let before = anchor.rect[1];
 
-    source.view.base -= 10;
-    source.view.count += 10;
-    source.request_rebuild();
+    source.update(|view| {
+        view.base -= 10;
+        view.count += 10;
+    });
     for _ in 0..3 {
         source
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let after = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some(label.as_str()))
         .expect("anchor item follows its key")
@@ -449,22 +438,19 @@ fn fixed_list_keeps_the_section_header_and_the_next_one_pushes_it() {
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
-    assert!(source.view.rendered.start > 10);
+    assert!(source.view().rendered.start > 10);
     let header = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some("fixed section 10"))
         .expect("the header above the virtual range stays mounted");
     let next = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some("fixed section 20"))
         .expect("the next visible header is mounted");
     let sticky: Vec<_> = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|node| node.paint.sticky_top.is_some())
         .collect();
@@ -472,10 +458,10 @@ fn fixed_list_keeps_the_section_header_and_the_next_one_pushes_it() {
     assert!((sticky[0].rect[3] - sticky[1].rect[1]).abs() < 0.5);
     assert!(header.rect[1] < next.rect[1]);
     assert!(
-        source.adapter.placed.len() < 40,
+        source.placed_nodes().len() < 40,
         "placed={} rendered={:?}",
-        source.adapter.placed.len(),
-        source.view.rendered
+        source.placed_nodes().len(),
+        source.view().rendered
     );
 }
 
@@ -535,20 +521,18 @@ fn variable_list_measures_and_pins_the_header_above_its_virtual_range() {
             .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
-    let first = source.view.rendered.start;
+    let first = source.view().rendered.start;
     assert!(first > 10);
     let section = first / 10 * 10;
     assert!(section < first, "test must exercise an off-range header");
     let label = format!("variable section {section}");
     let header = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some(label.as_str()))
         .expect("the measured header above the virtual range stays mounted");
     let port_top = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.scroll.scrollable[1])
         .unwrap()
@@ -556,10 +540,10 @@ fn variable_list_measures_and_pins_the_header_above_its_virtual_range() {
         .port[1];
     assert!((header.rect[1] - port_top).abs() < 0.5);
     assert!(
-        source.adapter.placed.len() < 40,
+        source.placed_nodes().len() < 40,
         "placed={} rendered={:?}",
-        source.adapter.placed.len(),
-        source.view.rendered
+        source.placed_nodes().len(),
+        source.view().rendered
     );
 }
 
@@ -591,8 +575,7 @@ fn animated_follow_end_uses_the_injected_clock_and_retargets_continuously() {
     let mut scene = Scene::new();
     let offset = |source: &Source<AnimatedFixedDemo>| {
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.scroll.scrollable[1])
             .unwrap()
@@ -606,8 +589,7 @@ fn animated_follow_end_uses_the_injected_clock_and_retargets_continuously() {
     }
     assert!((offset(&source) - 900.).abs() < 0.5);
 
-    source.view.count += 5;
-    source.request_rebuild();
+    source.update(|view| view.count += 5);
     source
         .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
@@ -619,8 +601,7 @@ fn animated_follow_end_uses_the_injected_clock_and_retargets_continuously() {
     let halfway = offset(&source);
     assert!((halfway - 950.).abs() < 1., "halfway offset: {halfway}");
 
-    source.view.count += 5;
-    source.request_rebuild();
+    source.update(|view| view.count += 5);
     source
         .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();

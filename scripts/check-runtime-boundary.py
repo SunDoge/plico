@@ -44,6 +44,7 @@ migrated_test_files = {
     Path("crates/plico-runtime/tests/test_protocol.rs"),
     Path("crates/plico-runtime/tests/toast_motion.rs"),
     Path("crates/plico-runtime/tests/user_activity.rs"),
+    Path("crates/plico-runtime/tests/variable_list.rs"),
     Path("crates/plico-runtime/tests/virtual_table_width.rs"),
 }
 for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
