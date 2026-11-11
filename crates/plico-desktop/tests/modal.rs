@@ -71,8 +71,7 @@ fn key(value: &str, modifiers: Modifiers) -> UiEvent {
 }
 fn click(s: &mut Source<Demo>, name: &str) -> bool {
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, name, None)
         .unwrap()
         .id;
@@ -95,21 +94,19 @@ fn portal_escapes_clip_traps_focus_and_restores_after_animated_nested_close() {
     let mut text = TextContext::new();
     s.build_frame(&mut text, 600, 500);
     let background_id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Background", None)
         .unwrap()
         .id;
     let opener = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Open", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Focus { target: opener }));
     assert!(click(&mut s, "Open"));
     s.build_frame(&mut text, 600, 500);
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    let semantics = s.semantics();
     let dialog = semantics
         .node_by_role(SemanticRole::Dialog, "Edit project", None)
         .unwrap();
@@ -126,31 +123,29 @@ fn portal_escapes_clip_traps_focus_and_restores_after_animated_nested_close() {
     for _ in 0..9 {
         s.handle_event(key("Tab", Modifiers::empty()));
         s.build_frame(&mut text, 600, 500);
-        assert_ne!(s.adapter.semantics(&s.engine, 0).focus, Some(opener));
+        assert_ne!(s.semantics().focus, Some(opener));
     }
     assert!(click(&mut s, "Nested"));
     s.build_frame(&mut text, 600, 500);
-    assert!(s.view.nested.is_open());
+    assert!(s.view().nested.is_open());
     s.handle_event(key("Escape", Modifiers::empty()));
     s.build_frame(&mut text, 600, 500);
-    assert!(!s.view.nested.is_open());
-    assert!(s.view.dialog.is_open());
+    assert!(!s.view().nested.is_open());
+    assert!(s.view().dialog.is_open());
     assert!(s.has_anim());
-    let shows = s.view.shows;
+    let shows = s.view().shows;
     clock.advance(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut text, 600, 500);
-    assert_eq!(s.view.shows, shows);
+    assert_eq!(s.view().shows, shows);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Dialog, "Confirm change", None)
             .is_some()
     );
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Dialog, "Confirm change", None)
             .is_none()
     );
@@ -158,8 +153,8 @@ fn portal_escapes_clip_traps_focus_and_restores_after_animated_nested_close() {
     s.build_frame(&mut text, 600, 500);
     clock.advance(Duration::from_millis(150)).unwrap();
     s.build_frame(&mut text, 600, 500);
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(opener));
-    assert_eq!(s.view.background, 0);
+    assert_eq!(s.semantics().focus, Some(opener));
+    assert_eq!(s.view().background, 0);
 }
 #[test]
 fn backdrop_dismisses_without_click_through_and_close_button_unmounts() {
@@ -173,20 +168,20 @@ fn backdrop_dismisses_without_click_through_and_close_button_unmounts() {
     s.handle_event(pointer(PointerPhase::Cancel, 5., 5.));
     s.handle_event(pointer(PointerPhase::Up, 5., 5.));
     s.build_frame(&mut text, 600, 500);
-    assert!(s.view.dialog.is_open());
+    assert!(s.view().dialog.is_open());
     s.handle_event(pointer(PointerPhase::Down, 5., 5.));
     s.handle_event(pointer(PointerPhase::Up, 5., 5.));
     s.build_frame(&mut text, 600, 500);
-    assert!(!s.view.dialog.is_open());
-    assert_eq!(s.view.background, 0);
+    assert!(!s.view().dialog.is_open());
+    assert_eq!(s.view().background, 0);
     clock.advance(Duration::from_millis(150)).unwrap();
     s.build_frame(&mut text, 600, 500);
-    assert_eq!(s.adapter.semantics(&s.engine, 0).modal_root, None);
+    assert_eq!(s.semantics().modal_root, None);
     click(&mut s, "Open");
     s.build_frame(&mut text, 600, 500);
     click(&mut s, "Close dialog");
     s.build_frame(&mut text, 600, 500);
-    assert!(!s.view.dialog.is_open());
+    assert!(!s.view().dialog.is_open());
 }
 
 #[test]
@@ -202,21 +197,20 @@ fn ime_escape_cancels_composition_first_and_dismissal_policy_is_respected() {
     }));
     s.handle_event(key("Escape", Modifiers::empty()));
     s.build_frame(&mut text, 600, 500);
-    assert!(s.view.dialog.is_open());
-    assert!(!s.view.edits.is_composing());
-    s.view.locked = true;
-    s.request_rebuild();
+    assert!(s.view().dialog.is_open());
+    assert!(!s.view().edits.is_composing());
+    s.update(|view| view.locked = true);
     s.build_frame(&mut text, 600, 500);
     s.handle_event(key("Escape", Modifiers::empty()));
     s.build_frame(&mut text, 600, 500);
-    assert!(s.view.dialog.is_open());
+    assert!(s.view().dialog.is_open());
     s.handle_event(pointer(PointerPhase::Down, 5., 5.));
     s.handle_event(pointer(PointerPhase::Up, 5., 5.));
     s.build_frame(&mut text, 600, 500);
-    assert!(s.view.dialog.is_open());
+    assert!(s.view().dialog.is_open());
     click(&mut s, "Cancel");
     s.build_frame(&mut text, 600, 500);
-    assert!(!s.view.dialog.is_open());
+    assert!(!s.view().dialog.is_open());
 }
 
 #[test]
@@ -257,7 +251,7 @@ fn small_window_scrolls_dialog_content_without_scrolling_background() {
     s.build_frame(&mut text, 320, 240);
     clock.advance(Duration::from_millis(150)).unwrap();
     s.build_frame(&mut text, 320, 240);
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    let semantics = s.semantics();
     let dialog = semantics
         .node_by_role(SemanticRole::Dialog, "Long settings", None)
         .unwrap();
@@ -279,12 +273,11 @@ fn small_window_scrolls_dialog_content_without_scrolling_background() {
     };
     s.handle_event(wheel(5., 5.));
     s.build_frame(&mut text, 320, 240);
-    assert!(s.adapter.placed.iter().all(|p| p.scroll.offset[1] == 0.));
+    assert!(s.placed_nodes().iter().all(|p| p.scroll.offset[1] == 0.));
     s.handle_event(wheel(160., 120.));
     s.build_frame(&mut text, 320, 240);
     assert_eq!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .filter(|p| p.scroll.offset[1] > 0.)
             .count(),
@@ -300,37 +293,25 @@ fn fades_sample_in_host_without_redeclaring_and_reopen_reverses_the_exit() {
     s.build_frame(&mut text, 600, 500);
     click(&mut s, "Open");
     s.build_frame(&mut text, 600, 500);
-    let overlay = s
-        .engine
-        .node(s.engine.root())
-        .unwrap()
-        .children
-        .iter()
-        .copied()
-        .find(|e| s.engine.node(*e).unwrap().kind == plico::Kind::Overlay)
-        .unwrap();
     let opacity = |s: &Source<Demo>| {
-        let id = s.adapter.backend_id(overlay).unwrap();
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
-            .find(|p| p.node_id == id)
+            .find(|p| p.depth == 1 && p.rect == [0., 0., 600., 500.])
             .unwrap()
             .paint
             .opacity
     };
     assert_eq!(opacity(&s), 0.);
-    let shows = s.view.shows;
+    let shows = s.view().shows;
     clock.advance(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert!(opacity(&s) > 0. && opacity(&s) < 1.);
-    assert_eq!(s.view.shows, shows);
+    assert_eq!(s.view().shows, shows);
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert_eq!(opacity(&s), 1.);
     assert_eq!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .filter(|p| p.paint.text.as_deref() == Some("Edit project"))
             .count(),
@@ -338,20 +319,19 @@ fn fades_sample_in_host_without_redeclaring_and_reopen_reverses_the_exit() {
     );
     s.handle_event(key("Escape", Modifiers::empty()));
     s.build_frame(&mut text, 600, 500);
-    let shows = s.view.shows;
+    let shows = s.view().shows;
     clock.advance(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut text, 600, 500);
     let halfway = opacity(&s);
     assert!(halfway > 0. && halfway < 1.);
-    assert_eq!(s.view.shows, shows);
-    s.view.dialog.open();
-    s.request_rebuild();
+    assert_eq!(s.view().shows, shows);
+    s.update(|view| view.dialog.open());
     s.build_frame(&mut text, 600, 500);
     assert!((opacity(&s) - halfway).abs() < 0.001);
     clock.advance(Duration::from_millis(150)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert_eq!(opacity(&s), 1.);
-    assert!(s.view.dialog.is_open());
+    assert!(s.view().dialog.is_open());
 }
 
 #[test]
@@ -386,51 +366,41 @@ fn dialog_uses_one_entrance_progress_and_freezes_content_during_exit() {
     let mut s = Source::with_clock(view, clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 600, 500);
-    let builds = s.view.builds;
-    let overlay = *s
-        .engine
-        .node(s.engine.root())
-        .unwrap()
-        .children
-        .iter()
-        .find(|&&e| s.engine.node(e).unwrap().kind == plico::Kind::Overlay)
-        .unwrap();
-    let panel = *s
-        .engine
-        .node(overlay)
-        .unwrap()
-        .children
-        .iter()
-        .find(|&&e| s.engine.node(e).unwrap().kind == plico::Kind::Dialog)
-        .unwrap();
-    let paint = |s: &Source<Atomic>, e| {
-        let id = s.adapter.backend_id(e).unwrap();
-        s.adapter
-            .placed
-            .iter()
-            .find(|p| p.node_id == id)
-            .unwrap()
-            .paint
-            .clone()
-    };
+    let builds = s.view().builds;
     for ms in [16, 35, 70, 140] {
         clock.set(Duration::from_millis(ms)).unwrap();
         s.build_frame(&mut text, 600, 500);
-        let progress = paint(&s, overlay).opacity;
-        let y = paint(&s, panel).runtime_transform.unwrap()[5];
+        let progress = s
+            .placed_nodes()
+            .iter()
+            .find(|p| p.depth == 1 && p.rect == [0., 0., 600., 500.])
+            .unwrap()
+            .paint
+            .opacity;
+        let y = s
+            .placed_nodes()
+            .iter()
+            .find(|p| p.depth == 2 && p.rect != [0., 0., 600., 500.])
+            .and_then(|p| p.paint.runtime_transform)
+            .map(|transform| transform[5])
+            .unwrap();
         assert!(
             (y - 8. * (1. - progress)).abs() < 0.001,
-            "overlay and panel desynchronised at {ms}"
+            "overlay and panel desynchronised at {ms}: progress={progress} y={y}"
         );
-        assert_eq!(s.view.builds, builds);
+        assert_eq!(s.view().builds, builds);
     }
     s.update(|view| {
         view.state.close();
         view.label.clear();
     });
     s.build_frame(&mut text, 600, 500);
-    assert_eq!(s.view.builds, builds, "exit evaluated application content");
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    assert_eq!(
+        s.view().builds,
+        builds,
+        "exit evaluated application content"
+    );
+    let snapshot = s.semantics();
     assert!(
         snapshot
             .node_by_role(SemanticRole::Label, "Original body", None)
@@ -443,10 +413,9 @@ fn dialog_uses_one_entrance_progress_and_freezes_content_during_exit() {
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: commit.id }));
     clock.set(Duration::from_millis(210)).unwrap();
     s.build_frame(&mut text, 600, 500);
-    assert_eq!(s.view.builds, builds);
+    assert_eq!(s.view().builds, builds);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Label, "Original body", None)
             .is_some()
     );
@@ -457,14 +426,12 @@ fn dialog_uses_one_entrance_progress_and_freezes_content_during_exit() {
     });
     s.build_frame(&mut text, 600, 500);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Label, "Local 1", None)
             .is_some()
     );
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Label, "Fresh body", None)
             .is_some()
     );
@@ -497,8 +464,7 @@ fn reduced_motion_material_mounts_and_unmounts_without_partial_frames() {
     s.update(|view| view.0.close());
     s.build_frame(&mut text, 600, 500);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Label, "Body", None)
             .is_none()
     );

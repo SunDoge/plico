@@ -50,6 +50,7 @@ migrated_test_files = {
     Path("crates/plico-desktop/tests/layout_features.rs"),
     Path("crates/plico-desktop/tests/layout_reuse.rs"),
     Path("crates/plico-desktop/tests/materials.rs"),
+    Path("crates/plico-desktop/tests/modal.rs"),
     Path("crates/plico-desktop/tests/native_surface.rs"),
     Path("crates/plico-desktop/tests/popover.rs"),
     Path("crates/plico-desktop/tests/presentation_motion.rs"),

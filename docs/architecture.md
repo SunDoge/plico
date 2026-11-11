@@ -82,6 +82,9 @@ Select/menu 与 tree keyboard 测试也已迁移到语义快照。稳定 option 
 Engine/Adapter 字段；高亮画质仍从 retained paint 验证。
 Incremental 测试也已切到统一帧诊断：1000 节点稀疏 paint/layout patch、声明失败恢复、manual
 declare、共享 scene cache 不可变性和零 placed-node clone 的统计断言均保留，不再读取 Adapter 字段。
+Modal 综合测试也已迁移：portal clip escape、modal root、焦点陷阱、嵌套关闭、IME、backdrop、
+小窗口滚动、退出冻结和 reduced motion 均从语义与 retained presentation 验证。Overlay 与 dialog
+panel 的单一 entrance progress 通过 retained 层级和最终几何关联，不公开 Engine/backend ID 映射。
 
 ## 当前实现
 
