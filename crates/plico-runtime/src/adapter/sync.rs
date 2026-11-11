@@ -551,6 +551,7 @@ pub(crate) fn make_paint(
         foreground_blur: style.foreground_blur,
         corner_smoothing: style.corner_smoothing,
         sticky_top: style.sticky_top,
+        sticky_push: style.sticky_push,
         background: style
             .background
             .map(|c| resolve(c, theme).with_alpha(style.background_alpha)),

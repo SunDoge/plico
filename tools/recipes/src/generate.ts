@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { validate } from "./index.ts";
 
 const [entry, destination, ...extra] = process.argv.slice(2);
-if (!entry || !destination || extra.length) throw new Error("usage: node tools/recipes/src/generate.ts <suite.ts> <plan.json>");
+if (!entry || !destination || extra.length) throw new Error("usage: bun tools/recipes/src/generate.ts <suite.ts> <plan.json>");
 const plan = (await import(pathToFileURL(resolve(entry)).href)).default;
 validate(plan);
 for (const item of plan.cases) for (const step of item.steps) {

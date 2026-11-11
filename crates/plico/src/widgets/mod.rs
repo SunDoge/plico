@@ -245,8 +245,8 @@ pub use alert::{ALERT_DISMISSED, alert_dialog};
 pub use calendar::{CalendarResponse, calendar, calendar_content, calendar_with};
 pub use colorpicker::{color_picker, color_well};
 pub use composite::{
-    Panel, accordion, badge, choice, collapsible, nav_entry, nav_item, nav_menu, panel, progress,
-    segmented, separator, stat,
+    NavEntryAppearance, Panel, accordion, badge, choice, collapsible, nav_entry,
+    nav_entry_with_appearance, nav_item, nav_menu, panel, progress, segmented, separator, stat,
 };
 pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
@@ -339,6 +339,16 @@ pub fn virtual_list<'u, 'e>(
     row_height: f32,
 ) -> crate::VirtualList<'u, 'e> {
     crate::VirtualList::new(cx, count, row_height)
+}
+
+/// Variable-height virtual scrolling list. Visible rows are measured by the
+/// host; unseen rows use the running measured average.
+pub fn variable_virtual_list<'u, 'e>(
+    cx: &'u mut crate::UiContext<'e>,
+    count: usize,
+    estimated_row_height: f32,
+) -> crate::VariableVirtualList<'u, 'e> {
+    crate::VariableVirtualList::new(cx, count, estimated_row_height)
 }
 
 mod inspection;

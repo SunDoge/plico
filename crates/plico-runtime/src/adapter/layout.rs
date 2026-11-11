@@ -209,17 +209,32 @@ impl Adapter {
             let node = &self.placed[index];
             let natural = node.rect[1];
             let height = node.rect[3] - natural;
+            let push = node.paint.sticky_push;
             let Some(port_top) = port_top else {
                 index += 1;
                 continue;
             };
-            let maximum = (parent_bottom - height - natural).max(0.);
-            let delta = (port_top + top - natural).clamp(0., maximum);
             let depth = node.depth;
             let mut end = index + 1;
             while end < self.placed.len() && self.placed[end].depth > depth {
                 end += 1;
             }
+            let next_sticky_top = push.then(|| {
+                self.placed[end..]
+                    .iter()
+                    .take_while(|candidate| candidate.depth >= depth)
+                    .find(|candidate| {
+                        candidate.depth == depth
+                            && candidate.parent_node_id == parent
+                            && candidate.paint.sticky_top.is_some()
+                    })
+                    .map(|candidate| candidate.rect[1])
+            });
+            let mut maximum = (parent_bottom - height - natural).max(0.);
+            if let Some(Some(next_top)) = next_sticky_top {
+                maximum = maximum.min((next_top - height - natural).max(0.));
+            }
+            let delta = (port_top + top - natural).clamp(0., maximum);
             if delta > 0.01 {
                 for node in &mut self.placed[index..end] {
                     node.rect[1] += delta;

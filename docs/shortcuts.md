@@ -58,7 +58,7 @@ second focus tree. Logical and physical bindings may overlap; if both match,
 registration order breaks the tie within a scope. Register only scopes that are
 currently active. No per-frame registration or allocation is required to resolve.
 
-## Routing and hot reload
+## Routing and static hosts
 
 Focused controls, text editing and IME retain priority. Copy/Paste in a text
 field stay with that field; an unhandled Ctrl/Cmd+K can reach the app even while
@@ -66,11 +66,10 @@ the field is focused. Plain text is not intercepted. During IME composition or
 while a popup/modal owns input, the application fallback is suppressed.
 These are fallback shortcuts, not a capture-phase override of editor behavior.
 
-Static `NativeApp`, `impl_host_view_for_app!`, `ServiceView` and the reload host all
-forward full events. The module request adds a serde-defaulted `key_events`
-array; legacy `keys` requests remain supported. Rebuild host and module together
-to use the new full-event hook. Typed service commands from a consumed shortcut
-follow the same outbox path as button clicks.
+`NativeApp`, `impl_host_view_for_app!` and `ServiceView` all forward full events.
+Typed service commands from a consumed shortcut follow the same outbox path as
+button clicks. Scenario recipes can send the same structured key events without
+adding a separate dynamic-module protocol.
 
 The Rust testing protocol supports `Command::KeyEvent { event }` alongside the
 existing simple `Command::Key`. Tests can send real combinations without OS

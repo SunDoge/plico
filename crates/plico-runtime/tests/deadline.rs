@@ -109,3 +109,50 @@ fn timer_deadlines_do_not_suppress_real_presentation_animation() {
     assert!(!s.has_anim());
     assert_eq!(s.animation_deadline(), Some(deadline));
 }
+
+#[derive(Default)]
+struct DeclarativeMotion {
+    declarations: usize,
+    target: f32,
+    sampled: f32,
+}
+impl HostView for DeclarativeMotion {
+    fn show(&mut self, cx: &mut UiContext) {
+        self.declarations += 1;
+        self.sampled = cx.animate("width", self.target, Duration::from_millis(100));
+        column(cx).width(self.sampled);
+    }
+}
+
+#[test]
+fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(DeclarativeMotion::default(), clock.clone());
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .unwrap();
+    source.update(|view| view.target = 100.);
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .unwrap();
+    let started = source.view.declarations;
+    assert!(source.has_anim());
+    assert_eq!(source.animation_deadline(), None);
+
+    clock.advance(Duration::from_millis(50)).unwrap();
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .unwrap();
+    assert_eq!(source.view.declarations, started + 1);
+    assert!((source.view.sampled - 87.5).abs() < 1e-4);
+    assert!(source.has_anim());
+
+    clock.advance(Duration::from_millis(50)).unwrap();
+    source
+        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .unwrap();
+    assert_eq!(source.view.sampled, 100.);
+    assert!(!source.has_anim());
+}

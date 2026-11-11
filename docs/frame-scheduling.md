@@ -45,5 +45,5 @@ BatchStats.retained_samples 统计原生路径复用声明的采样次数；decl
 
 - 外层 shell 本来就会在没有活动动画/失效时等待；本轮减少的是已经收到重复绘制请求后的工作，没有新增持续轮询，也不声称由微秒样本推出 FPS/功耗。
 - 普通 smooth scroll 已可在宿主推进；读取滚动几何的容器（含虚拟列表）仍触发声明。详见 [滚动声明分离](scroll-presentation.md)。
-- 现有 VirtualList 仍为固定高度、可见范围加 overscan。可变高度测量缓存、行锚点和 prepend 保持位置尚未实现，本轮没有把它们当作已完成能力。
+- `VirtualList` 提供固定高度窗口；`VariableVirtualList` 使用按需 Taffy 尺寸反馈、MyGO 式稀疏高度块和测量锚点修正，并按业务 key 自动保持头部增删后的视图位置。
 - 单个节点 paint 变化仍可能重新编码整份 Scene。组件 memo、局部命令编码及布局边界缓存也没有因此实现。

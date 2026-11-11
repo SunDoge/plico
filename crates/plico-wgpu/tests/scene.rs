@@ -482,6 +482,54 @@ fn svg_fallback_matches_resvg_and_reuses_raster_across_position_changes() {
             "translation rerasterized SVG"
         );
     }
+
+    // A small icon at fractional DPI/centering is snapped and rasterized at
+    // its exact destination pixel size. The old path rasterized 23×23 then
+    // linearly resampled into a 22.5×22.5 quad, visibly softening strokes.
+    let mut fractional = Scene::new();
+    fractional.draw_svg(
+        document.clone(),
+        Affine::translate((5.25, 3.5)) * Affine::scale(22.5 / 32.),
+    );
+    let actual = renderer
+        .render_scene(&fractional, [40, 40], [0.; 4], false)
+        .unwrap();
+    let mut reference = resvg::tiny_skia::Pixmap::new(40, 40).unwrap();
+    // Rounded destination edges are (5, 4)–(28, 26), hence 23×22.
+    resvg::render(
+        &document.0,
+        resvg::tiny_skia::Transform::from_row(23. / 32., 0., 0., 22. / 32., 5., 4.),
+        &mut reference.as_mut(),
+    );
+    assert_eq!(
+        actual,
+        reference.data(),
+        "fractional SVG placement must match direct rasterization at snapped physical edges"
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn fractional_dpi_checkbox_rim_snaps_to_one_physical_pixel() {
+    let mut scene = Scene::new();
+    scene.stroke(
+        &kurbo::Stroke::new(1.),
+        Affine::translate((4.375, 4.375)) * Affine::scale(1.25),
+        PaintColor::from_rgba8(255, 255, 255, 255),
+        None,
+        &kurbo::RoundedRect::new(0.5, 0.5, 15.5, 15.5, 3.5),
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [32, 32], [0.; 4], false)
+        .unwrap();
+    let alpha = |x: usize, y: usize| pixels[(y * 32 + x) * 4 + 3];
+    assert_eq!(alpha(14, 4), 255, "the snapped top rim is fully covered");
+    assert_eq!(
+        alpha(14, 5),
+        0,
+        "a one-pixel rim must not bleed into the adjacent row"
+    );
 }
 
 #[test]

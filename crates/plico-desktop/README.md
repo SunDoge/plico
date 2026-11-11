@@ -5,7 +5,8 @@ Taffy 布局、Parley 文字、Vello 绘制与原生窗口。依赖的 plico-ren
 plico-shell、plico-motion 均在本仓库维护，不要求原 Wabou checkout。
 
 应用可通过 `run(app, title)` 静态启动实现 plico_dev::App 的业务结构体，
-或用 Source / View 组合自定义宿主。`hot-reload` feature 提供通用动态模块宿主。
+或用 Source / View 组合自定义宿主。开发模式重新编译并重启同一个普通 executable；
+桌面动态模块宿主已经移除。
 
 ```sh
 cargo run -p gallery

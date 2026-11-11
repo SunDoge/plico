@@ -1,8 +1,8 @@
 # Plico recipe authoring
 
 Private repository tooling: TypeScript imports and helpers generate a versioned
-JSON plan for a statically compiled Rust runner. Node >=22.18 is needed to execute
-erasable TS; `npm run check` separately checks types.
+JSON plan for a statically compiled Rust runner. Bun 1.4.4 manages dependencies,
+executes TypeScript and runs tests; `bun run check` separately checks types.
 
 The application runner lives in the separate Plicowarden checkout. From that
 repository's root:
@@ -16,7 +16,7 @@ The current command targets Plicowarden's synthetic fixtures. No C# or embedded 
 engine is needed. [Protocol, examples, reports and limits](../../docs/recipes.md).
 
 ```sh
-npm ci --prefix tools/recipes
-npm --prefix tools/recipes run check
-npm --prefix tools/recipes test
+bun install --cwd tools/recipes --frozen-lockfile
+bun run --cwd tools/recipes check
+bun run --cwd tools/recipes test
 ```

@@ -25,15 +25,17 @@ pub mod effects;
 pub mod materials;
 mod modal;
 mod model;
+mod motion;
 pub use materials::{BackdropBlur, Elevation, GlassStyle, LiquidGlass, ScrollEdgeSide};
 mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
 pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
+pub use motion::{Animation, SpringOptions};
 mod visibility;
 pub use visibility::VisibleRegion;
 mod virtual_list;
-pub use virtual_list::{VirtualList, VirtualListResponse};
+pub use virtual_list::{VariableVirtualList, VirtualList, VirtualListResponse};
 mod numeric;
 pub use numeric::{NumericRange, SliderResponse, ValueControlResponse};
 mod shader;
@@ -161,31 +163,32 @@ pub mod prelude {
     pub use crate::materials::{backdrop_blur, scroll_edge};
     pub use crate::widgets::{
         ALERT_DISMISSED, Avatar, Button, CalendarResponse, Checkbox, Field, FindResponse,
-        MeterLevels, Panel, RubyText, SearchResponse, Switch, TableColumn, Toast, ToastHost,
-        ToastKind, Tone, accordion, alert, alert_dialog, avatar, back_button, badge, badge_tone,
-        breadcrumbs, button, button_base, calendar, calendar_content, calendar_with, checkbox,
-        chip, choice, collapsible, color_picker, color_well, column, date_input, date_input_with,
-        drag_area, empty_state, field, fieldset, find_bar, form, forward_button, grid, icon, image,
-        link, menu, menu_item, meter, modal, nav_entry, nav_item, nav_menu, notification,
-        number_input, pagination, panel, popover, progress, progress_ring, progress_ring_sized,
-        property_field, radio, radio_group, range_slider, rating, rating_labeled, row, ruby_text,
-        search_field, segmented, select, separator, settings_row, settings_section, shader,
-        sidebar, sidebar_item, sidebar_section, skeleton, slider, spinner, split, split_percent,
-        split_vertical, split_vertical_percent, stat, stepper, stepper_labeled, svg, svg_source,
-        switch, table_header, table_row, tabs, tag, text, text_empty, text_input,
-        text_input_string, time_input, toast_viewport, toolbar, toolbar_spacer, tooltip, tree,
-        tree_item, virtual_list,
+        MeterLevels, NavEntryAppearance, Panel, RubyText, SearchResponse, Switch, TableColumn,
+        Toast, ToastHost, ToastKind, Tone, accordion, alert, alert_dialog, avatar, back_button,
+        badge, badge_tone, breadcrumbs, button, button_base, calendar, calendar_content,
+        calendar_with, checkbox, chip, choice, collapsible, color_picker, color_well, column,
+        date_input, date_input_with, drag_area, empty_state, field, fieldset, find_bar, form,
+        forward_button, grid, icon, image, link, menu, menu_item, meter, modal, nav_entry,
+        nav_entry_with_appearance, nav_item, nav_menu, notification, number_input, pagination,
+        panel, popover, progress, progress_ring, progress_ring_sized, property_field, radio,
+        radio_group, range_slider, rating, rating_labeled, row, ruby_text, search_field, segmented,
+        select, separator, settings_row, settings_section, shader, sidebar, sidebar_item,
+        sidebar_section, skeleton, slider, spinner, split, split_percent, split_vertical,
+        split_vertical_percent, stat, stepper, stepper_labeled, svg, svg_source, switch,
+        table_header, table_row, tabs, tag, text, text_empty, text_input, text_input_string,
+        time_input, toast_viewport, toolbar, toolbar_spacer, tooltip, tree, tree_item,
+        variable_virtual_list, virtual_list,
     };
     pub use crate::{
-        AUTO, Align, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display,
+        AUTO, Align, Animation, BackdropBlur, BoxSizing, CalendarDate, Color, Direction, Display,
         DisplayPreferences, Edges, Elevation, FlexDirection, FlexWrap, FocusAxis, FontFamily,
         GlassStyle, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
         InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics,
         ModalState, Modifiers, Motion, PopoverState, Position, Presentation, Response, Route,
         Router, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap,
-        SliderResponse, StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, ToggleResponse,
-        Track, TrackSize, UiContext, ValueControlResponse, VirtualList, VirtualListResponse,
-        VisibleRegion, Widget, component, fr, minmax, percent, px, text,
+        SliderResponse, SpringOptions, StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay,
+        ToggleResponse, Track, TrackSize, UiContext, ValueControlResponse, VirtualList,
+        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
     };
 }
 

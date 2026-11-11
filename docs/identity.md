@@ -42,12 +42,12 @@ fn rows(ui: &mut Ui<'_>, items: &[Item]) {
 - 宏外普通 builder 保留按兄弟顺序的 Auto fallback，适合固定结构；不会假称任意未标记 Rust 函数都有编译期身份。
 - 支持同步函数和 impl 方法，要求有命名的 `&mut UiContext` 或兼容的 `&mut Ui` 参数。传递这个 Ui 变量的普通函数/方法调用会被建立 scope；返回借用 builder 的自定义 factory 放在 children 接收者位置或双分号块的头部，由调用点直接附加 __implicit_key；其他普通 helper 在自身完成声明。含 return/break/continue/await 的调用参数应先在外面求值，宏会诊断以避免改变控制流。
 - 不解析任意第三方宏里的 UI；局部独立函数需要自己标记 component。别名 view 宏不作为 component 的特殊语法识别。
-- ID 不受空行、注释、文字内容变更影响；插入/删除 UI 声明、重命名组件或改变代码结构可能改变后续 ID。热更新仍是 best effort，不保证任意源码编辑保留焦点/控件临时状态。业务 App state 的 Serde 恢复独立于这些 ID。
+- ID 不受空行、注释、文字内容变更影响；插入/删除 UI 声明、重命名组件或改变代码结构可能改变后续 ID。静态重启不会保留焦点或控件临时状态；业务持久数据使用显式 storage key，不依赖这些词法 ID。
 - Scope/local ID 都是进程协议中的数值身份，不是对外持久数据格式。Engine::find 可寻找唯一的显式局部 key；多个 scoped 实例使用同名 key 时返回 None。
 
 ## 验证
 
-core identity 测试覆盖条件插入、嵌套 view、重复函数/方法、显式覆盖、列表重排/删除/重新挂载、重复身份拒绝和新 Engine 的点击路径恢复。scripts/check-hotreload.py 验证实际动态库热更新时修改文字和插入空行后 keys 保持一致；报告在 reports/hotreload。
+core identity 测试覆盖条件插入、嵌套 view、重复函数/方法、显式覆盖、列表重排/删除/重新挂载、重复身份拒绝和新 Engine 的点击路径恢复。
 
 scripts/check-lsp.py 通过真实 rust-analyzer JSON-RPC 验证 component 内 Ui 方法、builder 方法和布局头部补全，报告在 reports/macros/lsp.json。当前是 18 个具体样本的证据，不代表任意残缺宏或任意第三方宏都能补全。使用默认 rustfmt，不引入格式配置或专用 formatter。
 

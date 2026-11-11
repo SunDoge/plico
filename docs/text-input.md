@@ -30,7 +30,7 @@ Engine 的输入绑定独立于 ViewNode：显示树只包含 accessible label�
 
 当前支持 Unicode grapheme 删除/左右移动、Home/End、Shift 选择、点击定位、全选、普通文本复制/剪切与粘贴、单行过滤、Enter 提交、基本 IME preedit/commit 和水平跟随光标。组合期间 Enter 留给 IME。光标静态显示。拖动选择、单词导航、撤销、闪烁、完整 marked-range/组合光标以及复杂双向文本编辑仍待补齐。
 
-这条路径目前只接入静态原生 `View`。开发热更新应用的 ViewNode 协议不会传输原生编辑绑定；不能据此宣称动态模块已有可用输入。含密码/会话的应用应使用不要求序列化的 `run_view_with_options`，不要为了热更新序列化凭据。
+这条路径接入普通静态 `App` / `View`，编辑缓冲与密码不要求序列化。含密码或会话的应用把服务和秘密留在宿主状态，通过消息投影结果；recipe 使用合成 fixture，不写入真实凭据。
 
 Warden Desktop 是实际调用方：原生输入 → Rust 队列 → Tokio SDK worker → reply + wake → UI 投影。请求带 generation，取消/锁定后丢弃旧回复；UI 线程不等待网络。这是应用侧 actor，尚不是框架通用异步任务 API。
 

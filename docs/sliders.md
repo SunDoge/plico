@@ -23,17 +23,17 @@ response().changed 只表示本次消费的输入改变了规范化后的值，�
 
 尚未提供双 thumb 范围选择、tick label、自定义 value-text、本地化数字输入或 RTL 专门策略；不将它们视为已经实现。
 
-## 稳定身份与热重载
+## 稳定身份与测试命令
 
 数值范围属于 Node / ViewNode 的 numeric payload，不放入每个节点都复制的 Style。Style 只保存 paint revision；滑块数值变化不会单独触发布局。应用若同时改变文字或尺寸，它们仍正常测量和布局。
 
 Engine.queue_value 与 queue_value_path 收集有限标量，同一目标在一轮声明前的更新取最新值。键盘连续增减基于未消费的值累积。Slider 消费事件后直接更新借用值，按通常的同帧稳定化规则再声明一次；副作用只写在 response().changed 条件内。
 
-开发协议在原有 clicks 外增加可选 values，使用逻辑路径而非 arena handle。ReloadView 回放数值输入，模块恢复应用状态并消费事件。静态调用用 component 的生成身份，动态列表仍需业务 key。正确标识控件时，卸载、禁用或路径失效的旧事件不会应用给其他控件。没有把闭包或 &mut f64 留在 retained arena 中。
+测试命令的 `values` 使用逻辑路径而非 arena handle。静态调用用 component 的生成身份，动态列表仍需业务 key。正确标识控件时，卸载、禁用或路径失效的旧事件不会应用给其他控件。没有把闭包或 `&mut f64` 留在 retained arena 中。
 
 ## 例子和验证
 
-Gallery → Motion 的 Exposure 控制实时 WGSL 的 uniform。scripts/check-modal-reload.py 在打开的 modal 内通过 headless SetValue 改变滑块，校验步进、应用状态、shader payload 和真实 cdylib 替换后的保留。
+Gallery → Motion 的 Exposure 控制实时 WGSL 的 uniform。静态场景通过 `SetValue` 改变滑块，校验步进、应用状态和 shader payload。
 
 ```sh
 cargo run -p gallery
@@ -41,4 +41,4 @@ cargo test -p plico-desktop --test slider
 cargo test -p plico --test slider
 ```
 
-只读参考 MyGO ui/base.go / ui/widgets.go 的 SliderBase、连续/步进数值绑定，以及 Wabou slider.tsx 的键盘、orientation、reversed 和范围规范化。未修改原仓库，也未复制其实现。测试覆盖拖动捕获、键盘累积、AT 设值与增减、禁用继承、端点、极端步长、非法配置、同帧值和热重载协议。语义桥接测试不等同于实机屏幕阅读器验收。
+只读参考 MyGO ui/base.go / ui/widgets.go 的 SliderBase、连续/步进数值绑定，以及 Wabou slider.tsx 的键盘、orientation、reversed 和范围规范化。未修改原仓库，也未复制其实现。测试覆盖拖动捕获、键盘累积、AT 设值与增减、禁用继承、端点、极端步长、非法配置和同帧值。语义桥接测试不等同于实机屏幕阅读器验收。

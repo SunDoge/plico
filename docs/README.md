@@ -51,10 +51,10 @@
 | [布局与样式动画](layout-style.md) | 目标声明、真实重排、属性过渡与模拟时钟验证 |
 | [应用内毛玻璃](glass.md) | 背景高斯模糊、底色透明度、圆角裁剪与前缀重放边界 |
 | [主题转场](theme-transition.md) | 场景复用与 GPU 圆形裁剪 |
-| [宿主服务与可重载 UI](host-services.md) | 类型化快照/消息、常驻 worker、自定义 main 与恢复边界 |
+| [宿主服务与 UI](host-services.md) | 类型化快照/消息、常驻 worker、自定义 main 与任务边界 |
 | [国际化](i18n.md) | 显式 locale scope、Fluent 消息、裁剪 ICU4X 数据与中英文 gallery |
 | [场景预览](preview.md) | JSON 状态、模拟操作、虚拟时钟、离屏截图与自动编译重启 |
-| [动画、异步与热更新](lifecycle.md) | 模拟时钟实验的结论和未来迁移约束 |
+| [动画、异步与开发生命周期](lifecycle.md) | scalar motion、宿主任务边界与静态编译预览 |
 | [自动身份](identity.md) | component/view 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
@@ -94,7 +94,7 @@
 
 - [通用声明期裁剪](visibility.md)：可见矩形、原图坐标变换、固定行列范围与卸载边界。
 - [漫画竖排嵌字实验](vertical-text-experiment.md)：HarfRust 竖排整形、固定字数换列与 Skia 离屏合成。
-- [固定行高虚拟列表](virtual-list.md)：可见窗口、业务身份和热重载滚动反馈。
+- [虚拟列表](virtual-list.md)：固定/可变行高、稀疏测量、可见窗口与业务身份。
 
 - [性能与结构同步](performance.md)：CPU/分配探针、局部同步与服务快照版本。
 

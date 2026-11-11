@@ -3,7 +3,11 @@ mod experiment;
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
 #[cfg(feature = "experiment-patch")]
 pub use experiment::{ExperimentButtonStyle, ExperimentContext, ExperimentTextStyle};
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+};
 
 /// Minimal application UI contract: a theme and immediate declarations.
 ///
@@ -59,6 +63,8 @@ pub struct Engine {
     focused: Option<Entity>,
     pub(crate) scroll_requests: HashMap<Entity, f32>,
     scroll_viewports: HashMap<Entity, [f32; 2]>,
+    layout_sizes: HashMap<Entity, [f32; 2]>,
+    layout_size_observers: RefCell<HashSet<Entity>>,
     scroll_paths: Vec<(Vec<crate::PathKey>, [f32; 2])>,
     width: f32,
     height: f32,
@@ -124,6 +130,8 @@ impl Default for Engine {
             focused: None,
             scroll_requests: HashMap::new(),
             scroll_viewports: HashMap::new(),
+            layout_sizes: HashMap::new(),
+            layout_size_observers: RefCell::new(HashSet::new()),
             scroll_paths: Vec::new(),
             width: 720.,
             height: 820.,
@@ -259,6 +267,41 @@ impl Engine {
         self.nodes
             .get(entity)
             .is_some_and(|node| node.scroll_observed.get())
+    }
+    /// Backend query: did this node's declaration read its laid-out size?
+    #[doc(hidden)]
+    pub fn observes_layout_size(&self, entity: Entity) -> bool {
+        self.layout_size_observers.borrow().contains(&entity)
+    }
+    /// Sparse snapshot used by hosts to feed only nodes that requested size.
+    #[doc(hidden)]
+    pub fn layout_size_observers(&self) -> Vec<Entity> {
+        self.layout_size_observers
+            .borrow()
+            .iter()
+            .copied()
+            .collect()
+    }
+    /// Host feedback for an observed node's border-box size in logical pixels.
+    /// Returns whether the value changed enough to require another declaration.
+    #[doc(hidden)]
+    pub fn set_layout_size(&mut self, entity: Entity, size: [f32; 2]) -> bool {
+        if self.nodes.get(entity).is_none()
+            || !size.iter().all(|value| value.is_finite() && *value >= 0.)
+        {
+            return false;
+        }
+        if self.layout_sizes.get(&entity) == Some(&size) {
+            return false;
+        }
+        self.layout_sizes.insert(entity, size);
+        true
+    }
+    pub(crate) fn layout_size(&self, entity: Entity) -> Option<[f32; 2]> {
+        if self.nodes.get(entity).is_some() {
+            self.layout_size_observers.borrow_mut().insert(entity);
+        }
+        self.layout_sizes.get(&entity).copied()
     }
     pub(crate) fn scroll_viewport(&self, entity: Entity) -> Option<[f32; 2]> {
         if let Some(node) = self.nodes.get(entity) {
@@ -873,6 +916,7 @@ impl Engine {
         node.declared_children = 0;
         node.order_dirty = false;
         node.scroll_observed.set(false);
+        self.layout_size_observers.get_mut().remove(&entity);
         node.auto = 0;
         node.touched = self.epoch;
         node.wake_at = None;
@@ -1158,6 +1202,8 @@ impl Engine {
         }
         for id in self.removed.iter().copied() {
             self.scroll_viewports.remove(&id);
+            self.layout_sizes.remove(&id);
+            self.layout_size_observers.get_mut().remove(&id);
             self.hover_regions.get_mut().remove(&id);
             self.pointer_regions.get_mut().remove(&id);
             let node = self.nodes.remove(id).unwrap();

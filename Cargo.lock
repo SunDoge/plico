@@ -3283,7 +3283,6 @@ dependencies = [
  "plico-editor",
  "plico-i18n",
  "plico-markdown",
- "plico-motion",
  "plico-renderer",
  "plico-shell",
  "plico-wgpu",

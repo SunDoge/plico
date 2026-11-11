@@ -24,23 +24,18 @@ impl SvgCache {
     pub fn stats(&self) -> (usize, usize) {
         (self.entries.len(), self.bytes)
     }
-    pub fn raster(&mut self, document: &SvgDocument, scale: f64) -> Result<ImageData> {
+    pub fn raster(&mut self, document: &SvgDocument, width: u32, height: u32) -> Result<ImageData> {
         let size = document.0.size();
-        let width = (size.width() as f64 * scale).ceil();
-        let height = (size.height() as f64 * scale).ceil();
-        if !width.is_finite()
-            || !height.is_finite()
-            || width < 1.
-            || height < 1.
-            || width > 16384.
-            || height > 16384.
-            || width * height * 4. > 64. * 1024. * 1024.
+        if width == 0
+            || height == 0
+            || width > 16384
+            || height > 16384
+            || u64::from(width) * u64::from(height) * 4 > 64 * 1024 * 1024
         {
             return Err(Error::InvalidInput {
                 reason: "SVG raster exceeds dimensions/64 MiB limit".into(),
             });
         }
-        let (width, height) = (width as u32, height as u32);
         let key = (Arc::as_ptr(&document.0) as usize, width, height);
         if let Some(entry) = self.entries.get(&key) {
             return Ok(entry.image.clone());

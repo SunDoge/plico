@@ -45,9 +45,9 @@ Layout、Text、Button 提供 height、opacity、radius、background、transitio
 
 原生 FrameSource 使用 Instant；测试/离屏实验可调用 `Source::build_frame_at(..., now)` 和 `prepare_for_event_at(..., now)`，不睡眠。事件提交目标前先更新时间基线，防止把长时间 idle 算成新动画已播放时间。动画最后一帧提交精确目标，has_anim=false 后宿主恢复休眠。
 
-`Source::set_reduced_motion(true)` 同时关闭属性和主题过渡，并请求重声明；尚未自动读取 OS 偏好。直接修改 Source::view 的外部调用方，应调用 request_rebuild，尤其在动画进行中。UI 事件和 reload 通路会自动标记。
+`Source::set_reduced_motion(true)` 同时关闭属性和主题过渡，并请求重声明；桌面宿主会把系统显示偏好写入同一入口。直接修改 Source::view 的外部调用方，应调用 request_rebuild，尤其在动画进行中。UI 事件会自动标记。
 
-应用 state 通过热更新恢复，动画则继续保存在 host；不能沿用的节点因世代变化重新初始化。App::show 返回 ()；事件消费自动请求稳定化，动画播放使用独立的 ANIMATE 请求或宿主 motion 状态。外部时钟入口见 clock.md。
+应用 state 由普通 Rust 所有权和应用持久化管理；重启不会迁移内存中的动画。App::show 返回 ()；事件消费自动请求稳定化，动画播放使用独立的 ANIMATE 请求或宿主 motion 状态。外部时钟入口见 clock.md。
 
 ## 验证与运行
 
@@ -62,7 +62,7 @@ cargo test -p plico-desktop --test style_motion
 
 示例生成 reports/layout-style 的 0/70/140/280 ms 真实 Vello PNG 和 report.json；batch.json 记录 100/1000 个同时布局动画的单次 CPU 采样，并断言纯动画帧应用调用次数不变。它不包含 GPU/呈现耗时，不能据此声称实际 FPS。
 
-另有 development.json 记录真实 CLI 常驻宿主 + gallery cdylib 的两次展开/收起点击及动画字段传输验证；它验证开发通路，不替代真实桌面逐帧流畅度检查。
+Gallery 的 JSON 场景覆盖两次展开/收起和中间动画采样；它验证静态应用、虚拟时钟与真实 renderer 的开发通路，不替代真实桌面逐帧流畅度检查。
 
 ## Flex 布局展示
 

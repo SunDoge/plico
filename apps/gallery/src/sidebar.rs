@@ -7,20 +7,7 @@ use plico::{Route, prelude::*};
 pub fn show(cx: &mut UiContext, app: &mut Gallery) {
     let l = cx.localizer();
     let collapsed = app.sidebar_collapsed;
-    let now = cx.now();
-    let width = cx.transient_state("sidebar.width", || {
-        std::cell::RefCell::new(plico_motion::Animated::new(if collapsed { 64. } else { 224. }))
-    });
-    let (width, active) = {
-        let state = width.read();
-        let mut motion = state.borrow_mut();
-        motion.retarget(now, if collapsed { 64. } else { 224. }, std::time::Duration::from_millis(240),
-            plico_motion::Easing::EaseOut);
-        (motion.value(now) as f32, motion.active(now))
-    };
-    if active {
-        cx.request_animation_frame();
-    }
+    let width = cx.animate("sidebar.width", if collapsed { 64. } else { 224. }, std::time::Duration::from_millis(240));
     // As MyGO's collapsible panels: the content keeps its expanded width and
     // the animated edge clips it, so nothing reflows or squeezes. Labels fade
     // over the last 50 px of travel, and the toggle rides the moving edge
@@ -133,10 +120,8 @@ fn entry(
     reveal: Option<f32>,
 ) -> Response {
     let m = cx.theme().metrics;
-    button_base(cx, label).width_percent(100.).height(m.control_height as f32).min_width(0.).padding_x(8).gap(8)
-        .radius(6.).selected(selected).background(if selected { Color::Selection } else { Color::Panel })
-        .hover_background(Color::ControlHover).pressed_background(Color::ControlPressed)
-        .color(if selected { Color::Accent } else { Color::Foreground }).transition(0).children(|cx| {
+    nav_entry_with_appearance(cx, label, selected, NavEntryAppearance::Quiet).height(m.control_height as f32)
+        .min_width(0.).padding_x(8).gap(8).radius(6.).transition(0).children(|cx| {
         icon(cx, icon_asset).size(18., 18.);
         if let Some(reveal) = reveal {
             text(cx, label).font_size(m.font_size).weight(if selected { 600 } else { 400 }).ellipsis(true)

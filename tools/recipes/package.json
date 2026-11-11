@@ -2,15 +2,17 @@
   "name": "@plico/recipes",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.4",
   "engines": {
-    "node": ">=22.18.0"
+    "bun": ">=1.4.4"
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
-    "generate": "node src/generate.ts"
+    "test": "bun test test",
+    "generate": "bun src/generate.ts"
   },
   "devDependencies": {
+    "@types/bun": "1.3.10",
     "@types/node": "26.6.6",
     "typescript": "7.0.2"
   }

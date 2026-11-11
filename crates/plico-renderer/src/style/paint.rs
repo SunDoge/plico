@@ -415,6 +415,7 @@ impl DeclaredPaint {
             foreground_blur: 0.,
             corner_smoothing: 0.,
             sticky_top: None,
+            sticky_push: false,
             text: host.text,
             text_runs: host.text_runs,
             selection_rects: host.selection_rects,
@@ -568,6 +569,8 @@ pub struct Paint {
     pub corner_smoothing: f32,
     /// Top inset for a sticky-scroll node; `None` is not sticky.
     pub sticky_top: Option<f32>,
+    /// Whether the next sticky sibling pushes this node away.
+    pub sticky_push: bool,
     /// Resolved background fill.
     pub background: Option<Color>,
     /// Node opacity before ancestor composition.
@@ -667,6 +670,7 @@ impl Clone for Paint {
             foreground_blur: self.foreground_blur,
             corner_smoothing: self.corner_smoothing,
             sticky_top: self.sticky_top,
+            sticky_push: self.sticky_push,
             background: self.background,
             opacity: self.opacity,
             transform: self.transform.clone(),
@@ -719,6 +723,7 @@ impl Clone for Paint {
             foreground_blur,
             corner_smoothing,
             sticky_top,
+            sticky_push,
             background,
             opacity,
             transform,
@@ -761,7 +766,8 @@ impl Clone for Paint {
             widget,
             intrinsic_size,
         } = self;
-        self.sticky_top = *sticky_top;
+        *sticky_top = source.sticky_top;
+        *sticky_push = source.sticky_push;
         *backdrop_blur = source.backdrop_blur;
         *foreground_blur = source.foreground_blur;
         *corner_smoothing = source.corner_smoothing;
@@ -968,4 +974,28 @@ fn named_color(name: &str) -> Option<Color> {
         _ => return None,
     };
     Some(c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Paint;
+
+    #[test]
+    fn clone_from_copies_retained_sticky_state() {
+        let mut target = Paint {
+            sticky_top: Some(12.),
+            sticky_push: false,
+            ..Paint::default()
+        };
+        let source = Paint {
+            sticky_top: Some(3.),
+            sticky_push: true,
+            ..Paint::default()
+        };
+
+        target.clone_from(&source);
+
+        assert_eq!(target.sticky_top, Some(3.));
+        assert!(target.sticky_push);
+    }
 }

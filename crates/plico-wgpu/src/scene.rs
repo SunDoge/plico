@@ -384,6 +384,14 @@ fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize
     ]);
     Ok(q)
 }
+
+fn snap_quad_rect(q: &mut Quad) {
+    let x0 = q.rect[0].round();
+    let y0 = q.rect[1].round();
+    let x1 = (q.rect[0] + q.rect[2]).round();
+    let y1 = (q.rect[1] + q.rect[3]).round();
+    q.rect = [x0, y0, x1 - x0, y1 - y0];
+}
 fn brush(q: &mut Quad, brush: &Brush, local: Rect, index: usize) -> Result<()> {
     match brush {
         Brush::Solid(color) => q.colors = [color.components; 2],
@@ -816,7 +824,13 @@ impl Renderer {
                             return Err(unsupported(index, "beveled rectangle stroke"));
                         };
                         let mut q = quad(rect.inset(half), outer_radii, *transform, clip, index)?;
-                        q.border_width = (style.width * uniform(*transform, index)?.0) as f32;
+                        let physical_width = style.width * uniform(*transform, index)?.0;
+                        // MyGO snaps box edges and rounds every non-zero border
+                        // to at least one physical pixel. A fixed logical 0.5
+                        // offset only aligns at 1×; at 1.25×/1.5× it otherwise
+                        // spreads a checkbox rim across adjacent pixels.
+                        snap_quad_rect(&mut q);
+                        q.border_width = physical_width.round().max(1.) as f32;
                         q.border_color = color.components;
                         draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                     }
@@ -1132,15 +1146,26 @@ impl Renderer {
                         transform,
                     } => {
                         let (scale, [tx, ty]) = uniform(*transform, index)?;
-                        let image = self.svgs.raster(document, scale)?;
                         let size = document.0.size();
-                        let q = quad(
+                        let mut q = quad(
                             Rect::new(0., 0., size.width() as f64, size.height() as f64),
                             [0.; 4],
                             Affine::new([scale, 0., 0., scale, tx, ty]),
                             clip,
                             index,
                         )?;
+                        // Match MyGO's SVG path: snap all destination edges to
+                        // physical pixels, raster at that exact size, then draw
+                        // 1:1. Rasterizing ceil(scale*size) and resampling it
+                        // into a fractional destination visibly softens small
+                        // icons at 125%/150% scale or half-pixel centering.
+                        snap_quad_rect(&mut q);
+                        if q.rect[2] <= 0. || q.rect[3] <= 0. {
+                            continue;
+                        }
+                        let image =
+                            self.svgs
+                                .raster(document, q.rect[2] as u32, q.rect[3] as u32)?;
                         draws.push(image_draw(
                             &mut payloads,
                             crate::image::ImageQuad {
@@ -1148,7 +1173,7 @@ impl Renderer {
                                 image,
                                 uv: [0., 0., 1., 1.],
                                 uv_transform: None,
-                                quality: peniko::ImageQuality::Medium,
+                                quality: peniko::ImageQuality::Low,
                                 extend: [peniko::Extend::Pad; 2],
                                 alpha: 1.,
                             },
@@ -1651,6 +1676,14 @@ impl Renderer {
 #[cfg(test)]
 mod storage_profile {
     use super::*;
+
+    #[test]
+    fn physical_box_edges_snap_without_changing_the_opposite_edge_independently() {
+        let mut q = Quad::new([0.625, 1.25, 22.5, 22.5], [0.; 4]);
+        snap_quad_rect(&mut q);
+        assert_eq!(q.rect, [1., 1., 22., 23.]);
+    }
+
     #[test]
     #[ignore = "manual CPU storage/materialization experiment"]
     fn prepared_scene_storage_and_materialization() {

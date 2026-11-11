@@ -266,15 +266,23 @@ impl Adapter {
             | SemanticAction::Decrement { target } => target,
             _ => return false,
         };
+        // Semantic actions address the exposed accessibility tree, not the
+        // keyboard Tab sequence. Roving containers intentionally keep only
+        // the selected tab/radio/tree item in `tab_order`, but assistive
+        // technology must still be able to activate any exposed peer.
+        let snapshot = self.build_semantics(engine, 0);
+        if !snapshot
+            .exposed_nodes()
+            .into_iter()
+            .any(|node| node.id == target)
+        {
+            return false;
+        }
         let Some(e) = self
-            .tab_order
+            .placed
             .iter()
-            .copied()
-            .find(|e| semantic_id(*e) == target)
-            .or_else(|| {
-                self.modal_dialog(engine)
-                    .filter(|e| semantic_id(*e) == target)
-            })
+            .filter_map(|placed| self.reverse.get(&placed.node_id).copied())
+            .find(|entity| semantic_id(*entity) == target)
         else {
             return false;
         };

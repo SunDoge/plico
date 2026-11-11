@@ -509,6 +509,24 @@ impl<V: HostView> Source<V> {
             &self.declared_dirty,
             self.declared_changes,
         );
+        let mut observed_size_changed = false;
+        for entity in self.engine.layout_size_observers() {
+            let Some(node_id) = self.adapter.backend_id(entity) else {
+                continue;
+            };
+            let Some(&index) = self.adapter.placed_indices.get(&node_id) else {
+                continue;
+            };
+            let rect = self.adapter.placed[index].rect;
+            observed_size_changed |= self.engine.set_layout_size(
+                entity,
+                [(rect[2] - rect[0]).max(0.), (rect[3] - rect[1]).max(0.)],
+            );
+        }
+        if observed_size_changed {
+            self.pending = true;
+            self.requests.insert(plico::Changes::VIEW);
+        }
         self.declared_dirty.clear();
         self.declared_seen.clear();
         self.declared_changes = plico::Changes::empty();

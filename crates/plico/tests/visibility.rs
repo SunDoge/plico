@@ -154,3 +154,29 @@ fn virtual_list_uses_scroll_feedback_and_shared_visibility_ranges() {
         .unwrap();
     assert_eq!(rendered, 49..56);
 }
+
+#[test]
+fn layout_size_feedback_is_opt_in_and_stops_when_not_read() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            column(cx).key("measured").children(|cx| {
+                assert_eq!(cx.layout_size(), None);
+            });
+            column(cx).key("ordinary").children(|_| {});
+        })
+        .unwrap();
+    let measured = engine.find(engine.root(), "measured").unwrap();
+    let ordinary = engine.find(engine.root(), "ordinary").unwrap();
+    assert!(engine.observes_layout_size(measured));
+    assert!(!engine.observes_layout_size(ordinary));
+    assert!(engine.set_layout_size(measured, [120., 48.]));
+
+    engine
+        .frame_declarations(|cx| {
+            column(cx).key("measured").children(|_| {});
+            column(cx).key("ordinary").children(|_| {});
+        })
+        .unwrap();
+    assert!(!engine.observes_layout_size(measured));
+}

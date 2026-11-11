@@ -36,6 +36,6 @@ reports/cache/before/report.json 是修改前运行原 incremental 示例的直�
 - renderer 单测验证共享命令指针、写入隔离、共享 reset 不复制、消费快照不破坏另一份内容。
 - Plico incremental 测试断言 native 路径与事件准备导出克隆为 0，活跃 opacity 只同步一个节点、不运行主树布局，旧 Scene 仍独立可用。
 - retained_frame.rs 对 Controls/Motion 的两种路径逐像素比较，包含 Tooltip、WGSL、主题转场开始/中间/结束。
-- 完整 workspace 337 项测试、严格 Clippy、rustfmt 通过。真实 CLI/cdylib 重载脚本继续验证全部浮层、标量、WGSL 与 Tooltip；Warden 的现有 native client 仍可编译。
+- 对应版本的完整 workspace 测试、严格 Clippy、rustfmt 通过；静态 Gallery 场景覆盖浮层、标量、WGSL 与 Tooltip。历史测试数量不作为当前覆盖率承诺。
 
 当前 paint 变化仍完整编码 Scene；布局变化仍重新 flatten。共享命令上的写入/追加可能触发整份 COW 复制，主题转场合成也没有因此变成 O(1)。这轮减少的是不必要的输出复制与不可变快照深拷贝，尚未实现按节点/子树缓存绘制片段、局部命令重编码或完整 O(活跃节点) 的渲染管线。UI 函数执行和 core 协调仍有自身开销。

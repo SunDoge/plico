@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advance, button, capture, click, expect, fill, flow, matrix, recipe, suite, validate } from "../src/index.ts";
+import { advance, button, capture, click, expect, fill, flow, matrix, recipe, suite, validate, waitFor } from "../src/index.ts";
 test("versioned matrices keep fixtures independent", () => {
   const plan = suite(matrix([{ name: "desktop", width: 1440 }, { name: "compact", width: 820 }], viewport => recipe(viewport.name, {
     state: { query: "" }, viewport, steps: [...flow("search", [fill("Search", "hello")]), capture("result")],
@@ -22,6 +22,17 @@ test("flow preserves nested names and authored source locations without aliasing
   steps[0].flow.push("changed");
   assert.deepEqual(action.flow, []);
 });
+test("waitFor wraps assertions with deterministic virtual-time options", () => {
+  const wait = waitFor(expect(button("Ready")).exists(), { timeoutMs: 64, intervalMs: 8 });
+  assert.deepEqual(wait.operation, {
+    op: "wait",
+    assertion: { kind: "nodes", selector: { role: "button", label: "Ready" }, expect: { kind: "exists" } },
+    timeout_ms: 64,
+    interval_ms: 8,
+  });
+  validate(suite([recipe("wait", { state: {}, steps: [wait] })]));
+  assert.throws(() => waitFor(capture("not-an-assertion")));
+});
 test("invalid plans are rejected before output", () => {
   const make = (steps = [capture("view")]) => suite([recipe("case", { state: {}, steps })]);
   for (const plan of [
@@ -31,6 +42,8 @@ test("invalid plans are rejected before output", () => {
     make([capture("_failure")]),
     make([capture("../escape")]),
     make([advance(-1)]),
+    make([waitFor(expect(button("x")).exists(), {timeoutMs: 0})]),
+    make([waitFor(expect(button("x")).exists(), {timeoutMs: 10, intervalMs: 11})]),
     make([expect(button("x")).count(-1)]),
     suite([recipe("case", {state: {}, viewport: {scale: 0}, steps: []})]),
     suite([recipe("case", {state: {number: NaN}, steps: []})]),

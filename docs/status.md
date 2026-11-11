@@ -89,6 +89,12 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
+声明层 scalar motion 已对照 MyGO channel 模型接入 `animate`、`animate_with`、
+`animate_to`、`spring`、`jump`、`velocity`、`settled` 和 `loop_progress`。channel 按当前
+元素、组件 scope 与 key 保存，卸载释放；curve→spring 与拖拽→spring 保留速度，支持
+delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar、Motion spring
+与液态搜索已迁移，不再由应用保存 `plico_motion::Animated`。
+
 `plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，region 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度；Button 支持背景、禁用和 selected，并可继续链接触发事件。一次性 focus/reveal 有显式 consume 桥接；单源 root-owned `derived` 按输出相等性抑制无关区域通知，checkpoint 后重新计算。非法属性、精确 dirty 分类、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的 `Settings` 保留完整 Reactive 三路页面、跨路由上层状态和局部动画 settle，用于语义/几何与性能对照；正常入口和生成模板使用 Immediate。接入与限制见 [Regions](regions.md)。
 
 ## 已实现
@@ -104,7 +110,7 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、[Mines 扫雷](../apps/gallery/docs/mines.md)、流式 Markdown 与应用内毛玻璃。
 - Vello 样式按钮的宿主交互权重：hover/press 颜色、焦点环和禁用透明度；支持打断、reduced motion 与闲时停帧。
-- [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；不引入空间索引或自动节点几何订阅。虚拟列表复用该计算，保留 smooth scroll、宿主滚动和声明分离、条件帧调度。
+- [通用声明期裁剪](visibility.md)：VisibleRegion 的矩形相交、保守逆变换与固定行列索引范围；固定行虚拟列表复用该计算。可变行列表另有按需尺寸观察、MyGO 式稀疏测量缓存、业务 key 锚点平移与测量修正，不为普通节点订阅几何。
 - 宿主直接绘制 retained 状态，干净帧和纯表现帧不必导出全量节点。
 - 普通 main.rs + lib.rs、静态编译重启、JSON 场景离屏截图与宿主服务桥。
 - [窗口内快捷键](shortcuts.md)：App/ServiceApp 完整组合键、显式作用域 action 表、冲突检查，以及静态/热重载一致的事件转发。
@@ -118,11 +124,11 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 ## 同步组件的 local state 与宿主任务
 
 `UiContext::state` 按父节点、组件作用域与调用位置保存局部状态；读写 handle 不借用
-UiContext，变化触发现有 settle 流程，卸载释放。普通 state 在热重载时重置；
-persisted_state 使用显式名称，跨卸载保留，dev checkpoint 独立恢复各槽；宿主可导入/导出
+UiContext，变化触发现有 settle 流程，卸载释放。普通 state 在进程重启时重置；
+persisted_state 使用显式名称，跨卸载保留；宿主可导入/导出
 MessagePack 字节实现磁盘或浏览器存储，不默认自动落盘。
 `plico_dev::tasks::Task` 封装宿主 Future 的结果、唤醒、替换与取消；执行器及服务快照
-仍由应用提供，不让 Future 穿越模块 ABI。TaskService 提供单任务服务协议，
+仍由应用提供，不让 Future 进入 UI 状态。TaskService 提供单任务服务协议，
 UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。见 [说明](local-state-and-tasks.md)。
 
 ## 当前代价和限制
@@ -130,9 +136,6 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。
 依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
 布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。本轮在此收尾，Region 独立布局求解尚未开始；继续扩大缓存前应先补充全量差分和真实窗口验收。
-原生模块协议仍有完整节点快照，不等于所有热重载帧都发送局部 patch。
-
-热重载为 best effort；业务状态不兼容可以重置，不保证任意 Rust 类型无损迁移。
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
 [LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
 不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
@@ -151,17 +154,17 @@ cargo plico icons check --output apps/gallery/src/icons.rs
 
 具体行为和局限见 [文档索引](README.md)、[声明模型](declaration-model-choice.md)、
 [帧调度](frame-scheduling.md)、[增量更新](incremental.md)、[缓存](cache.md)、
-[宿主服务](host-services.md)、[热重载协议](hotreload-protocol.md)。
+[宿主服务](host-services.md)、[历史热重载实验](hotreload-protocol.md)。
 测试、截图和性能数据只代表对应版本与配置；reports 下的本地产物不提交。
 
 ## 本次清理验证（2026-10-23）
 
 删除实验后，workspace all-features 测试共 606 项通过，workspace all-targets 编译通过。
-通过 plico new 创建的独立项目已完成静态入口编译和真实 headless 模块加载，
-点击 Increment 后业务状态从 0 变为 1，后续快照保持 1。
+通过 plico new 创建的独立项目已完成静态入口编译和 headless 场景执行，
+点击 Increment 后业务状态从 0 变为 1，后续帧保持 1。
 依赖锁文件已清除 Rune、reactive_graph、Sycamore 及仅供旧实验使用的依赖。
 
-[FLTK + Taffy 后端实验](fltk.md) 已在 Linux/X11 验证共享设置页、原生输入/按钮回调、嵌套卸载、滚动与 keyed 重排。它是独立的可选实验；样式、窗口功能、热重载及其他平台尚未达到 Vello 后端的覆盖范围。
+[FLTK + Taffy 后端实验](fltk.md) 已在 Linux/X11 验证共享设置页、原生输入/按钮回调、嵌套卸载、滚动与 keyed 重排。它是独立的可选实验；样式、窗口功能、开发重启及其他平台尚未达到默认 wgpu 后端的覆盖范围。
 
 FLTK 共享工作台现包含 Router 前进/后退、响应式 Grid、固定表头滚动列表，以及基于注入时钟的侧栏/详情栏/任务进度动画。FLTK 宿主按 ANIMATE 请求调度有限帧，结束后阻塞等待事件；尚未自动支持全部 `.motion(...)` 样式插值，见 [实验范围](fltk.md)。
 
@@ -222,7 +225,12 @@ capture expose it; definitions and measurement caveats are in
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG
-uses a cached resvg fallback. Shared native WGSL
+uses a cached resvg fallback. Static box backgrounds, continuous-corner borders, outlines,
+overflow/widget/backdrop clips, scrollbars, text-selection rectangles, image destinations,
+axis-aligned SVG destinations and rectangular strokes snap both physical edges independently.
+SVGs raster at that exact size; nonzero borders round to at least one physical pixel, and shadow
+boxes plus inset-shadow offsets share the same device grid. This matches MyGO's small-icon and
+control-chrome policy without snapping glyph outlines, animated transforms or arbitrary curves. Shared native WGSL
 effect surfaces use the public shader widget, injected time and bounded local
 damage; see [WGSL effect contracts](wgsl-effects.md). It is not yet a
 complete Scene backend: solid/linear/radial/sweep gradient paths use a bounded tiny-skia

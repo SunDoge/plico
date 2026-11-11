@@ -35,12 +35,12 @@ fn timer(ui: &mut Ui<'_>) {
 
 Changes::ANIMATE 请求未来一帧，不导致同帧稳定化循环。Changes::VIEW 则请求同帧再声明；点击消费自动设置它，普通应用不维护 changed。计时逻辑结束后不再请求 ANIMATE，宿主恢复休眠。
 
-同一时间源还驱动主题转场和 layout/style MotionArena。时间不是每个控件自己的 now，也不会因 reload 单独重置。App 协议请求携带 FrameTime，响应携带 requests flags；ReloadView 仅在事件、reload 或应用请求动画时调用模块，普通 hover/宿主 tween 帧继续复用应用声明。运行中的模块报错时保留上一画面并停止它的连续帧请求，避免错误循环；新事件或成功 reload 可再次驱动它。
+同一时间源还驱动主题转场、layout/style MotionArena 和声明层 scalar channel。时间不是每个控件自己的 now。宿主只在事件、deadline 或应用请求动画时重新声明；普通 hover/宿主 tween 帧可以复用应用声明。
 
 长时间 idle 后开始动画会先更新时间基线，避免把 idle 时间计入新动画。若整个宿主停顿，下一帧按经过的逻辑时间快进，这是 elapsed-time 动画语义。VirtualClock 可以通过手动推进实现完全可重复的实验。
 
 ## 验证与尚未接入的部分
 
-clock 测试验证外部 Duration 时钟、共享 virtual clock、暂停、回退/溢出拒绝、同帧时间一致、UI 未来帧请求及布局 tween。应用协议测试经过 JSON + Stabby dispatch 验证 time 与 ANIMATE 的传输。尚未接入通用定时器/异步 executor、按逻辑时间的 deadline 队列、OS reduced-motion 或 Bevy Time 桥接；这些应共享这个时钟接口。
+clock 测试验证外部 Duration 时钟、共享 virtual clock、暂停、回退/溢出拒绝、同帧时间一致、显示节奏动画请求、逻辑 deadline、布局 tween 和声明层 spring。桌面宿主已接入系统 reduced-motion；通用异步 executor 与 Bevy Time 桥接不进入核心，宿主实现应共享这个时钟接口。
 
 可运行 `cargo run -p plico-desktop --example virtual-clock` 观察 0 → 100 → 100（暂停）→ 200 ms，最后 next_frame=false。整个实验没有 sleep、线程或窗口。

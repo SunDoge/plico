@@ -11,9 +11,11 @@ use std::{
 struct SlotKey {
     parent: Entity,
     scope: u64,
+    namespace: u8,
     file: &'static str,
     line: u32,
     column: u32,
+    name: Option<&'static str>,
 }
 struct Slot {
     value: Box<dyn Any>,
@@ -25,6 +27,17 @@ pub(crate) struct LocalStore {
     changed: Rc<Cell<bool>>,
 }
 impl LocalStore {
+    fn channel_key(parent: Entity, scope: u64, namespace: u8, name: &'static str) -> SlotKey {
+        SlotKey {
+            parent,
+            scope,
+            namespace,
+            file: "",
+            line: 0,
+            column: 0,
+            name: Some(name),
+        }
+    }
     pub fn get<T: 'static>(
         &mut self,
         parent: Entity,
@@ -36,10 +49,50 @@ impl LocalStore {
         let key = SlotKey {
             parent,
             scope,
+            namespace: 0,
             file: site.file(),
             line: site.line(),
             column: site.column(),
+            name: None,
         };
+        self.get_slot(key, epoch, init)
+    }
+    pub fn get_channel<T: 'static>(
+        &mut self,
+        parent: Entity,
+        scope: u64,
+        namespace: u8,
+        name: &'static str,
+        epoch: u64,
+        init: impl FnOnce() -> T,
+    ) -> LocalState<T> {
+        let key = Self::channel_key(parent, scope, namespace, name);
+        self.get_slot(key, epoch, init)
+    }
+    pub fn channel<T: 'static>(
+        &self,
+        parent: Entity,
+        scope: u64,
+        namespace: u8,
+        name: &'static str,
+    ) -> Option<LocalState<T>> {
+        let key = Self::channel_key(parent, scope, namespace, name);
+        let value = self
+            .slots
+            .get(&key)?
+            .value
+            .downcast_ref::<Rc<RefCell<T>>>()?;
+        Some(LocalState {
+            value: Rc::clone(value),
+            changed: Rc::clone(&self.changed),
+        })
+    }
+    fn get_slot<T: 'static>(
+        &mut self,
+        key: SlotKey,
+        epoch: u64,
+        init: impl FnOnce() -> T,
+    ) -> LocalState<T> {
         let slot = self.slots.entry(key).or_insert_with(|| Slot {
             value: Box::new(Rc::new(RefCell::new(init()))),
             epoch,
@@ -91,6 +144,21 @@ impl<T> LocalState<T> {
         if *current != value {
             *current = value;
             self.changed.set(true);
+        }
+    }
+    /// Retain bookkeeping that has already been incorporated into this
+    /// declaration's output, without requesting another settle pass.
+    ///
+    /// This is deliberately crate-private: widgets may use it for values such
+    /// as the scroll observation or anchor they just consumed, while ordinary
+    /// component state must use [`Self::set`] so changed output is rebuilt.
+    pub(crate) fn commit(&self, value: T)
+    where
+        T: PartialEq,
+    {
+        let mut current = self.value.borrow_mut();
+        if *current != value {
+            *current = value;
         }
     }
     /// Mutate a temporary copy and commit only a changed result. No clone on reads.

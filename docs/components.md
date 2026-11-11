@@ -434,10 +434,9 @@ handling still goes through the normal immediate declaration path. This is not
 virtualization; horizontal scroll, inertia and auto-hide are not implemented.
 
 `plico_desktop::run_view_with_options` accepts a `View` without serialization.
-Service handles and sensitive application data do not need to enter the App
-reload protocol. Disable the backend's default `hot-reload` feature for a static
-client to avoid compiling the dynamic loader and file watcher. Existing App
-launch helpers and the CLI reload host remain available.
+Service handles and sensitive application data remain ordinary host-owned Rust
+state. `plico dev` recompiles and restarts the static executable; no dynamic
+loader, App reload protocol or ABI feature is involved.
 
 ### Generic font families
 

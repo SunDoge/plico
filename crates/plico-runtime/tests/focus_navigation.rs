@@ -92,3 +92,19 @@ fn response_reports_backend_focus() {
     focus(&mut source, "Plain", SemanticRole::Button, &mut text);
     assert!(source.view.plain_focused);
 }
+
+#[test]
+fn semantic_click_activates_an_unselected_roving_tab() {
+    let mut source = Source::new(Demo::default());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 720, 400);
+    let target = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Tab, "Two", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+    source.build_frame(&mut text, 720, 400);
+    assert_eq!(source.view.tab, 1);
+}

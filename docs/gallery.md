@@ -17,7 +17,7 @@ Motion::Quick（140ms）、Smooth（240ms）、Emphasized（360ms）和 None 统
 
 动画不保留 App 闭包；虚拟时钟测试验证中间几何、反向 retarget 连续性、纯 paint 零 layout 及 reduced motion 到目标后停止请求帧。主题由独立 reveal 负责，主题切换时属性 cache 对齐新目标，避免两个动画重复混合目标调色板。
 
-这些仍是第一批交互和属性动画。约束跳变、列表重排、页面进出、共享元素、保留速度的 spring 尚未接通，不用“所有操作都有动画”概括当前状态。
+这些仍是第一批交互和属性动画。声明层现已提供 MyGO 风格的有限曲线、delay 和保留速度的解析 spring，Motion 页直接使用 `UiContext::spring`，应用不再保存动画对象。约束跳变、列表重排、页面进出和共享元素仍未接通，不用“所有操作都有动画”概括当前状态。
 
 ## SVG 资源
 

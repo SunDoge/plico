@@ -75,6 +75,14 @@ pub enum Operation {
     Assert {
         assertion: Assertion,
     },
+    /// Advance the virtual clock until an assertion passes or its deterministic
+    /// timeout expires. This never sleeps on wall-clock time.
+    Wait {
+        assertion: Assertion,
+        timeout_ms: u64,
+        #[serde(default = "default_wait_interval_ms")]
+        interval_ms: u64,
+    },
     Capture {
         name: String,
     },
@@ -114,6 +122,9 @@ pub enum NodeExpectation {
     Enabled { enabled: bool },
     Value { value: String },
     Selected { selected: bool },
+}
+fn default_wait_interval_ms() -> u64 {
+    16
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeMode {
@@ -168,6 +179,19 @@ fn safe_name(name: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
+fn validate_assertion(assertion: &Assertion) -> Result<(), RecipeError> {
+    if let Assertion::Nodes { selector, .. } = assertion {
+        if let Some(role) = &selector.role
+            && SemanticRole::from_name(role).is_none()
+        {
+            return Err(invalid(format!("unknown selector role {role:?}")));
+        }
+        if selector.label.is_some() && selector.label_prefix.is_some() {
+            return Err(invalid("selector cannot combine label and label_prefix"));
+        }
+    }
+    Ok(())
+}
 impl<S> RecipePlan<S> {
     /// Validate all cases before writing artifacts or invoking application factories.
     pub fn validate(&self) -> Result<(), RecipeError> {
@@ -207,16 +231,21 @@ impl<S> RecipePlan<S> {
                             case.name
                         )));
                     }
-                    Operation::Assert {
-                        assertion: Assertion::Nodes { selector, .. },
+                    Operation::Assert { assertion } => validate_assertion(assertion)?,
+                    Operation::Wait {
+                        assertion,
+                        timeout_ms,
+                        interval_ms,
                     } => {
-                        if let Some(role) = &selector.role
-                            && SemanticRole::from_name(role).is_none()
+                        validate_assertion(assertion)?;
+                        if !(1..=300_000).contains(timeout_ms)
+                            || *interval_ms == 0
+                            || interval_ms > timeout_ms
                         {
-                            return Err(invalid(format!("unknown selector role {role:?}")));
-                        }
-                        if selector.label.is_some() && selector.label_prefix.is_some() {
-                            return Err(invalid("selector cannot combine label and label_prefix"));
+                            return Err(invalid(format!(
+                                "wait in {} requires 1..=300000 timeout_ms and 1..=timeout interval_ms",
+                                case.name
+                            )));
                         }
                     }
                     _ => {}
@@ -348,6 +377,43 @@ fn check<V: HostView>(source: &Source<V>, assertion: &Assertion) -> Result<(), R
     }
     Ok(())
 }
+#[derive(Clone, Copy)]
+struct WaitTiming {
+    timeout_ms: u64,
+    interval_ms: u64,
+}
+fn wait_for<V: HostView>(
+    source: &mut Source<V>,
+    text: &mut TextContext,
+    viewport: PreviewViewport,
+    clock: &VirtualClock,
+    now_ms: &mut u128,
+    assertion: &Assertion,
+    timing: WaitTiming,
+) -> Result<(), RecipeError> {
+    let mut last_error = match check(source, assertion) {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+    let mut elapsed = 0;
+    while elapsed < timing.timeout_ms {
+        let delta = timing.interval_ms.min(timing.timeout_ms - elapsed);
+        clock
+            .advance(Duration::from_millis(delta))
+            .map_err(|_| failed("virtual clock overflow"))?;
+        *now_ms += u128::from(delta);
+        elapsed += delta;
+        frame(source, text, viewport)?;
+        match check(source, assertion) {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(failed(format!(
+        "wait timed out after {} ms: {last_error}",
+        timing.timeout_ms
+    )))
+}
 fn evidence(snapshot: &SemanticSnapshot) -> Vec<NodeEvidence> {
     snapshot
         .exposed_nodes()
@@ -471,6 +537,22 @@ fn run_case<S, V: HostView>(
                         now_ms += u128::from(milliseconds);
                     }
                     Operation::Assert { assertion } => check(&source, &assertion)?,
+                    Operation::Wait {
+                        assertion,
+                        timeout_ms,
+                        interval_ms,
+                    } => wait_for(
+                        &mut source,
+                        &mut text,
+                        v,
+                        &clock,
+                        &mut now_ms,
+                        &assertion,
+                        WaitTiming {
+                            timeout_ms,
+                            interval_ms,
+                        },
+                    )?,
                     Operation::Event { event: value } => {
                         event(&mut source.view, &value).map_err(failed)?;
                         source.request_rebuild();

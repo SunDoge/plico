@@ -10,12 +10,12 @@
 
 仍被原生后端使用的 ResourceKey 位于 renderer::platform；renderer 所需的三个样式 IR 值类型移入 style_ir；CPU 诊断保留在 shell::telemetry。原生资源句柄校验、样式值反序列化和诊断测试随模块保留。Plico 的 Clock/FrameTime 注入保持不变；删除的是旧 widgets 的 SharedClock hook，它没有接入 Plico 的时钟链路。
 
-gallery 是应用而不是后端依赖：main.rs 启动桌面入口，lib.rs 定义同一个 Gallery App 和动态模块导出。desktop 为默认 feature，关闭后仍是轻量 rlib/cdylib；后端只在测试时依赖 gallery。render/probe 的 CLI 路由指向 gallery 的独立验证示例，应用入口不解析参数。
+gallery 是应用而不是后端依赖：main.rs 启动桌面入口，lib.rs 定义同一个静态 Gallery App。desktop 为默认 feature，关闭后仍可作为轻量 rlib；后端只在测试时依赖 gallery。capture/probe 参数由应用入口处理，CLI 只负责构建和转发。
 
 ```sh
 cargo run -p gallery
 cargo plico render --out /tmp/gallery.png
-cargo build -p gallery --lib --no-default-features --features abi
+cargo check -p gallery --lib --no-default-features
 cargo plico dev
 ```
 

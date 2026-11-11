@@ -38,8 +38,6 @@ impl Default for Playground {
 // Transient motion is excluded from serialized recipes, as with SpringDemo.
 #[derive(Clone, Debug, Default)]
 struct DropMotion {
-    #[cfg(not(target_arch = "wasm32"))]
-    curve: Option<plico_motion::Animated>,
     target: f64,
     drag: Option<(f64, f64)>,
 }
@@ -49,32 +47,24 @@ impl PartialEq for DropMotion {
     }
 }
 impl DropMotion {
-    #[cfg(not(target_arch = "wasm32"))]
     fn sample(&mut self, cx: &mut UiContext, target: f64, paused: bool) -> (f32, bool) {
-        let now = cx.time().now;
-        let curve = self
-            .curve
-            .get_or_insert_with(|| plico_motion::Animated::new(target));
-        curve.set_reduced(paused || cx.display_preferences().reduce_motion);
-        if self.drag.is_some() {
-            curve.snap(target);
+        let target = target as f32;
+        let value = if self.drag.is_some() || paused || cx.display_preferences().reduce_motion {
+            cx.jump("shader.drop", target)
         } else {
-            curve.retarget_spring(
-                now,
+            cx.spring(
+                "shader.drop",
                 target,
-                plico_motion::SpringOptions {
+                SpringOptions {
                     stiffness: 200.,
                     damping: 22.,
                     ..Default::default()
                 },
-            );
-        }
-        self.target = target;
-        let active = curve.active(now);
-        if active {
-            cx.request_animation_frame();
-        }
-        (curve.value(now).clamp(0., 1.03) as f32, active)
+            )
+        };
+        self.target = f64::from(target);
+        let active = !cx.settled("shader.drop");
+        (value.clamp(0., 1.03), active)
     }
 }
 

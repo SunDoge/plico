@@ -44,10 +44,8 @@ cargo run -p gallery
 cargo run -p plico-desktop --example modal
 # 原生输入、Enter 保存、取消和焦点恢复
 cargo run -p gallery --example capture -- --page controls --modal --out /tmp/modal.png
-cargo build -p plico-cli
-python3 scripts/check-modal-reload.py
 ```
 
-集成测试覆盖脱离裁剪、嵌套、焦点循环与恢复、背景语义动作隔离、遮罩取消序列、IME、关闭策略、小窗口滚动、虚拟时钟退出卸载及中间帧不重新声明。协议测试覆盖应用重建后的身份和退出期限。真实 CLI/cdylib 重载验证记录在 reports/modal/reload.json；light/dark/small 截图在同目录。
+集成测试覆盖脱离裁剪、嵌套、焦点循环与恢复、背景语义动作隔离、遮罩取消序列、IME、关闭策略、小窗口滚动、虚拟时钟退出卸载及中间帧不重新声明。静态应用重建测试覆盖身份和退出期限；截图属于本地 reports 产物。
 
 锚定 Popover 已实现，参见 [popover.md](popover.md)。专用 [Select/Menu](select-menu.md) 也已接入。显式 initial/return-focus 目标、标题栏自定义、独立浮层排序 API、transform 入场动画尚未提供。窗口缩到无法容纳边距和标题的极端尺寸不作可用性保证。已有宿主 reduced-motion 会停止属性补间；需要同时取消退出等待时，应用使用 motion(Motion::None)。

@@ -108,6 +108,34 @@ fn shadow_geometry(rect: Rect, node_radius: f64, shadow: &Shadow) -> (Rect, f64,
     (shadow_rect, radius, f64::from(shadow.std_dev))
 }
 
+fn snap_box(rect: Rect, device_scale: f64) -> Rect {
+    let scale = device_scale.max(f64::EPSILON);
+    Rect::new(
+        (rect.x0 * scale).round() / scale,
+        (rect.y0 * scale).round() / scale,
+        (rect.x1 * scale).round() / scale,
+        (rect.y1 * scale).round() / scale,
+    )
+}
+
+fn snap_border_width(width: f32, device_scale: f64) -> f32 {
+    if width <= 0. {
+        return 0.;
+    }
+    let scale = device_scale.max(f64::EPSILON);
+    ((f64::from(width) * scale).round().max(1.) / scale) as f32
+}
+
+fn snap_offset(offset: f32, device_scale: f64) -> f64 {
+    let scale = device_scale.max(f64::EPSILON);
+    (f64::from(offset) * scale).round() / scale
+}
+
+fn snap_local_box(rect: Rect, origin: [f32; 2], device_scale: f64) -> Rect {
+    let offset = kurbo::Vec2::new(f64::from(origin[0]), f64::from(origin[1]));
+    snap_box(rect + offset, device_scale) - offset
+}
+
 fn visual_bounds(node: &PlacedNode) -> Rect {
     let [x0, y0, x1, y1] = node.rect;
     let border_box = Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64);
@@ -181,7 +209,7 @@ fn clip_bounds(clip: [f32; 4], transform: Affine) -> Option<Rect> {
     Some(Rect::new(x0, y0, x1, y1))
 }
 
-fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
+fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine, device_scale: f64) {
     if node.scroll.opacity <= 0.0 {
         return;
     }
@@ -197,6 +225,7 @@ fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     };
     for axis in [ScrollAxis::Vertical, ScrollAxis::Horizontal] {
         if let Some(track) = scrollbar_track(node, axis) {
+            let track = snap_box(track, device_scale);
             scene.fill(
                 Fill::NonZero,
                 transform,
@@ -205,17 +234,18 @@ fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
                 &track,
             );
         }
-        let Some(rect) = scrollbar_thumb(node, axis) else {
+        let Some(raw_rect) = scrollbar_thumb(node, axis) else {
             continue;
         };
         let radius = if style.radius < 0.0 {
             match axis {
-                ScrollAxis::Horizontal => rect.height() * 0.5,
-                ScrollAxis::Vertical => rect.width() * 0.5,
+                ScrollAxis::Horizontal => raw_rect.height() * 0.5,
+                ScrollAxis::Vertical => raw_rect.width() * 0.5,
             }
         } else {
             f64::from(style.radius)
         };
+        let rect = snap_box(raw_rect, device_scale);
         let color = match node.scroll.interaction {
             2 => style.active_color,
             1 => style.hover_color,
@@ -231,12 +261,18 @@ fn draw_scrollbars(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     }
 }
 
-fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
+fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device_scale: f64) {
     let [x0, y0, x1, y1] = node.rect;
-    let rect = Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1));
+    // MyGO snaps the two physical edges independently, preserving layout in
+    // logical coordinates while keeping static UI chrome off half pixels.
+    let rect = snap_box(
+        Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1)),
+        device_scale,
+    );
     let radii = node.paint.border_radii;
     for shadow in node.paint.shadows.iter().filter(|s| !s.inset) {
         let (shadow_rect, radius, std_dev) = shadow_geometry(rect, f64::from(radii.max()), shadow);
+        let shadow_rect = snap_box(shadow_rect, device_scale);
         if (shadow_rect.width() <= 0. || shadow_rect.height() <= 0.)
             || shadow.color.components[3] <= 0.
         {
@@ -313,11 +349,13 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
         // MyGO/CSS inset: positive spread contracts the hole, then blur its
         // complement. Clip to the same contour as the background.
         let spread = f64::from(shadow.spread);
+        let offset_x = snap_offset(shadow.offset_x, device_scale);
+        let offset_y = snap_offset(shadow.offset_y, device_scale);
         let hole = Rect::new(
-            rect.x0 + f64::from(shadow.offset_x) + spread,
-            rect.y0 + f64::from(shadow.offset_y) + spread,
-            rect.x1 + f64::from(shadow.offset_x) - spread,
-            rect.y1 + f64::from(shadow.offset_y) - spread,
+            rect.x0 + offset_x + spread,
+            rect.y0 + offset_y + spread,
+            rect.x1 + offset_x - spread,
+            rect.y1 + offset_y - spread,
         );
         let radius = shadow
             .radius
@@ -343,30 +381,40 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     if node.paint.outline_width > 0.0
         && let Some(color) = node.paint.outline_color
     {
-        let width = f64::from(node.paint.outline_width);
-        let expansion = f64::from(node.paint.outline_offset) + width * 0.5;
-        let outline = Rect::new(
-            f64::from(x0) - expansion,
-            f64::from(y0) - expansion,
-            f64::from(x1) + expansion,
-            f64::from(y1) + expansion,
-        );
-        scene.stroke(
-            &Stroke::new(width),
-            transform,
-            color,
-            None,
-            &corner_shape(
-                outline,
-                radii.expand(expansion as f32),
-                node.paint.corner_smoothing,
-            ),
-        );
+        let width = f64::from(snap_border_width(node.paint.outline_width, device_scale));
+        let expansion = f64::from(node.paint.outline_offset + node.paint.outline_width);
+        let outer = snap_box(rect.inflate(expansion, expansion), device_scale);
+        if outer.width() > 0. && outer.height() > 0. {
+            let outer_radii = radii.expand(expansion as f32);
+            let mut ring =
+                corner_shape(outer, outer_radii, node.paint.corner_smoothing).into_bez_path();
+            let inner = Rect::new(
+                outer.x0 + width,
+                outer.y0 + width,
+                outer.x1 - width,
+                outer.y1 - width,
+            );
+            if inner.width() > 0. && inner.height() > 0. {
+                ring.extend(
+                    corner_shape(
+                        inner,
+                        outer_radii.inset(width as f32),
+                        node.paint.corner_smoothing,
+                    )
+                    .elements()
+                    .iter()
+                    .copied(),
+                );
+            }
+            scene.fill(Fill::EvenOdd, transform, color, None, &ring);
+        }
     }
     let Some((_, border_color)) = node.paint.border else {
         return;
     };
-    let [top, right, bottom, left] = node.border_widths;
+    let [top, right, bottom, left] = node
+        .border_widths
+        .map(|width| snap_border_width(width, device_scale));
     if top > 0.0 && top == right && top == bottom && top == left {
         let width = f64::from(top);
         if node.paint.corner_smoothing > 0. {
@@ -388,10 +436,10 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
         }
         let half = width / 2.0;
         let inset = Rect::new(
-            f64::from(x0) + half,
-            f64::from(y0) + half,
-            f64::from(x1) - half,
-            f64::from(y1) - half,
+            rect.x0 + half,
+            rect.y0 + half,
+            rect.x1 - half,
+            rect.y1 - half,
         );
         scene.stroke(
             &Stroke::new(width),
@@ -413,6 +461,12 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
             &corner_shape(rect, radii, node.paint.corner_smoothing),
         );
     }
+    let (x0, y0, x1, y1) = (
+        rect.x0 as f32,
+        rect.y0 as f32,
+        rect.x1 as f32,
+        rect.y1 as f32,
+    );
     let sides = [
         (top, (x0, y0 + top * 0.5), (x1, y0 + top * 0.5)),
         (right, (x1 - right * 0.5, y0), (x1 - right * 0.5, y1)),
@@ -492,7 +546,7 @@ fn draw_vector_path(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     }
 }
 
-fn draw_image(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
+fn draw_image(scene: &mut Scene, node: &PlacedNode, transform: Affine, device_scale: f64) {
     let Some(image) = &node.paint.image else {
         return;
     };
@@ -506,9 +560,26 @@ fn draw_image(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     let scale = f64::from((width / image_width).min(height / image_height));
     let dx = f64::from(x0) + (f64::from(width) - f64::from(image_width) * scale) * 0.5;
     let dy = f64::from(y0) + (f64::from(height) - f64::from(image_height) * scale) * 0.5;
+    let destination = snap_box(
+        Rect::new(
+            dx,
+            dy,
+            dx + f64::from(image_width) * scale,
+            dy + f64::from(image_height) * scale,
+        ),
+        device_scale,
+    );
+    if destination.width() <= 0. || destination.height() <= 0. {
+        return;
+    }
     scene.draw_image(
         image.brush().into(),
-        transform * Affine::translate((dx, dy)) * Affine::scale(scale),
+        transform
+            * Affine::translate((destination.x0, destination.y0))
+            * Affine::scale_non_uniform(
+                destination.width() / f64::from(image_width),
+                destination.height() / f64::from(image_height),
+            ),
     );
 }
 
@@ -527,12 +598,17 @@ fn draw_text_at_raster_scale(
         let origin = transform
             * Affine::translate((node.content_origin[0] as f64, node.content_origin[1] as f64));
         for &[x0, y0, x1, y1] in node.paint.selection_rects.iter() {
+            let rect = snap_local_box(
+                Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64),
+                node.content_origin,
+                device_scale,
+            );
             scene.fill(
                 Fill::NonZero,
                 origin,
                 Color::from_rgba8(59, 130, 246, 105),
                 None,
-                &Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64),
+                &rect,
             );
         }
         // Measurements and hit-testing populate the host's shared paragraph cache.
@@ -561,12 +637,17 @@ fn draw_text_at_raster_scale(
         f64::from(node.content_origin[1]),
     ));
     for &[x0, y0, x1, y1] in node.paint.selection_rects.iter() {
+        let rect = snap_local_box(
+            Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1)),
+            node.content_origin,
+            device_scale,
+        );
         scene.fill(
             Fill::NonZero,
             transform * origin,
             Color::from_rgba8(59, 130, 246, 105),
             None,
-            &Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1)),
+            &rect,
         );
     }
     let text_transform = transform * origin;
@@ -688,7 +769,7 @@ fn draw_outline_text(
 /// result to the glass panel. Foreground commands are recorded afterwards.
 /// This prototype trades replay work for a backend-neutral command stream;
 /// it does not claim a persistent blurred-texture cache.
-fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
+fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine, device_scale: f64) {
     let sigma = node.paint.backdrop_blur;
     if !sigma.is_finite() || sigma <= 0. || scene.commands.is_empty() {
         return;
@@ -710,7 +791,7 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine) {
     }
     let [x0, y0, x1, y1] = node.rect.map(f64::from);
     let clip = corner_shape(
-        Rect::new(x0, y0, x1, y1),
+        snap_box(Rect::new(x0, y0, x1, y1), device_scale),
         node.paint.border_radii,
         node.paint.corner_smoothing,
     );
@@ -1044,7 +1125,7 @@ impl Encoder<'_> {
         encode_node(scene, self.tcx, &enc, &mut layers);
         self.encode_nodes(scene, &nodes[1..], css_transform, child_clip, raster_factor);
         if paints_viewport(n, css_transform, self.viewport) {
-            draw_scrollbars(scene, n, node_transform);
+            draw_scrollbars(scene, n, node_transform, self.device_scale);
         }
         while layers.pop().is_some() {
             scene.pop_layer();
@@ -1117,8 +1198,8 @@ fn encode_node(
     }
 
     if paints_node {
-        draw_backdrop(scene, n, *node_transform);
-        draw_node_box(scene, n, *node_transform);
+        draw_backdrop(scene, n, *node_transform, device_scale);
+        draw_node_box(scene, n, *node_transform, device_scale);
     }
 
     if let Some([cx0, cy0, cx1, cy1]) = n.own_clip {
@@ -1132,7 +1213,13 @@ fn encode_node(
                 f64::from(value)
             }
         };
-        let clip_rect = Rect::new(finite(cx0), finite(cy0), finite(cx1), finite(cy1));
+        // Keep the scissor contour on the same physical edges as the painted
+        // box. Otherwise a snapped one-pixel border can still be softened by
+        // an adjacent fractional clip edge.
+        let clip_rect = snap_box(
+            Rect::new(finite(cx0), finite(cy0), finite(cx1), finite(cy1)),
+            device_scale,
+        );
         scene.push_clip_layer(
             *node_transform,
             &corner_shape(clip_rect, n.own_clip_radii, n.paint.corner_smoothing),
@@ -1143,7 +1230,7 @@ fn encode_node(
     if paints_node {
         draw_svg(scene, n, *node_transform);
         draw_vector_path(scene, n, *node_transform);
-        draw_image(scene, n, *node_transform);
+        draw_image(scene, n, *node_transform, device_scale);
     }
 
     if paints_node && let Some(ws) = &n.paint.widget {
@@ -1155,11 +1242,14 @@ fn encode_node(
             .then(|| widget_clip(n))
             .flatten();
         if let Some(([cx0, cy0, cx1, cy1], radii)) = outer_widget_clip {
-            let widget_clip = Rect::new(
-                cx0.max(0.0) as f64,
-                cy0.max(0.0) as f64,
-                cx1.min(viewport.width() as f32) as f64,
-                cy1.min(viewport.height() as f32) as f64,
+            let widget_clip = snap_box(
+                Rect::new(
+                    cx0.max(0.0) as f64,
+                    cy0.max(0.0) as f64,
+                    cx1.min(viewport.width() as f32) as f64,
+                    cy1.min(viewport.height() as f32) as f64,
+                ),
+                device_scale,
             );
             scene.push_clip_layer(
                 *node_transform,
@@ -1188,13 +1278,137 @@ mod tests {
     use crate::style::Shadow;
 
     #[test]
+    fn static_node_boxes_and_continuous_borders_snap_at_fractional_dpi() {
+        let mut node = test_node(0, [0.5, 1., 16.5, 17.]);
+        node.paint.background = Some(Color::WHITE);
+        node.paint.border = Some((1., Color::BLACK));
+        node.paint.border_radii = CornerRadii::uniform(4.);
+        node.paint.corner_smoothing = 1.;
+        node.border_widths = [1.; 4];
+
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &node, Affine::scale(1.25), 1.25);
+
+        let crate::PaintCommand::BoxShadow { rect, .. } = scene.commands[0] else {
+            panic!("continuous background should use the analytical box path");
+        };
+        assert_eq!(rect, Rect::new(0.8, 0.8, 16.8, 16.8));
+        let crate::PaintCommand::Fill { ref shape, .. } = scene.commands[1] else {
+            panic!("continuous border should remain an even-odd ring");
+        };
+        assert_eq!(shape.bounding_box(), rect);
+        let mut expected = corner_shape(rect, CornerRadii::uniform(4.), 1.).into_bez_path();
+        let border_width = f64::from(snap_border_width(1., 1.25));
+        expected.extend(
+            corner_shape(
+                Rect::new(
+                    rect.x0 + border_width,
+                    rect.y0 + border_width,
+                    rect.x1 - border_width,
+                    rect.y1 - border_width,
+                ),
+                CornerRadii::uniform(4.).inset(border_width as f32),
+                1.,
+            )
+            .elements()
+            .iter()
+            .copied(),
+        );
+        assert_eq!(shape.to_path(0.1), expected);
+    }
+
+    #[test]
+    fn outlines_scrollbars_and_local_highlights_share_physical_pixel_snapping() {
+        let assert_rect_near = |actual: Rect, expected: Rect| {
+            for (actual, expected) in [
+                (actual.x0, expected.x0),
+                (actual.y0, expected.y0),
+                (actual.x1, expected.x1),
+                (actual.y1, expected.y1),
+            ] {
+                assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+            }
+        };
+        let mut outlined = test_node(0, [0.5, 1., 16.5, 17.]);
+        outlined.paint.background = None;
+        outlined.paint.outline_width = 1.;
+        outlined.paint.outline_offset = 1.;
+        outlined.paint.outline_color = Some(Color::BLACK);
+        outlined.paint.border_radii = CornerRadii::uniform(4.);
+        outlined.paint.corner_smoothing = 1.;
+        let mut scene = Scene::new();
+        draw_node_box(&mut scene, &outlined, Affine::scale(1.25), 1.25);
+        let crate::PaintCommand::Fill { fill, shape, .. } = &scene.commands[0] else {
+            panic!("outline should be an exact filled ring");
+        };
+        assert_eq!(*fill, Fill::EvenOdd);
+        assert_eq!(shape.bounding_box(), Rect::new(-1.6, -1.6, 19.2, 19.2));
+
+        let mut scrolling = test_node(0, [0., 0., 101., 101.]);
+        scrolling.paint.background = None;
+        scrolling.scroll = crate::layout::ScrollMetrics {
+            port: [0.5, 0.5, 100.5, 100.5],
+            scrollable: [false, true],
+            range: [0., 100.],
+            offset: [0., 50.],
+            opacity: 1.,
+            interaction: 0,
+        };
+        scene.reset();
+        draw_scrollbars(&mut scene, &scrolling, Affine::scale(1.25), 1.25);
+        let expected_track = snap_box(
+            scrollbar_track(&scrolling, ScrollAxis::Vertical).unwrap(),
+            1.25,
+        );
+        let expected_thumb = snap_box(
+            scrollbar_thumb(&scrolling, ScrollAxis::Vertical).unwrap(),
+            1.25,
+        );
+        let crate::PaintCommand::Fill { shape: track, .. } = &scene.commands[0] else {
+            panic!("scrollbar track should be filled");
+        };
+        let crate::PaintCommand::Fill { shape: thumb, .. } = &scene.commands[1] else {
+            panic!("scrollbar thumb should be filled");
+        };
+        assert_rect_near(track.bounding_box(), expected_track);
+        assert_rect_near(thumb.bounding_box(), expected_thumb);
+
+        assert_rect_near(
+            snap_local_box(Rect::new(0.25, 0.25, 8.25, 5.25), [10.25, 20.25], 1.25),
+            Rect::new(0.15, 0.55, 8.15, 5.35),
+        );
+    }
+
+    #[test]
+    fn node_owned_clip_uses_the_same_snapped_edges_as_its_box() {
+        let mut node = test_node(0, [0.5, 0.5, 20.5, 20.5]);
+        node.paint.background = None;
+        node.own_clip = Some([0.5, 0.5, 20.5, 20.5]);
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        build_scene_scaled(
+            &mut scene,
+            &[node],
+            &mut text,
+            40,
+            40,
+            Color::TRANSPARENT,
+            1.25,
+        );
+        let crate::PaintCommand::PushClip { clip, .. } = &scene.commands[0] else {
+            panic!("node clip should be encoded");
+        };
+        assert_eq!(clip.bounding_box(), Rect::new(0.8, 0.8, 20.8, 20.8));
+    }
+
+    #[test]
     fn uniform_continuous_fills_are_analytical_without_changing_other_geometry() {
         let mut node = test_node(0, [0., 0., 40., 30.]);
         node.paint.background = Some(Color::WHITE);
         node.paint.border_radii = CornerRadii::uniform(6.);
         node.paint.corner_smoothing = 1.;
         let mut scene = Scene::new();
-        draw_node_box(&mut scene, &node, Affine::scale(1.5));
+        draw_node_box(&mut scene, &node, Affine::scale(1.5), 1.5);
         assert!(matches!(
             scene.commands[0],
             crate::PaintCommand::BoxShadow {
@@ -1206,7 +1420,7 @@ mod tests {
         ));
         for transform in [Affine::scale_non_uniform(1., 2.), Affine::rotate(0.1)] {
             let mut scene = Scene::new();
-            draw_node_box(&mut scene, &node, transform);
+            draw_node_box(&mut scene, &node, transform, 1.);
             assert!(matches!(
                 scene.commands[0],
                 crate::PaintCommand::Fill { .. }
@@ -1214,7 +1428,7 @@ mod tests {
         }
         node.paint.border_radii.top_left = 2.;
         let mut scene = Scene::new();
-        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        draw_node_box(&mut scene, &node, Affine::IDENTITY, 1.);
         assert!(matches!(
             scene.commands[0],
             crate::PaintCommand::Fill { .. }
@@ -1238,7 +1452,7 @@ mod tests {
         });
         assert_eq!(visual_bounds(&node), Rect::new(20., 20., 80., 80.));
         let mut scene = Scene::new();
-        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        draw_node_box(&mut scene, &node, Affine::IDENTITY, 1.);
         assert!(matches!(
             scene.commands[0],
             crate::PaintCommand::BoxShadow { std_dev: 0., .. }
@@ -1280,7 +1494,7 @@ mod tests {
             radius: None,
         });
         let mut scene = Scene::new();
-        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        draw_node_box(&mut scene, &node, Affine::IDENTITY, 1.);
         let crate::PaintCommand::PushClip { clip, .. } = &scene.commands[0] else {
             panic!("outer shadow must be cut out");
         };
@@ -1299,7 +1513,7 @@ mod tests {
         assert!(visual_bounds(&node).y1 > 96.);
         node.paint.shadows[0].spread = -40.;
         scene = Scene::new();
-        draw_node_box(&mut scene, &node, Affine::IDENTITY);
+        draw_node_box(&mut scene, &node, Affine::IDENTITY, 1.);
         assert!(
             !scene.commands.iter().any(
                 |c| matches!(c, crate::PaintCommand::BoxShadow { std_dev, .. } if *std_dev > 0.)

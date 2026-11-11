@@ -232,3 +232,21 @@ fn composable_navigation_entry_keeps_shared_selection_motion_and_custom_content(
     assert!(entry.style.transition_ms > 0);
     assert!(!engine.node(named(&engine, "12")).unwrap().text.is_empty());
 }
+
+#[test]
+fn quiet_navigation_appearance_owns_both_sides_of_selected_contrast() {
+    let mut engine = Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            nav_entry_with_appearance(cx, "Folders", true, NavEntryAppearance::Quiet).children(
+                |cx| {
+                    text(cx, "Folders");
+                },
+            );
+        })
+        .unwrap();
+    let entry = engine.node(named(&engine, "Folders")).unwrap();
+    assert_eq!(entry.style.background, Some(Color::Selection));
+    assert_eq!(entry.style.foreground, Color::Accent);
+    assert_ne!(entry.style.foreground, Color::OnAccent);
+}

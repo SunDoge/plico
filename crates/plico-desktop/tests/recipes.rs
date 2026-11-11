@@ -47,8 +47,44 @@ fn step(operation: Value) -> Value {
 fn count(text: &str) -> Value {
     step(json!({"op":"assert","assertion":{"kind":"text","text":text,"present":true}}))
 }
+fn wait_for_text(text: &str, timeout_ms: u64, interval_ms: u64) -> Value {
+    step(json!({
+        "op":"wait",
+        "assertion":{"kind":"text","text":text,"present":true},
+        "timeout_ms":timeout_ms,
+        "interval_ms":interval_ms
+    }))
+}
 fn case(name: &str, steps: Vec<Value>) -> Value {
     json!({"name":name,"state":{},"viewport":{"width":320,"height":240,"scale":1},"steps":steps})
+}
+#[test]
+fn wait_advances_only_virtual_time_until_success_or_exact_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = plan(vec![
+        case("eventually", vec![wait_for_text("Count 0 time 48", 64, 16)]),
+        case("timeout", vec![wait_for_text("never rendered", 40, 16)]),
+    ]);
+    let results = p
+        .run(
+            &mut PreviewSession::new(RenderBackend::Wgpu),
+            RecipeMode::Semantic,
+            dir.path(),
+            create,
+            |_, _| Ok(()),
+        )
+        .unwrap();
+    assert!(results[0].passed);
+    assert_eq!(results[0].steps[0].virtual_time_ms, 48);
+    assert!(!results[1].passed);
+    assert_eq!(results[1].steps[0].virtual_time_ms, 40);
+    assert!(
+        results[1].steps[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("wait timed out after 40 ms")
+    );
 }
 fn plan(cases: Vec<Value>) -> RecipePlan<Value> {
     serde_json::from_value(json!({"version":1,"cases":cases})).unwrap()

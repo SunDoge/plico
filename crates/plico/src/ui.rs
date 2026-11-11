@@ -1,4 +1,4 @@
-use crate::{Entity, Theme, engine::Engine, model::*};
+use crate::{Entity, Theme, engine::Engine, model::*, motion::ValueChannel};
 use std::borrow::Cow;
 
 /// Context borrowed while declaring one UI tree. Widget constructors live in `widgets`.
@@ -63,6 +63,22 @@ impl<'e> UiContext<'e> {
         self.engine
             .locals
             .get(self.parent, self.scope, site, self.engine.epoch, init)
+    }
+
+    fn channel_state<T: 'static>(
+        &mut self,
+        namespace: u8,
+        name: &'static str,
+        init: impl FnOnce() -> T,
+    ) -> crate::LocalState<T> {
+        self.engine.locals.get_channel(
+            self.parent,
+            self.scope,
+            namespace,
+            name,
+            self.engine.epoch,
+            init,
+        )
     }
 
     /// Named storage retained across unmounts. The host chooses disk persistence.
@@ -209,6 +225,12 @@ impl<'e> UiContext<'e> {
     /// containers that never read it can scroll entirely in the host.
     pub fn scroll_viewport(&self) -> Option<[f32; 2]> {
         self.engine.scroll_viewport(self.parent)
+    }
+    /// Border-box size resolved by the host on the preceding layout pass.
+    /// Reading it registers this node for sparse geometry feedback; nodes that
+    /// do not read it incur no declaration invalidation when their size changes.
+    pub fn layout_size(&self) -> Option<[f32; 2]> {
+        self.engine.layout_size(self.parent)
     }
     /// Request a logical vertical offset for the current scroll container.
     pub fn scroll_to_y(&mut self, offset: f32) {
@@ -456,36 +478,135 @@ impl<'e> UiContext<'e> {
     pub fn delta(&self) -> std::time::Duration {
         self.engine.time.delta
     }
-    /// Schedule a future frame without repeating this frame's declarations.
+    /// Schedule another display-paced declaration frame. Renderer-owned
+    /// presentation motion uses its retained animation path instead; this is
+    /// for app declarations such as [`Self::loop_progress`] and
+    /// [`Self::animate`] that must sample the injected clock again.
     pub fn request_animation_frame(&mut self) {
         self.engine.changes.insert(Changes::ANIMATE);
     }
     /// The progress of an animation that starts over every `period`, from
     /// 0 toward 1, sampled at the injected frame clock (MyGO's Loop).
-    /// The call site is the animation's identity; `key` tells apart several
-    /// loops of one site. While a call site runs, frames keep coming, and
-    /// when it stops being declared the loop simply stops sampling:
-    /// `elapsed` tracks the time since the first frame, so a loop resumes
-    /// in phase after the site disappears and returns.
+    /// The current element and `key` are the channel identity, as in MyGO;
+    /// several call sites can intentionally address the same loop. While a
+    /// channel is declared, frames keep coming.
+    /// Omitting it releases the local channel; if it is later declared again,
+    /// it starts from zero like a newly mounted MyGO element.
     ///
     /// A spinner turns with `loop_progress("spin", 900, Ease::Linear) * 360`
     /// and a placeholder pulses with an opacity of
     /// `0.5 + 0.5 * loop_progress("pulse", period, Ease::EaseInOut)`.
     pub fn loop_progress(
         &mut self,
-        _key: &'static str,
+        key: &'static str,
         period: std::time::Duration,
         ease: crate::Easing,
     ) -> f32 {
-        // The call site is the loop's identity (state() keys on it); the
-        // start is the first frame this site was declared on.
+        // Element scope and key form the channel identity. Local state makes a
+        // loop start fresh after its declaring element unmounts, as MyGO's.
         let now = self.now();
-        let start = *self.state::<std::time::Duration>(|| now).read();
+        let start = *self
+            .channel_state::<std::time::Duration>(1, key, || now)
+            .read();
         self.request_animation_frame();
         let period = period.max(std::time::Duration::from_millis(1));
         let elapsed = self.now() - start;
         let phase = elapsed.as_nanos() % period.as_nanos();
         ease.sample(phase as f64 / period.as_nanos() as f64) as f32
+    }
+    /// Animate a declaration or layout value toward `target`, easing out as
+    /// MyGO's `Animate` does. The named channel belongs to the current element
+    /// and component scope, survives declaration-order changes, and retargets
+    /// continuously.
+    ///
+    /// The first value is used immediately, and reduced-motion preferences
+    /// snap to the target without scheduling another frame.
+    #[track_caller]
+    pub fn animate(
+        &mut self,
+        key: &'static str,
+        target: f32,
+        duration: std::time::Duration,
+    ) -> f32 {
+        self.animate_with(key, target, duration, Easing::EaseOut)
+    }
+    /// Animate a declaration or layout value with an explicit duration and curve.
+    #[track_caller]
+    pub fn animate_with(
+        &mut self,
+        key: &'static str,
+        target: f32,
+        duration: std::time::Duration,
+        easing: Easing,
+    ) -> f32 {
+        self.animate_to(
+            key,
+            target,
+            crate::Animation::tween(duration.max(std::time::Duration::from_millis(1)), easing),
+        )
+    }
+    /// Animate with a curve, spring or delay. Springs preserve the channel's
+    /// velocity when retargeted, including velocity handed off by a tween.
+    #[track_caller]
+    pub fn animate_to(
+        &mut self,
+        key: &'static str,
+        target: f32,
+        animation: crate::Animation,
+    ) -> f32 {
+        assert!(target.is_finite(), "animation target must be finite");
+        animation.validate();
+        let now = self.now();
+        let state = self.channel_state(2, key, || {
+            std::cell::RefCell::new(ValueChannel::new(target, now))
+        });
+        let (value, active) = state.read().borrow_mut().sample(
+            now,
+            target,
+            animation,
+            self.display_preferences().reduce_motion,
+        );
+        if active {
+            self.request_animation_frame();
+        }
+        value
+    }
+    /// Follow `target` with an analytic spring.
+    #[track_caller]
+    pub fn spring(&mut self, key: &'static str, target: f32, options: crate::SpringOptions) -> f32 {
+        self.animate_to(
+            key,
+            target,
+            crate::Animation {
+                spring: options,
+                ..Default::default()
+            },
+        )
+    }
+    /// Set a channel immediately. Successive jumps record pointer-like
+    /// velocity, which a later [`Self::spring`] keeps when it takes over.
+    pub fn jump(&mut self, key: &'static str, value: f32) -> f32 {
+        assert!(value.is_finite(), "animation value must be finite");
+        let now = self.now();
+        let state = self.channel_state(2, key, || {
+            std::cell::RefCell::new(ValueChannel::new(value, now))
+        });
+        let state = state.read();
+        state.borrow_mut().jump(now, value)
+    }
+    /// Current scalar channel velocity in value units per second.
+    pub fn velocity(&self, key: &'static str) -> f32 {
+        self.engine
+            .locals
+            .channel::<std::cell::RefCell<ValueChannel>>(self.parent, self.scope, 2, key)
+            .map_or(0., |state| state.read().borrow().velocity())
+    }
+    /// Whether a scalar channel is at rest. Unknown channels are settled.
+    pub fn settled(&self, key: &'static str) -> bool {
+        self.engine
+            .locals
+            .channel::<std::cell::RefCell<ValueChannel>>(self.parent, self.scope, 2, key)
+            .is_none_or(|state| !state.read().borrow().active())
     }
     /// Re-evaluate the view at an injected-clock deadline, retaining its
     /// declarations before then. Re-declaring or removing this component
@@ -1112,6 +1233,14 @@ impl Layout<'_, '_> {
     #[inline(always)]
     pub fn sticky(mut self, top: f32) -> Self {
         self.style.sticky_top = Some(top.max(0.));
+        self
+    }
+    /// Push this sticky node out when the next sticky sibling reaches it.
+    /// Intended for section headers; ordinary sticky positioning does not
+    /// enable sibling interaction.
+    #[inline(always)]
+    pub fn sticky_push(mut self, enabled: bool) -> Self {
+        self.style.sticky_push = enabled;
         self
     }
     /// Tint only the background; text and child controls remain opaque.

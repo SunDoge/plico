@@ -10,7 +10,7 @@ pub mod images;
 mod legacy_icons;
 mod shader_playground;
 pub mod tree_view;
-use plico::{Align, Color, Justify, Motion, Theme, UiContext, component};
+use plico::{Align, Color, Justify, Motion, SpringOptions, Theme, UiContext, component};
 use plico_dev::App;
 mod component_kit;
 mod components;
@@ -79,27 +79,11 @@ pub enum Page {
     ComponentKit,
 }
 
-/// A spring-driven demo chip on the Motion page. The value samples purely
-/// from the injected frame instant; the bool is the serializable preference.
-#[derive(Clone, Debug)]
+/// A spring-driven demo chip on the Motion page. The framework owns the
+/// transient channel; this app state only keeps the serializable preference.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpringDemo {
-    width: plico_motion::Animated,
     out: bool,
-}
-impl Default for SpringDemo {
-    fn default() -> Self {
-        Self {
-            width: plico_motion::Animated::new(200.),
-            out: false,
-        }
-    }
-}
-/// Equality is the serializable preference; the sampled width is a pure
-/// function of the injected instant, not part of the state.
-impl PartialEq for SpringDemo {
-    fn eq(&self, other: &Self) -> bool {
-        self.out == other.out
-    }
 }
 
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -472,18 +456,18 @@ impl Gallery {
                     // The spring overshoots before settling: width goes past the
                     // target and comes back, unlike the 240 ms tween above.
                     let target = if self.spring.out { 320. } else { 200. };
-                    self.spring.width.retarget_spring(
-                        ui.now(),
+                    let width = ui.spring(
+                        "motion.demo.width",
                         target,
-                        plico_motion::SpringOptions {
+                        SpringOptions {
                             mass: 1.,
                             stiffness: 170.,
                             damping: 14.,
-                            epsilon: 0.001,
+                            precision: 0.001,
+                            ..Default::default()
                         },
                     );
-                    let width = self.spring.width.value(ui.now());
-                    column(ui).width(width as f32).height(78.).radius(12.).background(Color::Accent)
+                    column(ui).width(width).height(78.).radius(12.).background(Color::Accent)
                         .children(|ui| {
                         text(ui, l.text("overshoot-then-settle", "Overshoot, then settle.")).font_size(15).weight(600).color(Color::OnAccent);
                     });
@@ -497,11 +481,6 @@ impl Gallery {
                     },
                 ).font_size(12).color(Color::Muted);
             };
-            // Finite flights only: request frames while a spring is still
-            // settling, so the app idles at rest.
-            if self.spring.width.active(ui.now()) {
-                ui.request_animation_frame();
-            }
         };
         shader_demo(ui);
     }

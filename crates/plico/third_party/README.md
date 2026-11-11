@@ -1,4 +1,18 @@
-# Material source attribution
+# MyGO source attribution
+
+`src/motion.rs` follows MyGO's keyed scalar animation channels, analytic spring
+parameters, retargeting and reduced-motion behavior. `src/virtual_list.rs`
+translates MyGO's sparse 64-row height blocks, bounded business-key anchor
+search, fixed/variable row anchor retention, height-cache shifting, follow-end state and programmatic-scroll
+distinction; Plico connects them to its own retained declaration, keyed motion
+channels and Taffy geometry-feedback paths.
+
+- Repository: https://github.com/egoist/mygo
+- Revision: `6bd276dda679449336f68277eaaa988e1fadc54b`
+- Sources: `ui/widgets.go`, `ui/motion.go`, `ui/list.go`
+- License: `mygo-LICENSE` in this directory.
+
+## Material implementation
 
 `assets/materials/liquid_glass.wgsl` adapts the quartic/Snell lens, analytic
 rounded-rectangle normal and tone curve from MyGO, Copyright (c) 2026 MyGo

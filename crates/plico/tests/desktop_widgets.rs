@@ -449,8 +449,33 @@ fn loop_progress_samples_the_injected_clock_and_keeps_site_identity() {
     assert!((pulse_a - 0.875).abs() < 1e-6, "{pulse_a}");
 }
 
+fn keyed_loop(cx: &mut UiContext<'_>, key: &'static str, period_ms: u64) -> f32 {
+    cx.loop_progress(key, Duration::from_millis(period_ms), Easing::Linear)
+}
+
 #[test]
-fn loop_progress_restarts_in_phase_when_its_site_returns() {
+fn loop_keys_separate_channels_at_one_call_site() {
+    let mut engine = Engine::default();
+    let mut slow = 0.;
+    let mut fast = 0.;
+    frame(&mut engine, |cx| {
+        slow = keyed_loop(cx, "slow", 1000);
+        fast = keyed_loop(cx, "fast", 500);
+    });
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(500),
+        delta: Duration::from_millis(500),
+    });
+    frame(&mut engine, |cx| {
+        slow = keyed_loop(cx, "slow", 1000);
+        fast = keyed_loop(cx, "fast", 500);
+    });
+    assert!((slow - 0.5).abs() < 1e-6, "{slow}");
+    assert_eq!(fast, 0.);
+}
+
+#[test]
+fn loop_progress_starts_fresh_when_its_site_returns() {
     let mut engine = Engine::default();
     let mut pulse = 0.;
     engine.set_time(FrameTime {
@@ -481,4 +506,268 @@ fn loop_progress_restarts_in_phase_when_its_site_returns() {
         resumed = cx.loop_progress("pulse", Duration::from_millis(1000), Easing::Linear);
     });
     assert_eq!(resumed, 0., "a returning site starts its loop anew");
+}
+
+#[test]
+fn keyed_value_animation_rebuilds_layout_and_retargets_continuously() {
+    let mut engine = Engine::default();
+    let mut target = 0.;
+    let mut value = -1.;
+    let declare = |cx: &mut UiContext<'_>, target: f32, value: &mut f32| {
+        *value = cx.animate_with(
+            "sidebar-width",
+            target,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+    };
+
+    engine.set_time(FrameTime {
+        now: Duration::ZERO,
+        delta: Duration::ZERO,
+    });
+    frame(&mut engine, |cx| declare(cx, target, &mut value));
+    assert_eq!(value, 0., "the initial declaration must not animate in");
+    assert_eq!(engine.wake_deadline(), None);
+
+    target = 100.;
+    frame(&mut engine, |cx| declare(cx, target, &mut value));
+    assert_eq!(value, 0.);
+    assert!(engine.changes().contains(plico::Changes::ANIMATE));
+    assert_eq!(engine.wake_deadline(), None);
+
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(50),
+        delta: Duration::from_millis(50),
+    });
+    frame(&mut engine, |cx| declare(cx, target, &mut value));
+    assert!((value - 50.).abs() < 1e-6, "{value}");
+
+    // Reverse while moving: the new tween begins at the sampled value rather
+    // than jumping to either the old origin or target.
+    target = 0.;
+    frame(&mut engine, |cx| declare(cx, target, &mut value));
+    assert!((value - 50.).abs() < 1e-6, "{value}");
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(100),
+        delta: Duration::from_millis(50),
+    });
+    frame(&mut engine, |cx| declare(cx, target, &mut value));
+    assert!((value - 25.).abs() < 1e-6, "{value}");
+}
+
+#[test]
+fn keyed_value_animation_honors_reduced_motion() {
+    let mut engine = Engine::default();
+    let mut value = 0.;
+    frame(&mut engine, |cx| {
+        value = cx.animate("panel-width", 64., Duration::from_millis(240));
+    });
+    engine.set_display_preferences(plico::DisplayPreferences {
+        reduce_motion: true,
+        ..Default::default()
+    });
+    frame(&mut engine, |cx| {
+        value = cx.animate("panel-width", 224., Duration::from_millis(240));
+    });
+    assert_eq!(value, 224.);
+    assert_eq!(engine.wake_deadline(), None);
+}
+
+fn animated_width(cx: &mut UiContext<'_>, target: f32) -> f32 {
+    cx.animate_with("width", target, Duration::from_millis(100), Easing::Linear)
+}
+
+#[test]
+fn keyed_value_animation_starts_fresh_after_unmount() {
+    let mut engine = Engine::default();
+    let mut value = 0.;
+    frame(&mut engine, |cx| value = animated_width(cx, 64.));
+    frame(&mut engine, |_| {});
+    engine.set_time(FrameTime {
+        now: Duration::from_secs(1),
+        delta: Duration::from_secs(1),
+    });
+    frame(&mut engine, |cx| value = animated_width(cx, 224.));
+    assert_eq!(
+        value, 224.,
+        "a remounted channel starts at its first target"
+    );
+    assert_eq!(engine.wake_deadline(), None);
+}
+
+fn animated_channel(cx: &mut UiContext<'_>, target: f32, animation: Animation) -> f32 {
+    cx.animate_to("channel", target, animation)
+}
+
+#[test]
+fn spring_retarget_keeps_tween_velocity_and_settles_exactly() {
+    let mut engine = Engine::default();
+    let mut target = 0.;
+    let mut animation = Animation::tween(Duration::from_millis(100), Easing::Linear);
+    let mut value = 0.;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    target = 100.;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(50),
+        delta: Duration::from_millis(50),
+    });
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert!((value - 50.).abs() < 1e-5);
+
+    // A spring takes over at the exact visible value. The tween's 1000 units/s
+    // velocity carries through, so the first millisecond moves materially.
+    target = 200.;
+    animation = Animation::SMOOTH;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert!((value - 50.).abs() < 1e-5);
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(51),
+        delta: Duration::from_millis(1),
+    });
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert!(value > 50.5, "tween momentum was lost: {value}");
+
+    engine.set_time(FrameTime {
+        now: Duration::from_secs(3),
+        delta: Duration::from_millis(2949),
+    });
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert_eq!(value, 200.);
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
+}
+
+#[test]
+fn delayed_animation_waits_then_uses_its_full_curve() {
+    let mut engine = Engine::default();
+    let mut target = 0.;
+    let animation = Animation {
+        duration: Duration::from_millis(100),
+        delay: Duration::from_millis(50),
+        ..Animation::default()
+    };
+    let mut value = 0.;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    target = 100.;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    for millis in [25, 50] {
+        engine.set_time(FrameTime {
+            now: Duration::from_millis(millis),
+            delta: Duration::from_millis(25),
+        });
+        frame(&mut engine, |cx| {
+            value = animated_channel(cx, target, animation)
+        });
+        assert_eq!(value, 0.);
+    }
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(100),
+        delta: Duration::from_millis(50),
+    });
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert!((value - 87.5).abs() < 1e-5, "{value}");
+}
+
+#[test]
+fn reduced_motion_keeps_non_spatial_channels_only() {
+    let mut engine = Engine::default();
+    let mut target = 0.;
+    let mut value = 0.;
+    let mut animation = Animation::tween(Duration::from_millis(100), Easing::Linear);
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    engine.set_display_preferences(plico::DisplayPreferences {
+        reduce_motion: true,
+        ..Default::default()
+    });
+    target = 1.;
+    frame(&mut engine, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert_eq!(value, 1.);
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
+
+    let mut other = Engine::default();
+    target = 0.;
+    animation.non_motion = true;
+    frame(&mut other, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    other.set_display_preferences(plico::DisplayPreferences {
+        reduce_motion: true,
+        ..Default::default()
+    });
+    target = 1.;
+    frame(&mut other, |cx| {
+        value = animated_channel(cx, target, animation)
+    });
+    assert_eq!(value, 0.);
+    assert!(other.changes().contains(plico::Changes::ANIMATE));
+}
+
+#[test]
+fn jump_and_spring_share_an_element_key_across_call_sites() {
+    let mut engine = Engine::default();
+    let mut value = 0.;
+    frame(&mut engine, |cx| {
+        assert!(cx.settled("drag-x"));
+        assert_eq!(cx.velocity("drag-x"), 0.);
+        value = cx.jump("drag-x", 0.);
+    });
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(10),
+        delta: Duration::from_millis(10),
+    });
+    frame(&mut engine, |cx| {
+        value = cx.jump("drag-x", 10.);
+        assert!((cx.velocity("drag-x") - 1000.).abs() < 1e-4);
+    });
+    frame(&mut engine, |cx| {
+        value = cx.spring("drag-x", 100., SpringOptions::default());
+    });
+    assert_eq!(value, 10., "spring must take over without a position jump");
+    engine.set_time(FrameTime {
+        now: Duration::from_millis(11),
+        delta: Duration::from_millis(1),
+    });
+    frame(&mut engine, |cx| {
+        value = cx.spring("drag-x", 100., SpringOptions::default());
+    });
+    assert!(
+        value > 10.5,
+        "drag velocity was not handed to spring: {value}"
+    );
+    assert!(engine.wake_deadline().is_none());
+}
+
+#[test]
+fn querying_an_unknown_motion_does_not_change_its_first_target() {
+    let mut engine = Engine::default();
+    let mut value = 0.;
+    frame(&mut engine, |cx| {
+        assert!(cx.settled("unknown"));
+        value = cx.spring("unknown", 240., SpringOptions::default());
+    });
+    assert_eq!(value, 240.);
+    assert!(!engine.changes().contains(plico::Changes::ANIMATE));
 }

@@ -54,6 +54,6 @@ cargo build -p plico-cli
 python3 scripts/check-modal-reload.py
 ```
 
-八项集成测试覆盖长空闲后的时钟延迟、等待帧不重声明、键盘/描述/Escape、热区/嵌套、真实指针穿透、禁用/卸载、Modal 与 IME、窗口失焦、长文本/缩窗，以及与 WGSL 同屏的实际 GPU 像素及 scene cache。真实 cdylib 测试在重载前后比较已显示提示的内容及宿主焦点；截图位于 reports/tooltip。开发宿主 headless JSON 增加 focus 动作，并返回可见 tooltip 的描述、bounds、focus 作为验证证据。
+集成测试覆盖长空闲后的时钟延迟、等待帧不重声明、键盘/描述/Escape、热区/嵌套、真实指针穿透、禁用/卸载、Modal 与 IME、窗口失焦、长文本/缩窗，以及与 WGSL 同屏的实际 GPU 像素及 scene cache。静态场景的 focus 动作返回可见 tooltip 的描述、bounds 和 focus 作为验证证据；截图属于本地 reports 产物。
 
 当前不提供自定义 placement/delay、富文本、shortcut keycap、入退场 tween 或视觉关闭延迟。只验证了本地 headless GPU 与语义投影，没有把这些结果当成所有桌面平台或读屏软件的认证。

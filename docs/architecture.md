@@ -80,8 +80,6 @@ renderer/shell 及所需 Rust 依赖已复制到本仓库，目前位于 crates/
 
 ## 当前开发模块边界
 
-`gallery` 只依赖核心、plico-dev、Serde 与 Stabby，已从渲染宿主中拆出。CLI dev 构建关闭静态 gallery feature 的宿主，并监听/重编译 app cdylib。host 常驻保存 Engine、Taffy 节点、字体与 GPU 资源，应用逻辑通过版本化 JSON 返回 ViewNode 描述。
+`gallery` 是普通静态 Rust 应用，依赖核心、plico-dev 和需要的功能 crate；它不导出 app cdylib。`plico dev` 监听并重新编译同一个 executable，成功后重启，失败时保留旧进程。Engine、Taffy、字体和 GPU 资源随进程重建；需要跨重启保留的数据走应用自己的持久化。
 
-当前热更新以 Stabby 的稳定 Vec<u8>/Reply 传输字节，以 get_stabbied 验证函数布局，不让 Rust trait object、Ui 引用或普通 Vec 跨模块。逻辑 key 路径传递点击，避免把一版模块的 arena ID 当成另一版的身份。状态用 Serde 迁移，不要求应用所有类型都有稳定 ABI。
-
-核心 arena 已改为 SlotMap 的薄封装，Entity 是不透明 handle；Snafu 提供领域错误，Serde 用于开发协议。仍不依赖 renderer/窗口/Bevy。生产静态 Source 不经过该 JSON 开发通路。
+核心 arena 是 SlotMap 的薄封装，Entity 是不透明 handle；Snafu 提供领域错误。核心仍不依赖 renderer、窗口或 Bevy。JSON/TypeScript recipe 只描述应用定义的 preview 配置、交互和断言，不作为 Rust ABI 或任意 App 状态迁移协议。WASM host/UI 值协议是独立能力，不表示桌面动态加载仍存在。

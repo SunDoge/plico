@@ -47,7 +47,7 @@
 | Slider | `slider` | 单值滑杆 |
 | Switch / Checkbox / Toggle | `switch` / `checkbox` | 受控布尔控件 |
 | Text input / Editable text | `text_input` / `text_input_string` | 原生编辑、IME、选择 |
-| Table / Grid view / List | `table_header` / `table_row` / `virtual_list` | 固定表头与虚拟列表 |
+| Table / Grid view / List | `table_header` / `table_row` / `virtual_list` / `variable_virtual_list` | 固定表头；固定/可变行、稀疏测量、业务锚点及可打断 FollowEnd 动画 |
 | Image / Icon / SVG | `image` / `svg` / `icon` | 资源缓存与 currentColor |
 | Shader | `shader` | WGSL surface |
 | Inspector | `property_field` | 属性行 |

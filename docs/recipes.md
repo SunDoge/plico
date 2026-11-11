@@ -11,8 +11,8 @@
 
 ## 运行
 
-从 Plicowarden 仓库根目录执行，需要 Node >= 22.18 和 npm。生成器使用 Node 的原生 TS 类型擦除，
-另行运行 TypeScript 编译器检查类型；运行 TS 不等于已经检查类型。
+从 Plicowarden 仓库根目录执行，需要 Bun 1.4.4。Bun 管理锁定依赖并直接执行 TS，另行运行
+TypeScript 编译器检查类型；运行 TS 不等于已经检查类型。
 
 ```sh
 # 首次准备 TS 依赖、检查类型、生成计划、构建一次 Rust runner、执行。
@@ -29,7 +29,7 @@ python3 scripts/run-recipes.py --no-build \
   --suite recipes/suite.ts --output reports/my-recipes
 ```
 
-脚本按 lockfile 安装缺失的 TS 工具依赖，之后不会每次安装。Node/npm 仅是测试编写工具，
+脚本通过 `bun install --frozen-lockfile` 检查并安装缺失的 TS 工具依赖。Bun 仅是测试编写工具，
 不是 Plico 桌面运行前提。当前脚本构建的是 Warden example，不是任意应用的通用 CLI；
 换应用需要提供自己的 typed factory 和事件处理入口。
 `--no-build` 明确要求调用者保证 Rust executable 与源码相符；源码变化后去掉该参数。
@@ -38,9 +38,9 @@ python3 scripts/run-recipes.py --no-build \
 也可分别使用已有产物：
 
 ```sh
-npm ci --prefix tools/recipes
-npm --prefix tools/recipes run check
-node tools/recipes/src/generate.ts recipes/suite.ts reports/recipes/plan.json
+bun install --cwd tools/recipes --frozen-lockfile
+bun run --cwd tools/recipes check
+bun tools/recipes/src/generate.ts recipes/suite.ts reports/recipes/plan.json
 cargo build --locked -p plicowarden --example recipes
 target/debug/examples/recipes --plan reports/recipes/plan.json --output reports/recipes/run
 ```
@@ -81,6 +81,9 @@ fixture、主题和窗口参数是显式测试输入，不是任意写入活跃�
 - `fill(label, text)`：原生焦点、平台 Select All、Backspace、文本输入，既支持替换也支持清空。
 - `typeText`、`key`、`setValue`：对应现有 runtime 命令。
 - `advance(ms)`：推进虚拟时钟，不睡眠、不自动模拟中间 vsync。
+- `waitFor(expect(...), { timeoutMs, intervalMs })`：立即检查断言；未满足时按
+  `intervalMs`（默认 16 ms）推进虚拟时钟并重建，直到成功或精确到达虚拟超时。
+  它不读取墙钟，也不会用 `sleep`，适合等待动画或由确定性 fixture 驱动的 UI 状态。
 - `expect(selector)`：exists、absent、count、enabled、value、selected。
 - `expectText(text)`：检查最终声明/布局中的精确文字，不要求该文字有交互语义标签。
 - `capture(name)`：捕获当前流程状态，允许一例多个命名截图。
@@ -111,14 +114,14 @@ Warden example 不构造真实 `Host`，不打开 SDK worker，不读取用户�
 
 输出目录中：
 
-- `input-plan.json` / `plan.json`：展开后的输入，直接用于重放，不需要 TS 源码或 Node。
+- `input-plan.json` / `plan.json`：展开后的输入，直接用于重放，不需要 TS 源码或 Bun。
 - `results.json`：逐例/逐步结果、源位置、虚拟时间、耗时和截图路径。
 - `<case>/<capture>.png`：多个检查点的图像。
 - 失败时的 `<case>/_failure.png`、最后一个通过的截图路径、语义节点和 rendered_text。
 - `pipeline.json`：类型检查、生成、构建（如果执行）、运行的独立墙钟耗时。
 
 一步失败则停止当前案例，后续独立案例继续；任何案例失败使进程返回非零状态。
-错误源位置来自 Node 执行保留行布局的 TS 时的调用栈，生成后规范为仓库相对路径，
+错误源位置来自 Bun 执行 TS 时的调用栈，生成后规范为仓库相对路径，
 公共 helper 中的错误指向 helper，并同时显示 flow 名称。它不是任意 transpiler 的 source map 支持。
 脚本有执行超时；单进程 recipe 本身不隔离 panic、GPU device loss 或无限循环。
 
@@ -129,8 +132,9 @@ Warden example 不构造真实 `Host`，不打开 SDK worker，不读取用户�
 
 ```sh
 # 在 Plico 目录运行框架检查
-npm --prefix tools/recipes run check
-npm --prefix tools/recipes test
+bun install --cwd tools/recipes --frozen-lockfile
+bun run --cwd tools/recipes check
+bun run --cwd tools/recipes test
 cargo test --locked -p plico-desktop --no-default-features --features wgpu --test recipes
 cargo test --locked -p plico-desktop --no-default-features --features wgpu \
   --test recipes --test preview_session --test capture_wgpu -- --ignored
@@ -147,7 +151,8 @@ GPU 测试验证连续交互的多个截图不同、失败截图保存当前状�
 
 ## 本机反馈耗时
 
-2026-11-08，Linux / wgpu / Node 26.12.1，复用已构建 runner，五轮中位数：
+2026-11-08 的下表是迁移到 Bun 前，Linux / wgpu / Node 26.12.1、复用已构建 runner 的
+五轮历史中位数；不能直接当作当前 Bun 路径的耗时：
 
 | 模式 | 类型检查 | TS→JSON | Rust 执行 | Python 命令总耗时 |
 |---|---:|---:|---:|---:|

@@ -44,7 +44,9 @@ cargo run -p backend-settings --example sidebar_capture
 
 输出位于本地 `reports/sidebar/`。设置页的 immediate 与 Regions 实现通过语义树和控件几何对照测试，避免组合控件迁移造成行为差异。
 
-Gallery 的导航使用 MyGO source-list 风格：单色图标、Workspace / Components / Experiments 分组、单行选中态和图标模式。`Toggle navigation` 切换 224 / 64 px；240 ms 过渡通过注入时钟采样宽度，让旁边的内容区按当前宽度重新布局。动画值放在 transient state，不写入场景配置；配置只保存 `sidebar_collapsed`。当前保留普通按钮的 Tab / Enter 行为，尚未实现 MyGO 的单 Tab stop、方向键和首字母导航。
+Gallery 的导航使用 MyGO source-list 风格：单色图标、Workspace / Components / Experiments 分组、单行选中态和图标模式。`Toggle navigation` 切换 224 / 64 px；240 ms 过渡由 `UiContext::animate` 通过注入时钟采样宽度，让旁边的内容区按当前宽度重新布局。框架负责连续 retarget、显示节奏声明帧和 reduced-motion，应用只保存 `sidebar_collapsed`，不再维护动画起点、时间或 transient state。选中项使用完整的 `NavEntryAppearance::Quiet` 配色，避免只覆盖背景后继承 `OnAccent` 前景。当前保留普通按钮的 Tab / Enter 行为，尚未实现 MyGO 的单 Tab stop、方向键和首字母导航。
+
+动画 channel 的首次目标、key 隔离、途中 retarget、卸载释放和 reduced-motion 语义对照本机 MyGO `6bd276dda679449336f68277eaaa988e1fadc54b` 的 `ui/widgets.go`、`ui/motion.go`。Plico 仍使用自身 retained engine 和注入时钟；活动 channel 像 MyGO `AnimationFrame()` 一样请求下一次显示节奏的声明帧，不用固定 16ms deadline 限制高刷新率。默认 `nav_entry` 的焦点内强调色、失焦灰色来自同一 revision 的 `ui/sidebar.go`；`Quiet` 是 Gallery 的低强调完整配色，不冒充 MyGO 默认侧边栏外观。
 
 Patterns 页面同时展示可暂停的 WGSL aurora、通知动画和拖拽区域。导航本身不运行持续 shader，避免闲置时额外请求帧。折叠后的可重现预览：
 

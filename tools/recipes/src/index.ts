@@ -26,6 +26,7 @@ export type Operation =
   | { op: "fill"; label: string; text: string; occurrence?: number }
   | { op: "advance"; milliseconds: number }
   | { op: "assert"; assertion: Assertion }
+  | { op: "wait"; assertion: Assertion; timeout_ms: number; interval_ms?: number }
   | { op: "capture"; name: string }
   | { op: "event"; event: Json };
 export interface Step { source?: Location; flow: string[]; operation: Operation }
@@ -34,9 +35,9 @@ export interface Plan<S> { version: 1; cases: Recipe<S>[] }
 const ownFile = fileURLToPath(import.meta.url);
 function location(): Location | undefined {
   for (const line of new Error().stack?.split("\n").slice(1) ?? []) {
-    const match = line.match(/(?:\(|at )(file:\/\/.*):(\d+):(\d+)\)?$/);
+    const match = line.match(/(?:\(|at )((?:file:\/\/|\/|[A-Za-z]:[\\/]).*):(\d+):(\d+)\)?$/);
     if (!match) continue;
-    const file = fileURLToPath(match[1]);
+    const file = match[1].startsWith("file:") ? fileURLToPath(match[1]) : match[1];
     if (file === ownFile) continue;
     return { file, line: Number(match[2]), column: Number(match[3]) };
   }
@@ -72,6 +73,16 @@ export function expect(selector: Selector) {
   };
 }
 export const expectText = (text: string, present = true): Step => step({ op: "assert", assertion: { kind: "text", text, present } });
+/** Poll an assertion by advancing deterministic virtual time, never wall-clock time. */
+export function waitFor(assertionStep: Step, options: { timeoutMs?: number; intervalMs?: number } = {}): Step {
+  if (assertionStep.operation.op !== "assert") throw new Error("waitFor requires an expect(...) or expectText(...) assertion");
+  return step({
+    op: "wait",
+    assertion: structuredClone(assertionStep.operation.assertion),
+    timeout_ms: options.timeoutMs ?? 5_000,
+    interval_ms: options.intervalMs ?? 16,
+  });
+}
 /** Expands a reusable flow while preserving its name and each authored source location. */
 export function flow(name: string, steps: readonly Step[]): Step[] {
   return steps.map(s => ({ ...structuredClone(s), flow: [name, ...s.flow] }));
@@ -116,7 +127,14 @@ export function validate(plan: Plan<unknown>): void {
         if (!safeName(operation.name) || operation.name === "_failure" || captures.has(operation.name)) throw new Error(`unsafe, reserved or duplicate capture: ${operation.name}`);
         captures.add(operation.name);
       } else if (operation.op === "advance" && (!Number.isSafeInteger(operation.milliseconds) || operation.milliseconds < 0)) throw new Error("advance requires a nonnegative safe integer");
-      else if (operation.op === "assert" && operation.assertion.kind === "nodes") {
+      else if (operation.op === "wait") {
+        if (!Number.isSafeInteger(operation.timeout_ms) || operation.timeout_ms < 1 || operation.timeout_ms > 300_000)
+          throw new Error("wait requires timeout_ms in 1..=300000");
+        const interval = operation.interval_ms ?? 16;
+        if (!Number.isSafeInteger(interval) || interval < 1 || interval > operation.timeout_ms)
+          throw new Error("wait requires interval_ms in 1..=timeout_ms");
+      }
+      if ((operation.op === "assert" || operation.op === "wait") && operation.assertion.kind === "nodes") {
         const { selector, expect } = operation.assertion;
         if (selector.label !== undefined && selector.label_prefix !== undefined) throw new Error("ambiguous selector label/prefix");
         if (selector.occurrence !== undefined && (!Number.isSafeInteger(selector.occurrence) || selector.occurrence < 0)) throw new Error("invalid occurrence");

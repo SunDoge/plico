@@ -14,9 +14,8 @@ zoom.set(1.25);
 The wrapper reduces the logical layout viewport and multiplies the paint scale.
 It maps pointer/wheel coordinates back into the same virtual viewport, projects
 semantic bounds and IME cursor/range rectangles into native window coordinates,
-and preserves text offsets and host effects. Its controller lives in the host;
-it is not part of hot-reloaded application state. A hidden window can keep its
-controller without requiring a continuous rAF loop.
+and preserves text offsets and host effects. Its controller lives in the host.
+A hidden window can keep its controller without requiring a continuous rAF loop.
 
 The normal native gallery supports the keyboard shortcuts. The interactive
 button/input verification demo is:
@@ -29,7 +28,6 @@ The example includes buttons, a text input (for selection and IME verification),
 and scrolling content. MBX GUI consumes the wrapper without adding zoom buttons
 or a zoom indicator to its dashboard.
 
-This is native host functionality. The browser host and generic hot-reload host
-are not automatically wrapped; an embedding host must opt in. The normal native
-gallery entry point opts in explicitly. Zoom controls are window-local and do not
+This is native host functionality. Browser and custom embedding hosts must opt
+in; the normal native gallery entry point does so explicitly. Zoom controls are window-local and do not
 alter OS display scaling or native window corner radius.

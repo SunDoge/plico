@@ -2,8 +2,10 @@
 use super::*;
 use plico_renderer::Point;
 use std::time::Duration;
-const DELAY: Duration = Duration::from_millis(300);
-const WARM: Duration = Duration::from_millis(150);
+// Match MyGO's desktop tooltip cadence: a deliberate first reveal, followed
+// by a shorter warm window while moving between neighboring controls.
+const DELAY: Duration = Duration::from_millis(600);
+const WARM: Duration = Duration::from_millis(400);
 type VisualKey = (Entity, Arc<str>, Theme, [f32; 4], u32, u32);
 pub(super) struct Tooltips {
     pointer: Option<Point>,

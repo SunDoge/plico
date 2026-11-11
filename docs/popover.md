@@ -52,8 +52,6 @@ cargo run -p gallery
 # Controls → Quick settings
 cargo run -p gallery --example capture -- --page controls --popover --out /tmp/popover.png
 cargo test -p plico-desktop --test popover
-cargo build -p plico-cli
-python3 scripts/check-modal-reload.py
 ```
 
-六项集成测试覆盖翻转避让、定位后的真实指针命中、窗口缩放、禁用、Tab/焦点恢复、Modal 内语义投影与 Escape、虚拟时钟动画无重声明/布局。真实 CLI/cdylib 测试覆盖打开状态、锚点 token 和关闭动作的重放。light/dark-small GPU 截图位于 reports/popover。
+集成测试覆盖翻转避让、定位后的真实指针命中、窗口缩放、禁用、Tab/焦点恢复、Modal 内语义投影与 Escape、虚拟时钟动画无重声明/布局。静态场景覆盖打开状态、锚点 token 和关闭动作重放；GPU 截图属于本地 reports 产物。

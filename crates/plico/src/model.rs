@@ -208,6 +208,18 @@ impl Easing {
             Self::EaseInOut => 1. - (-2. * progress + 2.).powi(3) / 2.,
         }
     }
+    /// Exact derivative of [`Self::sample`], used to preserve visible velocity
+    /// when an easing curve hands off to a spring.
+    pub fn slope(self, progress: f64) -> f64 {
+        let progress = progress.clamp(0., 1.);
+        match self {
+            Self::Linear => 1.,
+            Self::EaseIn => 3. * progress.powi(2),
+            Self::EaseOut => 3. * (1. - progress).powi(2),
+            Self::EaseInOut if progress < 0.5 => 12. * progress.powi(2),
+            Self::EaseInOut => 12. * (1. - progress).powi(2),
+        }
+    }
 }
 
 /// Shared timing presets for interaction feedback and property transitions.
@@ -402,6 +414,11 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[invalidates(LAYOUT, PAINT)]
     pub sticky_top: Option<f32>,
+    /// Let a following sticky sibling push this node away. Sectioned virtual
+    /// lists enable it; ordinary CSS-like sticky nodes remain independent.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[invalidates(LAYOUT, PAINT)]
+    pub sticky_push: bool,
     /// Background tint alpha, independent of child opacity.
     #[invalidates(PAINT)]
     pub background_alpha: f32,
@@ -583,6 +600,7 @@ impl Default for Style {
             ambient_shadow: None,
             inset_shadow: None,
             sticky_top: None,
+            sticky_push: false,
             background_alpha: 1.,
             width: None,
             height: None,

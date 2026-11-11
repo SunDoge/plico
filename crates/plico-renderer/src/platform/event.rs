@@ -11,7 +11,7 @@ pub use crate::platform::accessibility::{
 ///
 /// Consumers with line-based scrolling should accumulate pixel deltas against
 /// this value so high-resolution trackpads and discrete wheels share one unit.
-pub const WHEEL_LINE_DELTA: f64 = 50.0;
+pub const WHEEL_LINE_DELTA: f64 = 40.0;
 /// Host multi-click policy in logical window coordinates. Time is compared
 /// against the UI's injected clock; this value never reads a system clock.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -121,6 +121,28 @@ pub fn nav_entry<'u, 'e, 't>(
     label: impl Into<std::borrow::Cow<'t, str>>,
     selected: bool,
 ) -> crate::ButtonBase<'u, 'e, 't> {
+    nav_entry_with_appearance(cx, label, selected, NavEntryAppearance::Accent)
+}
+
+/// Complete color recipes for navigation entries. Prefer one of these over
+/// overriding only the background or foreground of [`nav_entry`], which can
+/// break the selected-state contrast contract.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NavEntryAppearance {
+    /// Strong selection using the theme accent and its paired foreground.
+    #[default]
+    Accent,
+    /// Subtle tinted selection for dense source lists and sidebars.
+    Quiet,
+}
+
+/// A navigation entry using one coherent appearance recipe for every state.
+pub fn nav_entry_with_appearance<'u, 'e, 't>(
+    cx: &'u mut UiContext<'e>,
+    label: impl Into<std::borrow::Cow<'t, str>>,
+    selected: bool,
+    appearance: NavEntryAppearance,
+) -> crate::ButtonBase<'u, 'e, 't> {
     let m = cx.theme().metrics;
     // Sections are composition containers, not separate sidebar focus scopes.
     let mut owner = cx.parent;
@@ -149,7 +171,7 @@ pub fn nav_entry<'u, 'e, 't>(
         .selected(selected)
         .transition(m.interaction_ms)
         .gap(m.space(2));
-    if selected {
+    if selected && appearance == NavEntryAppearance::Accent {
         let face = if focused {
             Color::Accent
         } else {
@@ -164,6 +186,12 @@ pub fn nav_entry<'u, 'e, 't>(
             } else {
                 Color::Foreground
             })
+    } else if selected {
+        control
+            .background(Color::Selection)
+            .hover_background(Color::Selection)
+            .pressed_background(Color::ControlPressed)
+            .color(Color::Accent)
     } else {
         control
             .hover_background(Color::ControlHover)

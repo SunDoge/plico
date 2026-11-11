@@ -387,6 +387,8 @@ impl Engine {
             self.lookup.remove(&node.identity);
             self.inputs.remove(&id);
             self.scroll_viewports.remove(&id);
+            self.layout_sizes.remove(&id);
+            self.layout_size_observers.get_mut().remove(&id);
             self.removed_since_sync.push(id);
             self.stats.removed += 1;
         }
