@@ -72,6 +72,7 @@ impl Renderer {
         self.batch_stats = FrameBatchStats::default();
         self.frame_budget = FrameBudget::default();
         if self.layer_depth == 0 {
+            self.poll_class_pipelines();
             self.frame_prefix_commands.clear();
             self.poll_gpu_budget();
             self.backdrop_pool.begin_frame();
@@ -148,7 +149,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -318,6 +319,7 @@ impl Renderer {
         let mut flush_draws: u64 = 0;
         let mut flush_plain_draws: u64 = 0;
         let mut flush_fill_draws: u64 = 0;
+        let mut flush_shadow_draws: u64 = 0;
         let encode_started = Instant::now();
         if let Some(base) = &self.inherited_backdrop {
             base.seed(
@@ -460,6 +462,7 @@ impl Renderer {
                                 &mut flush_draws,
                                 &mut flush_plain_draws,
                                 &mut flush_fill_draws,
+                                &mut flush_shadow_draws,
                             );
                         }
                         if let Some(effect_index) = backdrop_at {
@@ -559,6 +562,7 @@ impl Renderer {
                         &mut flush_draws,
                         &mut flush_plain_draws,
                         &mut flush_fill_draws,
+                        &mut flush_shadow_draws,
                     );
                 }
             }
@@ -657,6 +661,7 @@ impl Renderer {
         self.batch_stats.draw_calls += flush_draws;
         self.batch_stats.plain_draw_calls += flush_plain_draws;
         self.batch_stats.fill_draw_calls += flush_fill_draws;
+        self.batch_stats.shadow_draw_calls += flush_shadow_draws;
         self.frame_budget.instances += instances.len() as u64;
         self.frame_budget.draw_calls += flush_draws;
         self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
@@ -677,6 +682,7 @@ impl Renderer {
         draw_calls: &mut u64,
         plain_draw_calls: &mut u64,
         fill_draw_calls: &mut u64,
+        shadow_draw_calls: &mut u64,
     ) {
         // Resolve every self borrow before the pass ops so the caller's
         // encoder/pass lifetimes stay disjoint from self.
@@ -705,14 +711,21 @@ impl Renderer {
                 },
             )
         });
-        let pipeline = if run.plus {
-            self.plus_pipeline.as_ref().expect("plus pipeline prepared") as &wgpu::RenderPipeline
+        let (pipeline, specialized) = if run.plus {
+            (
+                self.plus_pipeline.as_ref().expect("plus pipeline prepared")
+                    as &wgpu::RenderPipeline,
+                false,
+            )
         } else {
-            match run.class {
-                PipelineClass::General => self.pipeline.as_ref().expect("material installed"),
-                PipelineClass::Plain => &self.plain_pipeline,
-                PipelineClass::Fill => &self.fill_pipeline,
-            }
+            let general = self.pipeline.as_ref().expect("material installed");
+            let specialized = match run.class {
+                PipelineClass::General => None,
+                PipelineClass::Plain => self.plain_pipeline.as_ref(),
+                PipelineClass::Fill => self.fill_pipeline.as_ref(),
+                PipelineClass::Shadow => self.shadow_pipeline.as_ref(),
+            };
+            (specialized.unwrap_or(general), specialized.is_some())
         };
         let atlas_bind = &self.atlas_texture.bind;
         let texture_bind = run
@@ -741,10 +754,13 @@ impl Renderer {
             }
             pass.draw(0..6, run.start as u32..run.end as u32);
             *draw_calls += 1;
-            match run.class {
-                PipelineClass::Plain => *plain_draw_calls += 1,
-                PipelineClass::Fill => *fill_draw_calls += 1,
-                PipelineClass::General => {}
+            if specialized {
+                match run.class {
+                    PipelineClass::Plain => *plain_draw_calls += 1,
+                    PipelineClass::Fill => *fill_draw_calls += 1,
+                    PipelineClass::Shadow => *shadow_draw_calls += 1,
+                    PipelineClass::General => {}
+                }
             }
         }
     }

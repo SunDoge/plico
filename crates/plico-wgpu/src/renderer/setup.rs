@@ -161,32 +161,60 @@ impl Renderer {
         let class_common = &quad_source[..quad_source
             .rfind("@fragment")
             .expect("the quad shader defines one fragment entry point")];
-        let plain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Plico plain quads"),
-            source: wgpu::ShaderSource::Wgsl(
-                format!("{class_common}\n{PLAIN_CLASS_SHADER}").into(),
-            ),
-        });
-        let plain_pipeline = Self::quad_pipeline(
-            &device,
-            &layout,
-            &plain_shader,
-            "vs_plain",
-            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-            "Plico plain quads",
-        );
-        let fill_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Plico fill quads"),
-            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{FILL_CLASS_SHADER}").into()),
-        });
-        let fill_pipeline = Self::quad_pipeline(
-            &device,
-            &layout,
-            &fill_shader,
-            "vs_fill",
-            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-            "Plico fill quads",
-        );
+        #[cfg(not(target_arch = "wasm32"))]
+        let (plain_pipeline, fill_pipeline, shadow_pipeline, class_pipeline_rx) = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let warm_device = device.clone();
+            let warm_layout = layout.clone();
+            let warm_common = class_common.to_owned();
+            let worker = std::thread::Builder::new()
+                .name("plico-class-pipelines".into())
+                .spawn(move || {
+                    for (class, source, vertex, label) in [
+                        (
+                            PipelineClass::Plain,
+                            PLAIN_CLASS_SHADER,
+                            "vs_plain",
+                            "Plico plain quads",
+                        ),
+                        (
+                            PipelineClass::Fill,
+                            FILL_CLASS_SHADER,
+                            "vs_fill",
+                            "Plico fill quads",
+                        ),
+                        (
+                            PipelineClass::Shadow,
+                            SHADOW_CLASS_SHADER,
+                            "vs_shadow",
+                            "Plico shadow quads",
+                        ),
+                    ] {
+                        let pipeline = Self::class_pipeline(
+                            &warm_device,
+                            &warm_layout,
+                            &warm_common,
+                            source,
+                            vertex,
+                            label,
+                        );
+                        if sender.send((class, pipeline)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            if worker.is_ok() {
+                (None, None, None, receiver)
+            } else {
+                let (plain, fill, shadow) = Self::class_pipelines(&device, &layout, class_common);
+                (Some(plain), Some(fill), Some(shadow), receiver)
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let (plain_pipeline, fill_pipeline, shadow_pipeline) = {
+            let (plain, fill, shadow) = Self::class_pipelines(&device, &layout, class_common);
+            (Some(plain), Some(fill), Some(shadow))
+        };
         let gpu_timer = gpu_timer::GpuTimer::new(&device);
         let mut renderer = Self {
             device,
@@ -207,6 +235,9 @@ impl Renderer {
             plus_pipeline: None,
             plain_pipeline,
             fill_pipeline,
+            shadow_pipeline,
+            #[cfg(not(target_arch = "wasm32"))]
+            class_pipeline_rx,
             force_general: false,
             #[cfg(test)]
             profile_no_batch_cull: false,
@@ -287,10 +318,23 @@ impl Renderer {
         self.compilations
     }
     /// Draw every class through the general shader instead of the specialized
-    /// plain/fill pipelines, so tests and measurements can compare the two
+    /// plain/fill/shadow pipelines, so tests and measurements can compare them
     /// (mygo's NoClasses). Pixels must be identical either way.
     pub fn force_general_pipelines(&mut self, force: bool) {
         self.force_general = force;
+    }
+    /// Publish class pipelines completed by the native background warmer.
+    /// Frames encoded before a class arrives use the general pipeline.
+    pub(super) fn poll_class_pipelines(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        while let Ok((class, pipeline)) = self.class_pipeline_rx.try_recv() {
+            match class {
+                PipelineClass::Plain => self.plain_pipeline = Some(pipeline),
+                PipelineClass::Fill => self.fill_pipeline = Some(pipeline),
+                PipelineClass::Shadow => self.shadow_pipeline = Some(pipeline),
+                PipelineClass::General => unreachable!("general pipeline is not warmed"),
+            }
+        }
     }
     /// Disable same-stage backdrop batching for pixel/performance comparisons.
     pub fn force_separate_backdrops(&mut self, force: bool) {
@@ -398,6 +442,63 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         })
+    }
+    fn class_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        common: &str,
+        class: &str,
+        vertex_entry: &str,
+        label: &str,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(format!("{common}\n{class}").into()),
+        });
+        Self::quad_pipeline(
+            device,
+            layout,
+            &shader,
+            vertex_entry,
+            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            label,
+        )
+    }
+    fn class_pipelines(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        common: &str,
+    ) -> (
+        wgpu::RenderPipeline,
+        wgpu::RenderPipeline,
+        wgpu::RenderPipeline,
+    ) {
+        (
+            Self::class_pipeline(
+                device,
+                layout,
+                common,
+                PLAIN_CLASS_SHADER,
+                "vs_plain",
+                "Plico plain quads",
+            ),
+            Self::class_pipeline(
+                device,
+                layout,
+                common,
+                FILL_CLASS_SHADER,
+                "vs_fill",
+                "Plico fill quads",
+            ),
+            Self::class_pipeline(
+                device,
+                layout,
+                common,
+                SHADOW_CLASS_SHADER,
+                "vs_shadow",
+                "Plico shadow quads",
+            ),
+        )
     }
     fn material_pipeline(
         &self,

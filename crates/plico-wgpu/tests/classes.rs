@@ -1,7 +1,7 @@
-//! Class specialization: adjacent solids and ordinary gradient/border fills
-//! draw through small dedicated fragment pipelines (mygo's ClassPlain and
-//! ClassFill). Specialized paths must be pixel-identical to the general shader,
-//! and class runs must never reorder painter sequence.
+//! Class specialization: adjacent solids, ordinary gradient/border fills and
+//! box shadows draw through small dedicated pipelines (mygo's ClassPlain,
+//! ClassFill and ClassShadow). Specialized paths must be pixel-identical to the
+//! general shader, and class runs must never reorder painter sequence.
 use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 use plico_wgpu::{Draw, Quad, Renderer, mask::CoverageMask};
 use std::sync::Arc;
@@ -18,7 +18,7 @@ fn fixture() -> Vec<Quad> {
     clipped.clip_antialias = true;
     let translucent = Quad::new([60., 60., 30., 30.], [0.9, 0.2, 0.2, 0.4]);
     let square = Quad::new([4., 96., 20., 20.], [0., 0., 0., 1.]);
-    // General-path quads: border, gradient, shadow.
+    // Other specialized classes: border/gradient fill and box shadows.
     let mut bordered = Quad::new([160., 8., 20., 20.], [0.; 4]);
     bordered.radii = [4.; 4];
     bordered.border_width = 1.5;
@@ -29,6 +29,10 @@ fn fixture() -> Vec<Quad> {
     gradient.colors[1] = [0.2, 0.4, 1., 1.];
     let mut shadow = Quad::new([56., 128., 64., 8.], [0., 0., 0., 0.5]);
     shadow.shadow_sigma = 1.;
+    let mut inset = Quad::new([120., 72., 60., 60.], [0., 0., 0., 0.6]);
+    inset.radii = [8.; 4];
+    inset.shadow_sigma = 2.;
+    inset.shadow_hole = Some([5., 5., 50., 50.]);
     vec![
         sheet,
         clipped,
@@ -37,16 +41,30 @@ fn fixture() -> Vec<Quad> {
         bordered,
         gradient,
         shadow,
+        inset,
     ]
+}
+
+fn warm_classes(renderer: &mut Renderer, quads: &[Quad], size: [u32; 2]) -> Vec<u8> {
+    for _ in 0..64 {
+        let pixels = renderer.render(quads, size, [0.05; 4], 0.).unwrap();
+        let stats = renderer.batch_stats();
+        if stats.plain_draw_calls == 1 && stats.fill_draw_calls == 1 && stats.shadow_draw_calls == 1
+        {
+            return pixels;
+        }
+        std::thread::yield_now();
+    }
+    panic!("class pipeline warmup did not finish");
 }
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
-fn specialized_fill_pipelines_are_pixel_identical_to_the_general_shader() {
+fn specialized_class_pipelines_are_pixel_identical_to_the_general_shader() {
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let size = [200, 150];
     let quads = fixture();
-    let specialized = renderer.render(&quads, size, [0.05; 4], 0.).unwrap();
+    let specialized = warm_classes(&mut renderer, &quads, size);
     let stats = renderer.batch_stats();
     assert_eq!(
         stats.plain_draw_calls, 1,
@@ -56,6 +74,7 @@ fn specialized_fill_pipelines_are_pixel_identical_to_the_general_shader() {
         stats.fill_draw_calls, 1,
         "adjacent border/gradient fills share one specialized run"
     );
+    assert_eq!(stats.shadow_draw_calls, 1);
     assert!(
         stats.draw_calls < stats.instances as u64,
         "runs are split by class"
@@ -64,6 +83,7 @@ fn specialized_fill_pipelines_are_pixel_identical_to_the_general_shader() {
     let general = renderer.render(&quads, size, [0.05; 4], 0.).unwrap();
     assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
     assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 0);
     assert_eq!(
         specialized, general,
         "the plain/fill class shaders must reproduce the general pipeline exactly"
@@ -73,6 +93,7 @@ fn specialized_fill_pipelines_are_pixel_identical_to_the_general_shader() {
     renderer.render(&quads, size, [0.05; 4], 0.).unwrap();
     assert_eq!(renderer.batch_stats().plain_draw_calls, 1);
     assert_eq!(renderer.batch_stats().fill_draw_calls, 1);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 1);
 }
 
 #[test]
@@ -123,6 +144,7 @@ fn class_runs_never_reorder_painter_sequence() {
 fn plain_classification_covers_solid_fills_and_masks() {
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let size = [16, 16];
+    warm_classes(&mut renderer, &fixture(), [200, 150]);
     // Solid fill only: exactly one plain run and nothing else.
     let solid = Quad::new([0., 0., 16., 16.], [0.1, 0.2, 0.3, 1.]);
     renderer.render(&[solid], size, [0.; 4], 0.).unwrap();
@@ -175,6 +197,7 @@ fn plain_classification_covers_solid_fills_and_masks() {
     renderer.render(&[shadow], size, [0.; 4], 0.).unwrap();
     assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
     assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 1);
 
     // Runtime materials are application-defined and stay on the general path.
     let mut material = Quad::new([0., 0., 16., 16.], [0.2, 0.3, 0.4, 1.]);
@@ -182,4 +205,5 @@ fn plain_classification_covers_solid_fills_and_masks() {
     renderer.render(&[material], size, [0.; 4], 0.).unwrap();
     assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
     assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 0);
 }

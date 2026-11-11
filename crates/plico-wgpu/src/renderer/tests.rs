@@ -33,6 +33,36 @@ fn interior_clip_preserves_edges_masks_and_nonfill_instances() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+#[cfg(not(target_arch = "wasm32"))]
+fn unavailable_class_pipelines_fall_back_to_identical_general_pixels() {
+    let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+    let mut gradient = crate::Quad::new([8., 8., 112., 112.], [1., 0.2, 0.1, 1.]);
+    gradient.colors[1] = [0.1, 0.3, 1., 1.];
+    let mut shadow = crate::Quad::new([16., 16., 96., 96.], [0., 0., 0., 0.5]);
+    shadow.shadow_sigma = 6.;
+    let plain = crate::Quad::new([0., 0., 128., 128.], [0.9, 0.9, 0.9, 1.]);
+    let quads = [plain, gradient, shadow];
+
+    renderer.force_general_pipelines(true);
+    let general = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
+
+    // Keep a sender alive so polling sees a genuinely pending warmup rather
+    // than a disconnected worker. Every class must use the general pipeline.
+    let (_pending, receiver) = std::sync::mpsc::channel();
+    renderer.class_pipeline_rx = receiver;
+    renderer.plain_pipeline = None;
+    renderer.fill_pipeline = None;
+    renderer.shadow_pipeline = None;
+    renderer.force_general_pipelines(false);
+    let fallback = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
+    assert_eq!(fallback, general);
+    assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 0);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn interior_clip_matches_reference_pixels() {
     let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
     for general in [false, true] {

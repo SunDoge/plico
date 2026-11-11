@@ -116,6 +116,8 @@ pub struct FrameBatchStats {
     pub plain_draw_calls: u64,
     /// Draw calls through the specialized gradient/border fill pipeline.
     pub fill_draw_calls: u64,
+    /// Draw calls through the specialized box-shadow pipeline.
+    pub shadow_draw_calls: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -255,10 +257,17 @@ pub struct Renderer {
     plus_pipeline: Option<wgpu::RenderPipeline>,
     /// Specialized pipeline for plain solid fills (mygo's ClassPlain). Static
     /// source: it never recompiles and is not part of pipeline_compilations.
-    plain_pipeline: wgpu::RenderPipeline,
+    plain_pipeline: Option<wgpu::RenderPipeline>,
     /// Specialized pipeline for ordinary gradients and borders (mygo's
-    /// ClassFill). Materials, images, glyphs and shadows stay general.
-    fill_pipeline: wgpu::RenderPipeline,
+    /// ClassFill). Materials, images and glyphs stay general.
+    fill_pipeline: Option<wgpu::RenderPipeline>,
+    /// Specialized pipeline for outer and inset box shadows (mygo's
+    /// ClassShadow). Images, glyphs, fills and materials are absent.
+    shadow_pipeline: Option<wgpu::RenderPipeline>,
+    /// Native backends compile class pipelines away from startup. Until each
+    /// arrives, its runs use the pixel-identical general pipeline.
+    #[cfg(not(target_arch = "wasm32"))]
+    class_pipeline_rx: std::sync::mpsc::Receiver<(PipelineClass, wgpu::RenderPipeline)>,
     /// Comparison switch disabling class specialization (mygo's NoClasses).
     force_general: bool,
     #[cfg(test)]
@@ -491,6 +500,65 @@ struct FillVertex {
 }
 "#;
 
+/// MyGO's ClassShadow counterpart: outer and inset shadows keep only their
+/// analytical contour/Gaussian path and shared clip coverage.
+const SHADOW_CLASS_SHADER: &str = r#"
+struct ShadowVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(5) config: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_shadow(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(4) config: vec4f,
+    @location(5) clip: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> ShadowVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: ShadowVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.color=color;
+    out.config=config;
+    out.clip=clip;
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: ShadowVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    if input.config.z>=6. {
+        let hole=input.gradient;
+        var covered=0.;
+        if all(hole.zw>vec2f(0.)) {
+            if input.config.y>0. {
+                covered=shadow_coverage(input.local-hole.xy,hole.zw,input.config.x,input.config.y,input.config.w);
+            } else {
+                covered=shadow_contour_coverage(input.local-hole.xy,hole.zw,input.config.x,input.config.w);
+            }
+        }
+        let alpha=input.color.a*(1.-covered)*clip_alpha;
+        return vec4f(input.color.rgb*alpha,alpha);
+    }
+    let alpha=input.color.a*shadow_coverage(
+        input.local-vec2f(input.gradient.x),input.gradient.zw,input.config.x,input.gradient.y,input.config.w,
+    )*clip_alpha;
+    return vec4f(input.color.rgb*alpha,alpha);
+}
+"#;
+
 /// A plain fill: solid color (equal endpoint colors make the gradient mix a
 /// no-op), no border, no material, and not an image/glyph/shadow instance.
 /// A coverage mask is clip state and remains eligible, as in mygo's classOf.
@@ -521,6 +589,7 @@ enum PipelineClass {
     General,
     Plain,
     Fill,
+    Shadow,
 }
 
 fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
@@ -546,6 +615,8 @@ fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
         PipelineClass::Plain
     } else if instance.config[2] == 0. {
         PipelineClass::Fill
+    } else if instance.config[2] == 5. || instance.config[2] == 6. {
+        PipelineClass::Shadow
     } else {
         PipelineClass::General
     }

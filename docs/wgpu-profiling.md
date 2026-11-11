@@ -256,13 +256,14 @@ pools, other drivers, release profiles and real app concurrency are not evaluate
 by this experiment. The diagnostic remains ignored by default, with no timing
 threshold; Clippy passed.
 
-## ClassFill shader specialization
+## Class shader specialization
 
-Plico now carries MyGO's second ordinary-shape class in addition to `ClassPlain`.
+Plico carries MyGO's ordinary `ClassPlain`, `ClassFill`, and `ClassShadow` paths.
 Gradients and bordered fills use a static `ClassFill` fragment pipeline containing
 only clip/shape coverage, gradient interpolation and border composition. Runtime
-materials, images, glyphs, shadows and backdrop markers remain on the general
-pipeline. Small adjacent runs of different classes still use the existing
+materials, images, glyphs and backdrop markers remain on the general pipeline;
+outer and inset box shadows use an analytical shadow-only vertex/fragment pair.
+Small adjacent runs of different classes still use the existing
 `joinLast` threshold and merge into the general pipeline, avoiding extra draw calls.
 `Renderer::force_general_pipelines(true)` provides the pixel oracle, and
 `FrameBatchStats::fill_draw_calls` proves that the specialized path was selected.
@@ -274,13 +275,23 @@ larger fill class. This follows MyGO's paired class vertex/pixel shaders instead
 of relying on a backend compiler to discover that the general vertex interface
 is mostly unused.
 
+On native backends the class pipelines compile sequentially on a worker, following
+MyGO's nonblocking Metal warmup. A frame whose class is not ready uses the general
+pipeline and records no specialized draw for it; pixels are identical. WebAssembly
+builds the same static pipelines synchronously without assuming browser threads.
+An ignored GPU regression forcibly holds every class pending and compares that
+fallback byte-for-byte with `NoClasses`.
+
 Reproduction:
 
 ```sh
 cargo test --locked -p plico-wgpu --test classes -- --ignored --test-threads=1
+cargo test --locked -p plico-wgpu --lib \
+  unavailable_class_pipelines_fall_back_to_identical_general_pixels \
+  -- --ignored --test-threads=1
 cargo test --locked -p plico-wgpu \
   --test gradients --test render --test scene --test shadows \
-  --test inset_shadows --test batching --test join \
+  --test inset_shadows --test continuous_shadows --test batching --test join \
   -- --ignored --test-threads=1
 PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 target/release/gallery \
   --scenario apps/gallery/scenarios/controls.json \
@@ -300,6 +311,17 @@ again produced byte-identical `controls` and `effects` captures. Prepare/encode
 were unchanged; submit/GPU medians moved in opposite directions between the two
 scenes, so the smaller declared interface is likewise not presented as a measured
 frame-time improvement on this adapter.
+
+`ClassShadow` was then measured against `ae2e0a2` (synchronous Plain/Fill, shadows
+general). Sixteen alternating one-frame process pairs reduced median wall time
+from 140.97 to 125.61 ms after moving all class compilation off startup. Ten
+alternating ten-frame pairs measured GPU timestamp medians of 7.50→6.36 ms in
+`effects` and 5.52→5.13 ms in shadow-heavy `mines-playing`; wait medians also
+fell, while submit time was mixed. All startup, effects, and mines PNGs were
+byte-identical. These are local Intel/Mesa results, not cross-adapter guarantees
+or CI thresholds. The final path passed three class-oracle tests, the forced
+pending fallback test, and 48 broader real-adapter regressions including outer,
+inset, continuous-corner, mask, partial-damage and painter-order coverage.
 
 ## Scene and image residency
 
