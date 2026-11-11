@@ -61,23 +61,23 @@ fn native_idle_samples_reuse_declarations_while_snapshot_api_still_evaluates() {
     let mut text = TextContext::new();
     sample(&mut source, &mut text, (400, 300), 1.);
     let before = source.batch_stats();
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     for _ in 0..120 {
         clock.advance(Duration::from_millis(16)).unwrap();
         sample(&mut source, &mut text, (400, 300), 1.);
         assert_eq!(source.frame_diagnostics().declaration.visited, 0);
         assert_eq!(source.frame_diagnostics().declaration_micros, 0);
-        assert_eq!(source.adapter.stats.layout_runs, 0);
-        assert_eq!(source.adapter.stats.scene_reuses, 1);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+        assert_eq!(source.frame_diagnostics().backend.scene_reuses, 1);
     }
     let after = source.batch_stats();
-    assert_eq!(source.view.calls, calls);
+    assert_eq!(source.view().calls, calls);
     assert_eq!(after.retained_samples - before.retained_samples, 120);
     assert_eq!(after.backend_commits, before.backend_commits);
     assert_eq!(after.declaration_batches, before.declaration_batches);
     assert!(!source.has_anim());
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
 }
 #[test]
 fn inputs_services_resize_theme_and_font_changes_invalidate_native_samples() {
@@ -85,46 +85,44 @@ fn inputs_services_resize_theme_and_font_changes_invalidate_native_samples() {
     let mut text = TextContext::new();
     sample(&mut source, &mut text, (400, 300), 1.);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Increment", None)
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target }));
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert_eq!(source.view.count, 1);
+    assert_eq!(source.view().count, 1);
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|n| n.paint.text.as_deref() == Some("Count 1"))
     );
-    let mut calls = source.view.calls;
-    source.view.incoming = Some(42);
+    let mut calls = source.view().calls;
+    source.update(|view| view.incoming = Some(42));
     assert!(source.poll_async());
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
     calls += 1;
     sample(&mut source, &mut text, (500, 300), 1.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
     calls += 1;
     sample(&mut source, &mut text, (500, 300), 2.);
-    assert_eq!(source.view.calls, calls); // DPI-only changes still re-encode the scene.
-    assert_eq!(source.adapter.stats.scene_builds, 1);
-    source.view.dark = true;
+    assert_eq!(source.view().calls, calls); // DPI-only changes still re-encode the scene.
+    assert_eq!(source.frame_diagnostics().backend.scene_builds, 1);
+    source.update(|view| view.dark = true);
     sample(&mut source, &mut text, (500, 300), 2.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
     calls += 1;
     source.set_font_family("monospace");
     sample(&mut source, &mut text, (500, 300), 2.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
     calls += 1;
     for _ in 0..100 {
         source.request_rebuild();
     }
     sample(&mut source, &mut text, (500, 300), 2.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
 }
 #[test]
 fn logical_animation_rebuilds_until_finished_and_host_animation_does_not() {
@@ -138,27 +136,26 @@ fn logical_animation_rebuilds_until_finished_and_host_animation_does_not() {
     );
     let mut text = TextContext::new();
     sample(&mut source, &mut text, (400, 300), 1.);
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     for _ in 0..4 {
         clock.advance(Duration::from_millis(25)).unwrap();
         sample(&mut source, &mut text, (400, 300), 1.);
     }
-    assert_eq!(source.view.calls, calls + 4);
+    assert_eq!(source.view().calls, calls + 4);
     assert!(!source.has_anim());
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert_eq!(source.view.calls, calls + 4);
-    source.view.fade = true;
-    source.request_rebuild();
+    assert_eq!(source.view().calls, calls + 4);
+    source.update(|view| view.fade = true);
     sample(&mut source, &mut text, (400, 300), 1.);
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     assert!(source.has_anim());
     for _ in 0..3 {
         clock.advance(Duration::from_millis(100)).unwrap();
         sample(&mut source, &mut text, (400, 300), 1.);
-        assert_eq!(source.view.calls, calls);
+        assert_eq!(source.view().calls, calls);
     }
     assert!(!source.has_anim());
-    assert_eq!(source.adapter.stats.scene_reuses, 1);
+    assert_eq!(source.frame_diagnostics().backend.scene_reuses, 1);
 }
 #[test]
 fn failed_declarations_retry_and_can_recover_without_reusing_a_partial_frame() {
@@ -177,12 +174,12 @@ fn failed_declarations_retry_and_can_recover_without_reusing_a_partial_frame() {
                 .is_err()
         );
     }
-    assert_eq!(source.view.calls, 2);
-    source.view.invalid = false;
+    assert_eq!(source.view().calls, 2);
+    source.update(|view| view.invalid = false);
     source
         .try_render_retained_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
         .unwrap();
-    assert_eq!(source.view.calls, 3);
+    assert_eq!(source.view().calls, 3);
 }
 
 #[test]
@@ -190,19 +187,18 @@ fn manually_committed_declarations_are_synced_without_being_executed_again() {
     let mut source = Source::with_clock(Demo::default(), VirtualClock::default());
     let mut text = TextContext::new();
     sample(&mut source, &mut text, (400, 300), 1.);
-    source.view.count = 123;
+    source.update(|view| view.count = 123);
     source.try_declare().unwrap();
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert_eq!(source.view.calls, calls);
+    assert_eq!(source.view().calls, calls);
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|n| n.paint.text.as_deref() == Some("Count 123"))
     );
-    assert_eq!(source.adapter.stats.sync_visits, 1);
+    assert_eq!(source.frame_diagnostics().backend.sync_visits, 1);
 }
 
 #[test]
@@ -210,17 +206,16 @@ fn external_updates_run_every_operation_but_coalesce_into_one_declaration() {
     let mut source = Source::with_clock(Demo::default(), VirtualClock::default());
     let mut text = TextContext::new();
     sample(&mut source, &mut text, (400, 300), 1.);
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     for _ in 0..100 {
         source.update(|view| view.count += 1);
     }
-    assert_eq!(source.view.count, 100);
+    assert_eq!(source.view().count, 100);
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert_eq!(source.view.calls, calls + 1);
+    assert_eq!(source.view().calls, calls + 1);
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|n| n.paint.text.as_deref() == Some("Count 100"))
     );

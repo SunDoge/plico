@@ -71,6 +71,9 @@ paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，�
 Popover、search input 与 tooltip 的 overlay、焦点、IME 和退出动效测试也已迁移。禁用 popup
 通过最终语义树不出现 dialog 验证，而不是读取内部 anchor 声明；tooltip 继续覆盖真实 GPU 像素、
 延迟唤醒、modal 内 Escape 优先级和 retained scene 清理。
+Retained sampling 与 presentation motion 测试现只依赖 `FrameDiagnostics`、语义、visual bounds 和
+retained nodes。语义-only 更新通过最终语义变化且 paint/layout/flatten 工作量为零证明，不再公开
+Engine change bit；idle reuse、手动 declare、失败重试和局部 presentation traversal 覆盖保持不变。
 
 ## 当前实现
 
