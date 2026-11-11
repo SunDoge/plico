@@ -31,7 +31,7 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
 `scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
-穿透这条边界；runtime 内部与暂停维护的 C# ABI 兼容层按各自边界单独处理。历史集成测试分批
+穿透这条边界。跨语言 ABI 实验已经退役，不再为它保留第二套错误、批次或组件边界。历史集成测试分批
 迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
 `services-demo` 测试也由边界脚本守卫。
 Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。

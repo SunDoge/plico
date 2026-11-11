@@ -1,5 +1,7 @@
 # C# launch paths
 
+> 历史实验：C# 前端与跨语言 ABI 已从当前源码树移除。本文保留测量结论；其中命令和源码路径仅适用于对应历史提交。
+
 One Linux warm diagnostic, 2026-11-08: the same Controls page was rendered to a PNG
 using the existing release native library and a Debug .NET frontend. Hyperfine
 ran one warmup and three measurements per command. Background Rust work was

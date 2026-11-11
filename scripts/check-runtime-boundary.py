@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Keep application and host code on Source's stable runtime surface.
 
-The runtime implementation may compose Engine and Adapter directly. The paused
-C# ABI is also a legacy boundary of its own. Other production Rust code should
-use Source queries/update instead of reaching through public retained state.
+The runtime implementation may compose Engine and Adapter directly. Other
+production Rust code should use Source queries/update instead of reaching
+through public retained state.
 Runnable examples and probes use the same stable surface. Integration tests are
 migrated separately to testing::Driver and diagnostics.
 
@@ -50,7 +50,7 @@ for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
         migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
         if "tests" in parts and not migrated_test:
             continue
-        if parts[:2] in (("crates", "plico-runtime"), ("crates", "plico-csharp")):
+        if parts[:2] == ("crates", "plico-runtime"):
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             match = DIRECT_SOURCE_FIELD.search(line)

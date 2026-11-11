@@ -72,12 +72,13 @@ CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 da
 层级按声明的最大 sigma 与 DPI 截止，不保留历史背景纹理，新增颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
 后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
-## C# MyGO 改进的 Rust 入口
+## 已退役 C# 实验迁入 Rust 的能力
 
 已补齐 progressive BackdropBlur / 四方向 ScrollEdge、前景 `.blur` / `.no_shadow`、
 Tone 与 Info 语义色、chip/tag、有界分页、alert/notification、empty_state 和 native-clock skeleton。
 Rust Gallery 新增 Component kit 与圆角对照页；玻璃和 opaque fallback 继承容器的连续圆角。
 原本位于 shared Rust 后端的文字、滚动、阴影和缓存优化继续共用，未重复实现。
+旧 C# package、Gallery 和跨语言 ABI 已从当前源码树移除；这些能力现在只有 Rust 公共入口。
 详细迁移矩阵与边界见 [迁移记录](experiments/csharp-mygo-rust-migration.md)。
 
 ## 当前主线

@@ -5,7 +5,8 @@
 
 参考提交：`b23a75d`（材质与组件包）、`1fa3b3e`（复选框矢量标记居中）、
 `8d94a28` / `3e2e0e9`（玻璃法线与四次曲面折射）、`6a471e3`（渐进模糊）。
-C# 包本身继续保留；新 Rust 使用路径不依赖 dotnet 或 managed runtime。
+C# 包和 ABI 已在纯 Rust 路线确定后从当前源码树移除；历史实现仍可从上述提交读取。
+当前 Rust 使用路径不依赖 dotnet、managed runtime 或跨语言 `last_error` 槽。
 
 ## 本来已共享的能力
 
