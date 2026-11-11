@@ -60,6 +60,7 @@ migrated_test_files = {
     Path("crates/plico-desktop/tests/scene_layers.rs"),
     Path("crates/plico-desktop/tests/scroll.rs"),
     Path("crates/plico-desktop/tests/scroll_clip.rs"),
+    Path("crates/plico-desktop/tests/scroll_presentation.rs"),
     Path("crates/plico-desktop/tests/search_input.rs"),
     Path("crates/plico-desktop/tests/shader.rs"),
     Path("crates/plico-desktop/tests/shader_transition.rs"),

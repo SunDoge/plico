@@ -74,6 +74,9 @@ Popover、search input 与 tooltip 的 overlay、焦点、IME 和退出动效测
 Retained sampling 与 presentation motion 测试现只依赖 `FrameDiagnostics`、语义、visual bounds 和
 retained nodes。语义-only 更新通过最终语义变化且 paint/layout/flatten 工作量为零证明，不再公开
 Engine change bit；idle reuse、手动 declare、失败重试和局部 presentation traversal 覆盖保持不变。
+Scroll presentation 的平滑/直接滚动、虚拟行挂载、viewport observation、事件前采样与 scene reuse
+测试也已迁移。时钟采样通过 event preparation 后的实际 presented offset 证明，不再读取
+`Engine::time` 内部状态；scroll observation 的核心声明契约仍由独立 Engine 测试覆盖。
 
 ## 当前实现
 
