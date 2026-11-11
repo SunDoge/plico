@@ -143,12 +143,32 @@ struct ConstructedServiceApp {
     label: &'static str,
 }
 
-impl plico_dev::services::ServiceApp for ConstructedServiceApp {
-    type Snapshot = u32;
-    type Command = u32;
+struct ConstructedSnapshot(&'static str);
+struct ConstructedCommand;
+struct ConstructedHost;
 
-    fn show(&mut self, cx: &mut UiContext<'_>, _: &mut plico_dev::services::Services<u32, u32>) {
+impl plico_dev::services::HostService for ConstructedHost {
+    type Snapshot = ConstructedSnapshot;
+    type Command = ConstructedCommand;
+
+    fn snapshot(&self) -> Self::Snapshot {
+        ConstructedSnapshot("local snapshot")
+    }
+
+    fn send(&mut self, _: Self::Command) {}
+}
+
+impl plico_dev::services::ServiceApp for ConstructedServiceApp {
+    type Snapshot = ConstructedSnapshot;
+    type Command = ConstructedCommand;
+
+    fn show(
+        &mut self,
+        cx: &mut UiContext<'_>,
+        services: &mut plico_dev::services::Services<ConstructedSnapshot, ConstructedCommand>,
+    ) {
         text(cx, self.label);
+        text(cx, services.snapshot().0);
     }
 }
 
@@ -164,7 +184,7 @@ fn statically_constructed_apps_do_not_require_default_or_serialization() {
     );
 
     let services = Driver::new(
-        ServiceView::new(ConstructedServiceApp { label: "services" }, Host::default()),
+        ServiceView::new(ConstructedServiceApp { label: "services" }, ConstructedHost),
         400,
         300,
     )
@@ -175,5 +195,12 @@ fn statically_constructed_apps_do_not_require_default_or_serialization() {
             .nodes
             .iter()
             .any(|node| node.label.as_deref() == Some("services"))
+    );
+    assert!(
+        services
+            .snapshot()
+            .nodes
+            .iter()
+            .any(|node| node.label.as_deref() == Some("local snapshot"))
     );
 }

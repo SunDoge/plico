@@ -132,6 +132,8 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
   只有需要从值快照创建/恢复实例的 `plico_dev::render` split-host 协议额外要求
   `Default + Serialize + DeserializeOwned`。JSON service snapshot/command 转换由协议内部的
   `ProtocolApp` 适配承担，不作为 `App` 的隐藏可覆写方法；类型化服务走 `ServiceApp`。
+  静态 `ServiceApp` / `HostService` 的关联类型可以是任意本地 Rust 类型，只有
+  `services::render` 的 split-host 调用点要求 snapshot 可反序列化、command 可序列化。
 - `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
   能力。`Source<V>` 与
   `plico_desktop::run_host_view_with_options` 接收这一接口。

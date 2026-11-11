@@ -7,8 +7,11 @@ pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Implemented in the executable. `send` should enqueue work, never block for IO.
 pub trait HostService {
-    type Snapshot: Default + Serialize + DeserializeOwned;
-    type Command: Serialize + DeserializeOwned;
+    /// In-process projection type. It need not implement `Default` or Serde;
+    /// split hosts add their transport bounds at the rendering entry point.
+    type Snapshot;
+    /// In-process command type, with the same transport-independent contract.
+    type Command;
     /// An explicit presentation projection, never an SDK session or native handle.
     fn snapshot(&self) -> Self::Snapshot;
     /// Optional projection version. Change it whenever snapshot data changes.
@@ -82,8 +85,10 @@ impl<S, C> Services<S, C> {
 
 /// UI with a typed host projection/message protocol.
 pub trait ServiceApp {
-    type Snapshot: Default + Serialize + DeserializeOwned;
-    type Command: Serialize + DeserializeOwned;
+    /// Read-only host projection used while declaring one frame.
+    type Snapshot;
+    /// Commands emitted to the resident host service.
+    type Command;
     fn show(
         &mut self,
         ui: &mut UiContext<'_>,
@@ -116,7 +121,11 @@ struct ServiceModule<A: ServiceApp> {
     app: A,
     services: Services<A::Snapshot, A::Command>,
 }
-impl<A: ServiceApp + Default> Default for ServiceModule<A> {
+impl<A> Default for ServiceModule<A>
+where
+    A: ServiceApp + Default,
+    A::Snapshot: Default,
+{
     fn default() -> Self {
         Self {
             app: A::default(),
@@ -129,7 +138,11 @@ impl<A: ServiceApp + Serialize> Serialize for ServiceModule<A> {
         self.app.serialize(serializer)
     }
 }
-impl<'de, A: ServiceApp + Deserialize<'de>> Deserialize<'de> for ServiceModule<A> {
+impl<'de, A> Deserialize<'de> for ServiceModule<A>
+where
+    A: ServiceApp + Deserialize<'de>,
+    A::Snapshot: Default,
+{
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         Ok(Self {
             app: A::deserialize(deserializer)?,
@@ -154,7 +167,12 @@ impl<A: ServiceApp> App for ServiceModule<A> {
         self.app.on_key(key, &mut self.services)
     }
 }
-impl<A: ServiceApp> crate::ProtocolApp for ServiceModule<A> {
+impl<A> crate::ProtocolApp for ServiceModule<A>
+where
+    A: ServiceApp,
+    A::Snapshot: Default + DeserializeOwned,
+    A::Command: Serialize,
+{
     fn set_services(&mut self, snapshot: serde_json::Value) -> Result<()> {
         let snapshot = if snapshot.is_null() {
             A::Snapshot::default()
@@ -172,9 +190,12 @@ impl<A: ServiceApp> crate::ProtocolApp for ServiceModule<A> {
             .collect()
     }
 }
-pub fn render<A: ServiceApp + Default + Serialize + DeserializeOwned + 'static>(
-    request: Request,
-) -> Result<Frame> {
+pub fn render<A>(request: Request) -> Result<Frame>
+where
+    A: ServiceApp + Default + Serialize + DeserializeOwned + 'static,
+    A::Snapshot: Default + DeserializeOwned,
+    A::Command: Serialize,
+{
     crate::render_protocol::<ServiceModule<A>>(request)
 }
 impl<I, T, E> Services<crate::tasks::TaskStatus<T, E>, crate::tasks::TaskCommand<I>> {

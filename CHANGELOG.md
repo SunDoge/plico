@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - *(widgets)* [**breaking**] expose interaction results through immutable response queries
-- *(app)* keep construction, serialization and JSON transport requirements inside split-host adapters
+- *(app)* keep construction, serialization and JSON transport requirements inside split-host adapters, including typed services
 
 ## [0.3.2](https://github.com/SunDoge/plico/compare/v0.3.1...v0.3.2) - 2026-11-09
 

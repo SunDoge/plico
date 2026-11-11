@@ -202,9 +202,9 @@ impl<I: 'static, T: Send + 'static, E: Send + 'static> TaskService<I, T, E> {
 }
 impl<I, T, E> crate::services::HostService for TaskService<I, T, E>
 where
-    I: serde::Serialize + serde::de::DeserializeOwned + 'static,
-    T: Clone + Send + serde::Serialize + serde::de::DeserializeOwned + 'static,
-    E: Clone + Send + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    I: 'static,
+    T: Clone + Send + 'static,
+    E: Clone + Send + 'static,
 {
     type Snapshot = TaskStatus<T, E>;
     type Command = TaskCommand<I>;

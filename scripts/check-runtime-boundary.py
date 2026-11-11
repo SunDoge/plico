@@ -163,6 +163,23 @@ if re.search(r"^pub trait ServiceApp\s*:\s*Default", services_root, re.MULTILINE
     violations.append(
         "crates/plico-dev/src/services.rs: static ServiceApp must not require Default"
     )
+for trait_name in ("HostService", "ServiceApp"):
+    trait = re.search(
+        rf"^pub trait {trait_name}\s*\{{(?P<body>.*?)^\}}",
+        services_root,
+        re.MULTILINE | re.DOTALL,
+    )
+    if trait is None:
+        violations.append(
+            f"crates/plico-dev/src/services.rs: missing public {trait_name} trait"
+        )
+    elif any(
+        protocol_bound in trait.group("body")
+        for protocol_bound in ("Serialize", "DeserializeOwned")
+    ):
+        violations.append(
+            f"crates/plico-dev/src/services.rs: static {trait_name} must not require serialization"
+        )
 
 if violations:
     sys.exit(
