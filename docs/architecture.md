@@ -59,6 +59,9 @@ renderer-free `Engine`，不再借 `Source` 穿透运行时实现。
 随后将时钟、对齐、基础滚动、结构增量同步和 SVG 资源生命周期也迁入守卫。宿主级 flex 测试
 通过 retained paint 标记定位实际布局节点，不要求公开 key→Entity→Taffy 的内部映射；专门验证
 Engine/Adapter 契约的后端测试仍可直接组合二者，与应用侧 `Source` 边界分开。
+Capability、组合按钮、calendar、toggle 与 shader transition 测试同样只依赖语义快照、retained
+paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，不将内部 `Entity` 映射泄漏给
+应用测试；shader 动画采样也不再直接读取 Adapter registry。
 
 ## 当前实现
 
