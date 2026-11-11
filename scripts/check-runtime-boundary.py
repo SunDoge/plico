@@ -26,6 +26,7 @@ migrated_test_roots = {
     ("apps", "gallery", "tests"),
     ("apps", "launcher", "tests"),
     ("apps", "services-demo", "tests"),
+    ("crates", "plico-wgpu", "tests"),
 }
 for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):

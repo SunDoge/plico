@@ -61,7 +61,7 @@ fn render(
     source
         .render_retained_frame(&mut scene, &mut text, (320, 240), scale)
         .unwrap();
-    assert_eq!(source.adapter.shader_diagnostics().count(), 0);
+    assert_eq!(source.shader_diagnostics().count(), 0);
     renderer
         .render_scene(
             &scene,

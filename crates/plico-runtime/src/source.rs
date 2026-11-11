@@ -221,6 +221,11 @@ impl<V: HostView> Source<V> {
         self.adapter.selected_text()
     }
 
+    /// Diagnostics produced while validating application shader effects.
+    pub fn shader_diagnostics(&self) -> impl Iterator<Item = &str> {
+        self.adapter.shader_diagnostics()
+    }
+
     /// Entity currently holding keyboard focus.
     pub fn focused(&self) -> Option<Entity> {
         self.adapter.focused()

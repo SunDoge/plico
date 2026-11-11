@@ -35,6 +35,8 @@ Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics`
 迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
 `services-demo` 测试也由边界脚本守卫。
 Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。
+`plico-wgpu` 后端测试也只读取 retained nodes、语义、shader diagnostics 与帧诊断，不再将
+runtime 的 Engine/Adapter 当作渲染器测试接口。
 
 ## 当前实现
 

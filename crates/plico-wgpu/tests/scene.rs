@@ -972,8 +972,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         let size = [(320. * scale) as u32, (100. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         let id = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::TextInput, "Native input", None)
             .unwrap()
             .id;
@@ -991,7 +990,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         let expected = oracle.render_scene(&scene, size, [1.; 4], false).unwrap();
         let actual = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         assert_eq!(actual, expected, "input damage left stale pixels");
-        assert_eq!(source.view.0.value, value);
+        assert_eq!(source.view().0.value, value);
         assert!(scene.flattened().commands.iter().any(|c|matches!(c,PaintCommand::Paragraph { request,.. } if request.text.as_ref()==value)),"committed input not painted");
         assert!(text.take_native_paragraph_error().is_none());
         assert_eq!(text.cache_entries(), (0, 0), "input fell back to Parley");
@@ -1015,7 +1014,11 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
-        assert_eq!(source.view.0.value, value, "preedit became committed text");
+        assert_eq!(
+            source.view().0.value,
+            value,
+            "preedit became committed text"
+        );
         assert!(scene.flattened().commands.iter().any(
             |c| matches!(c,PaintCommand::Paragraph {request,..} if request.text.ends_with("にほん"))
         ));
@@ -1025,7 +1028,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source
             .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
-        assert_eq!(source.view.0.value, format!("{value}日本"));
+        assert_eq!(source.view().0.value, format!("{value}日本"));
         let key = |value: &str| {
             UiEvent::Key(KeyEvent {
                 phase: KeyPhase::Down,
@@ -1081,8 +1084,7 @@ fn native_password_input_shapes_only_masked_presentation() {
         .try_build_and_paint(&mut scene, &mut text, 320, 100, 1.)
         .unwrap();
     let id = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::TextInput, "Password", None)
         .unwrap()
         .id;
@@ -1161,8 +1163,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
         let size = [(320. * scale) as u32, (160. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         let port = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|p| p.scroll.range[1] > 0.)
             .unwrap()
@@ -1172,7 +1173,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
             x: f64::from(port[0] + 20.),
             y: f64::from(port[1] + 20.),
         };
-        let shows = source.view.0.shows;
+        let shows = source.view().0.shows;
         let mut warmed = None;
         let mut max_scroll = 0_f32;
         for frame in 0..48 {
@@ -1192,8 +1193,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
                 .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
                 .unwrap();
             max_scroll = source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .map(|p| p.scroll.offset[1])
                 .fold(max_scroll, f32::max);
@@ -1216,7 +1216,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
             "warm scroll uploaded glyphs at scale={scale}"
         );
         assert_eq!(end.recycled_frames, warm.recycled_frames);
-        assert_eq!(source.view.0.shows, shows, "scroll redeclared the page");
+        assert_eq!(source.view().0.shows, shows, "scroll redeclared the page");
         assert_eq!(text.cache_entries(), (0, 0), "Parley fallback was used");
     }
 }

@@ -73,12 +73,12 @@ fn render(
     source
         .render_retained_frame(&mut scene, text, (64, 64), scale)
         .unwrap();
-    if !source.view.0.invalid {
+    if !source.view().0.invalid {
         assert_eq!(
-            source.adapter.shader_diagnostics().count(),
+            source.shader_diagnostics().count(),
             0,
             "{:?}",
-            source.adapter.shader_diagnostics().collect::<Vec<_>>()
+            source.shader_diagnostics().collect::<Vec<_>>()
         );
     }
     let size = (64. * scale) as u32;
@@ -102,13 +102,14 @@ fn public_effect_api_uses_virtual_time_pause_values_and_last_valid_source() {
     );
     assert!(source.has_anim());
     assert_eq!(renderer.effect_cache_stats(), (1, 32 * 32 * 4, 1));
-    let shows = source.view.0.shows;
+    let shows = source.view().0.shows;
     clock.advance(Duration::from_millis(500)).unwrap();
     let pixel = render(&mut source, &mut renderer, &mut text, 1.);
     assert!(pixel[0].abs_diff(128) <= 1);
     assert_eq!(pixel[1], 64);
     assert_eq!(
-        source.view.0.shows, shows,
+        source.view().0.shows,
+        shows,
         "time-only effect redeclared the UI"
     );
     assert!(
@@ -125,13 +126,13 @@ fn public_effect_api_uses_virtual_time_pause_values_and_last_valid_source() {
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
     source.update(|view| view.0.invalid = true);
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
-    let diagnostic = source.adapter.shader_diagnostics().next().unwrap();
+    let diagnostic = source.shader_diagnostics().next().unwrap();
     assert!(
         diagnostic.starts_with("effects/invalid-uniform.wgsl:"),
         "{diagnostic}"
     );
     assert!(diagnostic.contains("only f32"), "{diagnostic}");
-    assert_eq!(source.adapter.shader_diagnostics().count(), 1);
+    assert_eq!(source.shader_diagnostics().count(), 1);
     renderer.configure_text(&mut text, 1.25).unwrap();
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.25)[1], 191);
     source.update(|view| view.0.present = false);
@@ -471,19 +472,18 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
         [32, 64, 96, 255],
         "invalid parameters changed the last valid uniforms"
     );
-    let error = source.adapter.shader_diagnostics().next().unwrap();
+    let error = source.shader_diagnostics().next().unwrap();
     assert!(
         error.starts_with("named.wgsl:") && error.contains("expects 3"),
         "{error}"
     );
     source.update(|s| s.0.bad = false);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert!(source.shader_diagnostics().next().is_none());
     source.update(|s| s.0.raw = true);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
     assert!(
         source
-            .adapter
             .shader_diagnostics()
             .next()
             .unwrap()
@@ -491,7 +491,7 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
     );
     source.update(|s| s.0.raw = false);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert!(source.shader_diagnostics().next().is_none());
 }
 
 #[test]

@@ -296,6 +296,8 @@ Engine/Adapter/view field access; legacy integration tests remain the staged
 migration boundary. The backend-settings, launcher and services-demo integration
 suites are migrated and guarded test groups.
 The complete Gallery integration suite is also migrated and guarded.
+The plico-wgpu backend suite now uses retained/runtime queries rather than
+Engine or Adapter fields and is guarded by the same boundary check.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

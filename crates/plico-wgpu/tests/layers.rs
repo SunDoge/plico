@@ -642,8 +642,7 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
         .unwrap();
     for step in 0..80 {
         clock.advance(Duration::from_millis(30)).unwrap();
-        source.view.dark = step % 2 == 0;
-        source.request_rebuild();
+        source.update(|view| view.dark = step % 2 == 0);
         source
             .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
             .unwrap();
