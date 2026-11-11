@@ -30,8 +30,9 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 `placed_nodes`、`semantics`、`selected_text`、`focused` 和 `theme` 读取或更新稳定能力，不拼接
 Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
-`scripts/check-runtime-boundary.py` 禁止生产应用和宿主重新穿透这条边界；runtime 内部与暂停
-维护的 C# ABI 兼容层按各自边界单独处理。
+`scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
+穿透这条边界；runtime 内部与暂停维护的 C# ABI 兼容层按各自边界单独处理。历史集成测试分批
+迁往 `testing::Driver`。
 
 ## 当前实现
 

@@ -83,8 +83,7 @@ fn main() {
         let mut bytes = 0;
         for frame in 0..120 {
             clock.advance(Duration::from_millis(16)).unwrap();
-            source.view.changed = frame % 2 == 0;
-            source.request_rebuild();
+            source.update(|view| view.changed = frame % 2 == 0);
             ALLOCS.store(0, Relaxed);
             BYTES.store(0, Relaxed);
             ENABLED.store(true, Relaxed);
@@ -94,18 +93,19 @@ fn main() {
             ENABLED.store(false, Relaxed);
             // Only sample the changed frames; odd frames declare unchanged
             // and take the retained path.
-            if frame >= 16 && source.view.changed {
+            if frame >= 16 && source.view().changed {
                 scene_us.push(scene_ms * 1e3);
                 build_us.push(build_ms * 1e3);
-                builds += source.adapter.stats.scene_builds;
-                reuses += source.adapter.stats.scene_reuses;
+                let backend = source.frame_diagnostics().backend;
+                builds += backend.scene_builds;
+                reuses += backend.scene_reuses;
                 allocs = ALLOCS.load(Relaxed);
                 bytes = BYTES.load(Relaxed);
             }
         }
         scene_us.sort_by(f64::total_cmp);
         build_us.sort_by(f64::total_cmp);
-        let writes = source.adapter.stats.paint_writes;
+        let writes = source.frame_diagnostics().backend.paint_writes;
         println!(
             "{count},{writes},{:.3},{:.3},{:.3},{builds},{reuses},{allocs},{bytes}",
             scene_us[26], scene_us[49], build_us[26],

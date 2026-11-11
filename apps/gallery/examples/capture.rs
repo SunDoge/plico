@@ -224,8 +224,7 @@ fn run() -> Result<(), Error> {
     source.build_frame(&mut tcx, options.width, options.height);
     if options.popover && page == Page::Calendar {
         let target = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(plico_renderer::SemanticRole::Button, "Pick a date", None)
             .ok_or_else(|| Error::Input {
                 message: "calendar picker trigger missing".into(),
@@ -235,7 +234,7 @@ fn run() -> Result<(), Error> {
         source.build_frame(&mut tcx, options.width, options.height);
     }
     if options.tooltip {
-        let tree = source.adapter.semantics(&source.engine, 0);
+        let tree = source.semantics();
         let target = tree
             .node_by_role(plico_renderer::SemanticRole::Button, "Increment", None)
             .ok_or_else(|| Error::Input {

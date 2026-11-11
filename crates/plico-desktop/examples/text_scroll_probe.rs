@@ -110,7 +110,7 @@ fn main() {
             "glyph_y": positions[0].1, "hint": hinted, "mode": mode,
             "pixel_centroid_y": moment as f64 / mass as f64,
             "same_pixels_as_previous": previous[index].as_ref().map(|v| v == &pixels),
-            "layout_runs": source.adapter.stats.layout_runs}));
+            "layout_runs": source.frame_diagnostics().backend.layout_runs}));
             previous[index] = Some(pixels);
         }
     }

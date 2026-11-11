@@ -319,17 +319,16 @@ mod tests {
                 },
                 dt,
             );
-            source.view.samples[0].paints = styles().map(|style| style.resolve(animator.weights));
-            source.request_rebuild();
+            source.update(|view| {
+                view.samples[0].paints = styles().map(|style| style.resolve(animator.weights));
+            });
             source.build_frame(&mut text, 740, 720);
+            let backend = source.frame_diagnostics().backend;
             assert_eq!(
-                source.adapter.stats.layout_runs, 0,
+                backend.layout_runs, 0,
                 "paint-only transition must reuse layout"
             );
-            assert_eq!(
-                source.adapter.stats.created, 0,
-                "widget identity must stay stable"
-            );
+            assert_eq!(backend.created, 0, "widget identity must stay stable");
         }
     }
 }

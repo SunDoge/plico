@@ -8,7 +8,8 @@ use plico_desktop::Source;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 fn record(s: &Source<Gallery>, phase: &str, nodes: usize, scene_us: u128) -> serde_json::Value {
-    let b = &s.adapter.stats;
+    let diagnostics = s.frame_diagnostics();
+    let b = &diagnostics.backend;
     serde_json::json!({
         "phase": phase,
         "nodes": nodes,
@@ -118,7 +119,7 @@ fn legacy_frames() -> Vec<serde_json::Value> {
             _ => None,
         };
         if let Some((role, label)) = action {
-            let snap = s.adapter.semantics(&s.engine, 0);
+            let snap = s.semantics();
             let target = snap.node_by_role(role, label, None).unwrap().id;
             assert!(s.handle_semantic_action(SemanticAction::Click { target }));
         }
@@ -127,8 +128,10 @@ fn legacy_frames() -> Vec<serde_json::Value> {
         let mut scene = plico_renderer::Scene::new();
         plico_renderer::scene::build_scene(&mut scene, &nodes, &mut tcx, 920, 780, s.base_color());
         let scene_micros = start.elapsed().as_micros();
-        let b = &s.adapter.stats;
-        results.push(serde_json::json!({"phase":phase,"nodes":nodes.len(),"scene_us":scene_micros,"declaration_us":s.frame_diagnostics().declaration_micros,"sync_us":b.sync_micros,"layout_and_flatten_us":b.layout_micros,"sync_visits":b.sync_visits,"layout_runs":b.layout_runs,"flatten_visits":b.flatten_visits,"paint_patches":b.paint_patches,"backend_created":b.created,"backend_removed":b.removed,"style_writes":b.style_writes,"paint_writes":b.paint_writes,"child_writes":b.child_writes,"state":{"count":s.view.count,"notifications":s.view.notifications,"large":s.view.large,"dark":s.view.dark}}));
+        let diagnostics = s.frame_diagnostics();
+        let b = &diagnostics.backend;
+        let view = s.view();
+        results.push(serde_json::json!({"phase":phase,"nodes":nodes.len(),"scene_us":scene_micros,"declaration_us":diagnostics.declaration_micros,"sync_us":b.sync_micros,"layout_and_flatten_us":b.layout_micros,"sync_visits":b.sync_visits,"layout_runs":b.layout_runs,"flatten_visits":b.flatten_visits,"paint_patches":b.paint_patches,"backend_created":b.created,"backend_removed":b.removed,"style_writes":b.style_writes,"paint_writes":b.paint_writes,"child_writes":b.child_writes,"state":{"count":view.count,"notifications":view.notifications,"large":view.large,"dark":view.dark}}));
     }
     results
 }

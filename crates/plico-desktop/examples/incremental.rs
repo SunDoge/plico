@@ -49,8 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         for phase in ["cold", "idle", "retarget", "half", "end", "settled"] {
             if phase == "retarget" {
-                source.view.changed = true;
-                source.request_rebuild();
+                source.update(|view| view.changed = true);
             }
             if matches!(phase, "half" | "end") {
                 clock.advance(Duration::from_millis(100))?;
@@ -62,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut scene = Scene::new();
             source.paint_scene(&mut scene, &nodes, &mut text, (800, 30000), 1.);
             let scene_us = start.elapsed().as_micros();
-            let stats = source.adapter.stats;
+            let stats = source.frame_diagnostics().backend;
             if phase == "half" {
                 assert_eq!(stats.sync_visits, 1);
                 assert_eq!(stats.layout_runs, usize::from(layout));
@@ -72,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 assert_eq!(stats.layout_runs, 0);
                 assert_eq!(stats.scene_reuses, 1);
             }
-            frames.push(serde_json::json!({"mode":if layout{"layout"}else{"paint"},"phase":phase,"nodes":nodes.len(),"build_us":build_us,"scene_us":scene_us,"app_calls":source.view.calls,"sync_visits":stats.sync_visits,"layout_runs":stats.layout_runs,"flatten_visits":stats.flatten_visits,"paint_patches":stats.paint_patches,"scene_builds":stats.scene_builds,"scene_reuses":stats.scene_reuses,"has_animation":source.has_anim()}));
+            frames.push(serde_json::json!({"mode":if layout{"layout"}else{"paint"},"phase":phase,"nodes":nodes.len(),"build_us":build_us,"scene_us":scene_us,"app_calls":source.view().calls,"sync_visits":stats.sync_visits,"layout_runs":stats.layout_runs,"flatten_visits":stats.flatten_visits,"paint_patches":stats.paint_patches,"scene_builds":stats.scene_builds,"scene_reuses":stats.scene_reuses,"has_animation":source.has_anim()}));
         }
         assert!(!source.has_anim());
     }

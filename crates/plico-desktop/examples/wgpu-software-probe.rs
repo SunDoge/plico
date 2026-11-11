@@ -194,7 +194,7 @@ mod tests {
                 source
                     .render_retained_frame(&mut scene, &mut text, (800, 700), 1.)
                     .unwrap();
-                assert!(source.adapter.placed.len() > 20);
+                assert!(source.placed_nodes().len() > 20);
                 clock.advance(Duration::from_millis(17)).unwrap();
             }
         }

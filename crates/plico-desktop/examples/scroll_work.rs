@@ -73,22 +73,23 @@ fn main() {
                 if mode == "forced_declaration" {
                     source.request_rebuild();
                 }
-                let before = source.view.calls;
+                let before = source.view().calls;
                 let start = Instant::now();
                 source
                     .render_retained_frame(&mut scene, &mut text, (600, 400), 1.)
                     .unwrap();
                 let us = start.elapsed().as_secs_f64() * 1e6;
                 assert_eq!(
-                    source.view.calls - before,
+                    source.view().calls - before,
                     usize::from(mode != "presentation")
                 );
-                assert_eq!(source.adapter.stats.layout_runs, 0);
+                let backend = source.frame_diagnostics().backend;
+                assert_eq!(backend.layout_runs, 0);
                 if cycle >= 2 {
                     times.push(us);
-                    calls += source.view.calls - before;
-                    layouts += source.adapter.stats.layout_runs;
-                    flattened += source.adapter.stats.flatten_visits;
+                    calls += source.view().calls - before;
+                    layouts += backend.layout_runs;
+                    flattened += backend.flatten_visits;
                 }
             }
             assert!(!source.has_anim());

@@ -73,8 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             if mode != "idle" {
-                source.view.active = true;
-                source.request_rebuild();
+                source.update(|view| view.active = true);
                 source
                     .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
                     .unwrap();
@@ -99,9 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     black_box(nodes);
                 }
                 times.push(start.elapsed().as_micros());
-                clones += source.adapter.stats.placed_node_clones;
-                layouts += source.adapter.stats.layout_runs;
-                builds += source.adapter.stats.scene_builds;
+                let backend = source.frame_diagnostics().backend;
+                clones += backend.placed_node_clones;
+                layouts += backend.layout_runs;
+                builds += backend.scene_builds;
             }
             if retained {
                 assert_eq!(clones, 0);

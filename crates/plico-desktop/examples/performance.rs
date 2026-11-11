@@ -67,8 +67,7 @@ fn main() {
         let mut layout_us = 0;
         let mut scene_us = 0.;
         for frame in 0..220 {
-            source.view.extra = structural && frame % 2 == 0;
-            source.request_rebuild();
+            source.update(|view| view.extra = structural && frame % 2 == 0);
             ALLOCS.store(0, Relaxed);
             BYTES.store(0, Relaxed);
             ACTIVE.store(true, Relaxed);
@@ -78,15 +77,16 @@ fn main() {
                 .unwrap();
             let elapsed = start.elapsed().as_nanos();
             ACTIVE.store(false, Relaxed);
-            assert_eq!(source.adapter.stats.placed_node_clones, 0);
+            let backend = source.frame_diagnostics().backend;
+            assert_eq!(backend.placed_node_clones, 0);
             if frame >= 20 {
                 samples.push(elapsed);
                 allocations += ALLOCS.load(Relaxed);
                 bytes += BYTES.load(Relaxed);
-                visits += source.adapter.stats.sync_visits;
+                visits += backend.sync_visits;
                 declaration_us += source.frame_diagnostics().declaration_micros;
-                sync_us += source.adapter.stats.sync_micros;
-                layout_us += source.adapter.stats.layout_micros;
+                sync_us += backend.sync_micros;
+                layout_us += backend.layout_micros;
                 scene_us += scene_ms * 1000.;
             }
         }

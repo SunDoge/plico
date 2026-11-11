@@ -4,7 +4,8 @@
 The runtime implementation may compose Engine and Adapter directly. The paused
 C# ABI is also a legacy boundary of its own. Other production Rust code should
 use Source queries/update instead of reaching through public retained state.
-Tests and probes are migrated separately to testing::Driver and diagnostics.
+Runnable examples and probes use the same stable surface. Integration tests are
+migrated separately to testing::Driver and diagnostics.
 
 This is intentionally a source-level guard, not a Rust name resolver.
 """
@@ -20,11 +21,11 @@ DIRECT_SOURCE_FIELD = re.compile(
 )
 
 violations = []
-for root in (ROOT / "apps", ROOT / "crates"):
+for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):
         relative = path.relative_to(ROOT)
         parts = relative.parts
-        if "tests" in parts or "examples" in parts:
+        if "tests" in parts:
             continue
         if parts[:2] in (("crates", "plico-runtime"), ("crates", "plico-csharp")):
             continue

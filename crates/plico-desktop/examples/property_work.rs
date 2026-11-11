@@ -65,14 +65,13 @@ fn main() {
                 .unwrap();
             let mut total = [0u128; 7];
             for index in 0..50 {
-                source.view.flip = !source.view.flip;
-                source.request_rebuild();
+                source.update(|view| view.flip = !view.flip);
                 let start = Instant::now();
                 source
                     .render_retained_frame(&mut scene, &mut text, (480, 360), 1.)
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
-                let stats = source.adapter.stats;
+                let stats = source.frame_diagnostics().backend;
                 assert_eq!(stats.created, 0);
                 assert_eq!(stats.removed, 0);
                 if matches!(change, Change::Color | Change::Theme) {

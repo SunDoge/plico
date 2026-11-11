@@ -146,7 +146,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
     let mut phases = [0.; 7];
     for i in 0..160 {
         clock.advance(Duration::from_millis(16)).unwrap();
-        source.view.flip = i % 2 == 0;
+        source.update(|view| view.flip = i % 2 == 0);
         if matches!(case, Case::Scroll | Case::VirtualScroll) {
             assert!(
                 source
@@ -177,10 +177,11 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
             sum_total += elapsed;
             sum_flatten += c.flatten_ns as f64 / 1000.;
             calls += c.flatten_calls;
-            visits += source.adapter.stats.flatten_visits;
+            let backend = source.frame_diagnostics().backend;
+            visits += backend.flatten_visits;
             phases[0] += source.frame_diagnostics().declaration_micros as f64;
-            phases[1] += source.adapter.stats.sync_micros as f64;
-            phases[2] += source.adapter.stats.layout_micros as f64;
+            phases[1] += backend.sync_micros as f64;
+            phases[2] += backend.layout_micros as f64;
             phases[3] += scene_ms * 1000.;
             phases[4] += c.selection_ns as f64 / 1000.;
             phases[5] += c.presentation_ns as f64 / 1000.;
@@ -189,7 +190,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
     }
     println!(
         "{rows},{case:?},{},{:.3},{:.3},{:.3},{:.3},{:.2},{:.2},{:.0},{:.3},{}",
-        source.adapter.placed.len(),
+        source.placed_nodes().len(),
         percentile(&mut total, 0.5),
         percentile(&mut total, 0.95),
         percentile(&mut layout, 0.5),
@@ -197,7 +198,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
         sum_flatten / sum_total * 100.,
         calls as f64 / 120.,
         visits as f64 / 120.,
-        clone_cost(&source.adapter.placed),
+        clone_cost(source.placed_nodes()),
         phases.map(|v| format!("{:.3}", v / 120.)).join(",")
     );
 }
@@ -215,8 +216,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
     for frame in 0..180 {
         clock.advance(Duration::from_millis(16)).unwrap();
         if matches!(page, gallery::Page::Motion) && frame % 60 == 0 {
-            source.view.0.expanded = !source.view.0.expanded;
-            source.request_rebuild();
+            source.update(|view| view.0.expanded = !view.0.expanded);
         }
         let width = 1280 + u32::from(resize && frame % 2 == 0);
         *counters.lock().unwrap() = Counters::default();
@@ -233,10 +233,11 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
             sum_total += elapsed;
             sum_flatten += c.flatten_ns as f64 / 1000.;
             calls += c.flatten_calls;
-            visits += source.adapter.stats.flatten_visits;
+            let backend = source.frame_diagnostics().backend;
+            visits += backend.flatten_visits;
             phases[0] += source.frame_diagnostics().declaration_micros as f64;
-            phases[1] += source.adapter.stats.sync_micros as f64;
-            phases[2] += source.adapter.stats.layout_micros as f64;
+            phases[1] += backend.sync_micros as f64;
+            phases[2] += backend.layout_micros as f64;
             phases[3] += scene_ms * 1000.;
             phases[4] += c.selection_ns as f64 / 1000.;
             phases[5] += c.presentation_ns as f64 / 1000.;
@@ -245,7 +246,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
     }
     println!(
         "0,{label},{},{:.3},{:.3},{:.3},{:.3},{:.2},{:.2},{:.0},{:.3},{}",
-        source.adapter.placed.len(),
+        source.placed_nodes().len(),
         percentile(&mut totals, 0.5),
         percentile(&mut totals, 0.95),
         percentile(&mut layouts, 0.5),
@@ -253,7 +254,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
         sum_flatten / sum_total * 100.,
         calls as f64 / 120.,
         visits as f64 / 120.,
-        clone_cost(&source.adapter.placed),
+        clone_cost(source.placed_nodes()),
         phases.map(|v| format!("{:.3}", v / 120.)).join(",")
     );
 }

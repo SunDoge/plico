@@ -60,16 +60,14 @@ fn main() {
                     "Preferences"
                 };
                 let target = source
-                    .adapter
-                    .semantics(&source.engine, 0)
+                    .semantics()
                     .node_by_role(SemanticRole::Button, label, None)
                     .unwrap()
                     .id;
                 assert!(source.handle_semantic_action(SemanticAction::Click { target }));
             }
             90 => {
-                source.view.dark = true;
-                source.request_rebuild();
+                source.update(|view| view.dark = true);
             }
             120 => {
                 for command in [

@@ -43,8 +43,7 @@ fn main() {
             .unwrap();
         for frame in 0..8 {
             clock.advance(Duration::from_millis(16)).unwrap();
-            source.view.revision = frame;
-            source.request_rebuild();
+            source.update(|view| view.revision = frame);
             source
                 .try_build_and_paint(&mut scene, &mut text, 800, 600, 1.)
                 .unwrap();
