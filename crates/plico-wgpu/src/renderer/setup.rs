@@ -182,6 +182,7 @@ impl Renderer {
             backdrop_compositor: None,
             backdrop_prefilter: None,
             backdrop_batch_prefilter: None,
+            backdrop_pool: Default::default(),
             force_separate_backdrops: false,
             frame_layout: group,
             layout,

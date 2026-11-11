@@ -80,6 +80,7 @@ pub(super) fn encode_backdrop_step<'p>(
     effects: &mut Option<crate::shader::ShaderRenderer>,
     compositor: &mut Option<crate::backdrop_composite::Compositor>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
+    textures: &mut crate::backdrop_pool::Pool,
     stats: &mut FrameBatchStats,
     shared: Option<&wgpu::TextureView>,
     mask_layout: &wgpu::BindGroupLayout,
@@ -121,18 +122,13 @@ pub(super) fn encode_backdrop_step<'p>(
         stats.backdrop_mip_passes += u64::from(mip_levels - 1);
         stats.backdrop_bytes +=
             crate::backdrop_prefilter::bytes(region.width, region.height, mip_levels);
-        let backdrop = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Plico effect backdrop copy"),
-            size: region,
-            mip_level_count: mip_levels,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let backdrop = textures.acquire(
+            device,
+            [region.width, region.height],
+            1,
+            mip_levels,
+            crate::backdrop_pool::Kind::Single,
+        );
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,

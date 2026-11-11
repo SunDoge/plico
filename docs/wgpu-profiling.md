@@ -269,6 +269,13 @@ output. Marking all historical outputs as used before forbidding their reuse
 caused linear growth while scrolling. A 96-frame regression checks exact output
 counts, bytes and pixels, including two occurrences of one effect ID.
 
+Backdrop input snapshots use a separate exact-specification pool shared by the
+single-texture and same-stage array paths. Entries are exclusive within one
+frame and reusable in the next ordered queue submission. `LayerPoolStats`
+reports their entries, bytes, cumulative allocations and reuses; the ordinary
+idle cache trim releases them. GPU regressions cover stable reuse, trim/rebuild
+and byte-exact output for both paths.
+
 These counters describe owned texture payload and caches, not process RSS or
 Metal driver allocation. Plicowarden's independent `memory_probe` example records
 both cache counters and RSS for synthetic scrolling and resize/page stress.

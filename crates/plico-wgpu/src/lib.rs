@@ -5,6 +5,7 @@
 mod backdrop_batch;
 mod backdrop_composite;
 mod backdrop_context;
+mod backdrop_pool;
 mod backdrop_prefilter;
 mod blit;
 mod blur;

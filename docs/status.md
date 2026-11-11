@@ -245,6 +245,9 @@ capture expose it; definitions and measurement caveats are in
 New-image GPU mip chains are encoded ahead of sampling but submitted together
 with the successful frame; an abandoned surface frame retains the pending work
 for retry instead of issuing or forgetting a hidden upload submission.
+Backdrop snapshots and same-stage arrays reuse exact-specification GPU textures
+across ordered frames while remaining exclusive within a frame; idle cache trim
+releases the pool.
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG

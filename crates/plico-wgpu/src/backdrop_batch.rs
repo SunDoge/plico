@@ -137,25 +137,17 @@ pub(crate) fn capture(
     source: &wgpu::Texture,
     requests: &[Request],
     prefilter: &mut Option<Prefilter>,
+    textures: &mut crate::backdrop_pool::Pool,
 ) -> Vec<wgpu::TextureView> {
     let [_, _, width, height] = requests[0].region;
     let levels = requests.iter().map(|r| r.levels).max().unwrap();
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Plico same-stage backdrop array"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: requests.len() as u32,
-        },
-        mip_level_count: levels,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::STORAGE_BINDING
-            | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
+    let texture = textures.acquire(
+        device,
+        [width, height],
+        requests.len() as u32,
+        levels,
+        crate::backdrop_pool::Kind::Array,
+    );
     for (slot, r) in requests.iter().enumerate() {
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {

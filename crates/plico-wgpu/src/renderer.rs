@@ -89,6 +89,12 @@ pub struct LayerPoolStats {
     pub retained_bytes: u64,
     pub backdrop_context_entries: usize,
     pub backdrop_context_bytes: u64,
+    /// Snapshot textures retained for ordinary and grouped backdrop readers.
+    pub backdrop_entries: usize,
+    pub backdrop_bytes: u64,
+    /// Cumulative snapshot texture creations and cross-frame reuses.
+    pub backdrop_allocations: u64,
+    pub backdrop_reuses: u64,
 }
 /// Work encoded by the most recent root scene attempt, including child layers.
 /// Counts exclude effect/blur pipelines, target readback and presentation blits.
@@ -114,7 +120,8 @@ pub struct FrameBatchStats {
     /// Transient backdrop texture payload encoded this frame, including all mips.
     /// Not retained cache bytes or process RSS.
     pub backdrop_bytes: u64,
-    /// Physical backdrop texture allocations encoded this frame (arrays count once).
+    /// Backdrop texture resources used this frame (arrays count once). The
+    /// renderer may obtain them from its cross-frame pool.
     pub backdrop_textures: u64,
     /// Effects reading slices of a same-stage snapshot array.
     pub backdrop_shared_reads: u64,
@@ -221,6 +228,7 @@ pub struct Renderer {
     backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
+    backdrop_pool: crate::backdrop_pool::Pool,
     force_separate_backdrops: bool,
     frame_layout: wgpu::BindGroupLayout,
     layout: wgpu::PipelineLayout,

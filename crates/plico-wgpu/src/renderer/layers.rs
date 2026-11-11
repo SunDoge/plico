@@ -46,12 +46,18 @@ impl Renderer {
             stats.backdrop_context_bytes +=
                 u64::from(context.size[0]) * u64::from(context.size[1]) * 4;
         }
+        let (entries, bytes, allocations, reuses) = self.backdrop_pool.stats();
+        stats.backdrop_entries = entries;
+        stats.backdrop_bytes = bytes;
+        stats.backdrop_allocations = allocations;
+        stats.backdrop_reuses = reuses;
         stats
     }
     /// Release idle intermediate targets without invalidating retained final pixels.
     pub fn trim_layer_pool(&mut self) {
         self.backdrop_contexts.clear();
         self.context_charged.clear();
+        self.backdrop_pool.clear();
         self.layer_pool.clear();
         self.layer_used.clear();
         self.clear_frame_images();

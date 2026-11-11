@@ -33,9 +33,15 @@ shader 可以在自己的 canvas 中采样远处。普通 tracker 调用及未�
 
 一次 copy 仍对应一个区域，**copy 数与原始读取字节不因此减少**。减少的是背景 texture
 allocations、绑定/调度及预滤波 pass。混合 mip 预算的数组按组内最大层数分配，可能比
-独立预算略大；32 MiB 分组上限与每次编码生命周期限制这一代价。不缓存旧帧数组。
+独立预算略大；32 MiB 分组上限限制这一代价。
 单 surface 与数组核统一使用显式 RGBA8 半向上舍入，避免不同 pipeline 的 tie rounding 差异。
 另修正最大 sigma 按 device scale 转为物理预算，避免 Retina 低估 mip 数。
+
+普通快照和分组数组现在进入同一个 renderer-owned 精确规格纹理池。同帧已使用的 entry
+不会再次取得，避免后画 effect 覆盖仍会被采样的背景；下一帧依赖 queue 提交顺序安全覆写。
+尺寸、array layers、mip 数或用途变化会替换空闲 entry，不积累逐尺寸历史；idle cache trim
+会释放整个池。这里不采用放大纹理或尺寸分桶，避免额外区域进入 mip 边缘采样。
+真实 GPU 回归覆盖独立与数组路径：稳定四帧不增加 allocation、输出逐字节一致，trim 后释放并重建。
 
 ## 像素及边界验证
 
@@ -53,6 +59,7 @@ renderer 原有 damage、wgpu effects / layers / prefilter，以及桌面材质�
 
 ## 同进程 A/B
 
+以下数据测于跨帧纹理池加入之前；它只比较当时的分组与独立路径，不能当作纹理池收益。
 Intel Graphics ARL、Mesa 25.0.7、Vulkan。固定 640×400、16 个 128×64 面板、sigma=8。
 预建相同 Scene 序列；四个 renderer 共用 device/queue，正反交错 full/partial 和
 separate/batched，预热 6 帧、每模式测 32 帧。走 `render_scene_to_view` 加 GPU 完成等待，
@@ -90,5 +97,5 @@ cargo test -p plico-desktop --test materials --test interactive_glass --test scr
 ```
 
 `Renderer::force_separate_backdrops(true)` 可关闭分组做像素/性能对照；默认启用。
-新的 batch stats `backdrop_textures`、`backdrop_shared_reads` 区分物理纹理与读者数，
+batch stats `backdrop_textures`、`backdrop_shared_reads` 区分本帧纹理资源与读者数，
 `backdrop_copies` 仍按实际 copy 计数。原始日志/截图只放忽略的 reports，不提交。

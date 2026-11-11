@@ -297,10 +297,11 @@ tracker 按绘制顺序传播背景变化到后续玻璃；重放时将相交玻
 每块区域仍执行一次 copy，减少的是 texture allocations 与预滤波 pass，不宣称减少拷贝总字节。
 中间绘制若写入后续面板的输入区（包括相邻阴影），会阻止它加入该阶段；不重排画家顺序。
 每组最多 16 slices、32 MiB payload、512 instances 前瞻；没有 compute／相应设备限额时
-自动保留独立路径。数组与 views 只属于本次编码，不形成历史纹理缓存。
+自动保留独立路径。数组与 views 只属于本次编码；底层精确规格 texture 可从 renderer 的
+跨帧池复用，同帧不会复用，idle trim 统一释放。
 
 `Renderer::force_separate_backdrops(true)` 用于像素与性能 A/B，默认启用分组。
-`batch_stats()` 新增 `backdrop_textures` 与 `backdrop_shared_reads`；
+`batch_stats()` 的 `backdrop_textures` 与 `backdrop_shared_reads` 记录本帧资源与读者；
 `backdrop_copies` 仍是 copy 次数，`backdrop_mip_passes` 统计实际 render/compute pass。
 最大 sigma 预算已按 device scale 转成物理值，含 1.5/2x 验证。
 详情、测量限制及复跑命令见 [实验记录](experiments/wgpu-backdrop-architecture.md)。
