@@ -329,13 +329,10 @@ still occupies its flow slot (as CSS sticky does).
 `RangeSlider` on the shared slider core: one track with a low and a high
 thumb, the accent fill between them, and the thumbs cannot cross. Pressing
 the track picks the nearer thumb; arrows, PageUp/Down, Home and End move the
-thumb last touched, and Tab focuses the control.
-
-MyGO gives each knob its own focus stop and exposes two named sliders to
-assistive technology. Plico's slider core still has one focusable entity and
-one numeric semantic value per slider, so both thumbs share the focus and the
-semantic node reports the low bound; the high bound is painted but not yet a
-separate accessible slider.
+focused thumb. Each thumb is a separate Tab stop. Assistive technology sees a
+named group containing `label minimum` and `label maximum` sliders, each with
+its own value and numeric actions; the group itself does not duplicate a
+numeric value.
 
 ### Number input (MyGO port)
 

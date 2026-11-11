@@ -27,7 +27,12 @@ impl Adapter {
                 matches!(n.kind, Kind::Button | Kind::Switch | Kind::Checkbox),
             ),
             (&mut self.input_align_nodes, n.kind == Kind::TextInput),
-            (&mut self.slider_nodes, n.kind == Kind::Slider),
+            (
+                &mut self.slider_nodes,
+                n.kind == Kind::Slider
+                    || (n.kind == Kind::ValueControl
+                        && n.numeric.is_some_and(|range| range.high.is_some())),
+            ),
             (&mut self.shader_nodes, n.kind == Kind::Shader),
             (
                 &mut self.tooltip_nodes,

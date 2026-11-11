@@ -1,6 +1,6 @@
 //! The dual-thumb range slider over the shared slider core.
 use plico::prelude::*;
-use plico::{Engine, Entity, Kind};
+use plico::{Engine, Entity, Kind, SliderThumb, WidgetRole};
 
 fn frame(engine: &mut Engine, view: impl FnOnce(&mut UiContext<'_>)) {
     engine.frame_declarations(view).unwrap();
@@ -9,7 +9,10 @@ fn frame(engine: &mut Engine, view: impl FnOnce(&mut UiContext<'_>)) {
 fn slider(engine: &Engine) -> Entity {
     fn walk(engine: &Engine, id: Entity, found: &mut Option<Entity>) {
         let node = engine.node(id).unwrap();
-        if node.kind == Kind::Slider {
+        if node.kind == Kind::ValueControl
+            && node.style.role == Some(WidgetRole::Group)
+            && node.numeric.is_some_and(|range| range.high.is_some())
+        {
             *found = Some(id);
         }
         let children = node.children.to_vec();
@@ -19,7 +22,7 @@ fn slider(engine: &Engine) -> Entity {
     }
     let mut found = None;
     walk(engine, engine.root(), &mut found);
-    found.expect("a slider node")
+    found.expect("a range slider group")
 }
 
 #[test]
@@ -38,6 +41,18 @@ fn range_slider_reports_both_ends_and_clamps_them() {
     let numeric = engine.node(node).unwrap().numeric.unwrap();
     assert_eq!(numeric.value, 20.);
     assert_eq!(numeric.high, Some(80.));
+    let thumbs = engine.node(node).unwrap().children;
+    assert_eq!(thumbs.len(), 2);
+    assert_eq!(
+        engine.node(thumbs[0]).unwrap().style.slider_thumb,
+        Some(SliderThumb::Minimum)
+    );
+    assert_eq!(engine.node(thumbs[0]).unwrap().text, "Price minimum");
+    assert_eq!(
+        engine.node(thumbs[1]).unwrap().style.slider_thumb,
+        Some(SliderThumb::Maximum)
+    );
+    assert_eq!(engine.node(thumbs[1]).unwrap().text, "Price maximum");
     assert!(!changed);
 
     engine.queue_high_value(node, 65.);

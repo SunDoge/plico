@@ -56,7 +56,8 @@ pub use engine::Engine;
 pub use model::{
     Align, BoxShadow, Changes, Color, Easing, FocusAxis, FontFamily, FrameDelta, FrameError,
     FrameStats, ImplicitKey, Justify, Key, Kind, Motion, NodeChange, NodeRef, Presentation, Size,
-    SliderSpec, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
+    SliderSpec, SliderThumb, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths,
+    WidgetRole,
 };
 pub use plico_macros::{Route, component, text};
 pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router, RouterTransition, RouterView};

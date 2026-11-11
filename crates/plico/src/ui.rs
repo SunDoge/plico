@@ -3109,6 +3109,134 @@ impl<'e> UiContext<'e> {
         }
         input.map(|_| range.value)
     }
+
+    /// Declare a visual range-slider group with two real focus/semantic
+    /// children. Numeric edits are queued on the group; the children identify
+    /// which bound receives keyboard, pointer, and accessibility actions.
+    pub(crate) fn range_slider_element(
+        &mut self,
+        key: Key,
+        mut style: Style,
+        label: &str,
+        range: &mut crate::NumericRange,
+    ) -> Option<f64> {
+        style.disabled |= self.inherited.disabled;
+        style.role = Some(crate::WidgetRole::Group);
+        style.tab_stop = false;
+        if !range.valid() || range.high.is_none() {
+            self.engine.error.get_or_insert(FrameError::InvalidStyle);
+        } else {
+            range.value = range.normalize(range.value);
+            range.high = range
+                .high
+                .map(|high| range.normalize(high).max(range.value));
+        }
+        let identity = Identity {
+            parent: self.parent,
+            key,
+            scope: self.scope,
+        };
+        if let Some(revision) = self.engine.lookup_numeric(identity) {
+            style.numeric_revision = revision;
+        }
+        let entity = self.engine.declare(
+            self.parent,
+            key,
+            self.scope,
+            Kind::ValueControl,
+            style,
+            Cow::Borrowed(label),
+        );
+        let input = (!style.disabled)
+            .then(|| self.engine.value(entity))
+            .flatten();
+        let high_input = (!style.disabled)
+            .then(|| self.engine.high_value(entity))
+            .flatten();
+        if let Some(value) = input
+            && range.valid()
+        {
+            let high = high_input.or(range.high).unwrap_or(range.max);
+            range.value = range.normalize(value).min(high);
+        }
+        if let Some(high) = high_input
+            && range.valid()
+        {
+            range.high = Some(range.normalize(high).max(range.value));
+        }
+        let node = self.engine.nodes.get_mut(entity).unwrap();
+        if node.numeric != Some(*range) {
+            node.numeric = Some(*range);
+            node.style.numeric_revision = node.style.numeric_revision.wrapping_add(1);
+            node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
+        }
+        self.engine.set_grid(entity, None);
+
+        let low = range.value;
+        let high = range.high.unwrap_or(low);
+        let min = range.min;
+        let max = range.max;
+        let step = range.step;
+        self.with_parent(entity, style, false, |cx| {
+            for (key, thumb, suffix, value) in [
+                (
+                    Key::Static("__range_minimum"),
+                    crate::SliderThumb::Minimum,
+                    "minimum",
+                    low,
+                ),
+                (
+                    Key::Static("__range_maximum"),
+                    crate::SliderThumb::Maximum,
+                    "maximum",
+                    high,
+                ),
+            ] {
+                let mut thumb_style = cx.inherited_style();
+                thumb_style.role = Some(crate::WidgetRole::Slider);
+                thumb_style.control_chrome = false;
+                thumb_style.slider_thumb = Some(thumb);
+                thumb_style.absolute = Some([0., 0.]);
+                thumb_style.width_percent = Some(100.);
+                thumb_style.height_percent = Some(100.);
+                let thumb_identity = Identity {
+                    parent: entity,
+                    key,
+                    scope: cx.scope,
+                };
+                if let Some(revision) = cx.engine.lookup_numeric(thumb_identity) {
+                    thumb_style.numeric_revision = revision;
+                }
+                let name = format!("{label} {suffix}");
+                let thumb_entity = cx.engine.declare(
+                    entity,
+                    key,
+                    cx.scope,
+                    Kind::ValueControl,
+                    thumb_style,
+                    Cow::Owned(name),
+                );
+                let numeric = crate::NumericRange {
+                    min,
+                    max,
+                    value,
+                    high: None,
+                    step,
+                    vertical: range.vertical,
+                    reversed: range.reversed,
+                };
+                let thumb_node = cx.engine.nodes.get_mut(thumb_entity).unwrap();
+                if thumb_node.numeric != Some(numeric) {
+                    thumb_node.numeric = Some(numeric);
+                    thumb_node.style.numeric_revision =
+                        thumb_node.style.numeric_revision.wrapping_add(1);
+                    thumb_node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
+                }
+                cx.engine.set_grid(thumb_entity, None);
+            }
+        });
+        input.map(|_| range.value)
+    }
 }
 impl crate::ImplicitKey for Slider<'_, '_, '_> {
     fn key_of(&self) -> Key {
@@ -3175,12 +3303,21 @@ impl Slider<'_, '_, '_> {
         }
         let normalized = *self.value;
         let normalized_high = self.range.high;
-        let input = ui.slider_element(
-            self.inner.key,
-            self.inner.style,
-            &self.inner.text,
-            &mut self.range,
-        );
+        let input = if self.range.high.is_some() {
+            ui.range_slider_element(
+                self.inner.key,
+                self.inner.style,
+                &self.inner.text,
+                &mut self.range,
+            )
+        } else {
+            ui.slider_element(
+                self.inner.key,
+                self.inner.style,
+                &self.inner.text,
+                &mut self.range,
+            )
+        };
         if let Some(value) = input
             && self.range.valid()
         {

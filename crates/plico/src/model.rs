@@ -269,6 +269,8 @@ impl FontFamily {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidgetRole {
+    /// A noninteractive semantic container for related controls.
+    Group,
     /// Toggle semantics independent of the visual primitive.
     CheckBox,
     Switch,
@@ -312,6 +314,12 @@ pub enum WidgetRole {
     ColorWell,
     /// A modal alert that needs an explicit answer (mygo AlertDialog).
     AlertDialog,
+}
+/// Logical thumb identity for a composed two-value slider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SliderThumb {
+    Minimum,
+    Maximum,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {
@@ -578,6 +586,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[invalidates(PAINT, SEMANTICS)]
     pub slider: Option<SliderSpec>,
+    /// Connect a focusable semantic thumb to its containing range slider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(HIT_TEST, SEMANTICS)]
+    pub slider_thumb: Option<SliderThumb>,
     #[invalidates(SEMANTICS)]
     pub selected: Option<bool>,
     #[invalidates(SEMANTICS)]
@@ -662,6 +674,7 @@ impl Default for Style {
             shader_revision: 0,
             numeric_revision: 0,
             slider: None,
+            slider_thumb: None,
             selected: None,
             expanded: None,
         }
