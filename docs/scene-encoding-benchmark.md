@@ -77,6 +77,23 @@ cargo run --locked --release -p plico-desktop --example scene_work -- --rows 100
 完整编码可以作为增量编码的输出基准，但这不是说完整路径不可能存在其他 bug。
 离屏像素与指令一致也不能代替用户对实际窗口呈现的确认。
 
+### 无变换节点
+
+2026-11-12 对照 MyGO `Painter.add` 的无变换快速路径检查了 Plico 的
+scene 编码。Plico 的普通节点原本即使没有任何静态、动效或宿主变换，也会
+构造变换原点的正反平移并做四次仿射矩阵相乘。现在这类节点直接复用
+父矩阵；单独设置 `transform-origin` 不会改变无变换节点的结果。
+
+release 下的同进程交替 A/B 每轮各调用 500 万次，三次测得旧路径
+5.76 / 5.38 / 5.38 ns/node，快速路径 1.82 / 1.77 / 1.77 ns/node。
+4000 行压力场景约 8000 节点，对应约 29–32 µs 的纯 CPU 上限收益。
+完整 `scene_work` 运行的机器漂移大于这个数量级，因此不用跨进程帧数据
+声称更大收益。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_untransformed_node_resolution -- --ignored --nocapture
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制

@@ -44,6 +44,15 @@ pub fn resolve_local_transforms(node: &PlacedNode) -> (Affine, Affine) {
 
 /// Resolve static CSS and host-driven runtime state into window coordinates.
 pub fn resolve_node_transform(node: &PlacedNode, parent_transform: Affine) -> Affine {
+    // Most nodes carry no authored or presentation transform. As in MyGO's
+    // Painter.add identity fast path, keep those nodes on the parent's matrix
+    // without building and multiplying two origin translations plus identities.
+    if node.paint.transform.is_empty()
+        && node.paint.motion_transform.is_none()
+        && node.paint.runtime_transform.is_none()
+    {
+        return parent_transform;
+    }
     let [x0, y0, x1, y1] = node.rect;
     let rect = Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64);
     let resolve = |length: &IrLength, size: f32| match length {
@@ -1397,6 +1406,73 @@ mod tests {
         let (_, presented) = resolve_local_transforms(&node);
 
         assert_eq!(presented, Affine::translate((8.0, 0.0)));
+    }
+
+    #[test]
+    fn untransformed_node_reuses_the_parent_matrix_exactly() {
+        let mut node = test_node(0, [20., 30., 140., 90.]);
+        node.paint.transform_origin = [
+            IrLength::Percent { value: 0.3 },
+            IrLength::Percent { value: 0.7 },
+        ];
+        let parent = Affine::new([1.25, 0.1, -0.05, 0.9, 17., 23.]);
+        assert_eq!(resolve_node_transform(&node, parent), parent);
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_untransformed_node_resolution() {
+        fn previous(node: &PlacedNode, parent_transform: Affine) -> Affine {
+            let [x0, y0, x1, y1] = node.rect;
+            let resolve = |length: &IrLength, size: f32| match length {
+                IrLength::Px { value } => f64::from(*value),
+                IrLength::Percent { value } => f64::from(*value * size),
+                IrLength::Auto => 0.,
+            };
+            let (static_transform, runtime_transform) = resolve_local_transforms(node);
+            let origin = kurbo::Vec2::new(
+                f64::from(x0) + resolve(&node.paint.transform_origin[0], x1 - x0),
+                f64::from(y0) + resolve(&node.paint.transform_origin[1], y1 - y0),
+            );
+            parent_transform
+                * Affine::translate(origin)
+                * static_transform
+                * runtime_transform
+                * Affine::translate(-origin)
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        let node = test_node(0, [20., 30., 140., 90.]);
+        let parent = Affine::new([1.25, 0.1, -0.05, 0.9, 17., 23.]);
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..1_000_000 {
+                let result = if sample % 2 == 0 {
+                    resolve_node_transform(
+                        std::hint::black_box(&node),
+                        std::hint::black_box(parent),
+                    )
+                } else {
+                    previous(std::hint::black_box(&node), std::hint::black_box(parent))
+                };
+                std::hint::black_box(result);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / 1_000_000.;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "untransformed resolve ns/node: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
     }
 
     #[test]
