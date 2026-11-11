@@ -388,7 +388,7 @@ fn wait_for<V: HostView>(
     assertion: &Assertion,
     timing: WaitTiming,
 ) -> Result<(), RecipeError> {
-    let mut last_error = match check(source, assertion) {
+    let mut last_failure = match check(source, assertion) {
         Ok(()) => return Ok(()),
         Err(error) => error,
     };
@@ -403,11 +403,11 @@ fn wait_for<V: HostView>(
         frame(source, text, viewport)?;
         match check(source, assertion) {
             Ok(()) => return Ok(()),
-            Err(error) => last_error = error,
+            Err(error) => last_failure = error,
         }
     }
     Err(failed(format!(
-        "wait timed out after {} ms: {last_error}",
+        "wait timed out after {} ms: {last_failure}",
         timing.timeout_ms
     )))
 }

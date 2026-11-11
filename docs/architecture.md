@@ -98,6 +98,8 @@ wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级�
 依赖边也按这一分层收紧：应用不再直接依赖只经 desktop 使用的 runtime，runtime 不保留未使用的
 `slotmap`，renderer 不保留空的 WASM 依赖。目标平台过程宏隐式使用的 `windows-core` 与
 `wasm-bindgen-futures` 明确登记为 machete 例外；交叉 target 编译守卫它们不能误删。
+旧 Stabby/cdylib 路径没有 feature 或依赖对象，不再为它额外运行 cargo-tree 守卫；历史协议文档
+只保留过去时实验记录。WASM 的 `module_error` 是模块调用诊断，不是跨语言 ABI 错误槽。
 
 ## 当前实现
 

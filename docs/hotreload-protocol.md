@@ -3,8 +3,9 @@
 # 热重载协议 v3 与验收边界
 
 
-状态：native 模块与宿主已实现，JSON Request/Frame 仍用于传输，其中 App checkpoint 是具名字段 MessagePack
-字节数组；不是全二进制协议、树增量传输或可同时承载多个 App 的会话注册表。
+历史状态：native 模块与宿主曾实现以下协议，其中 App checkpoint 是具名字段 MessagePack
+字节数组。对应 cdylib、宿主加载器、脚本与 ABI 依赖现已删除；以下内容只记录当时的设计与实验，
+不构成当前 API 或可重建验收说明。
 
 ## 会话与恢复
 
@@ -71,18 +72,8 @@ panic 回复保留 payload 消息，不安装临时全局 panic hook。命令解
 索引与目标类型，不直接回显 JSON 或可能带敏感值的 Serde 错误消息。
 旧映像（包括加载后被拒绝的候选）仍可能保留到进程退出，重载错误会说明这个生命周期。
 
-## 可重建检查
+## 历史验收
 
-```sh
-cargo test --workspace --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo build -p plico-cli -p plico-desktop
-python3 scripts/check-hotreload.py
-python3 scripts/check-regions-window-reload.py
-python3 scripts/check-text-input-reload.py
-python3 scripts/check-modal-reload.py
-```
-
-输入脚本经过实际 CLI、cdylib、native adapter 和常驻宿主，验证首帧绑定、中文编辑、
-提交幂等、保存、热重载后内容保留和模块清空回传。协议测试另覆盖动画→事件状态连续、
-只读 checkpoint、失败恢复及输入与点击顺序。输出日志/截图只作为本地生成产物。
+当时的输入脚本曾经过 CLI、cdylib、native adapter 和常驻宿主，验证首帧绑定、中文编辑、
+提交幂等、保存、热重载后内容保留和模块清空回传。对应脚本已随 native 动态热重载删除，
+不能再作为当前仓库的检查命令。现在使用静态重启和 [场景预览](preview.md) 验证应用状态与交互。

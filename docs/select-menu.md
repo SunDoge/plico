@@ -71,8 +71,8 @@ cargo test -p plico-desktop --test select_menu
 cargo run -p gallery --example capture -- --page controls --select --out /tmp/select.png
 cargo run -p gallery --example capture -- --page controls --menu --dark --width 640 --height 740 --out /tmp/menu.png
 cargo build -p plico-cli
-python3 scripts/check-modal-reload.py
+cargo test -p plico-desktop --test recipes
 python3 scripts/check-lsp.py
 ```
 
-七项集成测试覆盖禁用跳过、选择/取消、单次 changed、业务 key 重排、首字母导航、菜单首尾、鼠标到键盘交接、空/未知值，以及 80 项列表的选中项可见性、最大高度、缩窗和 Home 滚动。真实模块重载验证打开的 Select/Menu、选中值、原生语义角色和动作回传；截图位于 reports/select-menu。
+七项集成测试覆盖禁用跳过、选择/取消、单次 changed、业务 key 重排、首字母导航、菜单首尾、鼠标到键盘交接、空/未知值，以及 80 项列表的选中项可见性、最大高度、缩窗和 Home 滚动。recipe 验证打开的 Select/Menu、选中值、原生语义角色和动作回传。

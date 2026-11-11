@@ -27,7 +27,7 @@ struct RemoteView {
     calls: u64,
     input_bytes: u64,
     output_bytes: u64,
-    last_error: Option<String>,
+    module_error: Option<String>,
 }
 impl RemoteView {
     fn new(module: Function) -> Result<Self, JsValue> {
@@ -59,7 +59,7 @@ impl RemoteView {
             calls: 1,
             input_bytes: initial_input as u64,
             output_bytes: initial_output as u64,
-            last_error: None,
+            module_error: None,
         })
     }
     fn request(&self, clicks: Vec<Vec<PathKey>>, values: Vec<(Vec<PathKey>, f64)>) -> Request {
@@ -97,7 +97,7 @@ impl RemoteView {
         self.rendered_scrolls = self.scroll_viewports.clone();
         self.rendered_hovered = self.hovered.clone();
         self.dirty = false;
-        self.last_error = None;
+        self.module_error = None;
     }
     fn dispatch(
         &mut self,
@@ -235,7 +235,7 @@ impl HostView for RemoteView {
             }
             Ok(_) => false,
             Err(e) => {
-                self.last_error = Some(format!("{e:?}"));
+                self.module_error = Some(format!("{e:?}"));
                 false
             }
         }
@@ -256,7 +256,7 @@ impl HostView for RemoteView {
             || self.rendered_hovered != self.hovered)
             && let Err(e) = self.dispatch(clicks, values)
         {
-            self.last_error = Some(format!("{e:?}"));
+            self.module_error = Some(format!("{e:?}"));
             self.dirty = false;
             self.frame.requests.remove(plico::Changes::ANIMATE);
         }
@@ -364,7 +364,7 @@ impl SplitHost {
         let view = self.host.source.view();
         let diagnostics = self.host.source.frame_diagnostics();
         serde_json::to_string(&json!({
-            "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.last_error,
+            "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.module_error,
             "reloads":view.reloads,"calls":view.calls,
             "input_bytes":view.input_bytes,"output_bytes":view.output_bytes,
             "font_loads":self.font_loads, "text_cache":self.host.text.cache_entries(),"service":view.services,

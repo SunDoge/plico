@@ -63,7 +63,7 @@ impl App for Counter {
         });
     }
 }
-/// Same Request/Frame JSON as native hot reload; wasm-bindgen handles string transfer.
+/// Request/Frame JSON entry for the independently retained WASM split host.
 pub fn render_json(input: &str) -> Result<String, String> {
     let request: Request = serde_json::from_str(input).map_err(|e| e.to_string())?;
     let frame = plico_dev::render::<Counter>(request).map_err(|e| e.to_string())?;

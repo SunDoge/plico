@@ -2,7 +2,7 @@
 
 目标原文：**补充常用的widget，并接入custom shader，参考wabou和mygo**。
 
-验收依据是当前源码、交互测试、真实 GPU 与模块重载，不把设计文档或编译成功单独当成功能证据。下面对应本轮新增能力；原有 button/text/SVG/switch/checkbox、布局、主题和输入能力继续由已有 gallery / 输入测试覆盖。
+验收依据是当前源码、交互测试、真实 GPU 与 recipe 预览，不把设计文档或编译成功单独当成功能证据。下面对应本轮新增能力；原有 button/text/SVG/switch/checkbox、布局、主题和输入能力继续由已有 gallery / 输入测试覆盖。
 
 | 要求 | 当前实现与直接证据 | 结论 |
 |---|---|---|
@@ -13,7 +13,7 @@
 | 时钟与动画符合框架方向 | VirtualClock 测试覆盖 modal presence、slider press、shader playback、tooltip delay。中间动画/等待帧不重复应用声明或主树布局；期限到达再提交必要卸载。时钟从宿主注入 | 已验证 |
 | 确定性静态预览 | JSON/TypeScript recipe 操作 Modal、Slider、shader、Popover、Select、Menu、Tooltip，断言状态、载荷、事件和焦点；批处理复用 renderer，但每个场景创建独立 App/Engine | 已验证 |
 | 参考 Wabou / MyGO 而非复制另一套 runtime | docs/{modal,popover,select-menu,tooltip,shaders}.md 记录对应源文件、采用的规则及差异。只读参考原仓库，行为接入 Plico 的 retained engine、host clock 和现有 copied backend，未添加 Go/Solid runtime | 已验证 |
-| 开发体验与可查看成果 | Gallery Controls 与 Motion 提供实际组件；reports/{modal,sliders,popover,select-menu,tooltip,shaders} 有截图。34 项真实 rust-analyzer completion、cargo fmt 幂等格式、严格 Clippy、332 项 workspace tests 均通过 | 已验证 |
+| 开发体验与可查看成果 | Gallery Controls 与 Motion 提供实际组件和可重建 capture 示例；rust-analyzer completion、cargo fmt、严格 Clippy 与 workspace tests 共同守卫 | 已验证 |
 
 验证命令：
 
@@ -23,8 +23,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 python3 scripts/check-lsp.py
 cargo build -p plico-cli
-python3 scripts/check-modal-reload.py
-git apply --check reports/macros/arrowless-experiment.patch
+cargo test -p plico-desktop --test recipes
 ```
 
-本次结论限于目标中的组件补充与 shader 接入，不宣称完整组件库或所有平台认证。未来可继续增加 Tabs/Radio/虚拟列表等控件；多字符搜索、复杂子菜单、富文本 Tooltip、自定义 shader 纹理/backdrop、Bevy 后端不在当前实现中。原生 TextBuffer 仍有已记录的模块传输限制，见 text-input.md；本轮新控件及 shader 的重载验证不替代该限制。详情以各组件文档为准。
+本次结论限于目标中的组件补充与 shader 接入，不宣称完整组件库或所有平台认证。未来可继续增加 Tabs/Radio/虚拟列表等控件；多字符搜索、复杂子菜单、富文本 Tooltip、自定义 shader 纹理/backdrop、Bevy 后端不在当前实现中。详情以各组件文档为准。
