@@ -165,3 +165,151 @@ fn migrated_semantic_status_tones_remain_distinguishable_on_default_surfaces() {
         }
     }
 }
+
+#[derive(Default)]
+struct Disclosure {
+    open: bool,
+}
+
+impl HostView for Disclosure {
+    #[component]
+    fn show(&mut self, cx: &mut UiContext) {
+        collapsible(cx, "Details", &mut self.open, |cx| {
+            column(cx).height(80.).shrink(0.).children(|cx| {
+                button(cx).text("Inner action");
+            });
+        });
+    }
+}
+
+fn named_entity(engine: &plico::Engine, label: &str) -> Option<plico::Entity> {
+    fn find(engine: &plico::Engine, entity: plico::Entity, label: &str) -> Option<plico::Entity> {
+        let node = engine.node(entity)?;
+        if node.text == label {
+            return Some(entity);
+        }
+        node.children
+            .iter()
+            .find_map(|child| find(engine, *child, label))
+    }
+    find(engine, engine.root(), label)
+}
+
+fn clipped_ancestor(engine: &plico::Engine, entity: plico::Entity) -> Option<plico::Entity> {
+    fn contains(engine: &plico::Engine, root: plico::Entity, target: plico::Entity) -> bool {
+        root == target
+            || engine.node(root).is_some_and(|node| {
+                node.children
+                    .iter()
+                    .any(|child| contains(engine, *child, target))
+            })
+    }
+    fn find(
+        engine: &plico::Engine,
+        root: plico::Entity,
+        target: plico::Entity,
+    ) -> Option<plico::Entity> {
+        let node = engine.node(root)?;
+        if node.style.clip && contains(engine, root, target) {
+            return Some(root);
+        }
+        node.children
+            .iter()
+            .find_map(|child| find(engine, *child, target))
+    }
+    find(engine, engine.root(), entity)
+}
+
+#[test]
+fn collapsible_grows_clips_and_retires_content_on_the_injected_clock() {
+    use plico::VirtualClock;
+    use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
+    use std::time::Duration;
+
+    let clock = VirtualClock::default();
+    let mut source = plico_runtime::Source::with_clock(Disclosure::default(), clock.clone());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 360, 240);
+    let details = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Button, "Details", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target: details }));
+    source.build_frame(&mut text, 360, 240);
+
+    clock.advance(Duration::from_millis(100)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    let action =
+        named_entity(&source.engine, "Inner action").expect("opening content stays mounted");
+    let clip = clipped_ancestor(&source.engine, action).expect("animated panel clips its content");
+    let height = source.engine.node(clip).unwrap().style.height.unwrap();
+    assert!(
+        height > 0. && height < 88.,
+        "midpoint panel height: {height}"
+    );
+
+    clock.advance(Duration::from_millis(150)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    let action = named_entity(&source.engine, "Inner action").unwrap();
+    let clip = clipped_ancestor(&source.engine, action).unwrap();
+    assert_eq!(source.engine.node(clip).unwrap().style.height, Some(88.));
+
+    let details = source
+        .adapter
+        .semantics(&source.engine, 0)
+        .node_by_role(SemanticRole::Button, "Details", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target: details }));
+    source.build_frame(&mut text, 360, 240);
+    clock.advance(Duration::from_millis(100)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    assert!(named_entity(&source.engine, "Inner action").is_some());
+    assert!(
+        source
+            .adapter
+            .semantics(&source.engine, 0)
+            .node_by_role(SemanticRole::Button, "Inner action", None)
+            .is_none(),
+        "closing content must not remain interactive"
+    );
+
+    clock.advance(Duration::from_millis(150)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    assert!(named_entity(&source.engine, "Inner action").is_none());
+    assert!(!source.has_anim());
+}
+
+#[test]
+fn collapsible_reduced_motion_mounts_and_unmounts_without_retirement() {
+    use plico::DisplayPreferences;
+    use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
+
+    let mut source = plico_runtime::Source::new(Disclosure::default());
+    source.engine.set_display_preferences(DisplayPreferences {
+        reduce_motion: true,
+        ..Default::default()
+    });
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 360, 240);
+    let click_details = |source: &mut plico_runtime::Source<Disclosure>| {
+        let target = source
+            .adapter
+            .semantics(&source.engine, 0)
+            .node_by_role(SemanticRole::Button, "Details", None)
+            .unwrap()
+            .id;
+        assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+    };
+    click_details(&mut source);
+    source.build_frame(&mut text, 360, 240);
+    assert!(named_entity(&source.engine, "Inner action").is_some());
+    assert!(!source.has_anim());
+
+    click_details(&mut source);
+    source.build_frame(&mut text, 360, 240);
+    assert!(named_entity(&source.engine, "Inner action").is_none());
+    assert!(!source.has_anim());
+}

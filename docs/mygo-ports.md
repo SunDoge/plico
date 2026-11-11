@@ -35,7 +35,7 @@
 | Find bar | `find_bar` | 匹配计数、前后跳转、Done、打开聚焦 |
 | Alert dialog | `alert_dialog` | alert 角色、Escape dismissed、外部点击无效 |
 | Accordion | `accordion` + `collapsible` | 边框容器；item 复用 collapsible |
-| Accordion item / Collapsible | `collapsible` | 展开卸载与 expanded 状态 |
+| Accordion item / Collapsible | `collapsible` | 200ms 测量高度裁剪、退出保留、reduced motion、expanded 状态 |
 | Segmented | `segmented` | 选中按钮组 |
 | Progress | `progress` | 标签与百分比 |
 | Badge / Avatar / Ruby text | `badge` / `avatar` / `ruby_text` | 主题派生样式 |

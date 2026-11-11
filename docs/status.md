@@ -95,6 +95,10 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar、Motion spring
 与液态搜索已迁移，不再由应用保存 `plico_motion::Animated`。
 
+`collapsible` / `accordion` 复用同一 scalar channel 与稀疏布局尺寸反馈：展开面板先透明测量
+真实内容高度，再以 200ms ease-out 裁剪；关闭期间保留节点但禁用交互并从语义树隐藏，结束后卸载。
+reduced motion 直接挂载／卸载，不增加应用侧动画状态。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现

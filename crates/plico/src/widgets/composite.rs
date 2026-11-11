@@ -355,9 +355,54 @@ pub fn segmented(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> b
     before != *selected
 }
 
-/// A disclosure with application-owned open state. The callback runs only while
-/// open; its local application state should live outside the conditional panel.
-/// Content insertion/removal is immediate; height reveal animation is not implied.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct CollapsibleMeasure {
+    height: f32,
+}
+
+fn disclosure_icon(cx: &mut UiContext, progress: f32, accordion: bool) {
+    let progress = progress.clamp(0., 1.);
+    let (closed, opened) = if accordion {
+        (&icons::CHEVRON_DOWN, &super::indicators::CHEVRON_UP)
+    } else {
+        (&icons::CHEVRON_RIGHT, &icons::CHEVRON_DOWN)
+    };
+    column(cx)
+        .position(crate::Position::Relative)
+        .width(14.)
+        .height(14.)
+        .shrink(0.)
+        .semantic_hidden(true)
+        .children(|cx| {
+            column(cx)
+                .absolute(0., 0.)
+                .width(14.)
+                .height(14.)
+                .align(Align::Center)
+                .justify(Justify::Center)
+                .opacity(1. - progress)
+                .scale(1. - progress * 0.15, 1. - progress * 0.15)
+                .children(|cx| {
+                    icon(cx, closed).size(14., 14.);
+                });
+            column(cx)
+                .absolute(0., 0.)
+                .width(14.)
+                .height(14.)
+                .align(Align::Center)
+                .justify(Justify::Center)
+                .opacity(progress)
+                .scale(0.85 + progress * 0.15, 0.85 + progress * 0.15)
+                .children(|cx| {
+                    icon(cx, opened).size(14., 14.);
+                });
+        });
+}
+
+/// A disclosure with application-owned open state. Like MyGO, the indicator
+/// crossfades and the clipped panel grows or shrinks over 200ms. Closing keeps
+/// the content mounted (but disabled and hidden from semantics) until the exit
+/// reaches zero; reduced motion mounts or unmounts it immediately.
 #[component]
 pub fn collapsible<R>(
     cx: &mut UiContext,
@@ -371,6 +416,12 @@ pub fn collapsible<R>(
     if accordion {
         cx.accordion_index += 1;
     }
+    let progress = cx.animate(
+        "collapsible.open",
+        f32::from(*open),
+        std::time::Duration::from_millis(200),
+    );
+    let measured = cx.state(CollapsibleMeasure::default);
     column(cx)
         .children(|cx| {
             if separated {
@@ -400,43 +451,61 @@ pub fn collapsible<R>(
             let response = trigger
                 .children(|cx| {
                     if !accordion {
-                        icon(
-                            cx,
-                            if *open {
-                                &icons::CHEVRON_DOWN
-                            } else {
-                                &icons::CHEVRON_RIGHT
-                            },
-                        )
-                        .size(14., 14.);
+                        disclosure_icon(cx, progress, false);
                     }
                     let title = text(cx, label).weight(if accordion { 500 } else { 400 });
                     if accordion {
                         title.grow(1.);
-                        icon(
-                            cx,
-                            if *open {
-                                &super::indicators::CHEVRON_UP
-                            } else {
-                                &icons::CHEVRON_DOWN
-                            },
-                        )
-                        .size(14., 14.);
+                        disclosure_icon(cx, progress, true);
                     }
                 })
                 .response;
             if response.clicked() {
                 *open = !*open;
             }
-            if *open {
+            if *open || progress > 0. {
+                let measured_height = measured.get().height;
+                // Plico receives intrinsic geometry after the host layout pass.
+                // Mount one transparent, unconstrained measurement declaration
+                // before starting from zero; Source settles that feedback before
+                // presenting. Later frames can keep the inner column in flow and
+                // clip it to the animated outer height.
+                let measuring = *open && measured_height == 0.;
+                let panel = column(cx)
+                    .position(crate::Position::Relative)
+                    .width_percent(100.)
+                    .shrink(0.)
+                    .clip(true)
+                    .opacity(if measuring { 0. } else { 1. });
+                let panel = if measuring {
+                    panel
+                } else {
+                    panel.height(measured_height * progress)
+                };
                 Some(
-                    column(cx)
-                        .padding_top(if accordion { 0. } else { m.space(1) as f32 })
-                        .padding_bottom(m.space(if accordion { 3 } else { 1 }))
-                        .padding_left(m.spacing as f32 * if accordion { 3. } else { 5.5 })
-                        .padding_right(if accordion { m.space(3) as f32 } else { 0. })
-                        .gap(m.space(2))
-                        .children(content)
+                    panel
+                        .children(|cx| {
+                            column(cx)
+                                .width_percent(100.)
+                                .shrink(0.)
+                                .disabled(!*open)
+                                .semantic_hidden(!*open)
+                                .padding_top(if accordion { 0. } else { m.space(1) as f32 })
+                                .padding_bottom(m.space(if accordion { 3 } else { 1 }))
+                                .padding_left(m.spacing as f32 * if accordion { 3. } else { 5.5 })
+                                .padding_right(if accordion { m.space(3) as f32 } else { 0. })
+                                .gap(m.space(2))
+                                .children(|cx| {
+                                    if let Some([_, height]) = cx.layout_size()
+                                        && height.is_finite()
+                                        && height >= 0.
+                                    {
+                                        measured.set(CollapsibleMeasure { height });
+                                    }
+                                    content(cx)
+                                })
+                                .inner
+                        })
                         .inner,
                 )
             } else {

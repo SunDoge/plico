@@ -121,9 +121,12 @@ fn release(cx: &mut UiContext, channel: &mut usize, details: &mut bool) {
   Enter/Space select. It does not claim radio/tab semantics or arrow navigation.
 - `collapsible` accepts an application-owned bool and returns `Option<R>` from
   its immediate content callback. Enter/Space toggle its button; assistive
-  technology receives `expanded`. Closed content is unmounted. Keep durable
-  state in the application. Inside `accordion`, Up/Down/Home/End move between
-  headers and clamp at the ends. Content height and chevron changes currently snap.
+  technology receives `expanded`. Following MyGO, its indicator crossfades and
+  its measured panel grows/shrinks behind a clip over 200ms. Closing content is
+  retained only for the exit, immediately disabled and hidden from semantics,
+  then unmounted; reduced motion mounts/unmounts immediately. Keep durable state
+  in the application. Inside `accordion`, Up/Down/Home/End move between headers
+  and clamp at the ends.
 - `progress` shows a labeled fraction and percentage, clamps finite values to
   0..=1 and maps non-finite values to zero. It is currently a composed meter
   with accessible text, without native progress-bar semantics or fill animation.
