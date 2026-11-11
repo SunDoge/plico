@@ -822,11 +822,6 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
     scene.pop_layer();
 }
 
-enum Layer {
-    Clip,
-    Opacity,
-}
-
 /// Paint `nodes` into `scene` over a `base_color` background. Text nodes are
 /// use the host-selected paragraph engine.
 pub fn build_scene(
@@ -901,55 +896,47 @@ impl Encoder<'_> {
     fn encode_nodes(
         &mut self,
         scene: &mut Scene,
-        mut nodes: &[PlacedNode],
+        nodes: &[PlacedNode],
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
-        while let Some(first) = nodes.first() {
-            let len = nodes[1..]
-                .iter()
-                .position(|node| node.depth <= first.depth)
-                .map_or(nodes.len(), |index| index + 1);
-            self.encode_one(
+        let mut cursor = 0;
+        while cursor < nodes.len() {
+            self.encode_subtree(
                 scene,
-                &nodes[..len],
+                nodes,
+                &mut cursor,
                 parent_transform,
                 inherited_clip,
                 raster_factor,
             );
-            nodes = &nodes[len..];
         }
     }
 
-    fn encode_one(
+    /// Encode one preorder subtree and leave `cursor` at its next sibling.
+    ///
+    /// The old slice-based walk searched forward for the end of every
+    /// subtree before recursively doing the same work again. A deep tree
+    /// therefore revisited the tail at every level. The cursor consumes each
+    /// entry once, matching the single DFS used by MyGO's linked node tree.
+    fn encode_subtree(
         &mut self,
         scene: &mut Scene,
         nodes: &[PlacedNode],
+        cursor: &mut usize,
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
-        self.encode_contents(
-            scene,
-            nodes,
-            parent_transform,
-            inherited_clip,
-            raster_factor,
-        );
-    }
-
-    fn encode_contents(
-        &mut self,
-        scene: &mut Scene,
-        nodes: &[PlacedNode],
-        parent_transform: Affine,
-        inherited_clip: Rect,
-        raster_factor: f64,
-    ) {
-        let n = &nodes[0];
+        let n = &nodes[*cursor];
+        let depth = n.depth;
         let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
+            *cursor += 1;
+            while *cursor < nodes.len() && nodes[*cursor].depth > depth {
+                *cursor += 1;
+            }
             return;
         }
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
@@ -977,9 +964,18 @@ impl Encoder<'_> {
             device_scale: self.device_scale,
             raster_factor,
         };
-        let mut layers = Vec::new();
-        encode_node(scene, self.tcx, &enc, &mut layers);
-        self.encode_nodes(scene, &nodes[1..], css_transform, child_clip, raster_factor);
+        let layers = encode_node(scene, self.tcx, &enc);
+        *cursor += 1;
+        while *cursor < nodes.len() && nodes[*cursor].depth > depth {
+            self.encode_subtree(
+                scene,
+                nodes,
+                cursor,
+                css_transform,
+                child_clip,
+                raster_factor,
+            );
+        }
         // The scrollbar lives inside the node's border box, so the node's
         // existing visibility result also covers it. Most nodes have no live
         // overlay scrollbar; do not recompute visual bounds and transform
@@ -987,7 +983,7 @@ impl Encoder<'_> {
         if paints_node && n.scroll.opacity > 0.0 {
             draw_scrollbars(scene, n, node_transform, self.device_scale);
         }
-        while layers.pop().is_some() {
+        for _ in 0..layers {
             scene.pop_layer();
         }
     }
@@ -1005,12 +1001,7 @@ struct EncodeCtx<'a> {
     device_scale: f64,
     raster_factor: f64,
 }
-fn encode_node(
-    scene: &mut Scene,
-    tcx: &mut TextContext,
-    enc: &EncodeCtx<'_>,
-    layers: &mut Vec<Layer>,
-) {
+fn encode_node(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) -> usize {
     let EncodeCtx {
         node: n,
         node_transform,
@@ -1029,6 +1020,7 @@ fn encode_node(
     let device_scale = *device_scale;
     let paints_node = *paints_node;
     let has_rounded_corners = *has_rounded_corners;
+    let mut layers = 0;
 
     // Keep ancestor transform, opacity, and clip state even when this
     // node's own visual bounds are offscreen: a transformed descendant can
@@ -1051,10 +1043,10 @@ fn encode_node(
             Some(Arc::new(filter)),
             None,
         );
-        layers.push(Layer::Opacity);
+        layers += 1;
     } else if opacity < 1.0 {
         scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
-        layers.push(Layer::Opacity);
+        layers += 1;
     }
 
     if paints_node {
@@ -1084,7 +1076,7 @@ fn encode_node(
             *node_transform,
             &corner_shape(clip_rect, n.own_clip_radii, n.paint.corner_smoothing),
         );
-        layers.push(Layer::Clip);
+        layers += 1;
     }
 
     if paints_node {
@@ -1130,6 +1122,7 @@ fn encode_node(
     if paints_node {
         draw_text_at_raster_scale(scene, n, tcx, *node_transform, device_scale, *raster_factor);
     }
+    layers
 }
 
 #[cfg(test)]
@@ -1578,6 +1571,74 @@ mod tests {
             "background fill ns/op: old={:.2} fast={:.2}",
             median(&mut old),
             median(&mut fast)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_preorder_subtree_walk() {
+        fn previous(mut depths: &[usize]) -> usize {
+            let mut visited = 0;
+            while let Some(&depth) = depths.first() {
+                let len = depths[1..]
+                    .iter()
+                    .position(|child| *child <= depth)
+                    .map_or(depths.len(), |index| index + 1);
+                visited += 1 + previous(&depths[1..len]);
+                depths = &depths[len..];
+            }
+            visited
+        }
+        fn cursor(depths: &[usize], at: &mut usize) -> usize {
+            let depth = depths[*at];
+            *at += 1;
+            let mut visited = 1;
+            while *at < depths.len() && depths[*at] > depth {
+                visited += cursor(depths, at);
+            }
+            visited
+        }
+        fn fast(depths: &[usize]) -> usize {
+            let mut at = 0;
+            let mut visited = 0;
+            while at < depths.len() {
+                visited += cursor(depths, &mut at);
+            }
+            visited
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+
+        const NODES: usize = 256;
+        const ITERATIONS: usize = 2_000;
+        let depths: Vec<_> = (0..NODES).collect();
+        assert_eq!(previous(&depths), NODES);
+        assert_eq!(fast(&depths), NODES);
+        let mut old = Vec::new();
+        let mut linear = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                let visited = if sample % 2 == 0 {
+                    fast(std::hint::black_box(&depths))
+                } else {
+                    previous(std::hint::black_box(&depths))
+                };
+                std::hint::black_box(visited);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                linear.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "256-deep preorder walk ns/tree: old={:.2} linear={:.2}",
+            median(&mut old),
+            median(&mut linear)
         );
     }
 

@@ -159,6 +159,26 @@ cargo test --release -p plico-renderer profile_cached_glyph_scene_replay -- --ig
 cargo run --locked --release -p plico-desktop --example scene_work -- --rows 4000 --unculled
 ```
 
+### 单遍 preorder 子树编码
+
+MyGO 的 painter 沿节点链做一次深度优先遍历。Plico 的节点虽然是 preorder
+扁平数组，旧 scene encoder 却会在进入每个节点前向后搜索其子树结尾，再对子树
+重复同样的搜索。普通两三层界面接近线性，但深层组合会反复扫描相同尾部，最坏
+退化为 O(n²)。
+
+现在 encoder 用一个共享游标消费 preorder 数组：进入节点后直接递归消费所有更深
+的后继，游标停在下一个兄弟；透明或空裁剪子树也只线性跳过一次。子树结束时只需
+按计数弹出 clip/opacity layer，不再为每个带 layer 的节点分配临时 `Vec`。
+
+release 下用 256 层链、每轮 2000 棵树做同进程交替 A/B，旧边界搜索为
+10126.77 ns/tree，单遍游标为 1076.76 ns/tree，约快 9.4 倍。4000 行压力场景
+主要只有两三层，scene p50 仍在原来的约 1.45–1.65 ms 波动区间，因此不把这项
+架构修复表述成普通平面列表的帧时间收益。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_preorder_subtree_walk -- --ignored --nocapture
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制
