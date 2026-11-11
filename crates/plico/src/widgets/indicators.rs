@@ -6,8 +6,108 @@
 //! write caller state, and the spinner samples only the injected frame clock.
 use crate::prelude::*;
 use crate::text;
-use crate::{LocalState, WidgetRole, icons};
+use crate::{LocalState, ShaderAsset, WidgetRole, icons};
 use std::time::Duration;
+
+static PROGRESS_RING: ShaderAsset = ShaderAsset::new(
+    r#"fn ring_coverage(distance: f32, half_width: f32, aa: f32) -> f32 {
+        return 1.0 - smoothstep(half_width - aa, half_width + aa, abs(distance));
+    }
+
+    fn circle_coverage(distance: f32, radius: f32, aa: f32) -> f32 {
+        return 1.0 - smoothstep(radius - aa, radius + aa, distance);
+    }
+
+    fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
+        let resolution = max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
+        let scale = max(plico.resolution_time_scale.w, 0.001);
+        let fraction = clamp(plico.values[0].x, 0.0, 1.0);
+        let stroke = max(plico.values[0].y * scale, 1.0);
+        let active_color = vec4<f32>(plico.values[0].zw, plico.values[1].xy);
+        let track_color = vec4<f32>(plico.values[1].zw, plico.values[2].xy);
+        let center = resolution * 0.5;
+        let point = uv * resolution - center;
+        let half_width = stroke * 0.5;
+        let radius = max(min(resolution.x, resolution.y) * 0.5 - half_width - scale, half_width);
+        let distance = length(point);
+        let aa = max(fwidth(distance), 0.75);
+        let track_alpha = ring_coverage(distance - radius, half_width, aa);
+
+        var angle = atan2(point.y, point.x) + 0.5 * 3.141592653589793;
+        if angle < 0.0 { angle += 2.0 * 3.141592653589793; }
+        let sweep = fraction * 2.0 * 3.141592653589793;
+        var active_alpha = select(0.0, track_alpha, angle <= sweep || fraction >= 0.9999);
+
+        if fraction > 0.0 && fraction < 0.9999 {
+            let start = vec2<f32>(0.0, -radius);
+            let end = vec2<f32>(sin(sweep) * radius, -cos(sweep) * radius);
+            active_alpha = max(active_alpha, circle_coverage(length(point - start), half_width, aa));
+            active_alpha = max(active_alpha, circle_coverage(length(point - end), half_width, aa));
+        }
+
+        let track_premultiplied = vec4<f32>(track_color.rgb * track_color.a, track_color.a) * track_alpha;
+        let active_premultiplied = vec4<f32>(active_color.rgb * active_color.a, active_color.a) * active_alpha;
+        return active_premultiplied + track_premultiplied * (1.0 - active_premultiplied.a);
+    }"#,
+);
+
+fn shader_color(theme: Theme, color: Color) -> [f32; 4] {
+    let value = theme.resolve(color);
+    [
+        ((value >> 16) & 0xff) as f32 / 255.,
+        ((value >> 8) & 0xff) as f32 / 255.,
+        (value & 0xff) as f32 / 255.,
+        1.,
+    ]
+}
+
+/// A determinate circular progress track rendered as one analytic GPU surface.
+///
+/// Unlike a ring assembled from rotated rectangles or dots, this keeps even
+/// coverage at fractional DPI and gives the active arc round caps. The value
+/// is clamped to `0..=1`; non-finite values show an empty track.
+pub fn progress_ring(cx: &mut UiContext, value: f32) {
+    let size = cx.theme().metrics.font_size as f32 * 2.5;
+    progress_ring_sized(cx, value, size, 2.5, Color::Accent, Color::Border);
+}
+
+/// [`progress_ring`] with explicit geometry and theme-aware colors.
+pub fn progress_ring_sized(
+    cx: &mut UiContext,
+    value: f32,
+    size: f32,
+    stroke: f32,
+    color: Color,
+    track: Color,
+) {
+    let value = if value.is_finite() {
+        value.clamp(0., 1.)
+    } else {
+        0.
+    };
+    let size = if size.is_finite() {
+        size.clamp(4., 512.)
+    } else {
+        36.
+    };
+    let stroke = if stroke.is_finite() {
+        stroke.clamp(1., size * 0.5)
+    } else {
+        2.5
+    };
+    let active = shader_color(cx.theme(), color);
+    let track = shader_color(cx.theme(), track);
+    shader(cx, &PROGRESS_RING)
+        .width(size)
+        .height(size)
+        .shrink(0.)
+        .radius(size * 0.5)
+        .values(&[
+            value, stroke, active[0], active[1], active[2], active[3], track[0], track[1],
+            track[2], track[3],
+        ])
+        .paused(true);
+}
 
 /// The levels from which a [`meter`] shows that its value is worse, in the
 /// meter's own units. The bar is `Success` colored below them, `Warning`

@@ -179,6 +179,25 @@ fn spinner_animates_its_trail_with_the_injected_clock() {
 }
 
 #[test]
+fn progress_ring_is_one_shader_and_clamps_its_value() {
+    let mut engine = Engine::default();
+    frame(&mut engine, |cx| {
+        progress_ring_sized(cx, 1.5, 40., 2.5, Color::Accent, Color::Border);
+    });
+    let mut rings = Vec::new();
+    collect(
+        &engine,
+        engine.root(),
+        &mut |_, node| (node.kind == Kind::Shader).then(|| node.shader.unwrap().clone()),
+        &mut rings,
+    );
+    assert_eq!(rings.len(), 1);
+    assert_eq!(rings[0].values[0], 1.);
+    assert_eq!(rings[0].values[1], 2.5);
+    assert!(rings[0].transitions.is_empty());
+}
+
+#[test]
 fn rating_sets_and_clears_the_stars() {
     let mut stars = 0_u8;
     let mut engine = Engine::default();
