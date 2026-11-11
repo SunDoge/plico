@@ -172,43 +172,28 @@ pub(super) fn encode_backdrop_step<'p>(
             instance.clip_params[0],
         ],
     ];
-    let compositor = compositor
-        .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
+    let compositor =
+        compositor.get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device));
     let uniforms = compositor.prepare_uniforms(device, queue, mapping, composite, [1., 0., 0., 0.]);
     let effects = effects.get_or_insert_with(|| {
         let mut effects = crate::shader::ShaderRenderer::new(device);
         effects.begin_frame();
         effects
     });
-    let output = effects.render_view_with_backdrop_mapping(
+    effects.render_backdrop_direct(
         effect,
         &backdrop_view,
         &uniforms,
+        compositor.composite_offset(),
+        mask_layout,
+        mask,
         device,
         queue,
         encoder,
+        frame_view,
+        size,
+        [left, top, region.width, region.height],
     );
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Plico backdrop effect composite"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: frame_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
-        pass.set_scissor_rect(left, top, region.width, region.height);
-        // Keep the effect's original rectangle when an isolated target crops
-        // it. The compositor applies the inherited world-space clip and mask;
-        // shrinking its viewport instead would stretch offscreen content in.
-        pass.set_viewport(0., 0., size[0] as f32, size[1] as f32, 0., 1.);
-        compositor.encode(device, &output, &backdrop_view, mask, &uniforms, &mut pass);
-    }
     // Continue the frame in a fresh pass over the same target.
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Plico quad draw (continued)"),

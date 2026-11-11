@@ -99,6 +99,10 @@ pub struct LayerPoolStats {
     pub backdrop_uniform_entries: usize,
     pub backdrop_uniform_allocations: u64,
     pub backdrop_uniform_reuses: u64,
+    /// Small effect-parameter buffers used by fused direct backdrop draws.
+    pub backdrop_effect_uniform_entries: usize,
+    pub backdrop_effect_uniform_allocations: u64,
+    pub backdrop_effect_uniform_reuses: u64,
 }
 /// Work encoded by the most recent root scene attempt, including child layers.
 /// Counts exclude effect/blur pipelines, target readback and presentation blits.

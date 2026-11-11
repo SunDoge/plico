@@ -57,6 +57,12 @@ impl Renderer {
             stats.backdrop_uniform_allocations = allocations;
             stats.backdrop_uniform_reuses = reuses;
         }
+        if let Some(effects) = &self.effects {
+            let (entries, allocations, reuses) = effects.direct_uniform_stats();
+            stats.backdrop_effect_uniform_entries = entries;
+            stats.backdrop_effect_uniform_allocations = allocations;
+            stats.backdrop_effect_uniform_reuses = reuses;
+        }
         stats
     }
     /// Release idle intermediate targets without invalidating retained final pixels.

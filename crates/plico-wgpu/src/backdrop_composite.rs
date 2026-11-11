@@ -2,11 +2,11 @@
 //! SrcOver is unsuitable here: the effect already contains its sampled backdrop.
 
 const MAPPING_BYTES: u64 = 16;
-const COMPOSITE_BYTES: u64 = 80;
+pub(crate) const COMPOSITE_BYTES: u64 = 80;
 
 pub(crate) struct Compositor {
-    layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
+    layout: Option<wgpu::BindGroupLayout>,
+    pipeline: Option<wgpu::RenderPipeline>,
     uniforms: Vec<wgpu::Buffer>,
     used: usize,
     allocations: u64,
@@ -14,7 +14,28 @@ pub(crate) struct Compositor {
     composite_offset: u64,
 }
 impl Compositor {
-    pub fn new(device: &wgpu::Device, mask_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let composite_offset = u64::from(device.limits().min_uniform_buffer_offset_alignment)
+            .max(MAPPING_BYTES)
+            .next_multiple_of(MAPPING_BYTES);
+        Self {
+            layout: None,
+            pipeline: None,
+            uniforms: Vec::new(),
+            used: 0,
+            allocations: 0,
+            reuses: 0,
+            composite_offset,
+        }
+    }
+
+    /// The two-texture compositor is only required by isolated atomic layers.
+    /// Ordinary backdrop effects use the fused shader path and must not compile
+    /// this legacy-shaped pipeline during their first frame.
+    pub fn prepare_pipeline(&mut self, device: &wgpu::Device, mask_layout: &wgpu::BindGroupLayout) {
+        if self.pipeline.is_some() {
+            return;
+        }
         let texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -76,18 +97,8 @@ impl Compositor {
             multiview_mask: None,
             cache: None,
         });
-        let composite_offset = u64::from(device.limits().min_uniform_buffer_offset_alignment)
-            .max(MAPPING_BYTES)
-            .next_multiple_of(MAPPING_BYTES);
-        Self {
-            layout,
-            pipeline,
-            uniforms: Vec::new(),
-            used: 0,
-            allocations: 0,
-            reuses: 0,
-            composite_offset,
-        }
+        self.layout = Some(layout);
+        self.pipeline = Some(pipeline);
     }
 
     pub fn begin_frame(&mut self) {
@@ -138,7 +149,10 @@ impl Compositor {
     ) {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: &self.layout,
+            layout: self
+                .layout
+                .as_ref()
+                .expect("composite pipeline prepared before encoding"),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -158,7 +172,11 @@ impl Compositor {
                 },
             ],
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(
+            self.pipeline
+                .as_ref()
+                .expect("composite pipeline prepared before encoding"),
+        );
         pass.set_bind_group(0, &bind, &[]);
         pass.set_bind_group(1, mask, &[]);
         pass.draw(0..3, 0..1);
@@ -171,5 +189,9 @@ impl Compositor {
 
     pub fn uniform_stats(&self) -> (usize, u64, u64) {
         (self.uniforms.len(), self.allocations, self.reuses)
+    }
+
+    pub fn composite_offset(&self) -> u64 {
+        self.composite_offset
     }
 }

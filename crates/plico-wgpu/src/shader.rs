@@ -13,6 +13,7 @@ use wgpu::{
 const UNIFORM_FLOAT_COUNT: usize = 260;
 const PIPELINE_CACHE_SIZE: usize = 16;
 const EFFECT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const DIRECT_COMPOSITE_SUFFIX: &str = include_str!("direct_backdrop.wgsl");
 struct EffectTarget {
     _texture: Texture,
     view: TextureView,
@@ -22,6 +23,11 @@ struct EffectTarget {
     used_in_frame: u64,
     rendered_in_frame: u64,
     effect: Option<ShaderEffect>,
+}
+
+struct DirectUniform {
+    buffer: Buffer,
+    bind_group: BindGroup,
 }
 
 impl EffectTarget {
@@ -75,7 +81,12 @@ pub struct ShaderRenderer {
     backdrop_layout: BindGroupLayout,
     backdrop_sampler: wgpu::Sampler,
     pipelines: LruCache<Arc<str>, RenderPipeline>,
-    backdrop_pipelines: LruCache<Arc<str>, RenderPipeline>,
+    direct_backdrop_pipelines: LruCache<Arc<str>, RenderPipeline>,
+    direct_composite_layout: BindGroupLayout,
+    direct_uniforms: Vec<DirectUniform>,
+    direct_used: usize,
+    direct_uniform_allocations: u64,
+    direct_uniform_reuses: u64,
     targets: FxHashMap<ShaderEffectId, Vec<EffectTarget>>,
     frame: u64,
 }
@@ -139,12 +150,33 @@ impl ShaderRenderer {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
+        let direct_composite_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Plico direct backdrop composite layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         Self {
             layout,
             backdrop_layout,
             backdrop_sampler,
             pipelines: LruCache::new(NonZeroUsize::new(PIPELINE_CACHE_SIZE).unwrap()),
-            backdrop_pipelines: LruCache::new(NonZeroUsize::new(PIPELINE_CACHE_SIZE).unwrap()),
+            direct_backdrop_pipelines: LruCache::new(
+                NonZeroUsize::new(PIPELINE_CACHE_SIZE).unwrap(),
+            ),
+            direct_composite_layout,
+            direct_uniforms: Vec::new(),
+            direct_used: 0,
+            direct_uniform_allocations: 0,
+            direct_uniform_reuses: 0,
             targets: FxHashMap::default(),
             frame: 0,
         }
@@ -160,10 +192,23 @@ impl ShaderRenderer {
                 bytes += u64::from(target.size[0]) * u64::from(target.size[1]) * 4;
             }
         }
-        (count, bytes, self.pipelines.len())
+        (
+            count,
+            bytes,
+            self.pipelines.len() + self.direct_backdrop_pipelines.len(),
+        )
     }
     pub fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1).max(1);
+        self.direct_used = 0;
+    }
+
+    pub fn direct_uniform_stats(&self) -> (usize, u64, u64) {
+        (
+            self.direct_uniforms.len(),
+            self.direct_uniform_allocations,
+            self.direct_uniform_reuses,
+        )
     }
 
     pub fn finish_frame(&mut self) {
@@ -172,6 +217,9 @@ impl ShaderRenderer {
             targets.retain(|target| target.used_in_frame == frame);
             !targets.is_empty()
         });
+        if self.direct_used == 0 {
+            self.direct_uniforms.clear();
+        }
     }
 
     /// Render to a native wgpu view without a Vello texture-binding adapter.
@@ -185,27 +233,37 @@ impl ShaderRenderer {
         self.render_target(effect, device, queue, encoder)
     }
 
-    /// Sample a cropped backdrop through an effect-UV to texture-UV mapping.
+    /// Evaluate a backdrop-reading effect and replace the covered framebuffer
+    /// pixels in one pass. The copied backdrop remains a separate sampled
+    /// texture, so this does not read from the active color attachment.
     #[allow(clippy::too_many_arguments)]
-    pub fn render_view_with_backdrop_mapping(
+    pub fn render_backdrop_direct(
         &mut self,
         effect: &ShaderEffect,
         backdrop: &wgpu::TextureView,
         uniforms: &wgpu::Buffer,
+        composite_offset: u64,
+        mask_layout: &wgpu::BindGroupLayout,
+        mask: &wgpu::BindGroup,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-    ) -> TextureView {
-        let (view, bind_group) = self.render_target_full(effect, device, queue, encoder);
-        let pipeline = Self::backdrop_pipeline(
-            &mut self.backdrop_pipelines,
+        frame_view: &wgpu::TextureView,
+        frame_size: [u32; 2],
+        scissor: [u32; 4],
+    ) {
+        let effect_bind = self.direct_uniform(effect, device, queue);
+        let pipeline = Self::direct_backdrop_pipeline(
+            &mut self.direct_backdrop_pipelines,
             &self.layout,
             &self.backdrop_layout,
+            &self.direct_composite_layout,
+            mask_layout,
             device,
             effect.source(),
         );
         let backdrop_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Plico shader backdrop bind"),
+            label: Some("Plico direct backdrop bind"),
             layout: &self.backdrop_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -226,29 +284,39 @@ impl ShaderRenderer {
                 },
             ],
         });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Plico backdrop shader pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_bind_group(1, &backdrop_bind, &[]);
-            pass.draw(0..3, 0..1);
-        }
-        view
+        let composite_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Plico direct backdrop composite bind"),
+            layout: &self.direct_composite_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: uniforms,
+                    offset: composite_offset,
+                    size: std::num::NonZeroU64::new(crate::backdrop_composite::COMPOSITE_BYTES),
+                }),
+            }],
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Plico direct backdrop effect"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: frame_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_scissor_rect(scissor[0], scissor[1], scissor[2], scissor[3]);
+        pass.set_viewport(0., 0., frame_size[0] as f32, frame_size[1] as f32, 0., 1.);
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &effect_bind, &[]);
+        pass.set_bind_group(1, &backdrop_bind, &[]);
+        pass.set_bind_group(2, &composite_bind, &[]);
+        pass.set_bind_group(3, mask, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// Keep an unchanged surface alive when a damage consumer skips its draw.
@@ -332,74 +400,69 @@ impl ShaderRenderer {
         target.view.clone()
     }
 
-    /// Allocation-only half of render_target for backdrop readers: same
-    /// target selection and uniform upload, without the non-backdrop pass
-    /// (the caller draws its own). Backdrop content differs every frame, so
-    /// equality never skips it.
-    fn render_target_full(
+    fn direct_uniform(
         &mut self,
         effect: &ShaderEffect,
         device: &Device,
         queue: &Queue,
-        _encoder: &mut CommandEncoder,
-    ) -> (TextureView, BindGroup) {
-        let targets = self.targets.entry(effect.id()).or_default();
-        let index = targets
-            .iter()
-            // A preflight reservation is reusable by its actual draw. Only
-            // another draw already encoded this frame makes an output busy.
-            .position(|target| {
-                target.rendered_in_frame != self.frame && target.effect.as_ref() == Some(effect)
-            })
-            .or_else(|| {
-                targets
-                    .iter()
-                    .position(|target| target.used_in_frame != self.frame)
-            })
-            .unwrap_or_else(|| {
-                targets.push(EffectTarget::new(
-                    device,
-                    &self.layout,
-                    effect.physical_size(),
-                ));
-                targets.len() - 1
+    ) -> BindGroup {
+        if self.direct_used == self.direct_uniforms.len() {
+            self.direct_uniform_allocations += 1;
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Plico direct shader uniforms"),
+                size: (UNIFORM_FLOAT_COUNT * std::mem::size_of::<f32>()) as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
             });
-        let target = &mut targets[index];
-        if target.size != effect.physical_size() {
-            *target = EffectTarget::new(device, &self.layout, effect.physical_size());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Plico direct shader uniform bind"),
+                layout: &self.layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            self.direct_uniforms
+                .push(DirectUniform { buffer, bind_group });
+        } else {
+            self.direct_uniform_reuses += 1;
         }
-        target.used_in_frame = self.frame;
-        target.rendered_in_frame = self.frame;
+        let target = &self.direct_uniforms[self.direct_used];
+        self.direct_used += 1;
         let uniforms = effect.uniform_words();
-        queue.write_buffer(&target.uniforms, 0, bytemuck::cast_slice(&uniforms));
-        let bind = target.bind_group.clone();
-        target.effect = Some(effect.clone());
-        (target.view.clone(), bind)
+        queue.write_buffer(&target.buffer, 0, bytemuck::cast_slice(&uniforms));
+        target.bind_group.clone()
     }
 
-    /// Pipeline for a backdrop-reading effect: group 1 binds the sampled
-    /// frame region in addition to the uniform group.
-    fn backdrop_pipeline(
+    fn direct_backdrop_pipeline(
         cache: &mut LruCache<Arc<str>, RenderPipeline>,
         group_layout: &BindGroupLayout,
         backdrop_layout: &BindGroupLayout,
+        composite_layout: &BindGroupLayout,
+        mask_layout: &BindGroupLayout,
         device: &Device,
         source: &ShaderEffectSource,
     ) -> RenderPipeline {
         if let Some(pipeline) = cache.get(source.wgsl()) {
             return pipeline.clone();
         }
+        let source_with_composite = format!("{}\n{}", source.wgsl(), DIRECT_COMPOSITE_SUFFIX);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Plico backdrop shader"),
-            source: wgpu::ShaderSource::Wgsl(source.wgsl().as_ref().into()),
+            label: Some("Plico direct backdrop shader"),
+            source: wgpu::ShaderSource::Wgsl(source_with_composite.into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Plico backdrop shader pipeline layout"),
-            bind_group_layouts: &[Some(group_layout), Some(backdrop_layout)],
+            label: Some("Plico direct backdrop pipeline layout"),
+            bind_group_layouts: &[
+                Some(group_layout),
+                Some(backdrop_layout),
+                Some(composite_layout),
+                Some(mask_layout),
+            ],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Plico backdrop shader pipeline"),
+            label: Some("Plico direct backdrop pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -409,7 +472,7 @@ impl ShaderRenderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_direct_composite"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: EFFECT_TEXTURE_FORMAT,
                     blend: None,

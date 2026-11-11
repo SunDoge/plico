@@ -50,6 +50,14 @@ Compositor 维护按帧占用的 uniform arena：一个 entry 包含两个按设
 避免提交前的后一次写入改变前一次 draw。idle trim 释放 arena，但保留 compositor pipeline。
 `LayerPoolStats` 暴露 entry、累计 allocation 与 reuse，GPU 回归断言稳定帧不再增长。
 
+普通 backdrop effect 进一步对齐 MyGO 的直接 effect draw：WGSL effect、祖先矩形／mask coverage
+和背景 replacement mix 现在合并为一次写入最终 framebuffer 的 fragment pass。采样源仍是独立的
+backdrop snapshot，不会读写同一个 color attachment。原先每个 pane 的同尺寸 RGBA effect output
+纹理和随后一次全区域 composite pass 均已删除；effect 参数改用小型跨帧 uniform arena。
+两纹理 compositor 只保留给确实已有独立输出的 atomic layer，并延迟到首次使用时才编译。
+`LayerPoolStats::backdrop_effect_uniform_*` 单独报告该 arena，长序列回归验证同帧 occurrence 数
+稳定时 allocation 不再增长，effect 全部移除后 entry 归零。
+
 ## 像素及边界验证
 
 `crates/plico-wgpu/tests/backdrop_damage.rs` 对照分组/局部与独立/全量渲染，要求完整 RGBA 相等：
@@ -89,8 +97,24 @@ separate/batched，预热 6 帧、每模式测 32 帧。走 `render_scene_to_vie
 
 外部变化覆盖率约 0.049%，内部变化因输入恢复扩大为约 3.51%。
 只有一块玻璃重放时没有批处理收益；0.04 ms 差异不作为回退结论。
-全量合成仍每块执行 shader 输出和合成，下一阶段可以单独测量中间目标消除；
-GPU instance 增量、通用连续图元和帧内资源池未在这批实现。
+这张旧表测量时全量合成仍每块执行 shader 输出和二次合成；下节记录其后完成的中间目标消除。
+GPU instance 增量、通用连续图元未在这批实现。
+
+### 直接 backdrop effect A/B
+
+以 `85202b2` 为两遍基线、当前直接路径为实验组，分别构建 release Gallery，在同一 Intel Graphics
+ARL / Vulkan 进程环境交替运行 `effects.json` 8 对。每次 capture 10 帧并启用 GPU timestamp；
+绝对样本受 iGPU 调度影响明显，因此只比较交替样本的中位数：
+
+| 路径 | encode CPU 中位数 | GPU 中位数 | 每个 backdrop effect 输出纹理 |
+|---|---:|---:|---:|
+| 两遍基线 | 0.190 ms | 8.905 ms | 1 个同尺寸 RGBA8 |
+| 直接 effect + composite | 0.155 ms | 7.310 ms | 0 |
+
+这批样本对应 encode 约 -18%、GPU timestamp 约 -18%；单次 GPU 样本范围仍达到约
+4.7–16.1 ms，所以不把该比例推广为跨机器承诺。确定性收益是每 pane 少一个同尺寸中间纹理、
+一次 effect-output render pass 和一次额外全区域纹理读取。真实 adapter 回归要求 direct path 在
+mask、scroll、cropped opacity layer、partial damage、array snapshot 与 mip prefilter 下保持原像素。
 
 ## 复跑
 

@@ -824,7 +824,7 @@ fn backdrop_markers_survive_recursive_opacity_layers() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
-fn repeated_backdrop_preflight_reuses_only_live_targets() {
+fn repeated_backdrop_draws_need_no_intermediate_effect_targets() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill};
     use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
@@ -868,9 +868,13 @@ fn repeated_backdrop_preflight_reuses_only_live_targets() {
         let stats = renderer.effect_cache_stats();
         assert_eq!(
             (stats.0, stats.1),
-            (2, 2 * 16 * 16 * 4),
-            "backdrop output retention grew at frame {frame}"
+            (0, 0),
+            "direct backdrop rendering retained an intermediate output at frame {frame}"
         );
+        let uniforms = renderer.layer_pool_stats();
+        assert_eq!(uniforms.backdrop_effect_uniform_entries, 2);
+        assert_eq!(uniforms.backdrop_effect_uniform_allocations, 2);
+        assert_eq!(uniforms.backdrop_effect_uniform_reuses, frame as u64 * 2);
     }
     renderer
         .render_scene(&Scene::new(), [32, 16], [0.; 4], false)
@@ -881,6 +885,10 @@ fn repeated_backdrop_preflight_reuses_only_live_targets() {
             renderer.effect_cache_stats().1
         ),
         (0, 0)
+    );
+    assert_eq!(
+        renderer.layer_pool_stats().backdrop_effect_uniform_entries,
+        0
     );
 }
 
