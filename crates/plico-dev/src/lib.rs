@@ -138,14 +138,6 @@ impl<A: App> plico::View for AppView<'_, A> {
 /// Application root with ordinary Rust state and host events.
 /// Its `show` and `theme` methods are the ordinary application UI surface.
 pub trait App {
-    #[doc(hidden)]
-    fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
-        Ok(())
-    }
-    #[doc(hidden)]
-    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
-        Ok(Vec::new())
-    }
     fn set_frame_time(&mut self, _time: plico::FrameTime) {}
     /// Unmodified window-local fallback keys, after controls/IME decline them.
     fn on_key(&mut self, _key: &str) -> bool {
@@ -164,12 +156,53 @@ pub trait App {
         Theme::default()
     }
 }
+
+/// Private value-protocol hooks layered underneath the public application lifecycle.
+pub(crate) trait ProtocolApp: App {
+    fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
+        Ok(())
+    }
+    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Default, Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct PlainModule<A>(A);
+
+impl<A: App> App for PlainModule<A> {
+    fn set_frame_time(&mut self, time: plico::FrameTime) {
+        self.0.set_frame_time(time);
+    }
+    fn on_key(&mut self, key: &str) -> bool {
+        self.0.on_key(key)
+    }
+    fn on_key_event(&mut self, key: &KeyEvent) -> bool {
+        self.0.on_key_event(key)
+    }
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        self.0.show(ui);
+    }
+    fn theme(&self) -> Theme {
+        self.0.theme()
+    }
+}
+
+impl<A: App> ProtocolApp for PlainModule<A> {}
+
 struct Session<A> {
     app: A,
     engine: Engine,
 }
 
 pub fn render<A: App + Default + Serialize + DeserializeOwned + 'static>(
+    request: Request,
+) -> Result<Frame> {
+    render_protocol::<PlainModule<A>>(request)
+}
+
+pub(crate) fn render_protocol<A: ProtocolApp + Default + Serialize + DeserializeOwned + 'static>(
     request: Request,
 ) -> Result<Frame> {
     snafu::ensure!(

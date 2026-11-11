@@ -138,10 +138,35 @@ if re.search(r"^pub use plico_runtime::\*;", desktop_root, re.MULTILINE):
         "crates/plico-desktop/src/lib.rs: desktop must explicitly curate runtime exports"
     )
 
-if violations:
-    sys.exit(
-        "Production hosts and apps must use Source's stable query/update API, "
-        "not Engine/Adapter/view/stat fields directly:\n  " + "\n  ".join(violations)
+dev_root = (ROOT / "crates/plico-dev/src/lib.rs").read_text()
+app_trait = re.search(
+    r"^pub trait App\s*\{(?P<body>.*?)^\}",
+    dev_root,
+    re.MULTILINE | re.DOTALL,
+)
+if app_trait is None:
+    violations.append("crates/plico-dev/src/lib.rs: missing public App trait")
+elif any(
+    protocol_detail in app_trait.group("body")
+    for protocol_detail in ("serde_json", "set_services", "take_service_commands")
+):
+    violations.append(
+        "crates/plico-dev/src/lib.rs: App must not expose split-host JSON hooks"
+    )
+if not re.search(r"^pub\(crate\) trait ProtocolApp: App", dev_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-dev/src/lib.rs: split-host hooks must remain on private ProtocolApp"
     )
 
-print("Runtime boundary holds: production hosts use Source queries/update")
+services_root = (ROOT / "crates/plico-dev/src/services.rs").read_text()
+if re.search(r"^pub trait ServiceApp\s*:\s*Default", services_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-dev/src/services.rs: static ServiceApp must not require Default"
+    )
+
+if violations:
+    sys.exit(
+        "Runtime/API boundary failed:\n  " + "\n  ".join(violations)
+    )
+
+print("Runtime boundary holds: stable Source and application lifecycle APIs")

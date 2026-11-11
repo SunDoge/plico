@@ -1,30 +1,30 @@
 //! Small UI-only module: deliberately no renderer, platform shell or host resources.
 pub mod icons;
 use plico::prelude::*;
-use plico_dev::{App, Request};
+use plico_dev::{Request, services::ServiceApp};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct ServiceSnapshot {
     instance: u64,
     progress: u64,
 }
 #[derive(Default, Serialize, Deserialize)]
-pub struct Counter {
-    pub count: u64,
-    #[serde(skip)]
-    service: ServiceSnapshot,
+struct Counter {
+    count: u64,
     // Required only in the reset fixture, so an old checkpoint cannot decode.
     #[cfg(feature = "schema-reset")]
     required: bool,
 }
-impl App for Counter {
-    fn set_services(&mut self, value: serde_json::Value) -> plico_dev::Result<()> {
-        self.service =
-            serde_json::from_value(value).map_err(|source| plico_dev::Error::Json { source })?;
-        Ok(())
-    }
-    fn show(&mut self, cx: &mut UiContext) {
+impl ServiceApp for Counter {
+    type Snapshot = ServiceSnapshot;
+    type Command = ();
+
+    fn show(
+        &mut self,
+        cx: &mut UiContext,
+        services: &mut plico_dev::services::Services<ServiceSnapshot, ()>,
+    ) {
         let _ = column(cx).padding(32).gap(16).children(|cx| {
             text(
                 cx,
@@ -56,8 +56,8 @@ impl App for Counter {
             text!(
                 cx,
                 "Mock host service #{} · progress {}",
-                self.service.instance,
-                self.service.progress
+                services.snapshot().instance,
+                services.snapshot().progress
             )
             .key("service");
         });
@@ -66,11 +66,38 @@ impl App for Counter {
 /// Request/Frame JSON entry for the independently retained WASM split host.
 pub fn render_json(input: &str) -> Result<String, String> {
     let request: Request = serde_json::from_str(input).map_err(|e| e.to_string())?;
-    let frame = plico_dev::render::<Counter>(request).map_err(|e| e.to_string())?;
+    let frame = plico_dev::services::render::<Counter>(request).map_err(|e| e.to_string())?;
     serde_json::to_string(&frame).map_err(|e| e.to_string())
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn render(input: &str) -> Result<String, wasm_bindgen::JsValue> {
     render_json(input).map_err(|e| wasm_bindgen::JsValue::from_str(&e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn has_text(nodes: &[plico::ViewNode], expected: &str) -> bool {
+        nodes
+            .iter()
+            .any(|node| node.text == expected || has_text(&node.children, expected))
+    }
+
+    #[test]
+    fn typed_services_stay_out_of_the_application_checkpoint() {
+        let input = serde_json::to_string(&Request {
+            services: serde_json::json!({"instance": 7, "progress": 42}),
+            ..Default::default()
+        })
+        .unwrap();
+        let frame: plico_dev::Frame = serde_json::from_str(&render_json(&input).unwrap()).unwrap();
+
+        assert!(has_text(&frame.nodes, "Mock host service #7 · progress 42"));
+        assert_eq!(
+            frame.state.decode::<serde_json::Value>().unwrap(),
+            serde_json::json!({"count": 0})
+        );
+    }
 }

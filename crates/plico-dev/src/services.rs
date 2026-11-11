@@ -137,23 +137,7 @@ impl<'de, A: ServiceApp + Deserialize<'de>> Deserialize<'de> for ServiceModule<A
         })
     }
 }
-impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
-    fn set_services(&mut self, snapshot: serde_json::Value) -> Result<()> {
-        let snapshot = if snapshot.is_null() {
-            A::Snapshot::default()
-        } else {
-            serde_json::from_value(snapshot).map_err(|source| crate::Error::Json { source })?
-        };
-        self.services.replace_snapshot(snapshot);
-        Ok(())
-    }
-    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
-        self.services
-            .take_commands()
-            .into_iter()
-            .map(|c| serde_json::to_value(c).map_err(|source| crate::Error::Json { source }))
-            .collect()
-    }
+impl<A: ServiceApp> App for ServiceModule<A> {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.app.show(ui, &mut self.services);
     }
@@ -170,10 +154,28 @@ impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
         self.app.on_key(key, &mut self.services)
     }
 }
+impl<A: ServiceApp> crate::ProtocolApp for ServiceModule<A> {
+    fn set_services(&mut self, snapshot: serde_json::Value) -> Result<()> {
+        let snapshot = if snapshot.is_null() {
+            A::Snapshot::default()
+        } else {
+            serde_json::from_value(snapshot).map_err(|source| crate::Error::Json { source })?
+        };
+        self.services.replace_snapshot(snapshot);
+        Ok(())
+    }
+    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
+        self.services
+            .take_commands()
+            .into_iter()
+            .map(|c| serde_json::to_value(c).map_err(|source| crate::Error::Json { source }))
+            .collect()
+    }
+}
 pub fn render<A: ServiceApp + Default + Serialize + DeserializeOwned + 'static>(
     request: Request,
 ) -> Result<Frame> {
-    crate::render::<ServiceModule<A>>(request)
+    crate::render_protocol::<ServiceModule<A>>(request)
 }
 impl<I, T, E> Services<crate::tasks::TaskStatus<T, E>, crate::tasks::TaskCommand<I>> {
     /// Access a host-owned task's status and send start/cancel/reset commands.

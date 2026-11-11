@@ -127,9 +127,11 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 - `plico::View` 是面向应用的最小 UI 接口，只包含 `show` 和 `theme`，可直接驱动
   renderer-free Engine、NSH/LVGL 投影等后端；普通控件和组件继续使用 Rust 函数。
 - `plico_dev::App` 是面向应用的完整根接口，在同样的 `show`/`theme` 之上增加
-  services hook、快捷键和 FrameTime。普通 Rust App 由调用者构造，不要求 `Default` 或 Serde；
+  快捷键和 FrameTime；类型化宿主服务使用独立的 `ServiceApp`。普通 Rust App 由调用者构造，
+  不要求 `Default` 或 Serde；
   只有需要从值快照创建/恢复实例的 `plico_dev::render` split-host 协议额外要求
-  `Default + Serialize + DeserializeOwned`。
+  `Default + Serialize + DeserializeOwned`。JSON service snapshot/command 转换由协议内部的
+  `ProtocolApp` 适配承担，不作为 `App` 的隐藏可覆写方法；类型化服务走 `ServiceApp`。
 - `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
   能力。`Source<V>` 与
   `plico_desktop::run_host_view_with_options` 接收这一接口。
