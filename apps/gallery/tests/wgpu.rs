@@ -400,7 +400,7 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     renderer
         .render_scene(&scene, [400, 200], [1.; 4], false)
         .unwrap();
-    let shows = source.view.0.shows;
+    let shows = source.view().0.shows;
     let mut misses = None;
     for ms in [16, 32, 64, 100, 160, 220] {
         clock.set(Duration::from_millis(ms)).unwrap();
@@ -411,10 +411,11 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
             .render_scene(&scene, [400, 200], [1.; 4], false)
             .unwrap();
         assert_eq!(
-            source.view.0.shows, shows,
+            source.view().0.shows,
+            shows,
             "motion re-evaluated the application"
         );
-        assert_eq!(source.adapter.stats.layout_runs, 0);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
         let current = renderer.paragraph_cache_stats().misses;
         if let Some(misses) = misses {
             assert_eq!(current, misses, "scale motion reshaped text at {ms} ms");

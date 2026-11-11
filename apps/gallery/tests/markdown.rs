@@ -19,7 +19,7 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
         clock.advance(Duration::from_millis(100)).unwrap();
         source.build_frame(&mut tcx, 1120, 820);
     }
-    for p in &source.adapter.placed {
+    for p in source.placed_nodes() {
         if p.paint
             .text
             .as_deref()
@@ -35,28 +35,27 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
             );
         }
     }
-    assert!(!source.view.markdown_chat.stream.is_receiving());
-    assert!(!source.view.markdown_chat.stream.is_revealing());
+    assert!(!source.view().markdown_chat.stream.is_receiving());
+    assert!(!source.view().markdown_chat.stream.is_revealing());
     assert_eq!(
-        source.view.markdown_chat.stream.received(),
+        source.view().markdown_chat.stream.received(),
         gallery::markdown_chat::REPLY
     );
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|p| !p.paint.text_runs.is_empty())
     );
-    assert!(!source.engine.changes().contains(plico::Changes::ANIMATE));
-    let before = source.view.markdown_chat.stream.document().parsed_bytes;
+    assert!(!source.has_anim());
+    let before = source.view().markdown_chat.stream.document().parsed_bytes;
     clock.advance(Duration::from_secs(1)).unwrap();
     source.build_frame(&mut tcx, 1120, 820);
     assert_eq!(
         before,
-        source.view.markdown_chat.stream.document().parsed_bytes
+        source.view().markdown_chat.stream.document().parsed_bytes
     );
-    assert_eq!(source.adapter.stats.created, 0);
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
     assert!(!source.has_anim());
     assert!(clock.now() >= Duration::from_secs(16));
 }
@@ -80,15 +79,13 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
         // The sidebar is independently scrollable too. Target the transcript's
         // content parent, rather than whichever scroll port was declared first.
         let content_parent = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|p| p.paint.text.as_deref() == Some("A reply that arrives at its own pace."))
             .unwrap()
             .parent_node_id;
         let viewport = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|p| p.scroll.range[1] > 0. && p.parent_node_id == content_parent)
             .unwrap();
@@ -109,14 +106,13 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
         }));
         clock.advance(Duration::from_millis(milliseconds)).unwrap();
         source.build_frame(&mut tcx, 900, 700);
-        assert!(!source.view.markdown_chat.follow);
+        assert!(!source.view().markdown_chat.follow);
         for _ in 0..12 {
             clock.advance(Duration::from_millis(16)).unwrap();
             source.build_frame(&mut tcx, 900, 700);
         }
         let offset = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|p| p.node_id == port_id)
             .unwrap()
@@ -127,17 +123,15 @@ fn scrolling_up_releases_follow_instead_of_pulling_reader_back() {
             "scroll remains above the bottom after settling"
         );
         let target = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(plico_renderer::SemanticRole::CheckBox, "Follow reply", None)
             .unwrap()
             .id;
         assert!(source.handle_semantic_action(plico_renderer::SemanticAction::Click { target }));
         source.build_frame(&mut tcx, 900, 700);
-        assert!(source.view.markdown_chat.follow);
+        assert!(source.view().markdown_chat.follow);
         let viewport = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|p| p.node_id == port_id)
             .unwrap();
