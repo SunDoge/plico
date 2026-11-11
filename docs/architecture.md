@@ -47,6 +47,9 @@ retained layout 与语义快照验证；hit-test 工作量通过类型化只读�
 retained placed nodes，并通过 `Source::update` 驱动业务状态。最后一组 `adapter_work` 缓存与
 增量测试也已改读统一的 `FrameDiagnostics.backend`、retained nodes、语义和 shader 诊断；
 runtime 的全部外部集成测试已进入同一边界守卫。
+Desktop 测试开始按同一原则迁移：absolute/backdrop/font/rich-text/retained-frame、组合按钮、
+route menu、材质与滚动裁剪首批只使用 `Source` 查询、更新和统一诊断快照。直接验证 renderer-free
+`Engine::frame` 的核心布局测试仍可独立使用 Engine，不经过 Source，也不属于边界穿透。
 
 ## 当前实现
 

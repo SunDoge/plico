@@ -57,8 +57,7 @@ fn curved_edges_refract_detailed_background_while_center_and_shadow_contract_rem
             .unwrap();
         assert!(
             source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|n| n.paint.shadows.len() == 2)
         );
@@ -409,7 +408,7 @@ fn primary_glass_buttons_keep_default_theme_label_contrast() {
         plico::Theme::dark(),
     ] {
         let mut source = Source::with_clock(Primary(preset), plico::VirtualClock::default());
-        let theme = source.view.theme();
+        let theme = source.theme();
         let label = theme.on_accent;
         let mut text = TextContext::new();
         let mut scene = Scene::new();

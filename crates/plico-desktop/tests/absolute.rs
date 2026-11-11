@@ -28,15 +28,13 @@ fn absolute_nodes_are_local_and_position_changes_invalidate_layout() {
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
     let before = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Tile"))
         .unwrap()
         .clone();
     let after_y = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("After"))
         .unwrap()
@@ -44,17 +42,16 @@ fn absolute_nodes_are_local_and_position_changes_invalidate_layout() {
     assert_eq!(before.rect[0], 30.);
     assert_eq!(before.rect[1], 20.);
     assert_eq!(after_y, 130.);
-    source.view.x = -10.;
+    source.update(|view| view.x = -10.);
     source.build_frame(&mut tcx, 400, 300);
     let moved = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.node_id == before.node_id)
         .unwrap();
     assert_eq!(moved.rect[0], -10.);
-    assert!(source.adapter.stats.layout_runs > 0);
-    assert_eq!(source.adapter.stats.created, 0);
+    assert!(source.frame_diagnostics().backend.layout_runs > 0);
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
     assert!(
         !Style {
             absolute: Some([f32::NAN, 0.]),

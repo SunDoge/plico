@@ -29,6 +29,15 @@ migrated_test_roots = {
     ("crates", "plico-wgpu", "tests"),
 }
 migrated_test_files = {
+    Path("crates/plico-desktop/tests/absolute.rs"),
+    Path("crates/plico-desktop/tests/backdrop.rs"),
+    Path("crates/plico-desktop/tests/button_content.rs"),
+    Path("crates/plico-desktop/tests/font_family.rs"),
+    Path("crates/plico-desktop/tests/materials.rs"),
+    Path("crates/plico-desktop/tests/retained_frame.rs"),
+    Path("crates/plico-desktop/tests/rich_text.rs"),
+    Path("crates/plico-desktop/tests/route_nav.rs"),
+    Path("crates/plico-desktop/tests/scroll_clip.rs"),
     Path("crates/plico-runtime/tests/adapter_work.rs"),
     Path("crates/plico-runtime/tests/alert_dialog.rs"),
     Path("crates/plico-runtime/tests/component_kit.rs"),

@@ -31,7 +31,7 @@ fn composite_buttons_expose_names_and_route_activation_to_parent() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 300);
-    let snapshot = source.adapter.semantics(&source.engine, 0);
+    let snapshot = source.semantics();
     let save = snapshot
         .node_by_role(SemanticRole::Button, "Save", None)
         .unwrap();
@@ -48,5 +48,5 @@ fn composite_buttons_expose_names_and_route_activation_to_parent() {
     assert!(locked.disabled);
     assert!(source.handle_semantic_action(SemanticAction::Click { target: save.id }));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.clicks, 1);
+    assert_eq!(source.view().clicks, 1);
 }

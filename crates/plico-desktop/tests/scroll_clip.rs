@@ -45,8 +45,7 @@ fn scrolling_glass_and_shadows_cannot_escape_the_scrollport_at_multiple_scales()
             .render_retained_frame(&mut scene, &mut text, (200, 160), scale)
             .unwrap();
         let baseline = renderer.render_scene(&scene, size, [0.; 4], false).unwrap();
-        source.view.glass = true;
-        source.request_rebuild();
+        source.update(|view| view.glass = true);
         for delta in [0., -30., -70., 40., -200., 200.] {
             source.prepare_for_event(&mut text).unwrap();
             source.handle_event(UiEvent::Wheel(WheelEvent {
@@ -80,8 +79,7 @@ fn scrolling_glass_and_shadows_cannot_escape_the_scrollport_at_multiple_scales()
         }
         assert!(
             source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|n| n.scroll.offset[1] > 0.)
         );

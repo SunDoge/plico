@@ -27,8 +27,7 @@ fn check(page: Page) {
             if phase == 1 && page == Page::Controls {
                 for s in [&mut slow, &mut fast, &mut combined] {
                     let target = s
-                        .adapter
-                        .semantics(&s.engine, 0)
+                        .semantics()
                         .node_by_role(SemanticRole::Button, "Increment", None)
                         .unwrap()
                         .id;
@@ -36,12 +35,9 @@ fn check(page: Page) {
                 }
             }
             if phase == 2 {
-                slow.view.dark = true;
-                fast.view.dark = true;
-                combined.view.dark = true;
-                slow.request_rebuild();
-                fast.request_rebuild();
-                combined.request_rebuild();
+                slow.update(|view| view.dark = true);
+                fast.update(|view| view.dark = true);
+                combined.update(|view| view.dark = true);
             }
             let nodes = slow.build_frame(&mut text, 640, 740);
             let mut left = Scene::new();
@@ -55,7 +51,7 @@ fn check(page: Page) {
                 .0;
 
             assert_eq!(count, nodes.len());
-            assert_eq!(fast.adapter.stats.placed_node_clones, 0);
+            assert_eq!(fast.frame_diagnostics().backend.placed_node_clones, 0);
             // The combined host path paints straight from retained state; it
             // must match the exported-node path pixel for pixel and never
             // materialize the placed list.
@@ -65,7 +61,7 @@ fn check(page: Page) {
                 .unwrap()
                 .0;
             assert_eq!(merged_count, nodes.len());
-            assert_eq!(combined.adapter.stats.placed_node_clones, 0);
+            assert_eq!(combined.frame_diagnostics().backend.placed_node_clones, 0);
             let left =
                 plico_shell::renderer::render_to_image(&left, 640, 740, slow.base_color()).unwrap();
             let right = plico_shell::renderer::render_to_image(&right, 640, 740, fast.base_color())
