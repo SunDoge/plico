@@ -82,7 +82,12 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    short list of prepared variants per key, and identity falls back to full command equality
    for isolated-layer children that are rebuilt every frame; a single-entry cache ping-ponged
    between the root scene and its layers, so frames containing isolated groups never hit at
-   all and re-prepared the whole tree every frame.
+   all and re-prepared the whole tree every frame. Before resource preparation, a bounded
+   reverse painter-order pass now follows MyGO `planCull`: up to eight large opaque rectangular
+   cores can remove earlier draws whose complete visible bounds they contain. Coverage masks,
+   rounded/translucent/material fills never become occluders, and backdrop readers reset the
+   cover set. Per-layer scratch is retained by nesting depth; `force_no_occlusion_culling`
+   provides a byte-exact oracle and `occlusion_culled_draws` reports actual removals.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

@@ -89,6 +89,34 @@ impl Default for ImageCache {
     }
 }
 impl ImageCache {
+    pub(crate) fn validate_source(device: &wgpu::Device, image: &ImageData) -> Result<usize> {
+        let bytes = image
+            .format
+            .size_in_bytes(image.width, image.height)
+            .ok_or_else(|| Error::InvalidInput {
+                reason: "image byte size overflow".into(),
+            })?;
+        let limit = device.limits().max_texture_dimension_2d;
+        if image.width == 0
+            || image.height == 0
+            || image.width > limit
+            || image.height > limit
+            || bytes > 128 * 1024 * 1024
+            || image.data.data().len() < bytes
+        {
+            return Err(Error::InvalidInput {
+                reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
+            });
+        }
+        if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
+            return Err(Error::Unsupported {
+                command: 0,
+                reason: "image pixel format".into(),
+            });
+        }
+        Ok(bytes)
+    }
+
     #[cfg(test)]
     pub fn force_cpu_mips(&mut self) {
         self.force_cpu_mips = true;
@@ -158,24 +186,7 @@ impl ImageCache {
         let _upload = tracing::debug_span!(target: "plico::perf", "wgpu.upload_image",
             width=image.width, height=image.height)
         .entered();
-        let bytes = image
-            .format
-            .size_in_bytes(image.width, image.height)
-            .ok_or_else(|| Error::InvalidInput {
-                reason: "image byte size overflow".into(),
-            })?;
-        let limit = device.limits().max_texture_dimension_2d;
-        if image.width == 0
-            || image.height == 0
-            || image.width > limit
-            || image.height > limit
-            || bytes > 128 * 1024 * 1024
-            || image.data.data().len() < bytes
-        {
-            return Err(Error::InvalidInput {
-                reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
-            });
-        }
+        let bytes = Self::validate_source(device, image)?;
         // write_texture copies/owns its staging data before returning. Already
         // premultiplied RGBA can borrow source bytes for this call, avoiding a
         // full-image temporary allocation and a no-op per-pixel conversion walk.
@@ -196,12 +207,6 @@ impl ImageCache {
         } else if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
             std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
         } else {
-            if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
-                return Err(Error::Unsupported {
-                    command: 0,
-                    reason: "image pixel format".into(),
-                });
-            }
             let mut pixels = image.data.data()[..bytes].to_vec();
             for p in pixels.as_chunks_mut::<4>().0 {
                 if image.format == ImageFormat::Bgra8 {

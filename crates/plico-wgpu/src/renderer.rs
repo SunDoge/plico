@@ -21,6 +21,14 @@ struct Instance {
     radii: [f32; 4],
 }
 
+#[derive(Clone, Copy, Default)]
+struct OcclusionInfo {
+    visible: Option<[f32; 4]>,
+    opaque: Option<[f32; 4]>,
+    barrier: bool,
+    culled: bool,
+}
+
 /// Per-corner radii as the shader draws them: nonnegative and shrunk so that
 /// adjacent corners on an edge never overlap (the CSS proportional rule).
 /// Uniform single-radius quads pass through unchanged.
@@ -124,6 +132,9 @@ pub struct FrameBatchStats {
     pub color_glyph_draw_calls: u64,
     /// Draw calls through the specialized image pipeline.
     pub image_draw_calls: u64,
+    /// Painter-ordered draws omitted because a later opaque rectangle covers
+    /// their complete visible bounds. Scope markers are never counted.
+    pub occlusion_culled_draws: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -290,6 +301,11 @@ pub struct Renderer {
     /// previous frame grew instead of allocating from empty. Rust pattern:
     /// std::mem::take + clear + write back on success.
     instance_scratch: Vec<Instance>,
+    /// Reused per-layer painter-order plans. Nested isolated layers use their
+    /// own depth slot, so preparing a child cannot invalidate its parent's plan.
+    occlusion_scratch: Vec<Vec<OcclusionInfo>>,
+    /// Comparison switch matching MyGO's `NoCull`.
+    force_no_occlusion_culling: bool,
     compilations: usize,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,

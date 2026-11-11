@@ -228,6 +228,8 @@ impl Renderer {
             instances,
             capacity,
             instance_scratch: Vec::new(),
+            occlusion_scratch: Vec::new(),
+            force_no_occlusion_culling: false,
             backdrop_effects: Vec::new(),
             deferred_layers: Vec::new(),
             inherited_backdrop: None,
@@ -300,6 +302,11 @@ impl Renderer {
     /// (mygo's NoClasses). Pixels must be identical either way.
     pub fn force_general_pipelines(&mut self, force: bool) {
         self.force_general = force;
+    }
+    /// Disable conservative painter-order occlusion culling for pixel and
+    /// performance comparisons (MyGO's `NoCull`).
+    pub fn force_no_occlusion_culling(&mut self, force: bool) {
+        self.force_no_occlusion_culling = force;
     }
     /// Publish class pipelines completed by the native background warmer.
     /// Frames encoded before a class arrives use the general pipeline.

@@ -350,6 +350,43 @@ hardware tests passed, including byte-exact monochrome, color-emoji and
 high-quality rounded-image oracles plus affine sampling, masks, damage, layers,
 painter order and native text coverage.
 
+## Painter-order occlusion culling
+
+Plico now follows MyGO's bounded reverse `planCull` before creating image
+bindings or isolated-layer targets. A later unmasked, unrounded, borderless,
+non-material rectangle with opaque gradient endpoints contributes its interior
+core; an earlier draw is omitted only when its complete clip/mask-constrained
+visible bounds fit inside one of the eight largest later cores. The one-pixel
+core inset excludes antialiased and fractional clip edges. A backdrop-reading
+effect or layer clears the accumulated cores because it observes prior pixels.
+Effects and layers containing effects remain uncullable, matching MyGO's
+renderer-work boundary.
+Invalid public quad/image input is still validated even when hidden.
+
+`Renderer::force_no_occlusion_culling(true)` and gallery
+`--no-occlusion-culling` reproduce MyGO's `NoCull` comparison. The planner keeps
+one reusable vector per isolated-layer depth, and glyph/image-only scenes first
+take a candidate fast path without computing bounds. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --lib occlusion_tests
+cargo test --locked -p plico-wgpu --test occlusion \
+  opaque_cover_culls_hidden_work_before_resource_preparation_with_identical_pixels \
+  -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 cargo test --locked -p plico-wgpu --test occlusion \
+  profile_opaque_panel_stack -- --ignored --test-threads=1 --nocapture
+```
+
+On 2026-11-12, Linux, Intel ARL integrated graphics and Mesa Vulkan, five runs of
+a synthetic 1920×1080 stack of twelve translucent panels under one opaque page
+measured 7.678–11.005 ms with all draws versus 3.114–4.511 ms with culling, a
+59–64% reduction in each paired run. The pixel oracle was byte-identical;
+separate regressions proved that a hidden image was not uploaded and a hidden
+isolated layer allocated no offscreen target. `controls`, `data-table` and
+`workspace` each culled zero draws and produced byte-identical captures with the
+switch in either position, so this is a navigation/stacked-page and overlay
+optimization, not a claim that steady-state gallery pages became faster.
+
 ## Scene and image residency
 
 Prepared snapshots retain only the graph reachable from the current root. Image

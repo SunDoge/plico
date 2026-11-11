@@ -161,6 +161,14 @@ impl PreparedScene {
                 .iter()
                 .any(|layer| layer.scene.reads_backdrop())
     }
+    pub(crate) fn occlusion_cullable(&self) -> bool {
+        self.payloads.effects.is_empty()
+            && self
+                .payloads
+                .layers
+                .iter()
+                .all(|layer| layer.scene.occlusion_cullable())
+    }
     fn content_bounds(&self) -> Option<Rect> {
         let mut mask = None;
         let mut result: Option<Rect> = None;

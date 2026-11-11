@@ -93,6 +93,13 @@ impl CaptureRenderer {
         }
     }
     #[cfg(feature = "wgpu")]
+    pub(crate) fn force_no_occlusion_culling(&mut self, force: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::Wgpu(renderer) = self {
+            renderer.force_no_occlusion_culling(force);
+        }
+    }
+    #[cfg(feature = "wgpu")]
     pub(crate) fn batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
         match self {
             #[cfg(feature = "wgpu")]

@@ -113,6 +113,8 @@ pub struct PreviewSession {
     dimensions: (u32, u32),
     #[cfg(feature = "wgpu")]
     force_general_pipelines: bool,
+    #[cfg(feature = "wgpu")]
+    force_no_occlusion_culling: bool,
 }
 impl PreviewSession {
     pub fn new(backend: crate::RenderBackend) -> Self {
@@ -122,6 +124,8 @@ impl PreviewSession {
             dimensions: (0, 0),
             #[cfg(feature = "wgpu")]
             force_general_pipelines: false,
+            #[cfg(feature = "wgpu")]
+            force_no_occlusion_culling: false,
         }
     }
     /// Compare captures with every quad class drawn by the general shader.
@@ -130,6 +134,14 @@ impl PreviewSession {
         self.force_general_pipelines = force;
         if let Some(renderer) = &mut self.renderer {
             renderer.force_general_pipelines(force);
+        }
+    }
+    /// Disable conservative painter-order culling for pixel/performance A/Bs.
+    #[cfg(feature = "wgpu")]
+    pub fn force_no_occlusion_culling(&mut self, force: bool) {
+        self.force_no_occlusion_culling = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_occlusion_culling(force);
         }
     }
     /// Renderer CPU stages and GPU time from the most recent capture.
@@ -163,6 +175,8 @@ impl PreviewSession {
             let mut renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
             #[cfg(feature = "wgpu")]
             renderer.force_general_pipelines(self.force_general_pipelines);
+            #[cfg(feature = "wgpu")]
+            renderer.force_no_occlusion_culling(self.force_no_occlusion_culling);
             self.renderer = Some(renderer);
             self.dimensions = (width, height);
         }
