@@ -206,6 +206,11 @@ impl<V: HostView> Source<V> {
         &self.adapter.placed
     }
 
+    /// Presentation-space bounds after retained transforms and motion.
+    pub fn visual_bounds(&self, node: taffy::NodeId) -> Option<[f32; 4]> {
+        self.adapter.visual_bounds(node)
+    }
+
     /// Semantic projection of the latest successful frame.
     pub fn semantics(&self) -> plico_renderer::SemanticSnapshot {
         self.adapter.semantics(&self.engine, self.revision)

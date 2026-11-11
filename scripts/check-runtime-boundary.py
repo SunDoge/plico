@@ -26,11 +26,16 @@ migrated_test_roots = {
     ("apps", "launcher", "tests"),
     ("apps", "services-demo", "tests"),
 }
+migrated_test_files = {
+    Path("apps/gallery/tests/calendar_picker.rs"),
+    Path("apps/gallery/tests/game2048.rs"),
+    Path("apps/gallery/tests/mines.rs"),
+}
 for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):
         relative = path.relative_to(ROOT)
         parts = relative.parts
-        migrated_test = parts[:3] in migrated_test_roots
+        migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
         if "tests" in parts and not migrated_test:
             continue
         if parts[:2] in (("crates", "plico-runtime"), ("crates", "plico-csharp")):

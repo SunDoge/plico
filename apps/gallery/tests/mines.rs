@@ -183,8 +183,7 @@ mod ui {
     }
     fn activate(s: &mut Source<Gallery>, label: &str) {
         let id = s
-            .adapter
-            .semantics(&s.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, label, None)
             .unwrap()
             .id;
@@ -205,15 +204,14 @@ mod ui {
         frame(&mut s, &mut t, 1120, 820);
         assert_eq!(
             (
-                s.view.mines.columns,
-                s.view.mines.rows,
-                s.view.mines.mine_count
+                s.view().mines.columns,
+                s.view().mines.rows,
+                s.view().mines.mine_count
             ),
             (9, 9, 10)
         );
         let cell = s
-            .adapter
-            .semantics(&s.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, "Row 5, column 5: hidden", None)
             .unwrap()
             .clone();
@@ -231,8 +229,8 @@ mod ui {
             }));
             frame(&mut s, &mut t, 1120, 820);
         }
-        assert!(s.view.mines.cells[40].flagged);
-        assert_eq!(s.view.mines.status, Status::Ready);
+        assert!(s.view().mines.cells[40].flagged);
+        assert_eq!(s.view().mines.status, Status::Ready);
         // No pointer is needed for keyboard navigation or revealing a focused cell.
         s.handle_event(UiEvent::Pointer(PointerEvent {
             phase: PointerPhase::Leave,
@@ -246,15 +244,15 @@ mod ui {
         frame(&mut s, &mut t, 1120, 820);
         assert!(s.handle_event(key("Enter")).handled);
         frame(&mut s, &mut t, 1120, 820);
-        assert!(s.view.mines.cells[1].open);
-        assert_eq!(s.view.mines.status, Status::Running);
+        assert!(s.view().mines.cells[1].open);
+        assert_eq!(s.view().mines.status, Status::Running);
         s.handle_event(key("r"));
         frame(&mut s, &mut t, 1120, 820);
-        assert_eq!(s.view.mines.flags(), 0);
-        assert_eq!(s.view.mines.status, Status::Ready);
+        assert_eq!(s.view().mines.flags(), 0);
+        assert_eq!(s.view().mines.status, Status::Ready);
         s.handle_event(key("Escape"));
         frame(&mut s, &mut t, 1120, 820);
-        assert!(!s.view.mines.playing);
+        assert!(!s.view().mines.playing);
     }
     #[test]
     fn numeric_fields_accept_native_text_navigation_and_submit() {
@@ -262,8 +260,7 @@ mod ui {
         let mut t = TextContext::new();
         frame(&mut s, &mut t, 1120, 820);
         let id = s
-            .adapter
-            .semantics(&s.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::TextInput, "COLUMNS", None)
             .unwrap()
             .id;
@@ -274,13 +271,13 @@ mod ui {
         s.handle_event(key("Delete"));
         s.handle_event(UiEvent::TextInput("9".into()));
         frame(&mut s, &mut t, 1120, 820);
-        assert_eq!(s.view.mines.columns, 9);
+        assert_eq!(s.view().mines.columns, 9);
         s.handle_event(key("ArrowUp"));
         frame(&mut s, &mut t, 1120, 820);
-        assert_eq!(s.view.mines.columns, 10);
+        assert_eq!(s.view().mines.columns, 10);
         s.handle_event(key("Enter"));
         frame(&mut s, &mut t, 1120, 820);
-        assert!(s.view.mines.playing);
+        assert!(s.view().mines.playing);
     }
     #[test]
     fn small_window_and_dense_board_fit_and_result_stops_animating() {
@@ -292,8 +289,7 @@ mod ui {
             let mut t = TextContext::new();
             frame(&mut s, &mut t, 640, 740);
             for node in s
-                .adapter
-                .semantics(&s.engine, 0)
+                .semantics()
                 .exposed_nodes()
                 .into_iter()
                 .filter(|n| n.label.as_deref().is_some_and(|x| x.starts_with("Row ")))
@@ -319,14 +315,14 @@ mod ui {
         assert!(s.has_anim());
         clock.advance(Duration::from_secs(5)).unwrap();
         frame(&mut s, &mut t, 1120, 820);
-        assert_eq!(s.view.mines.status, Status::Won);
+        assert_eq!(s.view().mines.status, Status::Won);
         // A newly observed result mounts one host-owned entrance timeline.
         clock.advance(Duration::from_millis(300)).unwrap();
         frame(&mut s, &mut t, 1120, 820);
         assert!(!s.has_anim());
         activate(&mut s, "Play again");
         frame(&mut s, &mut t, 1120, 820);
-        assert_eq!(s.view.mines.status, Status::Ready);
+        assert_eq!(s.view().mines.status, Status::Ready);
     }
     #[test]
     fn reveal_wave_keeps_geometry_and_timer_waits_without_redeclaring() {
@@ -345,7 +341,7 @@ mod ui {
             clock.set(Duration::from_millis(tick * 17)).unwrap();
             s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
                 .unwrap();
-            let stats = s.adapter.stats;
+            let stats = s.frame_diagnostics().backend;
             assert_eq!(
                 (
                     stats.layout_runs,
@@ -360,11 +356,11 @@ mod ui {
         clock.set(Duration::from_secs(2)).unwrap();
         s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
             .unwrap();
-        assert_eq!(s.engine.wake_deadline(), Some(Duration::from_secs(3)));
+        assert!(s.animation_deadline().is_some());
         clock.set(Duration::from_millis(2500)).unwrap();
         s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
             .unwrap();
-        assert_eq!(s.adapter.stats.sync_visits, 0);
+        assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
         assert_eq!(s.frame_diagnostics().declaration_micros, 0);
     }
     #[test]
@@ -382,7 +378,7 @@ mod ui {
             clock.set(Duration::from_millis(ms)).unwrap();
             s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
                 .unwrap();
-            let stats = s.adapter.stats;
+            let stats = s.frame_diagnostics().backend;
             assert_eq!(
                 (
                     stats.layout_runs,

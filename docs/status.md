@@ -295,6 +295,7 @@ Runnable examples and performance probes are guarded against direct
 Engine/Adapter/view field access; legacy integration tests remain the staged
 migration boundary. The backend-settings, launcher and services-demo integration
 suites are migrated and guarded test groups.
+Gallery calendar, 2048 and mines integration tests are also migrated and guarded.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

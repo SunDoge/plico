@@ -34,6 +34,8 @@ Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics`
 穿透这条边界；runtime 内部与暂停维护的 C# ABI 兼容层按各自边界单独处理。历史集成测试分批
 迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
 `services-demo` 测试也由边界脚本守卫。
+Gallery 的 calendar、2048 与 mines 复杂交互测试已按同一方式迁移；其余 Gallery 测试继续
+分批处理。
 
 ## 当前实现
 
