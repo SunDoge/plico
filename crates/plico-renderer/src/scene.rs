@@ -981,7 +981,11 @@ impl Encoder<'_> {
         let mut layers = Vec::new();
         encode_node(scene, self.tcx, &enc, &mut layers);
         self.encode_nodes(scene, &nodes[1..], css_transform, child_clip, raster_factor);
-        if paints_viewport(n, css_transform, self.viewport) {
+        // The scrollbar lives inside the node's border box, so the node's
+        // existing visibility result also covers it. Most nodes have no live
+        // overlay scrollbar; do not recompute visual bounds and transform
+        // them a second time for those nodes.
+        if paints_node && n.scroll.opacity > 0.0 {
             draw_scrollbars(scene, n, node_transform, self.device_scale);
         }
         while layers.pop().is_some() {
@@ -1476,6 +1480,51 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_hidden_scrollbar_visibility() {
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        let node = test_node(0, [20., 30., 140., 90.]);
+        let viewport = Rect::new(0., 0., 800., 600.);
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..1_000_000 {
+                let result = if sample % 2 == 0 {
+                    let node = std::hint::black_box(&node);
+                    node.scroll.opacity > 0.0
+                        && paints_viewport(
+                            node,
+                            std::hint::black_box(Affine::IDENTITY),
+                            std::hint::black_box(viewport),
+                        )
+                } else {
+                    paints_viewport(
+                        std::hint::black_box(&node),
+                        std::hint::black_box(Affine::IDENTITY),
+                        std::hint::black_box(viewport),
+                    )
+                };
+                std::hint::black_box(result);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / 1_000_000.;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "hidden scrollbar visibility ns/node: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
+    }
+
+    #[test]
     fn shadow_geometry_preserves_vello_parameters() {
         let shadow = Shadow {
             inset: false,
@@ -1607,6 +1656,26 @@ mod tests {
         let mut parent = test_node(0, [0., 0., 20., 20.]);
         parent.own_clip = Some([f32::NEG_INFINITY, 0., f32::INFINITY, 20.]);
         let child = test_node(1, [30., 30., 50., 50.]);
+        assert_eq!(
+            encoded(&[parent.clone(), child]).commands,
+            encoded(&[parent]).commands
+        );
+    }
+
+    #[test]
+    fn ancestor_clip_culls_overlay_scrollbars_with_their_node() {
+        let mut parent = test_node(0, [0., 0., 20., 20.]);
+        parent.own_clip = Some([0., 0., 20., 20.]);
+        let mut child = test_node(1, [30., 30., 50., 50.]);
+        child.paint.background = None;
+        child.scroll = crate::layout::ScrollMetrics {
+            port: child.rect,
+            scrollable: [false, true],
+            range: [0., 100.],
+            offset: [0., 50.],
+            opacity: 1.,
+            interaction: 0,
+        };
         assert_eq!(
             encoded(&[parent.clone(), child]).commands,
             encoded(&[parent]).commands

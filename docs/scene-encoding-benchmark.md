@@ -94,6 +94,24 @@ release 下的同进程交替 A/B 每轮各调用 500 万次，三次测得旧�
 cargo test --release -p plico-renderer profile_untransformed_node_resolution -- --ignored --nocapture
 ```
 
+### 没有活动 scrollbar 的节点
+
+MyGO 会用节点状态跳过与当前布局无关的遍历。对应检查发现，Plico 原本在
+每个节点的子树编码后再计算一次 `visual_bounds` 并变换到窗口坐标，只用于
+判断 overlay scrollbar 是否可见。绝大多数节点的 scrollbar opacity 为零；
+现在先检查这个状态，并复用已经计算的节点可见性结果。scrollbar 位于节点
+边框内，因此这也能更早地跳过被祖先 clip 完全遮挡的 scrollbar。
+
+release 下同进程交替 A/B 每轮各检查 500 万个无 scrollbar 节点，三次的
+旧路径都是 13.25 ns/node，快速路径为 0.34 / 0.30 / 0.30 ns/node。
+8003 个节点对应约 104 µs 的纯 CPU 上限收益。一组紧邻的完整运行中，
+六个重编 scene workload 的 p50 均下降 22–137 µs；跨进程结果仍受主机
+漂移影响，因此只把同进程 A/B 作为微操作收益的定量证据。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_hidden_scrollbar_visibility -- --ignored --nocapture
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制
