@@ -132,6 +132,12 @@ if not re.search(r"^pub\(crate\) use adapter::Adapter;", runtime_root, re.MULTIL
         "crates/plico-runtime/src/lib.rs: Adapter must remain crate-private"
     )
 
+desktop_root = (ROOT / "crates/plico-desktop/src/lib.rs").read_text()
+if re.search(r"^pub use plico_runtime::\*;", desktop_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-desktop/src/lib.rs: desktop must explicitly curate runtime exports"
+    )
+
 if violations:
     sys.exit(
         "Production hosts and apps must use Source's stable query/update API, "

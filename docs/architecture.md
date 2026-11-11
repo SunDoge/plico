@@ -93,6 +93,8 @@ spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar
 wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级检查。
 投影器 `Adapter` 本身也只在 runtime crate 内可见；应用与 desktop 后端通过 `Source` 工作，诊断只
 暴露不可变的 `BackendStats`。需要直接验证投影器代际身份的测试与实现放在同一内部模块。
+`plico-desktop` 不再通配重导出 runtime；它显式列出启动、测试和高级宿主所需 facade，避免 runtime
+新增实现类型时静默扩大桌面公共 API。诊断类型从 runtime 根完整导出，公开字段没有不可命名类型。
 
 ## 当前实现
 
