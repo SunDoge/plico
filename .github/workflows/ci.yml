@@ -38,7 +38,11 @@ jobs:
   quality:
     name: Lightweight Rust checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # A cold Ubuntu runner can spend more than ten minutes refreshing apt and
+    # installing the native text/window headers before Clippy starts. Keep the
+    # individual commands bounded by the job, without cancelling a healthy
+    # cold-cache run halfway through dependency installation.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
