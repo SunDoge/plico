@@ -162,26 +162,6 @@ impl Default for ShaderEffectId {
     }
 }
 
-/// Identity of a renderer-owned native shader output allocation.
-/// Distinct versions of one effect in the same frame have distinct identities;
-/// a retained target preserves its identity when resized. Backends may wrap
-/// this value in their own external-texture ID, without exposing that type here.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ShaderTextureId(u64);
-
-impl ShaderTextureId {
-    /// Allocate an identity for a backend-owned effect texture.
-    #[doc(hidden)]
-    pub fn new() -> Self {
-        Self(NEXT_EFFECT_ID.fetch_add(1, Ordering::Relaxed))
-    }
-
-    /// Process-local identity; not a persistent asset or device handle.
-    pub fn get(self) -> u64 {
-        self.0
-    }
-}
-
 /// A validated WGSL function compiled under the Plico shader prelude.
 ///
 /// New source defines `fn plico_effect(uv: vec2<f32>) -> vec4<f32>` and reads

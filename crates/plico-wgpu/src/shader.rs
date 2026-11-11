@@ -3,7 +3,7 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use lru::LruCache;
-use plico_renderer::{ShaderEffect, ShaderEffectId, ShaderEffectSource, shader::ShaderTextureId};
+use plico_renderer::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 use rustc_hash::FxHashMap;
 use wgpu::util::DeviceExt;
 use wgpu::{
@@ -14,7 +14,6 @@ use wgpu::{
 const UNIFORM_FLOAT_COUNT: usize = 260;
 const PIPELINE_CACHE_SIZE: usize = 16;
 const EFFECT_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
-
 struct EffectTarget {
     _texture: Texture,
     view: TextureView,
@@ -23,7 +22,6 @@ struct EffectTarget {
     size: [u16; 2],
     used_in_frame: u64,
     rendered_in_frame: u64,
-    texture_id: ShaderTextureId,
     effect: Option<ShaderEffect>,
 }
 
@@ -66,7 +64,6 @@ impl EffectTarget {
             size,
             used_in_frame: 0,
             rendered_in_frame: 0,
-            texture_id: ShaderTextureId::new(),
             effect: None,
         }
     }
@@ -186,7 +183,7 @@ impl ShaderRenderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
     ) -> TextureView {
-        self.render_target(effect, device, queue, encoder).1
+        self.render_target(effect, device, queue, encoder)
     }
 
     /// Sample a cropped backdrop through an effect-UV to texture-UV mapping.
@@ -200,7 +197,7 @@ impl ShaderRenderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
     ) -> TextureView {
-        let (_id, view, bind_group) = self.render_target_full(effect, device, queue, encoder);
+        let (view, bind_group) = self.render_target_full(effect, device, queue, encoder);
         let pipeline = Self::backdrop_pipeline(
             &mut self.backdrop_pipelines,
             &self.layout,
@@ -275,7 +272,7 @@ impl ShaderRenderer {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-    ) -> (ShaderTextureId, TextureView) {
+    ) -> TextureView {
         // A retained scene snapshot may contain several versions of one surface
         // (for example before/after a theme reveal). Distinct versions in the
         // same submission must never share a texture or uniform buffer.
@@ -300,14 +297,12 @@ impl ShaderRenderer {
             });
         let target = &mut targets[index];
         if target.size != effect.physical_size() {
-            let texture_id = target.texture_id;
             *target = EffectTarget::new(device, &self.layout, effect.physical_size());
-            target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
         target.rendered_in_frame = self.frame;
         if target.effect.as_ref() == Some(effect) && !effect.reads_backdrop() {
-            return (target.texture_id, target.view.clone());
+            return target.view.clone();
         }
         let pipeline = Self::pipeline(&mut self.pipelines, &self.layout, device, effect.source());
         let uniforms = effect.uniform_words();
@@ -336,7 +331,7 @@ impl ShaderRenderer {
         }
 
         target.effect = Some(effect.clone());
-        (target.texture_id, target.view.clone())
+        target.view.clone()
     }
 
     /// Allocation-only half of render_target for backdrop readers: same
@@ -349,7 +344,7 @@ impl ShaderRenderer {
         device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
-    ) -> (ShaderTextureId, TextureView, BindGroup) {
+    ) -> (TextureView, BindGroup) {
         let targets = self.targets.entry(effect.id()).or_default();
         let index = targets
             .iter()
@@ -373,9 +368,7 @@ impl ShaderRenderer {
             });
         let target = &mut targets[index];
         if target.size != effect.physical_size() {
-            let texture_id = target.texture_id;
             *target = EffectTarget::new(device, &self.layout, effect.physical_size());
-            target.texture_id = texture_id;
         }
         target.used_in_frame = self.frame;
         target.rendered_in_frame = self.frame;
@@ -383,7 +376,7 @@ impl ShaderRenderer {
         queue.write_buffer(&target.uniforms, 0, bytemuck::cast_slice(&uniforms));
         let bind = target.bind_group.clone();
         target.effect = Some(effect.clone());
-        (target.texture_id, target.view.clone(), bind)
+        (target.view.clone(), bind)
     }
 
     /// Pipeline for a backdrop-reading effect: group 1 binds the sampled
