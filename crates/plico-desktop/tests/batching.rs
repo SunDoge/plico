@@ -86,9 +86,10 @@ fn burst_drains_operations_but_projects_only_final_state() {
     source.build_frame(&mut tcx, 400, 300);
     let before = source.batch_stats();
     for value in 1..=100 {
-        source.view.services.pending.push(value);
-        source.view.services.wake.as_ref().unwrap()();
-        source.request_rebuild();
+        source.update(|view| {
+            view.services.pending.push(value);
+            view.services.wake.as_ref().unwrap()();
+        });
     }
     assert_eq!(
         source.batch_stats().scheduled_wakes - before.scheduled_wakes,
@@ -100,12 +101,12 @@ fn burst_drains_operations_but_projects_only_final_state() {
     );
     assert!(source.poll_async());
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.app.observed, 100);
+    assert_eq!(source.view().app.observed, 100);
     assert_eq!(
-        source.view.services.operations,
+        source.view().services.operations,
         (1..=100).collect::<Vec<_>>()
     );
-    assert_eq!(source.view.services.reads.get(), 2);
+    assert_eq!(source.view().services.reads.get(), 2);
     let after = source.batch_stats();
     assert_eq!(after.rebuild_requests - before.rebuild_requests, 100);
     assert_eq!(after.declaration_batches - before.declaration_batches, 1);
@@ -115,7 +116,7 @@ fn burst_drains_operations_but_projects_only_final_state() {
     assert_eq!(scheduled.load(Ordering::Relaxed), 2);
 
     // Re-arming before poll avoids losing this notification.
-    source.view.services.race = true;
+    source.update(|view| view.services.race = true);
     let before = source.batch_stats();
     assert!(!source.poll_async());
     assert_eq!(
@@ -124,7 +125,7 @@ fn burst_drains_operations_but_projects_only_final_state() {
     );
     assert!(source.poll_async());
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.app.observed, 101);
+    assert_eq!(source.view().app.observed, 101);
 }
 #[test]
 fn async_commands_preserve_order_without_resettling_unchanged_snapshot() {
@@ -132,16 +133,15 @@ fn async_commands_preserve_order_without_resettling_unchanged_snapshot() {
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
     let before = source.batch_stats();
-    source.view.app.send = true;
-    source.request_rebuild();
+    source.update(|view| view.app.send = true);
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.services.commands, [7, 8, 9]);
+    assert_eq!(source.view().services.commands, [7, 8, 9]);
     let after = source.batch_stats();
     assert_eq!(after.declaration_batches - before.declaration_batches, 1);
     assert_eq!(after.declaration_passes - before.declaration_passes, 1);
     assert_eq!(after.backend_commits - before.backend_commits, 1);
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.services.commands, [7, 8, 9]);
+    assert_eq!(source.view().services.commands, [7, 8, 9]);
 }
 #[derive(Default)]
 struct Counter(usize);
@@ -159,8 +159,7 @@ fn input_boundaries_preserve_repeated_clicks() {
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Increment", None)
         .unwrap()
         .id;
@@ -170,7 +169,7 @@ fn input_boundaries_preserve_repeated_clicks() {
         assert!(source.handle_semantic_action(SemanticAction::Click { target }));
     }
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.0, 3);
+    assert_eq!(source.view().0, 3);
     assert_eq!(source.batch_stats().event_flushes - before.event_flushes, 2);
 }
 
@@ -184,7 +183,7 @@ fn concurrent_notifications_schedule_one_wake_until_poll() {
     }));
     source.poll_async();
     let before = source.batch_stats();
-    let wake = source.view.services.wake.clone().unwrap();
+    let wake = source.view().services.wake.clone().unwrap();
     std::thread::scope(|scope| {
         for _ in 0..8 {
             let wake = wake.clone();
@@ -224,18 +223,17 @@ fn conditional_async_load_settles_and_native_frame_observes_completion() {
     source
         .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
-    assert_eq!(source.view.services.commands, [42]);
+    assert_eq!(source.view().services.commands, [42]);
     assert_eq!(source.batch_stats().declaration_passes, 1);
-    source.view.services.pending.push(42);
+    source.update(|view| view.services.pending.push(42));
     assert!(source.poll_async());
     source
         .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
-    assert_eq!(source.view.services.commands, [42]);
+    assert_eq!(source.view().services.commands, [42]);
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|n| n.paint.text.as_deref() == Some("Loaded 42"))
     );

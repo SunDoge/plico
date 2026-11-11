@@ -62,6 +62,9 @@ Engine/Adapter 契约的后端测试仍可直接组合二者，与应用侧 `Sou
 Capability、组合按钮、calendar、toggle 与 shader transition 测试同样只依赖语义快照、retained
 paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，不将内部 `Entity` 映射泄漏给
 应用测试；shader 动画采样也不再直接读取 Adapter registry。
+批处理、布局复用、虚拟列表和 GPU shader 测试也已进入边界守卫。批处理仍通过 `BatchStats`
+验证通知合并和声明提交次数，虚拟列表通过 retained node identity 验证复用；shader 声明的 JSON
+往返由独立 Engine 测试承担，窗口路径只验证实际像素、资源诊断和增量帧工作量。
 
 ## 当前实现
 
