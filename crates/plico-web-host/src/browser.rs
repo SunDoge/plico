@@ -116,7 +116,7 @@ impl<V: HostView> WebHost<V> {
         Ok(self.source.handle_event(event))
     }
     pub fn selected_text(&self) -> Option<String> {
-        self.source.adapter.selected_text()
+        self.source.selected_text()
     }
     pub fn pointer(&mut self, time: f64, event: &web_sys::PointerEvent) -> Result<(), JsValue> {
         use plico_renderer::*;
@@ -316,14 +316,10 @@ impl Gallery {
         Ok(())
     }
     pub fn debug_state(&self) -> String {
-        serde_json::to_string(&self.host.source.view.0).unwrap()
+        serde_json::to_string(&self.host.source.view().0).unwrap()
     }
     pub fn semantics(&self) -> String {
-        let snapshot = self
-            .host
-            .source
-            .adapter
-            .semantics(&self.host.source.engine, 0);
+        let snapshot = self.host.source.semantics();
         let nodes: Vec<_> = snapshot
             .nodes
             .iter()

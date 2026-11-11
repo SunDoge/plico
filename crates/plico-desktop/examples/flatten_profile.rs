@@ -178,7 +178,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
             sum_flatten += c.flatten_ns as f64 / 1000.;
             calls += c.flatten_calls;
             visits += source.adapter.stats.flatten_visits;
-            phases[0] += source.declaration_micros as f64;
+            phases[0] += source.frame_diagnostics().declaration_micros as f64;
             phases[1] += source.adapter.stats.sync_micros as f64;
             phases[2] += source.adapter.stats.layout_micros as f64;
             phases[3] += scene_ms * 1000.;
@@ -234,7 +234,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
             sum_flatten += c.flatten_ns as f64 / 1000.;
             calls += c.flatten_calls;
             visits += source.adapter.stats.flatten_visits;
-            phases[0] += source.declaration_micros as f64;
+            phases[0] += source.frame_diagnostics().declaration_micros as f64;
             phases[1] += source.adapter.stats.sync_micros as f64;
             phases[2] += source.adapter.stats.layout_micros as f64;
             phases[3] += scene_ms * 1000.;

@@ -286,6 +286,9 @@ directly.
 Runtime declaration errors have no retained side channel. Checked frame methods
 return them to tests and non-window hosts directly; the infallible native-window
 compatibility path logs the failure and keeps the last complete frame.
+Hosts also have stable read-only queries for view state, retained layout,
+semantics, selection, focus, theme and per-frame diagnostics. Declaration and
+backend counters are exposed as a snapshot instead of mutable `Source` fields.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

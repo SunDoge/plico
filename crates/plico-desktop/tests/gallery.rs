@@ -118,8 +118,8 @@ fn unchanged_frame_reuses_backend_and_writes_nothing() {
         ),
         (0, 0, 0, 0, 0)
     );
-    assert_eq!(s.declaration_stats.measure_calls, 0);
-    assert_eq!(s.declaration_stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().declaration.measure_calls, 0);
+    assert_eq!(s.frame_diagnostics().declaration.layout_runs, 0);
 }
 #[test]
 fn theme_changes_paint_without_layout_style_writes() {

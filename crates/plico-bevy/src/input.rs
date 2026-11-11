@@ -295,7 +295,7 @@ pub(crate) fn handle_input<V: plico::View + 'static>(
             .input
             .pointer
             .is_some_and(|point| ui.source.hit_test(point).is_some());
-    capture.wants_keyboard = ui.source.adapter.focused().is_some();
+    capture.wants_keyboard = ui.source.focused().is_some();
 }
 
 #[cfg(feature = "clipboard")]

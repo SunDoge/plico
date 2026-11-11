@@ -295,7 +295,7 @@ impl<V: HostView> Driver<V> {
     }
     /// Current application/host view state after the latest settled frame.
     pub fn view(&self) -> &V {
-        &self.source.view
+        self.source.view()
     }
 
     /// Mutate application state, invalidate declarations and settle one frame.
@@ -307,12 +307,12 @@ impl<V: HostView> Driver<V> {
 
     /// Retained layout and paint projection for structural assertions.
     pub fn placed_nodes(&self) -> &[PlacedNode] {
-        &self.source.adapter.placed
+        self.source.placed_nodes()
     }
 
     /// Theme used by the latest settled declaration.
     pub fn theme(&self) -> plico::Theme {
-        self.source.engine.theme()
+        self.source.theme()
     }
 
     /// Whether the real runtime currently requests further animation frames.
@@ -333,7 +333,7 @@ impl<V: HostView> Driver<V> {
         Ok(self.snapshot())
     }
     pub fn snapshot(&self) -> SemanticSnapshot {
-        self.source.adapter.semantics(&self.source.engine, 0)
+        self.source.semantics()
     }
     pub fn declarations(&self) -> Vec<ViewNode> {
         self.source.engine.snapshot()

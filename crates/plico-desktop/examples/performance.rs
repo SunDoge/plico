@@ -84,7 +84,7 @@ fn main() {
                 allocations += ALLOCS.load(Relaxed);
                 bytes += BYTES.load(Relaxed);
                 visits += source.adapter.stats.sync_visits;
-                declaration_us += source.declaration_micros;
+                declaration_us += source.frame_diagnostics().declaration_micros;
                 sync_us += source.adapter.stats.sync_micros;
                 layout_us += source.adapter.stats.layout_micros;
                 scene_us += scene_ms * 1000.;

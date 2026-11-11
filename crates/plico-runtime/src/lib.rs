@@ -40,7 +40,7 @@ mod view;
 
 pub use adapter::{Adapter, BackendStats};
 pub(crate) use adapter::{interactive, make_paint, rgb, semantic_id};
-pub use source::{BatchStats, Source, SourceError};
+pub use source::{BatchStats, FrameDiagnostics, Source, SourceError};
 pub use view::{HostView, NativeView};
 
 #[doc(hidden)]

@@ -117,7 +117,7 @@ fn run(rows: usize, case: Case, options: &Options) {
         if frame >= 20 {
             total.push(elapsed);
             encode.push(scene_ms * 1000.);
-            phases[0] += source.declaration_micros;
+            phases[0] += source.frame_diagnostics().declaration_micros;
             phases[1] += source.adapter.stats.sync_micros;
             phases[2] += source.adapter.stats.layout_micros;
             counts[0] += source.adapter.stats.scene_builds;

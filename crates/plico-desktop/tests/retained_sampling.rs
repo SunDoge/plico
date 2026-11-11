@@ -65,8 +65,8 @@ fn native_idle_samples_reuse_declarations_while_snapshot_api_still_evaluates() {
     for _ in 0..120 {
         clock.advance(Duration::from_millis(16)).unwrap();
         sample(&mut source, &mut text, (400, 300), 1.);
-        assert_eq!(source.declaration_stats.visited, 0);
-        assert_eq!(source.declaration_micros, 0);
+        assert_eq!(source.frame_diagnostics().declaration.visited, 0);
+        assert_eq!(source.frame_diagnostics().declaration_micros, 0);
         assert_eq!(source.adapter.stats.layout_runs, 0);
         assert_eq!(source.adapter.stats.scene_reuses, 1);
     }

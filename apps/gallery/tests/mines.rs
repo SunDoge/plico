@@ -365,7 +365,7 @@ mod ui {
         s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
             .unwrap();
         assert_eq!(s.adapter.stats.sync_visits, 0);
-        assert_eq!(s.declaration_micros, 0);
+        assert_eq!(s.frame_diagnostics().declaration_micros, 0);
     }
     #[test]
     fn victory_particles_move_without_layout_or_identity_churn() {

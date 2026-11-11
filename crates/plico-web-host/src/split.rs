@@ -348,35 +348,31 @@ impl SplitHost {
     }
     pub fn activate(&mut self, module: Function) -> Result<(), JsValue> {
         self.host.source.prepare_for_event(&mut self.host.text);
-        self.host.source.view.activate(module)?;
-        self.host.source.request_rebuild();
+        self.host.source.update(|view| view.activate(module))?;
         Ok(())
     }
     pub fn advance_service(&mut self) {
         self.service_ticks += 1;
-        self.host.source.view.services = json!({"instance":1,"progress":self.service_ticks});
-        self.host.source.view.dirty = true;
-        self.host.source.request_rebuild();
+        self.host.source.update(|view| {
+            view.services = json!({"instance":1,"progress":self.service_ticks});
+            view.dirty = true;
+        });
     }
     pub fn stats(&self) -> String {
-        let view = &self.host.source.view;
+        let view = self.host.source.view();
+        let diagnostics = self.host.source.frame_diagnostics();
         serde_json::to_string(&json!({
             "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.last_error,
             "reloads":view.reloads,"calls":view.calls,
             "input_bytes":view.input_bytes,"output_bytes":view.output_bytes,
             "font_loads":self.font_loads, "text_cache":self.host.text.cache_entries(),"service":view.services,
-            "nodes":view.keys.len(),"svg_parses":self.host.source.adapter.stats.svg_parses,
-            "created":self.host.source.adapter.stats.created
+            "nodes":view.keys.len(),"svg_parses":diagnostics.backend.svg_parses,
+            "created":diagnostics.backend.created
         }))
         .unwrap()
     }
     pub fn semantics(&self) -> String {
-        let nodes = self
-            .host
-            .source
-            .adapter
-            .semantics(&self.host.source.engine, 0)
-            .nodes;
+        let nodes = self.host.source.semantics().nodes;
         serde_json::to_string(
             &nodes
                 .iter()

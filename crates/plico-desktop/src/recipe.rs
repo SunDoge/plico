@@ -303,8 +303,7 @@ fn frame<V: HostView>(
         .try_build_frame(text, viewport.width, viewport.height)
         .map_err(|error| failed(error.to_string()))?;
     if source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .any(|n| !n.rect.iter().all(|x| x.is_finite()))
     {
@@ -316,8 +315,7 @@ fn check<V: HostView>(source: &Source<V>, assertion: &Assertion) -> Result<(), R
     match assertion {
         Assertion::Text { text, present } => {
             let found = source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|node| node.paint.text.as_deref() == Some(text));
             if found != *present {
@@ -327,7 +325,7 @@ fn check<V: HostView>(source: &Source<V>, assertion: &Assertion) -> Result<(), R
             }
         }
         Assertion::Nodes { selector, expect } => {
-            let snapshot = source.adapter.semantics(&source.engine, 0);
+            let snapshot = source.semantics();
             let matches: Vec<_> = snapshot
                 .exposed_nodes()
                 .into_iter()
@@ -553,8 +551,7 @@ fn run_case<S, V: HostView>(
                         },
                     )?,
                     Operation::Event { event: value } => {
-                        event(&mut source.view, &value).map_err(failed)?;
-                        source.request_rebuild();
+                        source.update(|view| event(view, &value)).map_err(failed)?;
                     }
                     Operation::Capture { name } => {
                         if let Some(renderer) = renderer.as_deref_mut() {
@@ -605,10 +602,9 @@ fn run_case<S, V: HostView>(
         Ok(())
     })();
     if execute.is_err() {
-        result.evidence = evidence(&source.adapter.semantics(&source.engine, 0));
+        result.evidence = evidence(&source.semantics());
         result.rendered_text = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .filter_map(|node| node.paint.text.as_deref().map(str::to_owned))
             .collect();

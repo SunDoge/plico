@@ -78,7 +78,7 @@ impl<V: plico::View + 'static> PlicoUi<V> {
         }
     }
     pub fn view(&self) -> &V {
-        &self.source.view.0
+        &self.source.view().0
     }
     pub fn update<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> R {
         self.source.update(|view| update(&mut view.0))

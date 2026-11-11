@@ -32,7 +32,7 @@ fn main() {
             let start = Instant::now();
             let nodes = source.try_build_frame(&mut text, 1120, 820).unwrap();
             elapsed.push(start.elapsed().as_secs_f64() * 1e6);
-            declare.push(source.declaration_micros);
+            declare.push(source.frame_diagnostics().declaration_micros);
             checksum += nodes.len();
             black_box(nodes);
         }

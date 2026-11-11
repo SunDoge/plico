@@ -23,6 +23,13 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 兼容入口只记录诊断并保留最后一帧。后续按同一方向先补齐查询和受控更新接口，再逐步收回仍
 公开的 Engine、Adapter 与 view 字段，避免一次机械迁移所有旧测试。
 
+和 MyGO 将 runtime、scene 与帧统计留在内部一致，普通宿主通过 `Source::view`、`update`、
+`placed_nodes`、`semantics`、`selected_text`、`focused` 和 `theme` 读取或更新稳定能力，不拼接
+Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
+后端统计不再是可由调用方改写的 `Source` 状态。CI 的
+`scripts/check-runtime-boundary.py` 禁止生产应用和宿主重新穿透这条边界；runtime 内部与暂停
+维护的 C# ABI 兼容层按各自边界单独处理。
+
 ## 当前实现
 
 ```text

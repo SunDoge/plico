@@ -45,6 +45,17 @@ pub struct BatchStats {
     pub scroll_viewport_visits: usize,
     pub layout_runs: usize,
 }
+
+/// Read-only work performed by the most recently sampled frame.
+///
+/// This is a diagnostic snapshot, not mutable runtime state. A retained frame
+/// reports zero declaration work while preserving backend presentation stats.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct FrameDiagnostics {
+    pub declaration: plico::FrameStats,
+    pub declaration_micros: u128,
+    pub backend: BackendStats,
+}
 #[derive(Default)]
 struct WakeBatch {
     pending: AtomicBool,
@@ -57,8 +68,8 @@ pub struct Source<V: HostView> {
     pub adapter: Adapter,
     /// Direct external mutations require request_rebuild; prefer update().
     pub view: V,
-    pub declaration_stats: plico::FrameStats,
-    pub declaration_micros: u128,
+    declaration_stats: plico::FrameStats,
+    declaration_micros: u128,
     revision: u64,
     semantics_enabled: bool,
     pending: bool,
@@ -183,6 +194,45 @@ impl<V: HostView> Source<V> {
     pub fn update<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> R {
         self.request_rebuild();
         update(&mut self.view)
+    }
+
+    /// Current application view state. Mutations must go through [`Self::update`].
+    pub fn view(&self) -> &V {
+        &self.view
+    }
+
+    /// Paint-ordered retained layout from the latest successful frame.
+    pub fn placed_nodes(&self) -> &[PlacedNode] {
+        &self.adapter.placed
+    }
+
+    /// Semantic projection of the latest successful frame.
+    pub fn semantics(&self) -> plico_renderer::SemanticSnapshot {
+        self.adapter.semantics(&self.engine, self.revision)
+    }
+
+    /// Text selected by the latest successful frame, if any.
+    pub fn selected_text(&self) -> Option<String> {
+        self.adapter.selected_text()
+    }
+
+    /// Entity currently holding keyboard focus.
+    pub fn focused(&self) -> Option<Entity> {
+        self.adapter.focused()
+    }
+
+    /// Resolved theme used by the latest declaration.
+    pub fn theme(&self) -> plico::Theme {
+        self.engine.theme()
+    }
+
+    /// Work performed by the most recently sampled frame.
+    pub fn frame_diagnostics(&self) -> FrameDiagnostics {
+        FrameDiagnostics {
+            declaration: self.declaration_stats,
+            declaration_micros: self.declaration_micros,
+            backend: self.adapter.stats,
+        }
     }
     /// Mark externally mutated application data for declaration on the next frame.
     pub fn request_rebuild(&mut self) {
