@@ -755,7 +755,7 @@ impl SkiaSurface {
                     if let Some(glyph_transform) = glyph_transform {
                         // Glyph positions stay outside the synthesis transform:
                         // run * position * skew, matching Vello's fake italics.
-                        for (id, glyph) in ids.iter().zip(glyphs) {
+                        for (id, glyph) in ids.iter().zip(glyphs.iter()) {
                             canvas.save();
                             canvas.translate((glyph.x, glyph.y));
                             canvas.concat(&matrix(*glyph_transform));

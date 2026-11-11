@@ -133,6 +133,32 @@ cargo test --release -p plico-renderer profile_recorded_background_fill -- --ign
 cargo run --locked --release -p plico-desktop --example scene_work -- --rows 4000 --unculled
 ```
 
+### 复用已编码的文字 scene
+
+MyGO 的文字和 rich-text 路径会保留上一帧可重用的 run，不会因为布局没有
+变化仍重建每个 glyph 列表。Plico 虽然已有 `TextContext::glyph_scene` 缓存，
+普通 UI 文字却绕过它：每帧重新遍历 Parley line/run，复制 font、style 和
+variation，再收集一份 glyph `Vec`。原因是初始实现留下的 Metal fragment
+注释，但当前路径会在 backend 之前展开缓存 scene，并不向 wgpu 传递 fragment。
+
+现在普通文字按 layout 实例、device scale 和 synthetic-embolden policy 缓存已编码
+scene；普通 UI 仍保留原有的“不几何加粗”策略。`GlyphRun` 的 glyph 和 variation
+负载改为不可变 `Arc<[T]>`，所以缓存命令放入当前 scene 只复制小型命令和
+增加引用计数，不再深拷贝 glyph 数组。字体注册或后端替换仍会通过现有
+`clear_caches` 使其失效。
+
+release 下同进程交替 A/B 每轮各 replay 50 万次 `Retained row A`，
+三次直接重编码为 361.52 / 358.82 / 354.69 ns/op，缓存 replay 为
+96.75 / 98.74 / 98.39 ns/op。完整 4000 行场景的六个重编 workload，
+scene p50 从 2.38–2.59 ms 进一步降至 1.47–1.68 ms，各自减少约
+0.87–0.97 ms。这是大量重复文字的压力场景；真实收益取决于可见 layout 的
+复用率和 2048 项 glyph-scene 缓存的命中率。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_cached_glyph_scene_replay -- --ignored --nocapture
+cargo run --locked --release -p plico-desktop --example scene_work -- --rows 4000 --unculled
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制

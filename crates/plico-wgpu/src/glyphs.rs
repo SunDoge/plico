@@ -135,7 +135,7 @@ impl GlyphCache {
             font: font.data.id(),
             index: font.index,
             size: *font_size as f64 * scale,
-            coordinates: normalized_coords.clone(),
+            coordinates: normalized_coords.to_vec(),
             glyph_transform: {
                 let combined =
                     kurbo::Affine::new([a / scale, b / scale, c / scale, d / scale, 0., 0.])
@@ -192,7 +192,7 @@ impl GlyphCache {
                 bounds(raster.origin, &raster.image),
             )));
         }
-        let font_id = (font.data.id(), font.index, normalized_coords.clone());
+        let font_id = (font.data.id(), font.index, normalized_coords.to_vec());
         if !self.fonts.contains(&font_id) {
             let bytes = font.data.len();
             let native = Font::from_shared_variations(

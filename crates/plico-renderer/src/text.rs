@@ -193,7 +193,7 @@ pub struct TextContext {
     intrinsic_width_cache: LruCache<(TextLayoutKey, bool), [f32; 2]>,
     ellipsis_cache: LruCache<TextLayoutKey, Arc<Layout<[u8; 4]>>>,
     clamp_cache: LruCache<TextClampCacheKey, SharedTextLayout>,
-    glyph_cache: LruCache<(usize, u64), GlyphSceneEntry>,
+    glyph_cache: LruCache<(usize, u64, bool), GlyphSceneEntry>,
 }
 
 #[cfg(feature = "profiling")]
@@ -512,9 +512,28 @@ impl TextContext {
         layout: &Arc<Layout<[u8; 4]>>,
         device_scale: f64,
     ) -> Arc<Scene> {
+        self.glyph_scene_scaled_with_policy(layout, device_scale, true)
+    }
+
+    /// Encode ordinary UI text without geometric synthetic emboldening and
+    /// retain the positioned glyph commands for subsequent frames.
+    pub(crate) fn native_weight_glyph_scene_scaled(
+        &mut self,
+        layout: &Arc<Layout<[u8; 4]>>,
+        device_scale: f64,
+    ) -> Arc<Scene> {
+        self.glyph_scene_scaled_with_policy(layout, device_scale, false)
+    }
+
+    fn glyph_scene_scaled_with_policy(
+        &mut self,
+        layout: &Arc<Layout<[u8; 4]>>,
+        device_scale: f64,
+        allow_synthetic_embolden: bool,
+    ) -> Arc<Scene> {
         let device_scale = device_scale.max(f64::EPSILON);
         let id = Arc::as_ptr(layout) as usize;
-        let key = (id, device_scale.to_bits());
+        let key = (id, device_scale.to_bits(), allow_synthetic_embolden);
         if let Some((cached_layout, scene)) = self.glyph_cache.get(&key)
             && cached_layout
                 .upgrade()
@@ -548,7 +567,7 @@ impl TextContext {
             device_scale,
             Affine::IDENTITY,
             true,
-            true,
+            allow_synthetic_embolden,
         );
         let scene = Arc::new(scene);
         #[cfg(feature = "profiling")]
@@ -568,6 +587,7 @@ impl TextContext {
     /// avoids retained bitmap resampling while hinting keeps small UI text
     /// aligned to the device rasterizer. Geometric weight synthesis remains
     /// disabled so fallback CJK faces do not become artificially heavy.
+    #[cfg(test)]
     pub(crate) fn draw_native_weight_layout_into(
         &self,
         scene: &mut Scene,
@@ -1595,6 +1615,64 @@ mod tests {
 
         assert!(!Arc::ptr_eq(&one_x, &two_x));
         assert_eq!(context.glyph_cache.len(), 2);
+    }
+
+    #[test]
+    fn glyph_scene_cache_distinguishes_embolden_policy() {
+        let mut context = TextContext::new();
+        let layout = layout_text(&mut context, "ordinary text", 16.0);
+        let synthetic = context.glyph_scene_scaled(&layout, 1.0);
+        let native_weight = context.native_weight_glyph_scene_scaled(&layout, 1.0);
+
+        assert!(!Arc::ptr_eq(&synthetic, &native_weight));
+        assert_eq!(context.glyph_cache.len(), 2);
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_cached_glyph_scene_replay() {
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        const ITERATIONS: usize = 100_000;
+        let mut context = TextContext::new();
+        let layout = layout_text(&mut context, "Retained row A", 16.0);
+        let cached = context.native_weight_glyph_scene_scaled(&layout, 1.0);
+        let mut scene = Scene::new();
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                scene.reset();
+                if sample % 2 == 0 {
+                    scene.append_scene(
+                        (**std::hint::black_box(&cached)).clone(),
+                        std::hint::black_box(Affine::IDENTITY),
+                    );
+                } else {
+                    context.draw_native_weight_layout_into(
+                        &mut scene,
+                        std::hint::black_box(&layout),
+                        std::hint::black_box(Affine::IDENTITY),
+                        1.0,
+                    );
+                }
+                std::hint::black_box(scene.commands.len());
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "glyph scene replay ns/op: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
     }
 
     #[test]

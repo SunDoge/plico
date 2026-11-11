@@ -766,10 +766,8 @@ fn draw_outline_text(
     device_scale: f64,
 ) {
     let transform = text_transform * Affine::scale(device_scale.recip());
-    // Direct encoding avoids a retained-fragment issue on Metal. It also
-    // keeps transformed/faux-style fallback text at the native font weight
-    // instead of geometrically emboldening it.
-    tcx.draw_native_weight_layout_into(scene, layout, transform, device_scale);
+    let glyphs = tcx.native_weight_glyph_scene_scaled(layout, device_scale);
+    scene.append_scene((*glyphs).clone(), transform);
 }
 
 /// Replay the prior application scene into a GPU-filtered layer, then clip its

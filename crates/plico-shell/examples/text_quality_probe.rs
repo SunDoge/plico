@@ -320,7 +320,7 @@ fn main() {
                             && glyph_transform.is_none(),
                         "snap probe requires physical translation only"
                     );
-                    for glyph in glyphs {
+                    for glyph in std::sync::Arc::make_mut(glyphs) {
                         if let Some(steps) = options.x_steps {
                             assert!(steps > 0, "positive X quantization steps");
                             let steps = f64::from(steps);
