@@ -46,10 +46,17 @@ impl plico_dev::App for Families {
             row(cx).gap(24).align(Align::Start) + |cx| {
                 column(cx).width(320.).gap(12) + |cx| {
                     tree(cx, |cx| {
-                        tree_item(cx, "src", false, Some(&mut self.tree_open), 0, |cx| {
-                            tree_item(cx, "main.rs", true, None, 1, |_| {});
-                            tree_item(cx, "lib.rs", false, None, 1, |_| {});
-                        });
+                        tree_item(
+                            cx,
+                            "src",
+                            false,
+                            Some(&mut self.tree_open),
+                            0,
+                            |cx| {
+                                tree_item(cx, "main.rs", true, None, 1, |_| {});
+                                tree_item(cx, "lib.rs", false, None, 1, |_| {});
+                            },
+                        );
                         tree_item(cx, "Cargo.toml", false, None, 0, |_| {});
                     });
                     accordion(cx, |cx| {
@@ -71,7 +78,10 @@ impl plico_dev::App for Families {
                     };
                 };
                 column(cx).width(400.).gap(12) + |cx| {
-                    let columns = [TableColumn::new("Name", 1.), TableColumn::new("Status", 0.6)];
+                    let columns = [
+                        TableColumn::new("Name", 1.),
+                        TableColumn::new("Status", 0.6),
+                    ];
                     column(cx).width(400.).height(170.).clip(true) + |cx| {
                         table_header(cx, &columns);
                         table_row(cx, "Renderer", false, &columns, &["Renderer", "Ready"]);

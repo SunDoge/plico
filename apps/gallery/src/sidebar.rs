@@ -78,13 +78,15 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                     cx.keyed(section, |cx| {
                         column(cx).gap(2) + |cx| {
                             if labelled {
-                                text(cx, l.text(section, title)).font_size(12).weight(600).color(Color::Muted)
-                                    .padding_x(8).padding_y(4).opacity(reveal);
+                                text(cx, l.text(section, title)).font_size(12).weight(600)
+                                    .color(Color::Muted).padding_x(8).padding_y(4).opacity(reveal);
                             }
                             for &route in routes {
                                 cx.keyed(route.id(), |cx| {
                                     let label = cx.tr(route.id(), route.label());
-                                    if entry(cx, &label, app.router.show(route), route_icon(route), labelled.then_some(reveal)).clicked() {
+                                    if entry(cx, &label, app.router.show(route), route_icon(route),
+                                        labelled.then_some(reveal)).clicked()
+                                    {
                                         app.router.go(route);
                                     }
                                 });
