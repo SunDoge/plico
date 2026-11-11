@@ -246,13 +246,19 @@ impl Renderer {
             let mut write = 0;
             for read in 0..prepared.instances.len() {
                 let instance = prepared.instances[read];
-                let [x, y, w, h] = instance.rect;
-                let keep = regions.iter().any(|&[rx, ry, rw, rh]| {
-                    x - 1. < (rx + rw) as f32
-                        && x + w + 1. > rx as f32
-                        && y - 1. < (ry + rh) as f32
-                        && y + h + 1. > ry as f32
-                });
+                let keep = if let Some(split) = prepared.scissors[read] {
+                    regions
+                        .iter()
+                        .any(|&area| intersect_scissor(split, area).is_some())
+                } else {
+                    let [x, y, w, h] = instance.rect;
+                    regions.iter().any(|&[rx, ry, rw, rh]| {
+                        x - 1. < (rx + rw) as f32
+                            && x + w + 1. > rx as f32
+                            && y - 1. < (ry + rh) as f32
+                            && y + h + 1. > ry as f32
+                    })
+                };
                 if keep {
                     prepared.instances[write] = instance;
                     prepared.scissors[write] = prepared.scissors[read];

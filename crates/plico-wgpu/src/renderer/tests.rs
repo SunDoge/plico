@@ -966,6 +966,46 @@ fn mip_uploads_remain_retryable_and_join_the_frame_submission() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn interior_damage_filters_out_nonintersecting_ring_strips_before_upload() {
+    let size = [1024, 720];
+    let background = [0.03, 0.04, 0.06, 1.];
+    let mut ring = Quad::new([20., 20., 984., 680.], [0.; 4]);
+    ring.radii = [48.; 4];
+    ring.border_width = 2.;
+    ring.border_color = [0.25, 0.63, 1., 0.85];
+    let old = Quad::new([480., 340., 16., 16.], [1., 0., 0., 1.]);
+    let new = Quad::new([480., 340., 16., 16.], [0., 1., 0., 1.]);
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    partial
+        .render_items(
+            &[crate::Draw::Quad(&ring), crate::Draw::Quad(&old)],
+            size,
+            background,
+            0.,
+        )
+        .unwrap();
+    let updated = [crate::Draw::Quad(&ring), crate::Draw::Quad(&new)];
+    let encoder = partial
+        .encode_frame_regions(
+            DrawSource::Borrowed(&updated),
+            size,
+            background,
+            0.,
+            Some(&[[478, 338, 20, 20]]),
+        )
+        .unwrap();
+    let actual = partial.read_frame(encoder, size).unwrap();
+    assert_eq!(partial.batch_stats.ring_split_quads, 1);
+    assert_eq!(partial.batch_stats.instances, 1);
+    assert_eq!(partial.batch_stats.draw_calls, 1);
+
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    let expected = oracle.render_items(&updated, size, background, 0.).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn readback_trim_preserves_target_and_recreates_only_for_capture() {
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     assert_eq!(renderer.target_storage_bytes(), (0, 0));

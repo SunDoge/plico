@@ -10,7 +10,11 @@ fn target_scissor(bounds: [f32; 4], origin: [f32; 2], size: [u32; 2]) -> Option<
     let top = (bounds[1] - origin[1]).floor().max(0.) as u32;
     let right = (bounds[2] - origin[0]).ceil().max(0.).min(size[0] as f32) as u32;
     let bottom = (bounds[3] - origin[1]).ceil().max(0.).min(size[1] as f32) as u32;
-    (right > left && bottom > top).then_some([left, top, right - left, bottom - top])
+    if right > left && bottom > top {
+        Some([left, top, right - left, bottom - top])
+    } else {
+        None
+    }
 }
 
 pub(super) fn intersect_scissor(a: [u32; 4], b: [u32; 4]) -> Option<[u32; 4]> {
@@ -18,7 +22,11 @@ pub(super) fn intersect_scissor(a: [u32; 4], b: [u32; 4]) -> Option<[u32; 4]> {
     let top = a[1].max(b[1]);
     let right = (a[0] + a[2]).min(b[0] + b[2]);
     let bottom = (a[1] + a[3]).min(b[1] + b[3]);
-    (right > left && bottom > top).then_some([left, top, right - left, bottom - top])
+    if right > left && bottom > top {
+        Some([left, top, right - left, bottom - top])
+    } else {
+        None
+    }
 }
 
 /// Up to four target-relative strips around a transparent ring core.

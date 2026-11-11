@@ -398,7 +398,9 @@ core. The scissor is CPU-only batch metadata: the common GPU `Instance` remains
 unchanged. Quads with material/shadow content, visible fill alpha, no visible
 border, a core below 4096 pixels, or a core below one quarter of the visible quad
 stay as one draw. Damage rectangles intersect the split scissors at encoding
-time, and isolated layers derive them in the layer target's local coordinates.
+time; strips that do not intersect any damage are removed before instance
+upload. Isolated layers derive the scissors in the layer target's local
+coordinates.
 
 `Renderer::force_no_ring_splitting(true)` and gallery `--no-ring-splitting`
 provide a byte-exact A/B oracle. Reproduction:
