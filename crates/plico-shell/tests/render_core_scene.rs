@@ -14,6 +14,8 @@ mod tests {
             node_id: taffy::tree::NodeId::from(0_u64),
             parent_node_id: None,
             depth: 0,
+            world_transform: Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [10.0, 20.0, 110.0, 120.0],
             content_origin: [10.0, 20.0],
             content_size: [100.0, 100.0],

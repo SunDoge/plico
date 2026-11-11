@@ -647,7 +647,7 @@ impl<V: HostView> Source<V> {
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
         let base_color = self.base_color();
-        plico_renderer::scene::build_scene_scaled_layers(
+        plico_renderer::scene::build_presented_scene_scaled_layers(
             scene, &layers, tcx, size.0, size.1, base_color, scale,
         );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));

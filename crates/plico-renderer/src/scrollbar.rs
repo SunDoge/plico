@@ -191,6 +191,8 @@ mod tests {
             node_id: taffy::tree::NodeId::from(0_u64),
             parent_node_id: None,
             depth: 0,
+            world_transform: kurbo::Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [0.0, 0.0, 100.0, 100.0],
             content_origin: [0.0, 0.0],
             content_size: [100.0, 100.0],

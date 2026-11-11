@@ -1,7 +1,7 @@
 //! Retained Engine projection, layout, painting, hit testing and semantics.
 use crate::{
-    button_state, input, layout_style, modal, presentation, scroll_motion, scrollbar_visibility,
-    selection, shader, style_motion, toggle, tooltip,
+    button_state, input, layout_style, modal, scroll_motion, scrollbar_visibility, selection,
+    shader, style_motion, toggle, tooltip,
 };
 use peniko::Color;
 use plico::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
@@ -214,7 +214,6 @@ pub struct Adapter {
     pub(super) pointer_position: Option<(f64, f64)>,
     pub(super) pressed: Option<Entity>,
     pub(super) secondary_pressed: Option<Entity>,
-    pub(super) presentation: HashMap<NodeId, presentation::Presentation>,
     pub(super) presentation_dirty: bool,
     pub(super) presentation_roots: HashSet<NodeId>,
     pub(super) anchor_motion_dirty: bool,
@@ -291,7 +290,6 @@ impl Default for Adapter {
             pointer_position: None,
             pressed: None,
             secondary_pressed: None,
-            presentation: HashMap::new(),
             presentation_dirty: false,
             presentation_roots: HashSet::new(),
             anchor_motion_dirty: false,

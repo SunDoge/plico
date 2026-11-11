@@ -867,6 +867,53 @@ pub fn build_scene_scaled_layers(
     base_color: Color,
     device_scale: f64,
 ) {
+    build_scene_scaled_layers_impl(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        false,
+    );
+}
+
+/// Encode layers whose [`PlacedNode`] presentation fields were refreshed by
+/// the host. This keeps hit testing and painting on one composed transform.
+#[doc(hidden)]
+pub fn build_presented_scene_scaled_layers(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+) {
+    build_scene_scaled_layers_impl(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        true,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scene_scaled_layers_impl(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+    use_presentations: bool,
+) {
     scene.reset();
     let device = Affine::scale(device_scale);
     let bg = Rect::new(0.0, 0.0, width as f64, height as f64);
@@ -879,6 +926,7 @@ pub fn build_scene_scaled_layers(
         bg,
         viewport: bg,
         device_scale,
+        use_presentations,
     };
     for nodes in roots {
         encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg, 1.);
@@ -891,6 +939,7 @@ struct Encoder<'a> {
     bg: Rect,
     viewport: Rect,
     device_scale: f64,
+    use_presentations: bool,
 }
 impl Encoder<'_> {
     fn encode_nodes(
@@ -940,7 +989,11 @@ impl Encoder<'_> {
             return;
         }
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
-        let css_transform = resolve_node_transform(n, parent_transform);
+        let css_transform = if self.use_presentations {
+            n.world_transform
+        } else {
+            resolve_node_transform(n, parent_transform)
+        };
         let node_transform = self.device * css_transform;
         let raster_factor = raster_factor
             * f64::from(if n.paint.raster_scale_correction > 0. {
@@ -1383,6 +1436,8 @@ mod tests {
             node_id,
             parent_node_id: None,
             depth: 0,
+            world_transform: Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [0.0; 4],
             content_origin: [0.0; 2],
             content_size: [0.0; 2],
@@ -1682,6 +1737,8 @@ mod tests {
             node_id,
             parent_node_id: None,
             depth: 0,
+            world_transform: Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [0.0; 4],
             content_origin: [0.0; 2],
             content_size: [0.0; 2],
@@ -1714,6 +1771,35 @@ mod tests {
             1.0,
         );
         scene
+    }
+
+    #[test]
+    fn presented_scene_reuses_the_transform_shared_with_hit_testing() {
+        let mut parent = test_node(0, [0., 0., 40., 40.]);
+        parent.paint.runtime_transform = Some([1., 0., 0., 1., 12., 3.]);
+        parent.paint.opacity = 0.5;
+        let mut child = test_node(1, [4., 5., 20., 25.]);
+        child.paint.runtime_transform = Some([1., 0., 0., 1., 2., -1.]);
+        child.paint.opacity = 0.5;
+        let mut nodes = [parent, child];
+        crate::layout::refresh_presentations(&mut nodes);
+
+        assert_eq!(nodes[0].world_transform, Affine::translate((12., 3.)));
+        assert_eq!(nodes[1].world_transform, Affine::translate((14., 2.)));
+        assert_eq!(nodes[1].world_opacity, 0.25);
+
+        let ordinary = encoded(&nodes);
+        let mut presented = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut presented,
+            &[&nodes],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(presented.commands, ordinary.commands);
     }
 
     #[test]

@@ -1,10 +1,6 @@
 //! Presentation geometry uses the same affine composition as scene painting.
 use super::*;
-use kurbo::{Affine, Point as KurboPoint, Rect as KurboRect};
-pub(super) struct Presentation {
-    world: Affine,
-    opacity: f32,
-}
+use kurbo::{Point as KurboPoint, Rect as KurboRect};
 impl Adapter {
     /// Iterate the placed ancestor chain starting at `start`, if it is placed.
     ///
@@ -38,9 +34,8 @@ impl Adapter {
     pub(super) fn update_presentation(&mut self) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.presentation").entered();
-        if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation.is_empty() {
+        if self.geometry_dirty || self.stats.flatten_visits > 0 {
             self.hit.get_mut().dirty = true;
-            self.presentation.clear();
             for index in 0..self.placed.len() {
                 self.update_presentation_node(index);
             }
@@ -64,18 +59,16 @@ impl Adapter {
         self.presentation_dirty = false;
     }
     fn update_presentation_node(&mut self, index: usize) {
-        let node = &self.placed[index];
-        let (parent, opacity) = node
+        let (parent, opacity) = self.placed[index]
             .parent_node_id
-            .and_then(|id| self.presentation.get(&id))
-            .map_or((Affine::IDENTITY, 1.), |p| (p.world, p.opacity));
-        self.presentation.insert(
-            node.node_id,
-            Presentation {
-                world: plico_renderer::scene::resolve_node_transform(node, parent),
-                opacity: opacity * node.paint.opacity,
-            },
-        );
+            .and_then(|id| self.placed_indices.get(&id))
+            .map_or((kurbo::Affine::IDENTITY, 1.), |&parent| {
+                let parent = &self.placed[parent];
+                (parent.world_transform, parent.world_opacity)
+            });
+        let node = &mut self.placed[index];
+        node.world_transform = plico_renderer::scene::resolve_node_transform(node, parent);
+        node.world_opacity = opacity * node.paint.opacity;
         self.stats.presentation_visits += 1;
     }
     fn update_presentation_subtree(&mut self, id: NodeId) {
@@ -84,9 +77,6 @@ impl Adapter {
         };
         let depth = self.placed[start].depth;
         self.update_presentation_node(start);
-        // Flattening is preorder. Collapsed/clipped children remain in the
-        // retained tree but may have no placed entry: traverse this projection,
-        // rather than indexing every retained child as though it was visible.
         let mut index = start + 1;
         while index < self.placed.len() && self.placed[index].depth > depth {
             self.update_presentation_node(index);
@@ -96,13 +86,19 @@ impl Adapter {
     /// Presentation bounds in logical window coordinates; layout rect stays unchanged.
     pub fn visual_bounds(&self, id: NodeId) -> Option<[f32; 4]> {
         let node = self.placed.get(*self.placed_indices.get(&id)?)?;
-        let transform = self.presentation.get(&id)?.world;
         let r = node.rect.map(f64::from);
-        let r = transform.transform_rect_bbox(KurboRect::new(r[0], r[1], r[2], r[3]));
+        let r = node
+            .world_transform
+            .transform_rect_bbox(KurboRect::new(r[0], r[1], r[2], r[3]));
         Some([r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
     }
     pub(super) fn visible_bounds(&self, id: NodeId) -> Option<[f32; 4]> {
-        if self.presentation.get(&id)?.opacity <= 0. {
+        if self
+            .placed
+            .get(*self.placed_indices.get(&id)?)?
+            .world_opacity
+            <= 0.
+        {
             return None;
         }
         let mut bounds = self.visual_bounds(id)?;
@@ -121,18 +117,18 @@ impl Adapter {
     }
     pub(super) fn visual_rect(&self, id: NodeId, rect: [f64; 4]) -> Option<[f64; 4]> {
         let r = self
-            .presentation
-            .get(&id)?
-            .world
+            .placed
+            .get(*self.placed_indices.get(&id)?)?
+            .world_transform
             .transform_rect_bbox(KurboRect::new(rect[0], rect[1], rect[2], rect[3]));
         Some([r.x0, r.y0, r.x1, r.y1])
     }
     pub(super) fn layout_point(&self, id: NodeId, x: f64, y: f64) -> Option<KurboPoint> {
-        let p = self.presentation.get(&id)?;
-        if p.opacity <= 0. || p.world.determinant().abs() < 1e-12 {
+        let p = self.placed.get(*self.placed_indices.get(&id)?)?;
+        if p.world_opacity <= 0. || p.world_transform.determinant().abs() < 1e-12 {
             return None;
         }
-        Some(p.world.inverse() * KurboPoint::new(x, y))
+        Some(p.world_transform.inverse() * KurboPoint::new(x, y))
     }
     pub(super) fn visual_contains(&self, id: NodeId, x: f64, y: f64) -> bool {
         let Some(node) = self.placed_indices.get(&id).map(|i| &self.placed[*i]) else {

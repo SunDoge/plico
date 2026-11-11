@@ -101,6 +101,17 @@ cargo test --release -p plico-renderer profile_untransformed_node_resolution -- 
 约 1.46–1.63 ms 降至 1.33–1.58 ms，各项减少 17–131 µs；跨进程漂移仍意味着
 这组完整帧数据只用于确认真实路径已命中，定量结论仍以上面的同进程 A/B 为准。
 
+runtime 原先还把组合后的 world transform 存进独立的 NodeId `HashMap`，供命中和语义
+读取；scene encoder 同一帧却再次从局部 Paint 组合整条变换链。现在 presentation geometry
+归回 `PlacedNode`，局部 motion 仍只刷新 dirty subtree，runtime scene 直接消费同一结果。
+这既删除一份平行所有权和逐节点哈希访问，也保证命中与绘制使用完全相同的矩阵。普通
+renderer API 仍保留即时解析路径，已解析入口与它逐条比较 PaintCommand。
+
+4000 行全可见的相邻运行中，五个稳定 workload 的 scene p50 额外减少约 11–71 µs；
+文字 workload 在 1.38–1.65 ms 间受主机漂移影响，未计入收益结论。更重要的工作量约束由
+`presentation_motion` 保持：1000 个静态兄弟中的两节点 motion 仍只访问两个 placed node，
+没有用全表重算换取 renderer 数字。
+
 ### 没有活动 scrollbar 的节点
 
 MyGO 会用节点状态跳过与当前布局无关的遍历。对应检查发现，Plico 原本在
