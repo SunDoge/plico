@@ -16,6 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         /// Keep draws hidden by later opaque rectangles for A/B profiles.
         #[usage(long)]
         no_occlusion_culling: bool,
+        /// Shade the transparent interiors of large border-only quads for A/B profiles.
+        #[usage(long)]
+        no_ring_splitting: bool,
     }
     let options = Options::parse();
     #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
@@ -29,6 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         session.force_general_pipelines(options.general_classes);
         #[cfg(feature = "wgpu")]
         session.force_no_occlusion_culling(options.no_occlusion_culling);
+        #[cfg(feature = "wgpu")]
+        session.force_no_ring_splitting(options.no_ring_splitting);
         let mut captured = None;
         for _ in 0..options.frames.unwrap_or(1).max(1) {
             let scenario = if let Some(path) = &options.scenario {
@@ -64,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(feature = "wgpu")]
             if let Some(stats) = session.last_batch_stats() {
                 println!(
-                    "class draws: plain={} fill={} shadow={} glyph={} color-glyph={} image={} general-or-joined={} occlusion-culled={}",
+                    "class draws: plain={} fill={} shadow={} glyph={} color-glyph={} image={} general-or-joined={} occlusion-culled={} ring-split={}",
                     stats.plain_draw_calls,
                     stats.fill_draw_calls,
                     stats.shadow_draw_calls,
@@ -80,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             + stats.image_draw_calls
                     ),
                     stats.occlusion_culled_draws,
+                    stats.ring_split_quads,
                 );
             }
         }

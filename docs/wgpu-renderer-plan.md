@@ -88,6 +88,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    rounded/translucent/material fills never become occluders, and backdrop readers reset the
    cover set. Per-layer scratch is retained by nesting depth; `force_no_occlusion_culling`
    provides a byte-exact oracle and `occlusion_culled_draws` reports actual removals.
+   Large border-only analytical quads now follow MyGO's ring split: a conservative
+   transparent core is omitted with up to four target-local hardware scissors,
+   including damage and cropped-layer intersections. CPU-only scissor metadata
+   keeps the GPU instance ABI compact; `force_no_ring_splitting` provides the
+   unsplit pixel/performance oracle and `ring_split_quads` reports source splits.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;

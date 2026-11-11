@@ -115,6 +115,8 @@ pub struct PreviewSession {
     force_general_pipelines: bool,
     #[cfg(feature = "wgpu")]
     force_no_occlusion_culling: bool,
+    #[cfg(feature = "wgpu")]
+    force_no_ring_splitting: bool,
 }
 impl PreviewSession {
     pub fn new(backend: crate::RenderBackend) -> Self {
@@ -126,6 +128,8 @@ impl PreviewSession {
             force_general_pipelines: false,
             #[cfg(feature = "wgpu")]
             force_no_occlusion_culling: false,
+            #[cfg(feature = "wgpu")]
+            force_no_ring_splitting: false,
         }
     }
     /// Compare captures with every quad class drawn by the general shader.
@@ -142,6 +146,14 @@ impl PreviewSession {
         self.force_no_occlusion_culling = force;
         if let Some(renderer) = &mut self.renderer {
             renderer.force_no_occlusion_culling(force);
+        }
+    }
+    /// Disable large border-only scissor splitting for pixel/performance A/Bs.
+    #[cfg(feature = "wgpu")]
+    pub fn force_no_ring_splitting(&mut self, force: bool) {
+        self.force_no_ring_splitting = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_ring_splitting(force);
         }
     }
     /// Renderer CPU stages and GPU time from the most recent capture.
@@ -177,6 +189,8 @@ impl PreviewSession {
             renderer.force_general_pipelines(self.force_general_pipelines);
             #[cfg(feature = "wgpu")]
             renderer.force_no_occlusion_culling(self.force_no_occlusion_culling);
+            #[cfg(feature = "wgpu")]
+            renderer.force_no_ring_splitting(self.force_no_ring_splitting);
             self.renderer = Some(renderer);
             self.dimensions = (width, height);
         }

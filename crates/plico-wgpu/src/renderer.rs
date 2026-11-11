@@ -21,6 +21,14 @@ struct Instance {
     radii: [f32; 4],
 }
 
+/// CPU-only draw metadata. Scissors are target-relative `[x, y, width,
+/// height]`; keeping them out of `Instance` avoids charging every GPU draw
+/// for the uncommon split-ring path.
+struct PreparedInstances {
+    instances: Vec<Instance>,
+    scissors: Vec<Option<[u32; 4]>>,
+}
+
 #[derive(Clone, Copy, Default)]
 struct OcclusionInfo {
     visible: Option<[f32; 4]>,
@@ -135,6 +143,9 @@ pub struct FrameBatchStats {
     /// Painter-ordered draws omitted because a later opaque rectangle covers
     /// their complete visible bounds. Scope markers are never counted.
     pub occlusion_culled_draws: u64,
+    /// Border-only source quads split into scissored strips so their
+    /// transparent interior is never shaded.
+    pub ring_split_quads: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -301,11 +312,16 @@ pub struct Renderer {
     /// previous frame grew instead of allocating from empty. Rust pattern:
     /// std::mem::take + clear + write back on success.
     instance_scratch: Vec<Instance>,
+    /// CPU-only per-instance scissors. The vector is retained beside instance
+    /// staging so ordinary frames do not allocate a sidecar from empty.
+    scissor_scratch: Vec<Option<[u32; 4]>>,
     /// Reused per-layer painter-order plans. Nested isolated layers use their
     /// own depth slot, so preparing a child cannot invalidate its parent's plan.
     occlusion_scratch: Vec<Vec<OcclusionInfo>>,
     /// Comparison switch matching MyGO's `NoCull`.
     force_no_occlusion_culling: bool,
+    /// Comparison switch matching MyGO's `NoRingSplit`.
+    force_no_ring_splitting: bool,
     compilations: usize,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
@@ -743,6 +759,7 @@ struct RunFlush {
     plus: bool,
     texture: Option<usize>,
     mask: u32,
+    scissor: Option<[u32; 4]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -838,6 +855,7 @@ mod encode;
 mod gpu_timer;
 mod layers;
 mod render;
+mod ring;
 mod setup;
 mod surface;
 mod text;

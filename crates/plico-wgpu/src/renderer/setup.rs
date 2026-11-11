@@ -228,8 +228,10 @@ impl Renderer {
             instances,
             capacity,
             instance_scratch: Vec::new(),
+            scissor_scratch: Vec::new(),
             occlusion_scratch: Vec::new(),
             force_no_occlusion_culling: false,
+            force_no_ring_splitting: false,
             backdrop_effects: Vec::new(),
             deferred_layers: Vec::new(),
             inherited_backdrop: None,
@@ -307,6 +309,13 @@ impl Renderer {
     /// performance comparisons (MyGO's `NoCull`).
     pub fn force_no_occlusion_culling(&mut self, force: bool) {
         self.force_no_occlusion_culling = force;
+    }
+
+    /// Disable MyGO-style scissor splitting for large border-only quads.
+    /// This comparison switch preserves identical pixels and is intended for
+    /// renderer profiling rather than application policy.
+    pub fn force_no_ring_splitting(&mut self, force: bool) {
+        self.force_no_ring_splitting = force;
     }
     /// Publish class pipelines completed by the native background warmer.
     /// Frames encoded before a class arrives use the general pipeline.

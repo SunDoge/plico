@@ -387,6 +387,44 @@ isolated layer allocated no offscreen target. `controls`, `data-table` and
 switch in either position, so this is a navigation/stacked-page and overlay
 optimization, not a claim that steady-state gallery pages became faster.
 
+## Border-only ring splitting
+
+Plico also adopts MyGO's `NoRingSplit` experiment for large analytical borders.
+A solid border whose fill endpoints are both fully transparent has a rectangular
+core where both outer and inner coverage are exactly one, so its shader returns
+transparent there. The CPU now represents that source quad as up to four ordered
+instances with target-relative hardware scissors around a conservatively inset
+core. The scissor is CPU-only batch metadata: the common GPU `Instance` remains
+unchanged. Quads with material/shadow content, visible fill alpha, no visible
+border, a core below 4096 pixels, or a core below one quarter of the visible quad
+stay as one draw. Damage rectangles intersect the split scissors at encoding
+time, and isolated layers derive them in the layer target's local coordinates.
+
+`Renderer::force_no_ring_splitting(true)` and gallery `--no-ring-splitting`
+provide a byte-exact A/B oracle. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --lib renderer::ring::tests
+cargo test --locked -p plico-wgpu --test ring_split -- \
+  --ignored --skip profile_large_border_only_panel
+PLICO_GPU_TIMER=1 cargo test --release --locked -p plico-wgpu \
+  --test ring_split profile_large_border_only_panel -- --ignored --nocapture
+```
+
+On 2026-11-12, the same Linux Intel/Mesa Vulkan adapter measured a 1920×1080,
+2-pixel rounded border at 5.018 ms unsplit versus 3.809 ms split GPU time
+(24.1% lower). Readback-inclusive wall time moved from 37.542 to 36.679 ms
+because buffer mapping and CPU pixel copying dominate that test. Straight and
+rounded direct draws are byte-identical; a separate moving-border regression
+proves partial damage and cropped isolated-layer coordinates against an unsplit
+full-redraw oracle. The split path uses four instances/draws instead of one, so
+the threshold deliberately excludes small controls. The real
+`component-kit-corners` gallery recipe split one large ring (633 instances / 75
+draws versus 630 / 72 unsplit) and produced the same PNG SHA-256
+`3085f7f0ee2f2e23d84b3d8a0a9c90c21aef3e7242691c3dcd3d5a1b71a7ddef`;
+`controls`, `data-table`, `workspace`, `mines-hard` and `patterns-dark` stayed
+below the threshold and paid no extra draw calls.
+
 ## Scene and image residency
 
 Prepared snapshots retain only the graph reachable from the current root. Image

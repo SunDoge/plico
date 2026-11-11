@@ -1,5 +1,6 @@
 use super::backdrop::{effect_output_scissor, encode_backdrop_step, plan_backdrops};
 use super::effects::visit_images;
+use super::ring::intersect_scissor;
 use super::*;
 
 impl Renderer {
@@ -149,7 +150,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,occlusion_culled_draws=self.batch_stats.occlusion_culled_draws,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,glyph_draw_calls=self.batch_stats.glyph_draw_calls,color_glyph_draw_calls=self.batch_stats.color_glyph_draw_calls,image_draw_calls=self.batch_stats.image_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,occlusion_culled_draws=self.batch_stats.occlusion_culled_draws,ring_split_quads=self.batch_stats.ring_split_quads,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,glyph_draw_calls=self.batch_stats.glyph_draw_calls,color_glyph_draw_calls=self.batch_stats.color_glyph_draw_calls,image_draw_calls=self.batch_stats.image_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -229,22 +230,42 @@ impl Renderer {
             items
         };
         let prepare_started = Instant::now();
-        let mut instances = if regions.is_some_and(|r| r.is_empty()) {
-            Vec::new()
+        let mut prepared = if regions.is_some_and(|r| r.is_empty()) {
+            let mut instances = std::mem::take(&mut self.instance_scratch);
+            instances.clear();
+            let mut scissors = std::mem::take(&mut self.scissor_scratch);
+            scissors.clear();
+            PreparedInstances {
+                instances,
+                scissors,
+            }
         } else {
-            self.prepare_instances(items, size, encoder)?
+            self.prepare_instances(items, size, origin, encoder)?
         };
         if let Some(regions) = regions {
-            instances.retain(|instance| {
+            let mut write = 0;
+            for read in 0..prepared.instances.len() {
+                let instance = prepared.instances[read];
                 let [x, y, w, h] = instance.rect;
-                regions.iter().any(|&[rx, ry, rw, rh]| {
+                let keep = regions.iter().any(|&[rx, ry, rw, rh]| {
                     x - 1. < (rx + rw) as f32
                         && x + w + 1. > rx as f32
                         && y - 1. < (ry + rh) as f32
                         && y + h + 1. > ry as f32
-                })
-            });
+                });
+                if keep {
+                    prepared.instances[write] = instance;
+                    prepared.scissors[write] = prepared.scissors[read];
+                    write += 1;
+                }
+            }
+            prepared.instances.truncate(write);
+            prepared.scissors.truncate(write);
         }
+        let PreparedInstances {
+            instances,
+            scissors,
+        } = prepared;
         self.frame_budget.prepare_ms += prepare_started.elapsed().as_secs_f64() * 1e3;
         let backdrop_plan = plan_backdrops(
             &instances,
@@ -418,6 +439,7 @@ impl Renderer {
                             == (instances[first].config[2] == 4.
                                 && instances[first].config[1] == 1.)
                         && pipeline_class(&instances[end], force_general) == class
+                        && scissors[end] == scissors[first]
                     {
                         end += 1;
                     }
@@ -432,12 +454,14 @@ impl Renderer {
                         plus,
                         texture,
                         mask,
+                        scissor: scissors[first],
                     };
                     if let Some((previous, previous_small)) = &mut pending
                         && *previous_small
                         && small
                         && previous.texture == texture
                         && previous.mask == mask
+                        && previous.scissor == run.scissor
                         && !previous.plus
                         && !plus
                         && backdrop_at.is_none()
@@ -666,6 +690,7 @@ impl Renderer {
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;
+        self.scissor_scratch = scissors;
         Ok(())
     }
     #[allow(clippy::too_many_arguments)]
@@ -733,7 +758,13 @@ impl Renderer {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(1, texture_bind, &[]);
         pass.set_bind_group(2, mask_bind, &[]);
-        for &[x, y, w, h] in areas {
+        for &area in areas {
+            let Some([x, y, w, h]) = run
+                .scissor
+                .map_or(Some(area), |split| intersect_scissor(split, area))
+            else {
+                continue;
+            };
             if bounds.is_some_and(|[left, top, right, bottom]| {
                 right <= x as f32
                     || bottom <= y as f32

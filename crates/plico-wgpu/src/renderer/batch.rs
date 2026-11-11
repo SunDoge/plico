@@ -1,3 +1,4 @@
+use super::ring::ring_scissors;
 use super::*;
 
 fn rect(rect: [f32; 4], inset: f32) -> Option<[f32; 4]> {
@@ -258,8 +259,9 @@ impl Renderer {
         &mut self,
         items: DrawSource<'_>,
         size: [u32; 2],
+        origin: [f32; 2],
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<Vec<Instance>> {
+    ) -> Result<PreparedInstances> {
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         {
             if self.layer_depth == 0
@@ -286,7 +288,7 @@ impl Renderer {
                 }
                 self.instance_scratch = scratch;
             }
-            let result = self.encode_items(items, size, encoder);
+            let result = self.encode_items(items, size, origin, encoder);
             let result = if matches!(
                 result,
                 Err(Error::Text {
@@ -298,7 +300,7 @@ impl Renderer {
                     .expect("atlas full implies atlas exists")
                     .clear();
                 self.text_stats.recycled_frames += 1;
-                self.encode_items(items, size, encoder)
+                self.encode_items(items, size, origin, encoder)
             } else {
                 result
             };
@@ -307,7 +309,7 @@ impl Renderer {
             Ok(instances)
         }
         #[cfg(not(all(target_os = "linux", feature = "system-text")))]
-        self.encode_items(items, size, encoder)
+        self.encode_items(items, size, origin, encoder)
     }
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     fn warm_layer_text(
@@ -380,7 +382,8 @@ impl Renderer {
     pub fn instance_storage_bytes(&self) -> (u64, usize) {
         (
             self.instances.size(),
-            self.instance_scratch.capacity() * std::mem::size_of::<Instance>(),
+            self.instance_scratch.capacity() * std::mem::size_of::<Instance>()
+                + self.scissor_scratch.capacity() * std::mem::size_of::<Option<[u32; 4]>>(),
         )
     }
     /// Return the instance stream to startup capacity and release CPU frame scratch.
@@ -389,6 +392,7 @@ impl Renderer {
     pub fn trim_geometry_buffers(&mut self) {
         self.clear_frame_references();
         self.instance_scratch = Vec::new();
+        self.scissor_scratch = Vec::new();
         self.occlusion_scratch = Vec::new();
         self.frame_images = Vec::new();
         self.frame_image_slots = Default::default();
@@ -438,11 +442,14 @@ impl Renderer {
         &mut self,
         items: DrawSource<'_>,
         size: [u32; 2],
+        origin: [f32; 2],
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<Vec<Instance>> {
+    ) -> Result<PreparedInstances> {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
+        let mut scissors = std::mem::take(&mut self.scissor_scratch);
+        scissors.clear();
         self.clear_frame_references();
         let depth = self.layer_depth as usize;
         self.occlusion_scratch.resize_with(depth + 1, Vec::new);
@@ -697,6 +704,21 @@ impl Renderer {
                     instance.mask_rect = rect;
                 }
             }
+            scissors.resize(instances.len(), None);
+            if !self.force_no_ring_splitting
+                && let crate::Draw::Quad(quad) = item
+                && instances.len() == first + 1
+                && let Some(strips) = ring_scissors(quad, size, origin)
+            {
+                let strips = strips.as_slice();
+                let instance = instances[first];
+                scissors[first] = Some(strips[0]);
+                for strip in &strips[1..] {
+                    instances.push(instance);
+                    scissors.push(Some(*strip));
+                }
+                self.batch_stats.ring_split_quads += 1;
+            }
             #[cfg(test)]
             let skip_clip = !self.profile_no_clip_skip;
             #[cfg(not(test))]
@@ -712,7 +734,10 @@ impl Renderer {
                 });
             }
         }
-        Ok(instances)
+        Ok(PreparedInstances {
+            instances,
+            scissors,
+        })
     }
 }
 
