@@ -53,7 +53,7 @@
 | [国际化](i18n.md) | 显式 locale scope、Fluent 消息、裁剪 ICU4X 数据与中英文 gallery |
 | [场景预览](preview.md) | JSON 状态、模拟操作、虚拟时钟、离屏截图与自动编译重启 |
 | [动画、异步与开发生命周期](lifecycle.md) | scalar motion、宿主任务边界与静态编译预览 |
-| [自动身份](identity.md) | component/view 的隐式 ID、列表 key 与恢复边界 |
+| [自动身份](identity.md) | `#[component]` 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |

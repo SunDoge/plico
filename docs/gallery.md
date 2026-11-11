@@ -7,7 +7,7 @@ Layout 展示固定导航、弹性画布与固定 inspector 的空间分配；�
 
 Gallery 持有可序列化的 Page enum，通过 match 声明页面。切页卸载旧页面节点；计数和偏好放在 App，因此切回来保留。它不是框架 router，尚无路由历史、URL、保留页面树或页面进入/退出动画。未来 Router<Page> 可封装历史，平台层再映射 URL。
 
-应用组件签名使用 `&mut UiContext`（兼容别名 Ui），通过 column(cx)、button(cx).text(...) 等独立函数构建。NavItem、项目卡片是普通函数，panel 返回应用自己的可配置容器；均不需要给 UiContext 增加方法或实现 Widget。内部仍直接借用 Engine，没有内部可变的共享 context。
+应用组件签名使用 `&mut UiContext`，通过 column(cx)、button(cx).text(...) 等独立函数构建。NavItem、项目卡片是普通函数，panel 返回应用自己的可配置容器；均不需要给 UiContext 增加方法或实现 Widget。内部仍直接借用 Engine，没有内部可变的共享 context。
 
 main.rs 只构造 App 并调用 run_with_options，不解析参数。examples/capture.rs 和 examples/probe.rs 是开发验证工具，由 plico-cli 的 render/probe 调用。
 

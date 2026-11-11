@@ -46,10 +46,6 @@ pub use source::{BatchStats, Source, SourceError};
 pub use view::{HostView, NativeApp, NativeView};
 
 #[doc(hidden)]
-pub use HostView as View;
-#[doc(hidden)]
-pub use impl_host_view_for_app as impl_view_for_app;
-#[doc(hidden)]
 pub use plico as __ui_core;
 #[doc(hidden)]
 pub use plico_dev as __app_protocol;

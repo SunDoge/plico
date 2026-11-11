@@ -17,7 +17,7 @@ clock.advance(Duration::from_millis(100))?;
 
 ## 帧快照
 
-Ui::time 返回 FrameTime { now, delta }，也可用 ui.now() / ui.delta()。宿主在帧开始采样一次，同帧事件稳定化的所有声明使用同一份快照，不能因为重复声明而推进动画。第一帧 delta=0；后续 delta 是相邻 build 帧的逻辑时间差。事件前提交也使用该时间域。
+UiContext::time 返回 FrameTime { now, delta }，也可用 cx.now() / cx.delta()。宿主在帧开始采样一次，同帧事件稳定化的所有声明使用同一份快照，不能因为重复声明而推进动画。第一帧 delta=0；后续 delta 是相邻 build 帧的逻辑时间差。事件前提交也使用该时间域。
 
 核心 Engine 本身没有隐藏系统时钟，默认时间为零；独立核心测试可 set_time。Source 仍保留 build_frame_at / prepare_for_event_at 作为 Instant 测试入口，native Instant 仅是后端已有 motion 的内部桥接，UI/协议都使用 Duration。
 
@@ -25,10 +25,10 @@ Ui::time 返回 FrameTime { now, delta }，也可用 ui.now() / ui.delta()。宿
 
 ```rust
 #[component]
-fn timer(ui: &mut Ui<'_>) {
-    ui.text(format!("{} ms", ui.now().as_millis()));
-    if ui.now() < Duration::from_secs(1) {
-        ui.request_animation_frame();
+fn timer(cx: &mut UiContext) {
+    text!(cx, "{} ms", cx.now().as_millis());
+    if cx.now() < Duration::from_secs(1) {
+        cx.request_animation_frame();
     }
 }
 ```

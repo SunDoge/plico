@@ -16,9 +16,9 @@ fn settings(cx: &mut UiContext, dirty: bool) {
 }
 ```
 
-UiContext 是当前声明过程的上下文，借用 Engine，管理当前父节点、作用域、主题、时间和输入。Ui 是它的兼容别名。控件函数位于 plico::widgets，prelude 同时导出它们。普通应用组件可以返回 ()、Response 或自己的具体结果；调用方直接调用函数。
+UiContext 是当前声明过程的上下文，借用 Engine，管理当前父节点、作用域、主题、时间和输入。控件函数位于 plico::widgets，prelude 同时导出它们。普通应用组件可以返回 ()、Response 或自己的具体结果；调用方直接调用函数。
 
-当前 Rust builder 在配置完成后提交：叶子在读取 response/clicked 或 Drop 时提交，容器在 children 时提交。它没有 `.show(cx)` / `add` 收尾，但还不是 MyGO 那种构造时就注册、随后任意修改的通用 Element。借用期间不能再独立使用 Context；`+ |cx| { ... }` 显式重新借用 child context，原生 children 仍可用。独立值 builder、Widget trait、Ui.add 与 Ui 原有控件方法作为可选兼容路径保留，gallery 和生成模板优先采用函数路径。
+当前 Rust builder 在配置完成后提交：叶子在读取 response/clicked 或 Drop 时提交，容器在 children 时提交。它没有 `.show(cx)` / `add` 收尾，也不是 MyGO 那种构造时就注册、随后任意修改的通用 Element。借用期间不能再独立使用 Context；`+ |cx| { ... }` 显式重新借用 child context，原生 children 仍可用。`plico::Widget` 仅用于可组合的 immediate 辅助类型；应用组件优先使用普通函数。
 
 ## 用户组件和可配置容器
 
@@ -47,7 +47,7 @@ button_base 复用按钮的 pointer、键盘、焦点和无障碍行为，本身
 
 ## 身份与热重载
 
-#[component] 为静态声明与普通组件调用生成词法身份，原生 children 与双分号块内部同样被覆盖。Context 首参构造函数直接给 builder 附加身份，避免借用 builder 从临时作用域闭包逸出。动态列表仍使用 `cx.keyed(item.id, ...)` 或显式 `.key(item.id)`，宏无法从循环自动推导业务身份。
+#[component] 为静态声明与普通组件调用生成词法身份，原生 children 与 `+ |cx| { ... }` 内部同样被覆盖。Context 首参构造函数直接给 builder 附加身份，避免借用 builder 从临时作用域闭包逸出。动态列表仍使用 `cx.keyed(item.id, ...)` 或显式 `.key(item.id)`，宏无法从循环自动推导业务身份。
 
 宏身份不来自文件行号。文字、空白等编辑可以保持身份；在前方插入新声明仍可能改变后续词法序号，不承诺任意源码重构保持节点身份。应用可序列化模型跨 reload 恢复，schema 不兼容时重置；Context、临时 builder、格式化参数与组件闭包均不作为跨模块对象保存。
 
@@ -57,7 +57,7 @@ Theme 集中提供 foreground、muted、surface、panel、control、selection、
 
 UiContext.theme 返回 Copy 快照，自定义控件与内置控件读取同一组值。文字的字体大小、字重、前景色和 disabled 在容器中继承；子内容显式样式可以覆盖字体/颜色，禁用祖先不能由子节点重新启用。primary 按钮的文字颜色可传给子内容，离开容器后恢复原上下文。
 
-目前 Response 只公开 clicked/enabled；hover、press 和 focus 的视觉反馈由 host 驱动，还没有通用的应用侧状态查询 API。checkbox/switch 首参函数已返回可配置的 Toggle builder，支持 disabled、gap、字体、尺寸和 motion；`.changed()` 或 `.response()` 读取消费结果，普通语句也会在结束时提交。它们仍不支持任意子内容的 headless base。输入、滚动、弹层、多 part 控件是后续切片，不能把按钮组合能力等同于完整 headless 组件体系。
+Response 公开 clicked、hovered、enabled 和 focused；press 等瞬时绘制状态仍主要由 host 驱动。checkbox/switch 首参函数返回可配置的 Toggle builder，支持 disabled、gap、字体、尺寸和 motion；`.changed()` 或 `.response()` 读取消费结果，普通语句也会在结束时提交。它们仍不支持任意子内容的 headless base。
 
 
 ## 受控开关与复选框
@@ -78,7 +78,7 @@ if checkbox(cx, "Save automatically", &mut settings.autosave)
 
 `.response()` 返回不持有借用的 ToggleResponse，可查询 changed/checked/enabled。所有配置在消费输入前生效；禁用的父容器不能被子控件重新启用。读取响应和 Drop 共用同一个提交路径，不会切换两次；checked 同时更新业务 bool 和当前声明，后续稳定化再更新依赖它的其他内容。未消费的禁用点击不会残留到重新启用后的下一帧。
 
-Context 首参的 switch/checkbox 从旧的直接 bool 返回值改为 builder；原来 `if switch(...)` 应改为 `if switch(...).changed()`，原来的 `switch(...);` 不需要改。兼容路径 Ui.switch/checkbox 与独立值 Switch/Checkbox.show 仍返回 bool。
+Context 首参的 switch/checkbox 从旧的直接 bool 返回值改为 builder；原来 `if switch(...)` 应改为 `if switch(...).changed()`，原来的 `switch(...);` 不需要改。独立值 Switch/Checkbox.show 仍返回 bool，供 immediate 辅助类型使用。
 
 默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。颜色参照 MyGO：switch 关闭轨道为 border 向 foreground 混合 15%，checkbox 未选中面为 panel、描边为 border 向 foreground 混合 25%（悬停时描边转为 accent），选中面混合到 accent；thumb 在亮色下为白色、暗色下为 #e0e1e1，SVG 勾选标记使用 on_accent。
 

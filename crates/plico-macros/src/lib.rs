@@ -249,7 +249,7 @@ impl VisitMut for Expand {
             let runtime = &self.runtime;
             if constructor || self.builder_root {
                 // A borrowing builder cannot escape a temporary scope closure.
-                // Attach its call-site identity directly, just like Ui methods.
+                // Attach its call-site identity directly, just like UiContext methods.
                 *expr = parse_quote!(#runtime::ImplicitKey::site_id(#call, #site));
             } else {
                 let ui = &self.ui;
@@ -315,13 +315,13 @@ pub fn component(args: TokenStream, input: TokenStream) -> TokenStream {
         .into();
     }
     let ui=function.sig.inputs.iter().find_map(|arg|match arg {
-        FnArg::Typed(arg) if matches!(&*arg.ty,Type::Reference(reference) if reference.mutability.is_some() && matches!(&*reference.elem,Type::Path(path) if path.path.segments.last().is_some_and(|s|s.ident=="Ui" || s.ident=="UiContext"))) => match &*arg.pat {Pat::Ident(p)=>Some(p.ident.clone()),_=>None},
+        FnArg::Typed(arg) if matches!(&*arg.ty,Type::Reference(reference) if reference.mutability.is_some() && matches!(&*reference.elem,Type::Path(path) if path.path.segments.last().is_some_and(|s|s.ident=="UiContext"))) => match &*arg.pat {Pat::Ident(p)=>Some(p.ident.clone()),_=>None},
         _=>None,
     });
     let Some(ui) = ui else {
         return syn::Error::new_spanned(
             &function.sig,
-            "component requires a named &mut UiContext (or Ui) parameter",
+            "component requires a named &mut UiContext parameter",
         )
         .into_compile_error()
         .into();

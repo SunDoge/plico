@@ -55,11 +55,10 @@ pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
     Align, BoxShadow, Changes, Color, Easing, FocusAxis, FontFamily, FrameDelta, FrameError,
-    FrameStats, ImplicitKey, Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef,
-    Presentation, Size, SliderSpec, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths,
-    WidgetRole,
+    FrameStats, ImplicitKey, Justify, Key, Kind, Motion, NodeChange, NodeRef, Presentation, Size,
+    SliderSpec, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths, WidgetRole,
 };
-pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text};
+pub use plico_macros::{Route, component, text};
 pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router, RouterTransition, RouterView};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
@@ -78,8 +77,6 @@ where
         self(ui)
     }
 }
-#[doc(hidden)]
-pub use View as DeclareView;
 pub use engine::View;
 pub use ui::{
     Button, ButtonBase, Image, InnerResponse, Input, InputResponse, Layout, Response, Shader,

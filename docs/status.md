@@ -178,7 +178,7 @@ and Windows runtime validation remain pending.
 
 ## Widget input capabilities
 
-Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.
+Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). The unused coarse `KindFamily` compatibility API has been removed.
 
 ## Damage tracking
 
