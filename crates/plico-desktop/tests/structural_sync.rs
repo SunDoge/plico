@@ -35,28 +35,21 @@ fn insert_remove_and_reorder_do_not_sync_static_siblings() {
     let mut source = Source::new(Demo::default());
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 800, 600);
-    // The compatibility layout entry explicitly requests a full synchronization.
-    source
-        .adapter
-        .layout(&mut source.engine, &mut tcx, 800, 600);
-    assert!(source.adapter.stats.sync_visits > 1000);
-    source.view.extra = true;
-    source.request_rebuild();
+    assert!(source.frame_diagnostics().backend.sync_visits > 1000);
+    source.update(|view| view.extra = true);
     source.build_frame(&mut tcx, 800, 600);
-    assert_eq!(source.adapter.stats.created, 2);
-    assert_eq!(source.adapter.stats.sync_visits, 3);
-    source.view.reversed = true;
-    source.request_rebuild();
+    assert_eq!(source.frame_diagnostics().backend.created, 2);
+    assert_eq!(source.frame_diagnostics().backend.sync_visits, 3);
+    source.update(|view| view.reversed = true);
     source.build_frame(&mut tcx, 800, 600);
-    assert_eq!(source.adapter.stats.sync_visits, 1);
-    assert_eq!(source.adapter.stats.child_writes, 1);
-    source.view.extra = false;
-    source.request_rebuild();
+    assert_eq!(source.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(source.frame_diagnostics().backend.child_writes, 1);
+    source.update(|view| view.extra = false);
     source.build_frame(&mut tcx, 800, 600);
-    assert_eq!(source.adapter.stats.removed, 2);
-    assert_eq!(source.adapter.stats.sync_visits, 1);
+    assert_eq!(source.frame_diagnostics().backend.removed, 2);
+    assert_eq!(source.frame_diagnostics().backend.sync_visits, 1);
     source.build_frame(&mut tcx, 800, 600);
-    assert_eq!(source.adapter.stats.created, 0);
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
 }
 
 #[test]

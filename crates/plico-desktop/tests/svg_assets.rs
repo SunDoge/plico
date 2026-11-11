@@ -36,37 +36,33 @@ fn identical_svg_assets_share_parsed_resource_across_nodes_and_animation_frames(
     );
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 300, 100);
-    assert_eq!(s.adapter.stats.svg_parses, 1);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 1);
     let svg: Vec<_> = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter_map(|n| n.paint.svg.as_ref())
         .collect();
     assert_eq!(svg.len(), 2);
     assert!(Arc::ptr_eq(svg[0], svg[1]));
-    assert!(s.adapter.svg_diagnostics().next().is_none());
+    assert!(s.svg_diagnostics().next().is_none());
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .nodes
             .iter()
             .all(|n| n.label.as_ref().is_none_or(|t| !t.contains("<svg")))
     );
-    s.view.wide = true;
+    s.update(|view| view.wide = true);
     s.build_frame(&mut tcx, 300, 100);
     let parsed = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find_map(|n| n.paint.svg.clone())
         .unwrap();
     clock.set(Duration::from_millis(120)).unwrap();
     s.build_frame(&mut tcx, 300, 100);
-    assert_eq!(s.adapter.stats.svg_parses, 0);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .filter_map(|n| n.paint.svg.as_ref())
             .all(|v| Arc::ptr_eq(v, &parsed))
@@ -81,11 +77,11 @@ fn malformed_assets_report_once_and_release_diagnostics_on_unmount() {
     });
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 300, 100);
-    assert_eq!(s.adapter.stats.svg_parses, 1);
-    assert_eq!(s.adapter.svg_diagnostics().count(), 1);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 1);
+    assert_eq!(s.svg_diagnostics().count(), 1);
     s.build_frame(&mut tcx, 300, 100);
-    assert_eq!(s.adapter.stats.svg_parses, 0);
-    s.view.visible = false;
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
+    s.update(|view| view.visible = false);
     s.build_frame(&mut tcx, 300, 100);
-    assert_eq!(s.adapter.svg_diagnostics().count(), 0);
+    assert_eq!(s.svg_diagnostics().count(), 0);
 }

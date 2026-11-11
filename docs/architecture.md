@@ -56,6 +56,9 @@ route menu、材质与滚动裁剪首批只使用 `Source` 查询、更新和统
 第三批覆盖 grid/flex 布局、平滑滚动、样式几何和图标缓存。SVG 与 WGSL 资源错误都通过只读
 diagnostics 查询，业务状态统一经 `Source::update` 修改；独立验证序列化声明的测试直接使用
 renderer-free `Engine`，不再借 `Source` 穿透运行时实现。
+随后将时钟、对齐、基础滚动、结构增量同步和 SVG 资源生命周期也迁入守卫。宿主级 flex 测试
+通过 retained paint 标记定位实际布局节点，不要求公开 key→Entity→Taffy 的内部映射；专门验证
+Engine/Adapter 契约的后端测试仍可直接组合二者，与应用侧 `Source` 边界分开。
 
 ## 当前实现
 

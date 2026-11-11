@@ -42,19 +42,17 @@ fn wheel_reflattens_without_taffy_and_keyboard_focus_reveals_clipped_items() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 300);
     let scroll = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap()
         .node_id;
     assert!(s.handle_event(wheel(64.)).handled);
     s.build_frame(&mut tcx, 400, 300);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert!(s.adapter.stats.flatten_visits > 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert!(s.frame_diagnostics().backend.flatten_visits > 0);
     assert_eq!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .find(|p| p.node_id == scroll)
             .unwrap()
@@ -63,8 +61,7 @@ fn wheel_reflattens_without_taffy_and_keyboard_focus_reveals_clipped_items() {
         64.
     );
     let scroll_node = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.node_id == scroll)
         .unwrap();
@@ -104,8 +101,7 @@ fn wheel_reflattens_without_taffy_and_keyboard_focus_reveals_clipped_items() {
     );
     s.build_frame(&mut tcx, 400, 300);
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .find(|p| p.node_id == scroll)
             .unwrap()
@@ -116,31 +112,27 @@ fn wheel_reflattens_without_taffy_and_keyboard_focus_reveals_clipped_items() {
     s.handle_event(pointer(plico_renderer::PointerPhase::Up, position));
     s.build_frame(&mut tcx, 400, 300);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Item 19", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Focus { target }));
     s.build_frame(&mut tcx, 400, 300);
     let last = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 19"))
         .unwrap();
     assert!(last.rect[1] >= 0. && last.rect[3] <= 180.);
-    s.view.count = 1;
-    s.request_rebuild();
+    s.update(|view| view.count = 1);
     s.build_frame(&mut tcx, 400, 300);
     let p = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.node_id == scroll)
         .unwrap();
     assert_eq!(p.scroll.offset, [0., 0.]);
-    assert!(s.adapter.focused().is_none());
+    assert!(s.focused().is_none());
     assert!(!s.handle_event(wheel(f64::NAN)).handled);
     assert!(!s.handle_event(wheel(500.)).handled);
 }
@@ -183,8 +175,7 @@ fn nested_ports_chain_remaining_wheel_delta_to_ancestors() {
     assert!(s.handle_event(UiEvent::Wheel(event)).handled);
     s.build_frame(&mut tcx, 400, 300);
     let ports: Vec<_> = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|p| p.scroll.scrollable[1])
         .collect();
@@ -193,5 +184,5 @@ fn nested_ports_chain_remaining_wheel_delta_to_ancestors() {
         assert_eq!(p.scroll.offset[1], p.scroll.range[1]);
         assert!(p.scroll.offset[1] > 0.);
     }
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 }

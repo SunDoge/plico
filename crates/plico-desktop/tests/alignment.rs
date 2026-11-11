@@ -43,7 +43,7 @@ fn marker_center(node: &PlacedNode) -> f64 {
     }
 }
 fn check(s: &Source<Demo>, tcx: &mut TextContext) {
-    for node in &s.adapter.placed {
+    for node in s.placed_nodes() {
         if node.paint.widget.is_none() {
             continue;
         }
@@ -72,14 +72,12 @@ fn check(s: &Source<Demo>, tcx: &mut TextContext) {
         }
     }
     let icon = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.svg.is_some())
         .unwrap();
     let label = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Action label"))
         .unwrap();
@@ -89,7 +87,7 @@ fn check(s: &Source<Demo>, tcx: &mut TextContext) {
     assert!(
         ((icon.rect[1] + icon.rect[3]) / 2. - text_center).abs() <= 1.,
         "font {} icon {:?}, label {:?}, content {:?}, line height {}",
-        s.view.font,
+        s.view().font,
         icon.rect,
         label.rect,
         label.content_origin,
@@ -126,12 +124,11 @@ fn paint_only_toggle_animation_keeps_alignment_without_layout() {
     );
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 480, 1000);
-    s.view.checked = true;
-    s.request_rebuild();
+    s.update(|view| view.checked = true);
     s.build_frame(&mut tcx, 480, 1000);
     clock.set(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut tcx, 480, 1000);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     check(&s, &mut tcx);
     clock.set(Duration::from_millis(140)).unwrap();
     s.build_frame(&mut tcx, 480, 1000);
@@ -190,15 +187,13 @@ fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
     let mut s = Source::with_clock(Tall::default(), clock.clone());
     let mut tcx = TextContext::new();
     for long in [false, true] {
-        s.view.long = long;
-        s.request_rebuild();
+        s.update(|view| view.long = long);
         s.build_frame(&mut tcx, 400, 500);
-        s.view.checked = !s.view.checked;
-        s.request_rebuild();
+        s.update(|view| view.checked = !view.checked);
         for millis in [0, 35, 70, 105, 140, 180] {
             clock.advance(Duration::from_millis(millis)).unwrap();
             s.build_frame(&mut tcx, 400, 500);
-            for node in s.adapter.placed.iter().filter(|n| n.paint.text.is_some()) {
+            for node in s.placed_nodes().iter().filter(|n| n.paint.text.is_some()) {
                 let text = plico_renderer::scene::layout_node_text(&mut tcx, node).unwrap();
                 let text_center = node.content_origin[1] + text.height() / 2.;
                 let control_center = (node.rect[1] + node.rect[3]) / 2.;
@@ -238,14 +233,12 @@ fn constrained_button_keeps_icon_size_and_one_line_label_and_accessible_name() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 200, 120);
     let icon = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.svg.is_some())
         .unwrap();
     let label = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.is_some())
         .unwrap();
@@ -259,8 +252,7 @@ fn constrained_button_keeps_icon_size_and_one_line_label_and_accessible_name() {
             <= 1.
     );
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(plico_renderer::SemanticRole::Button, LABEL, None)
             .is_some()
     );
