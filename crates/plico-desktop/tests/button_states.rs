@@ -64,7 +64,7 @@ fn hover_and_press_animate_without_declarations_or_layout_and_then_sleep() {
     source.handle_event(pointer(PointerPhase::Move));
     source.build_frame(&mut text, 300, 200);
     assert!(source.has_anim());
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     clock.advance(Duration::from_millis(40)).unwrap();
     let hovered = source.build_frame(&mut text, 300, 200);
     assert_ne!(
@@ -77,16 +77,16 @@ fn hover_and_press_animate_without_declarations_or_layout_and_then_sleep() {
         idle,
         "default token hover must survive RGB conversion"
     );
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    assert_eq!(source.adapter.stats.created, 0);
-    assert_eq!(source.view.calls, calls);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
+    assert_eq!(source.view().calls, calls);
     source.handle_event(pointer(PointerPhase::Down));
     source.build_frame(&mut text, 300, 200);
     clock.advance(Duration::from_secs(2)).unwrap();
     source.build_frame(&mut text, 300, 200);
     assert!(!source.has_anim());
     source.build_frame(&mut text, 300, 200);
-    assert_eq!(source.adapter.stats.sync_visits, 0);
+    assert_eq!(source.frame_diagnostics().backend.sync_visits, 0);
 }
 #[test]
 fn reduced_motion_theme_change_and_unmount_do_not_leave_animation_alive() {
@@ -105,25 +105,22 @@ fn reduced_motion_theme_change_and_unmount_do_not_leave_animation_alive() {
     assert_eq!(
         background,
         Some(peniko::Color::from_rgb8(
-            (source.view.theme.control_hover >> 16) as u8,
-            (source.view.theme.control_hover >> 8) as u8,
-            source.view.theme.control_hover as u8
+            (source.view().theme.control_hover >> 16) as u8,
+            (source.view().theme.control_hover >> 8) as u8,
+            source.view().theme.control_hover as u8
         ))
     );
     assert!(!source.has_anim());
     source.set_reduced_motion(false);
-    source.view.theme.control_hover ^= 0x111111;
-    source.request_rebuild();
+    source.update(|view| view.theme.control_hover ^= 0x111111);
     source.build_frame(&mut text, 300, 200);
     assert!(!source.has_anim());
-    source.view.disabled = true;
-    source.request_rebuild();
+    source.update(|view| view.disabled = true);
     source.build_frame(&mut text, 300, 200);
     clock.advance(Duration::from_secs(2)).unwrap();
     let nodes = source.build_frame(&mut text, 300, 200);
     assert!((nodes.iter().find(|n| n.depth == 1).unwrap().paint.opacity - 0.45).abs() < 0.00001);
-    source.view.visible = false;
-    source.request_rebuild();
+    source.update(|view| view.visible = false);
     source.build_frame(&mut text, 300, 200);
     assert!(!source.has_anim());
 }
@@ -134,8 +131,7 @@ fn focus_ring_fades_without_layout_and_cleans_up_on_blur() {
     let (mut source, clock, mut text) = setup();
     source.build_frame(&mut text, 300, 200);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Save", None)
         .unwrap()
         .id;
@@ -149,9 +145,9 @@ fn focus_ring_fades_without_layout_and_cleans_up_on_blur() {
     assert!(
         alpha > 0 && alpha < 255,
         "alpha={alpha}, stats={:?}",
-        source.adapter.stats
+        source.frame_diagnostics().backend
     );
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
     assert!(source.handle_semantic_action(SemanticAction::Blur { target }));
     source.build_frame(&mut text, 300, 200);
     clock.advance(Duration::from_secs(2)).unwrap();
@@ -192,7 +188,7 @@ fn composed_toolbar_buttons_are_transparent_at_rest_and_hover_without_rebuilding
     );
     source.handle_event(pointer(PointerPhase::Move));
     source.build_frame(&mut text, 300, 200);
-    let calls = source.view.calls;
+    let calls = source.view().calls;
     clock.advance(Duration::from_millis(50)).unwrap();
     let nodes = source.build_frame(&mut text, 300, 200);
     assert!(
@@ -204,8 +200,8 @@ fn composed_toolbar_buttons_are_transparent_at_rest_and_hover_without_rebuilding
             .background
             .is_some()
     );
-    assert_eq!(source.view.calls, calls);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(source.view().calls, calls);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
     clock.advance(Duration::from_secs(1)).unwrap();
     source.build_frame(&mut text, 300, 200);
     assert!(!source.has_anim());
@@ -229,21 +225,31 @@ fn sidebar_selection_follows_its_focus_scope_without_application_focus_state() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 300, 200);
     let selected = |source: &Source<Sidebar>| {
-        let root = source.engine.node(source.engine.root()).unwrap().children[0];
-        let child = source.engine.node(root).unwrap().children[0];
-        source.engine.node(child).unwrap().style.background
+        let bounds = source
+            .semantics()
+            .node_by_role(SemanticRole::TreeItem, "Inbox", None)
+            .unwrap()
+            .bounds;
+        source
+            .placed_nodes()
+            .iter()
+            .find(|node| node.rect == bounds)
+            .unwrap()
+            .paint
+            .background
     };
-    assert_eq!(selected(&source), Some(Color::ControlPressed));
+    let rgb =
+        |value: u32| peniko::Color::from_rgb8((value >> 16) as u8, (value >> 8) as u8, value as u8);
+    assert_eq!(selected(&source), Some(rgb(source.theme().control_pressed)));
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::TreeItem, "Inbox", None)
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Focus { target }));
     source.build_frame(&mut text, 300, 200);
-    assert_eq!(selected(&source), Some(Color::Accent));
+    assert_eq!(selected(&source), Some(rgb(source.theme().accent)));
     assert!(source.handle_semantic_action(SemanticAction::Blur { target }));
     source.build_frame(&mut text, 300, 200);
-    assert_eq!(selected(&source), Some(Color::ControlPressed));
+    assert_eq!(selected(&source), Some(rgb(source.theme().control_pressed)));
 }

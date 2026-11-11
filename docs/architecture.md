@@ -65,6 +65,9 @@ paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，�
 批处理、布局复用、虚拟列表和 GPU shader 测试也已进入边界守卫。批处理仍通过 `BatchStats`
 验证通知合并和声明提交次数，虚拟列表通过 retained node identity 验证复用；shader 声明的 JSON
 往返由独立 Engine 测试承担，窗口路径只验证实际像素、资源诊断和增量帧工作量。
+按钮状态、slider、style motion 与跨段文字选择也只从业务 view、语义、retained paint 和诊断
+观察行为。Sidebar 的焦点选中测试以语义 bounds 关联最终 paint，不再读取 Engine 声明节点；
+文本选择统一通过 `selected_text` 查询，保留复制、反向拖选、重声明和卸载覆盖。
 
 ## 当前实现
 

@@ -56,16 +56,14 @@ fn layout_style_and_hits_share_current_animated_geometry() {
         ..Default::default()
     });
     source.build_frame_at(&mut tcx, 600, 300, now);
-    source.view.expanded = true;
-    source.request_rebuild();
+    source.update(|view| view.expanded = true);
     source.build_frame_at(&mut tcx, 600, 300, now);
     assert!(source.has_anim());
-    let declarations = source.view.declarations;
+    let declarations = source.view().declarations;
     let nodes = source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(100));
-    assert_eq!(source.view.declarations, declarations);
+    assert_eq!(source.view().declarations, declarations);
     let button = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Animated", None)
         .unwrap()
         .clone();
@@ -80,24 +78,20 @@ fn layout_style_and_hits_share_current_animated_geometry() {
     source.handle_event(pointer(PointerPhase::Down, 250.));
     source.handle_event(pointer(PointerPhase::Up, 250.));
     source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(100));
-    assert_eq!(source.view.clicks, 0);
+    assert_eq!(source.view().clicks, 0);
     source.handle_event(pointer(PointerPhase::Down, 150.));
     source.handle_event(pointer(PointerPhase::Up, 150.));
     source.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(100));
-    assert_eq!(source.view.clicks, 1);
+    assert_eq!(source.view().clicks, 1);
     // Allow both the layout transition and the click interaction to finish.
     let settled = now
-        + Duration::from_millis(
-            100 + u64::from(source.engine.theme().metrics.interaction_ms).max(200),
-        );
+        + Duration::from_millis(100 + u64::from(source.theme().metrics.interaction_ms).max(200));
     source.build_frame_at(&mut tcx, 600, 300, settled);
     assert!(!source.has_anim());
-    source.view.expanded = false;
-    source.request_rebuild();
+    source.update(|view| view.expanded = false);
     source.build_frame_at(&mut tcx, 600, 300, settled);
     assert!(source.has_anim());
-    source.view.mounted = false;
-    source.request_rebuild();
+    source.update(|view| view.mounted = false);
     source.build_frame_at(&mut tcx, 600, 300, settled + Duration::from_millis(50));
     assert!(!source.has_anim());
 }
@@ -110,8 +104,7 @@ fn reduced_motion_snaps_layout_and_paint() {
         ..Default::default()
     });
     source.build_frame_at(&mut tcx, 600, 300, now);
-    source.view.expanded = true;
-    source.request_rebuild();
+    source.update(|view| view.expanded = true);
     source.build_frame_at(&mut tcx, 600, 300, now);
     assert!(source.has_anim());
     source.set_reduced_motion(true);
@@ -153,13 +146,12 @@ fn animated_spacing_reflows_children_and_updates_semantic_bounds() {
         calls: 0,
     });
     s.build_frame_at(&mut tcx, 600, 300, now);
-    s.view.expanded = true;
-    s.request_rebuild();
+    s.update(|view| view.expanded = true);
     s.build_frame_at(&mut tcx, 600, 300, now);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     s.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(100));
-    assert_eq!(s.view.calls, calls);
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    assert_eq!(s.view().calls, calls);
+    let semantics = s.semantics();
     let first = semantics
         .node_by_role(SemanticRole::Button, "First", None)
         .unwrap()
@@ -182,8 +174,7 @@ fn input_after_long_idle_starts_a_new_transition_instead_of_finishing_it() {
         ..Default::default()
     });
     s.build_frame_at(&mut tcx, 600, 300, now);
-    s.view.expanded = true;
-    s.request_rebuild();
+    s.update(|view| view.expanded = true);
     s.prepare_for_event_at(&mut tcx, now + Duration::from_secs(60))
         .unwrap();
     let nodes = s.build_frame_at(&mut tcx, 600, 300, now + Duration::from_secs(60));
@@ -216,19 +207,18 @@ fn events_automatically_settle_text_declared_before_the_handler() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 600, 300);
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Increment", None)
         .unwrap()
         .id;
     s.handle_semantic_action(plico_renderer::SemanticAction::Click { target: id });
     let nodes = s.build_frame(&mut tcx, 600, 300);
-    assert_eq!(s.view.0, 1);
+    assert_eq!(s.view().0, 1);
     assert!(
         nodes
             .iter()
             .any(|n| n.paint.text.as_deref() == Some("Count: 1"))
     );
     s.build_frame(&mut tcx, 600, 300);
-    assert_eq!(s.view.0, 1);
+    assert_eq!(s.view().0, 1);
 }
