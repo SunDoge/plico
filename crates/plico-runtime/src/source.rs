@@ -53,7 +53,6 @@ struct WakeBatch {
 }
 pub struct Source<V: HostView> {
     fonts: Vec<FontAsset>,
-    last_error: Option<SourceError>,
     pub engine: Engine,
     pub adapter: Adapter,
     /// Direct external mutations require request_rebuild; prefer update().
@@ -93,7 +92,6 @@ impl<V: HostView> Source<V> {
         let epoch = Instant::now();
         Self {
             fonts: Vec::new(),
-            last_error: None,
             engine: Engine::default(),
             adapter: Adapter::default(),
             view,
@@ -122,15 +120,6 @@ impl<V: HostView> Source<V> {
             declared_changes: plico::Changes::empty(),
             declarations_pending: false,
         }
-    }
-    /// Most recent declaration error, retained until a later declaration succeeds.
-    pub fn last_error(&self) -> Option<&SourceError> {
-        self.last_error.as_ref()
-    }
-
-    /// Take the most recent declaration error for a host-owned error channel.
-    pub fn take_error(&mut self) -> Option<SourceError> {
-        self.last_error.take()
     }
     /// Override the window backdrop, e.g. transparent for an embedded game HUD.
     /// Widget theme colors and hit testing remain unchanged.
@@ -232,7 +221,11 @@ impl<V: HostView> Source<V> {
         self.pending = true;
     }
     /// Sample the clock before committing event targets, including after a long idle.
-    pub fn prepare_for_event_at(&mut self, tcx: &mut TextContext, now: Instant) {
+    pub fn prepare_for_event_at(
+        &mut self,
+        tcx: &mut TextContext,
+        now: Instant,
+    ) -> Result<(), SourceError> {
         self.set_tick(now, false);
         let scroll = self
             .adapter
@@ -241,11 +234,7 @@ impl<V: HostView> Source<V> {
         if self.pending {
             self.batch_stats.event_flushes += 1;
             self.adapter.motions.advance(now);
-            if let Err(error) = self.try_declare() {
-                self.last_error = Some(error);
-                return;
-            }
-            self.last_error = None;
+            self.try_declare()?;
             if let Some((w, h)) = self.viewport {
                 self.update_backend(tcx, w, h);
             }
@@ -258,7 +247,79 @@ impl<V: HostView> Source<V> {
             // no application declaration observes that position.
             self.update_backend(tcx, w, h);
         }
+        Ok(())
     }
+
+    /// Build a frame and report declaration or clock failures to the caller.
+    pub fn try_build_frame(
+        &mut self,
+        tcx: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PlacedNode>, SourceError> {
+        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
+        self.try_build_frame_at(tcx, width, height, now)
+    }
+
+    /// Deterministic checked frame entry point for tests and non-window hosts.
+    pub fn try_build_frame_at(
+        &mut self,
+        tcx: &mut TextContext,
+        width: u32,
+        height: u32,
+        now: Instant,
+    ) -> Result<Vec<PlacedNode>, SourceError> {
+        self.prepare_frame_at(tcx, width, height, now, true)?;
+        Ok(self.adapter.presented())
+    }
+
+    /// Prepare and encode a retained frame, returning declaration failures directly.
+    pub fn try_render_retained_frame(
+        &mut self,
+        scene: &mut Scene,
+        tcx: &mut TextContext,
+        size: (u32, u32),
+        scale: f64,
+    ) -> Result<(usize, f64, f64), SourceError> {
+        tcx.set_native_paragraph_scale(scale);
+        let start = Instant::now();
+        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
+        self.prepare_frame_at(tcx, size.0, size.1, now, false)?;
+        let build_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        self.paint_frame_scene(scene, None, tcx, size, scale);
+        self.paint_debug_overlay(scene, &[], tcx, scale);
+        Ok((
+            self.adapter.placed.len() + self.adapter.tips.layer().len(),
+            build_ms,
+            start.elapsed().as_secs_f64() * 1000.,
+        ))
+    }
+
+    /// Force declaration and encode a frame, returning declaration failures directly.
+    pub fn try_build_and_paint(
+        &mut self,
+        scene: &mut Scene,
+        tcx: &mut TextContext,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<(usize, f64, f64), SourceError> {
+        tcx.set_native_paragraph_scale(scale);
+        let start = Instant::now();
+        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
+        self.prepare_frame_at(tcx, width, height, now, true)?;
+        let build_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        self.paint_frame_scene(scene, None, tcx, (width, height), scale);
+        self.paint_debug_overlay(scene, &[], tcx, scale);
+        Ok((
+            self.adapter.placed.len() + self.adapter.tips.layer().len(),
+            build_ms,
+            start.elapsed().as_secs_f64() * 1000.,
+        ))
+    }
+
     /// Deterministic host clock entry point, also used by the native frame source.
     pub fn build_frame_at(
         &mut self,
@@ -267,8 +328,13 @@ impl<V: HostView> Source<V> {
         height: u32,
         now: Instant,
     ) -> Vec<PlacedNode> {
-        self.prepare_frame_at(tcx, width, height, now, true);
-        self.adapter.presented()
+        match self.try_build_frame_at(tcx, width, height, now) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                tracing::error!(%error, "UI declaration failed");
+                self.adapter.presented()
+            }
+        }
     }
     fn prepare_frame_at(
         &mut self,
@@ -277,7 +343,7 @@ impl<V: HostView> Source<V> {
         height: u32,
         now: Instant,
         force_declaration: bool,
-    ) {
+    ) -> Result<(), SourceError> {
         // Declarations such as Response::focused read the previous frame's
         // backend focus before this frame's traversal moves it.
         self.engine.set_focused(self.adapter.focused());
@@ -337,7 +403,6 @@ impl<V: HostView> Source<V> {
                     .view
                     .theme()
                     .follow_preferences(self.engine.display_preferences())
-            && self.last_error.is_none()
         {
             self.batch_stats.retained_samples += 1;
             self.declarations_reused = true;
@@ -352,7 +417,7 @@ impl<V: HostView> Source<V> {
             {
                 self.update_backend(tcx, width, height);
             }
-            return;
+            return Ok(());
         }
         self.declarations_reused = (self.transition.active()
             || motion_dirty
@@ -378,29 +443,16 @@ impl<V: HostView> Source<V> {
         if self.declarations_reused {
             if motion_dirty || shader_active || tooltip_active || scrollbar_active {
                 self.update_backend(tcx, width, height);
-                return;
+                return Ok(());
             }
-            return;
+            return Ok(());
         }
         let viewport_changed = self.viewport != Some((width, height));
         self.viewport = Some((width, height));
-        let result = self
-            .engine
+        self.engine
             .set_viewport(width as f32, height as f32)
             .map_err(|source| SourceError::Declaration { source })
-            .and_then(|()| self.try_declare());
-        if let Err(error) = result {
-            if self
-                .last_error
-                .as_ref()
-                .is_none_or(|previous| previous.to_string() != error.to_string())
-            {
-                tracing::error!(%error, "UI declaration failed");
-            }
-            self.last_error = Some(error);
-            return;
-        }
-        self.last_error = None;
+            .and_then(|()| self.try_declare())?;
         self.update_backend(tcx, width, height);
         // Fill-mode virtual lists declared from the previous layout's viewport.
         // Commit the new geometry before replaying observers, even while an
@@ -416,6 +468,7 @@ impl<V: HostView> Source<V> {
             self.pending = true;
             self.requests.insert(plico::Changes::ANIMATE);
         }
+        Ok(())
     }
     fn update_backend(&mut self, tcx: &mut TextContext, width: u32, height: u32) {
         self.adapter.requested_focus = self.engine.take_focus_request();
@@ -614,18 +667,21 @@ impl<V: HostView> FrameSource for Source<V> {
         changed
     }
     fn prepare_for_event(&mut self, tcx: &mut TextContext) {
-        if let Some(now) = self.clock_instant() {
-            self.prepare_for_event_at(tcx, now);
-        } else {
-            self.last_error = Some(SourceError::ClockRange);
+        let result = self
+            .clock_instant()
+            .ok_or(SourceError::ClockRange)
+            .and_then(|now| self.prepare_for_event_at(tcx, now));
+        if let Err(error) = result {
+            tracing::error!(%error, "UI event preparation failed");
         }
     }
     fn build_frame(&mut self, tcx: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
-        if let Some(now) = self.clock_instant() {
-            self.build_frame_at(tcx, width, height, now)
-        } else {
-            self.last_error = Some(SourceError::ClockRange);
-            self.adapter.presented()
+        match self.try_build_frame(tcx, width, height) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                tracing::error!(%error, "UI declaration failed");
+                self.adapter.presented()
+            }
         }
     }
     fn paint_scene(
@@ -645,22 +701,13 @@ impl<V: HostView> FrameSource for Source<V> {
         size: (u32, u32),
         scale: f64,
     ) -> Option<(usize, f64, f64)> {
-        tcx.set_native_paragraph_scale(scale);
-        let start = Instant::now();
-        if let Some(now) = self.clock_instant() {
-            self.prepare_frame_at(tcx, size.0, size.1, now, false);
-        } else {
-            self.last_error = Some(SourceError::ClockRange);
+        match self.try_render_retained_frame(scene, tcx, size, scale) {
+            Ok(timings) => Some(timings),
+            Err(error) => {
+                tracing::error!(%error, "UI declaration failed");
+                Some((self.adapter.placed.len(), 0., 0.))
+            }
         }
-        let build_ms = start.elapsed().as_secs_f64() * 1000.;
-        let start = Instant::now();
-        self.paint_frame_scene(scene, None, tcx, size, scale);
-        self.paint_debug_overlay(scene, &[], tcx, scale);
-        Some((
-            self.adapter.placed.len() + self.adapter.tips.layer().len(),
-            build_ms,
-            start.elapsed().as_secs_f64() * 1000.,
-        ))
     }
     fn build_and_paint(
         &mut self,
@@ -673,22 +720,13 @@ impl<V: HostView> FrameSource for Source<V> {
         // Same frame pipeline as build_frame_at, but the scene is encoded
         // straight from the adapter's retained state: the per-node placed
         // list is never materialized for the host.
-        tcx.set_native_paragraph_scale(scale);
-        let start = Instant::now();
-        if let Some(now) = self.clock_instant() {
-            self.prepare_frame_at(tcx, width, height, now, true);
-        } else {
-            self.last_error = Some(SourceError::ClockRange);
+        match self.try_build_and_paint(scene, tcx, width, height, scale) {
+            Ok(timings) => timings,
+            Err(error) => {
+                tracing::error!(%error, "UI declaration failed");
+                (self.adapter.placed.len(), 0., 0.)
+            }
         }
-        let build_ms = start.elapsed().as_secs_f64() * 1000.;
-        let start = Instant::now();
-        self.paint_frame_scene(scene, None, tcx, (width, height), scale);
-        self.paint_debug_overlay(scene, &[], tcx, scale);
-        (
-            self.adapter.placed.len() + self.adapter.tips.layer().len(),
-            build_ms,
-            start.elapsed().as_secs_f64() * 1000.,
-        )
     }
     fn base_color(&self) -> Color {
         self.background

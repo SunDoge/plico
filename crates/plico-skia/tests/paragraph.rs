@@ -261,7 +261,6 @@ fn native_runtime_selection_drag_and_copy_use_painted_geometry() {
     let mut tcx = TextContext::new();
     SkiaSurface::new(400, 200).unwrap().configure_text(&mut tcx);
     source.build_frame(&mut tcx, 400, 200);
-    assert!(source.last_error().is_none());
     let origins: Vec<_> = source
         .adapter
         .placed

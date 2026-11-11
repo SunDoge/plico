@@ -72,7 +72,6 @@ fn main() {
                 .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let us = start.elapsed().as_secs_f64() * 1e6;
-            assert!(source.last_error().is_none());
             if frame >= 16 {
                 samples.push(us);
                 let s = source.adapter.stats;

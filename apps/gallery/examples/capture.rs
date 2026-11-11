@@ -136,11 +136,9 @@ fn run() -> Result<(), Error> {
         );
         let mut text = TextContext::new();
         let nodes = source.build_frame(&mut text, options.width, options.height);
-        if let Some(error) = source.source.last_error() {
-            return Err(Error::Input {
-                message: error.to_string(),
-            });
-        }
+        source.source.try_declare().map_err(|error| Error::Input {
+            message: error.to_string(),
+        })?;
         let mut scene = Scene::new();
         source.paint_scene(
             &mut scene,
@@ -155,11 +153,9 @@ fn run() -> Result<(), Error> {
                 message: e.to_string(),
             })?;
         let nodes = source.build_frame(&mut text, options.width, options.height);
-        if let Some(error) = source.source.last_error() {
-            return Err(Error::Input {
-                message: error.to_string(),
-            });
-        }
+        source.source.try_declare().map_err(|error| Error::Input {
+            message: error.to_string(),
+        })?;
         let mut scene = Scene::new();
         source.paint_scene(
             &mut scene,

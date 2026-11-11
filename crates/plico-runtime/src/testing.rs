@@ -287,12 +287,10 @@ impl<V: HostView> Driver<V> {
     }
     fn frame(&mut self) -> Result<(), Error> {
         self.source
-            .build_frame(&mut self.text, self.size.0, self.size.1);
-        if let Some(message) = self.source.last_error() {
-            return Err(Error::Declaration {
+            .try_build_frame(&mut self.text, self.size.0, self.size.1)
+            .map_err(|message| Error::Declaration {
                 message: message.to_string(),
-            });
-        }
+            })?;
         Ok(())
     }
     /// Current application/host view state after the latest settled frame.

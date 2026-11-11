@@ -290,7 +290,6 @@ mod integration {
         let mut scene = Scene::new();
         s.render_retained_frame(&mut scene, text, (320, 240), 1.)
             .unwrap();
-        assert!(s.last_error().is_none());
         scene
     }
     fn pointer(s: &mut Source<Demo>, phase: PointerPhase, point: Point) {

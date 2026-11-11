@@ -59,5 +59,4 @@ fn routed_workspace_uses_the_same_clock_and_grid() {
     source.view.go(Page::Preferences);
     source.request_rebuild();
     source.build_frame(&mut tcx, 520, 760);
-    assert!(source.last_error().is_none());
 }

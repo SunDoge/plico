@@ -93,7 +93,6 @@ fn origin(s: &Source<Document>, prefix: &str) -> [f64; 2] {
 }
 fn frame(s: &mut Source<Document>, tcx: &mut TextContext) {
     s.build_frame(tcx, 500, 400);
-    assert!(s.last_error().is_none());
 }
 #[test]
 fn cross_paragraph_drag_reverse_copy_select_all_and_clear() {

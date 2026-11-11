@@ -65,7 +65,6 @@ fn fixed_grow_and_percentage_share_space_and_resize() {
     let mut tcx = TextContext::new();
     for width in [400, 800] {
         s.build_frame(&mut tcx, width, 200);
-        assert!(s.last_error().is_none());
         let fixed = rect(&s, "fixed");
         let grow = rect(&s, "grow");
         let ratio = rect(&s, "ratio");

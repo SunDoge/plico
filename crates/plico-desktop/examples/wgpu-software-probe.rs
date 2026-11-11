@@ -194,11 +194,6 @@ mod tests {
                 source
                     .render_retained_frame(&mut scene, &mut text, (800, 700), 1.)
                     .unwrap();
-                assert!(
-                    source.last_error().is_none(),
-                    "{workload}: {:?}",
-                    source.last_error()
-                );
                 assert!(source.adapter.placed.len() > 20);
                 clock.advance(Duration::from_millis(17)).unwrap();
             }

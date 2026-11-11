@@ -352,17 +352,21 @@ fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     }
     let mut source = Source::new(Invalid(false));
     let mut tcx = TextContext::new();
-    let good = source.build_frame(&mut tcx, 640, 740);
+    let good = source.try_build_frame(&mut tcx, 640, 740).unwrap();
+    let good_retained = source.adapter.placed.len();
     source.view.0 = true;
-    let failed = source.build_frame(&mut tcx, 640, 740);
-    assert_eq!(good.len(), failed.len());
+    let error = match source.try_build_frame(&mut tcx, 640, 740) {
+        Err(error) => error,
+        Ok(_) => panic!("duplicate keys unexpectedly produced a frame"),
+    };
+    assert_eq!(good.len(), good_retained);
+    assert_eq!(source.adapter.placed.len(), good_retained);
     assert!(matches!(
-        source.last_error(),
-        Some(plico_desktop::SourceError::Declaration { .. })
+        error,
+        plico_desktop::SourceError::Declaration { .. }
     ));
     source.view.0 = false;
-    source.build_frame(&mut tcx, 640, 740);
-    assert!(source.last_error().is_none());
+    source.try_build_frame(&mut tcx, 640, 740).unwrap();
 }
 
 #[test]
@@ -450,7 +454,6 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             });
             let mut tcx = TextContext::new();
             s.build_frame(&mut tcx, width, 740);
-            assert!(s.last_error().is_none());
             for n in &s.adapter.placed {
                 let mut r = n.rect;
                 if let Some(clip) = n.clip {

@@ -99,7 +99,7 @@ fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
 }
 
 #[test]
-fn declaration_errors_can_be_observed_or_transferred_without_exposing_storage() {
+fn checked_frames_return_declaration_errors_without_side_channels() {
     struct DuplicateKeys;
 
     impl HostView for DuplicateKeys {
@@ -111,9 +111,5 @@ fn declaration_errors_can_be_observed_or_transferred_without_exposing_storage() 
 
     let mut source = Source::new(DuplicateKeys);
     let mut text = TextContext::new();
-    source.build_frame(&mut text, 320, 200);
-
-    assert!(source.last_error().is_some());
-    assert!(source.take_error().is_some());
-    assert!(source.last_error().is_none());
+    assert!(source.try_build_frame(&mut text, 320, 200).is_err());
 }

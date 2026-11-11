@@ -2,7 +2,7 @@
 //! Each case gets a fresh app, input state and virtual clock; only renderer resources are shared.
 use crate::{CaptureError, CapturedFrame, HostView, PreviewSession, PreviewViewport, Source};
 use plico::VirtualClock;
-use plico_renderer::{FrameSource, SemanticRole, SemanticSnapshot, TextContext};
+use plico_renderer::{SemanticRole, SemanticSnapshot, TextContext};
 use plico_runtime::testing::{Command, dispatch};
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -299,10 +299,9 @@ fn frame<V: HostView>(
     text: &mut TextContext,
     viewport: PreviewViewport,
 ) -> Result<(), RecipeError> {
-    source.build_frame(text, viewport.width, viewport.height);
-    if let Some(error) = source.last_error() {
-        return Err(failed(error.to_string()));
-    }
+    source
+        .try_build_frame(text, viewport.width, viewport.height)
+        .map_err(|error| failed(error.to_string()))?;
     if source
         .adapter
         .placed

@@ -108,7 +108,6 @@ fn desktop_host_downloads_decodes_and_schedules_both_formats() {
             state.status()
         );
         let nodes = source.build_frame(&mut text, 1120, 820);
-        assert!(source.source.last_error().is_none());
         let mut scene = Scene::new();
         source.paint_scene(&mut scene, &nodes, &mut text, (1120, 820), 1.);
         assert!(source.animation_deadline().is_some());

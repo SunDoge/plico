@@ -30,11 +30,10 @@ fn main() {
         for _ in 0..3000 {
             source.request_rebuild();
             let start = Instant::now();
-            let nodes = source.build_frame(&mut text, 1120, 820);
+            let nodes = source.try_build_frame(&mut text, 1120, 820).unwrap();
             elapsed.push(start.elapsed().as_secs_f64() * 1e6);
             declare.push(source.declaration_micros);
             checksum += nodes.len();
-            assert!(source.last_error.is_none());
             black_box(nodes);
         }
         elapsed.sort_by(f64::total_cmp);

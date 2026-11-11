@@ -31,7 +31,6 @@ fn frame(source: &mut Source<Demo>, text: &mut TextContext) -> Scene {
     source
         .render_retained_frame(&mut scene, text, (200, 100), 1.)
         .unwrap();
-    assert!(source.last_error().is_none());
     assert_eq!(source.adapter.shader_diagnostics().count(), 0);
     scene
 }

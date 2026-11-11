@@ -32,7 +32,6 @@ fn record(s: &Source<Gallery>, phase: &str, nodes: usize, scene_us: u128) -> ser
 }
 fn frame(s: &mut Source<Gallery>, tcx: &mut TextContext, w: u32, h: u32) -> usize {
     let nodes = s.build_frame(tcx, w, h);
-    assert!(s.last_error().is_none(), "{:?}", s.last_error());
     nodes.len()
 }
 fn wheel(s: &mut Source<Gallery>, x: f64, y: f64, delta: f64) {

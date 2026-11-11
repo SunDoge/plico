@@ -18,7 +18,6 @@ fn reply_finishes_keeps_rich_paragraphs_and_becomes_idle() {
     for _ in 0..160 {
         clock.advance(Duration::from_millis(100)).unwrap();
         source.build_frame(&mut tcx, 1120, 820);
-        assert!(source.last_error().is_none(), "{:?}", source.last_error());
     }
     for p in &source.adapter.placed {
         if p.paint

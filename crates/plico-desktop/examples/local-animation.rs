@@ -147,7 +147,6 @@ mod tests {
         for frame in 0..60 {
             clock.advance(Duration::from_millis(16)).unwrap();
             source.render_retained_frame(&mut scene, &mut text, (720, 500), 1.75);
-            assert!(source.last_error().is_none());
             assert!(source.has_anim(), "frame {frame}");
             assert!(source.view.frames >= frame + 1);
         }

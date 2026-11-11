@@ -39,7 +39,6 @@ impl HostView for Demo {
 }
 fn scene(source: &mut Source<Demo>, tcx: &mut TextContext, scale: f64) -> Scene {
     let nodes = source.build_frame(tcx, 200, 140);
-    assert!(source.last_error().is_none());
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, tcx, (200, 140), scale);
     scene

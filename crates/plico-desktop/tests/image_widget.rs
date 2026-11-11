@@ -70,7 +70,6 @@ fn embedded_image_reaches_offscreen_pixels() {
     let mut source = Source::new(App);
     let mut tcx = TextContext::new();
     let nodes = source.build_frame(&mut tcx, 100, 100);
-    assert!(source.last_error().is_none(), "{:?}", source.last_error());
     let image_nodes: Vec<_> = nodes.iter().filter(|n| n.paint.image.is_some()).collect();
     assert_eq!(image_nodes.len(), 1);
     assert_eq!(

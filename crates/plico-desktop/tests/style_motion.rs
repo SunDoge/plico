@@ -184,7 +184,8 @@ fn input_after_long_idle_starts_a_new_transition_instead_of_finishing_it() {
     s.build_frame_at(&mut tcx, 600, 300, now);
     s.view.expanded = true;
     s.request_rebuild();
-    s.prepare_for_event_at(&mut tcx, now + Duration::from_secs(60));
+    s.prepare_for_event_at(&mut tcx, now + Duration::from_secs(60))
+        .unwrap();
     let nodes = s.build_frame_at(&mut tcx, 600, 300, now + Duration::from_secs(60));
     let p = nodes
         .iter()

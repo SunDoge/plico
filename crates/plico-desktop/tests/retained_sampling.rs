@@ -171,13 +171,17 @@ fn failed_declarations_retry_and_can_recover_without_reusing_a_partial_frame() {
     );
     let mut text = TextContext::new();
     for _ in 0..2 {
-        sample(&mut source, &mut text, (400, 300), 1.);
-        assert!(source.last_error().is_some());
+        assert!(
+            source
+                .try_render_retained_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
+                .is_err()
+        );
     }
     assert_eq!(source.view.calls, 2);
     source.view.invalid = false;
-    sample(&mut source, &mut text, (400, 300), 1.);
-    assert!(source.last_error().is_none());
+    source
+        .try_render_retained_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
+        .unwrap();
     assert_eq!(source.view.calls, 3);
 }
 

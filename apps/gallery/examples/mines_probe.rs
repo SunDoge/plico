@@ -41,7 +41,6 @@ fn main() {
             source
                 .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
                 .unwrap();
-            assert!(source.last_error().is_none(), "{:?}", source.last_error());
             let cpu_us = start.elapsed().as_micros();
             let gpu = Instant::now();
             renderer

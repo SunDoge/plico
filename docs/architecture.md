@@ -17,10 +17,11 @@
 `Source`/Engine/Adapter，只提供 view 断言、受控状态更新、语义快照、声明快照、retained
 layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
 
-宿主也不直接改写 `Source` 的错误存储。声明失败通过 `last_error()` 查询，或者由
-`take_error()` 转移到宿主自己的错误通道；错误槽的保留和清除规则归运行时所有。后续按同一
-方向先补齐查询和受控更新接口，再逐步收回仍公开的 Engine、Adapter 与 view 字段，避免一次
-机械迁移所有旧测试。
+`Source` 不保留可变的“上次错误”旁路状态。测试、capture、recipe、Web 与 Bevy 等需要处理
+失败的调用方使用 `try_build_frame`、`try_render_retained_frame` 和
+`try_build_and_paint`，声明或时钟错误沿当前调用直接返回。窗口宿主的无失败 `FrameSource`
+兼容入口只记录诊断并保留最后一帧。后续按同一方向先补齐查询和受控更新接口，再逐步收回仍
+公开的 Engine、Adapter 与 view 字段，避免一次机械迁移所有旧测试。
 
 ## 当前实现
 

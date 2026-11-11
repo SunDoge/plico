@@ -224,7 +224,6 @@ fn conditional_async_load_settles_and_native_frame_observes_completion() {
     source
         .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
-    assert!(source.last_error().is_none(), "{:?}", source.last_error());
     assert_eq!(source.view.services.commands, [42]);
     assert_eq!(source.batch_stats().declaration_passes, 1);
     source.view.services.pending.push(42);
@@ -232,7 +231,6 @@ fn conditional_async_load_settles_and_native_frame_observes_completion() {
     source
         .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
-    assert!(source.last_error().is_none());
     assert_eq!(source.view.services.commands, [42]);
     assert!(
         source

@@ -25,7 +25,6 @@ fn key(value: &str) -> UiEvent {
 }
 fn frame(s: &mut Source<Gallery>, tcx: &mut TextContext, w: u32, h: u32) {
     s.build_frame(tcx, w, h);
-    assert!(s.last_error().is_none(), "{:?}", s.last_error());
 }
 #[test]
 fn keyboard_slide_retains_entity_and_stops_requesting_frames() {

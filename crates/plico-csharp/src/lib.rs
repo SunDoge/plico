@@ -889,8 +889,6 @@ fn load_image(id: u64, path: *const u8, len: u32) -> u64 {
 fn view_error(host: &Host) -> Result<(), String> {
     if let Some(error) = &host.source.source.view.error {
         Err(error.clone())
-    } else if let Some(error) = host.source.source.last_error() {
-        Err(error.to_string())
     } else {
         Ok(())
     }

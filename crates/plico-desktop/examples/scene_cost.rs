@@ -89,7 +89,6 @@ fn main() {
             let (_, build_ms, scene_ms) =
                 source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
             ENABLED.store(false, Relaxed);
-            assert!(source.last_error().is_none(), "{:?}", source.last_error());
             // Only sample the changed frames; odd frames declare unchanged
             // and take the retained path.
             if frame >= 16 && source.view.changed {

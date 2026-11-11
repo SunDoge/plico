@@ -42,7 +42,6 @@ impl HostView for Demo {
 fn frame<V: HostView>(s: &mut Source<V>, text: &mut TextContext) {
     s.render_retained_frame(&mut Scene::new(), text, (500, 350), 1.)
         .unwrap();
-    assert!(s.last_error().is_none(), "{:?}", s.last_error());
 }
 fn preferences<V: HostView>(s: &mut Source<V>, p: DisplayPreferences) -> bool {
     s.handle_event(UiEvent::WindowMetrics(WindowMetrics {

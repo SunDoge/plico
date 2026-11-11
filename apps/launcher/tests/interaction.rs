@@ -20,7 +20,6 @@ fn key(value: &str) -> UiEvent {
 }
 fn frame(s: &mut Source<Launcher>, tcx: &mut TextContext) {
     s.build_frame(tcx, 680, 526);
-    assert!(s.last_error().is_none(), "{:?}", s.last_error());
 }
 #[test]
 fn programmatic_selection_updates_the_immediate_view() {

@@ -242,18 +242,17 @@ fn prepare<V: plico::View + 'static>(
         let resized = size != ui.size;
         ui.source.poll_async();
         let previous = ui.scene.clone();
-        ui.source.render_retained_frame(
-            &mut ui.scene,
-            &mut ui.text,
-            (
-                window.width().round() as u32,
-                window.height().round() as u32,
-            ),
-            scale,
-        );
-        if let Some(source) = ui.source.take_error() {
-            return Err(Error::Declaration { source });
-        }
+        ui.source
+            .try_render_retained_frame(
+                &mut ui.scene,
+                &mut ui.text,
+                (
+                    window.width().round() as u32,
+                    window.height().round() as u32,
+                ),
+                scale,
+            )
+            .map_err(|source| Error::Declaration { source })?;
         if resized
             || output.0.as_ref().is_none_or(|frame| frame.window != entity)
             || !ui.scene.shares_commands_with(&previous)

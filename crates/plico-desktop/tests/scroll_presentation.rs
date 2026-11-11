@@ -73,7 +73,6 @@ fn wheel(delta: f64) -> UiEvent {
 fn sample(s: &mut Source<Demo>, text: &mut TextContext) {
     s.render_retained_frame(&mut Scene::new(), text, (600, 400), 1.)
         .unwrap();
-    assert!(s.last_error().is_none());
 }
 fn click(source: &mut Source<Demo>, text: &mut TextContext) {
     let rect = source

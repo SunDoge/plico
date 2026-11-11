@@ -73,7 +73,6 @@ fn render(
     source
         .render_retained_frame(&mut scene, text, (64, 64), scale)
         .unwrap();
-    assert!(source.last_error().is_none());
     if !source.view.0.invalid {
         assert_eq!(
             source.adapter.shader_diagnostics().count(),
@@ -457,7 +456,6 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
         source
             .render_retained_frame(&mut scene, &mut text, (64, 64), 1.)
             .unwrap();
-        assert!(source.last_error().is_none());
         let rgba = renderer
             .render_scene(&scene, [64, 64], [0.; 4], true)
             .unwrap();

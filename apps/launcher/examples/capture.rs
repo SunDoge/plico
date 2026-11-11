@@ -22,14 +22,14 @@ enum Error {
     #[snafu(display("capture IO failed: {source}"))]
     Io { source: std::io::Error },
     #[snafu(display("{message}"))]
-    Input { message: &'static str },
+    Input { message: String },
 }
 fn run() -> Result<(), Error> {
     let options = Options::parse();
     snafu::ensure!(
         (400..=1600).contains(&options.width),
         InputSnafu {
-            message: "width must be between 400 and 1600"
+            message: "width must be between 400 and 1600".to_owned()
         }
     );
     if let Some(parent) = options.out.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -41,17 +41,15 @@ fn run() -> Result<(), Error> {
     let clock = plico::VirtualClock::default();
     let mut source = Source::with_clock(app, clock);
     let mut tcx = TextContext::new();
-    let nodes = source.build_frame(&mut tcx, options.width, 526);
-    snafu::ensure!(
-        source.last_error().is_none(),
-        InputSnafu {
-            message: "view declaration failed"
-        }
-    );
+    let nodes = source
+        .try_build_frame(&mut tcx, options.width, 526)
+        .map_err(|error| Error::Input {
+            message: error.to_string(),
+        })?;
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, &mut tcx, (options.width, 526), 1.);
     let out = options.out.to_str().ok_or(Error::Input {
-        message: "output must be UTF-8",
+        message: "output must be UTF-8".to_owned(),
     })?;
     let base = plico_shell::window_frame::clip_window_frame(
         &mut scene,

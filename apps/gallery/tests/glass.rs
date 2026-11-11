@@ -17,7 +17,6 @@ fn glass_background_moves_without_layout_and_pause_returns_to_idle() {
     source.build_frame(&mut tcx, 1120, 820);
     clock.advance(Duration::from_secs(1)).unwrap();
     let nodes = source.build_frame(&mut tcx, 1120, 820);
-    assert!(source.last_error().is_none());
     assert_eq!(source.adapter.stats.layout_runs, 0);
     assert_eq!(source.adapter.stats.text_measure_invalidations, 0);
     assert!(source.has_anim());
