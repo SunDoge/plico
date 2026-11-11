@@ -76,10 +76,9 @@ struct WakeBatch {
 }
 pub struct Source<V: HostView> {
     fonts: Vec<FontAsset>,
-    pub engine: Engine,
-    pub adapter: Adapter,
-    /// Direct external mutations require request_rebuild; prefer update().
-    pub view: V,
+    pub(crate) engine: Engine,
+    pub(crate) adapter: Adapter,
+    pub(crate) view: V,
     declaration_stats: plico::FrameStats,
     declaration_micros: u128,
     revision: u64,

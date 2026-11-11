@@ -46,8 +46,7 @@ fn wheel(y: f64) -> UiEvent {
 
 fn placed_y(source: &Source<Demo>, sticky: bool) -> f32 {
     source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| {
             if sticky {
@@ -86,14 +85,12 @@ fn header_sticks_to_the_port_top_within_its_parent() {
     source.handle_event(wheel(100.));
     source.build_frame(&mut text, 300, 200);
     let header = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.sticky_top == Some(8.))
         .unwrap();
     let parent = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.node_id == header.parent_node_id.unwrap())
         .unwrap();

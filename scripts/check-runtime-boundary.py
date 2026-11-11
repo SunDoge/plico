@@ -26,6 +26,9 @@ migrated_test_roots = {
     ("apps", "gallery", "tests"),
     ("apps", "launcher", "tests"),
     ("apps", "services-demo", "tests"),
+    ("crates", "plico-desktop", "tests"),
+    ("crates", "plico-runtime", "tests"),
+    ("crates", "plico-skia", "tests"),
     ("crates", "plico-wgpu", "tests"),
 }
 migrated_test_files = {
@@ -106,14 +109,22 @@ for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
         migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
         if "tests" in parts and not migrated_test:
             continue
-        if parts[:2] == ("crates", "plico-runtime"):
+        if parts[:3] == ("crates", "plico-runtime", "src"):
             continue
-        for number, line in enumerate(path.read_text().splitlines(), 1):
-            match = DIRECT_SOURCE_FIELD.search(line)
-            if match:
-                violations.append(
-                    f"{relative}:{number}: Source.{match.group(1)} field: {line.strip()}"
-                )
+        contents = path.read_text()
+        for match in DIRECT_SOURCE_FIELD.finditer(contents):
+            number = contents.count("\n", 0, match.start()) + 1
+            line = contents.splitlines()[number - 1].strip()
+            violations.append(
+                f"{relative}:{number}: Source.{match.group(1)} field: {line}"
+            )
+
+source_definition = (ROOT / "crates/plico-runtime/src/source.rs").read_text()
+for field in ("engine", "adapter", "view"):
+    if not re.search(rf"^\s*pub\(crate\) {field}:", source_definition, re.MULTILINE):
+        violations.append(
+            f"crates/plico-runtime/src/source.rs: Source.{field} must remain crate-private"
+        )
 
 if violations:
     sys.exit(

@@ -77,8 +77,7 @@ fn smooth_scroll_advances_during_unrelated_layout_changes() {
             .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
         let port = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.scroll.scrollable[1])
             .unwrap();
@@ -88,8 +87,7 @@ fn smooth_scroll_advances_during_unrelated_layout_changes() {
             port.scroll.offset[1]
         );
         let content = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.rect[3] - node.rect[1] > 900.)
             .unwrap();
@@ -151,8 +149,7 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
             );
         }
         let port = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.scroll.scrollable[1])
             .unwrap();

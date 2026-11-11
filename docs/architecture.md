@@ -88,6 +88,9 @@ panel 的单一 entrance progress 通过 retained 层级和最终几何关联，
 最后的 Gallery 综合测试也已进入守卫：真实指针/键盘、主题、路由、工作区持久化、全页面布局、
 spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar.numeric_value` 验证，不要求视觉
 百分比文本重复进入可访问性树。至此 desktop 外部测试不再穿透 Source 字段。
+`Source` 的 Engine、Adapter 与 view 字段现为 `pub(crate)`：runtime 内部 surface/testing 可协作，
+外部 crate 无法访问。边界脚本同时守卫字段可见性、跨行链式穿透，并覆盖 desktop/runtime/Skia/
+wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级检查。
 
 ## 当前实现
 

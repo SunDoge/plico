@@ -285,8 +285,7 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         assert!(
             source
                 .source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|p| p.paint.text.as_deref() == Some("Deterministic image load failure"))
         );

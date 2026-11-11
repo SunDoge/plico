@@ -32,8 +32,7 @@ fn hovering_noninteractive_toast_content_pauses_without_spinning_and_exit_keeps_
         .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
         .unwrap();
     let card = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.background.is_some())
         .unwrap()
@@ -136,8 +135,7 @@ fn toast_portal_escapes_a_small_clipped_calling_container() {
         .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
         .unwrap();
     let card = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.background.is_some())
         .unwrap()

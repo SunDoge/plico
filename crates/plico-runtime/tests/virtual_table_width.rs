@@ -45,21 +45,18 @@ fn virtual_rows_and_flex_cells_follow_viewport_width_after_resize() {
             .render_retained_frame(&mut scene, &mut text, (width, 300), 1.)
             .unwrap();
         let port = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.scroll.scrollable[1])
             .unwrap();
         assert!((port.rect[2] - port.rect[0] - width as f32).abs() < 1.);
         let name = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.paint.text.as_deref() == Some("Name"))
             .unwrap();
         let status = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .find(|node| node.paint.text.as_deref() == Some("Translated 0"))
             .unwrap();
