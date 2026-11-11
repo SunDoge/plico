@@ -51,6 +51,7 @@ fn check(page: Page) {
             let count = fast
                 .render_retained_frame(&mut right, &mut text, (640, 740), 1.)
                 .unwrap()
+                .unwrap()
                 .0;
 
             assert_eq!(count, nodes.len());
@@ -61,6 +62,7 @@ fn check(page: Page) {
             let mut merged = Scene::new();
             let merged_count = combined
                 .build_and_paint(&mut merged, &mut text, 640, 740, 1.)
+                .unwrap()
                 .0;
             assert_eq!(merged_count, nodes.len());
             assert_eq!(combined.adapter.stats.placed_node_clones, 0);

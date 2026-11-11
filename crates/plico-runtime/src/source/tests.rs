@@ -112,4 +112,10 @@ fn checked_frames_return_declaration_errors_without_side_channels() {
     let mut source = Source::new(DuplicateKeys);
     let mut text = TextContext::new();
     assert!(source.try_build_frame(&mut text, 320, 200).is_err());
+
+    let mut scene = Scene::new();
+    let error =
+        FrameSource::render_retained_frame(&mut source, &mut scene, &mut text, (320, 200), 1.)
+            .unwrap_err();
+    assert!(error.to_string().contains("duplicate UI key"));
 }

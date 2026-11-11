@@ -101,7 +101,7 @@ fn run(rows: usize, case: Case, options: &Options) {
         let calls = source.view.calls;
         let start = Instant::now();
         let (_, _, scene_ms) = source
-            .render_retained_frame(&mut scene, &mut text, (800, height), 1.)
+            .try_render_retained_frame(&mut scene, &mut text, (800, height), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
         if matches!(case, Case::Idle | Case::Redeclare) {

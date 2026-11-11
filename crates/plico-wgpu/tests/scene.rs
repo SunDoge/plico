@@ -38,7 +38,9 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
         plico::VirtualClock::default(),
     );
     let mut scene = Scene::new();
-    source.build_and_paint(&mut scene, &mut text, 320, 180, 1.);
+    source
+        .try_build_and_paint(&mut scene, &mut text, 320, 180, 1.)
+        .unwrap();
     assert!(text.take_native_paragraph_error().is_none());
     assert_eq!(text.cache_entries(), (0, 0), "Parley fallback was used");
     let flat = scene.flattened();
@@ -61,7 +63,9 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
         .render_items(&prepared.draws(), [320, 180], [1.; 4], 0.)
         .unwrap();
     source.update(|v| v.0.value = 42);
-    source.build_and_paint(&mut scene, &mut text, 320, 180, 1.);
+    source
+        .try_build_and_paint(&mut scene, &mut text, 320, 180, 1.)
+        .unwrap();
     let prepared = renderer.prepare_scene(&scene, [320, 180]).unwrap();
     let after = renderer
         .render_items(&prepared.draws(), [320, 180], [1.; 4], 0.)
@@ -70,7 +74,9 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
     let generation = text.cache_generation();
     renderer.configure_text(&mut text, 1.25).unwrap();
     assert_ne!(generation, text.cache_generation());
-    source.build_and_paint(&mut scene, &mut text, 320, 180, 1.25);
+    source
+        .try_build_and_paint(&mut scene, &mut text, 320, 180, 1.25)
+        .unwrap();
     assert!(text.take_native_paragraph_error().is_none());
     let prepared = renderer.prepare_scene(&scene, [400, 225]).unwrap();
     let dpi = renderer
@@ -1071,7 +1077,9 @@ fn native_password_input_shapes_only_masked_presentation() {
         plico::VirtualClock::default(),
     );
     let mut scene = Scene::new();
-    source.build_and_paint(&mut scene, &mut text, 320, 100, 1.);
+    source
+        .try_build_and_paint(&mut scene, &mut text, 320, 100, 1.)
+        .unwrap();
     let id = source
         .adapter
         .semantics(&source.engine, 0)
@@ -1080,7 +1088,9 @@ fn native_password_input_shapes_only_masked_presentation() {
         .id;
     source.handle_semantic_action(SemanticAction::Focus { target: id });
     source.handle_event(UiEvent::Paste("private🙂value".into()));
-    source.build_and_paint(&mut scene, &mut text, 320, 100, 1.);
+    source
+        .try_build_and_paint(&mut scene, &mut text, 320, 100, 1.)
+        .unwrap();
     let flat = scene.flattened();
     let paragraphs: Vec<_> = flat
         .commands

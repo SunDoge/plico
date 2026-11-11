@@ -19,9 +19,11 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 
 `Source` 不保留可变的“上次错误”旁路状态。测试、capture、recipe、Web 与 Bevy 等需要处理
 失败的调用方使用 `try_build_frame`、`try_render_retained_frame` 和
-`try_build_and_paint`，声明或时钟错误沿当前调用直接返回。窗口宿主的无失败 `FrameSource`
-兼容入口只记录诊断并保留最后一帧。后续按同一方向先补齐查询和受控更新接口，再逐步收回仍
-公开的 Engine、Adapter 与 view 字段，避免一次机械迁移所有旧测试。
+`try_build_and_paint`，声明或时钟错误沿当前调用直接返回。动态窗口宿主的
+`FrameSource::render_retained_frame` 与 `build_and_paint` 同样返回 `FrameSourceError`；shell
+统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装成成功帧。后续按同一方向
+先补齐查询和受控更新接口，再逐步收回仍公开的 Engine、Adapter 与 view 字段，避免一次机械
+迁移所有旧测试。
 
 和 MyGO 将 runtime、scene 与帧统计留在内部一致，普通宿主通过 `Source::view`、`update`、
 `placed_nodes`、`semantics`、`selected_text`、`focused` 和 `theme` 读取或更新稳定能力，不拼接

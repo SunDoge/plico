@@ -284,8 +284,9 @@ types as a parallel facade. Its public surface is limited to window hosting,
 extensions and desktop services; backend probes depend on `plico-renderer`
 directly.
 Runtime declaration errors have no retained side channel. Checked frame methods
-return them to tests and non-window hosts directly; the infallible native-window
-compatibility path logs the failure and keeps the last complete frame.
+return them to tests and non-window hosts directly; retained and combined
+`FrameSource` methods return a common `FrameSourceError` to the native shell,
+which rejects the frame through its normal telemetry and initial-window path.
 Hosts also have stable read-only queries for view state, retained layout,
 semantics, selection, focus, theme and per-frame diagnostics. Declaration and
 backend counters are exposed as a snapshot instead of mutable `Source` fields.

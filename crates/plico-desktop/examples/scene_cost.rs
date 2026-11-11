@@ -3,7 +3,7 @@
 //! reports whole-frame totals.
 use plico::{Color, UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use std::time::Duration;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -72,7 +72,9 @@ fn main() {
         let mut text = TextContext::new();
         let mut scene = Scene::new();
         // Warmup: first declaration, layout, text shaping, scene build.
-        source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+        source
+            .try_build_and_paint(&mut scene, &mut text, 800, 600, 1.)
+            .unwrap();
         let mut scene_us = Vec::new();
         let mut build_us = Vec::new();
         let mut builds = 0;
@@ -86,8 +88,9 @@ fn main() {
             ALLOCS.store(0, Relaxed);
             BYTES.store(0, Relaxed);
             ENABLED.store(true, Relaxed);
-            let (_, build_ms, scene_ms) =
-                source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+            let (_, build_ms, scene_ms) = source
+                .try_build_and_paint(&mut scene, &mut text, 800, 600, 1.)
+                .unwrap();
             ENABLED.store(false, Relaxed);
             // Only sample the changed frames; odd frames declare unchanged
             // and take the retained path.

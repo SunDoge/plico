@@ -129,7 +129,9 @@ fn skeleton_uses_native_animation_without_redeclaring_the_view_and_can_go_idle()
     for _ in 0..3 {
         clock.advance(Duration::from_millis(16)).unwrap();
         let mut scene = Scene::new();
-        source.render_retained_frame(&mut scene, &mut text, (320, 200), 1.);
+        source
+            .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+            .unwrap();
     }
     assert_eq!(source.view.shows, shows);
     assert!(clock.now() >= Duration::from_millis(48));

@@ -121,7 +121,7 @@ pub trait NativeParagraph {
     fn line_range_at(&self, _y: f32) -> Option<std::ops::Range<usize>> {
         None
     }
-    /// Logical caret bounds [x0,y0,x1,y1] at a UTF-8 insertion boundary.
+    /// Logical caret bounds `[x0, y0, x1, y1]` at a UTF-8 insertion boundary.
     /// Providers without editing geometry may return None.
     fn caret_rect(&self, _byte: usize) -> Option<[f32; 4]> {
         None

@@ -194,7 +194,9 @@ impl App {
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "retained.cpu");
             phase.attribute("parent", parent);
-            source.render_retained_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
+            source
+                .render_retained_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
+                .map_err(|source| crate::Error::Frame { source })?
         };
         if let Some(timings) = retained {
             return match shell.tcx.take_native_paragraph_error() {
@@ -209,7 +211,9 @@ impl App {
             let _guard = span.enter();
             let mut phase = crate::telemetry::span("frame", "build.cpu");
             phase.attribute("parent", parent);
-            source.build_and_paint(&mut shell.scene, &mut shell.tcx, w, h, scale)
+            source
+                .build_and_paint(&mut shell.scene, &mut shell.tcx, w, h, scale)
+                .map_err(|source| crate::Error::Frame { source })?
         };
         if let Some(message) = shell.tcx.take_native_paragraph_error() {
             return Err(crate::Error::Renderer { message });

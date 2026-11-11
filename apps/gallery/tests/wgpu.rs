@@ -92,9 +92,12 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
         assert!(
             source
                 .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+                .unwrap()
                 .is_none()
         );
-        source.build_and_paint(&mut scene, &mut text, 1120, 820, 1.);
+        source
+            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .unwrap();
         assert!(
             !text.set_native_paragraph_scale(zoom),
             "measurement scale was not synchronized"
@@ -128,7 +131,9 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
             .render_scene(&scene, [1120, 820], [1.; 4], true)
             .unwrap();
         assert_eq!(actual, expected);
-        source.build_and_paint(&mut scene, &mut text, 1120, 820, 1.);
+        source
+            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .unwrap();
         assert_eq!(
             generation,
             text.cache_generation(),
@@ -191,7 +196,9 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         let mut frame = |source: &mut SurfaceSource<gallery::images::GalleryHost, ImageSurface>,
                          partial: &mut Renderer| {
             source.poll_async();
-            source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
+            source
+                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .unwrap();
             assert!(text.take_native_paragraph_error().is_none());
             let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
             let expected = full.render_scene(&scene, size, [1.; 4], false).unwrap();

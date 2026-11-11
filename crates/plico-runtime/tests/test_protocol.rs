@@ -119,7 +119,7 @@ fn json_pointer_commands_redeclare_and_clear_the_pointer_snapshot() {
 
 #[test]
 fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
-    use plico_renderer::{FrameSource, Scene, TextContext};
+    use plico_renderer::{Scene, TextContext};
     use plico_runtime::{Source, testing::dispatch};
     #[derive(Default)]
     struct Probe {
@@ -146,21 +146,29 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
     );
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    source.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
     dispatch(
         &mut source,
         &mut text,
         &Command::PointerMove { x: 675., y: 480. },
     )
     .unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
     assert_eq!(source.view.seen, Some((675., 480.)));
     dispatch(&mut source, &mut text, &Command::PointerLeave).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
     assert_eq!(source.view.seen, None);
     source.view.read = false;
     source.request_rebuild();
-    source.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
     let shows = source.view.shows;
     dispatch(
         &mut source,
@@ -168,7 +176,9 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
         &Command::PointerMove { x: 900., y: 750. },
     )
     .unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .unwrap();
     assert_eq!(
         source.view.shows, shows,
         "unobserved pointer movement should not redeclare"

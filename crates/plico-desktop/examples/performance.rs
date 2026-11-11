@@ -74,7 +74,7 @@ fn main() {
             ACTIVE.store(true, Relaxed);
             let start = Instant::now();
             let (_, _, scene_ms) = source
-                .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let elapsed = start.elapsed().as_nanos();
             ACTIVE.store(false, Relaxed);

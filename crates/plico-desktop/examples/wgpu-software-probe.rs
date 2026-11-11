@@ -121,7 +121,7 @@ impl FrameSource for Paced {
         text: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Option<(usize, f64, f64)> {
+    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
         let result = self.source.render_retained_frame(scene, text, size, scale);
         self.next = Instant::now() + Duration::from_secs_f64(1. / 60.);
         result

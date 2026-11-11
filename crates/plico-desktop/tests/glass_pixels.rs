@@ -189,7 +189,9 @@ fn retained_frame_matches_direct_across_animation_frames() {
             plico_shell::renderer::render_to_image(&direct, 1120, 820, source.base_color())
                 .unwrap();
         let mut retained = Scene::new();
-        source.render_retained_frame(&mut retained, &mut tcx, (1120, 820), 1.);
+        source
+            .try_render_retained_frame(&mut retained, &mut tcx, (1120, 820), 1.)
+            .unwrap();
         let retained_image =
             plico_shell::renderer::render_to_image(&retained, 1120, 820, source.base_color())
                 .unwrap();
@@ -236,7 +238,9 @@ fn blur_stays_confined_during_theme_transition() {
     for step in 0..8 {
         clock.advance(Duration::from_millis(40)).unwrap();
         let mut scene = Scene::new();
-        source.render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.);
+        source
+            .try_render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.)
+            .unwrap();
         let image =
             plico_shell::renderer::render_to_image(&scene, 1120, 820, source.base_color()).unwrap();
         // The blurred card region must remain interior to the card rect: the

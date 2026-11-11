@@ -475,7 +475,7 @@ pub enum HostAction {
     ///
     /// Widget-side request vocabulary; the applier translates it into the
     /// clipboard-read effect and delivers the result through
-    /// [`Widget::deliver_clipboard_text`].
+    /// [`crate::Widget::deliver_clipboard_text`].
     ReadClipboard {
         /// Producer-local request identifier.
         request_id: u64,

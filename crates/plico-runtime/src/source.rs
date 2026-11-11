@@ -750,14 +750,10 @@ impl<V: HostView> FrameSource for Source<V> {
         tcx: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Option<(usize, f64, f64)> {
-        match self.try_render_retained_frame(scene, tcx, size, scale) {
-            Ok(timings) => Some(timings),
-            Err(error) => {
-                tracing::error!(%error, "UI declaration failed");
-                Some((self.adapter.placed.len(), 0., 0.))
-            }
-        }
+    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
+        self.try_render_retained_frame(scene, tcx, size, scale)
+            .map(Some)
+            .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn build_and_paint(
         &mut self,
@@ -766,17 +762,12 @@ impl<V: HostView> FrameSource for Source<V> {
         width: u32,
         height: u32,
         scale: f64,
-    ) -> (usize, f64, f64) {
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
         // Same frame pipeline as build_frame_at, but the scene is encoded
         // straight from the adapter's retained state: the per-node placed
         // list is never materialized for the host.
-        match self.try_build_and_paint(scene, tcx, width, height, scale) {
-            Ok(timings) => timings,
-            Err(error) => {
-                tracing::error!(%error, "UI declaration failed");
-                (self.adapter.placed.len(), 0., 0.)
-            }
-        }
+        self.try_build_and_paint(scene, tcx, width, height, scale)
+            .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn base_color(&self) -> Color {
         self.background

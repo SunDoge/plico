@@ -130,7 +130,7 @@ impl FrameSource for ZoomSource {
         text: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Option<(usize, f64, f64)> {
+    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
         self.sync();
         self.inner
             .render_retained_frame(scene, text, self.viewport(size), scale * self.zoom)
@@ -142,7 +142,7 @@ impl FrameSource for ZoomSource {
         width: u32,
         height: u32,
         scale: f64,
-    ) -> (usize, f64, f64) {
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
         self.sync();
         let (width, height) = self.viewport((width, height));
         self.inner

@@ -53,6 +53,10 @@ pub enum CaptureError {
     Image { source: image::ImageError },
     #[snafu(display("capture backend {backend:?} is unavailable"))]
     Backend { backend: crate::RenderBackend },
+    #[snafu(display("capture frame failed: {source}"))]
+    Frame {
+        source: plico_renderer::FrameSourceError,
+    },
     #[cfg(feature = "wgpu")]
     #[snafu(display("wgpu capture failed: {source}"))]
     Wgpu { source: plico_wgpu::Error },
@@ -277,10 +281,12 @@ impl Capture<'_> {
             if self
                 .source
                 .render_retained_frame(&mut scene, text, (self.width, self.height), self.scale)
+                .map_err(|source| CaptureError::Frame { source })?
                 .is_none()
             {
                 self.source
-                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale);
+                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale)
+                    .map_err(|source| CaptureError::Frame { source })?;
             }
             if pass == self.settle_passes || !self.source.poll_async() {
                 let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;

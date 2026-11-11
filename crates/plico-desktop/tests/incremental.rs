@@ -284,21 +284,24 @@ fn retained_presentation_exports_no_nodes_and_shared_scene_cache_is_immutable() 
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     let first = s
-        .render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     assert_eq!(first.0, 1001);
     assert_eq!(s.adapter.stats.placed_node_clones, 0);
     let original = scene.clone();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
     assert_eq!(s.adapter.stats.placed_node_clones, 0);
     assert_eq!(s.adapter.stats.scene_reuses, 1);
     assert_eq!(original.commands.as_ptr(), scene.commands.as_ptr());
     s.view.fade = true;
     s.request_rebuild();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
     let calls = s.view.calls;
     clock.advance(Duration::from_millis(100)).unwrap();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
     assert_eq!(s.view.calls, calls);
     assert_eq!(s.adapter.stats.sync_visits, 1);
     assert_eq!(s.adapter.stats.placed_node_clones, 0);
@@ -312,7 +315,8 @@ fn event_preparation_commits_geometry_without_exporting_a_snapshot() {
     let mut s = Source::new(Sparse::new());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
     s.view.wider = true;
     s.request_rebuild();
     s.prepare_for_event(&mut text);

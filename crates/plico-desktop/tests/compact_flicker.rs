@@ -112,14 +112,16 @@ fn compact_toggle_is_atomic_on_the_host_paint_path() {
     let mut s = Source::with_clock(App { compact: false }, clock.clone());
     let mut tcx = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
-    s.build_and_paint(&mut scene, &mut tcx, 400, 300, 1.);
+    s.try_build_and_paint(&mut scene, &mut tcx, 400, 300, 1.)
+        .unwrap();
     s.view.compact = true;
     s.request_rebuild();
     let mut snapshots = Vec::new();
     for _ in 0..4 {
         clock.advance(Duration::from_millis(16)).unwrap();
         let mut scene = plico_renderer::Scene::new();
-        s.build_and_paint(&mut scene, &mut tcx, 400, 300, 1.);
+        s.try_build_and_paint(&mut scene, &mut tcx, 400, 300, 1.)
+            .unwrap();
         snapshots.push((
             s.adapter.stats.paint_writes,
             s.adapter.stats.style_writes,

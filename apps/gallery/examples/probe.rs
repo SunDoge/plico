@@ -83,10 +83,14 @@ fn probe_page(page: Page) -> Vec<serde_json::Value> {
     // The host's combined build+paint path: the placed list is painted from
     // retained state instead of being exported. placed_node_clones stays 0.
     let mut scene = plico_renderer::Scene::new();
-    let (nodes, _, _) = s.build_and_paint(&mut scene, &mut tcx, w, h, 1.);
+    let (nodes, _, _) = s
+        .try_build_and_paint(&mut scene, &mut tcx, w, h, 1.)
+        .unwrap();
     out.push(record(&s, "desktop", nodes, 0));
     let mut scene = plico_renderer::Scene::new();
-    let (nodes, _, _) = s.build_and_paint(&mut scene, &mut tcx, w, h, 1.);
+    let (nodes, _, _) = s
+        .try_build_and_paint(&mut scene, &mut tcx, w, h, 1.)
+        .unwrap();
     out.push(record(&s, "desktop-idle", nodes, 0));
     out
 }

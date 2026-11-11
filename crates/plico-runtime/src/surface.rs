@@ -478,7 +478,9 @@ mod tests {
         let mut scene = Scene::new();
         // Includes fractional DPI, returning to 100%, and a later increase.
         for scale in [1., 1.75, 1., 2.] {
-            source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
+            source
+                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .unwrap();
             let flattened = scene.flattened();
             let effects: Vec<_> = flattened
                 .commands
