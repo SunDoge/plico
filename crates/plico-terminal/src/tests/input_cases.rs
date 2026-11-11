@@ -453,7 +453,7 @@ fn negotiated_kitty_keyboard_reports_press_and_release_without_double_text() {
         phase: KeyPhase::Down,
         key: "x".into(),
         key_without_modifiers: "x".into(),
-        code: "Code(KeyX)".into(),
+        code: "KeyX".into(),
         text: Some("x".into()),
         text_with_all_modifiers: Some("x".into()),
         location: KeyLocation::Standard,

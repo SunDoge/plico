@@ -169,7 +169,7 @@ impl App {
                     phase,
                     key: logical_key_name(&event.logical_key),
                     key_without_modifiers: logical_key_name(&event.key_without_modifiers),
-                    code: format!("{:?}", event.physical_key),
+                    code: physical_key_name(event.physical_key),
                     text: event.text.as_deref().map(str::to_owned),
                     text_with_all_modifiers: event
                         .text_with_all_modifiers

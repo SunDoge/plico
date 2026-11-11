@@ -101,6 +101,25 @@ impl App {
         state: ElementState,
         properties: PointerProperties,
     ) {
+        if let Some(key) = pointer_navigation_key(&source) {
+            self.dispatch_event(UiEvent::Key(KeyEvent {
+                phase: if state == ElementState::Pressed {
+                    KeyPhase::Down
+                } else {
+                    KeyPhase::Up
+                },
+                key: key.into(),
+                key_without_modifiers: key.into(),
+                code: key.into(),
+                text: None,
+                text_with_all_modifiers: None,
+                location: plico_renderer::KeyLocation::Standard,
+                modifiers: self.modifiers,
+                repeat: false,
+                synthetic: false,
+            }));
+            return;
+        }
         if state == ElementState::Pressed {
             self.sync_multi_click_settings();
         }

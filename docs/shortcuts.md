@@ -79,3 +79,9 @@ coordinates or a window.
 System-wide hotkeys are a separate optional [host service](global-hotkeys.md).
 This window-local API does not update native menu accelerators,
 implement multi-stroke chords, or automatically derive active scopes from widgets.
+
+`Router::handle_key_event` implements the usual history bindings after controls
+decline them: mouse Back/Forward, Command+[ / Command+] on macOS, and Alt+Left /
+Alt+Right elsewhere. Native and browser hosts expose the same DOM-compatible
+physical key codes (`KeyK`, `BracketLeft`, …), so `Shortcut::physical` does not
+depend on a backend's debug formatting.

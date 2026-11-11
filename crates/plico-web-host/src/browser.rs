@@ -122,7 +122,6 @@ impl<V: HostView> WebHost<V> {
     }
     pub fn pointer(&mut self, time: f64, event: &web_sys::PointerEvent) -> Result<(), JsValue> {
         use plico_renderer::*;
-        let rect = self.canvas.get_bounding_client_rect();
         let phase = match event.type_().as_str() {
             "pointerdown" => PointerPhase::Down,
             "pointerup" => PointerPhase::Up,
@@ -136,6 +135,38 @@ impl<V: HostView> WebHost<V> {
             event.alt_key(),
             event.meta_key(),
         );
+        if event.pointer_type() == "mouse"
+            && let Some(key) = match event.button() {
+                3 => Some("BrowserBack"),
+                4 => Some("BrowserForward"),
+                _ => None,
+            }
+        {
+            let response = self.dispatch(
+                time,
+                UiEvent::Key(KeyEvent {
+                    phase: if phase == PointerPhase::Down {
+                        KeyPhase::Down
+                    } else {
+                        KeyPhase::Up
+                    },
+                    key: key.into(),
+                    key_without_modifiers: key.into(),
+                    code: key.into(),
+                    text: None,
+                    text_with_all_modifiers: None,
+                    location: KeyLocation::Standard,
+                    modifiers,
+                    repeat: false,
+                    synthetic: false,
+                }),
+            )?;
+            if response.handled {
+                event.prevent_default();
+            }
+            return Ok(());
+        }
+        let rect = self.canvas.get_bounding_client_rect();
         // Native layout: primary=1, secondary=2, auxiliary=4, matching DOM buttons.
         self.dispatch(
             time,

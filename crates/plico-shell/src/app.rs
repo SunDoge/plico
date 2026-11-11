@@ -58,9 +58,10 @@ use event_translate::{
     CUSTOM_DECORATION_RESIZE_BORDER, FrameWake, allowed_external_url, button_mask,
     button_source_properties, committed_key_text, display_wait_wake, gesture_phase,
     ime_client_changed, ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
-    modifiers as translate_modifiers, ms, namespaced_pointer_id, pointer_button,
-    pointer_kind_properties, pointer_source_properties, presentation_work, resize_direction_at,
-    scheduled_frame_wake, unconsumed_key_text, update_present_retry, window_capabilities,
+    modifiers as translate_modifiers, ms, namespaced_pointer_id, physical_key_name, pointer_button,
+    pointer_kind_properties, pointer_navigation_key, pointer_source_properties, presentation_work,
+    resize_direction_at, scheduled_frame_wake, unconsumed_key_text, update_present_retry,
+    window_capabilities,
 };
 
 type ModalEffectFuture = Pin<Box<dyn Future<Output = crate::EffectCompletion>>>;

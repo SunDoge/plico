@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ButtonSource, DeviceId, MouseButton, TabletToolData, TouchPhase};
 use winit::event::{PointerKind as WinitPointerKind, PointerSource};
-use winit::keyboard::{Key, KeyLocation as WinitKeyLocation, ModifiersState};
+use winit::keyboard::{Key, KeyLocation as WinitKeyLocation, ModifiersState, PhysicalKey};
 use winit::raw_window_handle::RawWindowHandle;
 use winit::window::{ImeHint, ImePurpose as WinitImePurpose, ResizeDirection};
 
@@ -216,6 +216,17 @@ pub(super) fn pointer_button(button: &ButtonSource) -> PointerButton {
     }
 }
 
+/// Mouse history buttons are navigation keys, matching native browser and
+/// MyGO routing semantics. Keeping them out of the pointer button mask avoids
+/// leaving a captured pointer behind when navigation replaces the page.
+pub(super) fn pointer_navigation_key(button: &ButtonSource) -> Option<&'static str> {
+    match button {
+        ButtonSource::Mouse(MouseButton::Back) => Some("BrowserBack"),
+        ButtonSource::Mouse(MouseButton::Forward) => Some("BrowserForward"),
+        _ => None,
+    }
+}
+
 pub(super) fn button_mask(button: PointerButton) -> u32 {
     match button {
         PointerButton::Primary => 1,
@@ -382,6 +393,16 @@ pub(super) fn logical_key_name(key: &Key) -> String {
         other => other
             .to_text()
             .map_or_else(|| format!("{other:?}"), str::to_owned),
+    }
+}
+
+/// DOM-compatible physical key identity shared by native and browser hosts.
+/// Formatting `PhysicalKey` itself would produce `Code(KeyK)`, while the web
+/// host and the public `Shortcut::physical("KeyK", ..)` API use `KeyK`.
+pub(super) fn physical_key_name(key: PhysicalKey) -> String {
+    match key {
+        PhysicalKey::Code(code) => format!("{code:?}"),
+        PhysicalKey::Unidentified(code) => format!("Unidentified({code:?})"),
     }
 }
 

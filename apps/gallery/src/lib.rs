@@ -132,16 +132,15 @@ impl App for Gallery {
         self.game2048.time = time.now;
         self.mines.time = time.now;
     }
-    fn on_key(&mut self, key: &str) -> bool {
+    fn on_key_event(&mut self, event: &plico::KeyEvent) -> bool {
+        if self.router.handle_key_event(event) {
+            return true;
+        }
+        if !event.modifiers.is_empty() {
+            return false;
+        }
+        let key = event.key.as_str();
         match key {
-            "Alt+ArrowLeft" if self.router.can_back() => {
-                self.router.back();
-                true
-            }
-            "Alt+ArrowRight" if self.router.can_forward() => {
-                self.router.forward();
-                true
-            }
             _ if self.router.show(Page::Game2048) => self.game2048.key(key),
             _ if self.router.show(Page::Mines) => self.mines.key(key),
             _ => false,
