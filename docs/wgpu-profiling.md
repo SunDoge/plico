@@ -266,6 +266,13 @@ pipeline. Small adjacent runs of different classes still use the existing
 `joinLast` threshold and merge into the general pipeline, avoiding extra draw calls.
 `Renderer::force_general_pipelines(true)` provides the pixel oracle, and
 `FrameBatchStats::fill_draw_calls` proves that the specialized path was selected.
+The class pipelines also use dedicated vertex entry points and fragment input
+structures: `ClassPlain` does not export the second color, border, configuration,
+UV or gradient varyings, and `ClassFill` does not export image UVs. Coverage masks
+remain clip state and can use `ClassPlain`; they do not force a solid into the
+larger fill class. This follows MyGO's paired class vertex/pixel shaders instead
+of relying on a backend compiler to discover that the general vertex interface
+is mostly unused.
 
 Reproduction:
 
@@ -288,6 +295,11 @@ release pairs per scene produced byte-identical PNGs for both `controls` and
 0.255/0.12 ms specialized. Submit and GPU measurements varied in opposite
 directions between the two scenes, so this is evidence of a smaller selected
 shader with unchanged output, not evidence of a wall-time or FPS improvement.
+An additional ten alternating pairs after trimming the class vertex interfaces
+again produced byte-identical `controls` and `effects` captures. Prepare/encode
+were unchanged; submit/GPU medians moved in opposite directions between the two
+scenes, so the smaller declared interface is likewise not presented as a measured
+frame-time improvement on this adapter.
 
 ## Scene and image residency
 

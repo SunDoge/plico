@@ -15,6 +15,10 @@ var clip_mask: texture_2d<f32>;
 var clip_sampler: sampler;
 // PLICO_INTERFACE
 // PLICO_MATERIAL
+struct QuadGeometry {
+    position: vec4f,
+    local: vec2f,
+}
 struct Vertex {
     @builtin(position) position: vec4f,
     @location(0) local: vec2f,
@@ -40,6 +44,16 @@ struct Vertex {
     @interpolate(flat)
     @location(11) radii: vec4f,
 }
+fn quad_geometry(index: u32, rect: vec4f) -> QuadGeometry {
+    let corners = array<vec2f, 6>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(0, 1), vec2f(1, 0), vec2f(1, 1));
+    // Include the 1px antialiasing fringe, rather than clipping it at the quad.
+    let local = corners[index] * (rect.zw + 2.) - 1.;
+    let world = rect.xy + local;
+    return QuadGeometry(
+        vec4f((world - frame.origin.xy) / frame.size_time_scale.xy * vec2f(2, -2) + vec2f(-1, 1), 0, 1),
+        local,
+    );
+}
 @vertex
 fn vs_main(
     @builtin(vertex_index) index: u32,
@@ -55,12 +69,11 @@ fn vs_main(
     @location(9) mask_rect: vec4f,
     @location(10) radii: vec4f,
 ) -> Vertex {
-    let corners = array<vec2f, 6>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(0, 1), vec2f(1, 0), vec2f(1, 1));
-    // Include the 1px antialiasing fringe, rather than clipping it at the quad.
-    let local = corners[index] * (rect.zw + 2.) - 1.;
+    let geometry = quad_geometry(index, rect);
+    let local = geometry.local;
     let world = rect.xy + local;
     var out: Vertex;
-    out.position = vec4f((world - frame.origin.xy) / frame.size_time_scale.xy * vec2f(2, -2) + vec2f(-1, 1), 0, 1);
+    out.position = geometry.position;
     out.local = local;
     out.size = rect.zw;
     out.color = color;
@@ -341,19 +354,18 @@ fn bicubic(uv: vec2f, extend: vec2f, level: i32) -> vec4f {
     let alpha = clamp(result.a, 0., 1.);
     return vec4f(clamp(result.rgb, vec3f(0.), vec3f(alpha)), alpha);
 }
-fn clip_coverage(input: Vertex, world: vec2f) -> f32 {
-    let clip = input.clip;
+fn clip_coverage(world: vec2f, clip: vec4f, clip_params: vec4f, mask_rect: vec4f) -> f32 {
     var alpha = 1.;
-    if input.clip_params.x > 0.5 {
+    if clip_params.x > 0.5 {
         alpha = coverage(world - clip.xy, clip.zw, vec4f(0.));
         if alpha <= 0. {
             return 0.;
         }
-    } else if input.clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
+    } else if clip_params.x >= 0. && (any(world < clip.xy) || any(world >= clip.xy + clip.zw)) {
         return 0.;
     }
-    if input.clip_params.z > 0. {
-        let m = input.mask_rect;
+    if clip_params.z > 0. {
+        let m = mask_rect;
         if any(world < m.xy) || any(world >= m.xy + m.zw) {
             return 0.;
         }
@@ -369,7 +381,7 @@ fn fs_main(input: Vertex) -> @location(0) vec4f {
     let footprint = max(length(dpdx(input.uv) * source_size), length(dpdy(input.uv) * source_size));
     let lod = clamp(log2(max(footprint, 1.)), 0., max(input.color2.x - 1., 0.));
     let world = input.position.xy + frame.origin.xy;
-    let clip_alpha = clip_coverage(input, world);
+    let clip_alpha = clip_coverage(world, input.clip, input.clip_params, input.mask_rect);
     if clip_alpha <= 0. {
         discard;
     }

@@ -163,23 +163,27 @@ impl Renderer {
             .expect("the quad shader defines one fragment entry point")];
         let plain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Plico plain quads"),
-            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{PLAIN_FRAGMENT}").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("{class_common}\n{PLAIN_CLASS_SHADER}").into(),
+            ),
         });
         let plain_pipeline = Self::quad_pipeline(
             &device,
             &layout,
             &plain_shader,
+            "vs_plain",
             &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             "Plico plain quads",
         );
         let fill_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Plico fill quads"),
-            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{FILL_FRAGMENT}").into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{class_common}\n{FILL_CLASS_SHADER}").into()),
         });
         let fill_pipeline = Self::quad_pipeline(
             &device,
             &layout,
             &fill_shader,
+            "vs_fill",
             &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             "Plico fill quads",
         );
@@ -360,6 +364,7 @@ impl Renderer {
         device: &wgpu::Device,
         layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
+        vertex_entry: &str,
         blend: &wgpu::BlendState,
         label: &str,
     ) -> wgpu::RenderPipeline {
@@ -369,7 +374,7 @@ impl Renderer {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: shader,
-                entry_point: Some("vs_main"),
+                entry_point: Some(vertex_entry),
                 compilation_options: Default::default(),
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Instance>() as u64,
@@ -403,6 +408,7 @@ impl Renderer {
             &self.device,
             &self.layout,
             shader,
+            "vs_main",
             &blend,
             "Plico SDF quads",
         )

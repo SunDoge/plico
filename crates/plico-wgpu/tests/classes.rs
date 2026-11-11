@@ -2,7 +2,9 @@
 //! draw through small dedicated fragment pipelines (mygo's ClassPlain and
 //! ClassFill). Specialized paths must be pixel-identical to the general shader,
 //! and class runs must never reorder painter sequence.
-use plico_wgpu::{Quad, Renderer};
+use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+use plico_wgpu::{Draw, Quad, Renderer, mask::CoverageMask};
+use std::sync::Arc;
 
 fn fixture() -> Vec<Quad> {
     // Plain fills: solid, unbordered, no mask. Includes rounded and clipped
@@ -118,7 +120,7 @@ fn class_runs_never_reorder_painter_sequence() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
-fn plain_classification_covers_clipped_and_rounded_solids_only() {
+fn plain_classification_covers_solid_fills_and_masks() {
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let size = [16, 16];
     // Solid fill only: exactly one plain run and nothing else.
@@ -126,6 +128,41 @@ fn plain_classification_covers_clipped_and_rounded_solids_only() {
     renderer.render(&[solid], size, [0.; 4], 0.).unwrap();
     assert_eq!(renderer.batch_stats().plain_draw_calls, 1);
     assert_eq!(renderer.batch_stats().draw_calls, 1);
+
+    // A coverage mask is clip state, not a different paint class. It keeps the
+    // minimal plain pipeline while sampling the same mask as the general path.
+    let mask = CoverageMask {
+        image: ImageData {
+            data: Blob::new(Arc::new(vec![128; 16 * 16 * 4])),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+            width: 16,
+            height: 16,
+        },
+        rect: [0., 0., 16., 16.],
+    };
+    let masked = renderer
+        .render_items(
+            &[Draw::SetMask(&mask), Draw::Quad(&solid), Draw::ResetMask],
+            size,
+            [0.; 4],
+            0.,
+        )
+        .unwrap();
+    assert_eq!(renderer.batch_stats().plain_draw_calls, 1);
+    renderer.force_general_pipelines(true);
+    let masked_general = renderer
+        .render_items(
+            &[Draw::SetMask(&mask), Draw::Quad(&solid), Draw::ResetMask],
+            size,
+            [0.; 4],
+            0.,
+        )
+        .unwrap();
+    assert_eq!(masked, masked_general);
+    assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
+    renderer.force_general_pipelines(false);
+
     // A gradient fill (different endpoint colors) must not take the plain path.
     let mut gradient = Quad::new([0., 0., 16., 16.], [1., 0., 0., 1.]);
     gradient.colors[1] = [0., 0., 1., 1.];

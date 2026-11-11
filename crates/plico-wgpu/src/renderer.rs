@@ -368,10 +368,41 @@ impl Renderer {
 /// hard or antialiased clip. mygo specializes the heaviest shader paths out
 /// of the instance stream most of a window is made of; this is Plico's first
 /// class. Drawn pixels must be identical to the general pipeline.
-const PLAIN_FRAGMENT: &str = r#"
-@fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+const PLAIN_CLASS_SHADER: &str = r#"
+struct PlainVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_plain(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> PlainVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: PlainVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.clip=clip;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: PlainVertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
-    let clip_alpha=clip_coverage(input,world);
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
     if clip_alpha<=0. { discard; }
     let outer=coverage(input.local,input.size,input.radii);
     let alpha=input.color.a*outer*clip_alpha;
@@ -382,10 +413,53 @@ const PLAIN_FRAGMENT: &str = r#"
 /// MyGO's ClassFill counterpart: gradients and borders share only analytical
 /// shape/clip coverage and never compile the image, glyph, shadow or material
 /// paths into their fragment pipeline.
-const FILL_FRAGMENT: &str = r#"
-@fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+const FILL_CLASS_SHADER: &str = r#"
+struct FillVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(3) color2: vec4f,
+    @interpolate(flat) @location(4) border: vec4f,
+    @interpolate(flat) @location(5) config: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_fill(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(2) color2: vec4f,
+    @location(3) border: vec4f,
+    @location(4) config: vec4f,
+    @location(5) clip: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> FillVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: FillVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.color2=color2;
+    out.border=border;
+    out.config=config;
+    out.clip=clip;
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: FillVertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
-    let clip_alpha=clip_coverage(input,world);
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
     if clip_alpha<=0. { discard; }
     let outer=coverage(input.local,input.size,input.radii);
     let width=min(input.config.y,min(input.size.x,input.size.y)*0.5);
@@ -418,10 +492,10 @@ const FILL_FRAGMENT: &str = r#"
 "#;
 
 /// A plain fill: solid color (equal endpoint colors make the gradient mix a
-/// no-op), no border, no material, not an image/glyph/shadow instance, and no
-/// coverage mask. Everything the general fragment does beyond the SDF and
-/// clip is absent, so the specialized pipeline draws the same pixels with a
-/// much smaller shader.
+/// no-op), no border, no material, and not an image/glyph/shadow instance.
+/// A coverage mask is clip state and remains eligible, as in mygo's classOf.
+/// Everything the general fragment does beyond the SDF and clip is absent, so
+/// the specialized pipeline draws the same pixels with a much smaller shader.
 /// The most pixels a run may cover for joinLast to merge it with its
 /// neighbors of other classes (mygo's joinArea). On an M5 a draw call costs
 /// about 1.1 µs of CPU and 0.1 µs of GPU, while a plain fill drawn through
@@ -462,10 +536,7 @@ fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
 }
 
 fn is_plain(instance: &Instance) -> bool {
-    instance.config[2] == 0.
-        && instance.config[1] == 0.
-        && instance.clip_params[2] == 0.
-        && instance.color == instance.color2
+    instance.config[2] == 0. && instance.config[1] == 0. && instance.color == instance.color2
 }
 
 fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
@@ -481,10 +552,14 @@ fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
 }
 
 /// MyGO Builder.markFill (MIT, ee3d4bd9): leave three physical pixels for
-/// the vertex AA fringe and clip coverage. Masked and non-fill instances keep
-/// the general path. Negative clip_params.x means coverage is identically one.
+/// the vertex AA fringe and clip coverage. Masked instances still sample their
+/// mask and non-fill instances keep the general path. Negative clip_params.x
+/// means rectangular clip coverage is identically one.
 fn skip_interior_clip(instance: &mut Instance) -> bool {
-    if !is_plain(instance) || !(0. ..=1.).contains(&instance.color[3]) {
+    if !is_plain(instance)
+        || instance.clip_params[2] > 0.
+        || !(0. ..=1.).contains(&instance.color[3])
+    {
         return false;
     }
     let [x, y, w, h] = instance.rect;
