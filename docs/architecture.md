@@ -100,6 +100,8 @@ wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级�
 `wasm-bindgen-futures` 明确登记为 machete 例外；交叉 target 编译守卫它们不能误删。
 旧 Stabby/cdylib 路径没有 feature 或依赖对象，不再为它额外运行 cargo-tree 守卫；历史协议文档
 只保留过去时实验记录。WASM 的 `module_error` 是模块调用诊断，不是跨语言 ABI 错误槽。
+依赖检查同时禁止 core、motion、dev、renderer、runtime、app-host、具体 renderer 与 shell 向上层
+反向依赖；dev-dependencies 可用于下层契约集成测试，不改变生产构建图。
 
 ## 当前实现
 
