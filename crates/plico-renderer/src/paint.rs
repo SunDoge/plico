@@ -257,6 +257,27 @@ impl Scene {
             commands: CommandBuffer::default(),
         }
     }
+
+    /// Record a fill whose compatible path and analytical primitive have
+    /// already been resolved by the renderer. This avoids flattening an
+    /// internal [`PaintShape`] into a second allocation through the generic
+    /// [`Shape`] entry point.
+    pub(crate) fn fill_paint_shape<'a>(
+        &mut self,
+        fill: Fill,
+        transform: Affine,
+        brush: impl Into<BrushRef<'a>>,
+        brush_transform: Option<Affine>,
+        shape: PaintShape,
+    ) {
+        self.commands.push(PaintCommand::Fill {
+            fill,
+            transform,
+            brush: own_brush(brush.into()),
+            brush_transform,
+            shape,
+        });
+    }
 }
 
 /// Geometry shared by outer and inset shadow replay.

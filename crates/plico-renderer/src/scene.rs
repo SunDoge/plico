@@ -337,12 +337,12 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
                 },
             );
         } else {
-            scene.fill(
+            scene.fill_paint_shape(
                 Fill::NonZero,
                 transform,
                 background,
                 None,
-                &corner_shape(rect, radii, node.paint.corner_smoothing),
+                corner_shape(rect, radii, node.paint.corner_smoothing),
             );
         }
     }
@@ -407,6 +407,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
                         outer_radii.inset(width as f32),
                         node.paint.corner_smoothing,
                     )
+                    .into_bez_path()
                     .elements()
                     .iter()
                     .copied(),
@@ -435,7 +436,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
             );
             if inner.width() > 0. && inner.height() > 0. {
                 let shape = corner_shape(inner, radii.inset(top), node.paint.corner_smoothing);
-                ring.extend(shape.elements().iter().copied());
+                ring.extend(shape.into_bez_path().elements().iter().copied());
             }
             scene.fill(Fill::EvenOdd, transform, border_color, None, &ring);
             return;
@@ -1171,6 +1172,7 @@ mod tests {
                 CornerRadii::uniform(4.).inset(border_width as f32),
                 1.,
             )
+            .into_bez_path()
             .elements()
             .iter()
             .copied(),
@@ -1519,6 +1521,63 @@ mod tests {
         }
         eprintln!(
             "hidden scrollbar visibility ns/node: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_recorded_background_fill() {
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        const ITERATIONS: usize = 200_000;
+        let rect = Rect::new(20., 30., 140., 90.);
+        let radii = CornerRadii::default();
+        let mut scene = Scene::new();
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                scene.reset();
+                let shape =
+                    corner_shape(std::hint::black_box(rect), std::hint::black_box(radii), 0.);
+                if sample % 2 == 0 {
+                    scene.fill_paint_shape(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::BLACK,
+                        None,
+                        shape,
+                    );
+                } else {
+                    // The previous representation retained this fallback path
+                    // beside every analytical rectangle, even though wgpu
+                    // consumed only the primitive.
+                    let fallback = shape.to_path(0.1);
+                    std::hint::black_box(&fallback);
+                    scene.fill_paint_shape(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::BLACK,
+                        None,
+                        shape,
+                    );
+                }
+                std::hint::black_box(scene.commands.len());
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "background fill ns/op: old={:.2} fast={:.2}",
             median(&mut old),
             median(&mut fast)
         );

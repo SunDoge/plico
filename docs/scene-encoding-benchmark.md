@@ -112,6 +112,27 @@ release 下同进程交替 A/B 每轮各检查 500 万个无 scrollbar 节点，
 cargo test --release -p plico-renderer profile_hidden_scrollbar_visibility -- --ignored --nocapture
 ```
 
+### 延迟构造 primitive 的 fallback path
+
+MyGO 的 scene op 保留原始几何，GPU 可以直接识别矩形和圆角矩形。Plico 原本虽然
+同样保留了 `Rect` / `RoundedRect` 元数据，`PaintShape::record` 却还会立即分配
+一份兼容 Bézier path。主 wgpu 后端只读 primitive，这份 path 在普通 widget 上
+从未被使用，但每帧仍要支付生成、分配、命令缓冲 clone 和 drop 成本。
+
+`PaintShape` 现在直接保存 `Rect | RoundedRect | Path` 枚举。wgpu 从前两种变体
+直接生成分析 quad；Skia 或任意 path consumer 只在调用 `path_elements` 时才物化
+兼容轮廓。任意 path 仍按原 tolerance 在录制时展平，没有改变其精度。
+
+release 下同进程交替 A/B 每轮各录制 100 万个普通背景，旧 eager fallback
+路径为 229.59 ns/fill，延迟 primitive 路径为 27.15 ns/fill。在 4000 行、
+8003 条命令的完整场景中，六个重编 workload 的 scene p50 从
+3.68–3.87 ms 降至 2.38–2.59 ms，各自减少约 1.28–1.47 ms。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_recorded_background_fill -- --ignored --nocapture
+cargo run --locked --release -p plico-desktop --example scene_work -- --rows 4000 --unculled
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制
