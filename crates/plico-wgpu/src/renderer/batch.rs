@@ -49,6 +49,7 @@ fn opaque_core(quad: &Quad, masked: bool) -> Option<[f32; 4]> {
         || quad.shadow_smoothing != 0.
         || quad.border_width != 0.
         || quad.radii != [0.; 4]
+        || quad.clip_radii != [0.; 4]
         || quad.colors[0][3] != 1.
         || quad.colors[1][3] != 1.
     {
@@ -59,6 +60,24 @@ fn opaque_core(quad: &Quad, masked: bool) -> Option<[f32; 4]> {
         core = intersect(core, rect(clip, 1.)?)?;
     }
     Some(core)
+}
+
+fn draw_clip_radii(draw: crate::Draw<'_>) -> [f32; 4] {
+    let quad = |quad: &Quad| {
+        quad.clip.map_or([0.; 4], |clip| {
+            shrink_radii([clip[2], clip[3]], quad.clip_radii)
+        })
+    };
+    match draw {
+        crate::Draw::Quad(value) | crate::Draw::Effect(_, value) => quad(value),
+        crate::Draw::Image(image) => quad(&image.quad),
+        crate::Draw::Layer(layer) => quad(&layer.quad),
+        crate::Draw::SetMask(_) | crate::Draw::ResetMask => [0.; 4],
+        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        crate::Draw::Text(run) => run.clip.map_or([0.; 4], |clip| {
+            shrink_radii([clip[2], clip[3]], run.clip_radii)
+        }),
+    }
 }
 
 fn draw_info(draw: crate::Draw<'_>, mask: Option<[f32; 4]>) -> OcclusionInfo {
@@ -166,9 +185,14 @@ fn validate_culled_draw(renderer: &Renderer, draw: crate::Draw<'_>, _size: [u32;
                     .color
                     .iter()
                     .all(|value| value.is_finite() && (0. ..=1.).contains(value))
+                || !run
+                    .clip_radii
+                    .iter()
+                    .all(|radius| radius.is_finite() && *radius >= 0.)
+                || (run.clip.is_none() && run.clip_radii != [0.; 4])
             {
                 return Err(Error::InvalidInput {
-                    reason: "invalid text origin or color".into(),
+                    reason: "invalid text origin, color, or clip radii".into(),
                 });
             }
             let clip = run
@@ -462,6 +486,12 @@ impl Renderer {
         self.batch_stats.occlusion_culled_draws += culled;
         let mut active_mask: Option<(usize, [f32; 4])> = None;
         for (index, item) in items.iter().enumerate() {
+            let analytic_clip = draw_clip_radii(item);
+            if analytic_clip != [0.; 4] && active_mask.is_some() {
+                return Err(Error::InvalidInput {
+                    reason: "analytic rounded clip cannot share a coverage mask".into(),
+                });
+            }
             if self.occlusion_scratch[depth]
                 .get(index)
                 .is_some_and(|info| info.culled)
@@ -697,6 +727,15 @@ impl Renderer {
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 crate::Draw::Text(run) => self.encode_text(run, size, &mut instances)?,
+            }
+            if analytic_clip != [0.; 4] {
+                for instance in &mut instances[first..] {
+                    // clip_params.x=2 selects rounded analytical coverage;
+                    // mask_rect is otherwise unused without a sampled mask.
+                    instance.clip_params[0] = 2.;
+                    instance.mask_rect = analytic_clip;
+                    self.batch_stats.analytic_clip_draws += 1;
+                }
             }
             if let Some((slot, rect)) = active_mask {
                 for instance in &mut instances[first..] {

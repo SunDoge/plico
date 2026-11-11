@@ -356,7 +356,12 @@ fn bicubic(uv: vec2f, extend: vec2f, level: i32) -> vec4f {
 }
 fn clip_coverage(world: vec2f, clip: vec4f, clip_params: vec4f, mask_rect: vec4f) -> f32 {
     var alpha = 1.;
-    if clip_params.x > 0.5 {
+    if clip_params.x > 1.5 {
+        alpha = coverage(world - clip.xy, clip.zw, mask_rect);
+        if alpha <= 0. {
+            return 0.;
+        }
+    } else if clip_params.x > 0.5 {
         alpha = coverage(world - clip.xy, clip.zw, vec4f(0.));
         if alpha <= 0. {
             return 0.;

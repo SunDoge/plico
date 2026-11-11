@@ -10,6 +10,7 @@ pub struct TextRun<'a> {
     pub scale: f64,
     pub color: [f32; 4],
     pub clip: Option<[f32; 4]>,
+    pub clip_radii: [f32; 4],
     pub clip_antialias: bool,
     /// Default false: four horizontal phases and pixel-snapped vertical placement.
     /// True permits continuous bitmap movement, at the cost of sampling softness.
@@ -23,6 +24,7 @@ impl<'a> TextRun<'a> {
             scale: 1.,
             color,
             clip: None,
+            clip_radii: [0.; 4],
             clip_antialias: false,
             continuous: false,
         }

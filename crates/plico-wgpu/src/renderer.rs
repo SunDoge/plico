@@ -146,6 +146,9 @@ pub struct FrameBatchStats {
     /// Border-only source quads split into scissored strips so their
     /// transparent interior is never shaded.
     pub ring_split_quads: u64,
+    /// Prepared draws clipped by an analytical rounded rectangle instead of a
+    /// sampled coverage mask.
+    pub analytic_clip_draws: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -322,6 +325,9 @@ pub struct Renderer {
     force_no_occlusion_culling: bool,
     /// Comparison switch matching MyGO's `NoRingSplit`.
     force_no_ring_splitting: bool,
+    /// Comparison switch retaining raster masks for otherwise reducible leaf
+    /// rounded clips.
+    pub(crate) force_no_analytic_clip_reduction: bool,
     compilations: usize,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,

@@ -427,6 +427,53 @@ draws versus 630 / 72 unsplit) and produced the same PNG SHA-256
 `controls`, `data-table`, `workspace`, `mines-hard` and `patterns-dark` stayed
 below the threshold and paid no extra draw calls.
 
+### Rejected: opaque-core splitting on the current Vulkan path
+
+MyGO only enables `addOpaque` for renderers that benefit from writing a large
+opaque core without blending; its implementation specifically enables it for
+Metal's tile-based GPUs and notes that other renderers would merely add draw
+calls for the same pixels. Plico therefore tested this as a backend experiment
+rather than adopting it as a general scene transformation.
+
+The experiment split one 1920×1080 solid opaque quad into one no-blend core and
+four normally blended antialiased edge strips. A byte-for-byte oracle passed,
+but on the Linux Intel/Mesa Vulkan adapter the median GPU time was unchanged:
+3.548 ms unsplit and 3.549 ms split. The split also changed one instance and
+one draw into five of each and required another pipeline. The implementation
+was removed. Do not add opaque-core splitting to the shared wgpu path without
+adapter-specific evidence; a future Metal-only experiment should first measure
+on real Apple hardware.
+
+### Analytical leaf rounded clips
+
+Plico follows MyGO `92336637` for the first safely reducible clip case: an
+axis-aligned rounded clip whose scope contains no nested clip or isolated layer,
+whose transformed bounds remain inside its parent rectangle, and which has no
+existing coverage mask. Its per-corner radii are retained on `Quad`/`TextRun`
+draws and evaluated by the same WGSL coverage function as direct rounded
+geometry. Nested/intersecting chains still use the existing mask path.
+
+This removes path rasterization, CPU RGBA mask storage, mask upload and sampling
+for common rounded cards. It also fixes the legacy fractional-edge case that
+multiplied rectangular clip AA by the raster mask's AA; the analytical result is
+byte-identical to drawing the same rounded rectangle directly. Prepared-scene
+materialization preserves the radii, rounded clips cannot become rectangular
+occlusion covers, and `force_no_analytic_clip_reduction` provides the old mask
+path for quality/performance comparisons.
+
+On 2026-11-12, Linux Intel/Mesa Vulkan, a changing 1024×720 rounded clip took
+0.306–0.513 ms median to prepare through the mask path and about 0.001 ms
+analytically. A static warm clip had no repeatable GPU change (representative
+1.681 ms masked versus 1.684 ms analytical), so this is a CPU/memory and edge
+quality result, not a GPU-throughput claim. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --test analytic_clips -- \
+  --ignored --skip profile_leaf_rounded_clip
+PLICO_GPU_TIMER=1 cargo test --release --locked -p plico-wgpu \
+  --test analytic_clips profile_leaf_rounded_clip -- --ignored --nocapture
+```
+
 ## Scene and image residency
 
 Prepared snapshots retain only the graph reachable from the current root. Image

@@ -232,6 +232,7 @@ impl Renderer {
             occlusion_scratch: Vec::new(),
             force_no_occlusion_culling: false,
             force_no_ring_splitting: false,
+            force_no_analytic_clip_reduction: false,
             backdrop_effects: Vec::new(),
             deferred_layers: Vec::new(),
             inherited_backdrop: None,
@@ -316,6 +317,14 @@ impl Renderer {
     /// renderer profiling rather than application policy.
     pub fn force_no_ring_splitting(&mut self, force: bool) {
         self.force_no_ring_splitting = force;
+    }
+    /// Retain pixel masks for rounded leaf clips, for performance/quality A/Bs.
+    pub fn force_no_analytic_clip_reduction(&mut self, force: bool) {
+        if self.force_no_analytic_clip_reduction != force {
+            self.force_no_analytic_clip_reduction = force;
+            self.prepared_cache.clear();
+            self.scene_damage.invalidate();
+        }
     }
     /// Publish class pipelines completed by the native background warmer.
     /// Frames encoded before a class arrives use the general pipeline.
