@@ -39,8 +39,7 @@ fn compact_toggle_is_atomic_across_frames() {
     let before = s.build_frame(&mut tcx, 400, 300);
     let before_text: Vec<_> = before.iter().filter_map(|n| n.paint.text.clone()).collect();
     // Toggle and advance one tick, like a vsync-driven redraw would.
-    s.view.compact = true;
-    s.request_rebuild();
+    s.update(|view| view.compact = true);
     clock.advance(Duration::from_millis(16)).unwrap();
     let after = s.build_frame(&mut tcx, 400, 300);
     let after_text: Vec<_> = after.iter().filter_map(|n| n.paint.text.clone()).collect();
@@ -72,8 +71,7 @@ fn compact_toggle_settles_within_one_frame() {
     let mut s = Source::with_clock(App { compact: false }, clock.clone());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 300);
-    s.view.compact = true;
-    s.request_rebuild();
+    s.update(|view| view.compact = true);
     // Advance several vsyncs; after the first, every subsequent frame must
     // be identical (scene bytes AND stats) — continuing churn is what reads
     // as flicker.
@@ -84,7 +82,7 @@ fn compact_toggle_settles_within_one_frame() {
         let mut scene = plico_renderer::Scene::new();
         let nodes = s.build_frame(&mut tcx, 400, 300);
         plico_renderer::scene::build_scene(&mut scene, &nodes, &mut tcx, 400, 300, s.base_color());
-        let stats = s.adapter.stats;
+        let stats = s.frame_diagnostics().backend;
         if tick > 0 {
             // After the toggle frame, stats must be all-zero (steady state).
             if stats.paint_writes > 0 || stats.style_writes > 0 || stats.flatten_visits > 0 {
@@ -114,8 +112,7 @@ fn compact_toggle_is_atomic_on_the_host_paint_path() {
     let mut scene = plico_renderer::Scene::new();
     s.try_build_and_paint(&mut scene, &mut tcx, 400, 300, 1.)
         .unwrap();
-    s.view.compact = true;
-    s.request_rebuild();
+    s.update(|view| view.compact = true);
     let mut snapshots = Vec::new();
     for _ in 0..4 {
         clock.advance(Duration::from_millis(16)).unwrap();
@@ -123,11 +120,11 @@ fn compact_toggle_is_atomic_on_the_host_paint_path() {
         s.try_build_and_paint(&mut scene, &mut tcx, 400, 300, 1.)
             .unwrap();
         snapshots.push((
-            s.adapter.stats.paint_writes,
-            s.adapter.stats.style_writes,
-            s.adapter.stats.flatten_visits,
-            s.adapter.stats.scene_builds,
-            s.adapter.stats.scene_reuses,
+            s.frame_diagnostics().backend.paint_writes,
+            s.frame_diagnostics().backend.style_writes,
+            s.frame_diagnostics().backend.flatten_visits,
+            s.frame_diagnostics().backend.scene_builds,
+            s.frame_diagnostics().backend.scene_reuses,
         ));
     }
     // Frame 0 does the work; frames 1..3 must be fully retained.

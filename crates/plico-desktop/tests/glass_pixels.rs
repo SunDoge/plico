@@ -20,7 +20,7 @@ fn glass_source(dark: bool, blur: bool) -> (Source<Gallery>, plico::VirtualClock
         clock.clone(),
     );
     if !blur {
-        source.view.glass.enabled = false;
+        source.update(|view| view.glass.enabled = false);
     }
     (source, clock)
 }
@@ -37,13 +37,12 @@ fn render(source: &mut Source<Gallery>, tcx: &mut TextContext) -> image::RgbaIma
 /// Only the glass output and its toggling checkbox may differ.
 fn allowed_regions(source: &Source<Gallery>, scale: f32) -> [[f32; 4]; 2] {
     let cards: Vec<_> = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|node| node.paint.backdrop_blur > 0.)
         .collect();
     assert_eq!(cards.len(), 1, "expected one glass card");
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     let checkbox = semantics
         .node_by_role(SemanticRole::CheckBox, "Blur background", None)
         .expect("blur checkbox")
@@ -234,7 +233,7 @@ fn blur_stays_confined_during_theme_transition() {
     clock.advance(Duration::from_millis(1000)).unwrap();
     source.build_frame(&mut tcx, 1120, 820);
     // Flip the theme mid-animation; sample during the reveal.
-    source.view.dark = true;
+    source.update(|view| view.dark = true);
     for step in 0..8 {
         clock.advance(Duration::from_millis(40)).unwrap();
         let mut scene = Scene::new();

@@ -258,7 +258,7 @@ fn scene_rebuilds_never_lose_button_glyphs() {
             "tick {tick}: scene glyph content changed ({content:?} vs {baseline:?})"
         );
         assert_eq!(
-            s.adapter.stats.scene_builds + s.adapter.stats.scene_reuses,
+            s.frame_diagnostics().backend.scene_builds + s.frame_diagnostics().backend.scene_reuses,
             1
         );
     }

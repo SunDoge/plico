@@ -126,12 +126,10 @@ fn layout_local_input_ime_and_visibility_preserve_native_instance() {
     let mut scene = Scene::new();
     s.paint_scene(&mut scene, &nodes, &mut text, (300, 220), 2.);
     assert!(!scene.commands.is_empty());
-    s.source.view.show = false;
-    s.source.request_rebuild();
+    s.source.update(|view| view.show = false);
     s.build_frame(&mut text, 300, 220);
     assert!(!s.widget.focused);
-    s.source.view.show = true;
-    s.source.request_rebuild();
+    s.source.update(|view| view.show = true);
     s.build_frame(&mut text, 300, 220);
     assert_eq!(s.widget.mounts, 1);
 }
@@ -193,6 +191,6 @@ fn non_text_surface_declined_key_reaches_window_fallback() {
         repeat: false,
         synthetic: false,
     }));
-    assert!(source.source.view.0);
+    assert!(source.source.view().0);
     assert!(result.handled && result.consume_key_text && result.request_redraw);
 }

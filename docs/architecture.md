@@ -50,6 +50,9 @@ runtime 的全部外部集成测试已进入同一边界守卫。
 Desktop 测试开始按同一原则迁移：absolute/backdrop/font/rich-text/retained-frame、组合按钮、
 route menu、材质与滚动裁剪首批只使用 `Source` 查询、更新和统一诊断快照。直接验证 renderer-free
 `Engine::frame` 的核心布局测试仍可独立使用 Engine，不经过 Source，也不属于边界穿透。
+第二批覆盖 atomic compact metrics、feedback motion、玻璃像素/交互、native surface、scene layer、
+密码输入与保存按钮稳定性。密码声明快照的核心保密断言保留在 `plico` Engine 测试；desktop
+只验证宿主可观察的 IME、剪贴板与 retained paint，避免重复暴露声明树。
 
 ## 当前实现
 

@@ -30,13 +30,16 @@ fn scene_rebuilds_preserve_nested_layers_and_siblings() {
         .render_retained_frame(&mut rebuilt, &mut text, (480, 360), 1.)
         .unwrap();
     for (index, scale) in [1., 2., 2., 1.].into_iter().enumerate() {
-        source.view.changed = !source.view.changed;
-        source.request_rebuild();
+        source.update(|view| view.changed = !view.changed);
         source
             .render_retained_frame(&mut rebuilt, &mut text, (480, 360), scale)
             .unwrap();
         if matches!(index, 1 | 3) {
-            assert_eq!(source.adapter.stats.scene_builds, 1, "DPI changed");
+            assert_eq!(
+                source.frame_diagnostics().backend.scene_builds,
+                1,
+                "DPI changed"
+            );
         }
         let nodes = source.build_frame(&mut text, 480, 360);
         let mut reference = Scene::new();
@@ -85,12 +88,11 @@ fn unchanged_backdrop_is_reencoded_when_its_prefix_changes() {
     source
         .render_retained_frame(&mut scene, &mut text, (200, 200), 1.)
         .unwrap();
-    source.view.0 = true;
-    source.request_rebuild();
+    source.update(|view| view.0 = true);
     source
         .render_retained_frame(&mut scene, &mut text, (200, 200), 1.)
         .unwrap();
-    assert_eq!(source.adapter.stats.scene_builds, 1);
+    assert_eq!(source.frame_diagnostics().backend.scene_builds, 1);
     let nodes = source.build_frame(&mut text, 200, 200);
     let mut full = Scene::new();
     plico_renderer::scene::build_scene_scaled_layers(
@@ -118,7 +120,7 @@ fn workspace_hover_matches_full_encoding() {
     );
     source.set_reduced_motion(true);
     // Save is disabled in the default fixture; enable it before testing hover.
-    source.view.workspace.projects[0].draft.autosave = true;
+    source.update(|view| view.workspace.projects[0].draft.autosave = true);
     let mut text = TextContext::new();
     let nodes = source.build_frame(&mut text, 1120, 820);
     let rect = nodes
@@ -151,7 +153,7 @@ fn workspace_hover_matches_full_encoding() {
         source
             .render_retained_frame(&mut actual, &mut text, (1120, 820), 1.)
             .unwrap();
-        rebuilt_frames += source.adapter.stats.scene_builds;
+        rebuilt_frames += source.frame_diagnostics().backend.scene_builds;
         let nodes = source.build_frame(&mut text, 1120, 820);
         let mut expected = Scene::new();
         plico_renderer::scene::build_scene_scaled_layers(

@@ -16,8 +16,7 @@ impl HostView for Feedback {
 }
 fn knob(s: &Source<Feedback>) -> f64 {
     let scene = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Toggle"))
         .unwrap()
@@ -37,8 +36,7 @@ fn knob(s: &Source<Feedback>) -> f64 {
 }
 fn click(s: &mut Source<Feedback>, tcx: &mut TextContext) {
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Switch, "Toggle", None)
         .unwrap()
         .id;
@@ -54,13 +52,13 @@ fn toggle_thumb_moves_on_host_clock_and_reverses_without_a_jump() {
     assert_eq!(knob(&s), -32.);
     click(&mut s, &mut tcx);
     assert_eq!(knob(&s), -32.);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     clock.set(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut tcx, 300, 100);
     assert!((knob(&s) + 24.).abs() < 0.01);
-    assert_eq!(s.view.calls, calls);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.view().calls, calls);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     let middle = knob(&s);
     click(&mut s, &mut tcx);
     assert_eq!(knob(&s), middle);

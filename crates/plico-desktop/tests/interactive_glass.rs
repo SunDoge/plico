@@ -31,13 +31,12 @@ fn frame(source: &mut Source<Demo>, text: &mut TextContext) -> Scene {
     source
         .render_retained_frame(&mut scene, text, (200, 100), 1.)
         .unwrap();
-    assert_eq!(source.adapter.shader_diagnostics().count(), 0);
+    assert_eq!(source.shader_diagnostics().count(), 0);
     scene
 }
 fn values(source: &Source<Demo>) -> Vec<f32> {
     source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter_map(|n| n.paint.widget.as_ref())
         .flat_map(|s| s.commands.iter())
@@ -59,7 +58,7 @@ fn pointer(source: &mut Source<Demo>, text: &mut TextContext, phase: PointerPhas
     }));
 }
 fn layout(source: &Source<Demo>) -> Vec<[f32; 4]> {
-    source.adapter.placed.iter().map(|n| n.rect).collect()
+    source.placed_nodes().iter().map(|n| n.rect).collect()
 }
 #[test]
 fn glass_hover_and_press_sample_the_clock_without_redeclaring_or_moving_content() {
@@ -77,7 +76,7 @@ fn glass_hover_and_press_sample_the_clock_without_redeclaring_or_moving_content(
     let bounds = layout(&source);
     pointer(&mut source, &mut text, PointerPhase::Move, 100.);
     frame(&mut source, &mut text);
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     assert_eq!(values(&source)[16], 0.);
     clock.advance(Duration::from_millis(60)).unwrap();
     frame(&mut source, &mut text);
@@ -85,24 +84,24 @@ fn glass_hover_and_press_sample_the_clock_without_redeclaring_or_moving_content(
     clock.advance(Duration::from_millis(60)).unwrap();
     frame(&mut source, &mut text);
     assert_eq!(values(&source)[16], 1.);
-    assert_eq!(source.view.shows, shows);
+    assert_eq!(source.view().shows, shows);
     assert!(!source.has_anim());
     pointer(&mut source, &mut text, PointerPhase::Down, 100.);
     frame(&mut source, &mut text);
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     clock.advance(Duration::from_millis(75)).unwrap();
     frame(&mut source, &mut text);
     assert!((values(&source)[17] - 0.5).abs() < 1e-5);
     clock.advance(Duration::from_millis(75)).unwrap();
     frame(&mut source, &mut text);
     assert_eq!(values(&source)[17], 1.);
-    assert_eq!(source.view.shows, shows);
+    assert_eq!(source.view().shows, shows);
     assert_eq!(layout(&source), bounds);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
     assert!(!source.has_anim());
     pointer(&mut source, &mut text, PointerPhase::Up, 100.);
     frame(&mut source, &mut text);
-    assert_eq!(source.view.clicks, 1);
+    assert_eq!(source.view().clicks, 1);
     source.set_reduced_motion(true);
     frame(&mut source, &mut text);
     assert_eq!(values(&source)[17], 0.);
@@ -112,7 +111,8 @@ fn glass_hover_and_press_sample_the_clock_without_redeclaring_or_moving_content(
     pointer(&mut source, &mut text, PointerPhase::Up, 39.4);
     frame(&mut source, &mut text);
     assert_eq!(
-        source.view.clicks, 1,
+        source.view().clicks,
+        1,
         "the painted margin must not enlarge hit testing"
     );
 }
