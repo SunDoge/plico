@@ -85,7 +85,7 @@ mod demo {
                 source.update(|v| v.0.count = count);
                 let mut scene = Scene::new();
                 source.build_and_paint(&mut scene, &mut text, 620, 410, scale);
-                if let Some(error) = &source.last_error {
+                if let Some(error) = source.last_error() {
                     return Err(format!("source failed: {error}").into());
                 }
                 if let Some(error) = text.take_native_paragraph_error() {

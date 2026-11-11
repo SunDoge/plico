@@ -23,7 +23,7 @@ fn complete_settings_scenes_replay_on_skia_in_both_themes() {
                 tick += 300;
                 clock.set(Duration::from_millis(tick)).unwrap();
                 let nodes = source.build_frame(&mut text, width, height);
-                assert!(source.last_error.is_none());
+                assert!(source.last_error().is_none());
                 let mut output = Scene::new();
                 scene::build_scene(
                     &mut output,

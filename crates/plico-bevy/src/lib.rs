@@ -251,7 +251,7 @@ fn prepare<V: plico::View + 'static>(
             ),
             scale,
         );
-        if let Some(source) = ui.source.last_error.take() {
+        if let Some(source) = ui.source.take_error() {
             return Err(Error::Declaration { source });
         }
         if resized

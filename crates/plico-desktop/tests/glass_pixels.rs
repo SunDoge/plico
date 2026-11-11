@@ -27,7 +27,7 @@ fn glass_source(dark: bool, blur: bool) -> (Source<Gallery>, plico::VirtualClock
 
 fn render(source: &mut Source<Gallery>, tcx: &mut TextContext) -> image::RgbaImage {
     let nodes = source.build_frame(tcx, 1120, 820);
-    assert!(source.last_error.is_none(), "{:?}", source.last_error);
+    assert!(source.last_error().is_none(), "{:?}", source.last_error());
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, tcx, (1120, 820), 1.);
     plico_shell::renderer::render_to_image(&scene, 1120, 820, source.base_color())
@@ -134,7 +134,7 @@ fn blur_stays_inside_the_card_at_hidpi() {
         let (mut off, clock_off) = glass_source(dark, false);
         let mut frame = |source: &mut Source<Gallery>, clock: &plico::VirtualClock| {
             let nodes = source.build_frame(&mut tcx, 2240, 1640);
-            assert!(source.last_error.is_none());
+            assert!(source.last_error().is_none());
             let mut scene = Scene::new();
             source.paint_scene(&mut scene, &nodes, &mut tcx, (2240, 1640), 2.);
             clock.advance(Duration::from_millis(1000)).unwrap();
@@ -185,7 +185,7 @@ fn retained_frame_matches_direct_across_animation_frames() {
     for step in 0..10 {
         clock.advance(Duration::from_millis(120)).unwrap();
         let nodes = source.build_frame(&mut tcx, 1120, 820);
-        assert!(source.last_error.is_none());
+        assert!(source.last_error().is_none());
         let mut direct = Scene::new();
         source.paint_scene(&mut direct, &nodes, &mut tcx, (1120, 820), 1.);
         let direct_image =

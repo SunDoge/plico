@@ -97,3 +97,23 @@ fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
         "updated caption missing: expected {expected:?}"
     );
 }
+
+#[test]
+fn declaration_errors_can_be_observed_or_transferred_without_exposing_storage() {
+    struct DuplicateKeys;
+
+    impl HostView for DuplicateKeys {
+        fn show(&mut self, ui: &mut plico::UiContext<'_>) {
+            ui.text("First").key("duplicate");
+            ui.text("Second").key("duplicate");
+        }
+    }
+
+    let mut source = Source::new(DuplicateKeys);
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 320, 200);
+
+    assert!(source.last_error().is_some());
+    assert!(source.take_error().is_some());
+    assert!(source.last_error().is_none());
+}

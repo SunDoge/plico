@@ -300,7 +300,7 @@ fn frame<V: HostView>(
     viewport: PreviewViewport,
 ) -> Result<(), RecipeError> {
     source.build_frame(text, viewport.width, viewport.height);
-    if let Some(error) = &source.last_error {
+    if let Some(error) = source.last_error() {
         return Err(failed(error.to_string()));
     }
     if source

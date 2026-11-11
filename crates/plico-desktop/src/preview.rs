@@ -228,7 +228,7 @@ impl<S> PreviewScenario<S> {
             .map_err(|source| PreviewError::Capture { source })?;
         let frame = |source: &mut F, text: &mut TextContext| -> Result<(), PreviewError> {
             source.build_frame(text, v.width, v.height);
-            if let Some(error) = &source.ui_source().last_error {
+            if let Some(error) = source.ui_source().last_error() {
                 return Err(PreviewError::Input {
                     source: plico_runtime::testing::Error::Declaration {
                         message: error.to_string(),
@@ -260,7 +260,7 @@ impl<S> PreviewScenario<S> {
             .scale(v.scale)
             .render_with_borrowed(renderer, &mut text)
             .map_err(|source| PreviewError::Capture { source })?;
-        if let Some(error) = &source.ui_source().last_error {
+        if let Some(error) = source.ui_source().last_error() {
             return Err(PreviewError::Input {
                 source: plico_runtime::testing::Error::Declaration {
                     message: error.to_string(),

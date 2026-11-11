@@ -52,7 +52,7 @@ impl HostView for Demo {
 }
 fn frame(s: &mut Source<Demo>, tcx: &mut TextContext) -> Vec<plico_renderer::layout::PlacedNode> {
     let nodes = s.build_frame(tcx, 500, 350);
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
     nodes
 }
 fn bounds(s: &Source<Demo>, name: &str) -> [f32; 4] {

@@ -312,7 +312,7 @@ fn radio_group_is_one_tab_stop_and_direction_keys_choose() {
     let mut source = Source::new(RadioDemo::default());
     let mut text = TextContext::new();
     let placed = source.build_frame(&mut text, 720, 400);
-    assert!(!placed.is_empty(), "{:?}", source.last_error);
+    assert!(!placed.is_empty(), "{:?}", source.last_error());
     assert!(!source.adapter.semantics(&source.engine, 0).nodes.is_empty());
 
     source.handle_event(key("Tab"));

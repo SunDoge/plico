@@ -184,11 +184,11 @@ fn failed_declaration_does_not_hide_property_changes_from_the_next_commit() {
     s.view.invalid = true;
     s.request_rebuild();
     s.build_frame(&mut text, 400, 300);
-    assert!(s.last_error.is_some());
+    assert!(s.last_error().is_some());
     s.view.invalid = false;
     s.request_rebuild();
     let nodes = s.build_frame(&mut text, 400, 300);
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
     let p = nodes
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Box"))

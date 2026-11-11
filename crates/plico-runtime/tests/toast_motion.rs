@@ -90,7 +90,7 @@ fn hovering_noninteractive_toast_content_pauses_without_spinning_and_exit_keeps_
     clock.advance(Duration::from_millis(140)).unwrap();
     source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
     assert!(!source.has_anim());
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
 }
 
 #[test]

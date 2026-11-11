@@ -104,9 +104,9 @@ fn main() {
         clock.advance(Duration::from_millis(16)).unwrap();
         source.render_retained_frame(&mut scene, &mut text, (1100, 820), 1.);
         assert!(
-            source.last_error.is_none(),
+            source.last_error().is_none(),
             "frame {frame}: {:?}",
-            source.last_error
+            source.last_error()
         );
         let t = Instant::now();
         let damage = tracked

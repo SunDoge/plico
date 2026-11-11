@@ -37,7 +37,7 @@ fn gallery_pages_native_text_and_damage_match_full_replay() {
                 source
                     .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
                     .unwrap();
-                if let Some(error) = &source.last_error {
+                if let Some(error) = source.last_error() {
                     failures.push(format!("{language:?}/{page:?}: {error}"));
                     break;
                 }
@@ -193,7 +193,7 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
                          partial: &mut Renderer| {
             source.poll_async();
             source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
-            assert!(source.source.last_error.is_none());
+            assert!(source.source.last_error().is_none());
             assert!(text.take_native_paragraph_error().is_none());
             let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
             let expected = full.render_scene(&scene, size, [1.; 4], false).unwrap();
@@ -329,7 +329,7 @@ fn mines_reveal_reuses_native_paragraphs_and_partial_pixels_match_full() {
         source
             .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
-        assert!(source.last_error.is_none());
+        assert!(source.last_error().is_none());
         let actual = renderer
             .render_scene(&scene, [1120, 820], [1.; 4], true)
             .unwrap();

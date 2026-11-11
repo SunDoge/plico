@@ -172,12 +172,12 @@ fn failed_declarations_retry_and_can_recover_without_reusing_a_partial_frame() {
     let mut text = TextContext::new();
     for _ in 0..2 {
         sample(&mut source, &mut text, (400, 300), 1.);
-        assert!(source.last_error.is_some());
+        assert!(source.last_error().is_some());
     }
     assert_eq!(source.view.calls, 2);
     source.view.invalid = false;
     sample(&mut source, &mut text, (400, 300), 1.);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     assert_eq!(source.view.calls, 3);
 }
 

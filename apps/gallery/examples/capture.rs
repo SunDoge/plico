@@ -136,7 +136,7 @@ fn run() -> Result<(), Error> {
         );
         let mut text = TextContext::new();
         let nodes = source.build_frame(&mut text, options.width, options.height);
-        if let Some(error) = &source.source.last_error {
+        if let Some(error) = source.source.last_error() {
             return Err(Error::Input {
                 message: error.to_string(),
             });
@@ -155,7 +155,7 @@ fn run() -> Result<(), Error> {
                 message: e.to_string(),
             })?;
         let nodes = source.build_frame(&mut text, options.width, options.height);
-        if let Some(error) = &source.source.last_error {
+        if let Some(error) = source.source.last_error() {
             return Err(Error::Input {
                 message: error.to_string(),
             });

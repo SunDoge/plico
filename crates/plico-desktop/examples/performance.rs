@@ -78,7 +78,7 @@ fn main() {
                 .unwrap();
             let elapsed = start.elapsed().as_nanos();
             ACTIVE.store(false, Relaxed);
-            assert!(source.last_error.is_none());
+            assert!(source.last_error().is_none());
             assert_eq!(source.adapter.stats.placed_node_clones, 0);
             if frame >= 20 {
                 samples.push(elapsed);

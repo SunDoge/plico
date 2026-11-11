@@ -27,7 +27,7 @@ fn sample(source: &mut Source<Demo>, text: &mut TextContext) -> (f32, [f32; 2], 
     source
         .render_retained_frame(&mut Scene::new(), text, (64, 64), 1.)
         .unwrap();
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     source
         .adapter
         .placed

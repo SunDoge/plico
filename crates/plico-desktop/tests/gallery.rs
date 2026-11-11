@@ -357,12 +357,12 @@ fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     let failed = source.build_frame(&mut tcx, 640, 740);
     assert_eq!(good.len(), failed.len());
     assert!(matches!(
-        source.last_error,
+        source.last_error(),
         Some(plico_desktop::SourceError::Declaration { .. })
     ));
     source.view.0 = false;
     source.build_frame(&mut tcx, 640, 740);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn all_gallery_routes_fit_minimum_and_regular_windows() {
             });
             let mut tcx = TextContext::new();
             s.build_frame(&mut tcx, width, 740);
-            assert!(s.last_error.is_none());
+            assert!(s.last_error().is_none());
             for n in &s.adapter.placed {
                 let mut r = n.rect;
                 if let Some(clip) = n.clip {

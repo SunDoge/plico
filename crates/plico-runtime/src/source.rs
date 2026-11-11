@@ -53,7 +53,7 @@ struct WakeBatch {
 }
 pub struct Source<V: HostView> {
     fonts: Vec<FontAsset>,
-    pub last_error: Option<SourceError>,
+    last_error: Option<SourceError>,
     pub engine: Engine,
     pub adapter: Adapter,
     /// Direct external mutations require request_rebuild; prefer update().
@@ -122,6 +122,15 @@ impl<V: HostView> Source<V> {
             declared_changes: plico::Changes::empty(),
             declarations_pending: false,
         }
+    }
+    /// Most recent declaration error, retained until a later declaration succeeds.
+    pub fn last_error(&self) -> Option<&SourceError> {
+        self.last_error.as_ref()
+    }
+
+    /// Take the most recent declaration error for a host-owned error channel.
+    pub fn take_error(&mut self) -> Option<SourceError> {
+        self.last_error.take()
     }
     /// Override the window backdrop, e.g. transparent for an embedded game HUD.
     /// Widget theme colors and hit testing remain unchanged.

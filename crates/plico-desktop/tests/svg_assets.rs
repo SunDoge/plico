@@ -81,7 +81,7 @@ fn malformed_assets_report_once_and_release_diagnostics_on_unmount() {
     });
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 300, 100);
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
     assert_eq!(s.adapter.stats.svg_parses, 1);
     assert_eq!(s.adapter.svg_diagnostics().count(), 1);
     s.build_frame(&mut tcx, 300, 100);

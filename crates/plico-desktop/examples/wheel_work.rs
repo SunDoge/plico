@@ -85,7 +85,7 @@ fn main() {
                     .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
-                assert!(source.last_error.is_none());
+                assert!(source.last_error().is_none());
                 if i >= 40 {
                     samples.push(elapsed);
                     calls += source.batch_stats().declaration_passes - before.declaration_passes;

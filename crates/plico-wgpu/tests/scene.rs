@@ -39,7 +39,7 @@ fn real_source_shared_scene_uses_native_measurement_and_rejects_unsupported_pain
     );
     let mut scene = Scene::new();
     source.build_and_paint(&mut scene, &mut text, 320, 180, 1.);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     assert!(text.take_native_paragraph_error().is_none());
     assert_eq!(text.cache_entries(), (0, 0), "Parley fallback was used");
     let flat = scene.flattened();

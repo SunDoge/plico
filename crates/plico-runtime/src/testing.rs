@@ -288,7 +288,7 @@ impl<V: HostView> Driver<V> {
     fn frame(&mut self) -> Result<(), Error> {
         self.source
             .build_frame(&mut self.text, self.size.0, self.size.1);
-        if let Some(message) = &self.source.last_error {
+        if let Some(message) = self.source.last_error() {
             return Err(Error::Declaration {
                 message: message.to_string(),
             });

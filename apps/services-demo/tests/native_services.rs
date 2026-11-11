@@ -50,7 +50,7 @@ fn static_host_uses_same_typed_ui_without_serializing_or_repeating_service_actio
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target: counter }));
     source.build_frame(&mut tcx, 620, 520);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
 
     assert!(
         source
@@ -70,7 +70,7 @@ fn static_host_uses_same_typed_ui_without_serializing_or_repeating_service_actio
     source.handle_semantic_action(SemanticAction::Click { target: id });
     for _ in 0..4 {
         source.build_frame(&mut tcx, 620, 520);
-        assert!(source.last_error.is_none());
+        assert!(source.last_error().is_none());
     }
     assert_eq!(source.view.services.sends, 1);
     assert_eq!(source.view.services.snapshot().started, 1);

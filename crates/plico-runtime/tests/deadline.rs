@@ -34,7 +34,7 @@ impl HostView for Timer {
 }
 fn render(s: &mut Source<Timer>, t: &mut TextContext, scene: &mut Scene) {
     s.render_retained_frame(scene, t, (300, 200), 1.).unwrap();
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
 }
 #[test]
 fn earliest_deadline_retains_declarations_until_due_then_cancels() {

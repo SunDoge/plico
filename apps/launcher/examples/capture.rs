@@ -43,7 +43,7 @@ fn run() -> Result<(), Error> {
     let mut tcx = TextContext::new();
     let nodes = source.build_frame(&mut tcx, options.width, 526);
     snafu::ensure!(
-        source.last_error.is_none(),
+        source.last_error().is_none(),
         InputSnafu {
             message: "view declaration failed"
         }

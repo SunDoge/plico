@@ -49,5 +49,5 @@ fn configured_fonts_survive_style_updates_and_switching_invalidates_measurement(
     source.set_font_family("monospace");
     source.build_frame(&mut text, 500, 400);
     assert_eq!(source.adapter.stats.layout_runs, 0);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
 }

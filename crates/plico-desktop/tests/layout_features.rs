@@ -212,7 +212,7 @@ impl HostView for Demo {
 }
 fn frame(s: &mut Source<Demo>, tcx: &mut TextContext, w: u32) {
     s.build_frame(tcx, w, 300);
-    assert!(s.last_error.is_none(), "{:?}", s.last_error);
+    assert!(s.last_error().is_none(), "{:?}", s.last_error());
 }
 fn parent_rect(s: &Source<Demo>, label: &str) -> [f32; 4] {
     let p = s

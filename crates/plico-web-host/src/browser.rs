@@ -93,7 +93,7 @@ impl<V: HostView> WebHost<V> {
             .map_err(|e| error(e.to_string()))?;
         self.source
             .render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale);
-        if let Some(e) = &self.source.last_error {
+        if let Some(e) = self.source.last_error() {
             return Err(error(e.to_string()));
         }
         let size = [

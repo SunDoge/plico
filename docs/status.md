@@ -283,6 +283,8 @@ validated shader-effect contract; concrete shader execution lives in
 types as a parallel facade. Its public surface is limited to window hosting,
 extensions and desktop services; backend probes depend on `plico-renderer`
 directly.
+Runtime declaration errors are likewise owned by `Source`: hosts can inspect or
+take an error through methods, but cannot replace its internal error slot.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

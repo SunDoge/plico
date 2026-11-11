@@ -104,7 +104,7 @@ fn run(rows: usize, case: Case, options: &Options) {
             .render_retained_frame(&mut scene, &mut text, (800, height), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
-        assert!(source.last_error.is_none());
+        assert!(source.last_error().is_none());
         if matches!(case, Case::Idle | Case::Redeclare) {
             assert_eq!(source.adapter.stats.scene_reuses, 1);
             assert_eq!(source.adapter.stats.scene_builds, 0);

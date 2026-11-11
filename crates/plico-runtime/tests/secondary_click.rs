@@ -35,7 +35,7 @@ fn pointer(phase: PointerPhase, x: f64) -> UiEvent {
 }
 fn frame(s: &mut Source<Demo>, t: &mut TextContext) {
     s.build_frame(t, 300, 200);
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
 }
 #[test]
 fn secondary_click_is_consumed_once_and_never_primary() {

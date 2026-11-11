@@ -169,7 +169,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
             .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
-        assert!(source.last_error.is_none(), "{:?}", source.last_error);
+        assert!(source.last_error().is_none(), "{:?}", source.last_error());
         if i >= 40 {
             let c = *counters.lock().unwrap();
             total.push(elapsed);
@@ -226,7 +226,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
             .render_retained_frame(&mut scene, &mut text, (width, 850), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
-        assert!(source.last_error.is_none(), "{:?}", source.last_error);
+        assert!(source.last_error().is_none(), "{:?}", source.last_error());
         if frame >= 60 {
             let c = *counters.lock().unwrap();
             totals.push(elapsed);

@@ -15,7 +15,7 @@ fn retained_window_path_paints_without_snapshot_clones() {
     let mut tcx = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
     source.render_retained_frame(&mut scene, &mut tcx, (400, 300), 1.);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     assert_eq!(source.adapter.stats.placed_node_clones, 0);
     source.request_rebuild();
     source.render_retained_frame(&mut scene, &mut tcx, (400, 300), 1.);

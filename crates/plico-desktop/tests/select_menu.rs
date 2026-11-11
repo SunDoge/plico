@@ -89,7 +89,7 @@ fn focus(s: &mut Source<Demo>, role: SemanticRole, label: &str) {
 }
 fn frame(s: &mut Source<Demo>, tcx: &mut TextContext) {
     s.build_frame(tcx, 600, 400);
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
 }
 #[test]
 fn select_keyboard_skips_disabled_cancels_then_commits_once() {

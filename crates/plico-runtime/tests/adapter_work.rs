@@ -59,7 +59,7 @@ impl HostView for Form {
 fn frame(s: &mut Source<Form>, text: &mut TextContext) {
     s.render_retained_frame(&mut Scene::new(), text, (600, 2200), 1.)
         .unwrap();
-    assert!(s.last_error.is_none(), "{:?}", s.last_error);
+    assert!(s.last_error().is_none(), "{:?}", s.last_error());
 }
 fn input<'a>(s: &'a Source<Form>, label: &str) -> &'a plico_renderer::layout::PlacedNode {
     let bounds = s
@@ -225,7 +225,7 @@ fn shader_registry_tracks_mount_and_unmount_without_gpu_rasterization() {
     source
         .render_retained_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
         .unwrap();
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     assert_eq!(source.adapter.stats.shader_visits, 1);
     source.view.present = false;
     source.request_rebuild();
@@ -300,7 +300,7 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
     assert!(s.handle_semantic_action(SemanticAction::Click { target }));
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
-    assert!(s.last_error.is_none());
+    assert!(s.last_error().is_none());
     assert_eq!(s.batch_stats().scroll_viewport_visits - before, 1);
     assert_eq!(s.adapter.stats.scroll_visits, 1);
     assert_eq!(s.adapter.stats.layout_runs, 0);
@@ -393,7 +393,7 @@ fn control_metric_invalidation_matches_fresh_layout_and_cleans_unmounted_members
     let draw = |s: &mut Source<Controls>, text: &mut TextContext| {
         s.render_retained_frame(&mut Scene::new(), text, (600, 600), 1.)
             .unwrap();
-        assert!(s.last_error.is_none(), "{:?}", s.last_error);
+        assert!(s.last_error().is_none(), "{:?}", s.last_error());
     };
     draw(&mut s, &mut text);
     for change in 0..3 {

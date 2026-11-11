@@ -22,7 +22,7 @@ fn styled_ranges_reach_shaper_and_can_be_removed_without_replacing_node() {
     let mut tcx = TextContext::new();
     // Byte offsets are validated, including non-ASCII boundaries.
     source.build_frame(&mut tcx, 640, 400);
-    assert!(source.last_error.is_none());
+    assert!(source.last_error().is_none());
     let node = source
         .adapter
         .placed
