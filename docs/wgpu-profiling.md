@@ -184,13 +184,14 @@ file records it. Cache hits return before creating upload-stage spans.
 
 Stages are `wgpu.upload_image`, `wgpu.prepare_image_bytes`,
 `wgpu.allocate_image`, `wgpu.stage_image_level`, `wgpu.cpu_mip`,
-`wgpu.compile_mip_pipeline`, and `wgpu.generate_mips`; the latter additionally
-contains `wgpu.finish_mips` and `wgpu.submit_mips`. All are CPU wall intervals.
+`wgpu.compile_mip_pipeline`, and `wgpu.generate_mips`; deferred GPU mip work is
+finished under `wgpu.finish_mips`. All are CPU wall intervals.
 Fields identify dimensions, source/payload bytes, format/alpha, mip level and
 GPU/CPU selection. Existing INFO behavior does not enable these DEBUG stages.
 
-A follow-up Intel/Mesa dev sample (seven distinct uploads including first use)
-located the long interval at queue submission: mip-submit medians 22.4 / 21.7 ms
+Before mip work was merged into the frame submission, a follow-up Intel/Mesa dev
+sample (seven distinct uploads including first use) located the long interval at
+the then-separate queue submission: mip-submit medians 22.4 / 21.7 ms
 for even/odd 4K inputs, versus encoder-finish 0.141 / 0.125 ms. First pipeline
 creation was 0.481 / 0.474 ms. An earlier staged sample showed occasional stalls
 moving between staging write and submission. These observations identify a CPU
@@ -198,6 +199,15 @@ API boundary, not GPU shader execution duration or proof of a driver defect.
 Staging, driver work and synchronization inside that boundary remain unresolved.
 Do not sum nested span times or separate medians. No upload-speedup claim follows
 from adding instrumentation.
+
+The production path now defers newly uploaded textures' mip encoders and prepends
+their command buffer to the next successful frame. Child layers and the final
+frame therefore sample initialized levels in the same `queue.submit` as the
+frame, rather than through a hidden upload-time submit. Pending textures are only
+committed after that submit; abandoning a failed surface frame leaves them
+retryable. The manual upload profile explicitly submits deferred mip work because
+it intentionally bypasses frame encoding. This removes a submission boundary,
+but no before/after end-to-end speedup is claimed without a fresh benchmark.
 
 ### Base-level upload control
 

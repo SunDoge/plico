@@ -1,4 +1,4 @@
-//! Single-source GPU mip generation, queued before image sampling.
+//! Single-source GPU mip generation, encoded before image sampling.
 pub(crate) struct MipGenerator {
     pipeline: wgpu::ComputePipeline,
 }
@@ -30,10 +30,12 @@ impl MipGenerator {
         level = "debug", target = "plico::perf", name = "wgpu.generate_mips",
         skip_all, fields(width = texture.width(), height = texture.height(), levels = texture.mip_level_count())
     )]
-    pub fn generate(&self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture) {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Plico image mip chain"),
-        });
+    pub fn encode(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+    ) {
         let view = |level| {
             texture.create_view(&wgpu::TextureViewDescriptor {
                 base_mip_level: level,
@@ -71,9 +73,5 @@ impl MipGenerator {
                 1,
             );
         }
-        let commands = tracing::debug_span!(target: "plico::perf", "wgpu.finish_mips")
-            .in_scope(|| encoder.finish());
-        tracing::debug_span!(target: "plico::perf", "wgpu.submit_mips")
-            .in_scope(|| queue.submit([commands]));
     }
 }

@@ -315,7 +315,7 @@ impl Renderer {
     ) -> wgpu::SubmissionIndex {
         self.pending_commands.push(encoder.finish());
         let commands = std::mem::take(&mut self.pending_commands);
-        if self.split_submits {
+        let submission = if self.split_submits {
             let mut commands = commands.into_iter();
             let first = commands.next().expect("a frame has a final command buffer");
             let mut submission = self.queue.submit([first]);
@@ -328,7 +328,9 @@ impl Renderer {
         } else {
             self.frame_budget.submissions += 1;
             self.queue.submit(commands)
-        }
+        };
+        self.images.commit_pending_mips();
+        submission
     }
 }
 /// The specialized plain-fill fragment: the strict subset of the general

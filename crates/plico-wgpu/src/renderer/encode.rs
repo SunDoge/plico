@@ -85,6 +85,14 @@ impl Renderer {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        if result.is_ok()
+            && let Some(mips) = self.images.pending_mip_commands(&self.device)
+        {
+            // Image reductions must execute before child layers or the final
+            // frame samples them. They remain one command buffer in the same
+            // queue submission rather than creating a hidden cold-frame submit.
+            self.pending_commands.insert(0, mips);
+        }
         if result.is_err() {
             self.pending_commands.clear();
         }

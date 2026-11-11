@@ -242,6 +242,9 @@ time, upload bytes, instance and draw counts, and optional root-encoder GPU
 timestamps (`PLICO_GPU_TIMER=1`). The shell HUD and the offscreen `--frames`
 capture expose it; definitions and measurement caveats are in
 [performance](performance.md).
+New-image GPU mip chains are encoded ahead of sampling but submitted together
+with the successful frame; an abandoned surface frame retains the pending work
+for retry instead of issuing or forgetting a hidden upload submission.
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG

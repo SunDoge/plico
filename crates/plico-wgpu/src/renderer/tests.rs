@@ -673,8 +673,15 @@ fn profile_image_upload_cpu_and_gpu_wait() {
                         },
                     )
                     .unwrap();
-                // Flush write_texture staging on the CPU-only mip path too.
-                renderer.queue.submit([]);
+                // This profile bypasses frame encoding, so explicitly submit
+                // the cache's deferred mip work. Production prepends it to the
+                // frame's single submission.
+                if let Some(mips) = renderer.images.pending_mip_commands(&renderer.device) {
+                    renderer.queue.submit([mips]);
+                    renderer.images.commit_pending_mips();
+                } else {
+                    renderer.queue.submit([]);
+                }
                 let cpu_time = start.elapsed();
                 let wait = Instant::now();
                 renderer
@@ -753,7 +760,9 @@ fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
             },
             texture.size(),
         );
-        generator.generate(&renderer.device, &renderer.queue, &texture);
+        let mut mip_encoder = renderer.device.create_command_encoder(&Default::default());
+        generator.encode(&renderer.device, &mut mip_encoder, &texture);
+        renderer.queue.submit([mip_encoder.finish()]);
         let mut previous_gpu = source.clone();
         let mut reference = source;
         let mut previous_size = size;
@@ -825,6 +834,46 @@ fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
             previous_size = target;
         }
     }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn mip_uploads_remain_retryable_and_join_the_frame_submission() {
+    use crate::{Draw, image::ImageQuad};
+    use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+    use std::sync::Arc;
+
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    assert!(crate::mipmap::MipGenerator::supported(&renderer.device));
+    let image = ImageQuad::new(
+        Quad::new([0., 0., 16., 16.], [1.; 4]),
+        ImageData {
+            data: Blob::new(Arc::new(vec![128; 65 * 67 * 4])),
+            width: 65,
+            height: 67,
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+        },
+    );
+    let draws = [Draw::Image(&image)];
+
+    let abandoned = renderer
+        .encode_frame(&draws, [32, 32], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.images.pending_mip_count(), 1);
+    assert!(!renderer.pending_commands.is_empty());
+    renderer.pending_commands.clear();
+    drop(abandoned);
+
+    let retry = renderer
+        .encode_frame(&draws, [32, 32], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.images.pending_mip_count(), 1);
+    assert!(!renderer.pending_commands.is_empty());
+    let pixels = renderer.read_frame(retry, [32, 32]).unwrap();
+    assert_eq!(pixels.len(), 32 * 32 * 4);
+    assert_eq!(renderer.images.pending_mip_count(), 0);
+    assert_eq!(renderer.frame_budget().submissions, 1);
 }
 
 #[test]

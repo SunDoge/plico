@@ -242,9 +242,14 @@ compute or fallback behavior.
 CPU source copying/premultiplication, first pipeline compilation and GPU execution
 still have costs. The earlier 78 ms CPU odd-size figure now characterizes the
 fallback/reference path, not compute-enabled mip generation. No end-to-end upload
-speedup is claimed without measuring the new path. DEBUG `wgpu.generate_mips`
-records mip encoding/submission CPU duration and dimensions/level count; it
-excludes lazy pipeline construction and does not measure GPU completion.
+speedup is claimed without measuring the new path. GPU mip commands are deferred,
+prepended before layer/frame sampling, and included in the frame's queue
+submission. The cache only commits them after a real submit, so a failed or
+abandoned surface frame can retry safely. DEBUG `wgpu.generate_mips` records mip
+encoding CPU duration and dimensions/level count; `wgpu.finish_mips` covers the
+deferred command-buffer finish. Neither span measures queue submission or GPU
+completion. An ignored real-adapter regression exercises abandon/retry and
+asserts one frame-budget submission.
 
 ## Real gallery image-window acceptance
 

@@ -58,6 +58,10 @@ struct TextureEntry {
 pub(crate) struct ImageCache {
     entries: lru::LruCache<Key, TextureEntry>,
     mip_generator: Option<crate::mipmap::MipGenerator>,
+    // Textures whose base level is staged but whose mip commands have not yet
+    // reached the queue. Keep these across failed/abandoned frames so retrying
+    // cannot sample uninitialized levels.
+    pending_mips: Vec<wgpu::Texture>,
     frame_sources: HashSet<u64>,
     #[cfg(test)]
     force_cpu_mips: bool,
@@ -73,6 +77,7 @@ impl Default for ImageCache {
             entries: lru::LruCache::new(NonZeroUsize::new(256).unwrap()),
             bytes: 0,
             mip_generator: None,
+            pending_mips: Vec::new(),
             frame_sources: HashSet::new(),
             #[cfg(test)]
             force_cpu_mips: false,
@@ -295,11 +300,11 @@ impl ImageCache {
             previous_size = [width, height];
         }
         if gpu_mips {
-            let generator = self.mip_generator.get_or_insert_with(|| {
+            self.mip_generator.get_or_insert_with(|| {
                 tracing::debug_span!(target: "plico::perf", "wgpu.compile_mip_pipeline")
                     .in_scope(|| crate::mipmap::MipGenerator::new(device))
             });
-            generator.generate(device, queue, &texture);
+            self.pending_mips.push(texture.clone());
         }
         let bytes = texture_bytes;
         while self.bytes + bytes > 128 * 1024 * 1024
@@ -350,6 +355,7 @@ impl ImageCache {
         self.entries.clear();
         self.frame_sources.clear();
         self.mip_generator = None;
+        self.pending_mips.clear();
         self.bytes = 0;
         self.bindings = 0;
     }
@@ -358,6 +364,37 @@ impl ImageCache {
     }
     pub fn stats(&self) -> (usize, usize, u64, u64) {
         (self.entries.len(), self.bytes, self.uploads, self.hits)
+    }
+
+    /// Encode every uncommitted mip chain into one command buffer. The
+    /// textures stay pending until the renderer actually submits the frame;
+    /// an abandoned surface acquisition can therefore encode them again.
+    pub fn pending_mip_commands(&self, device: &wgpu::Device) -> Option<wgpu::CommandBuffer> {
+        let generator = self.mip_generator.as_ref()?;
+        if self.pending_mips.is_empty() {
+            return None;
+        }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Plico image mip chains"),
+        });
+        for texture in &self.pending_mips {
+            generator.encode(device, &mut encoder, texture);
+        }
+        Some(
+            tracing::debug_span!(target: "plico::perf", "wgpu.finish_mips")
+                .in_scope(|| encoder.finish()),
+        )
+    }
+
+    /// The frame submission containing the pending mip commands reached the
+    /// queue, so retries no longer need to regenerate them.
+    pub fn commit_pending_mips(&mut self) {
+        self.pending_mips.clear();
+    }
+
+    #[cfg(test)]
+    pub fn pending_mip_count(&self) -> usize {
+        self.pending_mips.len()
     }
 }
 
