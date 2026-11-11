@@ -293,8 +293,8 @@ semantics, selection, focus, theme and per-frame diagnostics. Declaration and
 backend counters are exposed as a snapshot instead of mutable `Source` fields.
 Runnable examples and performance probes are guarded against direct
 Engine/Adapter/view field access; legacy integration tests remain the staged
-migration boundary. The backend-settings integration suite is the first
-migrated and guarded test group.
+migration boundary. The backend-settings, launcher and services-demo integration
+suites are migrated and guarded test groups.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery
