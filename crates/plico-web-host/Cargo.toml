@@ -5,6 +5,10 @@ edition.workspace = true
 description = "Browser host for Plico rendering, input and loadable UI modules"
 publish = false
 
+[package.metadata.cargo-machete]
+# Referenced by bindings generated for async #[wasm_bindgen] functions.
+ignored = ["wasm-bindgen-futures"]
+
 [lib]
 crate-type = ["rlib", "cdylib"]
 

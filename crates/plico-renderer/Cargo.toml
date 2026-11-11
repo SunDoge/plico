@@ -28,8 +28,3 @@ tracing = { workspace = true }
 unicode-segmentation = "1.13"
 usvg.workspace = true
 plico-motion = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]

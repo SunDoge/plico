@@ -7,7 +7,6 @@ description = "Host-agnostic declaration runtime for Plico: adapter, source, vie
 
 [dependencies]
 unicode-segmentation = "1.12"
-slotmap.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"

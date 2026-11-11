@@ -95,6 +95,9 @@ wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级�
 暴露不可变的 `BackendStats`。需要直接验证投影器代际身份的测试与实现放在同一内部模块。
 `plico-desktop` 不再通配重导出 runtime；它显式列出启动、测试和高级宿主所需 facade，避免 runtime
 新增实现类型时静默扩大桌面公共 API。诊断类型从 runtime 根完整导出，公开字段没有不可命名类型。
+依赖边也按这一分层收紧：应用不再直接依赖只经 desktop 使用的 runtime，runtime 不保留未使用的
+`slotmap`，renderer 不保留空的 WASM 依赖。目标平台过程宏隐式使用的 `windows-core` 与
+`wasm-bindgen-futures` 明确登记为 machete 例外；交叉 target 编译守卫它们不能误删。
 
 ## 当前实现
 

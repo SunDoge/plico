@@ -2,7 +2,6 @@ use crate::WebHost;
 use js_sys::Function;
 use plico::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::{Frame, PROTOCOL_VERSION, Request};
-use plico_renderer::FrameSource;
 use plico_runtime::HostView;
 use serde_json::{Value, json};
 use std::collections::HashMap;

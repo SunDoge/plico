@@ -639,7 +639,6 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
- "serde",
  "snafu",
  "tracing",
  "tracing-subscriber",
@@ -2817,7 +2816,6 @@ dependencies = [
  "plico-desktop",
  "plico-dev",
  "plico-runtime",
- "serde",
 ]
 
 [[package]]
@@ -4523,7 +4521,6 @@ dependencies = [
  "plico",
  "plico-desktop",
  "plico-renderer",
- "plico-runtime",
  "plico-shell",
  "snafu",
  "usage-rs",
@@ -6425,7 +6422,6 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "usvg 0.48.1",
- "web-sys",
  "web-time",
 ]
 
@@ -6443,7 +6439,6 @@ dependencies = [
  "plico-shell",
  "serde",
  "serde_json",
- "slotmap",
  "snafu",
  "taffy",
  "tracing",
@@ -7528,12 +7523,9 @@ dependencies = [
  "plico-desktop",
  "plico-dev",
  "plico-renderer",
- "plico-runtime",
  "plico-shell",
  "serde",
- "serde_json",
  "snafu",
- "tempfile",
  "usage-rs",
 ]
 
