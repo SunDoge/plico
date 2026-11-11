@@ -126,6 +126,12 @@ for field in ("engine", "adapter", "view"):
             f"crates/plico-runtime/src/source.rs: Source.{field} must remain crate-private"
         )
 
+runtime_root = (ROOT / "crates/plico-runtime/src/lib.rs").read_text()
+if not re.search(r"^pub\(crate\) use adapter::Adapter;", runtime_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-runtime/src/lib.rs: Adapter must remain crate-private"
+    )
+
 if violations:
     sys.exit(
         "Production hosts and apps must use Source's stable query/update API, "

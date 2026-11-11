@@ -27,6 +27,8 @@ mod hit;
 mod layout;
 mod semantics;
 mod sync;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use semantics::semantic_id;
 pub(crate) use sync::make_paint;
@@ -357,27 +359,6 @@ impl Adapter {
     }
     pub fn backend_id(&self, e: Entity) -> Option<NodeId> {
         self.nodes.get(&e).map(|n| n.id)
-    }
-    pub fn layout(
-        &mut self,
-        engine: &mut Engine,
-        tcx: &mut TextContext,
-        width: u32,
-        height: u32,
-    ) -> Vec<PlacedNode> {
-        self.update(engine, tcx, width, height, &[], plico::Changes::STRUCTURE)
-    }
-    fn update(
-        &mut self,
-        engine: &mut Engine,
-        tcx: &mut TextContext,
-        width: u32,
-        height: u32,
-        declared: &[Entity],
-        changes: plico::Changes,
-    ) -> Vec<PlacedNode> {
-        self.update_retained(engine, tcx, width, height, declared, changes);
-        self.presented()
     }
     pub(crate) fn update_retained(
         &mut self,

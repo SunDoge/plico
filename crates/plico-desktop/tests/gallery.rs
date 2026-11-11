@@ -310,41 +310,6 @@ fn real_layout_fits_normal_and_minimum_viewports() {
 }
 
 #[test]
-fn retained_backend_handles_reorder_remove_and_remount() {
-    use plico::{Engine, UiContext};
-    use plico_desktop::Adapter;
-    let mut e = Engine::default();
-    let mut a = Adapter::default();
-    let mut tcx = TextContext::new();
-    let draw = |ui: &mut UiContext<'_>, ids: &[u64]| {
-        for id in ids {
-            ui.text("item").key(*id);
-        }
-    };
-    e.frame_declarations(|ui| draw(ui, &[1, 2])).unwrap();
-    a.layout(&mut e, &mut tcx, 640, 780);
-    let one = e.find(e.root(), 1u64).unwrap();
-    let two = e.find(e.root(), 2u64).unwrap();
-    let first = a.backend_id(one);
-    let second = a.backend_id(two);
-    e.frame_declarations(|ui| draw(ui, &[2, 1])).unwrap();
-    a.layout(&mut e, &mut tcx, 640, 780);
-    assert_eq!(a.backend_id(one), first);
-    assert_eq!(a.backend_id(two), second);
-    assert_eq!(a.stats.created, 0);
-    assert_eq!(a.stats.child_writes, 1);
-    e.frame_declarations(|ui| draw(ui, &[2])).unwrap();
-    a.layout(&mut e, &mut tcx, 640, 780);
-    assert_eq!(a.stats.removed, 1);
-    assert!(a.backend_id(one).is_none());
-    e.frame_declarations(|ui| draw(ui, &[2, 1])).unwrap();
-    a.layout(&mut e, &mut tcx, 640, 780);
-    let new_one = e.find(e.root(), 1u64).unwrap();
-    assert_ne!(new_one, one);
-    assert_ne!(a.backend_id(new_one), first);
-    assert_eq!(a.backend_id(two), second);
-}
-#[test]
 fn prepare_event_commits_new_geometry_before_next_pointer_event() {
     let mut s = Source::new(Gallery {
         router: plico::Router::new(Page::Controls),

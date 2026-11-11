@@ -1,5 +1,5 @@
 use kurbo::Shape;
-use plico::{Engine, prelude::*};
+use plico::prelude::*;
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, PaintCommand, TextContext, layout::PlacedNode};
 use std::time::Duration;
@@ -138,16 +138,20 @@ fn paint_only_toggle_animation_keeps_alignment_without_layout() {
 
 #[test]
 fn paint_and_measure_use_the_content_width_of_padded_text() {
-    let mut engine = Engine::default();
-    engine
-        .frame_declarations(|cx| {
+    struct PaddedText;
+    impl HostView for PaddedText {
+        fn show(&mut self, cx: &mut UiContext<'_>) {
             text(cx, LONG).width(180.).padding(20);
-        })
-        .unwrap();
-    let mut adapter = plico_desktop::Adapter::default();
+        }
+    }
+    let mut source = Source::new(PaddedText);
     let mut tcx = TextContext::new();
-    let nodes = adapter.layout(&mut engine, &mut tcx, 300, 500);
-    let node = nodes.iter().find(|n| n.paint.text.is_some()).unwrap();
+    source.build_frame(&mut tcx, 300, 500);
+    let node = source
+        .placed_nodes()
+        .iter()
+        .find(|node| node.paint.text.is_some())
+        .unwrap();
     let layout = plico_renderer::scene::layout_node_text(&mut tcx, node).unwrap();
     assert!(
         layout.height() <= node.content_size[1] + 1.,

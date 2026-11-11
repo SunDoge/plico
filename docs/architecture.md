@@ -91,6 +91,8 @@ spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar
 `Source` 的 Engine、Adapter 与 view 字段现为 `pub(crate)`：runtime 内部 surface/testing 可协作，
 外部 crate 无法访问。边界脚本同时守卫字段可见性、跨行链式穿透，并覆盖 desktop/runtime/Skia/
 wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级检查。
+投影器 `Adapter` 本身也只在 runtime crate 内可见；应用与 desktop 后端通过 `Source` 工作，诊断只
+暴露不可变的 `BackendStats`。需要直接验证投影器代际身份的测试与实现放在同一内部模块。
 
 ## 当前实现
 
