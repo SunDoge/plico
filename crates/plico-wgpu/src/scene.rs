@@ -1,6 +1,6 @@
 //! Supported shared paint replay. Unsupported operations are errors, never omissions.
 use crate::{Draw, Error, Quad, Renderer, Result};
-use kurbo::{Affine, Rect};
+use kurbo::{Affine, Rect, Shape};
 use peniko::Brush;
 use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
@@ -362,6 +362,17 @@ fn geometry(shape: &PaintShape, index: usize) -> Result<(Rect, [f64; 4])> {
             "arbitrary paths need a path raster backend",
         )),
     }
+}
+
+// Mask cache storage includes raster padding. Analytical clips retain their
+// exact transformed bounds separately, like MyGO's clip.scissor + maskArea;
+// arbitrary paths keep the conservative raster extent for AA correctness.
+fn mask_clip_bounds(shape: &PaintShape, transform: Affine, storage: Rect) -> Rect {
+    shape.primitive().map_or(storage, |_| {
+        transform
+            .transform_rect_bbox(shape.bounding_box())
+            .intersect(storage)
+    })
 }
 fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
     let (scale, [tx, ty]) = uniform(transform, index)?;
@@ -927,7 +938,8 @@ impl Renderer {
                             {
                                 let mask =
                                     self.masks.intersect(image, bounds, parent.as_deref())?;
-                                layer_clip = layer_clip.intersect(mask.bounds());
+                                let bounds = mask_clip_bounds(shape, *transform, mask.bounds());
+                                layer_clip = layer_clip.intersect(bounds);
                                 composite_mask = Some(mask);
                             } else {
                                 layer_clip = Rect::ZERO;
@@ -1016,7 +1028,8 @@ impl Renderer {
                             if let Some((image, bounds)) = raster {
                                 let mask =
                                     self.masks.intersect(image, bounds, previous.as_deref())?;
-                                clips.push(clip.intersect(mask.bounds()));
+                                let bounds = mask_clip_bounds(shape, *transform, mask.bounds());
+                                clips.push(clip.intersect(bounds));
                                 masks.push(Some(mask.clone()));
                                 draws.push(PreparedDraw::SetMask(mask));
                             } else {

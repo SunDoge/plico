@@ -58,6 +58,14 @@ backdrop snapshot，不会读写同一个 color attachment。原先每个 pane �
 `LayerPoolStats::backdrop_effect_uniform_*` 单独报告该 arena，长序列回归验证同帧 occurrence 数
 稳定时 allocation 不再增长，effect 全部移除后 entry 归零。
 
+与 MyGO effect batch 使用当前 clip scissor 一致，direct pass 的 fullscreen triangle 还会将
+effect canvas、祖先矩形 clip、可选 mask bounds 与实际 target 相交后再提交 scissor。Backdrop
+snapshot 的输入范围仍保留完整 effect canvas，shader 远距离采样语义没有被输出裁剪偷换。
+`FrameBatchStats::backdrop_effect_pixels` 报告进入 scissor 的物理像素上界；滚动／圆角 mask GPU
+回归同时断言裁剪后的确定性工作量与最终像素。该回归的三个可见 16×16 effect 位置从原先
+固定 canvas 上界 768 pixels 收紧为 60 + 144 + 156 = 360 pixels（-53%）；这是确定性
+scissor 面积，不是跨应用 GPU 时间承诺。
+
 ## 像素及边界验证
 
 `crates/plico-wgpu/tests/backdrop_damage.rs` 对照分组/局部与独立/全量渲染，要求完整 RGBA 相等：

@@ -133,6 +133,9 @@ pub struct FrameBatchStats {
     pub backdrop_textures: u64,
     /// Effects reading slices of a same-stage snapshot array.
     pub backdrop_shared_reads: u64,
+    /// Physical pixels admitted by fused backdrop-effect scissors. This is an
+    /// upper bound on fragment work before rounded/mask coverage rejection.
+    pub backdrop_effect_pixels: u64,
 }
 /// CPU and GPU work spent on the most recently encoded frame, in milliseconds.
 ///

@@ -1033,6 +1033,20 @@ fn backdrop_effects_obey_scroll_clips_and_masks_after_translation() {
                 let actual = renderer
                     .render_scene(&make(true), [48, 48], [0.; 4], false)
                     .unwrap();
+                if !isolated {
+                    let stats = renderer.batch_stats();
+                    let expected_pixels = match shift as i32 {
+                        -40 | 40 => 0,
+                        -7 => 60,
+                        0 => 144,
+                        7 => 156,
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(
+                        stats.backdrop_effect_pixels, expected_pixels,
+                        "effect fragments were not scissored to the inherited clip: rounded={rounded}, isolated={isolated}, shift={shift}, stats={stats:?}"
+                    );
+                }
                 let expected = renderer
                     .render_scene(&make(false), [48, 48], [0.; 4], false)
                     .unwrap();

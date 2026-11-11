@@ -1,4 +1,4 @@
-use super::backdrop::{encode_backdrop_step, plan_backdrops};
+use super::backdrop::{effect_output_scissor, encode_backdrop_step, plan_backdrops};
 use super::effects::visit_images;
 use super::*;
 
@@ -147,7 +147,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -441,16 +441,11 @@ impl Renderer {
                         }
                         if let Some(effect_index) = backdrop_at {
                             let marker = instances[run.start];
-                            let [x, y, w, h] = marker.rect;
-                            let [cx, cy, cw, ch] = marker.clip;
-                            if x.max(cx).max(origin[0])
-                                >= (x + w).min(cx + cw).min(origin[0] + width as f32)
-                                || y.max(cy).max(origin[1])
-                                    >= (y + h).min(cy + ch).min(origin[1] + height as f32)
-                            {
+                            let Some(output_scissor) = effect_output_scissor(marker, origin, size)
+                            else {
                                 first = end;
                                 continue;
-                            }
+                            };
                             // Split the pass: everything before the effect is
                             // now in the target; copy that region out, render
                             // the effect with it bound, then continue the rest
@@ -518,6 +513,7 @@ impl Renderer {
                                 },
                                 &effect,
                                 size,
+                                output_scissor,
                             );
                             self.effects = effects;
                             self.backdrop_compositor = compositor;
