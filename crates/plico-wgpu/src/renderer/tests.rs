@@ -861,19 +861,20 @@ fn mip_uploads_remain_retryable_and_join_the_frame_submission() {
         .encode_frame(&draws, [32, 32], [0.; 4], 0.)
         .unwrap();
     assert_eq!(renderer.images.pending_mip_count(), 1);
-    assert!(!renderer.pending_commands.is_empty());
-    renderer.pending_commands.clear();
+    assert!(!renderer.frame_prefix_commands.is_empty());
+    renderer.frame_prefix_commands.clear();
     drop(abandoned);
 
     let retry = renderer
         .encode_frame(&draws, [32, 32], [0.; 4], 0.)
         .unwrap();
     assert_eq!(renderer.images.pending_mip_count(), 1);
-    assert!(!renderer.pending_commands.is_empty());
+    assert!(!renderer.frame_prefix_commands.is_empty());
     let pixels = renderer.read_frame(retry, [32, 32]).unwrap();
     assert_eq!(pixels.len(), 32 * 32 * 4);
     assert_eq!(renderer.images.pending_mip_count(), 0);
     assert_eq!(renderer.frame_budget().submissions, 1);
+    assert_eq!(renderer.frame_budget().command_buffers, 2);
 }
 
 #[test]
@@ -1036,6 +1037,11 @@ fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
         1,
         "isolated and backdrop-reading child layers share the frame submission"
     );
+    assert_eq!(
+        renderer.frame_budget().command_buffers,
+        1,
+        "isolated and backdrop-reading child layers share the root encoder"
+    );
     let broken = crate::image::ImageQuad::new(
         Quad::new([0., 0., 1., 1.], [1.; 4]),
         peniko::ImageData {
@@ -1088,7 +1094,9 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     use crate::{Draw, image::ImageQuad};
     use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
     use std::sync::Arc;
-    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let instance = wgpu::Instance::new(crate::instance_descriptor());
+    let mut renderer =
+        pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
     let image = ImageQuad::new(
         Quad::new([0., 0., 8., 8.], [1.; 4]),
         ImageData {
@@ -1120,6 +1128,10 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     );
     assert!(renderer.frame_images.is_empty());
     assert!(renderer.frame_image_slots.is_empty());
+    assert!(
+        renderer.pending_gpu_slot.is_none(),
+        "a failed shared encoder must release its timestamp slot"
+    );
     assert_eq!(
         renderer
             .render_items(&[Draw::Image(&image)], [16, 16], [0.; 4], 0.)
@@ -1676,6 +1688,7 @@ fn frame_budget_reports_stages_and_collects_gpu_timestamps() {
     assert_eq!(budget.instances, 0);
     assert_eq!(budget.draw_calls, 0);
     assert_eq!(budget.submissions, 1);
+    assert_eq!(budget.command_buffers, 1);
     assert!(budget.upload_bytes >= 48, "frame uniform upload is counted");
     assert!((budget.prepare_ms + budget.encode_ms + budget.submit_ms).is_finite());
     if renderer.gpu_timer.is_some() {

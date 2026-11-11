@@ -515,6 +515,8 @@ pub struct FrameStats {
     pub submit_ms: f64,
     /// Queue submissions issued for the latest frame.
     pub submissions: u64,
+    /// Command buffers in the latest queue submission.
+    pub command_buffers: u64,
     /// Blocking GPU wait for offscreen readback; zero for window presentation.
     pub wait_ms: f64,
     /// Bytes uploaded for the instance stream and frame uniforms.
@@ -560,6 +562,8 @@ pub struct FrameBudgetSample {
     pub submit_ms: f64,
     /// Queue submissions issued for this frame.
     pub submissions: u64,
+    /// Command buffers in this frame's queue submission.
+    pub command_buffers: u64,
     /// Blocking GPU wait for offscreen readback; zero for window presentation.
     pub wait_ms: f64,
     /// GPU frame time, when the backend reports timestamps.
@@ -591,6 +595,7 @@ impl FrameStats {
         };
         self.upload_bytes = budget.upload_bytes;
         self.submissions = budget.submissions;
+        self.command_buffers = budget.command_buffers;
         self.instances = budget.instances;
         self.draw_calls = budget.draw_calls;
     }
@@ -646,6 +651,7 @@ mod budget_tests {
             encode_ms: 1.0,
             submit_ms: 3.0,
             submissions: 1,
+            command_buffers: 1,
             wait_ms: 0.0,
             gpu_ms: Some(8.0),
             upload_bytes: 4096,
@@ -660,6 +666,7 @@ mod budget_tests {
         assert_eq!(stats.gpu_ms, Some(8.0));
         assert_eq!(stats.upload_bytes, 4096);
         assert_eq!(stats.submissions, 1);
+        assert_eq!(stats.command_buffers, 1);
         assert_eq!(stats.instances, 700);
         assert_eq!(stats.draw_calls, 90);
 
@@ -669,6 +676,7 @@ mod budget_tests {
             encode_ms: 0.0,
             submit_ms: 0.0,
             submissions: 2,
+            command_buffers: 3,
             wait_ms: 0.0,
             gpu_ms: None,
             upload_bytes: 2048,
@@ -679,5 +687,6 @@ mod budget_tests {
         // A backend without timestamps keeps the previous GPU average.
         assert_eq!(stats.gpu_ms, Some(8.0));
         assert_eq!(stats.upload_bytes, 2048);
+        assert_eq!(stats.command_buffers, 3);
     }
 }

@@ -247,7 +247,7 @@ impl Renderer {
             frame_budget: FrameBudget::default(),
             gpu_timer,
             pending_gpu_slot: None,
-            pending_commands: Vec::new(),
+            frame_prefix_commands: Vec::new(),
             split_submits: std::env::var_os("PLICO_SPLIT_SUBMITS")
                 .is_some_and(|value| value != "0"),
             atlas_texture,

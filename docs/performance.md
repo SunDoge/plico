@@ -853,15 +853,25 @@ XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland �
 
 ## WGPU 单次提交与 adapter 选择
 
-隔离子层、backdrop 分段、自定义 effect 和最终呈现仍分别录制保持 painter order 的
-command buffer，但不再在各段之间调用 `queue.submit`。每个子层使用独立且跨帧复用的
-uniform/instance buffer，因此父层也无需在子层返回后重新上传。正常帧把全部 command
-buffers 作为一个有序批次提交；`PLICO_SPLIT_SUBMITS=1` 仅用于与原多次提交路径做 A/B。
+隔离子层、自定义 effect、backdrop 分段和最终呈现现在按 painter order 直接录入同一个
+根 `CommandEncoder`。每个子层仍使用独立且跨帧复用的 uniform/instance buffer，因此
+递归编码不会让后续 `write_buffer` 改写父层已经引用的数据。只有遍历场景时新发现的图片
+mip 链保留一个必须先执行的前缀 command buffer：普通帧一个 command buffer，冷图片帧
+最多两个，仍由一次 `queue.submit` 提交。`FrameBudget::command_buffers` 明确报告这个数。
+`PLICO_SPLIT_SUBMITS=1` 仅用于把这些 buffer 分开提交的诊断 A/B。
 
 本机 `effects-glass-hover` 场景中，实际提交次数从 6 降到 1。Intel iGPU 离屏 capture
 的 `submit_ms` 噪声较大，三组交错样本的中位数约为 1.71ms（合并）与 1.75ms（拆分），
 不能据此声称显著时延收益；这次优化确定消除的是 CPU/driver 提交边界和父层重复上传。
 嵌套隔离层、backdrop 与最终像素由真实 adapter 回归测试覆盖。
+
+随后以 `0e94e77` 的“每个子层/effect 独立 command buffer”实现为基线，对 release
+`effects.json` 交替运行 12 对、每次 capture 10 帧。场景的 command buffer 数从 4 降为
+1；输出 PNG 的 SHA-256 完全相同。两位小数计时的中位数为：`prepare_ms` 0.34→0.25ms，
+`encode_ms` 0.12→0.11ms，`submit_ms` 1.485→1.53ms。只把 prepare 的下降视为本机方向性
+证据，不宣称跨机器比例；submit 没有改善。新版本的 GPU timestamp 首次真正包住子层与
+effect，旧版本只包住根 command buffer，因此旧/新 `gpu_ms` 的采样范围不同，不能据此
+判断 GPU 回归或收益。
 
 ### GPU adapter selection
 

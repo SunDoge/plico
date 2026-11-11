@@ -201,9 +201,11 @@ Do not sum nested span times or separate medians. No upload-speedup claim follow
 from adding instrumentation.
 
 The production path now defers newly uploaded textures' mip encoders and prepends
-their command buffer to the next successful frame. Child layers and the final
-frame therefore sample initialized levels in the same `queue.submit` as the
-frame, rather than through a hidden upload-time submit. Pending textures are only
+their command buffer to the next successful frame. Child layers and effects are
+recorded directly in the root frame encoder; therefore a frame uses one command
+buffer normally and two only when it has a mip prefix, all in one `queue.submit`.
+Child layers and the final frame sample initialized levels without a hidden
+upload-time submit. Pending textures are only
 committed after that submit; abandoning a failed surface frame leaves them
 retryable. The manual upload profile explicitly submits deferred mip work because
 it intentionally bypasses frame encoding. This removes a submission boundary,

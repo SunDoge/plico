@@ -59,6 +59,7 @@ impl Renderer {
     pub(super) fn render_effect(
         &mut self,
         effect: &plico_renderer::ShaderEffect,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<std::rc::Rc<crate::image::GpuImage>> {
         let [w, h] = effect.physical_size();
         self.frame_effect_draws += 1;
@@ -83,14 +84,12 @@ impl Renderer {
             effects
         });
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        let view = effects.render_view(effect, &self.device, &self.queue, &mut encoder);
+        let view = effects.render_view(effect, &self.device, &self.queue, encoder);
         if let Some(error) = pollster::block_on(scope.pop()) {
             return Err(Error::Shader {
                 message: error.to_string(),
             });
         }
-        self.pending_commands.push(encoder.finish());
         Ok(crate::image::GpuImage::from_view(
             &self.device,
             &self.atlas_texture.layout,

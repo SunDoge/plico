@@ -142,9 +142,10 @@ pub struct FrameBatchStats {
 /// CPU stages are measured with `Instant` and are always available. `gpu_ms`
 /// brackets the frame between timestamp queries, which requires
 /// `wgpu::Features::TIMESTAMP_QUERY` and the `PLICO_GPU_TIMER` environment
-/// variable (or a profiling renderer). Child-layer command buffers and the
-/// closing presentation blit or readback copy execute in the same ordered queue
-/// submission and are therefore included.
+/// variable (or a profiling renderer). Child layers and effects are recorded in
+/// the root encoder; the closing presentation blit or readback copy is therefore
+/// included. A separately encoded image-mip prefix is not inside the timestamp
+/// bracket and is reported by `command_buffers`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameBudget {
     /// Building the instance stream: scene flattening, text/glyph preparation.
@@ -156,8 +157,11 @@ pub struct FrameBudget {
     /// CPU time for the frame's queue submission.
     pub submit_ms: f64,
     /// Queue submissions issued for the frame. Normal rendering should use
-    /// one even when it contains several painter-ordered command buffers.
+    /// one even when it contains an image-mip prefix command buffer.
     pub submissions: u64,
+    /// Command buffers in the frame submission. Normally one; two when newly
+    /// uploaded images require a mip-generation prefix.
+    pub command_buffers: u64,
     /// Blocking GPU wait for offscreen readback; zero for window presentation.
     pub wait_ms: f64,
     /// Instance-stream and frame-uniform bytes written this frame.
@@ -313,10 +317,10 @@ pub struct Renderer {
     frame_budget: FrameBudget,
     gpu_timer: Option<gpu_timer::GpuTimer>,
     pending_gpu_slot: Option<usize>,
-    /// Painter-ordered command buffers from effects and isolated layer
-    /// segments. The frame's final encoder is appended and all are submitted
-    /// together, preserving dependencies without repeated queue submissions.
-    pending_commands: Vec<wgpu::CommandBuffer>,
+    /// Commands that must execute before the frame encoder. This is limited to
+    /// image mip generation discovered while preparing the scene; effects and
+    /// isolated layers encode directly into the frame encoder.
+    frame_prefix_commands: Vec<wgpu::CommandBuffer>,
     /// Profiling-only A/B switch that submits each recorded segment
     /// separately while keeping the same independent layer buffers.
     split_submits: bool,
@@ -332,10 +336,11 @@ impl Renderer {
         &mut self,
         encoder: wgpu::CommandEncoder,
     ) -> wgpu::SubmissionIndex {
-        self.pending_commands.push(encoder.finish());
-        let commands = std::mem::take(&mut self.pending_commands);
+        let final_command = encoder.finish();
+        let prefixes = std::mem::take(&mut self.frame_prefix_commands);
+        self.frame_budget.command_buffers += prefixes.len() as u64 + 1;
         let submission = if self.split_submits {
-            let mut commands = commands.into_iter();
+            let mut commands = prefixes.into_iter().chain(std::iter::once(final_command));
             let first = commands.next().expect("a frame has a final command buffer");
             let mut submission = self.queue.submit([first]);
             self.frame_budget.submissions += 1;
@@ -346,7 +351,8 @@ impl Renderer {
             submission
         } else {
             self.frame_budget.submissions += 1;
-            self.queue.submit(commands)
+            self.queue
+                .submit(prefixes.into_iter().chain(std::iter::once(final_command)))
         };
         self.images.commit_pending_mips();
         submission

@@ -72,7 +72,7 @@ impl Renderer {
         self.batch_stats = FrameBatchStats::default();
         self.frame_budget = FrameBudget::default();
         if self.layer_depth == 0 {
-            self.pending_commands.clear();
+            self.frame_prefix_commands.clear();
             self.poll_gpu_budget();
             self.backdrop_pool.begin_frame();
             if let Some(compositor) = &mut self.backdrop_compositor {
@@ -95,10 +95,11 @@ impl Renderer {
             // Image reductions must execute before child layers or the final
             // frame samples them. They remain one command buffer in the same
             // queue submission rather than creating a hidden cold-frame submit.
-            self.pending_commands.insert(0, mips);
+            self.frame_prefix_commands.push(mips);
         }
         if result.is_err() {
-            self.pending_commands.clear();
+            self.frame_prefix_commands.clear();
+            self.cancel_gpu_budget();
         }
         // Encoded commands retain their own GPU references. Pass-local image
         // bindings, deferred layer scenes and effects must not keep evicted
@@ -189,6 +190,23 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
         origin: [f32; 2],
     ) -> Result<wgpu::CommandEncoder> {
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.begin_gpu_budget(&mut encoder);
+        self.encode_frame_into(items, size, background, time, regions, origin, &mut encoder)?;
+        Ok(encoder)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn encode_frame_into(
+        &mut self,
+        items: DrawSource<'_>,
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+        regions: Option<&[[u32; 4]]>,
+        origin: [f32; 2],
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<()> {
         if self.layer_depth == 0 {
             self.frame_layer_bytes = 0;
             self.context_charged.fill(false);
@@ -213,7 +231,7 @@ impl Renderer {
         let mut instances = if regions.is_some_and(|r| r.is_empty()) {
             Vec::new()
         } else {
-            self.prepare_instances(items, size)?
+            self.prepare_instances(items, size, encoder)?
         };
         if let Some(regions) = regions {
             instances.retain(|instance| {
@@ -300,11 +318,9 @@ impl Renderer {
         let mut flush_draws: u64 = 0;
         let mut flush_plain_draws: u64 = 0;
         let encode_started = Instant::now();
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.begin_gpu_budget(&mut encoder);
         if let Some(base) = &self.inherited_backdrop {
             base.seed(
-                &mut encoder,
+                encoder,
                 &self.target.as_ref().unwrap().texture,
                 origin,
                 size,
@@ -460,7 +476,7 @@ impl Renderer {
                                             let requests = &backdrop_plan.groups[group];
                                             let views = crate::backdrop_batch::capture(
                                                 &self.device,
-                                                &mut encoder,
+                                                encoder,
                                                 &self.target.as_ref().unwrap().texture,
                                                 requests,
                                                 &mut self.backdrop_batch_prefilter,
@@ -503,7 +519,7 @@ impl Renderer {
                                 },
                                 instances[run.start],
                                 origin,
-                                &mut encoder,
+                                encoder,
                                 &view,
                                 {
                                     let [x, y, w, h] = instances[run.start].rect;
@@ -548,14 +564,9 @@ impl Renderer {
                 .scene
                 .backdrop_bounds()
                 .map_or(output, |rect| rect.union(output));
-            let context = self.capture_backdrop_context(&mut encoder, origin, size, input)?;
-            let previous = std::mem::replace(
-                &mut encoder,
-                self.device.create_command_encoder(&Default::default()),
-            );
-            self.pending_commands.push(previous.finish());
+            let context = self.capture_backdrop_context(encoder, origin, size, input)?;
 
-            let resource = self.render_layer(&layer, Some(context.clone()))?;
+            let resource = self.render_layer(&layer, Some(context.clone()), encoder)?;
             let output_view = resource.texture.create_view(&Default::default());
             let base_view = context.texture.create_view(&Default::default());
             let mask = instances[marker].clip_params[2] as usize;
@@ -643,7 +654,7 @@ impl Renderer {
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;
-        Ok(encoder)
+        Ok(())
     }
     #[allow(clippy::too_many_arguments)]
     fn flush_run(

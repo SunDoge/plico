@@ -120,6 +120,7 @@ impl WindowRenderer {
                     encode_ms: budget.encode_ms,
                     submit_ms: budget.submit_ms,
                     submissions: budget.submissions,
+                    command_buffers: budget.command_buffers,
                     wait_ms: budget.wait_ms,
                     gpu_ms: budget.gpu_ms,
                     upload_bytes: budget.upload_bytes,

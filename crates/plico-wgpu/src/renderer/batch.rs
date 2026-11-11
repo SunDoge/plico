@@ -5,6 +5,7 @@ impl Renderer {
         &mut self,
         items: DrawSource<'_>,
         size: [u32; 2],
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<Vec<Instance>> {
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         {
@@ -32,7 +33,7 @@ impl Renderer {
                 }
                 self.instance_scratch = scratch;
             }
-            let result = self.encode_items(items, size);
+            let result = self.encode_items(items, size, encoder);
             let result = if matches!(
                 result,
                 Err(Error::Text {
@@ -44,7 +45,7 @@ impl Renderer {
                     .expect("atlas full implies atlas exists")
                     .clear();
                 self.text_stats.recycled_frames += 1;
-                self.encode_items(items, size)
+                self.encode_items(items, size, encoder)
             } else {
                 result
             };
@@ -53,7 +54,7 @@ impl Renderer {
             Ok(instances)
         }
         #[cfg(not(all(target_os = "linux", feature = "system-text")))]
-        self.encode_items(items, size)
+        self.encode_items(items, size, encoder)
     }
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     fn warm_layer_text(
@@ -179,7 +180,12 @@ impl Renderer {
         self.frame_image_slots.insert(identity, slot);
         slot
     }
-    fn encode_items(&mut self, items: DrawSource<'_>, size: [u32; 2]) -> Result<Vec<Instance>> {
+    fn encode_items(
+        &mut self,
+        items: DrawSource<'_>,
+        size: [u32; 2],
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<Vec<Instance>> {
         let [width, height] = size;
         let mut instances = std::mem::take(&mut self.instance_scratch);
         instances.clear();
@@ -295,7 +301,7 @@ impl Renderer {
                             clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                         });
                     } else {
-                        let resource = self.render_effect(effect)?;
+                        let resource = self.render_effect(effect, encoder)?;
                         let slot = self.intern_frame_image(resource);
                         instances.push(Instance {
                             mask_rect: [0.; 4],
@@ -336,7 +342,7 @@ impl Renderer {
                         self.deferred_layers.push((*layer).clone());
                         slot
                     } else {
-                        let resource = self.render_layer(layer, None)?;
+                        let resource = self.render_layer(layer, None, encoder)?;
                         self.intern_frame_image(resource.image)
                     };
                     let q = &layer.quad;

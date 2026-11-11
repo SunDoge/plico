@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             println!("adapter: {}", session.adapter_name().unwrap_or("unknown"));
             println!(
-                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} instances, {} draws, {} KiB uploaded",
+                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} instances, {} draws, {} KiB uploaded",
                 budget.prepare_ms,
                 budget.upload_ms,
                 budget.encode_ms,
@@ -46,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .gpu_ms
                     .map_or_else(|| "n/a".to_owned(), |ms| format!("{ms:.2}ms")),
                 budget.submissions,
+                budget.command_buffers,
                 budget.instances,
                 budget.draw_calls,
                 budget.upload_bytes / 1024,

@@ -81,7 +81,7 @@ impl Renderer {
     #[cfg(feature = "window")]
     pub(crate) fn abandon_scene_frame(&mut self, encoder: wgpu::CommandEncoder) {
         self.cancel_gpu_budget();
-        self.pending_commands.clear();
+        self.frame_prefix_commands.clear();
         drop(encoder);
         self.queue.submit([]);
         self.invalidate_scene_damage();
