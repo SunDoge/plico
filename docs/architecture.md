@@ -77,6 +77,9 @@ Engine change bit；idle reuse、手动 declare、失败重试和局部 presenta
 Scroll presentation 的平滑/直接滚动、虚拟行挂载、viewport observation、事件前采样与 scene reuse
 测试也已迁移。时钟采样通过 event preparation 后的实际 presented offset 证明，不再读取
 `Engine::time` 内部状态；scroll observation 的核心声明契约仍由独立 Engine 测试覆盖。
+Select/menu 与 tree keyboard 测试也已迁移到语义快照。稳定 option ID、reorder 后焦点、长列表
+滚动，以及 tree/accordion/sidebar/radio/rating/stepper 的方向键与 tab-stop 行为都不再依赖
+Engine/Adapter 字段；高亮画质仍从 retained paint 验证。
 
 ## 当前实现
 

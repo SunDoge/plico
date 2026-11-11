@@ -43,15 +43,14 @@ fn key(name: &str) -> UiEvent {
 
 fn id(source: &Source<TreeDemo>, role: SemanticRole, label: &str) -> u64 {
     source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(role, label, None)
         .unwrap()
         .id
 }
 
 fn focus(source: &Source<TreeDemo>) -> Option<u64> {
-    source.adapter.semantics(&source.engine, 0).focus
+    source.semantics().focus
 }
 
 #[test]
@@ -80,7 +79,7 @@ fn tree_is_one_tab_stop_and_arrows_follow_visible_parent_child_order() {
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: src }));
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 400, 300);
-    assert!(source.view.open);
+    assert!(source.view().open);
     assert_eq!(focus(&source), Some(src));
 
     source.handle_event(key("ArrowRight"));
@@ -92,7 +91,7 @@ fn tree_is_one_tab_stop_and_arrows_follow_visible_parent_child_order() {
     assert_eq!(focus(&source), Some(src));
     source.handle_event(key("ArrowLeft"));
     source.build_frame(&mut text, 400, 300);
-    assert!(!source.view.open);
+    assert!(!source.view().open);
     assert_eq!(focus(&source), Some(src));
 }
 
@@ -150,43 +149,26 @@ fn accordion_headers_follow_mygo_vertical_focus_group_keys() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 300);
     let general = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "General", None)
         .unwrap()
         .id;
     let privacy = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Privacy", None)
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: general }));
     source.handle_event(key("ArrowUp"));
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(general)
-    );
+    assert_eq!(source.semantics().focus, Some(general));
     source.handle_event(key("ArrowDown"));
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(privacy)
-    );
+    assert_eq!(source.semantics().focus, Some(privacy));
     source.handle_event(key("ArrowDown"));
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(privacy)
-    );
+    assert_eq!(source.semantics().focus, Some(privacy));
     source.handle_event(key("Home"));
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(general)
-    );
+    assert_eq!(source.semantics().focus, Some(general));
     source.handle_event(key("End"));
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(privacy)
-    );
+    assert_eq!(source.semantics().focus, Some(privacy));
 }
 
 struct SidebarDemo {
@@ -228,8 +210,7 @@ fn sidebar_has_one_selected_tab_stop_and_navigation_moves_selection() {
     source.build_frame(&mut text, 400, 300);
     let semantic = |source: &Source<SidebarDemo>, role, label| {
         source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(role, label, None)
             .unwrap()
             .id
@@ -237,37 +218,28 @@ fn sidebar_has_one_selected_tab_stop_and_navigation_moves_selection() {
 
     source.handle_event(key("Tab"));
     assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
+        source.semantics().focus,
         Some(semantic(&source, SemanticRole::Button, "Before"))
     );
     source.handle_event(key("Tab"));
     let inbox = semantic(&source, SemanticRole::TreeItem, "Inbox");
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(inbox)
-    );
+    assert_eq!(source.semantics().focus, Some(inbox));
     source.handle_event(key("Tab"));
     assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
+        source.semantics().focus,
         Some(semantic(&source, SemanticRole::Button, "After"))
     );
 
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: inbox }));
     source.handle_event(key("ArrowDown"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 1);
+    assert_eq!(source.view().selected, 1);
     let archive = semantic(&source, SemanticRole::TreeItem, "Archive");
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(archive)
-    );
+    assert_eq!(source.semantics().focus, Some(archive));
     source.handle_event(key("Home"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 0);
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(inbox)
-    );
+    assert_eq!(source.view().selected, 0);
+    assert_eq!(source.semantics().focus, Some(inbox));
 }
 
 struct RadioDemo {
@@ -300,7 +272,7 @@ impl HostView for RadioDemo {
 }
 
 fn radio_id(source: &Source<RadioDemo>, label: &str) -> u64 {
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     semantics
         .node_by_role(SemanticRole::RadioButton, label, None)
         .unwrap_or_else(|| panic!("missing radio {label:?}: {:?}", semantics.nodes))
@@ -313,22 +285,18 @@ fn radio_group_is_one_tab_stop_and_direction_keys_choose() {
     let mut text = TextContext::new();
     let placed = source.build_frame(&mut text, 720, 400);
     assert!(!placed.is_empty());
-    assert!(!source.adapter.semantics(&source.engine, 0).nodes.is_empty());
+    assert!(!source.semantics().nodes.is_empty());
 
     source.handle_event(key("Tab"));
     source.handle_event(key("Tab"));
     let medium = radio_id(&source, "Medium");
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(medium)
-    );
+    assert_eq!(source.semantics().focus, Some(medium));
     source.handle_event(key("Tab"));
     assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
+        source.semantics().focus,
         Some(
             source
-                .adapter
-                .semantics(&source.engine, 0)
+                .semantics()
                 .node_by_role(SemanticRole::Button, "After", None)
                 .unwrap()
                 .id
@@ -338,26 +306,20 @@ fn radio_group_is_one_tab_stop_and_direction_keys_choose() {
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: medium }));
     source.handle_event(key("ArrowDown"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 2);
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(radio_id(&source, "Large"))
-    );
+    assert_eq!(source.view().selected, 2);
+    assert_eq!(source.semantics().focus, Some(radio_id(&source, "Large")));
 
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 0);
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(radio_id(&source, "Small"))
-    );
+    assert_eq!(source.view().selected, 0);
+    assert_eq!(source.semantics().focus, Some(radio_id(&source, "Small")));
 
     source.handle_event(key("End"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 2);
+    assert_eq!(source.view().selected, 2);
     source.handle_event(key("Home"));
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.view.selected, 0);
+    assert_eq!(source.view().selected, 0);
 }
 
 #[derive(Default)]
@@ -383,48 +345,39 @@ fn rating_is_one_slider_tab_stop_with_range_keys() {
     source.handle_event(key("Tab"));
     source.handle_event(key("Tab"));
     let slider = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Slider, "Stars", None)
         .unwrap()
         .id;
     assert!(
         source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, "1 of 5 stars", None)
             .is_none(),
         "the visual stars must not duplicate the slider semantics"
     );
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(slider)
-    );
+    assert_eq!(source.semantics().focus, Some(slider));
 
     source.handle_event(key("ArrowRight"));
     source.build_frame(&mut text, 500, 240);
     source.handle_event(key("ArrowUp"));
     source.build_frame(&mut text, 500, 240);
-    assert_eq!(source.view.stars, 2);
+    assert_eq!(source.view().stars, 2);
 
     source.handle_event(key("End"));
     source.build_frame(&mut text, 500, 240);
-    assert_eq!(source.view.stars, 5);
+    assert_eq!(source.view().stars, 5);
     source.handle_event(key("Home"));
     source.build_frame(&mut text, 500, 240);
-    assert_eq!(source.view.stars, 0);
+    assert_eq!(source.view().stars, 0);
 
     source.handle_event(key("Tab"));
     let after = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "After", None)
         .unwrap()
         .id;
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(after)
-    );
+    assert_eq!(source.semantics().focus, Some(after));
 }
 
 struct StepperDemo {
@@ -453,7 +406,7 @@ fn stepper_is_one_spin_button_tab_stop_with_range_keys() {
     source.build_frame(&mut text, 400, 240);
     source.handle_event(key("Tab"));
     source.handle_event(key("Tab"));
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     let stepper = semantics
         .node_by_role(SemanticRole::SpinButton, "Copies", None)
         .unwrap()
@@ -467,26 +420,22 @@ fn stepper_is_one_spin_button_tab_stop_with_range_keys() {
 
     source.handle_event(key("ArrowUp"));
     source.build_frame(&mut text, 400, 240);
-    assert_eq!(source.view.value, 2.5);
+    assert_eq!(source.view().value, 2.5);
     source.handle_event(key("ArrowLeft"));
     source.build_frame(&mut text, 400, 240);
-    assert_eq!(source.view.value, 2.);
+    assert_eq!(source.view().value, 2.);
     source.handle_event(key("End"));
     source.build_frame(&mut text, 400, 240);
-    assert_eq!(source.view.value, 5.);
+    assert_eq!(source.view().value, 5.);
     source.handle_event(key("Home"));
     source.build_frame(&mut text, 400, 240);
-    assert_eq!(source.view.value, 0.);
+    assert_eq!(source.view().value, 0.);
 
     source.handle_event(key("Tab"));
     let after = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "After", None)
         .unwrap()
         .id;
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(after)
-    );
+    assert_eq!(source.semantics().focus, Some(after));
 }

@@ -77,11 +77,7 @@ fn key(name: &str) -> UiEvent {
     })
 }
 fn id(s: &Source<Demo>, role: SemanticRole, label: &str) -> u64 {
-    s.adapter
-        .semantics(&s.engine, 0)
-        .node_by_role(role, label, None)
-        .unwrap()
-        .id
+    s.semantics().node_by_role(role, label, None).unwrap().id
 }
 fn focus(s: &mut Source<Demo>, role: SemanticRole, label: &str) {
     let target = id(s, role, label);
@@ -97,8 +93,7 @@ fn select_keyboard_skips_disabled_cancels_then_commits_once() {
     frame(&mut s, &mut tcx);
     let trigger = id(&s, SemanticRole::ComboBox, "Release channel");
     assert_eq!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::ComboBox, "Release channel", None)
             .unwrap()
             .value
@@ -108,32 +103,32 @@ fn select_keyboard_skips_disabled_cancels_then_commits_once() {
     focus(&mut s, SemanticRole::ComboBox, "Release channel");
     s.handle_event(key("ArrowDown"));
     frame(&mut s, &mut tcx);
-    assert!(s.view.select_state.is_open());
+    assert!(s.view().select_state.is_open());
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::Option, "Stable"))
     );
     s.handle_event(key("ArrowDown"));
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::Option, "Nightly"))
     );
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.value, 0);
-    assert_eq!(s.view.changes, 0);
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(trigger));
+    assert_eq!(s.view().value, 0);
+    assert_eq!(s.view().changes, 0);
+    assert_eq!(s.semantics().focus, Some(trigger));
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
     s.handle_event(key("End"));
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.value, 2);
-    assert_eq!(s.view.changes, 1);
-    assert!(!s.view.select_state.is_open());
+    assert_eq!(s.view().value, 2);
+    assert_eq!(s.view().changes, 1);
+    assert!(!s.view().select_state.is_open());
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.changes, 1);
+    assert_eq!(s.view().changes, 1);
 }
 #[test]
 fn option_keys_preserve_focus_across_reorder_and_first_letter_search() {
@@ -146,15 +141,14 @@ fn option_keys_preserve_focus_across_reorder_and_first_letter_search() {
     s.handle_event(key("n"));
     frame(&mut s, &mut tcx);
     let nightly = id(&s, SemanticRole::Option, "Nightly");
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(nightly));
-    s.view.reverse = true;
-    s.request_rebuild();
+    assert_eq!(s.semantics().focus, Some(nightly));
+    s.update(|view| view.reverse = true);
     frame(&mut s, &mut tcx);
     assert_eq!(id(&s, SemanticRole::Option, "Nightly"), nightly);
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(nightly));
+    assert_eq!(s.semantics().focus, Some(nightly));
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.value, 2);
+    assert_eq!(s.view().value, 2);
 }
 #[test]
 fn menu_navigates_commands_and_closes_after_activation() {
@@ -165,22 +159,21 @@ fn menu_navigates_commands_and_closes_after_activation() {
     s.handle_event(key("ArrowDown"));
     frame(&mut s, &mut tcx);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Menu, "Actions", None)
             .is_some()
     );
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::MenuItem, "Duplicate"))
     );
     s.handle_event(key("End"));
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.actions, 10);
-    assert!(!s.view.menu_state.is_open());
+    assert_eq!(s.view().actions, 10);
+    assert!(!s.view().menu_state.is_open());
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::Button, "Actions"))
     );
 }
@@ -195,15 +188,14 @@ fn empty_options_disable_trigger_and_unknown_value_is_preserved() {
     frame(&mut s, &mut tcx);
     let target = id(&s, SemanticRole::ComboBox, "Release channel");
     assert!(!s.handle_semantic_action(SemanticAction::Click { target }));
-    assert_eq!(s.view.value, 99);
-    s.view.empty = false;
-    s.request_rebuild();
+    assert_eq!(s.view().value, 99);
+    s.update(|view| view.empty = false);
     frame(&mut s, &mut tcx);
     focus(&mut s, SemanticRole::ComboBox, "Release channel");
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.value, 99);
-    assert_eq!(s.view.changes, 0);
+    assert_eq!(s.view().value, 99);
+    assert_eq!(s.view().changes, 0);
 }
 
 #[derive(Default)]
@@ -235,20 +227,19 @@ fn selected_option_and_keyboard_navigation_scroll_into_the_constrained_panel() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 900);
     let trigger = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::ComboBox, "Long list", None)
         .unwrap()
         .id;
     s.handle_semantic_action(SemanticAction::Click { target: trigger });
     s.build_frame(&mut tcx, 400, 900);
-    let roomy = s.adapter.semantics(&s.engine, 0);
+    let roomy = s.semantics();
     let panel = roomy
         .node_by_role(SemanticRole::ListBox, "Long list", None)
         .unwrap();
     assert!(panel.bounds[3] - panel.bounds[1] <= 280.);
     s.build_frame(&mut tcx, 400, 260);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let chosen = snapshot
         .node_by_role(SemanticRole::Option, "Option 70", None)
         .unwrap();
@@ -260,7 +251,7 @@ fn selected_option_and_keyboard_navigation_scroll_into_the_constrained_panel() {
     assert!(panel.bounds[3] <= 252.);
     s.handle_event(key("Home"));
     s.build_frame(&mut tcx, 400, 260);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let first = snapshot
         .node_by_role(SemanticRole::Option, "Option 0", None)
         .unwrap();
@@ -268,7 +259,7 @@ fn selected_option_and_keyboard_navigation_scroll_into_the_constrained_panel() {
     assert!(first.bounds[1] >= panel.bounds[1]);
     s.handle_event(key("Enter"));
     s.build_frame(&mut tcx, 400, 260);
-    assert_eq!(s.view.value, 0);
+    assert_eq!(s.view().value, 0);
 }
 #[test]
 fn arrow_up_opens_menu_on_last_enabled_command_and_up_wraps() {
@@ -279,14 +270,14 @@ fn arrow_up_opens_menu_on_last_enabled_command_and_up_wraps() {
     s.handle_event(key("ArrowUp"));
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::MenuItem, "Archive"))
     );
     s.handle_event(key("Home"));
     s.handle_event(key("ArrowUp"));
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::MenuItem, "Archive"))
     );
 }
@@ -301,8 +292,7 @@ fn pointer_highlight_can_be_activated_by_keyboard_without_changing_value_on_hove
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
     let bounds = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Option, "Nightly", None)
         .unwrap()
         .bounds;
@@ -317,15 +307,15 @@ fn pointer_highlight_can_be_activated_by_keyboard_without_changing_value_on_hove
         modifiers: Modifiers::empty(),
         properties: Default::default(),
     }));
-    assert_eq!(s.view.value, 0);
+    assert_eq!(s.view().value, 0);
     assert_eq!(
-        s.adapter.semantics(&s.engine, 0).focus,
+        s.semantics().focus,
         Some(id(&s, SemanticRole::Option, "Nightly"))
     );
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.value, 2);
-    assert_eq!(s.view.changes, 1);
+    assert_eq!(s.view().value, 2);
+    assert_eq!(s.view().changes, 1);
 }
 
 #[test]
@@ -333,13 +323,12 @@ fn popup_keyboard_highlights_use_mygo_accent_with_legible_text() {
     let mut s = Source::new(Demo::default());
     s.set_reduced_motion(true);
     let mut tcx = TextContext::new();
-    s.view.select_state.open();
+    s.update(|view| view.select_state.open());
     frame(&mut s, &mut tcx);
     focus(&mut s, SemanticRole::Option, "Nightly");
     frame(&mut s, &mut tcx);
     let label = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some("Nightly"))
         .unwrap();
@@ -347,20 +336,20 @@ fn popup_keyboard_highlights_use_mygo_accent_with_legible_text() {
         label.paint.text_color.to_rgba8(),
         peniko::Color::from_rgb8(255, 255, 255).to_rgba8()
     );
-    assert!(s.adapter.placed.iter().any(|node| {
+    assert!(s.placed_nodes().iter().any(|node| {
         node.paint.background.is_some_and(|color| {
             color.to_rgba8() == peniko::Color::from_rgb8(37, 99, 235).to_rgba8()
         })
     }));
-    s.view.select_state.close();
-    s.view.menu_state.open();
-    s.request_rebuild();
+    s.update(|view| {
+        view.select_state.close();
+        view.menu_state.open();
+    });
     frame(&mut s, &mut tcx);
     focus(&mut s, SemanticRole::MenuItem, "Duplicate");
     frame(&mut s, &mut tcx);
     let label = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.text.as_deref() == Some("Duplicate"))
         .unwrap();
