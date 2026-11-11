@@ -42,16 +42,6 @@ fn static_host_uses_same_typed_ui_without_serializing_or_repeating_service_actio
     ));
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 620, 520);
-    let root = source
-        .engine
-        .find(source.engine.root(), "regions-root")
-        .unwrap();
-    let declarations = source.view.app.regions.region_runs();
-    let root_declarations = declarations
-        .iter()
-        .find(|(entity, _)| *entity == root)
-        .unwrap()
-        .1;
     let counter = source
         .adapter
         .semantics(&source.engine, 0)
@@ -59,14 +49,8 @@ fn static_host_uses_same_typed_ui_without_serializing_or_repeating_service_actio
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target: counter }));
-    source.experiment_prepare_without_scene(&mut tcx, 620, 520);
+    source.build_frame(&mut tcx, 620, 520);
     assert!(source.last_error.is_none());
-    let after = source.view.app.regions.region_runs();
-    assert_eq!(
-        after.iter().find(|(entity, _)| *entity == root).unwrap().1,
-        root_declarations,
-        "a counter event reran the root declaration"
-    );
 
     assert!(
         source

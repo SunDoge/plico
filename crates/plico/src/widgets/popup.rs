@@ -233,6 +233,9 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
     pub fn response(mut self) -> SelectResponse {
         self.finish()
     }
+    pub fn changed(self) -> bool {
+        self.response().changed
+    }
     fn finish(&mut self) -> SelectResponse {
         let cx = self.cx.take().expect("one declaration");
         let state = &mut *self.state;

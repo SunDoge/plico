@@ -78,7 +78,7 @@ impl Adapter {
                 if self.layout_changed(entity) {
                     candidates.insert(entity);
                 }
-                let Some(parent) = engine.experiment_parent(entity) else {
+                let Some(parent) = engine.parent(entity) else {
                     break;
                 };
                 if let Some(parent_node) = engine.node(parent) {
@@ -97,14 +97,14 @@ impl Adapter {
         // which supplies a valid preorder range and inherited clip.
         let mut roots = Vec::new();
         for &entity in &candidates {
-            let mut ancestor = engine.experiment_parent(entity);
+            let mut ancestor = engine.parent(entity);
             let mut covered = false;
             while let Some(parent) = ancestor {
                 if candidates.contains(&parent) {
                     covered = true;
                     break;
                 }
-                ancestor = engine.experiment_parent(parent);
+                ancestor = engine.parent(parent);
             }
             if covered {
                 continue;
@@ -116,7 +116,7 @@ impl Adapter {
                 if self.placed_indices.contains_key(&retained.id) {
                     break retained.id;
                 }
-                cursor = engine.experiment_parent(current);
+                cursor = engine.parent(current);
             };
             roots.push(placed);
         }

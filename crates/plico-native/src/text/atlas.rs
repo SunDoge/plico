@@ -102,7 +102,7 @@ impl Atlas {
     pub fn layout(&self, request: &super::TextRequest<'_>) -> Result<GlyphLayout> {
         self.shaper.layout(request)
     }
-    /// Regions changed since the previous upload; each rectangle occurs only on a cache miss.
+    /// Areas changed since the previous upload; each rectangle occurs only on a cache miss.
     pub fn take_dirty(&mut self) -> Vec<[u32; 4]> {
         std::mem::take(&mut self.dirty)
     }

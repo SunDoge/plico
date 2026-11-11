@@ -29,8 +29,7 @@ impl<'e> UiContext<'e> {
     }
     /// Borrow an app-owned catalog for a synchronous declaration scope. No global
     /// locale or reference is retained; nested scopes and unwinding restore the
-    /// outer context naturally. Regions must re-inject on each replay and declare
-    /// the selected locale as an explicit dependency.
+    /// outer context naturally. Applications redeclare after locale changes.
     pub fn localized<R>(
         &mut self,
         localizer: &dyn crate::Localizer,
@@ -1298,6 +1297,13 @@ impl Layout<'_, '_> {
         self.style.role = Some(role);
         self
     }
+    /// Hide an implementation subtree from accessibility while retaining its
+    /// visual tree. Framework page transitions and composed controls use it.
+    #[inline(always)]
+    pub(crate) fn semantic_hidden(mut self, value: bool) -> Self {
+        self.style.semantic_hidden = value;
+        self
+    }
 
     /// Declare an empty container, such as a flex spacer or painted track.
     /// This is shorthand for `children(|_| {})` / `+ |_cx| {}`.
@@ -1508,18 +1514,6 @@ pub struct Text<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
 }
 impl Text<'_, '_, '_> {
-    /// Finish this leaf and return its generational target for property bindings.
-    #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
-    pub fn experiment_property_target(
-        mut self,
-    ) -> (crate::ExperimentContext, String, crate::ExperimentTextStyle) {
-        let text = self.inner.text.to_string();
-        let attributes = self.inner.style.into();
-        let mut context = self.inner.ui.as_ref().unwrap().experiment_context();
-        context.parent = self.inner.finish().0;
-        (context, text, attributes)
-    }
     #[inline(always)]
     pub fn spans(mut self, spans: &[crate::TextSpan]) -> Self {
         self.inner.spans.extend_from_slice(spans);
@@ -2013,23 +2007,6 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         let entity = entity.expect("button declaration");
         (response.with_focused(focused == Some(entity)), entity)
     }
-    /// Finish this control and retain its identity for a property subscription.
-    #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
-    pub fn experiment_property_target(
-        mut self,
-    ) -> (
-        crate::ExperimentContext,
-        crate::ExperimentButtonStyle,
-        Response,
-    ) {
-        let mut attributes: crate::ExperimentButtonStyle = self.inner.style.into();
-        attributes.styled_button = self.composable;
-        let mut context = self.inner.ui.as_ref().unwrap().experiment_context();
-        let (response, entity) = self.finish_target();
-        context.parent = entity;
-        (context, attributes, response)
-    }
     #[inline(always)]
     pub fn primary(mut self) -> Self {
         self.inner.style.background = Some(Color::Accent);
@@ -2303,6 +2280,22 @@ impl Response {
 pub struct InnerResponse<R> {
     pub inner: R,
     pub response: Response,
+}
+impl<R> InnerResponse<R> {
+    /// Whether the composed control was activated. This mirrors MyGO's
+    /// `Element.Clicked` without exposing the nested response for common use.
+    pub const fn clicked(&self) -> bool {
+        self.response.clicked()
+    }
+    pub const fn hovered(&self) -> bool {
+        self.response.hovered()
+    }
+    pub const fn enabled(&self) -> bool {
+        self.response.enabled()
+    }
+    pub const fn focused(&self) -> bool {
+        self.response.focused()
+    }
 }
 
 fn style_input(style: &mut Style, theme: Theme) {
@@ -2649,6 +2642,14 @@ impl<'t> Input<'_, '_, 't> {
     }
     pub fn response(mut self) -> InputResponse {
         self.finish()
+    }
+    /// Consume the input and report whether its bound text changed.
+    pub fn changed(self) -> bool {
+        self.response().changed
+    }
+    /// Consume the input and report whether it was submitted.
+    pub fn submitted(self) -> bool {
+        self.response().submitted
     }
 }
 impl Drop for Input<'_, '_, '_> {
@@ -3131,6 +3132,9 @@ impl Slider<'_, '_, '_> {
     }
     pub fn response(mut self) -> crate::SliderResponse {
         self.finish()
+    }
+    pub fn changed(self) -> bool {
+        self.response().changed
     }
 }
 impl Drop for Slider<'_, '_, '_> {

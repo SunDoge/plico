@@ -28,115 +28,49 @@ Generated inherent API:
 - `ALL: &'static [Self]`: declaration order, without a Vec allocation.
 - `id(&self) -> &'static str`: explicit `id`, otherwise the variant name.
 - `label(&self) -> &'static str`: explicit `label`, otherwise the variant name.
-- `icon(&self) -> Option<&'static SvgAsset>`: optional `icon = icons::HOME` asset
-  path. The application owns the SVG; no registry is loaded by the macro.
-- `from_id(&str) -> Option<Self>`: exact ID lookup, unknown IDs return `None`.
+- `icon(&self) -> Option<&'static SvgAsset>`: optional icon asset path.
+- `from_id(&str) -> Option<Self>`: exact ID lookup; unknown IDs return `None`.
 
-The derive is re-exported from `plico` and its prelude. No additional trait
-import is necessary. It does not add Copy, Eq or serde implementations; derive
-those separately as needed. These generated names are reserved on the enum.
-
-IDs do not depend on variant position, numeric discriminants, labels or icons.
-Renaming a variant changes its default ID: set an explicit ID before publishing
-persisted links. This API does not alter serde's enum representation; configure
-serde renames separately when migrating serialized router state.
+The derive is re-exported from `plico` and its prelude. It does not add Copy, Eq
+or serde implementations; derive those separately as needed. IDs do not depend
+on variant position, numeric discriminants, labels or icons. Renaming a variant
+changes its default ID, so set an explicit ID before publishing persisted links.
 
 Duplicate or empty IDs, duplicate metadata fields, unknown attributes, generic
 enums and variants with fields are rejected at compile time. Parameterized
-routes can still use ordinary `Router<T>`; they are outside this enumerable
-navigation-entry derive. Keep page declaration in an ordinary `match`, so each
-page can borrow its own application data directly.
+routes can still use ordinary `Router<T>`.
 
-The gallery uses `Page::ALL` for its sidebar, with each item scoped by `page.id()`.
+## Retained page host
 
-## Reactive page outlet
-
-With `plico_runtime::regions`, navigation data and mounted pages have separate
-responsibilities. Keep the existing `Router<Page>` for history and put it in a
-root or parent-owned State slot. Use an outlet to create the active page owner:
+Keep `Router<Page>` and business state in the application. Declare routed pages
+through the owned view snapshot:
 
 ```rust
-use plico::{Router, prelude::*};
-use plico_runtime::regions::{Regions, RegionUi, Reactive, outlet};
-
-#[derive(Clone, Copy, PartialEq, Eq, plico::Route)]
-enum Page { Counter, Settings }
-
-let app = Regions::new(|app| {
-    let router = app.state(|| Router::new(Page::Counter));
-    app.root((router,), |cx, (router,)| {
-        outlet(cx, router.handle(), (), |cx, page, ()| match page {
-            Page::Counter => {
-                let count = cx.local_state(|| 0_i32);
-                text_empty(cx).rx((count,), |node, (count,)| {
-                    node.text(format!("Count: {}", *count.read()));
-                });
-            }
-            Page::Settings => { text(cx, "Settings"); }
-        });
-    });
+app.router.view().show(cx, |cx, page| match page {
+    Page::Home => home(cx, &mut app.home),
+    Page::Settings => settings(cx, &mut app.settings),
 });
 ```
 
-For route restoration, derive `Default`, `Serialize` and `Deserialize` on the
-route and use `app.persisted_state(key, || Router::new(...))`. The example above
-keeps ordinary, non-serialized navigation state.
+`view()` returns an owned snapshot, so its closure does not keep `app.router`
+borrowed and may borrow any other application field. Every history entry has a
+stable page identity. The current page is declared normally; during navigation
+the leaving page is declared once more as inert while the two pages share one
+fade or slide timeline. Afterwards up to ten nearby history pages use
+`display:none` and retain their committed nodes without running page code.
+Back/Forward therefore restores component-local state, native input state,
+scroll state and remembered focus without paying to rebuild every hidden page.
 
-- `outlet(cx, router, captures, render)` subscribes only to the router. Captures
-  are State ID tuples, not additional subscriptions. Page watches and property
-  bindings subscribe to the values they actually update from.
-- The render function receives `(cx, route, captures)`. The route is a copied
-  selection for this page build; no long-lived UiContext or app borrow is kept.
-- The active component key is the stable `Route::id()` string. Same key keeps
-  local state, including parent rebuilds and repeat navigation to the same page.
-  A different key removes the old subtree, subscriptions and component state.
-- Back/forward restores the route, then mounts a fresh page if the old one was
-  removed. History does not retain widget trees or page-local state. State that
-  must survive navigation belongs above the outlet, keyed by business identity
-  where necessary. Marked page state supports reload while mounted, not hidden
-  page caching or disk persistence.
-- Input focus/IME are cleared by the shared adapter on unmount. Old semantic
-  targets and page-local async senders become invalid. A running host task is
-  not automatically cancelled; a sender to root-owned shared state remains live.
-- Nested outlets belong to the active page owner. Removing that parent removes
-  nested router slots and descendants too. Multiple outlets remain independent,
-  including repeated call sites explicitly scoped with `cx.keyed`.
+`RouterTransition::Auto` fades between typed peer routes because an enum carries
+no URL depth. `Slide` opts into MyGO's directional upper/lower page motion;
+`Fade` and `None` are explicit alternatives. Host Reduce Motion makes every
+mode atomic. The router clips both pages to its own bounds, so leaving content
+cannot escape the page area.
 
-`outlet_keyed(cx, router, captures, identity, render)` supports parameterized
-`Copy + Eq` routes without `derive(Route)`. `identity: fn(Route) -> Key` chooses
-the page instance. For `Document(id)`, use `Key::Number(id)` to remount per
-business record, or one static document key to preserve a compatible page's
-local state while passing a new ID to its render function. Keys must distinguish
-incompatible page kinds; a shared key means the local state schema is compatible.
+Business state still belongs in ordinary Rust fields. The retained page host is
+presentation/lifecycle state, not another application state model. A nested
+router can be placed inside a layout declared outside it; the outer layout stays
+mounted while the nested page changes.
 
-An outlet still has two real column boundaries: its controller and the active
-page component. Use `outlet_fill` when those boundaries must fill the parent's
-remaining flex space; page-local `cx.region_fill(...)` provides the same layout
-behavior for a page-sized region. Ordinary `outlet` and `region` keep automatic
-sizes. Render functions can execute again on navigation notifications,
-input settling, resize, theme changes or a parent declaration. This version
-establishes state ownership and update boundaries; it does not promise a
-one-time-only build, suspended background pages, keep-alive caches, transition
-retention, URL transport, or asynchronous navigation guards.
-
-The immediate API (`router.show` / `match router.current()`) remains valid
-for existing applications, differential tests and profiled local escape paths.
-
-```sh
-cargo run -p plico-runtime --example regions_router --features plico-shell/skia
-cargo test -p plico-runtime --test regions_router
-```
-
-The window example covers Counter/Editor, repeat selection, Back/Forward, local
-editing, theme and resize. Tests additionally cover parameter reuse/remount,
-root/capture subscription isolation, nested/sibling owners, simultaneous child
-updates and route removal, stale inputs/results, bounded live nodes and active
-page checkpoint restoration. Generated window captures stay in local reports.
-
-Native window acceptance on Linux X11/Xvfb with Skia Vulkan llvmpipe and damage
-enabled exercised real pointer/keyboard input: increment → repeat Counter
-(kept count) → Editor save → repeat Editor (kept draft) → Back (fresh counter)
-→ Forward (fresh editor) → edit/save → dark theme (draft kept), 520×600 resize,
-unmap/map and twelve navigation cycles. OCR asserted visible results and logs
-were checked for presentation failures/panics. This does not verify hardware
-GPU, other desktop platforms, real IME sessions or keep-alive behavior.
+The gallery and backend-settings use this same path; navigation does not require
+a reactive outlet, subscription graph or alternate application adapter.

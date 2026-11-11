@@ -1,8 +1,4 @@
-#[cfg(feature = "experiment-patch")]
-mod experiment;
 use crate::{Entity, Theme, arena::Arena, model::*, ui::UiContext};
-#[cfg(feature = "experiment-patch")]
-pub use experiment::{ExperimentButtonStyle, ExperimentContext, ExperimentTextStyle};
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -26,10 +22,6 @@ pub struct Engine {
     pub(crate) stats: FrameStats,
     pub(crate) error: Option<FrameError>,
     declarations: Vec<(Entity, Entity)>,
-    #[cfg(feature = "experiment-patch")]
-    pub(crate) experiment_kept: std::collections::HashSet<Entity>,
-    #[cfg(feature = "experiment-patch")]
-    pub(crate) experiment_active: bool,
     pub(crate) locals: crate::local::LocalStore,
     pub(crate) storage: crate::storage::StateStorage,
     removed: Vec<Entity>,
@@ -97,10 +89,6 @@ impl Default for Engine {
             stats: FrameStats::default(),
             error: None,
             declarations: Vec::new(),
-            #[cfg(feature = "experiment-patch")]
-            experiment_kept: Default::default(),
-            #[cfg(feature = "experiment-patch")]
-            experiment_active: false,
             locals: Default::default(),
             storage: Default::default(),
             removed: Vec::new(),
@@ -214,6 +202,23 @@ impl Engine {
     /// report a focused state in the same frame.
     pub fn focused(&self) -> Option<Entity> {
         self.focused
+    }
+    /// Return the focused entity when it belongs to `ancestor`'s retained
+    /// subtree. Router page hosts use this before making a page inert so Back
+    /// can restore the same control.
+    pub(crate) fn focused_within_entity(&self, ancestor: Entity) -> Option<Entity> {
+        let focused = self.focused?;
+        let mut current = focused;
+        loop {
+            if current == ancestor {
+                return Some(focused);
+            }
+            let node = self.nodes.get(current)?;
+            if current == self.root || node.identity.parent == current {
+                return None;
+            }
+            current = node.identity.parent;
+        }
     }
     /// Whether the last synchronized focus belongs to this exact scoped container.
     pub(crate) fn focus_within(&self, identity: Identity) -> bool {
@@ -416,37 +421,14 @@ impl Engine {
     pub fn set_time(&mut self, time: crate::FrameTime) {
         self.time = time;
     }
-    /// Benchmark-only direct text mutation. This bypasses the declaration protocol
-    /// and is valid only for an existing plain text leaf owned by the experiment.
+    /// Parent identity for retained-runtime adapters.
     #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
-    pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
-        let node = self.nodes.get_mut(entity)?;
-        if node.kind != Kind::Text || !node.spans.is_empty() {
-            return None;
+    pub fn parent(&self, entity: Entity) -> Option<Entity> {
+        if entity == self.root {
+            None
+        } else {
+            self.nodes.get(entity).map(|node| node.identity.parent)
         }
-        if node.text == text {
-            return Some(false);
-        }
-        node.text.clear();
-        node.text.push_str(text);
-        node.text_revision += 1;
-        Some(true)
-    }
-
-    /// Benchmark-only mutation of a plain text leaf's foreground.
-    #[doc(hidden)]
-    #[cfg(feature = "experiment-patch")]
-    pub fn experiment_patch_color(&mut self, entity: Entity, color: crate::Color) -> Option<bool> {
-        let node = self.nodes.get_mut(entity)?;
-        if node.kind != Kind::Text || !node.spans.is_empty() {
-            return None;
-        }
-        if node.style.foreground == color {
-            return Some(false);
-        }
-        node.style.foreground = color;
-        Some(true)
     }
 
     /// FrameStats of the most recent declaration pass.

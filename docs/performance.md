@@ -359,7 +359,7 @@ save 分别为 0.399%、19.35µs、1535.73µs。`preferences_scale` 在 1/32/128
 的覆盖为 34.75%，tracked raster 为 11.48ms，全量 Immediate 对照为 26.49ms。
 这些是一次本机 CPU 测量，不是 GPU、功耗或所有场景的普遍加速结论。
 
-当前扩张不递归 Regions Fragment 内部，显式 `draw_scene_damaged` 也绕过 tracker；
+当前扩张不递归嵌套 Fragment 内部，显式 `draw_scene_damaged` 也绕过 tracker；
 独立透明图层的最小 dirty-clip 复现仍保留为 ignored 诊断测试。因此该策略只改善
 tracked 顶层命令的已测场景，不能把 partial damage 变成无差别默认路径。
 
@@ -770,11 +770,11 @@ CPU 7 交错执行三轮，以下取三轮 p50 的中位数：
 最后一行请求字节从 520,000 降到 160,000；剩余主要是乱序兄弟排序 scratch。
 这是放大相应成本的压力场景，不表示普通页面普遍快 71%。
 
-同样关闭 profiling，用真实 `preferences_scale` 与 `settings_compare` 复测，事件到 CPU
-帧准备完成；大表单每轮预热 40 次、采样 80 次，完整设置页预热 200 次、采样 1000 次。
+同样关闭 profiling，用当时的 `preferences_scale` 与 `settings_compare` 复测，事件到 CPU
+帧准备完成；这是已经删除的 Region 对照实验。大表单每轮预热 40 次、采样 80 次，完整设置页预热 200 次、采样 1000 次。
 前后均已包含上一轮控件对齐优化，不能将两轮百分比相加：
 
-| Reactive 场景 | 改前 µs | 改后 µs |
+| 已退役 Reactive 实验场景 | 改前 µs | 改后 µs |
 | --- | ---: | ---: |
 | 128 表单，编辑 1 个 | 824.00 | 654.42 |
 | 512 表单，编辑 1 个 | 7327.51 | 6230.28 |
@@ -790,15 +790,15 @@ CPU 7 交错执行三轮，以下取三轮 p50 的中位数：
 
 新增回归将反复改色、改文字/transform/shadow、清空资源、改变 clip/scroll、重排和
 缩短子树后的复用输出与全新 flatten 的几何及最终 Scene 命令逐项比较；另检查资源替换、
-空输出时 Weak 引用释放和 transform 存储复用。原有布局、滚动、控件对齐及 reactive
-语义对照继续验证。探针、测试和本节结论可以重建；原始 CSV 与二进制保留在本地 reports。
+空输出时 Weak 引用释放和 transform 存储复用。原有布局、滚动和控件对齐继续验证。
+Reactive 探针已随 API 收缩删除，数字仅保留为历史结论；原始 CSV 与二进制留在本地 reports。
 
 ## 稀疏 graph 的真实 XWayland 窗口 profiling（2026-10-30）
 
-本轮用本地 `graph_declaration` 实验测量真实窗口，而不是只比较孤立 declaration +
+本轮用当时的 `graph_declaration` 实验测量真实窗口，而不是只比较孤立 declaration +
 diff。 workload 为 512 张 cards、每张 12 个 ports，只持续改变第一张 card 的 dot
 color。主比较是手工只声明可见 cards 的普通 Immediate 与 Region；不裁剪声明的完整
-Immediate 作为补充。Region 仍只是对照，不改变 Immediate 默认路径。
+Immediate 作为补充。这些 Region 程序现已删除，表格仅保留历史测量。
 
 测量使用 release Skia + tracing profiling，在现有 XWayland 桌面运行，并确认窗口持续
 show、截图非空。每个 steady-state 窗口采样 6 秒 `/proc/<pid>/task/*/stat`，将所有线程

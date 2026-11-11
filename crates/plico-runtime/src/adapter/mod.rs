@@ -74,11 +74,6 @@ pub struct BackendStats {
     pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
-    pub scene_fragment_builds: usize,
-    pub scene_fragment_reuses: usize,
-    pub scene_encoded_nodes: usize,
-    pub scene_full_rebuilds: usize,
-    pub scene_invalid_roots: usize,
     pub svg_parses: usize,
     pub changes: plico::Changes,
 }
@@ -262,12 +257,6 @@ pub struct Adapter {
     pub(super) control_align_indices: Vec<usize>,
     pub(super) input_align_indices: Vec<usize>,
     pub(super) geometry_dirty: bool,
-    #[doc(hidden)]
-    pub experiment_force_full_geometry: bool,
-    #[doc(hidden)]
-    pub experiment_force_full_semantics: bool,
-    #[doc(hidden)]
-    pub experiment_force_full_hit_test: bool,
     pub(super) geometry_roots: HashSet<Entity>,
     pub(super) topology_roots: HashSet<Entity>,
     pub(super) removed_node_ids: Vec<NodeId>,
@@ -344,9 +333,6 @@ impl Default for Adapter {
             control_align_indices: Vec::new(),
             input_align_indices: Vec::new(),
             geometry_dirty: false,
-            experiment_force_full_geometry: false,
-            experiment_force_full_semantics: false,
-            experiment_force_full_hit_test: false,
             geometry_roots: HashSet::new(),
             topology_roots: HashSet::new(),
             removed_node_ids: Vec::new(),
@@ -662,8 +648,7 @@ impl Adapter {
             self.stats.layout_runs = 1;
             let wide_structure = self.placed.len() >= 32
                 && (self.stats.created + self.stats.removed) * 4 >= self.placed.len();
-            let attempt_patch = !self.experiment_force_full_geometry
-                && !full
+            let attempt_patch = !full
                 && !resized
                 && !theme_changed
                 // Layout candidates only describe Taffy box changes. A
@@ -676,11 +661,7 @@ impl Adapter {
             let patch = attempt_patch.then(|| self.patch_dirty_geometry(engine));
             let incremental = patch == Some(Some(true));
             if !incremental {
-                // A forced full-geometry control still has exact Reactive dirty
-                // information. Only an initial sync or a failed patch needs to
-                // conservatively invalidate every Scene Region.
-                self.scene_full_dirty =
-                    full || (!self.experiment_force_full_geometry && patch.flatten().is_none());
+                self.scene_full_dirty = full || patch.flatten().is_none();
                 flatten_with_scroll_into(&self.tree, root, &self.scroll_offsets, &mut self.placed);
                 self.stats.flatten_visits = self.placed.len();
                 self.cache_all_layouts();
@@ -857,7 +838,7 @@ impl Adapter {
         if self.presentation_dirty {
             // Transform/opacity motion changes Scene output without necessarily
             // rewriting Paint. Invalidate the containing cached Region while
-            // keeping unrelated Regions reusable.
+            // keeping unrelated retained subtrees reusable.
             self.scene_dirty_nodes
                 .extend(self.presentation_roots.iter().copied());
         }

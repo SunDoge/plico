@@ -8,13 +8,12 @@ use plico_renderer::{
     layout::PlacedNode, style::CursorStyle,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
-use taffy::prelude::NodeId;
 use web_time::Instant;
 
 #[cfg(test)]
@@ -77,12 +76,6 @@ pub struct Source<V: HostView> {
     display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
     background: Option<Color>,
-    scene_cache: plico_renderer::scene::SceneCache,
-    scene_roots: HashSet<NodeId>,
-    scene_revisions: HashMap<NodeId, u64>,
-    pending_region_revisions: Vec<(Entity, u64)>,
-    #[doc(hidden)]
-    pub experiment_force_full_scene: bool,
     /// Work accumulated across the current host batch.
     batch_stats: BatchStats,
     wake_batch: Arc<WakeBatch>,
@@ -122,11 +115,6 @@ impl<V: HostView> Source<V> {
             display_preferences_dirty: false,
             target_scene: None,
             background: None,
-            scene_cache: Default::default(),
-            scene_roots: HashSet::new(),
-            scene_revisions: HashMap::new(),
-            pending_region_revisions: Vec::new(),
-            experiment_force_full_scene: false,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
             declared_seen: HashSet::new(),
@@ -198,84 +186,6 @@ impl<V: HostView> Source<V> {
         self.request_rebuild();
         update(&mut self.view)
     }
-    /// Benchmark-only: prepare the retained tree and layout without encoding
-    /// a Scene. This has the same invalidation path as a native sampled frame.
-    #[doc(hidden)]
-    pub fn experiment_prepare_without_scene(
-        &mut self,
-        tcx: &mut TextContext,
-        width: u32,
-        height: u32,
-    ) {
-        if let Some(now) = self.clock_instant() {
-            self.prepare_frame_at(tcx, width, height, now, false);
-        } else {
-            self.last_error = Some(SourceError::ClockRange);
-        }
-    }
-
-    /// Experiment diagnostics: Engine nodes, retained nodes, Taffy nodes, reverse IDs.
-    #[doc(hidden)]
-    pub fn experiment_live_counts(&self) -> (usize, usize, usize, usize) {
-        (
-            self.engine.experiment_live_nodes(),
-            self.adapter.nodes.len(),
-            self.adapter.tree.total_node_count(),
-            self.adapter.reverse.len(),
-        )
-    }
-
-    /// Experimental local declaration, preserving the normal adapter dirty journal.
-    #[doc(hidden)]
-    pub fn experiment_redeclare(
-        &mut self,
-        context: plico::ExperimentContext,
-        view: impl FnOnce(&mut plico::UiContext<'_>),
-    ) -> Result<plico::FrameStats, plico::FrameError> {
-        let stats = self.engine.experiment_redeclare(context, view)?;
-        for &entity in self.engine.dirty_nodes() {
-            if self.declared_seen.insert(entity) {
-                self.declared_dirty.push(entity);
-            }
-        }
-        self.declared_changes |= self.engine.changes();
-        self.declarations_pending = true;
-        Ok(stats)
-    }
-
-    /// Restricted experiment: patch existing text leaves and schedule the same
-    /// retained adapter and scene pipeline used by declarations. This is not a
-    /// general mutation API; it does not manage application state or ownership.
-    #[doc(hidden)]
-    pub fn experiment_patch_text(&mut self, entity: Entity, text: &str) -> Option<bool> {
-        let changed = self.engine.experiment_patch_text(entity, text)?;
-        if changed {
-            if self.declared_seen.insert(entity) {
-                self.declared_dirty.push(entity);
-            }
-            self.declared_changes |= plico::Changes::MEASURE
-                | plico::Changes::LAYOUT
-                | plico::Changes::PAINT
-                | plico::Changes::SEMANTICS;
-            self.declarations_pending = true;
-        }
-        Some(changed)
-    }
-
-    /// Benchmark-only foreground patch for an existing plain text leaf.
-    #[doc(hidden)]
-    pub fn experiment_patch_color(&mut self, entity: Entity, color: plico::Color) -> Option<bool> {
-        let changed = self.engine.experiment_patch_color(entity, color)?;
-        if changed {
-            if self.declared_seen.insert(entity) {
-                self.declared_dirty.push(entity);
-            }
-            self.declared_changes |= plico::Changes::PAINT;
-            self.declarations_pending = true;
-        }
-        Some(changed)
-    }
-
     /// Mark externally mutated application data for declaration on the next frame.
     pub fn request_rebuild(&mut self) {
         self.batch_stats.rebuild_requests += 1;
@@ -531,27 +441,6 @@ impl<V: HostView> Source<V> {
         self.declared_seen.clear();
         self.declared_changes = plico::Changes::empty();
         self.declarations_pending = false;
-        for &id in &self.adapter.removed_node_ids {
-            self.scene_cache.remove(id);
-            self.scene_revisions.remove(&id);
-        }
-        self.scene_roots = self
-            .view
-            .scene_cache_roots()
-            .into_iter()
-            .filter_map(|entity| self.adapter.backend_id(entity))
-            .collect();
-        for (entity, revision) in std::mem::take(&mut self.pending_region_revisions) {
-            if let Some(id) = self.adapter.backend_id(entity)
-                && self.scene_revisions.get(&id) != Some(&revision)
-            {
-                self.scene_revisions.insert(id, revision);
-                self.adapter.scene_dirty_nodes.insert(id);
-            }
-        }
-        for &id in &self.scene_roots {
-            self.scene_revisions.entry(id).or_insert(0);
-        }
         let stats = self.adapter.stats;
         self.batch_stats.backend_commits += 1;
         self.batch_stats.layout_runs += stats.layout_runs;
@@ -607,69 +496,9 @@ impl<V: HostView> Source<V> {
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
         let base_color = self.base_color();
-        if self.experiment_force_full_scene
-            || self.scene_roots.is_empty()
-            || !self.adapter.shaders.is_empty()
-        {
-            plico_renderer::scene::build_scene_scaled_layers(
-                scene, &layers, tcx, size.0, size.1, base_color, scale,
-            );
-        } else {
-            if self.adapter.scene_full_dirty {
-                self.scene_cache.clear();
-            }
-            let mut invalid = HashSet::new();
-            if self.adapter.scene_full_dirty {
-                invalid.extend(self.scene_roots.iter().copied());
-            } else {
-                for &dirty in &self.adapter.scene_dirty_nodes {
-                    let mut cursor = Some(dirty);
-                    while let Some(id) = cursor {
-                        if self.scene_roots.contains(&id) {
-                            invalid.insert(id);
-                        }
-                        cursor = self
-                            .adapter
-                            .placed_indices
-                            .get(&id)
-                            .and_then(|&index| self.adapter.placed[index].parent_node_id);
-                    }
-                    // A layout patch can move an entire subtree without
-                    // changing its parent transform. Fragments nested inside
-                    // that subtree contain absolute geometry and must be
-                    // rebuilt as well as every enclosing fragment.
-                    if let Some(&start) = self.adapter.placed_indices.get(&dirty) {
-                        let depth = self.adapter.placed[start].depth;
-                        for (offset, node) in self.adapter.placed[start..].iter().enumerate() {
-                            if offset > 0 && node.depth <= depth {
-                                break;
-                            }
-                            if self.scene_roots.contains(&node.node_id) {
-                                invalid.insert(node.node_id);
-                            }
-                        }
-                    }
-                }
-            }
-            self.adapter.stats.scene_invalid_roots = invalid.len();
-            plico_renderer::scene::build_scene_cached(
-                scene,
-                &layers,
-                &self.scene_roots,
-                &invalid,
-                &mut self.scene_cache,
-                tcx,
-                plico_renderer::scene::SceneTarget {
-                    size: [size.0, size.1],
-                    base_color,
-                    device_scale: scale,
-                },
-            );
-            self.adapter.stats.scene_fragment_builds = self.scene_cache.built;
-            self.adapter.stats.scene_fragment_reuses = self.scene_cache.reused;
-            self.adapter.stats.scene_encoded_nodes = self.scene_cache.encoded_nodes;
-        }
-        self.adapter.stats.scene_full_rebuilds = usize::from(self.adapter.scene_full_dirty);
+        plico_renderer::scene::build_scene_scaled_layers(
+            scene, &layers, tcx, size.0, size.1, base_color, scale,
+        );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
         #[cfg(feature = "profiling")]
         {
@@ -701,44 +530,6 @@ impl<V: HostView> Source<V> {
             }
         }
         let start = Instant::now();
-        if !self.display_preferences_dirty
-            && self.engine.theme()
-                == self
-                    .view
-                    .theme()
-                    .follow_preferences(self.engine.display_preferences())
-            && let Some(batch) = self.view.replay_regions(&mut self.engine)
-        {
-            let batch = batch.map_err(|source| {
-                self.pending = true;
-                self.declared_changes.insert(plico::Changes::STRUCTURE);
-                self.declared_dirty.clear();
-                self.declared_seen.clear();
-                match source {
-                    plico::FrameError::DidNotSettle => SourceError::DidNotSettle,
-                    other => SourceError::Declaration { source: other },
-                }
-            })?;
-            self.declaration_stats = batch.stats;
-            self.declaration_micros = start.elapsed().as_micros();
-            self.batch_stats.declaration_passes += batch.passes;
-            self.declared_dirty.extend(batch.dirty);
-            self.pending_region_revisions.extend(batch.revisions);
-            self.declared_changes |= batch.changes;
-            self.requests = batch.changes & plico::Changes::ANIMATE;
-            self.pending = false;
-            self.declarations_pending = true;
-            // A region event can change the view's global theme. Refresh all
-            // inherited contexts in this same event, before committing a frame.
-            if self.engine.theme()
-                == self
-                    .view
-                    .theme()
-                    .follow_preferences(self.engine.display_preferences())
-            {
-                return Ok(());
-            }
-        }
         // One settle protocol, shared with the reload host: rerun declarations
         // while the view asks for another pass, at most eight times.
         #[cfg(feature = "profiling")]

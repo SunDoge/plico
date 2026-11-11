@@ -28,6 +28,14 @@ fn click(frame: &Frame, label: &str) -> Frame {
     })
     .unwrap()
 }
+fn key(_frame: &Frame, key: &str) -> Frame {
+    render::<Gallery>(Request {
+        resume: true,
+        keys: vec![key.to_owned()],
+        ..Default::default()
+    })
+    .unwrap()
+}
 #[test]
 fn channel_and_shader_controls_survive_navigation_and_reload() {
     let app = Gallery {
@@ -43,7 +51,7 @@ fn channel_and_shader_controls_survive_navigation_and_reload() {
     let frame = click(&frame, "Beta");
     assert!(has(&frame, "Preview"));
     let frame = click(&frame, "Layout");
-    let frame = click(&frame, "Controls");
+    let frame = key(&frame, "Alt+ArrowLeft");
     assert!(has(&frame, "Preview"));
     let frame = render::<Gallery>(Request {
         state: frame.state,
@@ -55,6 +63,6 @@ fn channel_and_shader_controls_survive_navigation_and_reload() {
     let frame = click(&frame, "Pause shader");
     assert!(has(&frame, "Resume shader"));
     let frame = click(&frame, "Layout");
-    let frame = click(&frame, "Motion");
+    let frame = key(&frame, "Alt+ArrowLeft");
     assert!(has(&frame, "Resume shader"));
 }

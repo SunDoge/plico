@@ -35,6 +35,4 @@ impl ServiceApp for Application {
 
 Future 任务使用 `plico_runtime::tasks::Task` / `TaskService` 和调用方执行器，暴露 Idle、Pending、Ready(Result)、Cancelled 等状态。原生阻塞工作可使用 `plico_runtime::background::Worker`，保留 worker-local 模型或客户端，支持替换请求、过期结果过滤和合并唤醒。取消是合作式的，不代表已发出的网络请求或磁盘操作已撤销。
 
-Regions 应用仍可使用 `RegionServiceProgram` 与 `service_state` 显式登记根快照和临时 outbox；它与普通 immediate 服务共用宿主，不需要动态 ABI。
-
 预览时通过 `PreviewScenario` 的工厂构造假服务或固定结果，不必加载真实模型、重新登录或调用付费 API。详见[场景预览](preview.md)。

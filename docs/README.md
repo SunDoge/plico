@@ -30,15 +30,13 @@
 | [LVGL 最小后端实验](lvgl.md) | LVGL 原生控件、相同声明 API、对象复用与点击回传 |
 | [NSH 最小后端实验](nsh.md) | NSH element 投影、自带 Taffy/原生文字与 Entity 事件回传 |
 | [同步 local state 与宿主任务](local-state-and-tasks.md) | 组件局部状态、按需重建、宿主任务取消与迟到结果隔离 |
-| [ID 区域重放机制](regions.md) | 保留但默认不使用的显式区域、原生控件和可选 Source 驱动 |
-| [完整设置页对照](regions-settings.md) | 同步/区域 API、状态归属与无 GPU CPU 实测 |
 | [状态、事件与提交](runtime.md) | 同步事件、稳定化、失效传播、卸载与错误边界 |
 | [缓存与输出路径](cache.md) | 共享 Scene、原生保留路径、克隆计数与 CPU 对比 |
 | [滚动声明分离](scroll-presentation.md) | 普通滚动跳过 show、按容器观察和模拟时钟对比 |
 | [声明帧与保留帧](frame-scheduling.md) | 原生失效调度、宿主动画、干净帧复用和外部状态更新契约 |
 | [声明成本与 memo 实验](memo-experiments.md) | 核心声明、Markdown 解析缓存、宿主动画与更新边界的实验和限制 |
 | [增量执行](incremental.md) | dirty journal、活跃动画、paint patch 与场景复用边界 |
-| [可见文字与下载面板对比](visible-texts-comparison.md) | immediate/reactive 的历史基线、真实窗口测量方法与阶段计时 |
+| [可见文字与下载面板对比](visible-texts-comparison.md) | 已退役 reactive 实验的历史基线、真实窗口测量方法与阶段计时 |
 | [Immediate diff CPU 测量](immediate-diff-cost.md) | 节点协调、属性比较与声明总成本的采样区分 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
 | [libmpv 视频实验](video.md) | 可选宿主播放器、软件帧 surface、暂停/跳转与 GPU 接入限制 |

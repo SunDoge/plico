@@ -266,7 +266,7 @@ fn sort_header(cx: &mut UiContext, state: &mut TableState, column: Sort, label: 
                 if state.descending { &crate::legacy_icons::ARROW_DOWN } else { &crate::legacy_icons::ARROW_UP },
             ).size(14., 14.).color(Color::Accent);
         }
-    }).response.clicked();
+    }).clicked();
     if clicked {
         state.sort_by(column);
     }

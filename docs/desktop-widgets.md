@@ -42,7 +42,7 @@ cargo run -p gallery -- --scenario apps/gallery/scenarios/toast-motion.json --ca
 cargo run -p backend-settings --example sidebar_capture
 ```
 
-输出位于本地 `reports/sidebar/`。设置页的 immediate 与 Regions 实现通过语义树和控件几何对照测试，避免组合控件迁移造成行为差异。
+输出位于本地 `reports/sidebar/`。设置页通过语义树、控件几何和后端截图测试避免组合控件迁移造成行为差异。
 
 Gallery 的导航使用 MyGO source-list 风格：单色图标、Workspace / Components / Experiments 分组、单行选中态和图标模式。`Toggle navigation` 切换 224 / 64 px；240 ms 过渡由 `UiContext::animate` 通过注入时钟采样宽度，让旁边的内容区按当前宽度重新布局。框架负责连续 retarget、显示节奏声明帧和 reduced-motion，应用只保存 `sidebar_collapsed`，不再维护动画起点、时间或 transient state。选中项使用完整的 `NavEntryAppearance::Quiet` 配色，避免只覆盖背景后继承 `OnAccent` 前景。当前保留普通按钮的 Tab / Enter 行为，尚未实现 MyGO 的单 Tab stop、方向键和首字母导航。
 

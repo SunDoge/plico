@@ -26,7 +26,6 @@ mod modal;
 mod popover;
 mod presentation;
 mod recipe;
-pub mod regions;
 mod scroll_motion;
 mod scrollbar_visibility;
 mod selection;

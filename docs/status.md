@@ -83,9 +83,9 @@ Rust Gallery 新增 Component kit 与圆角对照页；玻璃和 opaque fallback
 ## 当前主线
 
 plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续共用；
-新工作、生成模板和 backend-settings 默认采用 Immediate `App::show`。Regions/Reactive
-机制、测试与示例保留，但暂不作为默认应用路径；未来有明确的大型局部更新需求时，
-可按区域定向启用，而不是恢复全局依赖收集。旧 crates/plico 响应式 Runtime、
+新工作、生成模板和 backend-settings 统一采用 Immediate `App::show`。类型安全的
+`Router::view().show(...)` 统一稳定页面身份、有限保活和转场，但不引入第二套状态模型。Regions/Reactive
+机制、宿主 replay hooks、测试与示例已经删除，不保留第二套应用状态模型。旧 crates/plico 响应式 Runtime、
 图实验、共享响应式 2048 组件与 archive-gallery / game2048 / task-workspace 旧应用
 已删除。Rune 实验同样已移除。当前 2048 功能在主 Gallery 中维护。
 
@@ -95,13 +95,13 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar、Motion spring
 与液态搜索已迁移，不再由应用保存 `plico_motion::Animated`。
 
-`plico_runtime::regions` 常驻提供 ID 驱动的原生区域重放；状态由组件实例拥有，region 和事件使用显式依赖与函数指针。`when` 管理条件挂载/卸载，`each`/`each_gap` 管理业务 ID keyed component 列表及每项局部状态；没有引入额外应用宏。已补 keyed 组件局部状态、卸载释放、宿主结果邮箱和 opt-in MessagePack checkpoint。Text 的 `.rx(...)` 支持文字、颜色、字号、字重、字体族、透明度；Button 支持背景、禁用和 selected，并可继续链接触发事件。一次性 focus/reveal 有显式 consume 桥接；单源 root-owned `derived` 按输出相等性抑制无关区域通知，checkpoint 后重新计算。非法属性、精确 dirty 分类、主题更新与开发协议恢复有回归覆盖。[Reactive outlet](router.md#reactive-page-outlet) 沿用 Router 历史并管理活跃页面所有权、参数 key、嵌套销毁与状态恢复；不包含后台 keep-alive。backend-settings 的 `Settings` 保留完整 Reactive 三路页面、跨路由上层状态和局部动画 settle，用于语义/几何与性能对照；正常入口和生成模板使用 Immediate。接入与限制见 [Regions](regions.md)。
+应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现
 
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
-- Reactive Region revision 贯通局部 replay、布局/flatten 与 Scene Fragment 失效；mount/unmount/reorder 可保留独立区域缓存，并有大范围结构变化的全量回退。逐帧全量 Scene oracle 和 seeded 差分覆盖该路径；root Taffy 求解仍保留，route/reverse 的结构性能回退如实记录在[增量执行](incremental.md)。
+- Immediate dirty journal 贯通布局、flatten 与 Scene 失效；mount/unmount/reorder 由稳定 Entity 和业务 key 保持身份，大范围结构变化保守回退全量路径。
 - 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
@@ -135,7 +135,7 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 
 一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。
 依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
-布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。本轮在此收尾，Region 独立布局求解尚未开始；继续扩大缓存前应先补充全量差分和真实窗口验收。
+布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。不计划增加 Region 独立布局求解；继续扩大缓存前应先补充全量差分和真实窗口验收。
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
 [LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
 不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
@@ -185,7 +185,7 @@ Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab n
 Skia windows enable command-stream damage and per-image history by default;
 `PLICO_SKIA_DAMAGE=0` restores full drawing. Multi-rectangle damage and Vulkan
 incremental-present hints remain opt-in. Tracked partial
-redraws consume Reactive Scene Fragments natively and cull whole unchanged Regions;
+redraws consume retained Scene commands and cull unchanged damage regions;
 full redraws and Vello/Web retain the expanded replay path. Region-level damage is
 conservative rather than a minimal per-leaf rectangle. Normal windows skip an exactly
 unchanged presented Scene by default (`PLICO_SKIA_PRESENT_SKIP=0` disables this);

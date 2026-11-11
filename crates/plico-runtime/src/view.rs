@@ -1,12 +1,12 @@
 //! User-facing view adapters and the advanced host contract.
-use crate::{HostAction, regions};
-use plico::{Engine, Entity, Theme};
+use crate::HostAction;
+use plico::Theme;
 
 /// Adapt an ordinary application view to the native host contract.
 ///
 /// Most applications use this implicitly through their backend's `run_view`
 /// entry point. Implement [`HostView`] directly only when the application owns
-/// host capabilities such as services, Regions, or native wakeups.
+/// host capabilities such as services or native wakeups.
 pub struct NativeView<V>(pub V);
 
 impl<V: plico::View> HostView for NativeView<V> {
@@ -55,24 +55,13 @@ impl<A: plico_dev::App> HostView for NativeApp<A> {
 /// Advanced host contract for native windows and retained frame sources.
 ///
 /// Ordinary applications implement `plico::View` or `plico_dev::App` instead.
-/// `HostView` adds host actions, wakeups, Regions, and cache metadata.
+/// `HostView` adds host actions and native wakeups.
 /// Consuming an event automatically requests a settling declaration.
 pub trait HostView {
     /// A meaningful native input or accepted accessibility action occurred.
     /// Presentation frames and pointer hover do not invoke this callback.
     fn on_user_activity(&mut self) {}
 
-    #[doc(hidden)]
-    fn replay_regions(
-        &mut self,
-        _engine: &mut Engine,
-    ) -> Option<Result<regions::ReplayBatch, plico::FrameError>> {
-        None
-    }
-    #[doc(hidden)]
-    fn scene_cache_roots(&self) -> Vec<Entity> {
-        Vec::new()
-    }
     /// Window-local fallback after controls decline a key. Not called during IME
     /// composition or while a popup/modal owns input. Return true to consume it.
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
@@ -89,7 +78,7 @@ pub trait HostView {
     }
     /// Whether the view's own data source changed since the last rendered
     /// snapshot. Service-backed views override this so revision bumps request
-    /// a declaration; reactive views may replay only their dirty regions.
+    /// a declaration.
     fn snapshot_changed(&self) -> bool {
         false
     }

@@ -26,8 +26,8 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
   renderer-free Engine、NSH/LVGL 投影等后端；普通控件和组件继续使用 Rust 函数。
 - `plico_dev::App` 是面向应用的完整根接口，在同样的 `show`/`theme` 之上增加
   Serde checkpoint、services、快捷键和 FrameTime；静态桌面入口与开发热重载复用它。
-- `plico_runtime::HostView` 面向后端与高级宿主，增加 Regions replay、scene cache、
-  host action、wake 和 reload 等能力。`Source<V>` 与
+- `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
+  能力。`Source<V>` 与
   `plico_desktop::run_host_view_with_options` 接收这一接口。
 
 普通 `View` 由 `NativeView<V>` 适配到 `HostView`；

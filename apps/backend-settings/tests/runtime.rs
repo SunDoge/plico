@@ -43,6 +43,7 @@ fn routed_workspace_uses_the_same_clock_and_grid() {
             .adapter
             .placed
             .iter()
+            .rev()
             .find(|n| n.paint.text.as_deref() == Some(label))
             .unwrap()
             .rect[0]

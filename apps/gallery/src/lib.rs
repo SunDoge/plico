@@ -181,7 +181,7 @@ impl Gallery {
                     switch(ui, l.text("dark-theme", "Dark theme"), &mut self.dark);
                     checkbox(ui, l.text("large-text", "Large text"), &mut self.large);
                 };
-                match self.router.current() {
+                self.router.view().show(ui, |ui, page| match page {
                     Page::Workspace => self.workspace.show(ui),
                     Page::Layout => self.layout_page(ui),
                     Page::Controls => self.controls_page(ui),
@@ -205,7 +205,7 @@ impl Gallery {
                         shader_playground::page(ui, &mut self.shader_playground)
                     }
                     Page::ComponentKit => component_kit::page(ui, &mut self.component_kit),
-                }
+                });
             })
         };
         // The gravitational lens overlays every page when enabled. Declared

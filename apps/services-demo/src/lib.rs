@@ -1,9 +1,6 @@
 //! UI + value protocol only. The worker is compiled into main.rs, never this module.
 pub mod icons;
 use plico::prelude::*;
-use plico_runtime::regions::{
-    BindState, OnClick, Reactive, RegionApp, RegionServiceProgram, RegionUi, Regions, State,
-};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,38 +27,32 @@ pub enum TaskCommand {
     Cancel,
 }
 
-/// Regions owns only UI state and a transient command outbox. The host retains
-/// the live worker and supplies its non-persistent snapshot on each frame.
-pub struct Program;
-impl plico_runtime::regions::RegionProgram for Program {
-    fn build() -> Regions {
-        Regions::new(|app| {
-            let task = app.state(TaskSnapshot::default);
-            let commands = app.state(Vec::<TaskCommand>::new);
-            app.service_state(task, commands);
-            let counter = app.persisted_state(1, || 0_u64);
-            app.root(
-                (task, commands, counter),
-                |cx, (task, commands, counter)| {
-                    workspace(cx, task.handle(), commands.handle(), counter.handle());
-                },
-            );
-        })
-    }
+/// Ordinary Rust UI state. The host owns the live worker and projects a
+/// read-only snapshot into each declaration.
+#[derive(Default, Serialize, Deserialize)]
+pub struct Application {
+    counter: u64,
+    details: bool,
 }
-impl RegionServiceProgram for Program {
+impl plico_dev::services::ServiceApp for Application {
     type Snapshot = TaskSnapshot;
     type Command = TaskCommand;
+    fn show(
+        &mut self,
+        cx: &mut UiContext<'_>,
+        services: &mut plico_dev::services::Services<TaskSnapshot, TaskCommand>,
+    ) {
+        workspace(cx, services, &mut self.counter, &mut self.details);
+    }
 }
-pub type Application = RegionApp<Program>;
 
 #[component]
 #[rustfmt::skip]
 fn workspace(
     cx: &mut UiContext,
-    task: State<TaskSnapshot>,
-    commands: State<Vec<TaskCommand>>,
-    counter: State<u64>,
+    services: &mut plico_dev::services::Services<TaskSnapshot, TaskCommand>,
+    counter: &mut u64,
+    details: &mut bool,
 ) {
     column(cx).padding(24).gap(16).width_percent(100.).height_percent(100.).scroll_y(true) + |cx| {
         row(cx).align(Align::Center).gap(12) + |cx| {
@@ -71,8 +62,8 @@ fn workspace(
                 text(cx, "Start or cancel a background task while using the interface.").color(Color::Muted);
             };
         };
-        cx.region((task, commands), |cx, (task, commands)| {
-            let task = task.read();
+        {
+            let task = services.snapshot().clone();
             let running = task.status == TaskStatus::Running;
             panel(cx, None) + |cx| {
                 row(cx).justify(Justify::SpaceBetween) + |cx| {
@@ -90,53 +81,37 @@ fn workspace(
                 };
                 progress(cx, "Progress", f32::from(task.progress) / 100.);
                 toolbar(cx).padding_x(0).wrap(true) + |cx| {
-                    button(cx).text("Start task").primary().disabled(running)
-                        .on_click(commands.handle(), |commands| {
-                        commands.update(|commands| commands.push(TaskCommand::Start));
-                    });
-                    button(cx).text("Cancel task").disabled(!running).on_click(
-                        commands.handle(),
-                        |commands| {
-                            commands.update(|commands| commands.push(TaskCommand::Cancel));
-                        },
-                    );
+                    if button(cx).text("Start task").primary().disabled(running).clicked() {
+                        services.send(TaskCommand::Start);
+                    }
+                    if button(cx).text("Cancel task").disabled(!running).clicked() {
+                        services.send(TaskCommand::Cancel);
+                    }
                 };
                 text!(cx, "Completed tasks: {}", task.completed).color(Color::Muted);
             };
-        });
-        cx.region(counter, |cx, counter| {
-            let counter = counter.handle();
+        }
+        {
             panel(cx, "View state").description("Local interface state stays independent of the background task.")
             + |cx|
             {
                 row(cx).gap(12).align(Align::Center) + |cx| {
-                    button(cx).text("Increment view counter").on_click(counter, |counter| {
-                        counter.update(|value| *value += 1)
-                    });
-                    text_empty(cx).font_size(18).weight(650).rx(
-                        counter,
-                        |node, counter| {
-                            node.text(format!("View counter: {}", *counter.read()));
-                        },
-                    );
+                    if button(cx).text("Increment view counter").clicked() { *counter += 1; }
+                    text!(cx, "View counter: {}", *counter).font_size(18).weight(650);
                 };
-                state_details(cx);
+                state_details(cx, details);
             };
-        });
+        }
         text(cx, "The task is simulated; no files or network requests are made.").font_size(14).color(Color::Muted);
     };
 }
 
 #[component]
 #[rustfmt::skip]
-fn state_details(cx: &mut UiContext) {
-    let details = cx.local_persisted_state(2, || false);
-    cx.region(details, |cx, details| {
-        let mut expanded = *details.read();
-        checkbox(cx, "Show state details", &mut expanded).bind(details.handle());
-        if expanded {
+fn state_details(cx: &mut UiContext, details: &mut bool) {
+        checkbox(cx, "Show state details", details);
+        if *details {
             text(cx, "This counter belongs to the interface. Starting or cancelling a task does not reset it.")
                 .color(Color::Muted);
         }
-    });
 }

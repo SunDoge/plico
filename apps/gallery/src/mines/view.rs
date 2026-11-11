@@ -201,7 +201,7 @@ impl Mines {
                                 plico::text!(cx, "{c} × {r} · {m} mines")
                                     .font_size((11. * scale) as u16).color(MUTED);
                             };
-                        }).response.clicked()
+                        }).clicked()
                         {
                             self.custom_mines = false;
                             self.configure(c, r, m);
@@ -408,7 +408,7 @@ impl Mines {
                                 } else {
                                     self.flag(i);
                                 }
-                            } else if response.response.clicked() {
+                            } else if response.clicked() {
                                 self.cursor = i;
                                 if c.open {
                                     self.chord(i);
@@ -497,7 +497,7 @@ fn action(cx: &mut UiContext, label: &str, width: f32, height: f32, primary: boo
                 INK
             });
         };
-    }).response.clicked()
+    }).clicked()
 }
 #[component]
 #[rustfmt::skip]

@@ -2,11 +2,8 @@
 mod animation;
 mod color_icons;
 mod icons;
-pub mod preferences_regions;
-mod reactive;
 use animation::{Animations, SIDEBAR_COMPACT, SIDEBAR_EXPANDED};
 use plico::{Router, TextBuffer, Theme, View, prelude::*};
-pub use reactive::Settings;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, plico::Route)]
 pub enum Page {
@@ -32,6 +29,8 @@ pub struct ImmediateSettings {
     pub selected_project: u64,
     animations: Animations,
 }
+/// The settings example follows the single immediate application path.
+pub type Settings = ImmediateSettings;
 impl Default for ImmediateSettings {
     fn default() -> Self {
         let name = TextBuffer::new();
@@ -79,6 +78,12 @@ fn nav_entry(cx: &mut UiContext, router: &mut Router<Page>, page: Page, expand: 
 }
 
 impl ImmediateSettings {
+    pub fn go(&mut self, page: Page) {
+        self.router.go(page);
+    }
+    pub fn current_page(&self) -> Page {
+        self.router.current()
+    }
     pub fn progress(&self) -> f32 {
         self.animations.progress()
     }
@@ -147,14 +152,14 @@ impl View for ImmediateSettings {
                         self.inspector = !self.inspector;
                     }
                 };
-                match self.router.current() {
+                self.router.view().show(cx, |cx, page| match page {
                     Page::Overview => self.overview(cx),
                     Page::Activity => self.activity(cx),
                     Page::Preferences => {
                         column(cx).height(0.).grow(1.).scroll_y(true).gap(18)
                             .children(|cx| self.preferences(cx)).inner
                     }
-                }
+                });
                 row(cx).gap(8) + |cx| {
                     text(cx, "Shared Plico view · Taffy geometry").font_size(12).color(Color::Muted)
                         .grow(1.);

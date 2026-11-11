@@ -1,9 +1,8 @@
 //! A native command palette. The catalog is synthetic; application entries are
 //! previews, never shell commands. Native buffers and host actions are not serialized.
 pub mod icons;
-use plico::{Engine, Entity, InputEdit, prelude::*};
+use plico::{InputEdit, prelude::*};
 use plico_desktop::{HostAction, HostView, WindowCommand};
-use plico_runtime::regions::{RegionUi, State};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -231,136 +230,59 @@ impl LauncherModel {
     }
 }
 
-struct SearchProjection {
-    source: State<LauncherModel>,
-    query: TextBuffer,
-    revision: u64,
-    focus_search: bool,
-}
-impl PartialEq for SearchProjection {
-    fn eq(&self, other: &Self) -> bool {
-        self.revision == other.revision && self.focus_search == other.focus_search
-    }
-}
-struct FilterProjection {
-    source: State<LauncherModel>,
-    category: Category,
-    count: usize,
-}
-impl PartialEq for FilterProjection {
-    fn eq(&self, other: &Self) -> bool {
-        self.category == other.category && self.count == other.count
-    }
-}
-
 pub struct Launcher {
-    regions: plico_runtime::regions::Regions,
-    model: State<LauncherModel>,
+    model: LauncherModel,
 }
 impl Default for Launcher {
     fn default() -> Self {
-        use plico_runtime::regions::Regions;
-        let mut model = None;
-        let regions = Regions::new(|app| {
-            let state = app.state(LauncherModel::new);
-            model = Some(state);
-            let search = app.derived(state, |model| {
-                let current = model.read();
-                SearchProjection {
-                    source: model.handle(),
-                    query: current.query.clone(),
-                    revision: current.query.value_revision(),
-                    focus_search: current.focus_search,
-                }
-            });
-            let filters = app.derived(state, |model| {
-                let current = model.read();
-                FilterProjection {
-                    source: model.handle(),
-                    category: current.category,
-                    count: current.matches.len(),
-                }
-            });
-            let feedback = app.derived(state, |model| model.read().feedback.clone());
-            app.root(
-                (state, search, filters, feedback),
-                |cx, (model, search, filters, feedback)| {
-                    application(
-                        cx,
-                        model.handle(),
-                        search.handle(),
-                        filters.handle(),
-                        feedback.handle(),
-                    );
-                },
-            );
-        });
         Self {
-            regions,
-            model: model.expect("Launcher root state"),
+            model: LauncherModel::new(),
         }
     }
 }
 impl Launcher {
     pub fn selected_id(&self) -> Option<&'static str> {
-        let access = self.regions.access(self.model);
-        let model = access.read();
-        model
+        self.model
             .selected
-            .and_then(|i| model.matches.get(i))
+            .and_then(|i| self.model.matches.get(i))
             .map(|i| ENTRIES[*i].id)
     }
     pub fn result_count(&self) -> usize {
-        self.regions.access(self.model).read().matches.len()
+        self.model.matches.len()
     }
     pub fn feedback(&self) -> String {
-        self.regions.access(self.model).read().feedback.clone()
+        self.model.feedback.clone()
     }
     pub fn dark(&self) -> bool {
-        self.regions.access(self.model).read().dark
+        self.model.dark
     }
     pub fn query_is_empty(&self) -> bool {
-        self.regions.access(self.model).read().query.is_empty()
+        self.model.query.is_empty()
     }
     pub fn query_is_composing(&self) -> bool {
-        self.regions.access(self.model).read().query.is_composing()
+        self.model.query.is_composing()
     }
     pub fn clear_query(&mut self) {
-        self.regions.access(self.model).update(|model| {
-            model.query.clear();
-            model.refresh();
-        });
+        self.model.query.clear();
+        self.model.refresh();
     }
     pub fn set_category(&mut self, category: Category) {
-        self.regions.access(self.model).update(|model| {
-            model.category = category;
-            model.refresh();
-            model.focus_search = true;
-        });
+        self.model.category = category;
+        self.model.refresh();
+        self.model.focus_search = true;
     }
     pub fn set_dark(&mut self, dark: bool) {
-        self.regions
-            .access(self.model)
-            .update(|model| model.dark = dark);
+        self.model.dark = dark;
     }
     #[doc(hidden)]
     pub fn select_result(&mut self, index: usize) {
-        self.regions.access(self.model).update(|model| {
-            model.selected = Some(index);
-            model.reveal = Some(index);
-        });
-    }
-
-    #[doc(hidden)]
-    pub fn region_runs(&self) -> Vec<(Entity, usize)> {
-        self.regions.region_runs()
+        self.model.selected = Some(index);
+        self.model.reveal = Some(index);
     }
 
     pub fn edit_query(&mut self, edit: InputEdit) {
-        self.regions.access(self.model).update(|model| {
-            model.query.edit(edit);
-            model.refresh();
-        });
+        self.model.query.edit(edit);
+        self.model.refresh();
     }
 }
 
@@ -368,24 +290,18 @@ impl Launcher {
 #[rustfmt::skip]
 fn application(
     cx: &mut UiContext,
-    model: State<LauncherModel>,
-    search_state: State<SearchProjection>,
-    filter_state: State<FilterProjection>,
-    feedback: State<String>,
+    model: &mut LauncherModel,
 ) {
     column(cx).width_percent(100.).height_percent(100.).background(Color::Surface) + |cx| {
-        search(cx, search_state);
+        search(cx, model);
         separator(cx);
-        filters(cx, filter_state);
+        filters(cx, model);
         results(cx, model);
         column(cx).grow(1.).end();
         separator(cx);
-        cx.region(feedback, |cx, feedback| {
-            let feedback = feedback.read();
-            row(cx).height(30.).padding_x(22).gap(8).align(Align::Center) + |cx| {
-                text(cx, if feedback.is_empty() { "应用目录为演示数据" } else { &feedback }).font_size(11).color(Color::Muted);
-            };
-        });
+        row(cx).height(30.).padding_x(22).gap(8).align(Align::Center) + |cx| {
+            text(cx, if model.feedback.is_empty() { "应用目录为演示数据" } else { &model.feedback }).font_size(11).color(Color::Muted);
+        };
         row(cx).height(40.).padding_x(22).gap(8).align(Align::Center).background(Color::Panel) + |cx| {
             icon(cx, &icons::COMMAND).size(14., 14.).color(Color::Muted);
             text(cx, "Plico").font_size(12).weight(650);
@@ -397,49 +313,27 @@ fn application(
 
 #[component]
 #[rustfmt::skip]
-fn search(cx: &mut UiContext, model: State<SearchProjection>) {
-    use plico_runtime::regions::{FocusOnce, OnChange, OnClick, OnNavigation, OnSubmit};
-    cx.region(model, |cx, model| {
-        row(cx).height(74.).padding_x(22).gap(16).align(Align::Center) + |cx| {
+fn search(cx: &mut UiContext, model: &mut LauncherModel) {
+    row(cx).height(74.).padding_x(22).gap(16).align(Align::Center) + |cx| {
             icon(cx, &icons::SEARCH).size(22., 22.).color(Color::Muted);
-            let current = model.read();
-            let state = current.source;
-            text_input(cx, "搜索应用与命令", &current.query).placeholder("搜索应用与命令…").autofocus(true)
-                .request_focus_once(current.focus_search, state, |state| {
-                state.update_if(|model| {
-                    model.focus_search = false;
-                    false
-                });
-            }).navigation(true).width(0.).grow(1.).height(48.).font_size(20).padding(0)
+            let response = text_input(cx, "搜索应用与命令", &model.query).placeholder("搜索应用与命令…").autofocus(true)
+                .request_focus(model.focus_search).navigation(true).width(0.).grow(1.).height(48.).font_size(20).padding(0)
                 .border(0., Color::Border).background(Color::Surface)
-                .on_change((state,), |(state,), _| state.update(LauncherModel::refresh))
-                .on_submit((state,), |(state,)| {
-                state.update(|model| {
-                    if let Some(index) = model.selected {
-                        model.activate(index);
-                    }
-                });
-            }).on_navigation((state,), |(state,), action| {
-                state.update(|model| model.navigate(action))
-            });
-            button_base(cx, "关闭").padding(8).radius(6.).hover_background(Color::Control).children(|cx| {
+                .response();
+            model.focus_search = false;
+            if response.changed { model.refresh(); }
+            if let Some(action) = response.navigation { model.navigate(action); }
+            if response.submitted && let Some(index) = model.selected { model.activate(index); }
+            let close = button_base(cx, "关闭").padding(8).radius(6.).hover_background(Color::Control).children(|cx| {
                 icon(cx, &icons::X).size(16., 16.).color(Color::Muted);
-            }).response.on_click(state, |state| {
-                state.update(|model| {
-                    model.actions.push_back(HostAction::Window(WindowCommand::Close));
-                })
-            });
-        };
-    });
+            }).response;
+            if close.clicked() { model.actions.push_back(HostAction::Window(WindowCommand::Close)); }
+    };
 }
 
 #[component]
 #[rustfmt::skip]
-fn filters(cx: &mut UiContext, model: State<FilterProjection>) {
-    use plico_runtime::regions::OnClickWith;
-    cx.region(model, |cx, model| {
-        let current = model.read();
-        let state = current.source;
+fn filters(cx: &mut UiContext, model: &mut LauncherModel) {
         row(cx).padding_x(16).height(42.).gap(6).align(Align::Center) + |cx| {
             for (category, label) in [
                 (Category::All, "全部"),
@@ -447,33 +341,24 @@ fn filters(cx: &mut UiContext, model: State<FilterProjection>) {
                 (Category::Commands, "命令"),
             ] {
                 cx.keyed(label, |cx| {
-                    button_base(cx, label).selected(current.category == category).padding_x(12).padding_y(5)
+                    let response = button_base(cx, label).selected(model.category == category).padding_x(12).padding_y(5)
                         .radius(6.)
-                        .background(if current.category == category { Color::Control } else { Color::Surface })
+                        .background(if model.category == category { Color::Control } else { Color::Surface })
                         .hover_background(Color::Control).children(|cx| {
                         text(cx, label).font_size(12).weight(600);
-                    }).response.on_click_with((state,), category, |(model,), category| {
-                        model.update(|model| {
-                            model.category = category;
-                            model.refresh();
-                            model.focus_search = true;
-                        });
-                    });
+                    }).response;
+                    if response.clicked() { model.category = category; model.refresh(); model.focus_search = true; }
                 });
             }
             column(cx).grow(1.).end();
-            plico::text!(cx, "{} 个结果", current.count).font_size(11).color(Color::Muted);
+            plico::text!(cx, "{} 个结果", model.matches.len()).font_size(11).color(Color::Muted);
         };
-    });
 }
 
 #[component]
 #[rustfmt::skip]
-fn results(cx: &mut UiContext, model: State<LauncherModel>) {
-    use plico_runtime::regions::{OnClickWith, RevealOnce};
-    cx.region(model, |cx, model| {
-        let current = model.read();
-        if current.matches.is_empty() {
+fn results(cx: &mut UiContext, model: &mut LauncherModel) {
+        if model.matches.is_empty() {
             let _ = column(cx).height(336.).justify(Justify::Center).align(Align::Center).gap(12) + |cx| {
                 icon(cx, &icons::SEARCH).size(28., 28.).color(Color::Muted);
                 text(cx, "没有找到匹配项").font_size(16).weight(600);
@@ -481,21 +366,19 @@ fn results(cx: &mut UiContext, model: State<LauncherModel>) {
             };
             return;
         }
-        let state = model.handle();
-        virtual_list(cx, current.matches.len(), 56.).height(336.).reveal_once(current.reveal, state, |state| {
-            state.update_if(|model| {
-                model.reveal = None;
-                false
-            });
-        }).rows(
-            |i| ENTRIES[current.matches[i]].id,
+        let matches = model.matches.clone();
+        let selected = model.selected;
+        let reveal = model.reveal.take();
+        let mut activate = None;
+        virtual_list(cx, matches.len(), 56.).height(336.).reveal(reveal).rows(
+            |i| ENTRIES[matches[i]].id,
             |cx, i| {
-                let entry = &ENTRIES[current.matches[i]];
-                let selected = current.selected == Some(i);
+                let entry = &ENTRIES[matches[i]];
+                let is_selected = selected == Some(i);
                 let _ = column(cx).padding_x(10) + |cx| {
-                    button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14).gap(14)
-                        .radius(8.).align(Align::Center).selected(selected)
-                        .background(if selected { Color::Selection } else { Color::Surface })
+                    let response = button_base(cx, entry.title).width_percent(100.).height(54.).padding_x(14).gap(14)
+                        .radius(8.).align(Align::Center).selected(is_selected)
+                        .background(if is_selected { Color::Selection } else { Color::Surface })
                         .hover_background(Color::Control).motion(Motion::Quick).children(|cx| {
                         column(cx).width(32.).height(32.).radius(8.).align(Align::Center)
                             .justify(Justify::Center).background(Color::Panel) + |cx|
@@ -507,37 +390,29 @@ fn results(cx: &mut UiContext, model: State<LauncherModel>) {
                             text(cx, entry.detail).font_size(11).color(Color::Muted);
                         };
                         text(cx, if matches!(entry.action, Action::Preview) { "预览" } else { "执行" }).font_size(11).color(Color::Muted);
-                        if selected {
+                        if is_selected {
                             icon(cx, &icons::CORNER_DOWN_LEFT).size(15., 15.).color(Color::Muted);
                         }
-                    }).response.on_click_with((state,), i, |(state,), i| {
-                        state.update(|model| model.activate(i));
-                    });
+                    }).response;
+                    if response.clicked() { activate = Some(i); }
                 };
             },
         );
-    });
+        if let Some(i) = activate { model.activate(i); }
 }
 
 impl HostView for Launcher {
     fn on_unhandled_key(&mut self, key: &plico_desktop::KeyEvent) -> bool {
         if key.key == "Escape" && key.modifiers.is_empty() && !key.repeat {
-            self.regions.access(self.model).update(|model| {
-                model.navigate(InputNavigation::Cancel);
-                model.focus_search = true;
-            });
+            self.model.navigate(InputNavigation::Cancel);
+            self.model.focus_search = true;
             true
         } else {
             false
         }
     }
     fn take_host_action(&mut self) -> Option<HostAction> {
-        let mut action = None;
-        self.regions.access(self.model).update_if(|model| {
-            action = model.actions.pop_front();
-            action.is_some()
-        });
-        action
+        self.model.actions.pop_front()
     }
     fn theme(&self) -> Theme {
         if self.dark() {
@@ -556,24 +431,6 @@ impl HostView for Launcher {
         }
     }
     fn show(&mut self, cx: &mut UiContext) {
-        HostView::show(&mut self.regions, cx);
-    }
-    fn replay_regions(
-        &mut self,
-        engine: &mut Engine,
-    ) -> Option<Result<plico_runtime::regions::ReplayBatch, plico::FrameError>> {
-        self.regions.replay_regions(engine)
-    }
-    fn scene_cache_roots(&self) -> Vec<Entity> {
-        self.regions.scene_cache_roots()
-    }
-    fn set_wake_callback(&mut self, wake: plico_desktop::WakeCallback) {
-        self.regions.set_wake_callback(wake);
-    }
-    fn poll_updates(&mut self) -> bool {
-        self.regions.poll_updates()
-    }
-    fn snapshot_changed(&self) -> bool {
-        self.regions.snapshot_changed()
+        application(cx, &mut self.model);
     }
 }

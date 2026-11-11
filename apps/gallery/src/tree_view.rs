@@ -267,7 +267,7 @@ fn tree(cx: &mut UiContext, roots: &'static [TreeNode], state: &mut TreeState, c
                             text(cx, kind).font_size(12).padding_x(6).padding_y(3).radius(4.)
                                 .background(Color::Control).color(Color::Muted);
                         }
-                    }).response.clicked();
+                    }).clicked();
                     if clicked {
                         state.select(roots, node.id);
                     }

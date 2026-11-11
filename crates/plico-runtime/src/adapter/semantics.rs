@@ -19,12 +19,6 @@ impl Adapter {
         revision: u64,
     ) -> Arc<plico_renderer::SemanticSnapshot> {
         let epoch = self.semantic.borrow().epoch;
-        if self.experiment_force_full_semantics {
-            self.semantic.borrow_mut().nodes.clear();
-            self.semantic.borrow_mut().builds = 0;
-            self.semantic.borrow_mut().reuses = 0;
-            return Arc::new(self.build_semantics(engine, revision));
-        }
         let cached = self.semantic.borrow().snapshot.clone();
         if let Some((cached_epoch, cached_revision, snapshot)) = cached
             && cached_epoch == epoch
@@ -38,11 +32,6 @@ impl Adapter {
         let snapshot = Arc::new(self.build_semantics(engine, revision));
         self.semantic.borrow_mut().snapshot = Some((epoch, revision, snapshot.clone()));
         snapshot
-    }
-    #[doc(hidden)]
-    pub fn experiment_semantic_cache_stats(&self) -> (usize, usize, usize) {
-        let cache = self.semantic.borrow();
-        (cache.builds, cache.reuses, cache.snapshot_reuses)
     }
     pub(super) fn build_semantics(
         &self,

@@ -3,23 +3,6 @@ use super::*;
 
 impl Adapter {
     pub(crate) fn hit(&self, engine: &Engine, x: f64, y: f64) -> Option<Entity> {
-        if self.experiment_force_full_hit_test {
-            return self.placed.iter().rev().find_map(|placed| {
-                if !self.visual_contains(placed.node_id, x, y) {
-                    return None;
-                }
-                let entity = *self.reverse.get(&placed.node_id)?;
-                engine
-                    .node(entity)
-                    .filter(|node| {
-                        interactive(node.kind)
-                            && node.kind != Kind::Overlay
-                            && !node.style.disabled
-                            && self.modal_allows(engine, entity)
-                    })
-                    .map(|_| entity)
-            });
-        }
         if self.placed.is_empty() {
             return None;
         }
@@ -133,7 +116,7 @@ impl Adapter {
         cache.dirty = false;
     }
     #[doc(hidden)]
-    pub fn experiment_hit_cache_stats(&self) -> (usize, usize, usize) {
+    pub fn hit_cache_stats(&self) -> (usize, usize, usize) {
         let cache = self.hit.borrow();
         (cache.builds, cache.checks, cache.pruned)
     }

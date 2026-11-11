@@ -19,7 +19,7 @@ impl HostView for Demo {
             .height(60.)
             .disabled(self.disabled)
             .children(|cx| cx.secondary_clicked());
-        self.primary += u32::from(r.response.clicked());
+        self.primary += u32::from(r.clicked());
         self.secondary += u32::from(r.inner);
     }
 }

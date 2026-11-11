@@ -22,7 +22,7 @@ fn events(nodes: &[ViewNode], result: &mut Vec<String>) {
     }
 }
 #[test]
-fn activity_sort_survives_page_unmount() {
+fn activity_sort_is_restored_by_back_navigation() {
     let mut engine = Engine::default();
     let mut app = Settings::default();
     app.go(Page::Activity);
@@ -35,7 +35,7 @@ fn activity_sort_survives_page_unmount() {
     assert_eq!(reversed.first().unwrap(), "Sync checkpoint 30");
     app.go(Page::Preferences);
     engine.declare_until_settled(&mut app).unwrap();
-    app.go(Page::Activity);
+    app.router.back();
     engine.declare_until_settled(&mut app).unwrap();
     let mut after = Vec::new();
     events(&engine.snapshot(), &mut after);

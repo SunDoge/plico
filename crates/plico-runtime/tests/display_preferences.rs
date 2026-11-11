@@ -144,30 +144,25 @@ fn system_preferences_replace_glass_and_stop_motion_without_overwriting_app_poli
 }
 
 #[test]
-fn native_preferences_refresh_all_regions_even_with_pending_local_state() {
-    use plico_runtime::regions::{RegionUi, Regions};
-    let mut saved = None;
-    let app = Regions::new(|app| {
-        let count = app.state(|| 0_u32);
-        saved = Some(count);
-        app.root((count,), |cx, (count,)| {
-            cx.region_keyed(1, (), |cx, ()| {
-                column(cx)
-                    .width(100)
-                    .height(60)
-                    .material(LiquidGlass::regular())
-                    .end();
-            });
-            cx.region_keyed(2, (count.handle(),), |cx, (count,)| {
-                text!(cx, "Count {}", *count.read());
-            });
-        });
-    });
+fn native_preferences_refresh_the_immediate_view_with_pending_state() {
+    #[derive(Default)]
+    struct App(u32);
+    impl HostView for App {
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            column(cx)
+                .width(100)
+                .height(60)
+                .material(LiquidGlass::regular())
+                .end();
+            text!(cx, "Count {}", self.0);
+        }
+    }
+    let app = App::default();
     let mut s = Source::with_clock(app, VirtualClock::default());
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
     assert!(shaders(&s) > 0);
-    s.view.access(saved.unwrap()).update(|count| *count += 1);
+    s.update(|view| view.0 += 1);
     preferences(
         &mut s,
         DisplayPreferences {
@@ -179,7 +174,7 @@ fn native_preferences_refresh_all_regions_even_with_pending_local_state() {
     assert_eq!(
         shaders(&s),
         0,
-        "an unrelated region must follow native preferences too"
+        "the complete view must follow native preferences"
     );
     assert!(
         s.adapter

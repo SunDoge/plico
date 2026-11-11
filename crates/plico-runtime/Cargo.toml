@@ -7,12 +7,11 @@ description = "Host-agnostic declaration runtime for Plico: adapter, source, vie
 
 [dependencies]
 unicode-segmentation = "1.12"
-elsa = "1.11.2"
 slotmap.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
-plico = { workspace = true, features = ["experiment-patch"] }
+plico.workspace = true
 zeroize = "1.9"
 plico-renderer.workspace = true
 plico-motion.workspace = true
@@ -30,7 +29,5 @@ gallery = { path = "../../apps/gallery" }
 plico-shell.workspace = true
 
 [features]
-# Kept for the standalone declaration benchmark; Regions is always available.
-experiment-patch = []
 default = []
 profiling = ["plico-renderer/profiling"]

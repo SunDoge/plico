@@ -555,7 +555,7 @@ fn release_choices_and_disclosure_work_with_pointer_keyboard_and_semantics() {
     // survive leaving and re-entering the page without a view-struct field.
     s.view.router.go(Page::Layout);
     frame(&mut s, &mut tcx, 920);
-    s.view.router.go(Page::Controls);
+    s.view.router.back();
     frame(&mut s, &mut tcx, 920);
     assert_eq!(
         named(&s, SemanticRole::Button, "Beta").states.selected,

@@ -491,7 +491,7 @@ impl SkiaSurface {
         self.surface.canvas().clear(color(background));
         // A full redraw gains nothing from retained boundaries and pays one
         // save/concat/restore pair per Fragment. Partial redraws keep them so
-        // disjoint Regions can be culled without expanding their commands.
+        // disjoint fragments can be culled without expanding their commands.
         let expanded;
         let scene = if damage == DamageRegion::Full
             && scene

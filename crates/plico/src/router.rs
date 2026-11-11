@@ -1,24 +1,89 @@
-//! Ordered navigation state for multi-page applications.
+//! Typed navigation history and a retained page host for multi-page applications.
 //!
-//! `Router` contains navigation data, independent of the UI update model. It
-//! can live in an ordinary app struct or an explicit region State slot and
-//! serialize through the existing snapshot machinery. Immediate views select
-//! pages directly; plico-runtime's region outlet manages mounted page owners.
-//! The data model adds
-//! what hand-rolled `page` fields keep getting wrong: a bounded history with
-//! back/forward, `replace` without history, and deep-link restoration.
+//! `Router` lives in an ordinary application struct. Besides bounded
+//! back/forward history, [`Router::view`] gives every history entry a stable page
+//! identity, keeps nearby pages mounted without rebuilding them, and owns the
+//! entering/leaving presentation. Application state remains ordinary Rust.
 //!
 //! ```ignore
 //! enum Page { Home, Settings }
 //! struct App { router: Router<Page> }
 //! impl View for App {
 //!     fn show(&mut self, cx: &mut UiContext) {
-//!         if self.router.show(Page::Home) { home(cx); }
-//!         if self.router.show(Page::Settings) { settings(cx); }
+//!         self.router.view().show(cx, |cx, page| match page {
+//!             Page::Home => home(cx),
+//!             Page::Settings => settings(cx),
+//!         });
 //!     }
 //! }
 //! ```
 use serde::{Deserialize, Serialize};
+
+use crate::{Display, Entity, Position, UiContext, widgets::column};
+
+const KEPT_PAGE_COUNT: usize = 10;
+const PAGE_SLOTS: usize = KEPT_PAGE_COUNT + 1;
+const SLIDE_TIME: std::time::Duration = std::time::Duration::from_millis(250);
+const FADE_TIME: std::time::Duration = std::time::Duration::from_millis(150);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RouterTransition {
+    /// Fade between typed peer routes. Unlike a URL router, a route enum has no
+    /// path depth from which to infer a forward/backward spatial relationship.
+    #[default]
+    Auto,
+    /// Fade every page replacement.
+    Fade,
+    /// Slide every replacement; a direct Replace enters from the forward side.
+    Slide,
+    /// Replace pages in the same declaration pass without animation.
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PageRef<Route> {
+    id: u64,
+    route: Route,
+}
+
+#[derive(Debug, Clone)]
+struct RouterRuntime {
+    page_ids: Vec<u64>,
+    next_page_id: u64,
+    generation: u64,
+    direction: i8,
+}
+impl Default for RouterRuntime {
+    fn default() -> Self {
+        Self {
+            page_ids: Vec::new(),
+            next_page_id: 1,
+            generation: 0,
+            direction: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageHostState<Route> {
+    generation: u64,
+    shown: PageRef<Route>,
+    leaving: Option<PageRef<Route>>,
+    direction: i8,
+    mounted: Vec<u64>,
+    focus: Vec<(u64, Entity)>,
+}
+
+/// One owned declaration snapshot. It deliberately does not borrow the
+/// `Router`, so a page closure can borrow the rest of its application normally.
+#[must_use = "call .show(...) to declare the routed page"]
+pub struct RouterView<Route> {
+    current: PageRef<Route>,
+    kept: [Option<PageRef<Route>>; PAGE_SLOTS],
+    generation: u64,
+    direction: i8,
+    transition: RouterTransition,
+}
 
 fn default_limit() -> usize {
     DEFAULT_HISTORY_LIMIT
@@ -62,6 +127,10 @@ pub struct Router<Route> {
     cursor: usize,
     #[serde(default = "default_limit")]
     limit: usize,
+    #[serde(default)]
+    pub transition: RouterTransition,
+    #[serde(skip)]
+    runtime: RouterRuntime,
 }
 /// Equality is the current route: two routers on the same page render the
 /// same frame regardless of how they got there.
@@ -89,11 +158,63 @@ impl<Route: Copy + Eq> Router<Route> {
             history: vec![route],
             cursor: 0,
             limit: limit.max(1),
+            transition: RouterTransition::default(),
+            runtime: RouterRuntime::default(),
         }
     }
     /// The current route.
     pub fn current(&self) -> Route {
         self.current
+    }
+
+    fn allocate_page_id(&mut self) -> u64 {
+        let id = self.runtime.next_page_id;
+        self.runtime.next_page_id = self.runtime.next_page_id.wrapping_add(1).max(1);
+        id
+    }
+
+    fn ensure_page_ids(&mut self) {
+        while self.runtime.page_ids.len() < self.history.len() {
+            let id = self.allocate_page_id();
+            self.runtime.page_ids.push(id);
+        }
+        self.runtime.page_ids.truncate(self.history.len());
+    }
+
+    fn navigated(&mut self, direction: i8) {
+        self.runtime.generation = self.runtime.generation.wrapping_add(1);
+        self.runtime.direction = direction.signum();
+    }
+
+    /// Create the UI host for this frame. The returned value owns its routing
+    /// snapshot instead of borrowing `self`, so the page closure can freely
+    /// borrow sibling fields from the application.
+    ///
+    /// At most ten nearby history pages stay mounted. Hidden pages retain their
+    /// node, input and scroll state without running application page code.
+    pub fn view(&mut self) -> RouterView<Route> {
+        self.ensure_page_ids();
+        let current = PageRef {
+            id: self.runtime.page_ids[self.cursor],
+            route: self.current,
+        };
+        let mut kept = [None; PAGE_SLOTS];
+        let count = self.history.len().min(PAGE_SLOTS);
+        let mut start = self.cursor.saturating_sub(count / 2);
+        start = start.min(self.history.len() - count);
+        for (slot, index) in (start..start + count).enumerate() {
+            kept[slot] = Some(PageRef {
+                id: self.runtime.page_ids[index],
+                route: self.history[index],
+            });
+        }
+        RouterView {
+            current,
+            kept,
+            generation: self.runtime.generation,
+            direction: self.runtime.direction,
+            transition: self.transition,
+        }
     }
     /// Whether this route should be declared in the current frame.
     ///
@@ -108,18 +229,24 @@ impl<Route: Copy + Eq> Router<Route> {
         if route == self.current {
             return;
         }
+        self.ensure_page_ids();
         // A forward history exists only until the next navigation.
         self.history.truncate(self.cursor + 1);
+        self.runtime.page_ids.truncate(self.cursor + 1);
         if self.history.len() >= self.limit {
             // Evicting the oldest entry shifts indices down by one; pushing
             // the new route at the tail shifts the current entry back up.
             // The two cancel, so the cursor is already correct.
             self.history.remove(0);
+            self.runtime.page_ids.remove(0);
         } else {
             self.cursor += 1;
         }
         self.history.push(route);
+        let id = self.allocate_page_id();
+        self.runtime.page_ids.push(id);
         self.current = route;
+        self.navigated(1);
     }
     /// Navigate to `route` replacing the current history entry: the previous
     /// route is not reachable through `back`. Redirects and detail pages
@@ -128,8 +255,12 @@ impl<Route: Copy + Eq> Router<Route> {
         if route == self.current {
             return;
         }
+        self.ensure_page_ids();
         self.history[self.cursor] = route;
+        let id = self.allocate_page_id();
+        self.runtime.page_ids[self.cursor] = id;
         self.current = route;
+        self.navigated(0);
     }
     /// Step back one entry; returns the route shown after the step, which is
     /// unchanged when already at the oldest entry.
@@ -139,6 +270,7 @@ impl<Route: Copy + Eq> Router<Route> {
         }
         self.cursor -= 1;
         self.current = self.history[self.cursor];
+        self.navigated(-1);
         self.current
     }
     /// Step forward one entry, undoing `back`; unchanged at the newest entry.
@@ -148,6 +280,7 @@ impl<Route: Copy + Eq> Router<Route> {
         }
         self.cursor += 1;
         self.current = self.history[self.cursor];
+        self.navigated(1);
         self.current
     }
     /// Whether `back` would move.
@@ -174,6 +307,8 @@ impl<Route: Copy + Eq> Router<Route> {
         // Clamp instead of trusting a stale cursor from serialized state.
         self.cursor = saved.cursor.min(self.history.len() - 1);
         self.current = self.history[self.cursor];
+        self.runtime.page_ids.clear();
+        self.navigated(0);
     }
 }
 impl<Route: Copy + Eq + PartialEq> Router<Route> {
@@ -189,6 +324,306 @@ impl<Route: crate::Route> Router<Route> {
         Route::ALL
     }
 }
+
+impl<Route: Copy + Eq + 'static> RouterView<Route> {
+    /// Declare the current page and, while navigation motion is active, the
+    /// inert page leaving it. The closure may run twice during a transition;
+    /// hidden history pages retain their committed trees without calling it.
+    #[track_caller]
+    pub fn show(self, cx: &mut UiContext<'_>, mut build: impl FnMut(&mut UiContext<'_>, Route)) {
+        let current = self.current;
+        let state = cx.state(|| PageHostState {
+            generation: self.generation,
+            shown: current,
+            leaving: None,
+            direction: 0,
+            mounted: Vec::new(),
+            focus: Vec::new(),
+        });
+        let mut host = state.get();
+        let switched = host.generation != self.generation || host.shown.id != current.id;
+        if switched {
+            let direction = match self.transition {
+                RouterTransition::Auto => 0,
+                RouterTransition::Slide => {
+                    if self.direction == 0 {
+                        1
+                    } else {
+                        self.direction
+                    }
+                }
+                RouterTransition::Fade | RouterTransition::None => 0,
+            };
+            host.leaving = (host.shown.id != current.id).then_some(host.shown);
+            host.shown = current;
+            host.generation = self.generation;
+            host.direction = direction;
+        }
+        let reduce_motion = cx.display_preferences().reduce_motion;
+        if reduce_motion || self.transition == RouterTransition::None {
+            host.leaving = None;
+        }
+
+        column(cx)
+            .position(Position::Relative)
+            .width_percent(100.)
+            .min_width(0.)
+            .min_height(0.)
+            .grow(1.)
+            .clip(true)
+            .children(|cx| {
+                if switched && host.leaving.is_some() {
+                    cx.jump("router.page", 0.);
+                }
+                let progress = if host.leaving.is_some() {
+                    let duration = if host.direction == 0 {
+                        FADE_TIME
+                    } else {
+                        SLIDE_TIME
+                    };
+                    let progress =
+                        cx.animate_with("router.page", 1., duration, crate::Easing::EaseOut);
+                    if cx.settled("router.page") {
+                        host.leaving = None;
+                        1.
+                    } else {
+                        progress
+                    }
+                } else {
+                    1.
+                };
+
+                let leaving = host.leaving;
+                let mut leaving_focus = None;
+                for page in self.kept.into_iter().flatten() {
+                    if page.id == current.id
+                        || leaving.is_some_and(|leaving| leaving.id == page.id)
+                        || !host.mounted.contains(&page.id)
+                    {
+                        continue;
+                    }
+                    let mut focused = None;
+                    column(cx)
+                        .key(page.id)
+                        .display(Display::None)
+                        .children(|cx| {
+                            focused = cx.engine.focused_within_entity(cx.parent);
+                            cx.engine.retain_exiting_children(cx.parent);
+                        });
+                    if let Some(focused) = focused {
+                        remember_focus(&mut host.focus, page.id, focused);
+                    }
+                }
+
+                // A fade drops the old pixels immediately, as MyGO does, but
+                // keeps the old page tree mounted for Back and focus restore.
+                if host.direction == 0
+                    && let Some(page) = leaving
+                {
+                    column(cx)
+                        .key(page.id)
+                        .display(Display::None)
+                        .children(|cx| {
+                            leaving_focus = cx.engine.focused_within_entity(cx.parent);
+                            cx.engine.retain_exiting_children(cx.parent);
+                        });
+                    remember_mounted(&mut host.mounted, page.id);
+                    if let Some(focused) = leaving_focus {
+                        remember_focus(&mut host.focus, page.id, focused);
+                    }
+                }
+
+                let width = cx.layout_size().map_or(cx.viewport_width(), |size| size[0]);
+                match (host.direction, leaving) {
+                    // Back: the old page is the upper sheet moving right. The
+                    // destination starts 30% left beneath it and loses its dim.
+                    (direction, Some(leaving)) if direction < 0 => {
+                        declare_page(
+                            cx,
+                            current,
+                            PageVisual {
+                                translate: -width * 0.3 * (1. - progress),
+                                dim: 0.06 * (1. - progress),
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                        leaving_focus = declare_page(
+                            cx,
+                            leaving,
+                            PageVisual {
+                                absolute: true,
+                                translate: width * progress,
+                                upper: true,
+                                leaving: true,
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                        remember_mounted(&mut host.mounted, leaving.id);
+                    }
+                    // Push: the destination is the upper sheet entering from
+                    // the right. The old page recedes 30% and gains a soft dim.
+                    (direction, Some(leaving)) if direction > 0 => {
+                        leaving_focus = declare_page(
+                            cx,
+                            leaving,
+                            PageVisual {
+                                absolute: true,
+                                translate: -width * 0.3 * progress,
+                                dim: 0.06 * progress,
+                                leaving: true,
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                        declare_page(
+                            cx,
+                            current,
+                            PageVisual {
+                                translate: width * (1. - progress),
+                                upper: true,
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                        remember_mounted(&mut host.mounted, leaving.id);
+                    }
+                    // Across/fade: the outgoing page is already hidden; only
+                    // the destination fades over the stable surface.
+                    _ => {
+                        declare_page(
+                            cx,
+                            current,
+                            PageVisual {
+                                opacity: if leaving.is_some() { progress } else { 1. },
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                    }
+                }
+                remember_mounted(&mut host.mounted, current.id);
+
+                if let Some(focused) = leaving_focus
+                    && let Some(leaving) = leaving
+                {
+                    remember_focus(&mut host.focus, leaving.id, focused);
+                }
+
+                // A sidebar click keeps focus in the sidebar. Keyboard/history
+                // navigation from inside a page restores that page's old focus.
+                if switched
+                    && leaving_focus.is_some()
+                    && let Some(focused) = recalled_focus(&host.focus, current.id)
+                {
+                    cx.engine.focus_request = Some(focused);
+                }
+            });
+
+        host.mounted.retain(|id| {
+            *id == current.id
+                || host.leaving.is_some_and(|leaving| leaving.id == *id)
+                || self.kept.iter().flatten().any(|page| page.id == *id)
+        });
+        host.focus.retain(|(id, _)| host.mounted.contains(id));
+        state.commit(host);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PageVisual {
+    absolute: bool,
+    translate: f32,
+    opacity: f32,
+    dim: f32,
+    upper: bool,
+    leaving: bool,
+}
+impl PageVisual {
+    const fn current() -> Self {
+        Self {
+            absolute: false,
+            translate: 0.,
+            opacity: 1.,
+            dim: 0.,
+            upper: false,
+            leaving: false,
+        }
+    }
+}
+
+fn declare_page<Route: Copy>(
+    cx: &mut UiContext<'_>,
+    page: PageRef<Route>,
+    visual: PageVisual,
+    build: &mut impl FnMut(&mut UiContext<'_>, Route),
+) -> Option<Entity> {
+    let mut layout = column(cx)
+        .key(page.id)
+        .width_percent(100.)
+        .min_width(0.)
+        .min_height(0.)
+        .grow(1.)
+        .translate(visual.translate, 0.)
+        .opacity(visual.opacity)
+        .background(crate::Color::Surface)
+        .disabled(visual.leaving)
+        .semantic_hidden(visual.leaving);
+    if visual.absolute {
+        layout = layout.absolute(0., 0.).height_percent(100.);
+    }
+    if visual.upper {
+        layout = layout.shadow(crate::BoxShadow {
+            offset_x: 0.,
+            offset_y: 0.,
+            blur: 16.,
+            spread: 0.,
+            color: crate::Color::Literal(0x000000),
+            opacity: 0.15,
+        });
+    }
+    let mut focused = None;
+    layout.children(|cx| {
+        if visual.leaving {
+            focused = cx.engine.focused_within_entity(cx.parent);
+        }
+        build(cx, page.route);
+        if visual.dim > 0. {
+            column(cx)
+                .key("router-dim")
+                .absolute(0., 0.)
+                .width_percent(100.)
+                .height_percent(100.)
+                .background(crate::Color::Literal(0x000000))
+                .background_alpha(visual.dim)
+                .semantic_hidden(true)
+                .end();
+        }
+    });
+    focused
+}
+
+fn remember_mounted(mounted: &mut Vec<u64>, id: u64) {
+    if !mounted.contains(&id) {
+        mounted.push(id);
+    }
+}
+
+fn remember_focus(focus: &mut Vec<(u64, Entity)>, id: u64, entity: Entity) {
+    if let Some((_, old)) = focus.iter_mut().find(|(page, _)| *page == id) {
+        *old = entity;
+    } else {
+        focus.push((id, entity));
+    }
+}
+
+fn recalled_focus(focus: &[(u64, Entity)], id: u64) -> Option<Entity> {
+    focus
+        .iter()
+        .find_map(|(page, entity)| (*page == id).then_some(*entity))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

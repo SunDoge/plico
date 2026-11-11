@@ -72,7 +72,7 @@ pub fn run_view_with_options<V: plico::View + 'static>(
 }
 
 /// Launch a view that implements native host capabilities directly.
-/// Useful for services, Regions, and application-owned wakeups.
+/// Useful for services and application-owned wakeups.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_host_view_with_options<V: HostView + 'static>(
     view: V,

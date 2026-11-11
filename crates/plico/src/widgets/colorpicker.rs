@@ -335,7 +335,7 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
                         if entry.hsv.rgb() == swatch {
                             button = button.border(2., Color::Foreground);
                         }
-                        if button.children(|_cx| {}).response.clicked() {
+                        if button.children(|_cx| {}).clicked() {
                             entry.hsv = Hsva::from_rgb(swatch);
                             entry.last = swatch;
                             entry.hex = hex_of(swatch);

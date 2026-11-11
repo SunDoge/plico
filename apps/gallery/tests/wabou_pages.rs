@@ -82,7 +82,10 @@ fn table_selection_survives_sort_filter_navigation_and_empty_results() {
             .is_some()
     );
     click(&mut d, "button", "Layout");
-    click(&mut d, "button", "Data table");
+    d.execute(Command::Key {
+        key: "Alt+ArrowLeft".into(),
+    })
+    .unwrap();
     assert!(
         d.snapshot()
             .node_by_role(SemanticRole::Label, "3 selected", None)
@@ -167,7 +170,10 @@ fn tree_scopes_keep_independent_selection_and_restore_after_navigation() {
             .disabled
     );
     click(&mut d, "button", "Layout");
-    click(&mut d, "button", "Tree navigation");
+    d.execute(Command::Key {
+        key: "Alt+ArrowLeft".into(),
+    })
+    .unwrap();
     assert!(
         d.snapshot()
             .node_by_role(SemanticRole::Button, "gallery", None)

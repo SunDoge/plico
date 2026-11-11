@@ -60,7 +60,7 @@ pub use model::{
     WidgetRole,
 };
 pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text};
-pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router};
+pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router, RouterTransition, RouterView};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
 pub use widgets::{SelectOption, SelectResponse};
@@ -185,10 +185,11 @@ pub mod prelude {
         GlassStyle, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
         InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics,
         ModalState, Modifiers, Motion, PopoverState, Position, Presentation, Response, Route,
-        Router, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset, Shortcut, ShortcutMap,
-        SliderResponse, SpringOptions, StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay,
-        ToggleResponse, Track, TrackSize, UiContext, ValueControlResponse, VirtualList,
-        VirtualListResponse, VisibleRegion, Widget, component, fr, minmax, percent, px, text,
+        Router, RouterTransition, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset,
+        Shortcut, ShortcutMap, SliderResponse, SpringOptions, StandardShortcut, SvgAsset,
+        TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext,
+        ValueControlResponse, VirtualList, VirtualListResponse, VisibleRegion, Widget, component,
+        fr, minmax, percent, px, text,
     };
 }
 
@@ -198,7 +199,3 @@ pub use capabilities::Capabilities;
 /// Portable style translation shared by native-widget backends.
 #[cfg(feature = "taffy")]
 pub mod taffy_layout;
-
-#[cfg(feature = "experiment-patch")]
-#[doc(hidden)]
-pub use engine::{ExperimentButtonStyle, ExperimentContext, ExperimentTextStyle};
