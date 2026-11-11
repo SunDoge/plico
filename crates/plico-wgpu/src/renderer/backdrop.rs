@@ -77,7 +77,7 @@ pub(super) fn encode_backdrop_step<'p>(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     target: Option<&Target>,
-    effects: &mut Option<plico_renderer::shader::ShaderRenderer>,
+    effects: &mut Option<crate::shader::ShaderRenderer>,
     compositor: &mut Option<crate::backdrop_composite::Compositor>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
     stats: &mut FrameBatchStats,
@@ -160,7 +160,7 @@ pub(super) fn encode_backdrop_step<'p>(
         backdrop.create_view(&wgpu::TextureViewDescriptor::default())
     };
     let effects = effects.get_or_insert_with(|| {
-        let mut effects = plico_renderer::shader::ShaderRenderer::new(device);
+        let mut effects = crate::shader::ShaderRenderer::new(device);
         effects.begin_frame();
         effects
     });

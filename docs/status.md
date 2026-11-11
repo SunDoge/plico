@@ -275,6 +275,10 @@ sessions and physical-display DPI transitions still need verification. See [expe
 
 The independent `plico-wgpu` backend is the default desktop renderer and remains
 under active development. Skia is the primary rendering-quality reference.
+The shared `plico-renderer` crate no longer owns wgpu devices, textures, bind
+groups, pipelines or render passes. It retains the backend-neutral scene and
+validated shader-effect contract; concrete shader execution lives in
+`plico-wgpu`, so Skia and renderer-only builds do not pull in wgpu.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

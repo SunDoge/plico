@@ -78,7 +78,7 @@ impl Renderer {
             });
         }
         let effects = self.effects.get_or_insert_with(|| {
-            let mut effects = plico_renderer::shader::ShaderRenderer::new(&self.device);
+            let mut effects = crate::shader::ShaderRenderer::new(&self.device);
             effects.begin_frame();
             effects
         });

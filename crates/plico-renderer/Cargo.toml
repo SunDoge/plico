@@ -11,7 +11,6 @@ profiling = []
 peniko.workspace = true
 kurbo.workspace = true
 gif = "0.14"
-wgpu.workspace = true
 plico.workspace = true
 web-time = "1.1"
 directories.workspace = true
@@ -21,7 +20,6 @@ image = { workspace = true, features = ["ico", "jpeg", "png", "webp", "gif"] }
 lru = "0.19.0"
 naga.workspace = true
 parley = { workspace = true }
-rustc-hash = "2"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 snafu = { workspace = true }

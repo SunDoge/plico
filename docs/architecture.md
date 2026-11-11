@@ -3,6 +3,11 @@
 
 当前 crate 划分与旧协议清理见 [后端清理](backend-cleanup.md)；下文部分迁移记录保留历史上下文。
 
+`plico-renderer` 定义布局、文字、paint scene 与经过验证的 shader effect 描述，不能依赖
+具体 GPU API。wgpu 的纹理、bind group、pipeline cache 和 render pass 执行归
+`plico-wgpu` 所有；Skia 与其他后端只消费同一份 effect 描述。CI 通过
+`scripts/check-renderer-boundary.py` 守卫这条依赖方向。
+
 ## 当前实现
 
 ```text

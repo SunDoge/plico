@@ -285,7 +285,7 @@ pub struct Renderer {
     layer_reuses: u64,
     filter_allocations: u64,
     filter_reuses: u64,
-    effects: Option<plico_renderer::shader::ShaderRenderer>,
+    effects: Option<crate::shader::ShaderRenderer>,
     frame_effect_draws: usize,
     frame_effect_bytes: u64,
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,

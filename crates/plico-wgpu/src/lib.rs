@@ -18,6 +18,7 @@ mod macos_frame_pass;
 mod macos_transaction;
 mod mipmap;
 mod renderer;
+mod shader;
 #[cfg(any(
     all(target_os = "macos", feature = "window"),
     all(test, not(target_arch = "wasm32"))

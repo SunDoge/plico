@@ -6445,7 +6445,6 @@ dependencies = [
  "peniko",
  "plico",
  "plico-motion",
- "rustc-hash 2.1.3",
  "serde",
  "serde_json",
  "snafu",
@@ -6455,7 +6454,6 @@ dependencies = [
  "usvg 0.48.1",
  "web-sys",
  "web-time",
- "wgpu",
 ]
 
 [[package]]
@@ -6626,6 +6624,7 @@ dependencies = [
  "pollster 1.0.1",
  "raw-window-handle",
  "resvg 0.48.1",
+ "rustc-hash 2.1.3",
  "snafu",
  "tracing",
  "tracing-subscriber",
