@@ -17,8 +17,8 @@
 `Source`/Engine/Adapter，只提供 view 断言、受控状态更新、语义快照、声明快照、retained
 layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
 
-`Source` 不保留可变的“上次错误”旁路状态。测试、capture、recipe、Web 与 Bevy 等需要处理
-失败的调用方使用 `try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和
+测试、capture、recipe、Web 与 Bevy 等需要处理失败的调用方使用
+`try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和
 `try_build_and_paint`，声明或时钟错误沿当前调用直接返回。动态窗口宿主的
 `FrameSource::prepare_for_event`、`render_retained_frame` 与 `build_and_paint` 同样返回
 `FrameSourceError`；shell 统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装
@@ -31,7 +31,7 @@ layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重�
 Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
 `scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
-穿透这条边界。跨语言 ABI 实验已经退役，不再为它保留第二套错误、批次或组件边界。历史集成测试分批
+穿透这条边界。历史集成测试分批
 迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
 `services-demo` 测试也由边界脚本守卫。
 Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。
@@ -98,8 +98,6 @@ wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级�
 依赖边也按这一分层收紧：应用不再直接依赖只经 desktop 使用的 runtime，runtime 不保留未使用的
 `slotmap`，renderer 不保留空的 WASM 依赖。目标平台过程宏隐式使用的 `windows-core` 与
 `wasm-bindgen-futures` 明确登记为 machete 例外；交叉 target 编译守卫它们不能误删。
-旧 Stabby/cdylib 路径没有 feature 或依赖对象，不再为它额外运行 cargo-tree 守卫；历史协议文档
-只保留过去时实验记录。WASM 的 `module_error` 是模块调用诊断，不是跨语言 ABI 错误槽。
 依赖检查同时禁止 core、motion、dev、renderer、runtime、app-host、具体 renderer 与 shell 向上层
 反向依赖；dev-dependencies 可用于下层契约集成测试，不改变生产构建图。
 交互返回值沿用 MyGO Element 的查询语义：`clicked()`、`changed()`、`submitted()`、`focused()` 等
