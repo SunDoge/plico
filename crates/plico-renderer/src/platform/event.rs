@@ -171,7 +171,7 @@ pub enum PointerPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-/// Stable identity of one active native pointer, represented as FFI-safe words.
+/// Stable identity of one active native pointer, represented as fixed-width words.
 pub struct PointerId {
     /// Low 32 bits.
     pub lo: u32,

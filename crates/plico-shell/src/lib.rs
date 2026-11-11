@@ -81,7 +81,7 @@ pub use app::{
 pub use app_dirs::{AppDirectories, AppDirectoryConfig};
 pub use effect::{
     CapabilityId, ClipboardContent, ClipboardImage, ContextMenuItem, ContextMenuRequest,
-    DialogFilter, EFFECT_ABI_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
+    DialogFilter, EFFECT_PROTOCOL_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
     EffectExecutor, EffectId, EffectOp, EffectPayload, EffectRequest, EffectResult, EffectScope,
     EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel, MessageDialogRequest,
     MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,

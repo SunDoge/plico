@@ -13,7 +13,7 @@ use crate::platform::AppDirectories;
 use crate::platform::{WindowCommand, WindowOptions};
 
 /// Wire schema version for serialized effect requests and completions.
-pub use crate::platform::effect_abi::EFFECT_ABI_VERSION;
+pub use crate::platform::effect_protocol::EFFECT_PROTOCOL_VERSION;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -63,7 +63,7 @@ impl EffectOp {
 
 /// Reserved operation identifiers implemented by the standard desktop host.
 pub mod builtin {
-    pub use crate::platform::effect_abi::*;
+    pub use crate::platform::effect_protocol::*;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,14 +319,14 @@ pub enum EffectPayload {
     WindowCreate(WindowCreateRequest),
     /// Control an existing native window.
     WindowControl {
-        /// Target Wabou window identifier.
+        /// Target Plico window identifier.
         window_id: WindowResourceKey,
         /// Native operation to apply.
         command: WindowCommand,
     },
     /// Show a native context menu.
     ContextMenuShow(ContextMenuRequest),
-    /// Return already-resolved application directories through the effect ABI.
+    /// Return already-resolved application directories through the effect protocol.
     AppDirsResolve(AppDirectories),
     /// Show an open-file dialog.
     DialogOpen(OpenDialogRequest),
@@ -626,7 +626,7 @@ mod tests {
     #[test]
     fn window_resource_keys_preserve_both_slotmap_halves() {
         let key = WindowResourceKey::from_parts(0xffff_fffe, 0xffff_ffff).unwrap();
-        assert_eq!(WindowResourceKey::from_ffi(key.as_ffi()), Some(key));
+        assert_eq!(WindowResourceKey::from_packed(key.into_packed()), Some(key));
         assert!(WindowResourceKey::from_parts(0, 1).is_none());
         assert!(WindowResourceKey::from_parts(1, 2).is_none());
     }
