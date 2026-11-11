@@ -532,6 +532,14 @@ pub(crate) fn make_paint(
     font_family: Arc<str>,
 ) -> Paint {
     let (hovered, _, focus, _) = interaction;
+    let runtime_transform = [
+        style.scale[0],
+        0.,
+        0.,
+        style.scale[1],
+        style.translate[0],
+        style.translate[1],
+    ];
     let mut p = Paint {
         text: (!text.is_empty()
             && !matches!(
@@ -561,14 +569,12 @@ pub(crate) fn make_paint(
             .background
             .map(|c| resolve(c, theme).with_alpha(style.background_alpha)),
         opacity: style.opacity,
-        runtime_transform: Some([
-            style.scale[0],
-            0.,
-            0.,
-            style.scale[1],
-            style.translate[0],
-            style.translate[1],
-        ]),
+        // Absence is the canonical identity representation. Besides making
+        // the retained state truthful, this lets scene encoding reuse the
+        // parent world matrix instead of composing two origin translations
+        // and an identity matrix for every ordinary node.
+        runtime_transform: (runtime_transform != [1., 0., 0., 1., 0., 0.])
+            .then_some(runtime_transform),
         border_radii: CornerRadii::uniform(style.radius),
         border: (style.border_width > 0.).then(|| {
             // Explicit invalid or custom borders (Danger, literals) stay
@@ -637,4 +643,43 @@ pub(crate) fn make_paint(
     }
 
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paint(style: plico::Style) -> Paint {
+        make_paint(
+            Kind::Column,
+            style,
+            Arc::from(""),
+            Theme::default(),
+            (false, false, false, 0.),
+            Arc::from("sans-serif"),
+        )
+    }
+
+    #[test]
+    fn identity_runtime_transform_is_absent_but_motion_is_preserved() {
+        assert_eq!(paint(plico::Style::default()).runtime_transform, None);
+
+        let translated = plico::Style {
+            translate: [12., -4.],
+            ..Default::default()
+        };
+        assert_eq!(
+            paint(translated).runtime_transform,
+            Some([1., 0., 0., 1., 12., -4.])
+        );
+
+        let scaled = plico::Style {
+            scale: [0.75, 1.25],
+            ..Default::default()
+        };
+        assert_eq!(
+            paint(scaled).runtime_transform,
+            Some([0.75, 0., 0., 1.25, 0., 0.])
+        );
+    }
 }

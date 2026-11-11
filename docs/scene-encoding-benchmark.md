@@ -94,6 +94,13 @@ release 下的同进程交替 A/B 每轮各调用 500 万次，三次测得旧�
 cargo test --release -p plico-renderer profile_untransformed_node_resolution -- --ignored --nocapture
 ```
 
+随后检查真实 runtime 数据流发现，adapter 曾把普通节点的默认 scale/translate
+也编码成 `Some(identity)`，使上述快速路径只在低层 renderer 调用者中生效。
+现在 `None` 是运行时 identity 的唯一表示，非默认平移和缩放仍保留完整矩阵。
+修复前后相邻的 4000 行全可见运行中，六个重编 workload 的 scene p50 从
+约 1.46–1.63 ms 降至 1.33–1.58 ms，各项减少 17–131 µs；跨进程漂移仍意味着
+这组完整帧数据只用于确认真实路径已命中，定量结论仍以上面的同进程 A/B 为准。
+
 ### 没有活动 scrollbar 的节点
 
 MyGO 会用节点状态跳过与当前布局无关的遍历。对应检查发现，Plico 原本在
