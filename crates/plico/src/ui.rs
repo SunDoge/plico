@@ -2532,11 +2532,25 @@ pub struct Input<'u, 'e, 't> {
 }
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct InputResponse {
-    pub changed: bool,
-    pub submitted: bool,
-    pub navigation: Option<crate::InputNavigation>,
+    changed: bool,
+    submitted: bool,
+    navigation: Option<crate::InputNavigation>,
     /// Whether the backend focused this field when it was declared.
-    pub focused: bool,
+    focused: bool,
+}
+impl InputResponse {
+    pub const fn changed(self) -> bool {
+        self.changed
+    }
+    pub const fn submitted(self) -> bool {
+        self.submitted
+    }
+    pub const fn navigation(self) -> Option<crate::InputNavigation> {
+        self.navigation
+    }
+    pub const fn focused(self) -> bool {
+        self.focused
+    }
 }
 impl<'t> crate::ImplicitKey for Input<'_, '_, 't> {
     fn key_of(&self) -> Key {
@@ -2717,11 +2731,11 @@ impl<'t> Input<'_, '_, 't> {
     }
     /// Consume the input and report whether its bound text changed.
     pub fn changed(self) -> bool {
-        self.response().changed
+        self.response().changed()
     }
     /// Consume the input and report whether it was submitted.
     pub fn submitted(self) -> bool {
-        self.response().submitted
+        self.response().submitted()
     }
 }
 impl Drop for Input<'_, '_, '_> {
@@ -2982,13 +2996,7 @@ impl UiContext<'_> {
         if before != *value {
             self.request_rebuild();
         }
-        crate::ValueControlResponse {
-            inner,
-            input: input.is_some(),
-            changed: before != *value,
-            value: *value,
-            focused,
-        }
+        crate::ValueControlResponse::new(inner, input.is_some(), before != *value, *value, focused)
     }
 }
 
@@ -3333,17 +3341,13 @@ impl Slider<'_, '_, '_> {
         if before != *self.value {
             ui.request_rebuild();
         }
-        crate::SliderResponse {
-            changed,
-            value: *self.value,
-            high: self.range.high,
-        }
+        crate::SliderResponse::new(changed, *self.value, self.range.high)
     }
     pub fn response(mut self) -> crate::SliderResponse {
         self.finish()
     }
     pub fn changed(self) -> bool {
-        self.response().changed
+        self.response().changed()
     }
 }
 impl Drop for Slider<'_, '_, '_> {

@@ -40,6 +40,43 @@ for path in sorted((ROOT / "apps").rglob("*.rs")):
         elif IMPL_RENDERER_WIDGET.search(line):
             violations.append(f"{path.relative_to(ROOT)}:{number}: impl: {line.strip()}")
 
+# Interaction results are immutable snapshots queried like MyGO Elements. Keep
+# structural payloads (`inner`) public, but do not expose event flags that apps
+# can fabricate or mutate independently of the declaration that produced them.
+response_files = {
+    ROOT / "crates/plico/src/ui.rs": {
+        "Response": set(),
+        "ToggleResponse": set(),
+        "InputResponse": set(),
+    },
+    ROOT / "crates/plico/src/numeric.rs": {
+        "SliderResponse": set(),
+        "ValueControlResponse": {"inner"},
+    },
+    ROOT / "crates/plico/src/modal.rs": {"ModalResponse": {"inner"}},
+    ROOT / "crates/plico/src/widgets/popup.rs": {"SelectResponse": set()},
+    ROOT / "crates/plico/src/widgets/search.rs": {"SearchResponse": set()},
+    ROOT / "crates/plico/src/widgets/find.rs": {"FindResponse": set()},
+    ROOT / "crates/plico/src/widgets/calendar.rs": {"CalendarResponse": set()},
+}
+for path, responses in response_files.items():
+    source = path.read_text()
+    for name, allowed in responses.items():
+        match = re.search(
+            rf"pub struct {name}(?:<[^>]+>)?\s*\{{(?P<body>.*?)^\}}",
+            source,
+            re.MULTILINE | re.DOTALL,
+        )
+        if match is None:
+            violations.append(f"{path.relative_to(ROOT)}: missing response struct {name}")
+            continue
+        public = set(re.findall(r"^\s*pub\s+(\w+)\s*:", match.group("body"), re.MULTILINE))
+        if public != allowed:
+            violations.append(
+                f"{path.relative_to(ROOT)}: {name} public fields {sorted(public)}; "
+                f"expected {sorted(allowed)}"
+            )
+
 
 if violations:
     sys.exit(

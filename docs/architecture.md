@@ -102,6 +102,8 @@ wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级�
 只保留过去时实验记录。WASM 的 `module_error` 是模块调用诊断，不是跨语言 ABI 错误槽。
 依赖检查同时禁止 core、motion、dev、renderer、runtime、app-host、具体 renderer 与 shell 向上层
 反向依赖；dev-dependencies 可用于下层契约集成测试，不改变生产构建图。
+交互返回值沿用 MyGO Element 的查询语义：`clicked()`、`changed()`、`submitted()`、`focused()` 等
+读取不可变帧快照，事件 flags 不作为可构造的 public fields；`inner` 等结构型 payload 仍可直接取得。
 
 ## 当前实现
 

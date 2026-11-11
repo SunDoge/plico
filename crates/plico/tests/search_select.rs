@@ -44,7 +44,7 @@ fn search_filters_without_mutating_choice_and_selection_closes_popup() {
                     .searchable(&query)
                     .motion(Motion::None)
                     .response()
-                    .changed
+                    .changed()
             );
         })
         .unwrap();

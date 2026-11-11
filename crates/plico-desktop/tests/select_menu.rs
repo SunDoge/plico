@@ -42,7 +42,7 @@ impl HostView for Demo {
                 )
                 .motion(Motion::None)
                 .response()
-                .changed
+                .changed()
                 {
                     self.changes += 1;
                 }

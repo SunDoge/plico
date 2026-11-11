@@ -97,9 +97,9 @@ pub(crate) fn search_field_with(
                 .height(m.font_size as f32 * 1.4)
                 .min_height(0.)
                 .response();
-            changed |= response.changed;
-            submitted |= response.submitted;
-            navigation = response.navigation;
+            changed |= response.changed();
+            submitted |= response.submitted();
+            navigation = response.navigation();
             if !value.is_empty()
                 && button_base(cx, "Clear search")
                     .width(m.space(5) as f32)

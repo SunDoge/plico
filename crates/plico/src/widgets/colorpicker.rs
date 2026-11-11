@@ -276,7 +276,7 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
             let _ = square.response;
 
             let mut hue = entry.hsv.h;
-            if hue_slider(cx, &mut hue).changed {
+            if hue_slider(cx, &mut hue).changed() {
                 entry.hsv.h = hue;
                 let next = entry.hsv.rgb();
                 if next != cx.theme().resolve(*color) {
@@ -301,7 +301,7 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
                     .text_input_string("Hex", &mut entry.hex)
                     .grow(1.)
                     .response();
-                if response.changed
+                if response.changed()
                     && let Some(next) = parse_hex(&entry.hex)
                 {
                     entry.hsv = Hsva::from_rgb(next);
@@ -311,7 +311,7 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
                         changed = true;
                     }
                 }
-                if !response.focused && parse_hex(&entry.hex).is_none() {
+                if !response.focused() && parse_hex(&entry.hex).is_none() {
                     entry.hex = hex_of(entry.hsv.rgb());
                 }
             });

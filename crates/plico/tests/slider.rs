@@ -14,7 +14,7 @@ fn external_normalization_is_not_a_user_change_and_inherited_disabled_ignores_va
         .frame_declarations(|cx| form(cx, &mut value, &mut response, false))
         .unwrap();
     assert_eq!(value, 7.5);
-    assert!(!response.changed);
+    assert!(!response.changed());
     let parent = engine.node(engine.root()).unwrap().children[0];
     let id = engine.node(parent).unwrap().children[0];
     let style = engine.node(id).unwrap().style;
@@ -25,13 +25,13 @@ fn external_normalization_is_not_a_user_change_and_inherited_disabled_ignores_va
         .frame_declarations(|cx| form(cx, &mut value, &mut response, true))
         .unwrap();
     assert_eq!(value, 7.5);
-    assert!(!response.changed);
+    assert!(!response.changed());
     engine.queue_value(id, 3.3);
     engine
         .frame_declarations(|cx| form(cx, &mut value, &mut response, false))
         .unwrap();
     assert_eq!(value, 3.5);
-    assert!(response.changed);
+    assert!(response.changed());
     assert_eq!(engine.node(id).unwrap().numeric.unwrap().value, 3.5);
 }
 #[test]

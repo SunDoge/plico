@@ -317,13 +317,13 @@ fn search(cx: &mut UiContext, model: &mut LauncherModel) {
             .request_focus(model.focus_search).navigation(true).width(0.).grow(1.).height(48.).font_size(20)
             .padding(0).border(0., Color::Border).background(Color::Surface).response();
         model.focus_search = false;
-        if response.changed {
+        if response.changed() {
             model.refresh();
         }
-        if let Some(action) = response.navigation {
+        if let Some(action) = response.navigation() {
             model.navigate(action);
         }
-        if response.submitted
+        if response.submitted()
             && let Some(index) = model.selected
         {
             model.activate(index);

@@ -73,7 +73,7 @@ pub fn alert_dialog(
     if let Some(index) = chosen {
         return index;
     }
-    if response.dismissed {
+    if response.dismissed() {
         ALERT_DISMISSED
     } else {
         -1

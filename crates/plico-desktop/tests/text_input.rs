@@ -16,7 +16,7 @@ impl HostView for Form {
         let secret = self.secret.get_or_insert_with(TextBuffer::secret);
         column(cx).gap(8).children(|cx| {
             text_input(cx, "Email", &self.ordinary);
-            if text_input(cx, "Password", secret).response().submitted {
+            if text_input(cx, "Password", secret).response().submitted() {
                 self.submitted = true;
             }
         })

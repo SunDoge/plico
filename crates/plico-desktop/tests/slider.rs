@@ -23,7 +23,7 @@ impl HostView for Demo {
                 .vertical(self.vertical)
                 .disabled(self.disabled)
                 .response()
-                .changed
+                .changed()
             {
                 self.changes += 1;
             }

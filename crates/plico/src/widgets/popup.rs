@@ -160,7 +160,12 @@ impl<'a, T> SelectOption<'a, T> {
 }
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectResponse {
-    pub changed: bool,
+    changed: bool,
+}
+impl SelectResponse {
+    pub const fn changed(self) -> bool {
+        self.changed
+    }
 }
 /// Controlled value and option borrows last only until the declaration is consumed.
 pub struct Select<'u, 'e, 's, T: Clone + PartialEq> {
@@ -234,7 +239,7 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
         self.finish()
     }
     pub fn changed(self) -> bool {
-        self.response().changed
+        self.response().changed()
     }
     fn finish(&mut self) -> SelectResponse {
         let cx = self.cx.take().expect("one declaration");

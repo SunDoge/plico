@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- *(widgets)* [**breaking**] expose interaction results through immutable response queries
+
 ## [0.3.2](https://github.com/SunDoge/plico/compare/v0.3.1...v0.3.2) - 2026-11-09
 
 ### Added

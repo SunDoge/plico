@@ -66,14 +66,14 @@ pub fn time_input(cx: &mut UiContext, label: &str, time: &mut TimeOfDay) -> bool
         .width(112.)
         .response();
     let text = entry.buffer.text().unwrap_or_default();
-    if response.changed
+    if response.changed()
         && let Some(parsed) = parse_time(&text)
         && parsed != *time
     {
         *time = parsed;
         entry.last = parsed;
     }
-    if response.submitted {
+    if response.submitted() {
         match parse_time(&text) {
             Some(parsed) => {
                 *time = parsed;

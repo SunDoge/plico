@@ -22,7 +22,12 @@ impl ModalState {
 }
 pub struct ModalResponse<R> {
     pub inner: Option<R>,
-    pub dismissed: bool,
+    dismissed: bool,
+}
+impl<R> ModalResponse<R> {
+    pub const fn dismissed(&self) -> bool {
+        self.dismissed
+    }
 }
 pub struct Modal<'u, 'e, 's> {
     ui: &'u mut UiContext<'e>,

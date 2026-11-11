@@ -56,7 +56,7 @@ impl View for Demo {
                                     .primary()
                                     .disabled(self.name.is_empty())
                                     .clicked()
-                                    || input.submitted && !self.name.is_empty()
+                                    || input.submitted() && !self.name.is_empty()
                                 {
                                     self.saved = self.name.text().unwrap_or_default();
                                     cx.close_modal();

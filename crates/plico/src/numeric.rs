@@ -64,10 +64,28 @@ impl NumericRange {
 }
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
 pub struct SliderResponse {
-    pub changed: bool,
-    pub value: f64,
+    changed: bool,
+    value: f64,
     /// The upper thumb value for a range slider.
-    pub high: Option<f64>,
+    high: Option<f64>,
+}
+impl SliderResponse {
+    pub(crate) const fn new(changed: bool, value: f64, high: Option<f64>) -> Self {
+        Self {
+            changed,
+            value,
+            high,
+        }
+    }
+    pub const fn changed(self) -> bool {
+        self.changed
+    }
+    pub const fn value(self) -> f64 {
+        self.value
+    }
+    pub const fn high(self) -> Option<f64> {
+        self.high
+    }
 }
 
 /// Result from a composed [`crate::UiContext::value_control`].
@@ -75,8 +93,37 @@ pub struct SliderResponse {
 pub struct ValueControlResponse<R> {
     pub inner: R,
     /// True when this declaration consumed a new numeric input value.
-    pub input: bool,
-    pub changed: bool,
-    pub value: f64,
-    pub focused: bool,
+    input: bool,
+    changed: bool,
+    value: f64,
+    focused: bool,
+}
+impl<R> ValueControlResponse<R> {
+    pub(crate) const fn new(
+        inner: R,
+        input: bool,
+        changed: bool,
+        value: f64,
+        focused: bool,
+    ) -> Self {
+        Self {
+            inner,
+            input,
+            changed,
+            value,
+            focused,
+        }
+    }
+    pub const fn input(&self) -> bool {
+        self.input
+    }
+    pub const fn changed(&self) -> bool {
+        self.changed
+    }
+    pub const fn value(&self) -> f64 {
+        self.value
+    }
+    pub const fn focused(&self) -> bool {
+        self.focused
+    }
 }

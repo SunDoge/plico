@@ -117,7 +117,7 @@ pub fn number_input(
     });
     let response = response.inner;
     let text = entry.buffer.text().unwrap_or_default();
-    if response.changed
+    if response.changed()
         && let Some(parsed) = parse_number(&text)
         && (min..=max).contains(&parsed)
         && parsed != *value
@@ -125,7 +125,7 @@ pub fn number_input(
         *value = parsed;
         entry.last = parsed;
     }
-    if response.submitted {
+    if response.submitted() {
         match parse_number(&text).filter(|parsed| (min..=max).contains(parsed)) {
             Some(parsed) => {
                 *value = parsed;
@@ -135,7 +135,7 @@ pub fn number_input(
             None => entry.buffer.set(format_number(*value, decimals).into()),
         }
     }
-    match response.navigation {
+    match response.navigation() {
         Some(crate::InputNavigation::Previous) => {
             *value = stepped(*value, step, min, max, decimals);
             entry.last = *value;
@@ -148,10 +148,10 @@ pub fn number_input(
         }
         _ => {}
     }
-    if entry.focused && !response.focused {
+    if entry.focused && !response.focused() {
         entry.buffer.set(format_number(*value, decimals).into());
     }
-    entry.focused = response.focused;
+    entry.focused = response.focused();
     state.set(entry);
     *value != before
 }
