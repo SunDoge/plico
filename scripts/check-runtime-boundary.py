@@ -46,6 +46,7 @@ migrated_test_files = {
     Path("crates/plico-desktop/tests/glass_pixels.rs"),
     Path("crates/plico-desktop/tests/interactive_glass.rs"),
     Path("crates/plico-desktop/tests/icons.rs"),
+    Path("crates/plico-desktop/tests/incremental.rs"),
     Path("crates/plico-desktop/tests/layout_features.rs"),
     Path("crates/plico-desktop/tests/layout_reuse.rs"),
     Path("crates/plico-desktop/tests/materials.rs"),
