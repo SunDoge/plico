@@ -128,16 +128,17 @@ fn release(cx: &mut UiContext, channel: &mut usize, details: &mut bool) {
   in the application. Inside `accordion`, Up/Down/Home/End move between headers
   and clamp at the ends.
 - `progress` shows a labeled fraction and percentage, clamps finite values to
-  0..=1 and maps non-finite values to zero. It is currently a composed meter
-  with accessible text, without native progress-bar semantics or fill animation.
+  0..=1 and maps non-finite values to zero. Its composed root exposes a native
+  progress-bar role, accessible name and numeric 0..=1 range. Fill animation is
+  not implied.
 - Theme spacing, typography, density and colors are read each declaration.
   Choice color transitions use the existing injected-clock host motion system.
 
 Reference comparison: local MyGO `ui/tabs.go` and `ui/collapsible.go` separate
 behavior from appearance and keep selected/open state with the application.
 Its tabs also implement arrows/Home/End; accordion header traversal is shared
-with the runtime focus-group path. Disclosure content clipping animation is not
-yet implemented here. Local Wabou
+with the runtime focus-group path. Disclosures use the shared scalar animation
+and measured clip described above. Local Wabou
 `crates/plico-shell/src/widgets/controls.rs` uses native painting/event handling
 for slider and progress controls. Plico's simple meter currently needs only
 layout primitives; slider dragging, text editing, scrolling and overlays still
@@ -182,12 +183,12 @@ fn status(cx: &mut UiContext, path: &mut usize, disk: &mut f64, stars: &mut u8) 
   Below `warning` it is success colored, from `warning` warning colored and
   from `critical` danger colored; a critical level below the warning level
   makes low values the bad ones, as a battery's. Non-finite values show an
-  empty bar. The container carries the meter role; the numeric value is not
-  projected to assistive technology yet.
+  empty bar. For finite ranges the container exposes its accessible name and
+  clamped min/max/value through the native meter role.
 - `spinner(cx)` draws twelve muted dots fading in turn every 900 ms sized from
   the theme's font size, and requests animation frames while declared. MyGO
-  strokes rotated spokes and names the control with `.Label(...)`; Plico has no
-  per-container accessible-name API yet, so place explanatory text beside it.
+  strokes rotated spokes and names the control with `.Label(...)`; Plico's
+  spinner has no label parameter, so place explanatory text beside it.
 - `rating(cx, &mut value, max)` renders `max` stars, `value` filled in the
   warning color. A click sets that star and a click on the set star clears the
   rating. Hover previews the pending choice. The stars are pointer-only visual

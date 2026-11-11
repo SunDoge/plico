@@ -206,8 +206,7 @@ impl MeterLevels {
 /// MyGO draws only the bar and takes its name from `.Label(...)`; Plico's
 /// `progress` shows the label and the percentage, and this meter follows
 /// that convention so the value stays readable without assistive technology.
-/// The container carries the meter semantic role; the numeric value is not
-/// exposed to assistive technology yet.
+/// The container carries the meter role, accessible name and bounded value.
 ///
 /// ```text
 /// meter(cx, "Disk", used, 0.0..=size, MeterLevels {
@@ -232,19 +231,24 @@ pub fn meter(
     let m = cx.theme().metrics;
     column(cx)
         .gap(m.space(1))
-        .semantic_role(WidgetRole::Meter)
+        .semantic_range(WidgetRole::Meter, label, low, high, value)
         .children(|cx| {
-            row(cx).gap(m.space(2)).wrap(true).children(|cx| {
-                text(cx, label).font_size(m.label_size).grow(1.);
-                text!(cx, "{:.0}%", fraction * 100.)
-                    .font_size(m.label_size)
-                    .color(Color::Muted);
-            });
+            row(cx)
+                .gap(m.space(2))
+                .wrap(true)
+                .semantic_hidden(true)
+                .children(|cx| {
+                    text(cx, label).font_size(m.label_size).grow(1.);
+                    text!(cx, "{:.0}%", fraction * 100.)
+                        .font_size(m.label_size)
+                        .color(Color::Muted);
+                });
             row(cx)
                 .height(m.spacing.max(1) as f32 * 2.)
                 .width_percent(100.)
                 .radius(m.radius as f32)
                 .background(Color::Control)
+                .semantic_hidden(true)
                 .children(|cx| {
                     let _ = column(cx)
                         .width_percent(fraction as f32 * 100.)

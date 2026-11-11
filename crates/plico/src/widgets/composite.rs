@@ -1,5 +1,5 @@
 //! Composed controls use the same public API as application components.
-use crate::{Key, Layout, icons, prelude::*};
+use crate::{Key, Layout, WidgetRole, icons, prelude::*};
 
 /// A noninteractive status label. Color follows the current theme.
 #[component]
@@ -515,9 +515,9 @@ pub fn collapsible<R>(
         .inner
 }
 
-/// A labeled determinate meter. Values are fractions in 0..=1; non-finite
-/// values become zero and finite values are clamped. The percentage is visible
-/// text; this composed version does not yet expose a native progress-bar role.
+/// A labeled determinate progress bar. Values are fractions in 0..=1;
+/// non-finite values become zero and finite values are clamped. The visible
+/// percentage and the native progress-bar range share the normalized value.
 #[component]
 pub fn progress(cx: &mut UiContext, label: &str, fraction: f32) {
     let fraction = if fraction.is_finite() {
@@ -526,27 +526,35 @@ pub fn progress(cx: &mut UiContext, label: &str, fraction: f32) {
         0.
     };
     let m = cx.theme().metrics;
-    let _ = column(cx).gap(m.space(1)).children(|cx| {
-        row(cx).gap(m.space(2)).wrap(true).children(|cx| {
-            text(cx, label).font_size(m.label_size).grow(1.);
-            text!(cx, "{:.0}%", fraction * 100.)
-                .font_size(m.label_size)
-                .color(Color::Muted);
+    let _ = column(cx)
+        .gap(m.space(1))
+        .semantic_range(WidgetRole::ProgressBar, label, 0., 1., f64::from(fraction))
+        .children(|cx| {
+            row(cx)
+                .gap(m.space(2))
+                .wrap(true)
+                .semantic_hidden(true)
+                .children(|cx| {
+                    text(cx, label).font_size(m.label_size).grow(1.);
+                    text!(cx, "{:.0}%", fraction * 100.)
+                        .font_size(m.label_size)
+                        .color(Color::Muted);
+                });
+            row(cx)
+                .height(m.spacing.max(1) as f32 * 1.5)
+                .width_percent(100.)
+                .radius(m.spacing as f32 * 0.75)
+                .corner_smoothing(0.)
+                .background(Color::Border)
+                .semantic_hidden(true)
+                .children(|cx| {
+                    let _ = column(cx)
+                        .width_percent(fraction * 100.)
+                        .height_percent(100.)
+                        .radius(m.spacing as f32 * 0.75)
+                        .corner_smoothing(0.)
+                        .background(Color::Accent)
+                        .children(|_cx| {});
+                })
         });
-        row(cx)
-            .height(m.spacing.max(1) as f32 * 1.5)
-            .width_percent(100.)
-            .radius(m.spacing as f32 * 0.75)
-            .corner_smoothing(0.)
-            .background(Color::Border)
-            .children(|cx| {
-                let _ = column(cx)
-                    .width_percent(fraction * 100.)
-                    .height_percent(100.)
-                    .radius(m.spacing as f32 * 0.75)
-                    .corner_smoothing(0.)
-                    .background(Color::Accent)
-                    .children(|_cx| {});
-            })
-    });
 }

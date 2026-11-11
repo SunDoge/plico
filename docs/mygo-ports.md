@@ -13,7 +13,7 @@
 | Toolbar | `toolbar` / `toolbar_spacer` | 换行与推动尾部操作 |
 | Drag and drop | `drag_area` | 按下期间的逐帧位移；宿主文件拖放另由事件提供 |
 | Breadcrumbs | `breadcrumbs` | Navigation/Link 角色，末项为当前项 |
-| Meter | `meter` / `MeterLevels` | 阈值着色，支持低值更差的降序阈值 |
+| Meter | `meter` / `MeterLevels` | 阈值着色、低值更差的降序阈值、原生数值语义 |
 | Spinner | `spinner` | 注入时钟驱动的渐隐点圈 |
 | Rating | `rating` | 每星独立按钮，选中/取消与夹取 |
 | Stepper | `stepper` | 吸附、夹取、按住 400 ms 后每 80 ms 重复 |
@@ -37,7 +37,7 @@
 | Accordion | `accordion` + `collapsible` | 边框容器；item 复用 collapsible |
 | Accordion item / Collapsible | `collapsible` | 200ms 测量高度裁剪、退出保留、reduced motion、expanded 状态 |
 | Segmented | `segmented` | 选中按钮组 |
-| Progress | `progress` | 标签与百分比 |
+| Progress | `progress` | 标签、百分比与原生 progressbar 数值语义 |
 | Badge / Avatar / Ruby text | `badge` / `avatar` / `ruby_text` | 主题派生样式 |
 | Calendar | `calendar` / `calendar_content` | 月网格、范围模式、注入 today |
 | Tooltip / Popover | `tooltip` / `popover` | 锚定面板与 portal |

@@ -102,6 +102,9 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 `number_input` 复用原生编辑器的 opt-in navigation 通道处理 Up/Down，焦点边沿由声明态记录，
 因此离开输入框时可恢复／格式化暂存文字；按钮和键盘共用按 step 小数位取整的有界更新路径。
 
+只读数值组件通过组合容器上的共享 `semantic_range` 写入名称和 `NumericRange`；`meter` 与
+`progress` 因而向原生无障碍桥暴露 role、min/max/value，而视觉仍由普通 Rust children 组合。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现

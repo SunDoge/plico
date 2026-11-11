@@ -306,6 +306,8 @@ impl<'e> UiContext<'e> {
             kind,
             style,
             grid: None,
+            semantic_label: None,
+            numeric: None,
             toolbar_buttons: false,
             accordion_items: false,
             material: None,
@@ -772,11 +774,42 @@ pub struct Layout<'u, 'e> {
     kind: Kind,
     style: Style,
     grid: Option<crate::GridTemplate>,
+    semantic_label: Option<String>,
+    numeric: Option<crate::NumericRange>,
     toolbar_buttons: bool,
     accordion_items: bool,
     material: Option<crate::LiquidGlass>,
 }
 impl Layout<'_, '_> {
+    /// Attach a read-only numeric range and its accessible name to a composed
+    /// container. Meter/progress visuals remain ordinary children while the
+    /// semantic value stays on their shared root.
+    pub(crate) fn semantic_range(
+        mut self,
+        role: crate::WidgetRole,
+        label: &str,
+        min: f64,
+        max: f64,
+        value: f64,
+    ) -> Self {
+        self.style.role = Some(role);
+        self.semantic_label = Some(label.to_owned());
+        let mut numeric = crate::NumericRange {
+            min,
+            max,
+            value,
+            high: None,
+            step: 0.,
+            vertical: false,
+            reversed: false,
+        };
+        if numeric.valid() {
+            numeric.value = numeric.normalize(value);
+            self.numeric = Some(numeric);
+        }
+        self
+    }
+
     pub(crate) fn focus_group(mut self, axis: crate::FocusAxis) -> Self {
         self.style.focus_axis = Some(axis);
         self
@@ -1318,14 +1351,21 @@ impl Layout<'_, '_> {
     /// inherited disabled state.
     #[inline(always)]
     pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> InnerResponse<R> {
+        let label = self.semantic_label.unwrap_or_default();
         let entity = self.ui.engine.declare(
             self.ui.parent,
             self.key,
             self.ui.scope,
             self.kind,
             self.style,
-            Cow::Borrowed(""),
+            Cow::Owned(label),
         );
+        let node = self.ui.engine.nodes.get_mut(entity).unwrap();
+        if node.numeric != self.numeric {
+            node.numeric = self.numeric;
+            node.style.numeric_revision = node.style.numeric_revision.wrapping_add(1);
+            node.pending_changes |= Changes::SEMANTICS;
+        }
         self.ui.engine.set_grid(entity, self.grid.as_ref());
         let inner = self.ui.with_parent(entity, self.style, false, |cx| {
             if let Some(material) = self.material {
