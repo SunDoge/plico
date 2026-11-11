@@ -49,7 +49,7 @@ impl<T, E> Drop for Sender<T, E> {
     }
 }
 
-/// This belongs to the host service, never a reloadable app or serialized state.
+/// This belongs to the host service, never application state or a serialized checkpoint.
 /// Replacement/cancellation invalidates the old completion; it does not undo IO.
 pub struct Task<T, E> {
     status: TaskStatus<T, E>,
@@ -154,7 +154,7 @@ type Operation<I, T, E> =
     Box<dyn FnMut(I) -> std::pin::Pin<Box<dyn Future<Output = Result<T, E>> + Send>>>;
 
 /// A ready-to-use service for one replaceable task. Compose these in a larger
-/// HostService for multiple independent operations. Only values cross the ABI.
+/// HostService for multiple independent operations. Only values cross a split-host boundary.
 pub struct TaskService<I, T, E> {
     task: Task<T, E>,
     operation: Operation<I, T, E>,

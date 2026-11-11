@@ -128,3 +128,52 @@ fn static_services_and_full_testing_commands_use_the_same_hook() {
         .unwrap();
     assert_eq!(driver.view().services.commands, [42]);
 }
+
+struct ConstructedApp {
+    label: &'static str,
+}
+
+impl App for ConstructedApp {
+    fn show(&mut self, cx: &mut UiContext<'_>) {
+        text(cx, self.label);
+    }
+}
+
+struct ConstructedServiceApp {
+    label: &'static str,
+}
+
+impl plico_dev::services::ServiceApp for ConstructedServiceApp {
+    type Snapshot = u32;
+    type Command = u32;
+
+    fn show(&mut self, cx: &mut UiContext<'_>, _: &mut plico_dev::services::Services<u32, u32>) {
+        text(cx, self.label);
+    }
+}
+
+#[test]
+fn statically_constructed_apps_do_not_require_default_or_serialization() {
+    let plain = Driver::new(NativeApp(ConstructedApp { label: "plain" }), 400, 300).unwrap();
+    assert!(
+        plain
+            .snapshot()
+            .nodes
+            .iter()
+            .any(|node| node.label.as_deref() == Some("plain"))
+    );
+
+    let services = Driver::new(
+        ServiceView::new(ConstructedServiceApp { label: "services" }, Host::default()),
+        400,
+        300,
+    )
+    .unwrap();
+    assert!(
+        services
+            .snapshot()
+            .nodes
+            .iter()
+            .any(|node| node.label.as_deref() == Some("services"))
+    );
+}

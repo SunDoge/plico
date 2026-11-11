@@ -127,7 +127,9 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 - `plico::View` 是面向应用的最小 UI 接口，只包含 `show` 和 `theme`，可直接驱动
   renderer-free Engine、NSH/LVGL 投影等后端；普通控件和组件继续使用 Rust 函数。
 - `plico_dev::App` 是面向应用的完整根接口，在同样的 `show`/`theme` 之上增加
-  Serde checkpoint、services、快捷键和 FrameTime；静态桌面入口与开发热重载复用它。
+  services hook、快捷键和 FrameTime。普通 Rust App 由调用者构造，不要求 `Default` 或 Serde；
+  只有需要从值快照创建/恢复实例的 `plico_dev::render` split-host 协议额外要求
+  `Default + Serialize + DeserializeOwned`。
 - `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
   能力。`Source<V>` 与
   `plico_desktop::run_host_view_with_options` 接收这一接口。
@@ -135,7 +137,8 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 普通 `View` 由 `NativeView<V>` 适配到 `HostView`；
 `plico_desktop::run_view_with_options` 自动完成该包装，不要求序列化应用状态。
 `plico-app-host` 中的 `NativeApp<A>` / `ServiceView<A, S>` 把 App 与 services
-协议接入 `HostView`；桌面 crate 重新导出它们。这样 `plico-runtime` 本身不依赖
+协议接入 `HostView`；二者都接收已经构造的实例，不继承 split-host 的恢复约束。桌面 crate
+重新导出它们。这样 `plico-runtime` 本身不依赖
 `plico-dev`，HostView/Source 层只面向 core 与 renderer。
 
 core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。

@@ -61,7 +61,7 @@ pub struct Request {
     pub scroll_viewports: Vec<(Vec<PathKey>, [f32; 2])>,
     /// The module retains its application instance: skip the per-frame state
     /// serialize/deserialize roundtrip. Full frames (events, activation) still
-    /// exchange state for crash-safe recovery and reload migration.
+    /// exchange state for crash-safe recovery across a split host boundary.
     #[serde(default)]
     pub lean: bool,
     /// Continue this module's UI-thread session; state is only a recovery checkpoint.
@@ -137,7 +137,7 @@ impl<A: App> plico::View for AppView<'_, A> {
 }
 /// Application root with ordinary Rust state and host events.
 /// Its `show` and `theme` methods are the ordinary application UI surface.
-pub trait App: Default {
+pub trait App {
     #[doc(hidden)]
     fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
         Ok(())
@@ -169,14 +169,17 @@ struct Session<A> {
     engine: Engine,
 }
 
-pub fn render<A: App + Serialize + DeserializeOwned + 'static>(request: Request) -> Result<Frame> {
+pub fn render<A: App + Default + Serialize + DeserializeOwned + 'static>(
+    request: Request,
+) -> Result<Frame> {
     snafu::ensure!(
         request.version == PROTOCOL_VERSION,
         ProtocolSnafu {
             actual: request.version
         }
     );
-    // One application session per loaded image/UI thread. No Rust object crosses the ABI.
+    // One application session per module/UI thread. Only serialized values cross
+    // the split-host boundary.
     thread_local! {
         static RETAINED: std::cell::RefCell<Option<Box<dyn std::any::Any>>> =
             std::cell::RefCell::new(None);

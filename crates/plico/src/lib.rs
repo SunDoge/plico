@@ -106,8 +106,8 @@ pub mod macro_support {
         (hash ^ site as u64).wrapping_mul(0x100000001b3)
     }
     /// FNV-1a hasher for runtime scope identity. Unlike `DefaultHasher`, its
-    /// output is stable across compiler versions; reload identity matching
-    /// depends on this, so it shares the algorithm with `site_id`.
+    /// output is stable across compiler versions, so declaration paths and
+    /// persisted snapshots share identities with `site_id`.
     pub struct StableHasher(u64);
     impl Default for StableHasher {
         fn default() -> Self {

@@ -14,12 +14,12 @@ use slotmap::{SlotMap, new_key_type};
 pub struct ValueMotionId(u32);
 
 impl ValueMotionId {
-    /// Recreate an identifier received across the host ABI.
+    /// Recreate an identifier received across the private host protocol.
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
     }
 
-    /// Numeric representation used by the private host ABI.
+    /// Numeric representation used by the private host protocol.
     pub const fn into_raw(self) -> u32 {
         self.0
     }

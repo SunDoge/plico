@@ -71,8 +71,8 @@ invalidates results; retain and abort your executor's handle if you also want to
 stop polling the underlying operation. A server-side effect cannot be rolled back
 by cancelling its receiver. Poll completion before exposing a fresh snapshot.
 
-Keeping Task in the host permits it to survive UI-module reload without moving
-Futures across the ABI. `TaskStatus<T, E>` and `TaskCommand<I>` are serializable. A single-task app can
+Keeping Task in the host permits it to survive UI-module replacement without moving
+Futures across the split-host value boundary. `TaskStatus<T, E>` and `TaskCommand<I>` are serializable. A single-task app can
 use these directly as its `ServiceApp::Snapshot` and `ServiceApp::Command`:
 
 ```rust,ignore

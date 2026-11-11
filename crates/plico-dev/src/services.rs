@@ -1,4 +1,4 @@
-//! Typed, value-only bridge. Host resources and callbacks never cross the module ABI.
+//! Typed, value-only bridge. Host resources and callbacks never cross the split-host boundary.
 use crate::{App, Frame, Request, Result};
 use plico::{FrameTime, Theme, UiContext};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -63,7 +63,7 @@ impl<S, C> Services<S, C> {
         &self.snapshot
     }
     /// Retain a read-only snapshot while emitting commands, without deep-cloning it.
-    /// The Arc remains local to this Rust context; only values cross the module ABI.
+    /// The Arc remains local to this Rust context; only values cross the split-host boundary.
     pub fn snapshot_shared(&self) -> Arc<S> {
         Arc::clone(&self.snapshot)
     }
@@ -80,8 +80,8 @@ impl<S, C> Services<S, C> {
     }
 }
 
-/// Reloadable UI with a typed host projection/message protocol. Only `Self` is restored.
-pub trait ServiceApp: Default {
+/// UI with a typed host projection/message protocol.
+pub trait ServiceApp {
     type Snapshot: Default + Serialize + DeserializeOwned;
     type Command: Serialize + DeserializeOwned;
     fn show(
@@ -116,7 +116,7 @@ struct ServiceModule<A: ServiceApp> {
     app: A,
     services: Services<A::Snapshot, A::Command>,
 }
-impl<A: ServiceApp> Default for ServiceModule<A> {
+impl<A: ServiceApp + Default> Default for ServiceModule<A> {
     fn default() -> Self {
         Self {
             app: A::default(),
@@ -170,7 +170,7 @@ impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
         self.app.on_key(key, &mut self.services)
     }
 }
-pub fn render<A: ServiceApp + Serialize + DeserializeOwned + 'static>(
+pub fn render<A: ServiceApp + Default + Serialize + DeserializeOwned + 'static>(
     request: Request,
 ) -> Result<Frame> {
     crate::render::<ServiceModule<A>>(request)
