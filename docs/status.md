@@ -105,6 +105,9 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 只读数值组件通过组合容器上的共享 `semantic_range` 写入名称和 `NumericRange`；`meter` 与
 `progress` 因而向原生无障碍桥暴露 role、min/max/value，而视觉仍由普通 Rust children 组合。
 
+原生输入的 find-navigation 模式把 Escape、Shift+Enter、Primary+G 与 F3 转成声明响应；
+`find_bar` 复用它完成关闭和双向循环跳转，首次自动聚焦时全选旧查询，匹配计数使用 status 角色。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现

@@ -290,6 +290,8 @@ pub enum WidgetRole {
     Meter,
     /// A work indicator, determinate or not (mygo Spinner).
     ProgressBar,
+    /// A live, noninteractive status message (mygo FindBar match count).
+    Status,
     /// A directly adjustable scalar or multi-axis value.
     Slider,
     /// A pair of arrows stepping a bounded value (mygo Stepper).
@@ -561,6 +563,10 @@ pub struct Style {
     pub input_revision: u64,
     #[invalidates(HIT_TEST)]
     pub input_navigation: bool,
+    /// Route find-field traversal and dismissal keys through InputResponse.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[invalidates(HIT_TEST)]
+    pub input_find_navigation: bool,
     /// Explicit native password reveal; does not expose secrets in snapshots.
     #[serde(default)]
     #[invalidates(PAINT)]
@@ -651,6 +657,7 @@ impl Default for Style {
             checked: false,
             input_revision: 0,
             input_navigation: false,
+            input_find_navigation: false,
             input_password_visible: false,
             shader_revision: 0,
             numeric_revision: 0,

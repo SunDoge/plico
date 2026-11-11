@@ -330,6 +330,7 @@ impl<'e> UiContext<'e> {
             string: None,
             placeholder: Cow::Borrowed(""),
             autofocus: false,
+            select_all_on_autofocus: false,
             focus: false,
         }
     }
@@ -360,6 +361,7 @@ impl<'e> UiContext<'e> {
             string: None,
             placeholder: Cow::Borrowed(""),
             autofocus: false,
+            select_all_on_autofocus: false,
             focus: false,
         }
     }
@@ -1565,6 +1567,11 @@ impl Text<'_, '_, '_> {
         self.inner.style.text_ellipsis = enabled;
         self
     }
+    #[inline(always)]
+    pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
+        self.inner.style.role = Some(role);
+        self
+    }
 }
 pub struct Button<'u, 'e, 't> {
     inner: Leaf<'u, 'e, 't>,
@@ -2520,6 +2527,7 @@ pub struct Input<'u, 'e, 't> {
     string: Option<(crate::LocalState<StringBinding>, &'t mut String)>,
     placeholder: Cow<'t, str>,
     autofocus: bool,
+    select_all_on_autofocus: bool,
     focus: bool,
 }
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -2580,6 +2588,13 @@ impl<'t> Input<'_, '_, 't> {
         self.autofocus = enabled;
         self
     }
+    /// Select the existing value when autofocus first mounts this field.
+    /// Find bars use this so reopening is immediately ready for replacement.
+    #[inline(always)]
+    pub(crate) fn select_all_on_autofocus(mut self, enabled: bool) -> Self {
+        self.select_all_on_autofocus = enabled;
+        self
+    }
     /// Explicit one-shot focus request. Applications pass true only on an action.
     #[inline(always)]
     pub fn request_focus(mut self, requested: bool) -> Self {
@@ -2591,6 +2606,13 @@ impl<'t> Input<'_, '_, 't> {
     #[inline(always)]
     pub fn navigation(mut self, enabled: bool) -> Self {
         self.inner.style.input_navigation = enabled;
+        self
+    }
+    /// Route find traversal/dismissal keys without exposing host events to the
+    /// composed search field.
+    #[inline(always)]
+    pub(crate) fn find_navigation(mut self, enabled: bool) -> Self {
+        self.inner.style.input_find_navigation = enabled;
         self
     }
     #[inline(always)]
@@ -2650,8 +2672,18 @@ impl<'t> Input<'_, '_, 't> {
             std::collections::hash_map::Entry::Vacant(entry) => {
                 if self.autofocus && !self.inner.style.disabled {
                     ui.engine.focus_request = Some(entity);
+                    if self.select_all_on_autofocus {
+                        self.buffer.edit(crate::InputEdit::SelectAll);
+                        let node = ui.engine.nodes.get_mut(entity).unwrap();
+                        node.style.input_revision = self.buffer.revision();
+                        node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
+                    }
                 }
-                entry.insert((self.buffer.clone(), self.placeholder.to_string(), counters));
+                entry.insert((
+                    self.buffer.clone(),
+                    self.placeholder.to_string(),
+                    self.buffer.counters(),
+                ));
             }
         }
         if let Some((state, target)) = &mut self.string {

@@ -86,6 +86,7 @@ impl Adapter {
                             Some(plico::WidgetRole::Link) => Role::Link,
                             Some(plico::WidgetRole::Meter) => Role::Meter,
                             Some(plico::WidgetRole::ProgressBar) => Role::ProgressBar,
+                            Some(plico::WidgetRole::Status) => Role::Status,
                             Some(plico::WidgetRole::Slider) => Role::Slider,
                             Some(plico::WidgetRole::SpinButton) => Role::SpinButton,
                             Some(plico::WidgetRole::Separator) => Role::Separator,

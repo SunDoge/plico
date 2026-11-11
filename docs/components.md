@@ -383,12 +383,11 @@ composed separately.
 magnifier and clear button), the "N of M" status, previous/next buttons and
 Done. The application owns the query and counts the matches; `current` is
 clamped to them and moves round the ends, and the return value reports that
-movement. Opening the bar focuses its field; Enter in the field moves to the
-next match.
-
-Escape and Cmd+G / F3 (Shift variants for the previous match) are not wired:
-Plico does not route those shortcuts out of the text input yet. A closed bar
-declares nothing, so the caller's `open` flag is the single source of truth.
+movement. Opening the bar focuses its field and selects the old query. Enter
+moves to the next match; Shift+Enter moves to the previous match, while
+Primary+G and F3 use Shift to reverse direction. Escape closes the bar. The
+changing match count carries a live status role. A closed bar declares nothing,
+so the caller's `open` flag is the single source of truth.
 
 Theme gained `Success`, `Warning` and `Danger` tokens (light and dark values
 follow MyGO's theme) for the meter fill and filled stars. Themes serialized

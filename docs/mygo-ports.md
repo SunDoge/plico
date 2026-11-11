@@ -32,7 +32,7 @@
 | Range slider | `range_slider` | 双 thumb 单轨道；共享一个焦点与一个语义值 |
 | Sticky | `Layout::sticky` | 仅顶部吸附；滚动/包含块后处理 |
 | Time input | `time_input` / `TimeOfDay` | 校验 HH:MM 文本框；非分段/12 小时制 |
-| Find bar | `find_bar` | 匹配计数、前后跳转、Done、打开聚焦 |
+| Find bar | `find_bar` | 匹配 status、前后/快捷键跳转、Escape/Done、打开聚焦并全选 |
 | Alert dialog | `alert_dialog` | alert 角色、Escape dismissed、外部点击无效 |
 | Accordion | `accordion` + `collapsible` | 边框容器；item 复用 collapsible |
 | Accordion item / Collapsible | `collapsible` | 200ms 测量高度裁剪、退出保留、reduced motion、expanded 状态 |
