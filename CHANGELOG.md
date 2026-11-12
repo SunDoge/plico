@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/SunDoge/plico/compare/v0.3.2...v0.4.0) - 2026-11-12
+
+### Added
+
+- *(widgets)* align MyGO styling and keyboard semantics
+- port MyGO runtime and rendering improvements
+- *(video)* add external GPU surface interop
+- *(recipes)* record renderer stages in visual recipes
+- *(ui)* refine native interaction feedback
+- *(desktop)* extend native host primitives
+- *(desktop)* persist declared application state through desktop hosts
+- *(testing)* expose retained diagnostics through test driver
+- *(testing)* expose host drains through test driver
+- *(widgets)* align range slider focus with MyGO
+- *(widgets)* complete MyGO find bar interactions
+- *(accessibility)* expose composed numeric ranges
+- *(widgets)* align number input interactions with MyGO
+- *(widgets)* animate collapsible disclosure panels
+- *(widgets)* share MyGO-derived control styling recipes
+- *(router)* align history navigation inputs
+
+### Fixed
+
+- *(macros)* support variable virtual lists in components
+- *(shell)* delegate decorated Linux window contours to the host
+- *(runtime)* use portable animation deadline type
+- *(ci)* gate Linux screenshot test import
+
+### Other
+
+- [**breaking**] make smooth scrolling the only wheel scroll
+- *(input)* centralize logical key events
+- *(app)* [**breaking**] unify keyboard event handling
+- *(services)* localize transport bounds
+- *(app)* isolate split host protocol
+- *(app)* decouple construction from split protocol
+- [**breaking**] encapsulate interaction responses
+- [**breaking**] unify immediate app and router lifecycle
+- [**breaking**] remove obsolete API compatibility surface
+- *(motion)* share UI easing curves and cover animation and secret input
+- tighten workspace dependency edges
+- *(native)* compare cosmic text with pango
+- *(renderer)* cull offscreen scene subtrees
+- *(runtime)* share presentation geometry with scene encoding
+- *(renderer)* linearize scene subtree encoding
+- *(renderer)* reuse encoded glyph scenes
+- *(renderer)* defer primitive fallback paths
+- *(renderer)* skip hidden scrollbar visibility work
+- *(renderer)* skip identity node transform composition
+- *(platform)* remove stale ffi terminology
+- *(wgpu)* unify frame command encoding
+- *(runtime)* propagate event preparation errors
+- *(shell)* propagate frame construction errors
+- *(shader)* keep texture identity backend-private
+- *(renderer)* move GPU shader execution to wgpu
+- *(wgpu)* report frame budgets and submit once per frame
+- *(runtime)* reuse retained layout cache traversal
+- *(runtime)* prune retained asset caches linearly
+- *(runtime)* canonicalize identity presentation transforms
+- *(desktop)* curate runtime facade
+- *(runtime)* hide retained adapter
+- *(runtime)* make source internals crate-private
+- *(desktop)* migrate layout and icon tests
+- *(runtime)* seal adapter work tests
+- *(runtime)* migrate virtual list tests
+- *(runtime)* migrate component interaction tests
+- *(runtime)* migrate lifecycle tests to source queries
+- *(runtime)* migrate wgpu tests to source queries
+- *(runtime)* migrate gallery game tests
+- *(runtime)* expose stable source queries
+- *(runtime)* return frame errors directly
+- *(runtime)* encapsulate source errors
+- *(testing)* encapsulate runtime driver state
+- *(runtime)* isolate app protocol adapters
+- *(shell)* stop republishing renderer API
+- *(shell)* split app into focused submodules
+- remove native reload remnants
+
 ### Changed
 
 - *(widgets)* [**breaking**] expose interaction results through immutable response queries
