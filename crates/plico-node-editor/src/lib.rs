@@ -398,23 +398,24 @@ pub fn node_editor(
     let mut port_click = None::<(Endpoint, bool)>;
     let mut pan_delta = [0f32; 2];
 
-    column(cx).position(Position::Relative).width_percent(100.).height(options.height).clip(true)
-        .radius(20.).background(Color::Surface).border(1., Color::Border) + |cx| {
+    column(cx).position(Position::Relative).width_percent(100.).height(options.height).clip(true).radius(20.)
+        .background(Color::Surface).border(1., Color::Border) + |cx|
+    {
         button_base(cx, "Pan node canvas").absolute(0., 0.).width_percent(100.).height_percent(100.)
             .background(Color::Surface).children(|cx| {
-                let drag = cx.state(DragAnchor::default);
-                if cx.pressed() {
-                    if let Some((x, y)) = cx.pointer_position() {
-                        let previous = drag.read().0;
-                        drag.update(|anchor| anchor.0 = Some((x, y)));
-                        if let Some((px, py)) = previous {
-                            pan_delta = [(x - px) as f32, (y - py) as f32];
-                        }
+            let drag = cx.state(DragAnchor::default);
+            if cx.pressed() {
+                if let Some((x, y)) = cx.pointer_position() {
+                    let previous = drag.read().0;
+                    drag.update(|anchor| anchor.0 = Some((x, y)));
+                    if let Some((px, py)) = previous {
+                        pan_delta = [(x - px) as f32, (y - py) as f32];
                     }
-                } else {
-                    drag.update(|anchor| anchor.0 = None);
                 }
-            });
+            } else {
+                drag.update(|anchor| anchor.0 = None);
+            }
+        });
 
         let svg = edges_svg(graph, state, options.surface_size);
         column(cx).absolute(0., 0.).width(options.surface_size[0]).height(options.surface_size[1]) + |cx| {
@@ -428,32 +429,35 @@ pub fn node_editor(
                 let rows = node.inputs.len().max(node.outputs.len());
                 let height = node.size[1].max(66. + rows as f32 * 28.) * state.zoom;
                 let is_selected = state.selected.contains(&node.id);
-                column(cx).absolute(at[0], at[1]).width(width).height(height).radius(14.)
-                    .background(Color::Panel).border(if is_selected { 2. } else { 1. },
-                        if is_selected { Color::Accent } else { Color::Border })
-                    .elevation(if is_selected { Elevation::CONTROL } else { Elevation::SUBTLE }) + |cx| {
+                column(cx).absolute(at[0], at[1]).width(width).height(height).radius(14.).background(Color::Panel)
+                    .border(
+                    if is_selected { 2. } else { 1. },
+                    if is_selected { Color::Accent } else { Color::Border },
+                ).elevation(if is_selected { Elevation::CONTROL } else { Elevation::SUBTLE }) + |cx|
+                {
                     let header = button_base(cx, format!("Move {}", node.title)).width_percent(100.)
-                        .height(42. * state.zoom).padding_x(14).background(if is_selected {
-                            Color::Selection
-                        } else {
-                            Color::Control
-                        }).children(|cx| {
-                            text(cx, &node.title).weight(650).font_size((14. * state.zoom).clamp(11., 18.) as u16)
-                                .ellipsis(true).width(0.).grow(1.);
-                            let drag = cx.state(DragAnchor::default);
-                            if cx.pressed() {
-                                if let Some((x, y)) = cx.pointer_position() {
-                                    let previous = drag.read().0;
-                                    drag.update(|anchor| anchor.0 = Some((x, y)));
-                                    if let Some((px, py)) = previous {
-                                        movement.push((node.id, (x - px) as f32 / state.zoom,
-                                            (y - py) as f32 / state.zoom));
-                                    }
+                        .height(42. * state.zoom).padding_x(14)
+                        .background(if is_selected { Color::Selection } else { Color::Control }).children(|cx| {
+                        text(cx, &node.title).weight(650)
+                            .font_size((14. * state.zoom).clamp(11., 18.) as u16).ellipsis(true).width(0.)
+                            .grow(1.);
+                        let drag = cx.state(DragAnchor::default);
+                        if cx.pressed() {
+                            if let Some((x, y)) = cx.pointer_position() {
+                                let previous = drag.read().0;
+                                drag.update(|anchor| anchor.0 = Some((x, y)));
+                                if let Some((px, py)) = previous {
+                                    movement.push((
+                                        node.id,
+                                        (x - px) as f32 / state.zoom,
+                                        (y - py) as f32 / state.zoom,
+                                    ));
                                 }
-                            } else {
-                                drag.update(|anchor| anchor.0 = None);
                             }
-                        });
+                        } else {
+                            drag.update(|anchor| anchor.0 = None);
+                        }
+                    });
                     if header.clicked() {
                         selected = Some(node.id);
                     }
@@ -461,18 +465,34 @@ pub fn node_editor(
                         let y = 48. * state.zoom + index as f32 * 28. * state.zoom;
                         if let Some(port) = node.inputs.get(index) {
                             cx.keyed(port.id.0, |cx| {
-                                if button_base(cx, format!("Input {}: {}", node.title, port.label))
-                                    .absolute(-6. * state.zoom, y).width(18. * state.zoom).height(18. * state.zoom)
+                                if button_base(
+                                    cx,
+                                    format!("Input {}: {}", node.title, port.label),
+                                ).absolute(-6. * state.zoom, y).width(18. * state.zoom).height(18. * state.zoom)
                                     .padding(0).radius(9. * state.zoom).background(
-                                        if state.connecting.is_some_and(|from| compatible_input(graph, from,
-                                            Endpoint { node: node.id, port: port.id })) {
-                                            Color::Success
-                                        } else {
-                                            Color::Accent
-                                        })
-                                    .children(|_| {}).clicked()
+                                    if state.connecting.is_some_and(|from| {
+                                        compatible_input(
+                                            graph,
+                                            from,
+                                            Endpoint {
+                                                node: node.id,
+                                                port: port.id,
+                                            },
+                                        )
+                                    }) {
+                                        Color::Success
+                                    } else {
+                                        Color::Accent
+                                    },
+                                ).children(|_| {}).clicked()
                                 {
-                                    port_click = Some((Endpoint { node: node.id, port: port.id }, false));
+                                    port_click = Some((
+                                        Endpoint {
+                                            node: node.id,
+                                            port: port.id,
+                                        },
+                                        false,
+                                    ));
                                 }
                                 text(cx, &port.label).absolute(18. * state.zoom, y - 1.)
                                     .font_size((12. * state.zoom).clamp(10., 16.) as u16).color(Color::Muted);
@@ -480,21 +500,34 @@ pub fn node_editor(
                         }
                         if let Some(port) = node.outputs.get(index) {
                             cx.keyed(port.id.0, |cx| {
-                                if button_base(cx, format!("Output {}: {}", node.title, port.label))
-                                    .absolute(width - 12. * state.zoom, y).width(18. * state.zoom).height(18. * state.zoom)
-                                    .padding(0).radius(9. * state.zoom).background(
-                                        if state.connecting == Some(Endpoint { node: node.id, port: port.id }) {
-                                            Color::Success
-                                        } else {
-                                            Color::Accent
+                                if button_base(cx, format!("Output {}: {}", node.title, port.label)).absolute(width - 12. * state.zoom, y).width(18. * state.zoom)
+                                    .height(18. * state.zoom).padding(0).radius(9. * state.zoom).background(
+                                    if state.connecting
+                                        == Some(Endpoint {
+                                            node: node.id,
+                                            port: port.id,
                                         })
-                                    .children(|_| {}).clicked()
+                                    {
+                                        Color::Success
+                                    } else {
+                                        Color::Accent
+                                    },
+                                ).children(|_| {}).clicked()
                                 {
-                                    port_click = Some((Endpoint { node: node.id, port: port.id }, true));
+                                    port_click = Some((
+                                        Endpoint {
+                                            node: node.id,
+                                            port: port.id,
+                                        },
+                                        true,
+                                    ));
                                 }
-                                text(cx, &port.label).absolute(width - (18. + port.label.len() as f32 * 7.) * state.zoom,
-                                    y - 1.).font_size((12. * state.zoom).clamp(10., 16.) as u16)
-                                    .color(Color::Muted);
+                                text(cx, &port.label).absolute(
+                                    width
+                                        - (18. + port.label.len() as f32 * 7.)
+                                            * state.zoom,
+                                    y - 1.,
+                                ).font_size((12. * state.zoom).clamp(10., 16.) as u16).color(Color::Muted);
                             });
                         }
                     }
@@ -502,15 +535,14 @@ pub fn node_editor(
             });
         }
 
-        row(cx).position(Position::Absolute).inset_top(12.).inset_right(12.).padding(4).gap(4)
-            .radius(12.).background(Color::Panel).elevation(Elevation::CONTROL) + |cx| {
-            if button(cx).text("−").aria_label("Zoom out").ghost().width(32.).padding(0)
-                .font_size(18).clicked() {
+        row(cx).position(Position::Absolute).inset_top(12.).inset_right(12.).padding(4).gap(4).radius(12.)
+            .background(Color::Panel).elevation(Elevation::CONTROL) + |cx|
+        {
+            if button(cx).text("−").aria_label("Zoom out").ghost().width(32.).padding(0).font_size(18).clicked() {
                 state.set_zoom(state.zoom - 0.1);
             }
             text!(cx, "{:.0}%", state.zoom * 100.).font_size(12).width(44.);
-            if button(cx).text("+").aria_label("Zoom in").ghost().width(32.).padding(0)
-                .font_size(18).clicked() {
+            if button(cx).text("+").aria_label("Zoom in").ghost().width(32.).padding(0).font_size(18).clicked() {
                 state.set_zoom(state.zoom + 0.1);
             }
             if button(cx).text("Reset").ghost().clicked() {
@@ -523,8 +555,8 @@ pub fn node_editor(
             }
         };
         if state.connecting.is_some() {
-            text(cx, "Choose a compatible input").absolute(14., 14.).padding_x(10).padding_y(6)
-                .radius(10.).background(Color::Panel).color(Color::Muted).font_size(12);
+            text(cx, "Choose a compatible input").absolute(14., 14.).padding_x(10).padding_y(6).radius(10.)
+                .background(Color::Panel).color(Color::Muted).font_size(12);
         }
     };
 

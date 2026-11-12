@@ -59,8 +59,15 @@ pub fn page(cx: &mut UiContext, demo: &mut NodeEditorDemo) {
     crate::heading(cx, "Node editor",
         "Reusable Rust graph state with ordinary Plico nodes and one batched Bézier edge layer.");
     column(cx).height(0.).grow(1.).padding_right(24).gap(10) + |cx| {
-        let response = plico_node_editor::node_editor(cx, &mut demo.graph, &mut demo.editor,
-            EditorOptions { height: 590., ..Default::default() });
+        let response = plico_node_editor::node_editor(
+            cx,
+            &mut demo.graph,
+            &mut demo.editor,
+            EditorOptions {
+                height: 590.,
+                ..Default::default()
+            },
+        );
         if let Some(edge) = response.connection_created {
             demo.status = format!("Created connection {}.", edge.0);
         } else if let Some(error) = response.connection_error {
@@ -72,8 +79,12 @@ pub fn page(cx: &mut UiContext, demo: &mut NodeEditorDemo) {
         }
         row(cx).justify(Justify::SpaceBetween).gap(12) + |cx| {
             text(cx, &demo.status).font_size(12).color(Color::Muted);
-            text!(cx, "{} nodes · {} edges", demo.graph.nodes.len(), demo.graph.edges.len())
-                .font_size(12).color(Color::Muted);
+            text!(
+                cx,
+                "{} nodes · {} edges",
+                demo.graph.nodes.len(),
+                demo.graph.edges.len()
+            ).font_size(12).color(Color::Muted);
         };
     };
 }

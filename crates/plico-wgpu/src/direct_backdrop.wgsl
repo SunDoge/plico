@@ -41,6 +41,6 @@ fn fs_direct_composite(input: PlicoVertexOutput) -> @location(0) vec4f {
     }
     let uv = (position - state.region.xy) / state.region.zw;
     let pixel = plico_effect(uv);
-    let previous = backdrop_original_mapped_at_lod(uv,0.);
+    let previous = backdrop_original_mapped_at_lod(uv, 0.);
     return mix(previous, pixel, coverage * state.blend.x);
 }

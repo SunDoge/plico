@@ -177,8 +177,8 @@ impl Gallery {
         let m = ui.theme().metrics;
         row(ui).width_percent(100.).height_percent(100.).align(Align::Stretch) + |ui| {
             sidebar::show(ui, self);
-            column(ui).width(0.).min_width(0.).grow(1.).padding_left(m.space(6))
-                .padding_top(m.space(6)).padding_bottom(m.space(6)).gap(m.space(4)).children(|ui| {
+            column(ui).width(0.).min_width(0.).grow(1.).padding_left(m.space(6)).padding_top(m.space(6))
+                .padding_bottom(m.space(6)).gap(m.space(4)).children(|ui| {
                 row(ui).justify(Justify::SpaceBetween).wrap(true).gap(8).padding_right(m.space(6)) + |ui| {
                     text(ui, l.text("workspace-gallery", "Workspace / Gallery")).font_size(12)
                         .color(Color::Muted).grow(1.);

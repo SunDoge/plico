@@ -3,9 +3,12 @@ struct CausticUniforms {
     sphere: vec4f,
 }
 
-@group(0) @binding(0) var<uniform> scene: CausticUniforms;
-@group(0) @binding(1) var water: texture_2d<f32>;
-@group(0) @binding(2) var linear_sampler: sampler;
+@group(0) @binding(0)
+var<uniform> scene: CausticUniforms;
+@group(0) @binding(1)
+var water: texture_2d<f32>;
+@group(0) @binding(2)
+var linear_sampler: sampler;
 
 const IOR_AIR: f32 = 1.0;
 const IOR_WATER: f32 = 1.333;
@@ -37,7 +40,11 @@ fn project_to_floor(origin_value: vec3f, ray: vec3f, refracted_light: vec3f) -> 
 fn vertex(@location(0) plane_position: vec2f) -> VertexOut {
     let info = textureSampleLevel(water, linear_sampler, plane_position * 0.5 + 0.5, 0.0);
     let flattened_normal = info.zw * 0.5;
-    let normal = vec3f(flattened_normal.x, sqrt(max(0.0, 1.0 - dot(flattened_normal, flattened_normal))), flattened_normal.y);
+    let normal = vec3f(
+            flattened_normal.x,
+            sqrt(max(0.0, 1.0 - dot(flattened_normal, flattened_normal))),
+            flattened_normal.y,
+        );
     let refracted_light = refract(-scene.light.xyz, vec3f(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     let ray = refract(-scene.light.xyz, normal, IOR_AIR / IOR_WATER);
     let origin = vec3f(plane_position.x, 0.0, plane_position.y);
@@ -65,6 +72,9 @@ fn fragment(in: VertexOut) -> @location(0) vec4f {
     shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);
     shadow = mix(1.0, shadow, clamp(distance * 2.0, 0.0, 1.0));
     let range = intersect_cube(in.new_position, -refracted_light, vec3f(-1.0), vec3f(1.0, 2.0, 1.0));
-    focus *= 1.0 / (1.0 + exp(-200.0 / (1.0 + 10.0 * (range.y - range.x)) * (in.new_position.y - refracted_light.y * range.y - 2.0 / 12.0)));
+    focus *= 1.0 / (1.0 + exp(
+                -200.0 / (1.0 + 10.0 * (range.y - range.x))
+                * (in.new_position.y - refracted_light.y * range.y - 2.0 / 12.0),
+            ));
     return vec4f(focus, shadow, 0.0, 0.0);
 }

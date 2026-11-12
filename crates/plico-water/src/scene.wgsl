@@ -5,12 +5,18 @@ struct SceneUniforms {
     sphere: vec4f,
 }
 
-@group(0) @binding(0) var<uniform> scene: SceneUniforms;
-@group(0) @binding(1) var water: texture_2d<f32>;
-@group(0) @binding(2) var caustics: texture_2d<f32>;
-@group(0) @binding(3) var tiles: texture_2d<f32>;
-@group(0) @binding(4) var sky: texture_cube<f32>;
-@group(0) @binding(5) var linear_sampler: sampler;
+@group(0) @binding(0)
+var<uniform> scene: SceneUniforms;
+@group(0) @binding(1)
+var water: texture_2d<f32>;
+@group(0) @binding(2)
+var caustics: texture_2d<f32>;
+@group(0) @binding(3)
+var tiles: texture_2d<f32>;
+@group(0) @binding(4)
+var sky: texture_cube<f32>;
+@group(0) @binding(5)
+var linear_sampler: sampler;
 
 const IOR_AIR: f32 = 1.0;
 const IOR_WATER: f32 = 1.333;
@@ -37,18 +43,20 @@ fn intersect_sphere(origin: vec3f, ray: vec3f) -> f32 {
     let b = 2.0 * dot(to_sphere, ray);
     let c = dot(to_sphere, to_sphere) - scene.sphere.w * scene.sphere.w;
     let discriminant = b * b - 4.0 * a * c;
-    if (discriminant > 0.0) {
+    if discriminant > 0.0 {
         let distance = (-b - sqrt(discriminant)) / (2.0 * a);
-        if (distance > 0.0) { return distance; }
+        if distance > 0.0 {
+            return distance;
+        }
     }
     return 1.0e6;
 }
 
 fn tile_pattern(point: vec3f, normal: vec3f) -> vec3f {
     var coordinates: vec2f;
-    if (abs(normal.x) > 0.5) {
+    if abs(normal.x) > 0.5 {
         coordinates = point.yz * 0.5 + vec2f(1.0, 0.5);
-    } else if (abs(normal.z) > 0.5) {
+    } else if abs(normal.z) > 0.5 {
         coordinates = point.yx * 0.5 + vec2f(1.0, 0.5);
     } else {
         coordinates = point.xz * 0.5 + 0.5;
@@ -71,7 +79,7 @@ fn sphere_color(point: vec3f) -> vec3f {
     let refracted_light = refract(-scene.light.xyz, vec3f(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     var diffuse = max(0.0, dot(-refracted_light, normal)) * 0.5;
     let water_info = textureSample(water, linear_sampler, point.xz * 0.5 + 0.5);
-    if (point.y < water_info.x) {
+    if point.y < water_info.x {
         diffuse *= caustic_sample(point, refracted_light).x * 4.0;
     }
     return color + diffuse;
@@ -79,9 +87,9 @@ fn sphere_color(point: vec3f) -> vec3f {
 
 fn wall_color(point: vec3f) -> vec3f {
     var normal: vec3f;
-    if (abs(point.x) > 0.999) {
+    if abs(point.x) > 0.999 {
         normal = vec3f(-point.x, 0.0, 0.0);
-    } else if (abs(point.z) > 0.999) {
+    } else if abs(point.z) > 0.999 {
         normal = vec3f(0.0, 0.0, -point.z);
     } else {
         normal = vec3f(0.0, 1.0, 0.0);
@@ -91,12 +99,14 @@ fn wall_color(point: vec3f) -> vec3f {
     let refracted_light = -refract(-scene.light.xyz, vec3f(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     var diffuse = max(0.0, dot(refracted_light, normal));
     let water_info = textureSample(water, linear_sampler, point.xz * 0.5 + 0.5);
-    if (point.y < water_info.x) {
+    if point.y < water_info.x {
         let caustic = caustic_sample(point, refracted_light);
         scale += diffuse * caustic.x * 2.0 * caustic.y;
     } else {
         let range = intersect_cube(point, refracted_light, vec3f(-1.0, -POOL_HEIGHT, -1.0), vec3f(1.0, 2.0, 1.0));
-        diffuse *= 1.0 / (1.0 + exp(-200.0 / (1.0 + 10.0 * (range.y - range.x)) * (point.y + refracted_light.y * range.y - 2.0 / 12.0)));
+        diffuse *= 1.0 / (1.0 + exp(
+                    -200.0 / (1.0 + 10.0 * (range.y - range.x)) * (point.y + refracted_light.y * range.y - 2.0 / 12.0),
+                ));
         scale += diffuse * 0.5;
     }
     return tile_pattern(point, normal) * scale;
@@ -111,21 +121,23 @@ fn sky_color(ray: vec3f) -> vec3f {
 fn surface_ray_color(origin: vec3f, ray: vec3f, water_color: vec3f) -> vec3f {
     let sphere_distance = intersect_sphere(origin, ray);
     var color: vec3f;
-    if (sphere_distance < 1.0e6) {
+    if sphere_distance < 1.0e6 {
         color = sphere_color(origin + ray * sphere_distance);
-    } else if (ray.y < 0.0) {
+    } else if ray.y < 0.0 {
         let range = intersect_cube(origin, ray, vec3f(-1.0, -POOL_HEIGHT, -1.0), vec3f(1.0, 2.0, 1.0));
         color = wall_color(origin + ray * range.y);
     } else {
         let range = intersect_cube(origin, ray, vec3f(-1.0, -POOL_HEIGHT, -1.0), vec3f(1.0, 2.0, 1.0));
         let hit = origin + ray * range.y;
-        if (hit.y < 2.0 / 12.0) {
+        if hit.y < 2.0 / 12.0 {
             color = wall_color(hit);
         } else {
             color = sky_color(ray);
         }
     }
-    if (ray.y < 0.0) { color *= water_color; }
+    if ray.y < 0.0 {
+        color *= water_color;
+    }
     return color;
 }
 
@@ -143,7 +155,9 @@ fn pool_vertex(@location(0) source_position: vec3f) -> VertexOut {
 fn pool_fragment(in: VertexOut) -> @location(0) vec4f {
     var color = wall_color(in.world_position);
     let info = textureSample(water, linear_sampler, in.world_position.xz * 0.5 + 0.5);
-    if (in.world_position.y < info.x) { color *= UNDERWATER_COLOR * 1.2; }
+    if in.world_position.y < info.x {
+        color *= UNDERWATER_COLOR * 1.2;
+    }
     return vec4f(color, 1.0);
 }
 
@@ -160,7 +174,9 @@ fn sphere_vertex(@location(0) unit_position: vec3f) -> VertexOut {
 fn sphere_fragment(in: VertexOut) -> @location(0) vec4f {
     var color = sphere_color(in.world_position);
     let info = textureSample(water, linear_sampler, in.world_position.xz * 0.5 + 0.5);
-    if (in.world_position.y < info.x) { color *= UNDERWATER_COLOR * 1.2; }
+    if in.world_position.y < info.x {
+        color *= UNDERWATER_COLOR * 1.2;
+    }
     return vec4f(color, 1.0);
 }
 
@@ -177,14 +193,14 @@ fn water_vertex(@location(0) plane_position: vec2f) -> VertexOut {
 fn shade_water(position: vec3f, below: bool) -> vec4f {
     var coordinate = position.xz * 0.5 + 0.5;
     var info = textureSample(water, linear_sampler, coordinate);
-    for (var index = 0; index < 5; index += 1) {
+    for(var index = 0; index < 5; index += 1) {
         coordinate += info.zw * 0.005;
         info = textureSample(water, linear_sampler, coordinate);
     }
     var normal = vec3f(info.z, sqrt(max(0.0, 1.0 - dot(info.zw, info.zw))), info.w);
     let incoming = normalize(position - scene.eye.xyz);
     var color: vec3f;
-    if (below) {
+    if below {
         normal = -normal;
         let reflected_ray = reflect(incoming, normal);
         let refracted_ray = refract(incoming, normal, IOR_WATER / IOR_AIR);
