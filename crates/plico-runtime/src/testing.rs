@@ -332,7 +332,7 @@ impl<V: HostView> Driver<V> {
     }
 
     /// Earliest deterministic repaint requested by motion or deferred UI work.
-    pub fn animation_deadline(&self) -> Option<std::time::Instant> {
+    pub fn animation_deadline(&self) -> Option<web_time::Instant> {
         self.source.animation_deadline()
     }
 
