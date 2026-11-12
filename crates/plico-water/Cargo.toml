@@ -1,0 +1,23 @@
+[package]
+name = "plico-water"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { workspace = true, features = ["derive"] }
+base64 = "0.22"
+glam = { version = "0.30", features = ["bytemuck"] }
+image = { workspace = true, features = ["jpeg"] }
+plico-renderer.workspace = true
+plico-wgpu = { path = "../plico-wgpu" }
+wgpu.workspace = true
+
+[dev-dependencies]
+plico.workspace = true
+plico-desktop = { path = "../plico-desktop", default-features = false, features = ["wgpu"] }
+
+[[example]]
+name = "water"
+
