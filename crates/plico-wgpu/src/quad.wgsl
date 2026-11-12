@@ -50,9 +50,9 @@ fn quad_geometry(index: u32, rect: vec4f) -> QuadGeometry {
     let local = corners[index] * (rect.zw + 2.) - 1.;
     let world = rect.xy + local;
     return QuadGeometry(
-        vec4f((world - frame.origin.xy) / frame.size_time_scale.xy * vec2f(2, -2) + vec2f(-1, 1), 0, 1),
-        local,
-    );
+            vec4f((world - frame.origin.xy) / frame.size_time_scale.xy * vec2f(2, -2) + vec2f(-1, 1), 0, 1),
+            local,
+        );
 }
 @vertex
 fn vs_main(

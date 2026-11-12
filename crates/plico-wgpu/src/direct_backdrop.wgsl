@@ -30,11 +30,11 @@ fn fs_direct_composite(input: PlicoVertexOutput) -> @location(0) vec4f {
             discard;
         }
         coverage *= textureSampleLevel(
-            plico_direct_clip_mask,
-            plico_direct_clip_sampler,
-            (world - state.mask.xy) / state.mask.zw,
-            0.,
-        ).r;
+                plico_direct_clip_mask,
+                plico_direct_clip_sampler,
+                (world - state.mask.xy) / state.mask.zw,
+                0.,
+            ).r;
     }
     if coverage <= 0. {
         discard;
@@ -46,10 +46,6 @@ fn fs_direct_composite(input: PlicoVertexOutput) -> @location(0) vec4f {
         at = position + state.blend.zw;
     }
     let dimensions = vec2i(textureDimensions(plico_backdrop));
-    let previous = textureLoad(
-        plico_backdrop,
-        clamp(vec2i(at), vec2i(0), dimensions - 1),
-        0,
-    );
+    let previous = textureLoad(plico_backdrop, clamp(vec2i(at), vec2i(0), dimensions - 1), 0);
     return mix(previous, pixel, coverage * state.blend.x);
 }
