@@ -123,6 +123,37 @@ fn asset_cache_pruning_is_linear_and_keeps_recently_unmounted_sources() {
 }
 
 #[test]
+fn layout_cache_walk_reuses_one_iterative_stack() {
+    let mut engine = Engine::default();
+    let mut adapter = Adapter::default();
+    let mut text = TextContext::new();
+    engine
+        .frame(|ui| {
+            for id in 0_u64..64 {
+                ui.text("row").key(id);
+            }
+        })
+        .unwrap();
+    layout(&mut adapter, &mut engine, &mut text, 800, 600);
+    for retained in adapter.nodes.values_mut() {
+        retained.layout = None;
+    }
+    adapter.layout_cache_scratch = Vec::with_capacity(128);
+    let storage = adapter.layout_cache_scratch.as_ptr();
+    let root = adapter.nodes[&engine.root()].id;
+    adapter.cache_layout_subtree(root);
+    assert!(adapter.nodes.values().all(|node| node.layout.is_some()));
+    assert_eq!(adapter.layout_cache_scratch.as_ptr(), storage);
+
+    for retained in adapter.nodes.values_mut() {
+        retained.layout = None;
+    }
+    adapter.cache_layout_subtree(root);
+    assert!(adapter.nodes.values().all(|node| node.layout.is_some()));
+    assert_eq!(adapter.layout_cache_scratch.as_ptr(), storage);
+}
+
+#[test]
 #[ignore = "manual CPU profile"]
 fn profile_linear_asset_cache_liveness() {
     fn median(values: &mut [f64]) -> f64 {

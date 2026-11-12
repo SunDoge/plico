@@ -87,6 +87,12 @@ Plico 的布局、smooth scroll、滚动钳位、焦点滚动和 popover 重定�
 的范围，还包含滚动/控件几何等后处理，并非纯 Taffy compute。分配计数目前仍为全帧
 统计，没有把每阶段的分配请求单独归因。实际 GPU 时间不在测量范围内。
 
+布局完成后的 retained layout cache 也不再先复制全部 NodeId，或在递归访问每个节点时
+复制一次 children Vec。全量路径直接遍历 retained storage；局部子树路径使用一个跨帧
+复用的迭代栈。这同时去掉深树递归深度风险，并避免结构 patch 为遍历本身制造按节点的
+小分配。回归清空一棵实际 Taffy 树的 layout snapshot 后重复缓存两次，验证所有节点恢复
+且栈的 backing allocation 保持不变。
+
 ## 资源缓存的线性存活扫描
 
 MyGO 的 SVG picture cache 给每个条目记录最后使用帧，并在若干帧未使用后淘汰；它不会
