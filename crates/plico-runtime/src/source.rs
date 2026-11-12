@@ -96,6 +96,7 @@ pub struct Source<V: HostView> {
     requested_reduced_motion: bool,
     display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
+    scene_scratch: plico_renderer::scene::SceneScratch,
     background: Option<Color>,
     /// Work accumulated across the current host batch.
     batch_stats: BatchStats,
@@ -134,6 +135,7 @@ impl<V: HostView> Source<V> {
             requested_reduced_motion: false,
             display_preferences_dirty: false,
             target_scene: None,
+            scene_scratch: Default::default(),
             background: None,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
@@ -647,8 +649,15 @@ impl<V: HostView> Source<V> {
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
         let base_color = self.base_color();
-        plico_renderer::scene::build_presented_scene_scaled_layers(
-            scene, &layers, tcx, size.0, size.1, base_color, scale,
+        plico_renderer::scene::build_presented_scene_scaled_layers_with_scratch(
+            scene,
+            &layers,
+            tcx,
+            size.0,
+            size.1,
+            base_color,
+            scale,
+            &mut self.scene_scratch,
         );
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
         #[cfg(feature = "profiling")]

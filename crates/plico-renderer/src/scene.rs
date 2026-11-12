@@ -175,7 +175,20 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
     bounds
 }
 
+fn paint_is_cullable(node: &PlacedNode) -> bool {
+    node.paint.vector_path.is_none()
+        && node.paint.widget.as_ref().is_none_or(|widget| {
+            matches!(
+                widget.commands.first(),
+                Some(crate::PaintCommand::PushClip { .. })
+            )
+        })
+}
+
 fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool {
+    if !paint_is_cullable(node) {
+        return true;
+    }
     let bounds = transform.transform_rect_bbox(visual_bounds(node));
     bounds.width() > 0.
         && bounds.height() > 0.
@@ -183,6 +196,118 @@ fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool
         && bounds.x0 <= viewport.x1
         && bounds.y1 >= viewport.y0
         && bounds.y0 <= viewport.y1
+}
+
+fn rect_intersects(bounds: Rect, clip: Rect) -> bool {
+    bounds.width() > 0.
+        && bounds.height() > 0.
+        && bounds.x1 >= clip.x0
+        && bounds.x0 <= clip.x1
+        && bounds.y1 >= clip.y0
+        && bounds.y0 <= clip.y1
+}
+
+#[derive(Clone, Copy)]
+struct SubtreeInk {
+    own: Rect,
+    ink: Rect,
+    end: usize,
+    has_ink: bool,
+    own_cullable: bool,
+    cullable: bool,
+}
+
+/// Reusable allocation for presented scene encoding.
+///
+/// Hosts should keep one per retained scene source. The contents are transient
+/// and never part of a cached scene snapshot.
+#[derive(Default)]
+pub struct SceneScratch {
+    subtree_ink: Vec<SubtreeInk>,
+    subtree_stack: Vec<usize>,
+}
+
+fn prepare_subtree_ink(nodes: &[PlacedNode], out: &mut Vec<SubtreeInk>, stack: &mut Vec<usize>) {
+    fn close(nodes: &[PlacedNode], out: &mut [SubtreeInk], stack: &mut Vec<usize>, end: usize) {
+        let index = stack.pop().unwrap();
+        out[index].end = end;
+        let sigma = nodes[index].paint.foreground_blur;
+        if out[index].has_ink && sigma.is_finite() && sigma > 0. {
+            let extent = f64::from(sigma.min(64.)) * 3.;
+            out[index].ink = out[index].ink.inflate(extent, extent);
+        }
+        if let Some(&parent) = stack.last() {
+            let child = out[index];
+            out[parent].cullable &= child.cullable;
+            if child.has_ink {
+                if out[parent].has_ink {
+                    out[parent].ink = out[parent].ink.union(child.ink);
+                } else {
+                    out[parent].ink = child.ink;
+                    out[parent].has_ink = true;
+                }
+            }
+        }
+    }
+
+    out.clear();
+    stack.clear();
+    out.reserve(nodes.len().saturating_sub(out.capacity()));
+    for (index, node) in nodes.iter().enumerate() {
+        while stack
+            .last()
+            .is_some_and(|&open| nodes[open].depth >= node.depth)
+        {
+            close(nodes, out, stack, index);
+        }
+        let own = node
+            .world_transform
+            .transform_rect_bbox(visual_bounds(node));
+        let finite = [own.x0, own.y0, own.x1, own.y1]
+            .into_iter()
+            .all(f64::is_finite);
+        // Typed vector paths and unclipped widget fragments are intentionally
+        // unconstrained by the layout box. Until their exact bounds are
+        // retained, treat the node and its ancestors like MyGO's noCull
+        // elements.
+        let own_cullable = finite && paint_is_cullable(node);
+        let visible = finite
+            && own.width() > 0.
+            && own.height() > 0.
+            && node.world_opacity > 0.
+            && node.paint.motion_opacity.unwrap_or(1.).clamp(0., 1.) > 0.;
+        out.push(SubtreeInk {
+            own,
+            ink: own,
+            end: nodes.len(),
+            has_ink: visible,
+            own_cullable,
+            cullable: own_cullable,
+        });
+        stack.push(index);
+    }
+    while !stack.is_empty() {
+        close(nodes, out, stack, nodes.len());
+    }
+}
+
+fn should_prepare_subtree_ink(nodes: &[PlacedNode], viewport: Rect) -> bool {
+    const SAMPLES: usize = 32;
+    if nodes.len() < 64 || !nodes.windows(2).any(|pair| pair[1].depth > pair[0].depth) {
+        return false;
+    }
+    let samples = nodes.len().min(SAMPLES);
+    let mut outside = 0;
+    for sample in 0..samples {
+        let index = sample * (nodes.len() - 1) / (samples - 1);
+        let node = &nodes[index];
+        outside += usize::from(
+            node.world_opacity <= 0. || !paints_viewport(node, node.world_transform, viewport),
+        );
+    }
+    // The prepass pays for itself when it can skip a material fraction of
+    // nested entries. Near-fully-visible scenes keep the direct encoder.
+    outside * 4 >= samples
 }
 
 // A transformed clip's bounding box is conservative: rounded corners and
@@ -876,6 +1001,7 @@ pub fn build_scene_scaled_layers(
         base_color,
         device_scale,
         false,
+        None,
     );
 }
 
@@ -891,6 +1017,32 @@ pub fn build_presented_scene_scaled_layers(
     base_color: Color,
     device_scale: f64,
 ) {
+    let mut scratch = SceneScratch::default();
+    build_presented_scene_scaled_layers_with_scratch(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        &mut scratch,
+    );
+}
+
+/// Encode host-resolved layers while reusing subtree-culling scratch storage.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn build_presented_scene_scaled_layers_with_scratch(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+    scratch: &mut SceneScratch,
+) {
     build_scene_scaled_layers_impl(
         scene,
         roots,
@@ -900,6 +1052,7 @@ pub fn build_presented_scene_scaled_layers(
         base_color,
         device_scale,
         true,
+        Some(scratch),
     );
 }
 
@@ -913,6 +1066,7 @@ fn build_scene_scaled_layers_impl(
     base_color: Color,
     device_scale: f64,
     use_presentations: bool,
+    scratch: Option<&mut SceneScratch>,
 ) {
     scene.reset();
     let device = Affine::scale(device_scale);
@@ -928,8 +1082,20 @@ fn build_scene_scaled_layers_impl(
         device_scale,
         use_presentations,
     };
+    let mut local_scratch = SceneScratch::default();
+    let scratch = scratch.unwrap_or(&mut local_scratch);
     for nodes in roots {
-        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg, 1.);
+        let subtree_ink = (use_presentations && should_prepare_subtree_ink(nodes, bg)).then(|| {
+            prepare_subtree_ink(nodes, &mut scratch.subtree_ink, &mut scratch.subtree_stack);
+            scratch.subtree_ink.as_slice()
+        });
+        if let Some(subtree_ink) = subtree_ink {
+            encoder.encode_nodes::<true>(scene, nodes, subtree_ink, Affine::IDENTITY, bg, 1.);
+        } else {
+            // Keep the common all-visible and small-scene path monomorphized
+            // without one optional-ink branch per node.
+            encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, 1.);
+        }
     }
 }
 
@@ -941,20 +1107,29 @@ struct Encoder<'a> {
     device_scale: f64,
     use_presentations: bool,
 }
+
+#[derive(Clone, Copy)]
+struct NodeBatch<'a> {
+    nodes: &'a [PlacedNode],
+    subtree_ink: &'a [SubtreeInk],
+}
+
 impl Encoder<'_> {
-    fn encode_nodes(
+    fn encode_nodes<const SUBTREE_CULL: bool>(
         &mut self,
         scene: &mut Scene,
         nodes: &[PlacedNode],
+        subtree_ink: &[SubtreeInk],
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
+        let batch = NodeBatch { nodes, subtree_ink };
         let mut cursor = 0;
         while cursor < nodes.len() {
-            self.encode_subtree(
+            self.encode_subtree::<SUBTREE_CULL>(
                 scene,
-                nodes,
+                batch,
                 &mut cursor,
                 parent_transform,
                 inherited_clip,
@@ -969,21 +1144,29 @@ impl Encoder<'_> {
     /// subtree before recursively doing the same work again. A deep tree
     /// therefore revisited the tail at every level. The cursor consumes each
     /// entry once, matching the single DFS used by MyGO's linked node tree.
-    fn encode_subtree(
+    fn encode_subtree<const SUBTREE_CULL: bool>(
         &mut self,
         scene: &mut Scene,
-        nodes: &[PlacedNode],
+        batch: NodeBatch<'_>,
         cursor: &mut usize,
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
-        let n = &nodes[*cursor];
+        let index = *cursor;
+        if SUBTREE_CULL {
+            let ink = batch.subtree_ink[index];
+            if ink.cullable && (!ink.has_ink || !rect_intersects(ink.ink, inherited_clip)) {
+                *cursor = ink.end;
+                return;
+            }
+        }
+        let n = &batch.nodes[index];
         let depth = n.depth;
         let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
             *cursor += 1;
-            while *cursor < nodes.len() && nodes[*cursor].depth > depth {
+            while *cursor < batch.nodes.len() && batch.nodes[*cursor].depth > depth {
                 *cursor += 1;
             }
             return;
@@ -1001,7 +1184,12 @@ impl Encoder<'_> {
             } else {
                 1.
             });
-        let paints_node = paints_viewport(n, css_transform, inherited_clip);
+        let paints_node = if SUBTREE_CULL {
+            let ink = batch.subtree_ink[index];
+            !ink.own_cullable || (ink.has_ink && rect_intersects(ink.own, inherited_clip))
+        } else {
+            paints_viewport(n, css_transform, inherited_clip)
+        };
         let child_clip = n
             .own_clip
             .and_then(|clip| clip_bounds(clip, css_transform))
@@ -1019,10 +1207,10 @@ impl Encoder<'_> {
         };
         let layers = encode_node(scene, self.tcx, &enc);
         *cursor += 1;
-        while *cursor < nodes.len() && nodes[*cursor].depth > depth {
-            self.encode_subtree(
+        while *cursor < batch.nodes.len() && batch.nodes[*cursor].depth > depth {
+            self.encode_subtree::<SUBTREE_CULL>(
                 scene,
-                nodes,
+                batch,
                 cursor,
                 css_transform,
                 child_clip,
@@ -1698,6 +1886,100 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_subtree_ink_culling() {
+        fn encode<const SUBTREE_CULL: bool>(
+            nodes: &[PlacedNode],
+            scene: &mut Scene,
+            text: &mut TextContext,
+            scratch: &mut SceneScratch,
+            viewport: Rect,
+        ) {
+            scene.reset();
+            if SUBTREE_CULL {
+                prepare_subtree_ink(nodes, &mut scratch.subtree_ink, &mut scratch.subtree_stack);
+            }
+            Encoder {
+                tcx: text,
+                device: Affine::IDENTITY,
+                bg: viewport,
+                viewport,
+                device_scale: 1.,
+                use_presentations: true,
+            }
+            .encode_nodes::<SUBTREE_CULL>(
+                scene,
+                nodes,
+                &scratch.subtree_ink,
+                Affine::IDENTITY,
+                viewport,
+                1.,
+            );
+            std::hint::black_box(scene.commands.len());
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+
+        let viewport = Rect::new(0., 0., 800., 600.);
+        let mut nodes = vec![test_node(0, [0., 0., 800., 96_000.])];
+        for row in 0..4_000 {
+            let y = row as f32 * 24.;
+            nodes.push(test_node(1, [0., y, 800., y + 20.]));
+            nodes.push(test_node(2, [8., y + 2., 300., y + 18.]));
+        }
+        crate::layout::refresh_presentations(&mut nodes);
+        assert!(should_prepare_subtree_ink(&nodes, viewport));
+
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        let mut scratch = SceneScratch::default();
+        encode::<false>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+        encode::<true>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+
+        const ITERATIONS: usize = 100;
+        let mut direct = Vec::new();
+        let mut ink = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                if sample % 2 == 0 {
+                    encode::<false>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+                } else {
+                    encode::<true>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+                }
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e6 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                direct.push(elapsed);
+            } else {
+                ink.push(elapsed);
+            }
+        }
+        let tall_viewport = Rect::new(0., 0., 800., 96_000.);
+        assert!(!should_prepare_subtree_ink(&nodes, tall_viewport));
+        const HEURISTIC_ITERATIONS: usize = 10_000;
+        let mut heuristic = Vec::new();
+        for _ in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..HEURISTIC_ITERATIONS {
+                std::hint::black_box(should_prepare_subtree_ink(
+                    std::hint::black_box(&nodes),
+                    std::hint::black_box(tall_viewport),
+                ));
+            }
+            heuristic.push(started.elapsed().as_secs_f64() * 1e6 / HEURISTIC_ITERATIONS as f64);
+        }
+        eprintln!(
+            "4000-row scene us/frame: direct={:.2} subtree-ink={:.2}; all-visible sampling us/frame={:.2}",
+            median(&mut direct),
+            median(&mut ink),
+            median(&mut heuristic),
+        );
+    }
+
+    #[test]
     fn shadow_geometry_preserves_vello_parameters() {
         let shadow = Shadow {
             inset: false,
@@ -1800,6 +2082,139 @@ mod tests {
             1.,
         );
         assert_eq!(presented.commands, ordinary.commands);
+    }
+
+    #[test]
+    fn presented_scene_culls_offscreen_subtrees_but_keeps_transformed_overflow() {
+        let parent = test_node(0, [200., 200., 240., 240.]);
+        let mut hidden_text = test_node(1, [204., 204., 230., 220.]);
+        hidden_text.paint.text = Some(Arc::from("Must not shape"));
+        let sibling = test_node(0, [10., 10., 30., 30.]);
+        let mut nodes = [parent, hidden_text, sibling.clone()];
+        crate::layout::refresh_presentations(&mut nodes);
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(scene.commands, encoded(&[sibling]).commands);
+        assert_eq!(text.cache_entries(), (0, 0));
+
+        let parent = test_node(0, [200., 200., 240., 240.]);
+        let mut overflowing = test_node(1, [204., 204., 230., 220.]);
+        overflowing.paint.runtime_transform = Some([1., 0., 0., 1., -200., -200.]);
+        let mut nodes = [parent.clone(), overflowing];
+        crate::layout::refresh_presentations(&mut nodes);
+        let mut scene = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[&nodes],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert!(scene.commands.len() > encoded(&[parent]).commands.len());
+    }
+
+    #[test]
+    fn unclipped_widget_overflow_disables_layout_box_culling() {
+        let mut fragment = Scene::new();
+        fragment.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(-200., -200., -180., -180.),
+        );
+        let mut node = test_node(0, [200., 200., 240., 240.]);
+        node.paint.background = None;
+        node.content_origin = [200., 200.];
+        node.paint.widget = Some(Arc::new(fragment));
+        crate::layout::refresh_presentations(std::slice::from_mut(&mut node));
+        assert!(!paint_is_cullable(&node));
+
+        let mut scene = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[std::slice::from_ref(&node)],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        let crate::PaintCommand::Fill {
+            transform, shape, ..
+        } = &scene.commands[0]
+        else {
+            panic!("unclipped widget overflow should remain in the scene");
+        };
+        assert!(rect_intersects(
+            transform.transform_rect_bbox(shape.bounding_box()),
+            Rect::new(0., 0., 100., 100.),
+        ));
+    }
+
+    #[test]
+    fn subtree_ink_prepass_is_selected_only_for_cullable_nested_work() {
+        let root = test_node(0, [0., 0., 100., 100.]);
+        let mut nodes = vec![root.clone()];
+        for row in 0..64 {
+            let y = 200. + row as f32 * 24.;
+            nodes.push(test_node(1, [0., y, 100., y + 20.]));
+            let mut text = test_node(2, [4., y + 2., 96., y + 18.]);
+            text.paint.text = Some(Arc::from("Offscreen retained row"));
+            nodes.push(text);
+        }
+        let visible = test_node(1, [8., 8., 32., 32.]);
+        nodes.push(visible.clone());
+        crate::layout::refresh_presentations(&mut nodes);
+        let viewport = Rect::new(0., 0., 100., 100.);
+        assert!(should_prepare_subtree_ink(&nodes, viewport));
+
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        let mut scratch = SceneScratch::default();
+        build_presented_scene_scaled_layers_with_scratch(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+            &mut scratch,
+        );
+        assert_eq!(scene.commands, encoded(&[root, visible]).commands);
+        assert_eq!(text.cache_entries(), (0, 0));
+        let capacity = scratch.subtree_ink.capacity();
+        let allocation = scratch.subtree_ink.as_ptr();
+        assert!(capacity >= nodes.len());
+        build_presented_scene_scaled_layers_with_scratch(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+            &mut scratch,
+        );
+        assert_eq!(scratch.subtree_ink.capacity(), capacity);
+        assert_eq!(scratch.subtree_ink.as_ptr(), allocation);
+
+        let mut visible_nodes = vec![test_node(0, [0., 0., 100., 100.])];
+        visible_nodes.extend((0..64).map(|_| test_node(1, [8., 8., 32., 32.])));
+        crate::layout::refresh_presentations(&mut visible_nodes);
+        assert!(!should_prepare_subtree_ink(&visible_nodes, viewport));
     }
 
     #[test]

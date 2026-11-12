@@ -197,6 +197,33 @@ release 下用 256 层链、每轮 2000 棵树做同进程交替 A/B，旧边界
 cargo test --release -p plico-renderer profile_preorder_subtree_walk -- --ignored --nocapture
 ```
 
+### 子树 ink 裁剪
+
+MyGO 在 commit 后用 `setInk` 把节点自身的 visual overflow 与所有后代的 ink 合并，
+`Painter.paintable` 因而可以一次跳过整棵被裁剪区域排除的子树；无法安全界定绘制范围的
+节点将 `noCull` 传播给祖先。Plico 现在对宿主已经解析 world transform 的 presented scene
+采用相同的保守模型：阴影、outline 和 blur 纳入边界，变换后的溢出后代参与祖先 union；
+尚未保留精确 stroked bounds 的 typed vector path，以及没有局部 clip 的 widget scene
+会关闭自身及祖先的子树裁剪；这个 `noCull` 规则也适用于不启用预遍历的小场景。
+
+这不是无条件增加一次全树扫描。少于 64 个节点、没有嵌套，或 32 个均匀样本中不足四分
+之一落在视口外时，直接走原 encoder。两条路径使用 const-generic 专门化，因此关闭时没有
+逐节点的 `Option<ink>` 分支；抽样本身在 8001 节点全部可见场景中为 0.27 µs/frame。
+启用时，preorder stack 一次生成每棵子树的结尾和 union bounds，`Source` 持有可复用 scratch，
+滚动帧不会反复分配这两个数组。
+
+release 下的同进程交替实验包含 4000 个两节点行（8001 节点，约 25 行可见），并将 ink
+预遍历本身计入优化路径：普通逐节点裁剪为 176.75 µs/frame，子树 ink 为
+116.92 µs/frame，减少约 34%。完整 `scene_work` 的三轮中位数也确认真实 runtime 路径命中：
+单点颜色 scene p50 从 197.22 降到 140.88 µs，单点文字从 197.21 降到
+163.73 µs，容器透明度从 192.34 降到 135.46 µs。全部颜色与结构更新收益很小，整帧仍由
+声明、同步或布局主导；不据此宣称所有 workload 等比例加速。手工复现：
+
+```sh
+cargo test --release -p plico-renderer profile_subtree_ink_culling -- --ignored --nocapture
+cargo run --locked --release -p plico-desktop --example scene_work -- --rows 4000
+```
+
 ### 可见性裁剪
 
 完整编码仍会跳过不可见绘制：零透明度的子树不编码；其他节点按变换后的绘制
