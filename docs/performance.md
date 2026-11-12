@@ -196,9 +196,9 @@ HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外
 和 Scene 样本；原有平滑字段继续用于趋势显示。
 
 `sample_renderer` 还包含 MyGO 式 effect 成本证据：颜色 pass 数、isolated-layer 与普通
-effect 纹理字节、backdrop copy/mip pass/纹理字节，以及 backdrop scissor 实际放行的物理
-像素数。后续缩小 effect 边界或改变离屏层复用策略时，应比较这些原始计数和最终像素，不能只
-比较总 GPU 时间。
+effect 纹理字节、backdrop copy/物理 texture/共享 reader/mip pass/纹理字节，以及
+backdrop scissor 实际放行的物理像素数。后续缩小 effect 边界或改变离屏层复用策略时，
+应比较这些原始计数和最终像素，不能只比较总 GPU 时间。
 
 | 字段 | 含义 |
 |---|---|

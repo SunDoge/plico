@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             println!("adapter: {}", session.adapter_name().unwrap_or("unknown"));
             println!(
-                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} passes, {} instances, {} draws, {} KiB uploaded | layers={} KiB effects={} KiB backdrop={} KiB/{} copies/{} mip passes/{} Kpx",
+                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} passes, {} instances, {} draws, {} KiB uploaded | layers={} KiB effects={} KiB backdrop={} KiB/{} copies/{} textures/{} shared/{} mip passes/{} Kpx",
                 budget.prepare_ms,
                 budget.upload_ms,
                 budget.encode_ms,
@@ -70,6 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 budget.effect_bytes / 1024,
                 budget.backdrop_bytes / 1024,
                 budget.backdrop_copies,
+                budget.backdrop_textures,
+                budget.backdrop_shared_reads,
                 budget.backdrop_mip_passes,
                 budget.backdrop_effect_pixels / 1000,
             );

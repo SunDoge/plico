@@ -217,6 +217,10 @@ pub struct FrameBudget {
     pub backdrop_mip_passes: u64,
     /// Transient backdrop texture payload used by this frame.
     pub backdrop_bytes: u64,
+    /// Physical backdrop texture resources used this frame; an array counts once.
+    pub backdrop_textures: u64,
+    /// Backdrop readers served from same-stage snapshot arrays.
+    pub backdrop_shared_reads: u64,
     /// Physical pixels admitted by backdrop-effect scissors.
     pub backdrop_effect_pixels: u64,
     /// GPU time of the root command encoder, when timestamps are available.

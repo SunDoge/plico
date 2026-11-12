@@ -243,6 +243,8 @@ impl CaptureRenderer {
                     backdrop_copies: budget.backdrop_copies,
                     backdrop_mip_passes: budget.backdrop_mip_passes,
                     backdrop_bytes: budget.backdrop_bytes,
+                    backdrop_textures: budget.backdrop_textures,
+                    backdrop_shared_reads: budget.backdrop_shared_reads,
                     backdrop_effect_pixels: budget.backdrop_effect_pixels,
                 })
             }

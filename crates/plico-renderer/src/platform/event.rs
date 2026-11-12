@@ -615,6 +615,10 @@ pub struct FrameBudgetSample {
     pub backdrop_mip_passes: u64,
     /// Transient backdrop texture payload used by this frame.
     pub backdrop_bytes: u64,
+    /// Physical backdrop texture resources used this frame; an array counts once.
+    pub backdrop_textures: u64,
+    /// Backdrop readers served from same-stage snapshot arrays.
+    pub backdrop_shared_reads: u64,
     /// Physical pixels admitted by backdrop-effect scissors.
     pub backdrop_effect_pixels: u64,
 }
@@ -708,6 +712,8 @@ mod budget_tests {
             instances: 700,
             draw_calls: 90,
             passes: 4,
+            backdrop_textures: 2,
+            backdrop_shared_reads: 7,
             backdrop_effect_pixels: 1234,
             ..FrameBudgetSample::default()
         });
@@ -725,6 +731,8 @@ mod budget_tests {
         assert_eq!(stats.sample_renderer.prepare_ms, 4.0);
         assert_eq!(stats.sample_renderer.gpu_ms, Some(8.0));
         assert_eq!(stats.sample_renderer.passes, 4);
+        assert_eq!(stats.sample_renderer.backdrop_textures, 2);
+        assert_eq!(stats.sample_renderer.backdrop_shared_reads, 7);
         assert_eq!(stats.sample_renderer.backdrop_effect_pixels, 1234);
 
         stats.apply_budget(FrameBudgetSample {

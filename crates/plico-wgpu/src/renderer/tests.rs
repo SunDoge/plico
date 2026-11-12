@@ -1176,8 +1176,10 @@ fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
         "isolated texture payload is counted"
     );
     assert!(
-        budget.backdrop_copies > 0 && budget.backdrop_effect_pixels > 0,
-        "backdrop copy and shaded-pixel work are counted"
+        budget.backdrop_copies > 0
+            && budget.backdrop_textures > 0
+            && budget.backdrop_effect_pixels > 0,
+        "backdrop copy, physical texture and shaded-pixel work are counted"
     );
     let broken = crate::image::ImageQuad::new(
         Quad::new([0., 0., 1., 1.], [1.; 4]),
