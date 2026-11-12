@@ -69,10 +69,99 @@ manual; no libmpv installation or GUI test was added to CI.
 
 Still to validate: real audio output/synchronization, subtitles, 1080p/4K CPU
 and GPU costs, native platform packaging, network errors/cancellation, HDR,
-hardware decoding and GPU texture interoperability. Software output does not
-prove that mpv's GPU output can be integrated with Plico's Vulkan renderer.
+direct hardware-decode texture sharing and integration with Plico's normal
+scene compositor. Software output does not prove that mpv's GPU output can be
+integrated with Plico's Vulkan renderer.
 Any distributed libmpv binary and its dependencies need their own license and
 source-distribution compliance; this experiment does not bundle native binaries.
+
+## wgpu OpenGL GPU-render probe
+
+The opt-in `mpv-wgpu-gl` path integrates libmpv's OpenGL render API with the
+normal Plico scene compositor on Linux EGL. libmpv performs decode, color
+conversion and scaling directly into a GL texture imported by wgpu. The
+staging implementation remains available behind `PLICO_VIDEO_ZERO_COPY=0` as
+an A/B reference and compatibility fallback.
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 4 \
+  -c:v libx264 -pix_fmt yuv420p /tmp/plico-video-h264.mp4
+WGPU_BACKEND=gl cargo run -p plico-video --features mpv-wgpu-gl \
+  --example gpu_probe -- /tmp/plico-video-h264.mp4
+```
+
+On 2026-11-12 the end-to-end probe rendered and composed non-black 640×360
+frames on `Mesa Intel(R) Graphics (ARL)`. Hardware decode is requested with
+`hwdec=auto`; actual selection depends on the available X11, Wayland or DRM
+native display and must be read from libmpv diagnostics.
+
+This does not make the default Vulkan/Metal renderer interoperable. libmpv's
+stable public render API has OpenGL (and newer builds have D3D11), but no
+caller-owned Vulkan or Metal target. Product integration therefore needs a
+generic external-GPU-surface lifecycle in Plico, a GLES renderer option for the
+first backend, and software fallback. A high-level wgpu-created texture was
+readable by copy commands but sampled stale after foreign GL writes on this
+Mesa/wgpu GL combination. Explicitly importing an initialized native texture
+with its correct HAL resource state resolves that failure. Vulkan DMA-BUF,
+Windows D3D sharing and macOS IOSurface remain separate follow-up backends.
+
+### HAL-imported GL texture experiment
+
+The default GPU path replaces the staging bridge with a native GL texture
+imported through `wgpu-hal`. Set `PLICO_VIDEO_ZERO_COPY=0` to force the staging
+reference path for A/B comparison. The texture is allocated and initialized
+in the wgpu EGL context, wrapped with
+`Device::create_texture_from_hal(..., TextureUses::RESOURCE)`, rendered into by
+libmpv, and sampled directly by Plico. This path allocates no CPU frame buffer
+and performs neither `glReadPixels` nor a per-frame `Queue::write_texture`.
+Both sides issue commands through wgpu-hal's single locked GL context, so the
+handoff uses `glFlush` rather than blocking on `glFinish`. A future
+multi-context implementation would require an explicit fence.
+
+```sh
+WGPU_BACKEND=gl \
+PLICO_VIDEO_PROBE_FRAMES=90 \
+PLICO_VIDEO_PROBE_WIDTH=1280 PLICO_VIDEO_PROBE_HEIGHT=720 \
+cargo run --release -p plico-video --features mpv-wgpu-gl \
+  --example gpu_probe -- /tmp/plico-video-h264.mp4
+```
+
+On the same Intel ARL/Mesa machine, both paths produced 90 non-black 1280x720
+frames. A single warm run measured 24% process CPU for the HAL-import path and
+29% for staging; wall time was 3.62s versus 3.63s and RSS was approximately
+307 MiB for both. These short samples establish functional sharing, not a
+general performance claim.
+
+This is zero-copy only across the **libmpv output texture -> Plico compositor**
+boundary. The probe logged `vaapi-copy`, because libmpv could not create a VA
+display from the headless EGL context, so decode -> libmpv GL rendering was not
+zero-copy on this run. Windowed playback now passes the host's X11/Wayland
+display to libmpv; `Snapshot::hwdec` exposes the resulting decoder mode for
+verification. A DMA-BUF/Vulkan backend remains a separate future path.
+
+## Vulkan DMA-BUF import probe
+
+The opt-in `plico-wgpu/vulkan-dmabuf` feature proves that native Linux external
+memory can enter the ordinary Plico compositor without replacing the renderer.
+The probe allocates a real linear ARGB8888 buffer through GBM on a DRM render
+node, writes a deterministic pattern, imports its DMA-BUF fd into the Vulkan
+device, wraps it as a `wgpu::Texture`, and draws it through `ExternalSurface`.
+
+```sh
+cargo run --release -p plico-wgpu --features vulkan-dmabuf \
+  --example dmabuf-probe
+```
+
+On the Intel ARL machine the 256x256 byte-exact probe passed. The adopted
+device reported both DMA-BUF external memory and external semaphore-fd support.
+A warm invocation took approximately 0.10s and 131 MiB RSS; this is a
+correctness/capability probe, not a throughput benchmark. The feature is not in
+Plico's default dependency or device path.
+
+This first probe is deliberately single-plane. VAAPI normally exports NV12 or
+P010 with multiple plane layouts, so decoder integration still needs a small
+raw-ash import boundary plus plane-aware sampling and explicit producer/consumer
+synchronization. It does not require replacing Plico's wgpu renderer.
 
 ## Persistent host player and separate audio
 

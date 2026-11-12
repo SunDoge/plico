@@ -27,18 +27,20 @@ pub mod vector_path;
 pub mod widget;
 pub use crate::platform::{EffectCompletion, EffectRequest};
 pub use paint::{
-    Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, ShadowProfile, SvgDocument,
+    ExternalSurface, Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, ShadowProfile,
+    SvgDocument,
 };
 pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
 pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
     FrameBudgetSample, FrameSource, FrameSourceError, FrameStats, GestureEvent, GesturePhase,
-    HostAction, ImeEvent, ImeState, KeyEvent, KeyLocation, KeyPhase, Modifiers, MultiClickSettings,
-    Point, PointerButton, PointerEvent, PointerId, PointerPhase, PointerProperties, PointerType,
-    RenderBackend, ScreenshotRequest, SemanticAction, SemanticCurrent, SemanticNode, SemanticPopup,
-    SemanticRole, SemanticSnapshot, SemanticSortDirection, SemanticStates, SemanticToggleState,
-    UiEvent, WHEEL_LINE_DELTA, WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand,
-    WindowInputMode, WindowLevel, WindowMetrics, WindowOptions, WindowResizeEdges,
+    GpuContext, HostAction, ImeEvent, ImeState, KeyEvent, KeyLocation, KeyPhase, Modifiers,
+    MultiClickSettings, Point, PointerButton, PointerEvent, PointerId, PointerPhase,
+    PointerProperties, PointerType, RenderBackend, ScreenshotRequest, SemanticAction,
+    SemanticCurrent, SemanticNode, SemanticPopup, SemanticRole, SemanticSnapshot,
+    SemanticSortDirection, SemanticStates, SemanticToggleState, UiEvent, WHEEL_LINE_DELTA,
+    WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowInputMode, WindowLevel,
+    WindowMetrics, WindowOptions, WindowResizeEdges,
 };
 pub use text::TextContext;
 pub use widget::{

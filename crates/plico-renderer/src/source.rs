@@ -9,6 +9,7 @@
 
 use peniko::Color;
 
+use std::any::Any;
 use std::path::PathBuf;
 use std::sync::Arc;
 use web_time::Instant;
@@ -17,6 +18,46 @@ use crate::Scene;
 use crate::layout::PlacedNode;
 use crate::style::CursorStyle;
 use crate::text::TextContext;
+
+/// Cloneable renderer-owned context offered to framework media widgets.
+///
+/// The renderer-neutral contract deliberately exposes only typed downcasting:
+/// ordinary applications never need this value, while framework crates can
+/// recognize the context type of a backend they integrate with.
+#[derive(Clone)]
+pub struct GpuContext {
+    backend: &'static str,
+    value: Arc<dyn Any + Send + Sync>,
+}
+
+impl GpuContext {
+    /// Wrap one backend-specific context.
+    pub fn new<T: Any + Send + Sync>(backend: &'static str, value: T) -> Self {
+        Self {
+            backend,
+            value: Arc::new(value),
+        }
+    }
+
+    /// Stable backend name, such as `wgpu`.
+    pub const fn backend(&self) -> &'static str {
+        self.backend
+    }
+
+    /// Borrow the backend-specific context when its concrete type matches.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.value.downcast_ref()
+    }
+}
+
+impl std::fmt::Debug for GpuContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GpuContext")
+            .field("backend", &self.backend)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Platform-facing IME snapshot produced by a focused text widget.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +123,10 @@ impl FrameSourceError {
 /// [`WakeCallback`] plus the polling/drain methods; it must never call into
 /// layout, widgets, or the renderer directly.
 pub trait FrameSource {
+    /// Install or remove the live renderer context. Framework-owned media
+    /// widgets use this to allocate resources on the window's actual device.
+    fn set_gpu_context(&mut self, _context: Option<GpuContext>) {}
+
     /// Declare a frame for a native-widget backend, bypassing Scene encoding.
     /// The backend owns text measurement, layout and control interaction.
     fn native_widget_frame(&mut self, _size: [f32; 2]) -> Option<&mut plico::Engine> {

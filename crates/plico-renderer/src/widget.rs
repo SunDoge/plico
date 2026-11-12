@@ -386,6 +386,21 @@ impl<'a> PaintContext<'a> {
         self.scene.draw_image((&image.brush).into(), transform);
     }
 
+    /// Draw a backend-owned GPU surface into a widget-local rectangle.
+    pub fn draw_external_surface_in(&mut self, surface: crate::ExternalSurface, rect: [f64; 4]) {
+        let [width, height] = surface.dimensions();
+        if width == 0 || height == 0 {
+            return;
+        }
+        let [x, y, target_width, target_height] = rect;
+        let transform = Affine::translate((x, y))
+            * Affine::scale_non_uniform(
+                target_width / f64::from(width),
+                target_height / f64::from(height),
+            );
+        self.scene.draw_external_surface(surface, transform, 1.);
+    }
+
     /// Draw a validated custom WGSL effect into the complete widget content box.
     ///
     /// `values` exposes up to 256 scalar parameters through `plico.values`.
@@ -723,6 +738,10 @@ pub fn decode_widget_config<T: serde::de::DeserializeOwned>(json: &str) -> Resul
 /// returned [`WidgetChanges`] flags form the invalidation contract between the
 /// widget and those host-owned projections.
 pub trait Widget {
+    /// Install or remove the live renderer context. This is a framework
+    /// boundary for media/editor crates, not an application widget API.
+    fn set_gpu_context(&mut self, _context: Option<crate::source::GpuContext>) {}
+
     /// Measure content before layout. The default supports widgets whose
     /// intrinsic size is already known; text-backed widgets can update font
     /// metrics with `tcx` and then return their measured size.

@@ -9,17 +9,29 @@ description = "Experimental host-owned libmpv video surface for Plico"
 [features]
 default = []
 mpv = ["dep:libmpv2", "dep:libmpv2-sys", "dep:plico-renderer", "dep:snafu"]
+mpv-wgpu-gl = [
+    "mpv",
+    "dep:glow",
+    "dep:libloading",
+    "dep:plico-wgpu",
+    "dep:wgpu",
+]
 skia = ["plico-desktop/skia"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 libmpv2 = { version = "6", optional = true }
 libmpv2-sys = { version = "4.0.1", optional = true }
 plico-renderer = { workspace = true, optional = true }
+plico-wgpu = { path = "../plico-wgpu", optional = true }
 snafu = { workspace = true, optional = true }
+glow = { version = "0.17", optional = true }
+libloading = { version = "0.8", optional = true }
+wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
 plico.workspace = true
 plico-desktop = { path = "../plico-desktop", default-features = false, features = ["skia"] }
+pollster = "1.0"
 
 [[example]]
 name = "player"
@@ -28,3 +40,7 @@ required-features = ["mpv"]
 [[example]]
 name = "probe"
 required-features = ["mpv"]
+
+[[example]]
+name = "gpu_probe"
+required-features = ["mpv-wgpu-gl"]

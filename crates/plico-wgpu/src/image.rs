@@ -20,6 +20,13 @@ pub struct ImageQuad {
     pub extend: [Extend; 2],
     pub alpha: f32,
 }
+
+/// A physical-pixel quad sampling a texture produced outside the renderer.
+pub struct ExternalImageQuad {
+    pub quad: Quad,
+    pub surface: plico_renderer::ExternalSurface,
+    pub alpha: f32,
+}
 impl ImageQuad {
     /// Construct a full-source image with bilinear sampling, pad extension and
     /// full opacity. Fields can be adjusted for explicit low-level replay.

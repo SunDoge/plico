@@ -241,6 +241,7 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
     match draw {
         crate::Draw::Quad(q) => quad(q),
         crate::Draw::Image(image) => quad(&image.quad),
+        crate::Draw::ExternalImage(image) => quad(&image.quad),
         crate::Draw::Layer(layer) => quad(&layer.quad),
         crate::Draw::Effect(_, q) => quad(q),
         crate::Draw::SetMask(_) | crate::Draw::ResetMask => true,

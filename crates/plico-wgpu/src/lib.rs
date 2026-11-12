@@ -9,6 +9,7 @@ mod backdrop_pool;
 mod backdrop_prefilter;
 mod blit;
 mod blur;
+mod external;
 #[cfg(any(all(target_os = "macos", feature = "window"), test))]
 mod frame_pass;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -67,8 +68,30 @@ mod svg;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 pub mod text;
 mod texture;
+pub use external::ExternalTexture;
 pub use renderer::LayerPoolStats;
 pub use renderer::{FrameBatchStats, FrameBudget, Renderer};
+
+/// Native display connection kept alive by a window host.
+///
+/// The address is intentionally stored as an integer: display pointers are
+/// opaque, and consumers such as libmpv only borrow them while the window is
+/// alive. Headless renderers leave this capability unset.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeDisplay {
+    X11(usize),
+    Wayland(usize),
+}
+
+/// Cloneable handles for allocating an external surface on the exact device
+/// used by a Plico window.
+#[derive(Clone)]
+pub struct ExternalGpuContext {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub adapter: wgpu::AdapterInfo,
+    pub native_display: Option<NativeDisplay>,
+}
 
 use snafu::Snafu;
 
@@ -207,6 +230,7 @@ pub const MATERIAL_INTERFACE: &str = include_str!("material_interface.wgsl");
 pub enum Draw<'a> {
     Quad(&'a Quad),
     Image(&'a image::ImageQuad),
+    ExternalImage(&'a image::ExternalImageQuad),
     Layer(&'a scene::PreparedLayer),
     Effect(&'a plico_renderer::ShaderEffect, &'a Quad),
     /// Replace the active coverage mask; masks do not themselves paint pixels.

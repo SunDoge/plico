@@ -51,6 +51,10 @@ pub struct Shell {
 }
 
 impl Shell {
+    pub(crate) fn gpu_context(&self) -> Option<plico_renderer::source::GpuContext> {
+        self.renderer.gpu_context()
+    }
+
     /// Create the window, selected graphics backend and a fresh
     /// [`TextContext`]. Returns a typed error when any window/GPU step fails.
     pub fn create(

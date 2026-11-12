@@ -71,6 +71,7 @@ fn draw_clip_radii(draw: crate::Draw<'_>) -> [f32; 4] {
     match draw {
         crate::Draw::Quad(value) | crate::Draw::Effect(_, value) => quad(value),
         crate::Draw::Image(image) => quad(&image.quad),
+        crate::Draw::ExternalImage(image) => quad(&image.quad),
         crate::Draw::Layer(layer) => quad(&layer.quad),
         crate::Draw::SetMask(_) | crate::Draw::ResetMask => [0.; 4],
         #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -89,6 +90,10 @@ fn draw_info(draw: crate::Draw<'_>, mask: Option<[f32; 4]>) -> OcclusionInfo {
             ..Default::default()
         },
         crate::Draw::Image(value) => OcclusionInfo {
+            visible: quad(&value.quad),
+            ..Default::default()
+        },
+        crate::Draw::ExternalImage(value) => OcclusionInfo {
             visible: quad(&value.quad),
             ..Default::default()
         },
@@ -171,6 +176,7 @@ fn validate_culled_draw(renderer: &Renderer, draw: crate::Draw<'_>, _size: [u32;
             validate_image_draw(image)?;
             crate::image::ImageCache::validate_source(&renderer.device, &image.image).map(|_| ())
         }
+        crate::Draw::ExternalImage(image) => image.quad.validate(),
         crate::Draw::Layer(layer) => layer.quad.validate(),
         crate::Draw::SetMask(_) | crate::Draw::ResetMask => Ok(()),
         #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -723,6 +729,42 @@ impl Renderer {
                                 0.
                             },
                         ],
+                    });
+                }
+                crate::Draw::ExternalImage(image) => {
+                    let q = &image.quad;
+                    q.validate()?;
+                    if q.rect[2] <= 0. || q.rect[3] <= 0. {
+                        continue;
+                    }
+                    let texture = image
+                        .surface
+                        .downcast_ref::<crate::ExternalTexture>()
+                        .ok_or_else(|| Error::Unsupported {
+                            command: 0,
+                            reason: "external image is not a wgpu texture".into(),
+                        })?;
+                    let view = texture
+                        .texture()
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    let resource = crate::image::GpuImage::from_view(
+                        &self.device,
+                        &self.atlas_texture.layout,
+                        &view,
+                    );
+                    let slot = self.intern_frame_image(resource);
+                    instances.push(Instance {
+                        mask_rect: [0.; 4],
+                        radii: shrink_radii([q.rect[2], q.rect[3]], q.radii),
+                        rect: q.rect,
+                        color: [0., 0., 0., image.alpha],
+                        color2: [1., 0., 0., 0.],
+                        border: [0.; 4],
+                        config: [q.radii[0], 0., 4., slot as f32],
+                        clip: q.clip.unwrap_or([0., 0., width as f32, height as f32]),
+                        uv: [0., 0., 1., 1.],
+                        gradient: [0.; 4],
+                        clip_params: [if q.clip_antialias { 1. } else { 0. }, 0., 0., 0.],
                     });
                 }
                 #[cfg(all(target_os = "linux", feature = "system-text"))]

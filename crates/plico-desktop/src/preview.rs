@@ -184,7 +184,9 @@ impl PreviewSession {
         let fixed_size = matches!(self.backend, crate::RenderBackend::Skia)
             || (matches!(self.backend, crate::RenderBackend::Auto) && !cfg!(feature = "wgpu"));
         if self.renderer.is_none() || (fixed_size && self.dimensions != (width, height)) {
-            let mut renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
+            let renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
+            #[cfg(feature = "wgpu")]
+            let mut renderer = renderer;
             #[cfg(feature = "wgpu")]
             renderer.force_general_pipelines(self.force_general_pipelines);
             #[cfg(feature = "wgpu")]

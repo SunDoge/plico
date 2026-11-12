@@ -18,6 +18,17 @@ fn power_preference() -> wgpu::PowerPreference {
 }
 
 impl Renderer {
+    /// Clone the device handles required by a framework external-surface
+    /// producer. Queue submission ordering remains owned by this renderer.
+    pub fn external_gpu_context(&self) -> crate::ExternalGpuContext {
+        crate::ExternalGpuContext {
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            adapter: self.info.clone(),
+            native_display: None,
+        }
+    }
+
     pub async fn new() -> Result<Self> {
         // Share the backend instance across default renderers. Besides avoiding
         // repeated backend discovery, this serializes Vulkan-loader startup.
