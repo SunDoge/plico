@@ -100,7 +100,9 @@ fn main() {
             _ => {}
         }
         clock.advance(Duration::from_millis(16)).unwrap();
-        source.render_retained_frame(&mut scene, &mut text, (1100, 820), 1.);
+        source
+            .render_retained_frame(&mut scene, &mut text, (1100, 820), 1.)
+            .unwrap();
         let t = Instant::now();
         let damage = tracked
             .draw_scene_tracked(&scene, source.base_color())
