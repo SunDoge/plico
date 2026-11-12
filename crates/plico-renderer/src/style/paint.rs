@@ -413,7 +413,10 @@ impl DeclaredPaint {
             cursor: inherited.cursor,
             backdrop_blur: 0.,
             foreground_blur: 0.,
-            corner_smoothing: 0.,
+            // Plico uses MyGO's continuous contour by default on every
+            // platform. Fully rounded circles and capsules clamp back to
+            // exact circular arcs in `corner_shape`.
+            corner_smoothing: 1.,
             sticky_top: None,
             sticky_push: false,
             text: host.text,

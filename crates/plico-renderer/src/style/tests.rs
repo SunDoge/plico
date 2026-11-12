@@ -18,6 +18,17 @@ fn retained_paint_records_stay_compact() {
     }
 }
 
+#[test]
+fn renderer_paint_defaults_to_continuous_corners() {
+    assert_eq!(Paint::default().corner_smoothing, 1.);
+    assert_eq!(
+        DeclaredPaint::default()
+            .resolve(&InheritedPaint::default(), HostPaint::default())
+            .corner_smoothing,
+        1.
+    );
+}
+
 fn keyword(value: &str) -> IrValue {
     IrValue::Keyword {
         value: value.into(),

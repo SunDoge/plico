@@ -1,16 +1,22 @@
 use kurbo::{Affine, Rect};
 use peniko::Color;
-use plico_renderer::{PaintScene, Scene};
+use plico_renderer::{PaintScene, Scene, ShadowProfile};
 use plico_wgpu::Renderer;
 
 fn shadow(x: f64, radius: f64, sigma: f64) -> Scene {
     let mut scene = Scene::new();
-    scene.draw_box_shadow(
+    // These tests use an independent circular-arc convolution oracle. The
+    // public convenience method defaults to continuous corners; request the
+    // circular reference profile explicitly here.
+    scene.draw_box_shadow_profile(
         Affine::translate((x, 0.)),
         Rect::new(32.5, 32.5, 96.5, 96.5),
         Color::from_rgba8(0, 0, 0, 255),
-        radius,
-        sigma,
+        ShadowProfile {
+            radius,
+            std_dev: sigma,
+            corner_smoothing: 0.,
+        },
     );
     scene
 }

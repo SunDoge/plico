@@ -56,7 +56,7 @@ portal 不可用及未实现选项的边界见 [Linux 对照](linux-mygo.md)。
 
 ## 默认圆角
 
-Rust Style 的默认 corner_smoothing 已设为 1，控件与布局统一采用连续圆角，半径数值不变。
+Rust Style、renderer Paint 与低层阴影便利接口的默认 corner_smoothing 已设为 1，控件、布局和阴影统一采用连续圆角，半径数值不变；完整圆形与胶囊会自动保持精确圆弧。
 显式 0 保留圆弧；正圆与完全圆角胶囊在 CPU 与玻璃 WGSL 均保持精确圆弧，不变成方圆形。
 默认／serde／显式覆盖、几何与 GPU 圆角和裁剪回归已覆盖。
 

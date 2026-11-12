@@ -143,15 +143,13 @@ fn hue_slider(cx: &mut UiContext<'_>, hue: &mut f64) -> crate::SliderResponse {
                 .absolute(0., m.spacing as f32 * 0.5)
                 .width_percent(100.)
                 .height(m.space(3))
-                .radius(m.spacing as f32 * 1.5)
-                .corner_smoothing(0.);
+                .radius(m.spacing as f32 * 1.5);
             let x = knob / 2. + (width - knob) * (*hue as f32 / 360.) - knob / 2.;
             column(cx)
                 .absolute(x, 0.)
                 .width(knob)
                 .height(m.space(4))
                 .radius(knob / 2.)
-                .corner_smoothing(0.)
                 .background(Color::Literal(0xffffff))
                 .shadow(crate::BoxShadow {
                     offset_x: 0.,
@@ -250,7 +248,6 @@ pub fn color_picker(cx: &mut UiContext, color: &mut Color) -> bool {
                         .width(diameter)
                         .height(diameter)
                         .radius(diameter / 2.)
-                        .corner_smoothing(0.)
                         .border(2., Color::Literal(0xffffff))
                         .shadow(crate::BoxShadow {
                             offset_x: 0.,
