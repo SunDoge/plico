@@ -331,6 +331,16 @@ impl<V: HostView> Driver<V> {
         self.source.has_anim()
     }
 
+    /// Earliest deterministic repaint requested by motion or deferred UI work.
+    pub fn animation_deadline(&self) -> Option<std::time::Instant> {
+        self.source.animation_deadline()
+    }
+
+    /// Shader validation messages produced by the latest settled frame.
+    pub fn shader_diagnostics(&self) -> impl Iterator<Item = &str> {
+        self.source.shader_diagnostics()
+    }
+
     /// Deliver a backend-neutral event and settle the resulting frame.
     pub fn dispatch_event(&mut self, event: UiEvent) -> Result<EventResponse, Error> {
         self.source
