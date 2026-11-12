@@ -565,12 +565,14 @@ impl Renderer {
                 collect(&layer.scene, live);
             }
         }
-        let mut live = std::collections::HashSet::new();
+        let mut live = std::mem::take(&mut self.prepared_live_scratch);
+        live.clear();
         collect(&prepared, &mut live);
         self.prepared_cache.retain(|_, entries| {
             entries.retain(|entry| live.contains(&std::rc::Rc::as_ptr(entry)));
             !entries.is_empty()
         });
+        self.prepared_live_scratch = live;
         Ok(prepared)
     }
     fn prepare_scene_with_clip(

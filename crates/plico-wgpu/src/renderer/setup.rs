@@ -248,6 +248,7 @@ impl Renderer {
             #[cfg(all(target_arch = "wasm32", feature = "web"))]
             web_paragraphs: None,
             prepared_cache: std::collections::HashMap::new(),
+            prepared_live_scratch: std::collections::HashSet::new(),
             scene_preparations: 0,
             scene_cache_hits: 0,
             scene_damage: Default::default(),

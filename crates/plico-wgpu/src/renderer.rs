@@ -340,6 +340,7 @@ pub struct Renderer {
     #[cfg(all(target_arch = "wasm32", feature = "web"))]
     pub(crate) web_paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::web_text::Cache>>>,
     pub(crate) prepared_cache: PreparedCache,
+    pub(crate) prepared_live_scratch: std::collections::HashSet<*const crate::scene::PreparedScene>,
     pub(crate) scene_preparations: u64,
     pub(crate) scene_cache_hits: u64,
     pub(crate) scene_damage: plico_renderer::damage::SceneDamageTracker,
