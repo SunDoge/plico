@@ -223,6 +223,7 @@ impl VisitMut for Expand {
                             | "text_input"
                             | "text_input_string"
                             | "virtual_list"
+                            | "variable_virtual_list"
                             | "settings_section"
                             | "settings_row"
                             | "column"
