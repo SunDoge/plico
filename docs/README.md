@@ -4,7 +4,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [C# MyGO 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md) | 共享后端核对、补齐的组件/效果、圆角一致性与验证边界 |
+| [历史 C# 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md) | 已退役前端中可复用能力的 Rust 迁移记录 |
 | [MyGo 对标方向](mygo-benchmark.md) | 完整界面的验收标准与下一条应用切片 |
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
 | [2048 对照](2048.md) | MyGo 游戏切片、棋子身份、时钟动画、键盘与模块恢复 |
@@ -53,7 +53,7 @@
 | [国际化](i18n.md) | 显式 locale scope、Fluent 消息、裁剪 ICU4X 数据与中英文 gallery |
 | [场景预览](preview.md) | JSON 状态、模拟操作、虚拟时钟、离屏截图与自动编译重启 |
 | [动画、异步与开发生命周期](lifecycle.md) | scalar motion、宿主任务边界与静态编译预览 |
-| [自动身份](identity.md) | component/view 的隐式 ID、列表 key 与恢复边界 |
+| [自动身份](identity.md) | `#[component]` 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |
@@ -76,7 +76,7 @@
 | [动态文字格式化](text-formatting.md) | text!、复用缓冲与分配计数边界 |
 | [wgpu 背景依赖与分组](experiments/wgpu-backdrop-architecture.md) | 玻璃局部失效、纹理数组分组、像素一致性及同进程性能 A/B |
 | [wgpu damage 收益验证](experiments/wgpu-damage.md) | 像素一致性、Intel GPU 时间、窗口 CPU 及滚动回退 |
-| [C# batch frontend 实验](experiments/csharp-batch.md) | csbindgen、原生批量提交、事件回传与编辑反馈耗时 |
+| [历史 C# batch frontend 实验](experiments/csharp-batch.md) | 已退役 ABI 的批量提交、事件回传与编辑反馈数据 |
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |
 | [Cargo 构建性能指南实测](experiments/rust-build-latency.md) | wgpu Gallery 的调试信息、Cranelift、并行前端、Wild 与运行时代价 |
 | [Plicowarden](plicowarden.md) | 已迁出的独立 GPL 应用、开发位置与依赖边界 |
@@ -140,15 +140,7 @@
 
 - [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.
 
-- [C# gallery：运行、热重载和截图验证](../apps/gallery-csharp/README.md)
-
-- [C# / Rust interaction benchmarks](experiments/csharp-interop.md)
-
-- [C# component kit](csharp-components.md): public inventory, MyGO references, lifecycle and interaction boundaries.
-
 - [Continuous corners](corner-smoothing.md): shared eased fill/border/clip geometry and renderer cost boundaries.
-
-- [C# / native boundary](csharp-boundary.md): feature ownership and native-free test/build tiers.
 
 - [Liquid Glass](liquid-glass.md): Rust LiquidGlass/Elevation APIs, shared materials, parameters and backend limits.
 

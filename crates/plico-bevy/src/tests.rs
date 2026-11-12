@@ -55,7 +55,8 @@ fn layout(app: &mut App) {
     let mut ui = app.world_mut().non_send_mut::<PlicoUi<TestView>>();
     let ui = &mut *ui;
     ui.source
-        .build_and_paint(&mut ui.scene, &mut ui.text, 400, 300, 1.);
+        .try_build_and_paint(&mut ui.scene, &mut ui.text, 400, 300, 1.)
+        .unwrap();
 }
 fn send(app: &mut App, event: impl Into<WindowEvent>) {
     app.world_mut().write_message(event.into());
@@ -162,6 +163,7 @@ fn transparent_embedding_keeps_scene_and_retained_nodes() {
     let mut ui = app.world_mut().non_send_mut::<PlicoUi<TestView>>();
     let ui = &mut *ui;
     ui.source
-        .render_retained_frame(&mut ui.scene, &mut ui.text, (400, 300), 1.);
+        .try_render_retained_frame(&mut ui.scene, &mut ui.text, (400, 300), 1.)
+        .unwrap();
     assert!(ui.scene.shares_commands_with(&before));
 }

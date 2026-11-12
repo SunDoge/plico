@@ -12,7 +12,7 @@ use notify::event::ModifyKind;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use snafu::{ResultExt, Snafu};
 
-use crate::WakeCallback;
+use plico_renderer::WakeCallback;
 
 /// Errors raised while creating or updating a native filesystem watch.
 #[derive(Debug, Snafu)]

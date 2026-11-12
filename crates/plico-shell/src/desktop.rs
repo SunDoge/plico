@@ -3,9 +3,8 @@
 //! Applications supply branding, menu semantics, notification contents and persistence.
 //! No native callback receives UI or application-state references. A process can own
 //! one integration because the native menu library has process-global callbacks.
-use crate::{
-    ExtensionContext, NotificationRequest, ShellExtension, WakeCallback, WindowResourceKey,
-};
+use crate::{ExtensionContext, NotificationRequest, ShellExtension, WindowResourceKey};
+use plico_renderer::WakeCallback;
 use snafu::Snafu;
 use std::{
     collections::{HashMap, HashSet},

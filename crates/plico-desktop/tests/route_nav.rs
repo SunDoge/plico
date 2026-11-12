@@ -29,7 +29,7 @@ fn nav_menu_renders_every_route_and_navigates_on_click() {
     let mut tcx = TextContext::new();
     let _ = s.build_frame(&mut tcx, 300, 400);
 
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    let semantics = s.semantics();
     let home = semantics
         .node_by_role(SemanticRole::Button, "Home", None)
         .unwrap();
@@ -43,8 +43,8 @@ fn nav_menu_renders_every_route_and_navigates_on_click() {
         target: settings.id
     }));
     let _ = s.build_frame(&mut tcx, 300, 400);
-    assert!(s.view.router.show(Nav::Settings));
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    assert!(s.view().router.show(Nav::Settings));
+    let semantics = s.semantics();
     assert_eq!(
         semantics
             .node_by_role(SemanticRole::Button, "Settings", None)
@@ -61,5 +61,5 @@ fn nav_menu_renders_every_route_and_navigates_on_click() {
             .selected,
         Some(false)
     );
-    assert_eq!(s.view.router.back(), Nav::Home);
+    assert_eq!(s.update(|view| view.router.back()), Nav::Home);
 }

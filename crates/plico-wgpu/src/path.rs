@@ -104,8 +104,8 @@ impl PathCache {
         }
         let mut builder = sk::PathBuilder::new();
         let mut hash = std::collections::hash_map::DefaultHasher::new();
-        for el in shape.elements() {
-            let points: &[kurbo::Point] = match el {
+        for el in shape.path_elements(0.1) {
+            let points: &[kurbo::Point] = match &el {
                 PathEl::MoveTo(p) | PathEl::LineTo(p) => std::slice::from_ref(p),
                 PathEl::QuadTo(p, q) => &[*p, *q],
                 PathEl::CurveTo(p, q, r) => &[*p, *q, *r],
@@ -118,8 +118,8 @@ impl PathCache {
                 p.x.to_bits().hash(&mut hash);
                 p.y.to_bits().hash(&mut hash);
             }
-            std::mem::discriminant(el).hash(&mut hash);
-            match *el {
+            std::mem::discriminant(&el).hash(&mut hash);
+            match el {
                 PathEl::MoveTo(p) => builder.move_to(p.x as f32, p.y as f32),
                 PathEl::LineTo(p) => builder.line_to(p.x as f32, p.y as f32),
                 PathEl::QuadTo(p, q) => {

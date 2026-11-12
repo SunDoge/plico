@@ -14,7 +14,6 @@ desktop = ["dep:plico-desktop"]
 [dependencies]
 plico.workspace = true
 plico-dev.workspace = true
-plico-runtime.workspace = true
 plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-features = false, features = ["wgpu"] }
 serde = { workspace = true, features = ["derive"] }
 
@@ -23,10 +22,8 @@ name = "services-demo"
 required-features = ["desktop"]
 
 [dev-dependencies]
-serde_json.workspace = true
 snafu.workspace = true
 usage-rs.workspace = true
-tempfile.workspace = true
 plico-renderer.workspace = true
 plico-shell.workspace = true
 

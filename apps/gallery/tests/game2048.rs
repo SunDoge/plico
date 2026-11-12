@@ -25,7 +25,6 @@ fn key(value: &str) -> UiEvent {
 }
 fn frame(s: &mut Source<Gallery>, tcx: &mut TextContext, w: u32, h: u32) {
     s.build_frame(tcx, w, h);
-    assert!(s.last_error.is_none(), "{:?}", s.last_error);
 }
 #[test]
 fn keyboard_slide_retains_entity_and_stops_requesting_frames() {
@@ -43,41 +42,46 @@ fn keyboard_slide_retains_entity_and_stops_requesting_frames() {
     clock.advance(Duration::from_secs(1)).unwrap();
     frame(&mut source, &mut tcx, 1120, 820);
     let initial = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("8"))
         .unwrap()
         .clone();
     assert!(source.handle_event(key("ArrowLeft")).handled);
     frame(&mut source, &mut tcx, 1120, 820);
-    assert_eq!(source.view.game2048.cells()[0][0], 8);
+    assert_eq!(source.view().game2048.cells()[0][0], 8);
     let rect = |s: &Source<Gallery>| {
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .find(|n| n.node_id == initial.node_id)
-            .and_then(|n| s.adapter.visual_bounds(n.node_id))
+            .and_then(|n| s.visual_bounds(n.node_id))
             .unwrap()
     };
     let start = rect(&source);
     clock.advance(Duration::from_millis(50)).unwrap();
     frame(&mut source, &mut tcx, 1120, 820);
     let middle = rect(&source);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    assert_eq!(source.adapter.stats.style_writes, 0);
-    assert_eq!(source.adapter.stats.flatten_visits, 0);
+    let backend = source.frame_diagnostics().backend;
+    assert_eq!(backend.layout_runs, 0);
+    assert_eq!(backend.style_writes, 0);
+    assert_eq!(backend.flatten_visits, 0);
     clock.advance(Duration::from_millis(550)).unwrap();
     frame(&mut source, &mut tcx, 1120, 820);
     let end = rect(&source);
     assert!(start[0] > middle[0] && middle[0] > end[0]);
     assert!(!source.has_anim());
-    assert_eq!(source.adapter.stats.created, 0);
-    let snapshot = serde_json::to_value(source.engine.snapshot()).unwrap();
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
     frame(&mut source, &mut tcx, 1120, 820);
+    let declaration = source.frame_diagnostics().declaration;
     assert_eq!(
-        snapshot,
-        serde_json::to_value(source.engine.snapshot()).unwrap()
+        (
+            declaration.created,
+            declaration.removed,
+            declaration.text_writes,
+            declaration.paint_updates,
+            declaration.order_changes,
+        ),
+        (0, 0, 0, 0, 0),
     );
     assert_eq!(clock.now(), Duration::from_millis(1600));
 }
@@ -89,26 +93,27 @@ fn gallery_buttons_play_and_restart_and_board_fits_small_window() {
     });
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 640, 740);
-    let tree = s.adapter.semantics(&s.engine, 0);
+    let tree = s.semantics();
     let right = tree
         .node_by_role(SemanticRole::Button, "→", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target: right }));
     frame(&mut s, &mut tcx, 640, 740);
-    s.view.game2048.score = 128;
-    s.view.game2048.best = 512;
+    s.update(|view| {
+        view.game2048.score = 128;
+        view.game2048.best = 512;
+    });
     let new_game = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "New game", None)
         .unwrap()
         .id;
     s.handle_semantic_action(SemanticAction::Click { target: new_game });
     frame(&mut s, &mut tcx, 640, 740);
-    assert_eq!(s.view.game2048.score, 0);
-    assert_eq!(s.view.game2048.best, 512);
-    for node in &s.adapter.placed {
+    assert_eq!(s.view().game2048.score, 0);
+    assert_eq!(s.view().game2048.best, 512);
+    for node in s.placed_nodes() {
         if node.paint.background.is_some_and(|c| {
             let c = c.to_rgba8();
             c.r == 187 && c.g == 173 && c.b == 160
@@ -116,12 +121,12 @@ fn gallery_buttons_play_and_restart_and_board_fits_small_window() {
             assert!(node.rect[0] >= 164. && node.rect[2] <= 640.);
         }
     }
-    s.view.router.go(Page::Controls);
+    s.update(|view| view.router.go(Page::Controls));
     frame(&mut s, &mut tcx, 640, 740);
-    let before = s.view.game2048.clone();
+    let before = s.view().game2048.clone();
     s.handle_event(key("ArrowLeft"));
-    assert_eq!(before.cells(), s.view.game2048.cells());
-    assert_eq!(before.score, s.view.game2048.score);
+    assert_eq!(before.cells(), s.view().game2048.cells());
+    assert_eq!(before.score, s.view().game2048.score);
 }
 #[test]
 fn game_over_and_win_present_actions_after_motion() {
@@ -151,12 +156,11 @@ fn game_over_and_win_present_actions_after_motion() {
         frame(&mut source, &mut tcx, 920, 820);
         assert!(
             source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|n| n.paint.text.as_deref() == Some(message))
         );
-        let tree = source.adapter.semantics(&source.engine, 0);
+        let tree = source.semantics();
         assert!(
             tree.node_by_role(SemanticRole::Button, "Try again", None)
                 .is_some()
@@ -214,6 +218,6 @@ fn portable_module_keys_use_injected_clock_viewport_and_preserve_game_state() {
     source.build_frame(&mut tcx, 640, 740);
     assert!(source.handle_event(key("r")).handled);
     source.build_frame(&mut tcx, 640, 740);
-    assert_eq!(source.view.0.game2048.tiles.len(), 2);
-    assert_eq!(source.view.0.game2048.score, 0);
+    assert_eq!(source.view().0.game2048.tiles.len(), 2);
+    assert_eq!(source.view().0.game2048.score, 0);
 }

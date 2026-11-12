@@ -44,8 +44,7 @@ fn key(value: &str) -> UiEvent {
 
 fn focus(source: &mut Source<Demo>, label: &str, role: SemanticRole, text: &mut TextContext) {
     let id = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(role, label, None)
         .unwrap_or_else(|| panic!("{label:?} has role {role:?}"))
         .id;
@@ -55,7 +54,7 @@ fn focus(source: &mut Source<Demo>, label: &str, role: SemanticRole, text: &mut 
 }
 
 fn focused_label(source: &Source<Demo>, role: SemanticRole, target: &str) -> bool {
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     semantics
         .node_by_role(role, target, None)
         .is_some_and(|node| semantics.focus == Some(node.id))
@@ -88,9 +87,9 @@ fn response_reports_backend_focus() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
     source.build_frame(&mut text, 720, 400);
-    assert!(!source.view.plain_focused);
+    assert!(!source.view().plain_focused);
     focus(&mut source, "Plain", SemanticRole::Button, &mut text);
-    assert!(source.view.plain_focused);
+    assert!(source.view().plain_focused);
 }
 
 #[test]
@@ -99,12 +98,11 @@ fn semantic_click_activates_an_unselected_roving_tab() {
     let mut text = TextContext::new();
     source.build_frame(&mut text, 720, 400);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Tab, "Two", None)
         .unwrap()
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Click { target }));
     source.build_frame(&mut text, 720, 400);
-    assert_eq!(source.view.tab, 1);
+    assert_eq!(source.view().tab, 1);
 }

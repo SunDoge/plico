@@ -5,9 +5,9 @@
 use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
-    FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
+    EventResponse, FrameSource, KeyEvent, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
     PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
-    UiEvent,
+    UiEvent, layout::PlacedNode,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -128,7 +128,11 @@ pub fn dispatch<V: HostView>(
     text: &mut TextContext,
     command: &Command,
 ) -> Result<(), Error> {
-    source.prepare_for_event(text);
+    source
+        .try_prepare_for_event(text)
+        .map_err(|error| Error::Declaration {
+            message: error.to_string(),
+        })?;
     match command {
         Command::Snapshot => {}
         Command::PointerMove { x, y } => {
@@ -245,18 +249,11 @@ pub fn dispatch<V: HostView>(
             source.handle_event(UiEvent::Key(event.clone()));
         }
         Command::Key { key } => {
-            source.handle_event(UiEvent::Key(KeyEvent {
-                phase: KeyPhase::Down,
-                key: key.clone(),
-                key_without_modifiers: key.clone(),
-                code: String::new(),
-                text: None,
-                text_with_all_modifiers: None,
-                location: KeyLocation::Standard,
-                modifiers: Modifiers::empty(),
-                repeat: false,
-                synthetic: false,
-            }));
+            source.handle_event(UiEvent::Key(KeyEvent::logical(
+                KeyPhase::Down,
+                key.clone(),
+                Modifiers::empty(),
+            )));
         }
     }
     Ok(())
@@ -265,7 +262,7 @@ pub fn dispatch<V: HostView>(
 /// A headless application with an explicitly advanced clock. Layout and input
 /// use the real runtime; this does not simulate an OS window or GPU swapchain.
 pub struct Driver<V: HostView> {
-    pub source: Source<V>,
+    source: Source<V>,
     text: TextContext,
     clock: VirtualClock,
     size: (u32, u32),
@@ -287,13 +284,49 @@ impl<V: HostView> Driver<V> {
     }
     fn frame(&mut self) -> Result<(), Error> {
         self.source
-            .build_frame(&mut self.text, self.size.0, self.size.1);
-        if let Some(message) = &self.source.last_error {
-            return Err(Error::Declaration {
+            .try_build_frame(&mut self.text, self.size.0, self.size.1)
+            .map_err(|message| Error::Declaration {
                 message: message.to_string(),
-            });
-        }
+            })?;
         Ok(())
+    }
+    /// Current application/host view state after the latest settled frame.
+    pub fn view(&self) -> &V {
+        self.source.view()
+    }
+
+    /// Mutate application state, invalidate declarations and settle one frame.
+    pub fn update_view<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> Result<R, Error> {
+        let value = self.source.update(update);
+        self.frame()?;
+        Ok(value)
+    }
+
+    /// Retained layout and paint projection for structural assertions.
+    pub fn placed_nodes(&self) -> &[PlacedNode] {
+        self.source.placed_nodes()
+    }
+
+    /// Theme used by the latest settled declaration.
+    pub fn theme(&self) -> plico::Theme {
+        self.source.theme()
+    }
+
+    /// Whether the real runtime currently requests further animation frames.
+    pub fn has_animation(&self) -> bool {
+        self.source.has_anim()
+    }
+
+    /// Deliver a backend-neutral event and settle the resulting frame.
+    pub fn dispatch_event(&mut self, event: UiEvent) -> Result<EventResponse, Error> {
+        self.source
+            .try_prepare_for_event(&mut self.text)
+            .map_err(|error| Error::Declaration {
+                message: error.to_string(),
+            })?;
+        let response = self.source.handle_event(event);
+        self.frame()?;
+        Ok(response)
     }
     pub fn execute(&mut self, command: Command) -> Result<SemanticSnapshot, Error> {
         dispatch(&mut self.source, &mut self.text, &command)?;
@@ -301,7 +334,7 @@ impl<V: HostView> Driver<V> {
         Ok(self.snapshot())
     }
     pub fn snapshot(&self) -> SemanticSnapshot {
-        self.source.adapter.semantics(&self.source.engine, 0)
+        self.source.semantics()
     }
     pub fn declarations(&self) -> Vec<ViewNode> {
         self.source.engine.snapshot()

@@ -71,18 +71,20 @@ fn host_motion_updates_nested_paint_hits_and_semantics_without_layout_or_declara
     let mut s = Source::with_clock(Demo::default(), clock.clone());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
-    s.view.x = 100.;
-    s.view.scale = 2.;
+    s.update(|view| {
+        view.x = 100.;
+        view.scale = 2.;
+    });
     s.build_frame(&mut tcx, 400, 200);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     clock.advance(Duration::from_millis(120)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.view.calls, calls);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.text_measure_invalidations, 0);
-    assert_eq!(s.adapter.stats.style_writes, 0);
-    assert_eq!(s.adapter.stats.flatten_visits, 0);
-    let tree = s.adapter.semantics(&s.engine, 0);
+    assert_eq!(s.view().calls, calls);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.text_measure_invalidations, 0);
+    assert_eq!(s.frame_diagnostics().backend.style_writes, 0);
+    assert_eq!(s.frame_diagnostics().backend.flatten_visits, 0);
+    let tree = s.semantics();
     let bounds = tree
         .node_by_role(SemanticRole::Button, "Target", None)
         .unwrap()
@@ -93,11 +95,11 @@ fn host_motion_updates_nested_paint_hits_and_semantics_without_layout_or_declara
     s.handle_event(pointer(PointerPhase::Down, 170., 40.));
     s.handle_event(pointer(PointerPhase::Up, 170., 40.));
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.view.clicks, 1);
+    assert_eq!(s.view().clicks, 1);
     // The click also starts the theme's button interaction animation.
     clock
         .advance(Duration::from_millis(
-            u64::from(s.engine.theme().metrics.interaction_ms).max(120),
+            u64::from(s.theme().metrics.interaction_ms).max(120),
         ))
         .unwrap();
     s.build_frame(&mut tcx, 400, 200);
@@ -115,23 +117,25 @@ fn transformed_children_obey_ancestor_clip_and_zero_scale_is_not_hittable() {
     );
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
-    s.view.x = 150.;
+    s.update(|view| view.x = 150.);
     s.build_frame(&mut tcx, 400, 200);
     clock.advance(Duration::from_millis(240)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
     s.handle_event(pointer(PointerPhase::Down, 210., 40.));
     s.handle_event(pointer(PointerPhase::Up, 210., 40.));
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.view.clicks, 0);
-    s.view.clip = false;
-    s.view.scale = 0.;
+    assert_eq!(s.view().clicks, 0);
+    s.update(|view| {
+        view.clip = false;
+        view.scale = 0.;
+    });
     s.build_frame(&mut tcx, 400, 200);
     clock.advance(Duration::from_millis(240)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
     s.handle_event(pointer(PointerPhase::Down, 230., 40.));
     s.handle_event(pointer(PointerPhase::Up, 230., 40.));
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.view.clicks, 0);
+    assert_eq!(s.view().clicks, 0);
 }
 
 #[derive(Default)]
@@ -153,15 +157,13 @@ fn semantic_only_change_does_not_write_paint_or_layout() {
     let mut s = Source::new(SemanticOnly::default());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
-    s.view.selected = true;
+    s.update(|view| view.selected = true);
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.engine.changes(), plico::Changes::SEMANTICS);
-    assert_eq!(s.adapter.stats.paint_writes, 0);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.flatten_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.paint_writes, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.flatten_visits, 0);
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Button, "Choice", None)
             .unwrap()
             .states
@@ -182,14 +184,14 @@ fn a_small_transform_only_updates_its_subtree_among_many_static_nodes() {
     );
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
-    s.view.x = 100.;
+    s.update(|view| view.x = 100.);
     s.build_frame(&mut tcx, 400, 200);
     clock.advance(Duration::from_millis(120)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
     // Animated container, button container, and its text content.
-    assert_eq!(s.adapter.stats.presentation_visits, 3);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.flatten_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.presentation_visits, 3);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.flatten_visits, 0);
 }
 
 #[derive(Default)]
@@ -227,30 +229,30 @@ fn presentation_motion_only_visits_placed_nodes_when_children_are_collapsed() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
     assert!(
-        !s.adapter
-            .placed
+        !s.placed_nodes()
             .iter()
             .any(|p| p.paint.text.as_deref() == Some("Clipped descendant"))
     );
     let sibling = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Visible sibling"))
         .unwrap()
         .node_id;
-    let old = s.adapter.visual_bounds(sibling).unwrap();
-    s.view.x = 80.;
-    s.view.opacity = 0.5;
+    let old = s.visual_bounds(sibling).unwrap();
+    s.update(|view| {
+        view.x = 80.;
+        view.opacity = 0.5;
+    });
     s.build_frame(&mut tcx, 400, 200);
     clock.advance(Duration::from_millis(120)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
-    let moved = s.adapter.visual_bounds(sibling).unwrap();
+    let moved = s.visual_bounds(sibling).unwrap();
     assert!(moved[0] > old[0] && moved[0] < old[0] + 80.);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.flatten_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.flatten_visits, 0);
     clock.advance(Duration::from_millis(120)).unwrap();
     s.build_frame(&mut tcx, 400, 200);
-    assert!((s.adapter.visual_bounds(sibling).unwrap()[0] - old[0] - 80.).abs() < 0.01);
+    assert!((s.visual_bounds(sibling).unwrap()[0] - old[0] - 80.).abs() < 0.01);
     assert!(!s.has_anim());
 }

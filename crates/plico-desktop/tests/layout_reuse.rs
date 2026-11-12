@@ -28,23 +28,21 @@ fn color_theme_reuses_layout_but_size_and_viewport_still_update() {
     });
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 300);
-    assert!(source.adapter.stats.layout_style_builds > 0);
-    source.view.theme.panel ^= 0x222222;
-    source.request_rebuild();
+    assert!(source.frame_diagnostics().backend.layout_style_builds > 0);
+    source.update(|view| view.theme.panel ^= 0x222222);
     source.build_frame(&mut text, 400, 300);
-    assert!(source.adapter.stats.sync_visits > 0);
-    assert_eq!(source.adapter.stats.layout_style_builds, 0);
-    assert_eq!(source.adapter.stats.style_writes, 0);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    source.view.width = 180.;
-    source.request_rebuild();
+    assert!(source.frame_diagnostics().backend.sync_visits > 0);
+    assert_eq!(source.frame_diagnostics().backend.layout_style_builds, 0);
+    assert_eq!(source.frame_diagnostics().backend.style_writes, 0);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+    source.update(|view| view.width = 180.);
     source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.adapter.stats.layout_style_builds, 1);
-    assert_eq!(source.adapter.stats.style_writes, 1);
+    assert_eq!(source.frame_diagnostics().backend.layout_style_builds, 1);
+    assert_eq!(source.frame_diagnostics().backend.style_writes, 1);
     source.build_frame(&mut text, 600, 500);
-    assert!(source.adapter.stats.layout_style_builds >= 1);
-    assert!(source.adapter.stats.style_writes >= 1);
-    assert_eq!(source.adapter.stats.layout_runs, 1);
+    assert!(source.frame_diagnostics().backend.layout_style_builds >= 1);
+    assert!(source.frame_diagnostics().backend.style_writes >= 1);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 1);
 }
 
 #[test]
@@ -74,18 +72,28 @@ fn rich_text_color_animation_repaints_without_remeasurement() {
     let rects: Vec<_> = nodes.iter().map(|n| n.rect).collect();
     let mut before = Scene::new();
     source.paint_scene(&mut before, &nodes, &mut text, (400, 300), 1.);
-    source.view.color = Color::Literal(0x0000ff);
-    source.request_rebuild();
+    source.update(|view| view.color = Color::Literal(0x0000ff));
     let nodes = source.build_frame(&mut text, 400, 300);
-    assert_eq!(source.adapter.stats.text_measure_invalidations, 0);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(
+        source
+            .frame_diagnostics()
+            .backend
+            .text_measure_invalidations,
+        0
+    );
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
     assert_eq!(nodes.iter().map(|n| n.rect).collect::<Vec<_>>(), rects);
     let mut after = Scene::new();
     source.paint_scene(&mut after, &nodes, &mut text, (400, 300), 1.);
     assert_ne!(before, after, "color must still reach drawing commands");
-    source.view.weight = 700;
-    source.request_rebuild();
+    source.update(|view| view.weight = 700);
     source.build_frame(&mut text, 400, 300);
-    assert!(source.adapter.stats.text_measure_invalidations > 0);
-    assert_eq!(source.adapter.stats.layout_runs, 1);
+    assert!(
+        source
+            .frame_diagnostics()
+            .backend
+            .text_measure_invalidations
+            > 0
+    );
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 1);
 }

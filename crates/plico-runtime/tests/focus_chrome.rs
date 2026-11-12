@@ -54,9 +54,7 @@ fn composite_and_ordinary_fields_use_one_border_focus_indicator() {
         .unwrap();
         assert_eq!(focused_borders(&ui), 1);
         assert!(
-            ui.source
-                .adapter
-                .placed
+            ui.placed_nodes()
                 .iter()
                 .all(|n| n.paint.outline_width == 0.)
         );
@@ -69,17 +67,13 @@ fn composite_and_ordinary_fields_use_one_border_focus_indicator() {
     .unwrap();
     assert_eq!(focused_borders(&ui), 0);
     assert!(
-        ui.source
-            .adapter
-            .placed
+        ui.placed_nodes()
             .iter()
             .all(|n| n.paint.outline_width == 0.)
     );
-    let accent = ui.source.engine.theme().accent;
+    let accent = ui.theme().accent;
     assert!(
-        ui.source
-            .adapter
-            .placed
+        ui.placed_nodes()
             .iter()
             .any(|node| node.paint.border.is_some_and(|(width, color)| {
                 let rgb = color.to_rgba8();
@@ -113,11 +107,9 @@ fn builtin_search_uses_one_outer_focus_border_and_keeps_native_text_input() {
         text: "hello".into(),
     })
     .unwrap();
-    assert_eq!(ui.source.view.query, "hello");
+    assert_eq!(ui.view().query, "hello");
     assert!(
-        ui.source
-            .adapter
-            .placed
+        ui.placed_nodes()
             .iter()
             .all(|node| node.paint.outline_width == 0.)
     );

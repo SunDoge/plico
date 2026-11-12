@@ -61,34 +61,34 @@ fn pointer(phase: PointerPhase, x: f64, y: f64) -> UiEvent {
 fn alert_dialog_is_an_alert_and_escape_dismisses_it() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
-    source.view.alert.open();
+    source.update(|view| view.alert.open());
     source.build_frame(&mut text, 720, 520);
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     assert!(
         semantics
             .node_by_role(SemanticRole::AlertDialog, "Delete notes?", None)
             .is_some(),
         "the panel is an alert dialog named by its title"
     );
-    assert_eq!(source.view.dismissed, 0);
+    assert_eq!(source.view().dismissed, 0);
 
     source.handle_event(key("Escape"));
     source.build_frame(&mut text, 720, 520);
-    assert_eq!(source.view.dismissed, 1);
-    assert!(!source.view.alert.is_open());
-    assert_eq!(source.view.deleted, 0);
+    assert_eq!(source.view().dismissed, 1);
+    assert!(!source.view().alert.is_open());
+    assert_eq!(source.view().deleted, 0);
 }
 
 #[test]
 fn clicking_outside_the_alert_does_nothing() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
-    source.view.alert.open();
+    source.update(|view| view.alert.open());
     source.build_frame(&mut text, 720, 520);
     source.handle_event(pointer(PointerPhase::Down, 4., 4.));
     source.handle_event(pointer(PointerPhase::Up, 4., 4.));
     source.build_frame(&mut text, 720, 520);
-    assert_eq!(source.view.dismissed, 0);
-    assert_eq!(source.view.deleted, 0);
-    assert!(source.view.alert.is_open(), "the alert still asks");
+    assert_eq!(source.view().dismissed, 0);
+    assert_eq!(source.view().deleted, 0);
+    assert!(source.view().alert.is_open(), "the alert still asks");
 }

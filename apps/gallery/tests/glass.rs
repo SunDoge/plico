@@ -17,9 +17,9 @@ fn glass_background_moves_without_layout_and_pause_returns_to_idle() {
     source.build_frame(&mut tcx, 1120, 820);
     clock.advance(Duration::from_secs(1)).unwrap();
     let nodes = source.build_frame(&mut tcx, 1120, 820);
-    assert!(source.last_error.is_none());
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    assert_eq!(source.adapter.stats.text_measure_invalidations, 0);
+    let backend = source.frame_diagnostics().backend;
+    assert_eq!(backend.layout_runs, 0);
+    assert_eq!(backend.text_measure_invalidations, 0);
     assert!(source.has_anim());
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, &mut tcx, (1120, 820), 1.);
@@ -30,21 +30,20 @@ fn glass_background_moves_without_layout_and_pause_returns_to_idle() {
             ..
         }
     )));
-    source.view.glass.moving = false;
+    source.update(|view| view.glass.moving = false);
     clock.advance(Duration::from_secs(1)).unwrap();
     source.build_frame(&mut tcx, 1120, 820);
     // The checkbox itself has a short checked-state transition.
     clock.advance(Duration::from_millis(240)).unwrap();
     source.build_frame(&mut tcx, 1120, 820);
     assert!(!source.has_anim());
-    source.view.glass.blur = 8.;
+    source.update(|view| view.glass.blur = 8.);
     source.build_frame(&mut tcx, 1120, 820);
     // The numeric slider label also changes width; test paint-only invalidation
     // independently in the backend fixture without changing any text.
     assert!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .any(|p| p.paint.backdrop_blur == 8.)
     );

@@ -16,8 +16,7 @@ impl HostView for Demo {
 }
 fn assert_family(source: &Source<Demo>, family: &str) {
     let labels: Vec<_> = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|node| node.paint.text.is_some())
         .collect();
@@ -36,18 +35,16 @@ fn configured_fonts_survive_style_updates_and_switching_invalidates_measurement(
     assert_family(&source, plico_renderer::text::DEFAULT_UI_FONT_FAMILY);
     source.set_font_family("serif");
     source.build_frame(&mut text, 500, 400);
-    assert!(source.adapter.stats.layout_runs > 0);
+    assert!(source.frame_diagnostics().backend.layout_runs > 0);
     assert_family(&source, "serif");
     source.set_font_family("monospace");
     source.build_frame(&mut text, 500, 400);
-    assert!(source.adapter.stats.layout_runs > 0);
+    assert!(source.frame_diagnostics().backend.layout_runs > 0);
     assert_family(&source, "monospace");
-    source.view.large = true;
-    source.request_rebuild();
+    source.update(|view| view.large = true);
     source.build_frame(&mut text, 500, 400);
     assert_family(&source, "monospace");
     source.set_font_family("monospace");
     source.build_frame(&mut text, 500, 400);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    assert!(source.last_error.is_none());
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
 }

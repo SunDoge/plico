@@ -76,8 +76,7 @@ fn key(value: &str) -> UiEvent {
 }
 fn origin(s: &Source<Document>, prefix: &str) -> [f64; 2] {
     let p = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| {
             p.paint
@@ -93,7 +92,6 @@ fn origin(s: &Source<Document>, prefix: &str) -> [f64; 2] {
 }
 fn frame(s: &mut Source<Document>, tcx: &mut TextContext) {
     s.build_frame(tcx, 500, 400);
-    assert!(s.last_error.is_none());
 }
 #[test]
 fn cross_paragraph_drag_reverse_copy_select_all_and_clear() {
@@ -106,11 +104,10 @@ fn cross_paragraph_drag_reverse_copy_select_all_and_clear() {
     s.handle_event(pointer(PointerPhase::Move, b[0] + 45., b[1]));
     s.handle_event(pointer(PointerPhase::Up, b[0] + 45., b[1]));
     frame(&mut s, &mut tcx);
-    let selected = s.adapter.selected_text().unwrap();
+    let selected = s.selected_text().unwrap();
     assert!(selected.starts_with("First 中文 paragraph\n\n"));
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .filter(|p| !p.paint.selection_rects.is_empty())
             .count()
@@ -123,20 +120,19 @@ fn cross_paragraph_drag_reverse_copy_select_all_and_clear() {
     s.handle_event(pointer(PointerPhase::Down, b[0] + 45., b[1]));
     s.handle_event(pointer(PointerPhase::Move, a[0], a[1]));
     s.handle_event(pointer(PointerPhase::Up, a[0], a[1]));
-    assert_eq!(s.adapter.selected_text().unwrap(), selected);
+    assert_eq!(s.selected_text().unwrap(), selected);
     s.handle_event(key("a"));
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.adapter.selected_text().unwrap(),
+        s.selected_text().unwrap(),
         "First 中文 paragraph\n\nSecond paragraph"
     );
-    assert!(!s.adapter.selected_text().unwrap().contains("Separate"));
+    assert!(!s.selected_text().unwrap().contains("Separate"));
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(s.adapter.selected_text().is_none());
+    assert!(s.selected_text().is_none());
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .all(|p| p.paint.selection_rects.is_empty())
     );
@@ -150,21 +146,21 @@ fn append_preserves_selection_replacement_and_unmount_clear_it() {
     s.handle_event(pointer(PointerPhase::Down, a[0], a[1]));
     s.handle_event(pointer(PointerPhase::Up, a[0], a[1]));
     s.handle_event(key("a"));
-    s.view.suffix = true;
+    s.update(|view| view.suffix = true);
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.adapter.selected_text().unwrap(),
+        s.selected_text().unwrap(),
         "First 中文 paragraph\n\nSecond paragraph"
     );
-    s.view.replace = true;
+    s.update(|view| view.replace = true);
     frame(&mut s, &mut tcx);
-    assert!(s.adapter.selected_text().is_none());
+    assert!(s.selected_text().is_none());
     let a = origin(&s, "Replaced");
     s.handle_event(pointer(PointerPhase::Down, a[0], a[1]));
     s.handle_event(key("a"));
-    s.view.hidden = true;
+    s.update(|view| view.hidden = true);
     frame(&mut s, &mut tcx);
-    assert!(s.adapter.selected_text().is_none());
+    assert!(s.selected_text().is_none());
 }
 #[test]
 fn clicking_blank_space_clears_highlights_without_node_changes() {
@@ -177,8 +173,7 @@ fn clicking_blank_space_clears_highlights_without_node_changes() {
     s.handle_event(key("a"));
     frame(&mut s, &mut tcx);
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .any(|p| !p.paint.selection_rects.is_empty())
     );
@@ -186,10 +181,9 @@ fn clicking_blank_space_clears_highlights_without_node_changes() {
     let response = s.handle_event(pointer(PointerPhase::Down, 450., 350.));
     assert!(response.request_redraw);
     frame(&mut s, &mut tcx);
-    assert!(s.adapter.selected_text().is_none());
+    assert!(s.selected_text().is_none());
     assert!(
-        s.adapter
-            .placed
+        s.placed_nodes()
             .iter()
             .all(|p| p.paint.selection_rects.is_empty())
     );
@@ -202,10 +196,9 @@ fn ordinary_labels_do_not_select_and_input_keeps_its_own_shortcuts() {
     let a = origin(&s, "Not selectable");
     s.handle_event(pointer(PointerPhase::Down, a[0], a[1]));
     s.handle_event(key("a"));
-    assert!(s.adapter.selected_text().is_none());
+    assert!(s.selected_text().is_none());
     let input = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(plico_renderer::SemanticRole::TextInput, "Search", None)
         .unwrap()
         .id;

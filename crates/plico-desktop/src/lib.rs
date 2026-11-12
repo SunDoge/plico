@@ -1,7 +1,13 @@
 //! Desktop window host for the Plico runtime. The declaration runtime lives in
 //! `plico-runtime`; this crate keeps the native launchers, the development CLI
 //! binary, and desktop renderer selection through plico-shell.
-pub use plico_runtime::*;
+pub use plico_app_host::{NativeApp, ServiceView, impl_host_view_for_app, tasks};
+pub use plico_runtime::{
+    BackendStats, BatchStats, FontAsset, FrameDiagnostics, HitTestDiagnostics, HostView,
+    NativeView, Source, SourceError, testing,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use plico_runtime::{SurfaceSource, ZoomController, ZoomSource};
 
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 mod capture;
@@ -101,8 +107,9 @@ pub fn run_source_with_options(
 
 #[cfg(not(target_arch = "wasm32"))]
 mod services_host {
+    use plico_app_host::ServiceView;
     use plico_dev::services::{HostService, ServiceApp};
-    use plico_runtime::{ServiceView, WindowOptions};
+    use plico_runtime::WindowOptions;
     use snafu::Snafu;
 
     #[derive(Debug, Snafu)]

@@ -57,7 +57,7 @@ impl PersistedStatePersistence {
 }
 
 impl ShellExtension for PersistedStatePersistence {
-    fn initialize(&mut self, _wake: crate::WakeCallback) -> Result<(), String> {
+    fn initialize(&mut self, _wake: plico_renderer::WakeCallback) -> Result<(), String> {
         Ok(())
     }
 
@@ -94,7 +94,7 @@ impl ShellExtension for PersistedStatePersistence {
     fn pointer_moved(
         &mut self,
         _window_key: WindowResourceKey,
-        _position: crate::Point,
+        _position: plico_renderer::Point,
         context: &mut ExtensionContext<'_>,
     ) {
         self.save(context);

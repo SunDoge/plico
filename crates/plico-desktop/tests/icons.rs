@@ -60,8 +60,7 @@ impl HostView for Demo {
 }
 fn check(s: &Source<Demo>) -> Option<&SvgDocument> {
     let scene = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Choice"))?
         .paint
@@ -109,8 +108,7 @@ fn icons_inherit_primary_foreground_and_share_only_matching_color_variants() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 480, 400);
     let images: Vec<_> = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter_map(|n| n.paint.svg.as_ref())
         .collect();
@@ -125,13 +123,11 @@ fn icons_inherit_primary_foreground_and_share_only_matching_color_variants() {
         stroke(images[2].document().0.root()),
         Some(Theme::light().accent)
     );
-    assert_eq!(s.adapter.stats.svg_parses, 2);
-    s.view.dark = true;
-    s.request_rebuild();
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 2);
+    s.update(|view| view.dark = true);
     s.build_frame(&mut tcx, 480, 400);
     let image = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find_map(|n| n.paint.svg.as_ref())
         .unwrap();
@@ -155,8 +151,7 @@ fn checkbox_uses_animated_svg_check_with_cached_theme_color_and_keeps_layout() {
     s.set_theme_transition_duration(Duration::ZERO);
     s.build_frame(&mut tcx, 480, 400);
     assert!(check(&s).is_none());
-    s.view.checked = true;
-    s.request_rebuild();
+    s.update(|view| view.checked = true);
     s.build_frame(&mut tcx, 480, 400);
     clock.set(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
@@ -164,29 +159,26 @@ fn checkbox_uses_animated_svg_check_with_cached_theme_color_and_keeps_layout() {
         .expect("checked indicator must draw an SVG check")
         .clone();
     assert_eq!(stroke(mark.0.root()), Some(Theme::light().on_accent));
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     clock.set(Duration::from_millis(140)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
     assert!(Arc::ptr_eq(&mark.0, &check(&s).unwrap().0));
-    assert_eq!(s.adapter.stats.svg_parses, 0);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
     assert!(!s.has_anim());
-    s.view.dark = true;
-    s.request_rebuild();
+    s.update(|view| view.dark = true);
     s.build_frame(&mut tcx, 480, 400);
     assert_eq!(
         stroke(check(&s).unwrap().0.root()),
         Some(Theme::dark().on_accent)
     );
-    s.view.checked = false;
-    s.request_rebuild();
+    s.update(|view| view.checked = false);
     s.build_frame(&mut tcx, 480, 400);
     clock.set(Duration::from_millis(280)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
     assert!(check(&s).is_none());
-    s.view.visible = false;
-    s.request_rebuild();
+    s.update(|view| view.visible = false);
     s.build_frame(&mut tcx, 480, 400);
-    assert!(s.adapter.svg_diagnostics().next().is_none());
+    assert!(s.svg_diagnostics().next().is_none());
 }
 
 #[test]

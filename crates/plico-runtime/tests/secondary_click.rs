@@ -35,7 +35,6 @@ fn pointer(phase: PointerPhase, x: f64) -> UiEvent {
 }
 fn frame(s: &mut Source<Demo>, t: &mut TextContext) {
     s.build_frame(t, 300, 200);
-    assert!(s.last_error.is_none());
 }
 #[test]
 fn secondary_click_is_consumed_once_and_never_primary() {
@@ -44,11 +43,11 @@ fn secondary_click_is_consumed_once_and_never_primary() {
     frame(&mut s, &mut t);
     s.handle_event(pointer(PointerPhase::Down, 20.));
     frame(&mut s, &mut t);
-    assert_eq!((s.view.primary, s.view.secondary), (0, 0));
+    assert_eq!((s.view().primary, s.view().secondary), (0, 0));
     s.handle_event(pointer(PointerPhase::Up, 20.));
     frame(&mut s, &mut t);
     frame(&mut s, &mut t);
-    assert_eq!((s.view.primary, s.view.secondary), (0, 1));
+    assert_eq!((s.view().primary, s.view().secondary), (0, 1));
 }
 #[test]
 fn drag_away_cancel_leave_blur_and_disabled_do_not_activate() {
@@ -65,7 +64,7 @@ fn drag_away_cancel_leave_blur_and_disabled_do_not_activate() {
         s.handle_event(end);
         s.handle_event(pointer(PointerPhase::Up, 20.));
         frame(&mut s, &mut t);
-        assert_eq!(s.view.secondary, 0);
+        assert_eq!(s.view().secondary, 0);
     }
     let mut s = Source::new(Demo {
         disabled: true,
@@ -76,7 +75,7 @@ fn drag_away_cancel_leave_blur_and_disabled_do_not_activate() {
     s.handle_event(pointer(PointerPhase::Down, 20.));
     s.handle_event(pointer(PointerPhase::Up, 20.));
     frame(&mut s, &mut t);
-    assert_eq!((s.view.primary, s.view.secondary), (0, 0));
+    assert_eq!((s.view().primary, s.view().secondary), (0, 0));
 }
 
 #[test]
@@ -86,9 +85,9 @@ fn disabling_between_input_and_declaration_discards_queued_activation() {
     frame(&mut s, &mut t);
     s.handle_event(pointer(PointerPhase::Down, 20.));
     s.handle_event(pointer(PointerPhase::Up, 20.));
-    s.view.disabled = true;
+    s.update(|view| view.disabled = true);
     frame(&mut s, &mut t);
-    s.view.disabled = false;
+    s.update(|view| view.disabled = false);
     frame(&mut s, &mut t);
-    assert_eq!((s.view.primary, s.view.secondary), (0, 0));
+    assert_eq!((s.view().primary, s.view().secondary), (0, 0));
 }

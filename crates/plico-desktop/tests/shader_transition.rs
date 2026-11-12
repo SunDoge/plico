@@ -27,10 +27,8 @@ fn sample(source: &mut Source<Demo>, text: &mut TextContext) -> (f32, [f32; 2], 
     source
         .render_retained_frame(&mut Scene::new(), text, (64, 64), 1.)
         .unwrap();
-    assert!(source.last_error.is_none());
     source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter_map(|n| n.paint.widget.as_ref())
         .flat_map(|scene| scene.commands.iter())
@@ -65,33 +63,30 @@ fn shader_values_interpolate_and_retarget_without_view_or_layout_work_then_idle(
     let (mut source, clock, mut text) = setup();
     assert_eq!(sample(&mut source, &mut text).0, 0.);
     assert!(!source.has_anim());
-    source.view.target = 1.;
-    source.request_rebuild();
+    source.update(|view| view.target = 1.);
     assert_eq!(sample(&mut source, &mut text).0, 0.);
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     assert!(source.has_anim());
     clock.advance(Duration::from_millis(50)).unwrap();
     assert!((sample(&mut source, &mut text).0 - 0.5).abs() < 1e-6);
-    assert_eq!(source.view.shows, shows);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
-    source.view.target = 0.;
-    source.request_rebuild();
+    assert_eq!(source.view().shows, shows);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+    source.update(|view| view.target = 0.);
     assert!((sample(&mut source, &mut text).0 - 0.5).abs() < 1e-6);
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     clock.advance(Duration::from_millis(50)).unwrap();
     assert!((sample(&mut source, &mut text).0 - 0.25).abs() < 1e-6);
     clock.advance(Duration::from_millis(50)).unwrap();
     assert_eq!(sample(&mut source, &mut text).0, 0.);
-    assert_eq!(source.view.shows, shows);
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(source.view().shows, shows);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
     assert!(!source.has_anim());
 }
 #[test]
 fn reduced_motion_snaps_uniform_targets_and_zero_duration_is_immediate() {
     let (mut source, clock, mut text) = setup();
     sample(&mut source, &mut text);
-    source.view.target = 1.;
-    source.request_rebuild();
+    source.update(|view| view.target = 1.);
     sample(&mut source, &mut text);
     clock.advance(Duration::from_millis(20)).unwrap();
     sample(&mut source, &mut text);
@@ -99,9 +94,10 @@ fn reduced_motion_snaps_uniform_targets_and_zero_duration_is_immediate() {
     assert_eq!(sample(&mut source, &mut text).0, 1.);
     assert!(!source.has_anim());
     source.set_reduced_motion(false);
-    source.view.duration = 0;
-    source.view.target = 0.;
-    source.request_rebuild();
+    source.update(|view| {
+        view.duration = 0;
+        view.target = 0.;
+    });
     assert_eq!(sample(&mut source, &mut text).0, 0.);
     assert!(!source.has_anim());
 }
@@ -109,20 +105,18 @@ fn reduced_motion_snaps_uniform_targets_and_zero_duration_is_immediate() {
 fn shader_paint_overflow_expands_only_the_canvas_not_the_layout() {
     let (mut source, _, mut text) = setup();
     sample(&mut source, &mut text);
-    let before: Vec<_> = source.adapter.placed.iter().map(|n| n.rect).collect();
-    source.view.outset = [1.1, 0.45];
-    source.request_rebuild();
+    let before: Vec<_> = source.placed_nodes().iter().map(|n| n.rect).collect();
+    source.update(|view| view.outset = [1.1, 0.45]);
     let (_, size, transform) = sample(&mut source, &mut text);
     assert_eq!(size, [34.2, 32.9]);
     assert!((transform[4] + 1.1).abs() < 1e-6 && (transform[5] + 0.45).abs() < 1e-6);
     assert_eq!(
         source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .map(|n| n.rect)
             .collect::<Vec<_>>(),
         before
     );
-    assert_eq!(source.adapter.stats.layout_runs, 0);
+    assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
 }

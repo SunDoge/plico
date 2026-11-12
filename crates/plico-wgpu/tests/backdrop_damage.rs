@@ -37,6 +37,75 @@ fn compare(
         "frame {frame}, first differing byte {mismatch:?}"
     );
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn stable_backdrop_snapshots_reuse_textures_until_the_pool_is_trimmed() {
+    for separate in [false, true] {
+        let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+        renderer.force_separate_backdrops(separate);
+        let mut text = TextContext::new();
+        let ids = [ShaderEffectId::new(), ShaderEffectId::new()];
+        let mut scene = Scene::new();
+        fill(
+            &mut scene,
+            Rect::new(0., 0., 180., 100.),
+            Color::from_rgb8(70, 110, 160),
+            1.,
+        );
+        for (id, x) in ids.into_iter().zip([12., 100.]) {
+            scene.append_scene(
+                pane(&mut text, id, Rect::new(x, 18., x + 64., 82.), 1., 0.),
+                Affine::IDENTITY,
+            );
+        }
+
+        let expected = renderer
+            .render_scene(&scene, [180, 100], [1.; 4], false)
+            .unwrap();
+        let first = renderer.layer_pool_stats();
+        let textures = renderer.batch_stats().backdrop_textures;
+        assert!(textures > 0);
+        assert_eq!(first.backdrop_allocations, textures);
+        assert_eq!(first.backdrop_entries as u64, textures);
+        assert!(first.backdrop_bytes > 0);
+        assert_eq!(first.backdrop_uniform_entries, 0);
+        assert_eq!(first.backdrop_effect_uniform_entries, 2);
+        assert_eq!(first.backdrop_effect_uniform_allocations, 2);
+
+        for _ in 0..3 {
+            assert_eq!(
+                renderer
+                    .render_scene(&scene, [180, 100], [1.; 4], false)
+                    .unwrap(),
+                expected
+            );
+        }
+        let reused = renderer.layer_pool_stats();
+        assert_eq!(reused.backdrop_allocations, first.backdrop_allocations);
+        assert!(reused.backdrop_reuses >= first.backdrop_reuses + textures * 3);
+        assert_eq!(
+            reused.backdrop_effect_uniform_allocations,
+            first.backdrop_effect_uniform_allocations
+        );
+        assert!(reused.backdrop_effect_uniform_reuses >= first.backdrop_effect_uniform_reuses + 6);
+
+        renderer.trim_layer_pool();
+        let trimmed = renderer.layer_pool_stats();
+        assert_eq!(trimmed.backdrop_entries, 0);
+        assert_eq!(trimmed.backdrop_bytes, 0);
+        assert_eq!(trimmed.backdrop_uniform_entries, 0);
+        assert_eq!(trimmed.backdrop_effect_uniform_entries, 2);
+        assert_eq!(
+            renderer
+                .render_scene(&scene, [180, 100], [1.; 4], false)
+                .unwrap(),
+            expected
+        );
+        assert!(renderer.layer_pool_stats().backdrop_allocations > reused.backdrop_allocations);
+    }
+}
+
 #[test]
 #[ignore = "requires a working wgpu adapter"]
 fn unchanged_backdrops_idle_and_unrelated_changes_do_not_resample_them() {
@@ -641,13 +710,14 @@ fn profile_backdrop_architecture() {
         for (i, r) in renderers.iter().enumerate() {
             times[i].sort_by(f64::total_cmp);
             eprintln!(
-                "inside={inside} partial={} batched={} median_ms={:.3} max_ms={:.3} coverage={:.6} stats={:?}",
+                "inside={inside} partial={} batched={} median_ms={:.3} max_ms={:.3} coverage={:.6} stats={:?} pool={:?}",
                 i >= 2,
                 i % 2 == 1,
                 (times[i][15] + times[i][16]) * 0.5,
                 times[i][31],
                 r.scene_damage_coverage([640, 400]),
-                r.batch_stats()
+                r.batch_stats(),
+                r.layer_pool_stats()
             );
         }
     }

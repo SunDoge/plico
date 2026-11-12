@@ -39,7 +39,6 @@ impl HostView for Demo {
 }
 fn scene(source: &mut Source<Demo>, tcx: &mut TextContext, scale: f64) -> Scene {
     let nodes = source.build_frame(tcx, 200, 140);
-    assert!(source.last_error.is_none());
     let mut scene = Scene::new();
     source.paint_scene(&mut scene, &nodes, tcx, (200, 140), scale);
     scene
@@ -60,9 +59,9 @@ fn blur_filters_only_prior_pixels_and_respects_panel_clip_at_two_scales() {
                 ..
             }
         )));
-        source.view.blur = 0.;
+        source.update(|view| view.blur = 0.);
         let sharp = scene(&mut source, &mut tcx, scale);
-        assert_eq!(source.adapter.stats.layout_runs, 0);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
         let w = (200. * scale) as u32;
         let h = (140. * scale) as u32;
         let blurred =
@@ -103,8 +102,8 @@ fn idle_scene_is_reused_and_moving_background_invalidates_it() {
     let a = scene(&mut source, &mut tcx, 1.);
     let b = scene(&mut source, &mut tcx, 1.);
     assert_eq!(a.commands.as_ptr(), b.commands.as_ptr());
-    assert_eq!(source.adapter.stats.paint_writes, 0);
-    source.view.shift = 20.;
+    assert_eq!(source.frame_diagnostics().backend.paint_writes, 0);
+    source.update(|view| view.shift = 20.);
     let c = scene(&mut source, &mut tcx, 1.);
     assert_ne!(b.commands.as_ptr(), c.commands.as_ptr());
     let a = plico_shell::renderer::render_to_image(&b, 200, 140, source.base_color()).unwrap();

@@ -217,7 +217,7 @@ fn affine_runs_match_transformed_positions_and_outline_matrices() {
             } = command
             {
                 let [a, b, c, d, _, _] = transform.as_coeffs();
-                for glyph in glyphs {
+                for glyph in std::sync::Arc::make_mut(glyphs) {
                     let point = *transform * kurbo::Point::new(glyph.x as f64, glyph.y as f64);
                     glyph.x = point.x as f32;
                     glyph.y = point.y as f32;

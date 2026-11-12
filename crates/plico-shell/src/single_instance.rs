@@ -28,7 +28,7 @@ use interprocess::local_socket::{
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use crate::WakeCallback;
+use plico_renderer::WakeCallback;
 
 const MAX_ACTIVATION_BYTES: usize = 1 << 20;
 const ACCEPT_POLL: Duration = Duration::from_millis(25);

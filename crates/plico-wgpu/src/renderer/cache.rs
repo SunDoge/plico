@@ -22,6 +22,8 @@ impl Renderer {
         self.images.clear();
     }
     /// Cached source textures, resident texture bytes, uploads and source hits.
+    /// Live CPU sources may keep their bounded GPU texture warm for short page
+    /// absences; dead sources and entries idle for 240 rendered frames are swept.
     /// Sampling bindings are counted separately; native atlas textures are excluded.
     pub fn image_cache_stats(&self) -> (usize, usize, u64, u64) {
         self.images.stats()

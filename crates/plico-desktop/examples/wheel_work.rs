@@ -75,7 +75,7 @@ fn main() {
                 clock.advance(Duration::from_millis(16)).unwrap();
                 let before = source.batch_stats();
                 let start = Instant::now();
-                source.prepare_for_event(&mut text);
+                source.prepare_for_event(&mut text).unwrap();
                 assert!(
                     source
                         .handle_event(wheel(if (i / 60) % 2 == 0 { 48. } else { -48. }))
@@ -85,7 +85,6 @@ fn main() {
                     .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
-                assert!(source.last_error.is_none());
                 if i >= 40 {
                     samples.push(elapsed);
                     calls += source.batch_stats().declaration_passes - before.declaration_passes;
@@ -104,11 +103,11 @@ fn main() {
             source
                 .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
-            let calls = source.view.calls;
+            let calls = source.view().calls;
             source
                 .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
-            assert_eq!(source.view.calls, calls);
+            assert_eq!(source.view().calls, calls);
             assert!(!source.has_anim());
         }
     }

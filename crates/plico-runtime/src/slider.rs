@@ -23,6 +23,33 @@ fn paint_color(rgb: u32, alpha: f32) -> PaintColor {
 }
 
 impl Adapter {
+    pub(super) fn range_owner(
+        &self,
+        engine: &Engine,
+        entity: Entity,
+    ) -> Option<(Entity, plico::SliderThumb)> {
+        let thumb = engine.node(entity)?.style.slider_thumb?;
+        let node_id = self.nodes.get(&entity)?.id;
+        let owner = *self.reverse.get(&self.tree.parent(node_id)?)?;
+        let owner_node = engine.node(owner)?;
+        (owner_node.kind == Kind::ValueControl
+            && owner_node.numeric.is_some_and(|range| range.high.is_some()))
+        .then_some((owner, thumb))
+    }
+
+    pub(super) fn range_thumb(
+        &self,
+        engine: &Engine,
+        owner: Entity,
+        thumb: plico::SliderThumb,
+    ) -> Option<Entity> {
+        engine.node(owner)?.children.iter().copied().find(|child| {
+            engine
+                .node(*child)
+                .is_some_and(|node| node.style.slider_thumb == Some(thumb))
+        })
+    }
+
     pub(super) fn align_sliders(&mut self, engine: &Engine) {
         for &entity in &self.slider_nodes {
             let Some(index) = self
@@ -36,7 +63,10 @@ impl Adapter {
             self.stats.slider_visits += 1;
             let node = &mut self.placed[index];
             let n = engine.node(entity).unwrap();
-            if n.kind != Kind::Slider || !n.style.control_chrome || node.paint.widget.is_some() {
+            if !matches!(n.kind, Kind::Slider | Kind::ValueControl)
+                || !n.style.control_chrome
+                || node.paint.widget.is_some()
+            {
                 continue;
             }
             let Some(range) = n.numeric else {
@@ -179,6 +209,89 @@ impl Adapter {
             node.paint.widget = Some(fragment.clone());
             self.tree.get_node_context_mut(node.node_id).unwrap().widget = Some(fragment);
         }
+        self.align_range_thumb_bounds(engine);
+    }
+
+    /// The semantic thumb nodes are layout-neutral overlays. Resolve their
+    /// final bounds to the painted knobs so hit testing and accessibility do
+    /// not expose two full-track controls on top of each other.
+    fn align_range_thumb_bounds(&mut self, engine: &Engine) {
+        let mut resolved = Vec::new();
+        for &owner in &self.slider_nodes {
+            let Some(range) = engine.node(owner).and_then(|node| node.numeric) else {
+                continue;
+            };
+            let Some(high) = range.high else {
+                continue;
+            };
+            let Some(&owner_index) = self
+                .nodes
+                .get(&owner)
+                .and_then(|node| self.placed_indices.get(&node.id))
+            else {
+                continue;
+            };
+            let owner_placed = &self.placed[owner_index];
+            let [w, h] = owner_placed.content_size;
+            let length = if range.vertical { h } else { w };
+            let (margin, knob_w, _) = metrics(engine.theme());
+            let margin = margin.min(length / 2.);
+            let available = (length - margin * 2.).max(0.);
+            for (thumb, value) in [
+                (plico::SliderThumb::Minimum, range.value),
+                (plico::SliderThumb::Maximum, high),
+            ] {
+                let Some(entity) = self.range_thumb(engine, owner, thumb) else {
+                    continue;
+                };
+                let fraction = range.fraction_of(value) as f32;
+                let at = margin
+                    + available
+                        * if range.vertical {
+                            1. - fraction
+                        } else {
+                            fraction
+                        };
+                let rect = if range.vertical {
+                    let center = owner_placed.content_origin[1] + at;
+                    [
+                        owner_placed.rect[0],
+                        center - knob_w / 2.,
+                        owner_placed.rect[2],
+                        center + knob_w / 2.,
+                    ]
+                } else {
+                    let center = owner_placed.content_origin[0] + at;
+                    [
+                        center - knob_w / 2.,
+                        owner_placed.rect[1],
+                        center + knob_w / 2.,
+                        owner_placed.rect[3],
+                    ]
+                };
+                resolved.push((entity, rect));
+            }
+        }
+        let mut changed = false;
+        for (entity, rect) in resolved {
+            let Some(index) = self
+                .nodes
+                .get(&entity)
+                .and_then(|node| self.placed_indices.get(&node.id))
+                .copied()
+            else {
+                continue;
+            };
+            let placed = &mut self.placed[index];
+            changed |= placed.rect != rect;
+            placed.rect = rect;
+            placed.content_origin = [rect[0], rect[1]];
+            placed.content_size = [rect[2] - rect[0], rect[3] - rect[1]];
+        }
+        if changed {
+            self.hit.get_mut().dirty = true;
+            self.invalidate_semantics();
+        }
     }
     pub(super) fn slider_event(
         &mut self,
@@ -210,13 +323,23 @@ impl Adapter {
                 let start = pointer.phase == PointerPhase::Down
                     && pointer.button == Some(PointerButton::Primary);
                 let entity = if start {
-                    self.hit(engine, pointer.position.x, pointer.position.y)
-                        // Composed value controls own keyboard/range semantics;
-                        // their descendants define pointer hit regions.
-                        .filter(|e| {
-                            enabled(self, *e)
-                                && engine.node(*e).is_some_and(|n| n.kind == Kind::Slider)
-                        })
+                    let hit = self.hit(engine, pointer.position.x, pointer.position.y)?;
+                    if let Some((owner, _)) = self.range_owner(engine, hit) {
+                        enabled(self, hit).then_some(owner)
+                    } else {
+                        // Ordinary composed value controls leave pointer input
+                        // to their descendants. A range group is itself the
+                        // shared track behind its two semantic thumbs.
+                        enabled(self, hit)
+                            .then(|| engine.node(hit))
+                            .flatten()
+                            .filter(|node| {
+                                node.kind == Kind::Slider
+                                    || (node.kind == Kind::ValueControl
+                                        && node.numeric.is_some_and(|range| range.high.is_some()))
+                            })
+                            .map(|_| hit)
+                    }
                 } else {
                     self.slider_drag.filter(|e| enabled(self, *e))
                 }?;
@@ -236,8 +359,6 @@ impl Adapter {
                     }
                     self.slider_drag = Some(entity);
                     self.pressed = Some(entity);
-                    self.focused = Some(entity);
-                    self.focus_visible = false;
                 }
                 if matches!(pointer.phase, PointerPhase::Cancel | PointerPhase::Leave) {
                     self.slider_drag = None;
@@ -281,8 +402,22 @@ impl Adapter {
                         if start {
                             let d_low = (t - range.fraction_of(low)).abs();
                             let d_high = (t - range.fraction_of(high)).abs();
-                            self.slider_thumbs
-                                .insert(entity, usize::from(d_high < d_low));
+                            // Match MyGO's tie rule: once coincident thumbs
+                            // are pressed past their value, choose maximum.
+                            let thumb = usize::from(d_high < d_low || value > high);
+                            self.slider_thumbs.insert(entity, thumb);
+                            self.focused = self
+                                .range_thumb(
+                                    engine,
+                                    entity,
+                                    if thumb == 0 {
+                                        plico::SliderThumb::Minimum
+                                    } else {
+                                        plico::SliderThumb::Maximum
+                                    },
+                                )
+                                .or(Some(entity));
+                            self.focus_visible = false;
                         }
                         if self.slider_thumbs.get(&entity).copied().unwrap_or(0) == 0 {
                             engine
@@ -294,6 +429,10 @@ impl Adapter {
                             );
                         }
                     } else {
+                        if start {
+                            self.focused = Some(entity);
+                            self.focus_visible = false;
+                        }
                         engine.queue_value(entity, range.normalize(value));
                     }
                 }
@@ -304,13 +443,24 @@ impl Adapter {
                 Some(response())
             }
             UiEvent::Key(key) if key.phase == KeyPhase::Down => {
-                let entity = self.focused.filter(|e| enabled(self, *e))?;
+                let focused = self.focused.filter(|e| enabled(self, *e))?;
+                let (entity, focused_thumb) = self
+                    .range_owner(engine, focused)
+                    .map_or((focused, None), |(owner, thumb)| (owner, Some(thumb)));
                 let range = engine.node(entity)?.numeric?;
                 let low = engine.pending_value(entity).unwrap_or(range.value);
                 let high = engine.pending_high_value(entity).or(range.high);
-                let thumb = high.map_or(0, |_| {
-                    self.slider_thumbs.get(&entity).copied().unwrap_or(0).min(1)
-                });
+                let thumb = focused_thumb.map_or_else(
+                    || {
+                        high.map_or(0, |_| {
+                            self.slider_thumbs.get(&entity).copied().unwrap_or(0).min(1)
+                        })
+                    },
+                    |thumb| usize::from(thumb == plico::SliderThumb::Maximum),
+                );
+                if high.is_some() {
+                    self.slider_thumbs.insert(entity, thumb);
+                }
                 let value = if thumb == 0 { low } else { high.unwrap_or(low) };
                 let delta = range.increment();
                 let value = match key.key.as_str() {

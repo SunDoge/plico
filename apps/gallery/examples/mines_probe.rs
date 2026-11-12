@@ -28,8 +28,7 @@ fn main() {
             .unwrap();
         let label = format!("Row {}, column {}: hidden", rows / 2 + 1, columns / 2 + 1);
         let target = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(plico_renderer::SemanticRole::Button, &label, None)
             .unwrap()
             .id;
@@ -41,7 +40,6 @@ fn main() {
             source
                 .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
                 .unwrap();
-            assert!(source.last_error.is_none(), "{:?}", source.last_error);
             let cpu_us = start.elapsed().as_micros();
             let gpu = Instant::now();
             renderer
@@ -49,8 +47,8 @@ fn main() {
                 .unwrap();
             let gpu_us = gpu.elapsed().as_micros();
             let batch = format!("{:?}", renderer.batch_stats());
-            let s = source.adapter.stats;
-            frames.push(serde_json::json!({"frame":frame,"us":cpu_us,"gpu_us":gpu_us,"batch":batch,"declare_us":source.declaration_micros,"sync_us":s.sync_micros,"layout_us":s.layout_micros,"layout":s.layout_runs,"flatten":s.flatten_visits,"patch":s.paint_patches,"presentation":s.presentation_visits,"created":s.created,"removed":s.removed}));
+            let s = source.frame_diagnostics().backend;
+            frames.push(serde_json::json!({"frame":frame,"us":cpu_us,"gpu_us":gpu_us,"batch":batch,"declare_us":source.frame_diagnostics().declaration_micros,"sync_us":s.sync_micros,"layout_us":s.layout_micros,"layout":s.layout_runs,"flatten":s.flatten_visits,"patch":s.paint_patches,"presentation":s.presentation_visits,"created":s.created,"removed":s.removed}));
         }
         let mut timer = vec![];
         for ms in [2000, 2017, 2034, 2500, 3000] {
@@ -59,8 +57,8 @@ fn main() {
                 .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
                 .unwrap();
             timer.push(
-                serde_json::json!({"ms":ms,"declare_us":source.declaration_micros,
-                "sync_visits":source.adapter.stats.sync_visits}),
+                serde_json::json!({"ms":ms,"declare_us":source.frame_diagnostics().declaration_micros,
+                "sync_visits":source.frame_diagnostics().backend.sync_visits}),
             );
         }
         reports

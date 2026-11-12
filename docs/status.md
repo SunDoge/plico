@@ -10,6 +10,8 @@
 启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。wgpu 已有受最大 sigma 限制的面积预滤波模糊金字塔；Skia 材质与原生系统玻璃尚未实现。
 背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
 wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有界纹理数组，批量生成 mip；
+普通 backdrop effect 已将 shader 与 clip/mask replacement 合为直接 framebuffer pass，不再为每个 pane
+保留同尺寸 effect 输出纹理或执行第二次全区域合成；atomic layer 的独立输出路径继续按需使用 compositor。
 全量／局部与独立／分组的逐像素对照及同进程 A/B 见 [背景架构实验](experiments/wgpu-backdrop-architecture.md)。
 见 [Liquid Glass](liquid-glass.md)。
 
@@ -72,12 +74,13 @@ CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 da
 层级按声明的最大 sigma 与 DPI 截止，不保留历史背景纹理，新增颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
 后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
-## C# MyGO 改进的 Rust 入口
+## 已退役 C# 实验迁入 Rust 的能力
 
 已补齐 progressive BackdropBlur / 四方向 ScrollEdge、前景 `.blur` / `.no_shadow`、
 Tone 与 Info 语义色、chip/tag、有界分页、alert/notification、empty_state 和 native-clock skeleton。
 Rust Gallery 新增 Component kit 与圆角对照页；玻璃和 opaque fallback 继承容器的连续圆角。
 原本位于 shared Rust 后端的文字、滚动、阴影和缓存优化继续共用，未重复实现。
+旧 C# package、Gallery 和跨语言 ABI 已从当前源码树移除；这些能力现在只有 Rust 公共入口。
 详细迁移矩阵与边界见 [迁移记录](experiments/csharp-mygo-rust-migration.md)。
 
 ## 当前主线
@@ -95,6 +98,25 @@ plico 的 Engine / UiContext / widgets 与 plico-desktop 的真实后端继续�
 delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar、Motion spring
 与液态搜索已迁移，不再由应用保存 `plico_motion::Animated`。
 
+`collapsible` / `accordion` 复用同一 scalar channel 与稀疏布局尺寸反馈：展开面板先透明测量
+真实内容高度，再以 200ms ease-out 裁剪；关闭期间保留节点但禁用交互并从语义树隐藏，结束后卸载。
+reduced motion 直接挂载／卸载，不增加应用侧动画状态。
+
+`number_input` 复用原生编辑器的 opt-in navigation 通道处理 Up/Down，焦点边沿由声明态记录，
+因此离开输入框时可恢复／格式化暂存文字；按钮和键盘共用按 step 小数位取整的有界更新路径。
+
+只读数值组件通过组合容器上的共享 `semantic_range` 写入名称和 `NumericRange`；`meter` 与
+`progress` 因而向原生无障碍桥暴露 role、min/max/value，而视觉仍由普通 Rust children 组合。
+
+原生输入的 find-navigation 模式把 Escape、Shift+Enter、Primary+G 与 F3 转成声明响应；
+`find_bar` 复用它完成关闭和双向循环跳转，首次自动聚焦时全选旧查询，匹配计数使用 status 角色。
+
+区间滑块保留共享轨道绘制，但结构上是命名 group 加 minimum/maximum 两个真实数值控件；
+两个 thumb 分别参与 Tab、键盘和无障碍数值操作，轨道按最近距离选择并聚焦对应 thumb。
+
+`plico-app-host` 单独承载 `plico-dev::App` / services 到 `HostView` 的适配；
+`plico-runtime` 的正常依赖图不再包含开发协议层，desktop/web 按需依赖并重导出 bridge。
+
 应用直接持有普通 Rust 状态；局部状态使用 `UiContext::state`，动态列表使用业务 key，路由状态由 `Router` 和应用字段拥有。Engine 的 dirty journal、布局/绘制缓存、虚拟化和 damage 继续承担增量工作，不向应用暴露依赖图或区域重放协议。
 
 ## 已实现
@@ -102,7 +124,7 @@ delay、解析弹簧、reduced-motion 和 non-spatial 例外。Gallery sidebar�
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - Immediate dirty journal 贯通布局、flatten 与 Scene 失效；mount/unmount/reorder 由稳定 Entity 和业务 key 保持身份，大范围结构变化保守回退全量路径。
-- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
+- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；`HitTestDiagnostics` 提供只读 rebuild/check/pruned 计数，不公开 Adapter 缓存结构。动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
 - Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
@@ -178,7 +200,7 @@ and Windows runtime validation remain pending.
 
 ## Widget input capabilities
 
-Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). `KindFamily` remains only for source compatibility.
+Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab navigation, activation, text selection/editing and numeric editing are independent. LVGL rejects unsupported controls before mutation and remounts native subtrees on class changes. See [capability contracts and validation](widget-capabilities.md). The unused coarse `KindFamily` compatibility API has been removed.
 
 ## Damage tracking
 
@@ -222,6 +244,15 @@ time, upload bytes, instance and draw counts, and optional root-encoder GPU
 timestamps (`PLICO_GPU_TIMER=1`). The shell HUD and the offscreen `--frames`
 capture expose it; definitions and measurement caveats are in
 [performance](performance.md).
+New-image GPU mip chains are encoded ahead of sampling but submitted together
+with the successful frame; an abandoned surface frame retains the pending work
+for retry instead of issuing or forgetting a hidden upload submission.
+Backdrop snapshots and same-stage arrays reuse exact-specification GPU textures
+across ordered frames while remaining exclusive within a frame; idle cache trim
+releases the pool.
+Backdrop mapping/composite uniforms likewise use a device-aligned frame arena;
+stable frames update retained buffers rather than creating two buffers per glass
+draw, and atomic-group damage scissors share one entry.
 Shared images share cached source textures across sampling bindings, with nearest/bilinear/Mitchell-bicubic premultiplied-alpha
 sampling, independent pad/repeat/reflect axes and ordered batches. Affine image
 geometry and image-filled/stroked paths use cached coverage with GPU source sampling; SVG
@@ -256,6 +287,35 @@ sessions and physical-display DPI transitions still need verification. See [expe
 
 The independent `plico-wgpu` backend is the default desktop renderer and remains
 under active development. Skia is the primary rendering-quality reference.
+The shared `plico-renderer` crate no longer owns wgpu devices, textures, bind
+groups, pipelines or render passes. It retains the backend-neutral scene and
+validated shader-effect contract; concrete shader execution lives in
+`plico-wgpu`, so Skia and renderer-only builds do not pull in wgpu.
+`plico-shell` also no longer republishes renderer modules and scene/widget
+types as a parallel facade. Its public surface is limited to window hosting,
+extensions and desktop services; backend probes depend on `plico-renderer`
+directly.
+Runtime declaration errors have no retained side channel. Checked frame methods
+return them to tests and non-window hosts directly; retained and combined
+`FrameSource` methods, including event preparation, return a common
+`FrameSourceError` to the native shell, which rejects the transaction through
+its normal telemetry and initial-window path.
+Hosts also have stable read-only queries for view state, retained layout,
+semantics, selection, focus, theme and per-frame diagnostics. Declaration and
+backend counters are exposed as a snapshot instead of mutable `Source` fields.
+Runnable examples and performance probes are guarded against direct
+Engine/Adapter/view field access; legacy integration tests remain the staged
+migration boundary. The backend-settings, launcher and services-demo integration
+suites are migrated and guarded test groups.
+The complete Gallery integration suite is also migrated and guarded.
+The plico-wgpu backend suite now uses retained/runtime queries rather than
+Engine or Adapter fields and is guarded by the same boundary check.
+Nine plico-runtime integration fixtures covering focus, fonts, semantics,
+retained frames, motion, protocol input, toasts, activity and virtual tables
+are migrated and guarded; the remaining runtime fixtures are staged next.
+Alert-dialog, deadline, display-preference and secondary-click fixtures are
+also migrated; scene assertions replace declaration-tree inspection where the
+test is about rendered shader presence.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the default desktop
 renderer and Skia remains the quality comparison target. The browser Gallery

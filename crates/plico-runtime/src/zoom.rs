@@ -105,7 +105,10 @@ impl FrameSource for ZoomSource {
         self.sync();
         self.inner.set_device_scale(scale * self.zoom);
     }
-    fn prepare_for_event(&mut self, text: &mut TextContext) {
+    fn prepare_for_event(
+        &mut self,
+        text: &mut TextContext,
+    ) -> Result<(), plico_renderer::FrameSourceError> {
         self.inner.prepare_for_event(text)
     }
     fn build_frame(&mut self, text: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
@@ -130,7 +133,7 @@ impl FrameSource for ZoomSource {
         text: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Option<(usize, f64, f64)> {
+    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
         self.sync();
         self.inner
             .render_retained_frame(scene, text, self.viewport(size), scale * self.zoom)
@@ -142,7 +145,7 @@ impl FrameSource for ZoomSource {
         width: u32,
         height: u32,
         scale: f64,
-    ) -> (usize, f64, f64) {
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
         self.sync();
         let (width, height) = self.viewport((width, height));
         self.inner
@@ -350,7 +353,7 @@ mod tests {
             y: f64::from((button.bounds[1] + button.bounds[3]) * 0.5),
         };
         for phase in [PointerPhase::Down, PointerPhase::Up] {
-            source.prepare_for_event(&mut text);
+            source.prepare_for_event(&mut text).unwrap();
             assert!(
                 source
                     .handle_event(UiEvent::Pointer(PointerEvent {

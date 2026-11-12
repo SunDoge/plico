@@ -73,13 +73,12 @@ fn render(
     source
         .render_retained_frame(&mut scene, text, (64, 64), scale)
         .unwrap();
-    assert!(source.last_error.is_none());
-    if !source.view.0.invalid {
+    if !source.view().0.invalid {
         assert_eq!(
-            source.adapter.shader_diagnostics().count(),
+            source.shader_diagnostics().count(),
             0,
             "{:?}",
-            source.adapter.shader_diagnostics().collect::<Vec<_>>()
+            source.shader_diagnostics().collect::<Vec<_>>()
         );
     }
     let size = (64. * scale) as u32;
@@ -103,13 +102,14 @@ fn public_effect_api_uses_virtual_time_pause_values_and_last_valid_source() {
     );
     assert!(source.has_anim());
     assert_eq!(renderer.effect_cache_stats(), (1, 32 * 32 * 4, 1));
-    let shows = source.view.0.shows;
+    let shows = source.view().0.shows;
     clock.advance(Duration::from_millis(500)).unwrap();
     let pixel = render(&mut source, &mut renderer, &mut text, 1.);
     assert!(pixel[0].abs_diff(128) <= 1);
     assert_eq!(pixel[1], 64);
     assert_eq!(
-        source.view.0.shows, shows,
+        source.view().0.shows,
+        shows,
         "time-only effect redeclared the UI"
     );
     assert!(
@@ -126,13 +126,13 @@ fn public_effect_api_uses_virtual_time_pause_values_and_last_valid_source() {
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
     source.update(|view| view.0.invalid = true);
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.)[1], 191);
-    let diagnostic = source.adapter.shader_diagnostics().next().unwrap();
+    let diagnostic = source.shader_diagnostics().next().unwrap();
     assert!(
         diagnostic.starts_with("effects/invalid-uniform.wgsl:"),
         "{diagnostic}"
     );
     assert!(diagnostic.contains("only f32"), "{diagnostic}");
-    assert_eq!(source.adapter.shader_diagnostics().count(), 1);
+    assert_eq!(source.shader_diagnostics().count(), 1);
     renderer.configure_text(&mut text, 1.25).unwrap();
     assert_eq!(render(&mut source, &mut renderer, &mut text, 1.25)[1], 191);
     source.update(|view| view.0.present = false);
@@ -457,7 +457,6 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
         source
             .render_retained_frame(&mut scene, &mut text, (64, 64), 1.)
             .unwrap();
-        assert!(source.last_error.is_none());
         let rgba = renderer
             .render_scene(&scene, [64, 64], [0.; 4], true)
             .unwrap();
@@ -473,19 +472,18 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
         [32, 64, 96, 255],
         "invalid parameters changed the last valid uniforms"
     );
-    let error = source.adapter.shader_diagnostics().next().unwrap();
+    let error = source.shader_diagnostics().next().unwrap();
     assert!(
         error.starts_with("named.wgsl:") && error.contains("expects 3"),
         "{error}"
     );
     source.update(|s| s.0.bad = false);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert!(source.shader_diagnostics().next().is_none());
     source.update(|s| s.0.raw = true);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
     assert!(
         source
-            .adapter
             .shader_diagnostics()
             .next()
             .unwrap()
@@ -493,7 +491,7 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
     );
     source.update(|s| s.0.raw = false);
     assert_eq!(draw(&mut source), [64, 128, 191, 255]);
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert!(source.shader_diagnostics().next().is_none());
 }
 
 #[test]
@@ -826,7 +824,7 @@ fn backdrop_markers_survive_recursive_opacity_layers() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
-fn repeated_backdrop_preflight_reuses_only_live_targets() {
+fn repeated_backdrop_draws_need_no_intermediate_effect_targets() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill};
     use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
@@ -870,9 +868,13 @@ fn repeated_backdrop_preflight_reuses_only_live_targets() {
         let stats = renderer.effect_cache_stats();
         assert_eq!(
             (stats.0, stats.1),
-            (2, 2 * 16 * 16 * 4),
-            "backdrop output retention grew at frame {frame}"
+            (0, 0),
+            "direct backdrop rendering retained an intermediate output at frame {frame}"
         );
+        let uniforms = renderer.layer_pool_stats();
+        assert_eq!(uniforms.backdrop_effect_uniform_entries, 2);
+        assert_eq!(uniforms.backdrop_effect_uniform_allocations, 2);
+        assert_eq!(uniforms.backdrop_effect_uniform_reuses, frame as u64 * 2);
     }
     renderer
         .render_scene(&Scene::new(), [32, 16], [0.; 4], false)
@@ -883,6 +885,10 @@ fn repeated_backdrop_preflight_reuses_only_live_targets() {
             renderer.effect_cache_stats().1
         ),
         (0, 0)
+    );
+    assert_eq!(
+        renderer.layer_pool_stats().backdrop_effect_uniform_entries,
+        0
     );
 }
 
@@ -1027,6 +1033,20 @@ fn backdrop_effects_obey_scroll_clips_and_masks_after_translation() {
                 let actual = renderer
                     .render_scene(&make(true), [48, 48], [0.; 4], false)
                     .unwrap();
+                if !isolated {
+                    let stats = renderer.batch_stats();
+                    let expected_pixels = match shift as i32 {
+                        -40 | 40 => 0,
+                        -7 => 60,
+                        0 => 144,
+                        7 => 156,
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(
+                        stats.backdrop_effect_pixels, expected_pixels,
+                        "effect fragments were not scissored to the inherited clip: rounded={rounded}, isolated={isolated}, shift={shift}, stats={stats:?}"
+                    );
+                }
                 let expected = renderer
                     .render_scene(&make(false), [48, 48], [0.; 4], false)
                     .unwrap();

@@ -94,36 +94,36 @@ fn run(rows: usize, case: Case, options: &Options) {
     let mut verified = 0;
     for frame in 0..options.samples + 20 {
         clock.advance(Duration::from_millis(16)).unwrap();
-        source.view.flip = frame % 2 == 0;
         if !matches!(case, Case::Idle) {
-            source.request_rebuild();
+            source.update(|view| view.flip = frame % 2 == 0);
         }
-        let calls = source.view.calls;
+        let calls = source.view().calls;
         let start = Instant::now();
         let (_, _, scene_ms) = source
-            .render_retained_frame(&mut scene, &mut text, (800, height), 1.)
+            .try_render_retained_frame(&mut scene, &mut text, (800, height), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
-        assert!(source.last_error.is_none());
         if matches!(case, Case::Idle | Case::Redeclare) {
-            assert_eq!(source.adapter.stats.scene_reuses, 1);
-            assert_eq!(source.adapter.stats.scene_builds, 0);
+            let backend = source.frame_diagnostics().backend;
+            assert_eq!(backend.scene_reuses, 1);
+            assert_eq!(backend.scene_builds, 0);
             assert_eq!(
-                source.view.calls - calls,
+                source.view().calls - calls,
                 usize::from(matches!(case, Case::Redeclare))
             );
         } else {
-            assert_eq!(source.adapter.stats.scene_builds, 1);
+            assert_eq!(source.frame_diagnostics().backend.scene_builds, 1);
         }
         if frame >= 20 {
             total.push(elapsed);
             encode.push(scene_ms * 1000.);
-            phases[0] += source.declaration_micros;
-            phases[1] += source.adapter.stats.sync_micros;
-            phases[2] += source.adapter.stats.layout_micros;
-            counts[0] += source.adapter.stats.scene_builds;
-            counts[1] += source.adapter.stats.scene_reuses;
-            counts[2] += source.view.calls - calls;
+            phases[0] += source.frame_diagnostics().declaration_micros;
+            let backend = source.frame_diagnostics().backend;
+            phases[1] += backend.sync_micros;
+            phases[2] += backend.layout_micros;
+            counts[0] += backend.scene_builds;
+            counts[1] += backend.scene_reuses;
+            counts[2] += source.view().calls - calls;
             counts[3] += scene.commands.len();
         } else if frame < 8 {
             // Check every workload against a full encoder outside timing.

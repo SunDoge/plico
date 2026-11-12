@@ -7,8 +7,14 @@ impl App {
     }
     pub(super) fn dispatch_event(&mut self, event: UiEvent) -> EventResponse {
         self.observe_ime_event(&event);
-        if let Some(shell) = self.state.as_mut() {
-            self.source.prepare_for_event(&mut shell.tcx);
+        if let Some(shell) = self.state.as_mut()
+            && let Err(source) = self.source.prepare_for_event(&mut shell.tcx)
+        {
+            crate::telemetry::report_error(
+                "event preparation rejected",
+                &crate::Error::Frame { source },
+            );
+            return EventResponse::default();
         }
         let mut response = self.route_event(event);
         if let Some(request) = response.clipboard.take() {

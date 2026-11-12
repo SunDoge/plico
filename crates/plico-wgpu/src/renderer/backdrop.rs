@@ -1,5 +1,54 @@
 use super::*;
 
+fn output_scissor(
+    rect: [f32; 4],
+    clip: [f32; 4],
+    mask: Option<[f32; 4]>,
+    origin: [f32; 2],
+    size: [u32; 2],
+) -> Option<[u32; 4]> {
+    let [x, y, width, height] = rect;
+    let [cx, cy, cw, ch] = clip;
+    let mut left = x.max(cx - origin[0]);
+    let mut top = y.max(cy - origin[1]);
+    let mut right = (x + width).min(cx + cw - origin[0]);
+    let mut bottom = (y + height).min(cy + ch - origin[1]);
+    if let Some([mx, my, mw, mh]) = mask {
+        left = left.max(mx - origin[0]);
+        top = top.max(my - origin[1]);
+        right = right.min(mx + mw - origin[0]);
+        bottom = bottom.min(my + mh - origin[1]);
+    }
+    left = left.floor().max(0.);
+    top = top.floor().max(0.);
+    right = right.ceil().min(size[0] as f32);
+    bottom = bottom.ceil().min(size[1] as f32);
+    (right > left && bottom > top).then(|| {
+        let left = left as u32;
+        let top = top as u32;
+        [left, top, right as u32 - left, bottom as u32 - top]
+    })
+}
+
+pub(super) fn effect_output_scissor(
+    instance: Instance,
+    origin: [f32; 2],
+    size: [u32; 2],
+) -> Option<[u32; 4]> {
+    output_scissor(
+        [
+            instance.rect[0] - origin[0],
+            instance.rect[1] - origin[1],
+            instance.rect[2],
+            instance.rect[3],
+        ],
+        instance.clip,
+        (instance.clip_params[2] > 0.).then_some(instance.mask_rect),
+        origin,
+        size,
+    )
+}
+
 pub(super) fn plan_backdrops(
     instances: &[Instance],
     effects: &[plico_renderer::ShaderEffect],
@@ -77,9 +126,9 @@ pub(super) fn encode_backdrop_step<'p>(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     target: Option<&Target>,
-    effects: &mut Option<plico_renderer::shader::ShaderRenderer>,
-    compositor: &mut Option<crate::backdrop_composite::Compositor>,
+    effects: &mut Option<crate::shader::ShaderRenderer>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
+    textures: &mut crate::backdrop_pool::Pool,
     stats: &mut FrameBatchStats,
     shared: Option<&wgpu::TextureView>,
     mask_layout: &wgpu::BindGroupLayout,
@@ -91,6 +140,7 @@ pub(super) fn encode_backdrop_step<'p>(
     rect: [f32; 4],
     effect: &plico_renderer::ShaderEffect,
     size: [u32; 2],
+    scissor: [u32; 4],
 ) -> wgpu::RenderPass<'p> {
     let [x, y, w, h] = rect;
     let target = target.expect("backdrop steps only run with a live target");
@@ -121,18 +171,13 @@ pub(super) fn encode_backdrop_step<'p>(
         stats.backdrop_mip_passes += u64::from(mip_levels - 1);
         stats.backdrop_bytes +=
             crate::backdrop_prefilter::bytes(region.width, region.height, mip_levels);
-        let backdrop = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Plico effect backdrop copy"),
-            size: region,
-            mip_level_count: mip_levels,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let backdrop = textures.acquire(
+            device,
+            [region.width, region.height],
+            1,
+            mip_levels,
+            crate::backdrop_pool::Kind::Single,
+        );
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,
@@ -159,64 +204,44 @@ pub(super) fn encode_backdrop_step<'p>(
         }
         backdrop.create_view(&wgpu::TextureViewDescriptor::default())
     };
+    let mapping = [
+        (x - left as f32) / region.width as f32,
+        (y - top as f32) / region.height as f32,
+        w / region.width as f32,
+        h / region.height as f32,
+    ];
+    let composite = [
+        [x, y, w, h],
+        instance.clip,
+        instance.mask_rect,
+        [
+            origin[0],
+            origin[1],
+            instance.clip_params[2],
+            instance.clip_params[0],
+        ],
+    ];
     let effects = effects.get_or_insert_with(|| {
-        let mut effects = plico_renderer::shader::ShaderRenderer::new(device);
+        let mut effects = crate::shader::ShaderRenderer::new(device);
         effects.begin_frame();
         effects
     });
-    let output = effects.render_view_with_backdrop_mapping(
+    effects.render_backdrop_direct(
         effect,
         &backdrop_view,
-        [
-            (x - left as f32) / region.width as f32,
-            (y - top as f32) / region.height as f32,
-            w / region.width as f32,
-            h / region.height as f32,
-        ],
+        mapping,
+        composite,
+        [1., 0., 0., 0.],
+        mask_layout,
+        mask,
         device,
         queue,
         encoder,
+        frame_view,
+        size,
+        scissor,
     );
-    let compositor = compositor
-        .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(device, mask_layout));
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Plico backdrop effect composite"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: frame_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
-        pass.set_scissor_rect(left, top, region.width, region.height);
-        // Keep the effect's original rectangle when an isolated target crops
-        // it. The compositor applies the inherited world-space clip and mask;
-        // shrinking its viewport instead would stretch offscreen content in.
-        pass.set_viewport(0., 0., size[0] as f32, size[1] as f32, 0., 1.);
-        compositor.encode(
-            device,
-            &output,
-            &backdrop_view,
-            mask,
-            [
-                [x, y, w, h],
-                instance.clip,
-                instance.mask_rect,
-                [
-                    origin[0],
-                    origin[1],
-                    instance.clip_params[2],
-                    instance.clip_params[0],
-                ],
-            ],
-            pass,
-        );
-    }
+    stats.backdrop_effect_pixels += u64::from(scissor[2]) * u64::from(scissor[3]);
     // Continue the frame in a fresh pass over the same target.
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Plico quad draw (continued)"),
@@ -231,4 +256,53 @@ pub(super) fn encode_backdrop_step<'p>(
         })],
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_scissor;
+
+    #[test]
+    fn effect_output_scissor_intersects_canvas_clip_mask_origin_and_target() {
+        assert_eq!(
+            output_scissor(
+                [0., 0., 100., 100.],
+                [40., 25., 20., 10.],
+                None,
+                [10., 5.],
+                [80, 60],
+            ),
+            Some([30, 20, 20, 10])
+        );
+        assert_eq!(
+            output_scissor(
+                [0., 0., 100., 100.],
+                [40., 25., 20., 10.],
+                Some([42.25, 26.5, 4., 3.]),
+                [10., 5.],
+                [80, 60],
+            ),
+            Some([32, 21, 5, 4])
+        );
+        assert_eq!(
+            output_scissor(
+                [-20., -10., 100., 100.],
+                [-100., -100., 400., 400.],
+                None,
+                [0., 0.],
+                [40, 30],
+            ),
+            Some([0, 0, 40, 30])
+        );
+        assert_eq!(
+            output_scissor(
+                [0., 0., 10., 10.],
+                [20., 20., 5., 5.],
+                None,
+                [0., 0.],
+                [100, 100],
+            ),
+            None
+        );
+    }
 }

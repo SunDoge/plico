@@ -61,8 +61,8 @@ impl<Family> ResourceKey<Family> {
         })
     }
 
-    /// Reconstruct and validate a key packed in SlotMap's FFI representation.
-    pub const fn from_ffi(value: u64) -> Option<Self> {
+    /// Reconstruct and validate a key from its compact Rust representation.
+    pub const fn from_packed(value: u64) -> Option<Self> {
         Self::from_parts(value as u32, (value >> 32) as u32)
     }
 
@@ -77,7 +77,7 @@ impl<Family> ResourceKey<Family> {
     }
 
     /// Convert to the compact representation used only inside Rust.
-    pub const fn as_ffi(self) -> u64 {
+    pub const fn into_packed(self) -> u64 {
         self.lo as u64 | ((self.hi as u64) << 32)
     }
 
@@ -147,7 +147,7 @@ mod resource_key_tests {
 
         assert_eq!(decoded.into_parts(), (7, 3));
         assert_eq!(
-            ResourceKey::<ImageResource>::from_ffi(image.as_ffi()),
+            ResourceKey::<ImageResource>::from_packed(image.into_packed()),
             Some(image)
         );
         assert_eq!(image.to_string(), "7v3");

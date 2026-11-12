@@ -1,7 +1,7 @@
 //! Experimental direct Skrifa outlines; no changes to production hinting defaults.
 use kurbo::{Affine, BezPath, Diagonal2, Join, expand_path};
 use peniko::Fill;
-use plico_shell::{PaintCommand, PaintScene, Scene};
+use plico_renderer::{PaintCommand, PaintScene, Scene};
 use skrifa::{
     FontRef, GlyphId, MetadataProvider,
     instance::{NormalizedCoord, Size},
@@ -55,7 +55,8 @@ pub fn rewrite(scene: &mut Scene, mode: &str, embolden_tolerance: Option<f64>) {
         let font = FontRef::from_index(font.data.data(), font.index).expect("fixture font");
         let outlines = font.outline_glyphs();
         let coords: Vec<_> = normalized_coords
-            .into_iter()
+            .iter()
+            .copied()
             .map(NormalizedCoord::from_bits)
             .collect();
         let size = Size::new(font_size);
@@ -85,7 +86,7 @@ pub fn rewrite(scene: &mut Scene, mode: &str, embolden_tolerance: Option<f64>) {
             .expect("hinting instance")
         });
         let brush = brush.multiply_alpha(brush_alpha);
-        for glyph in glyphs {
+        for glyph in glyphs.iter() {
             let outline = outlines.get(GlyphId::new(glyph.id)).expect("outline glyph");
             let mut pen = Pen::default();
             let settings = hint.as_ref().map_or_else(

@@ -5,6 +5,7 @@
 mod backdrop_batch;
 mod backdrop_composite;
 mod backdrop_context;
+mod backdrop_pool;
 mod backdrop_prefilter;
 mod blit;
 mod blur;
@@ -18,6 +19,7 @@ mod macos_frame_pass;
 mod macos_transaction;
 mod mipmap;
 mod renderer;
+mod shader;
 #[cfg(any(
     all(target_os = "macos", feature = "window"),
     all(test, not(target_arch = "wasm32"))
@@ -126,6 +128,9 @@ pub struct Quad {
     pub gradient_premultiplied: bool,
     /// Optional hard clip: x, y, width, height.
     pub clip: Option<[f32; 4]>,
+    /// Analytical radii for `clip`, in the same corner order as `radii`.
+    /// Zero keeps the rectangular clip path.
+    pub clip_radii: [f32; 4],
     /// Apply pixel-area coverage at fractional clip edges instead of a hard scissor.
     pub clip_antialias: bool,
     /// Use the installed WGSL material instead of the built-in vertical gradient.
@@ -147,6 +152,7 @@ impl Quad {
             gradient: [0., 0., 0., 1.],
             gradient_premultiplied: false,
             clip: None,
+            clip_radii: [0.; 4],
             clip_antialias: false,
             material: false,
             parameter: 0.,
@@ -157,6 +163,11 @@ impl Quad {
         let valid_color = |c: [f32; 4]| c.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v));
         if !valid_rect(self.rect)
             || self.clip.is_some_and(|r| !valid_rect(r))
+            || (self.clip.is_none() && self.clip_radii != [0.; 4])
+            || !self
+                .clip_radii
+                .iter()
+                .all(|radius| radius.is_finite() && *radius >= 0.)
             || (self.shadow_hole.is_some() && self.material)
             || !self.shadow_smoothing.is_finite()
             || !(0. ..=1.).contains(&self.shadow_smoothing)

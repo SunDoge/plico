@@ -65,14 +65,14 @@ fn actual_gpu_shader_uses_values_clock_and_pause_without_layout_or_redeclaration
     let mut text = TextContext::new();
     assert_eq!(pixel(&mut s, &mut text, 1.), [0, 64, 0, 255]);
     assert!(s.has_anim());
-    let shows = s.view.shows;
+    let shows = s.view().shows;
     clock.advance(Duration::from_millis(500)).unwrap();
     let color = pixel(&mut s, &mut text, 1.);
     assert!((color[0] as i32 - 128).abs() <= 1);
     assert_eq!(color[1], 64);
-    assert_eq!(s.view.shows, shows);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert!(s.adapter.placed.iter().all(|n| n.paint.text.is_none()));
+    assert_eq!(s.view().shows, shows);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert!(s.placed_nodes().iter().all(|n| n.paint.text.is_none()));
     s.set_reduced_motion(true);
     let frozen = pixel(&mut s, &mut text, 1.);
     clock.advance(Duration::from_secs(2)).unwrap();
@@ -81,25 +81,21 @@ fn actual_gpu_shader_uses_values_clock_and_pause_without_layout_or_redeclaration
     s.set_reduced_motion(false);
     assert_eq!(pixel(&mut s, &mut text, 1.), frozen);
     assert!(s.has_anim());
-    s.view.paused = true;
-    s.request_rebuild();
+    s.update(|view| view.paused = true);
     let paused = pixel(&mut s, &mut text, 1.);
     assert!(!s.has_anim());
     clock.advance(Duration::from_secs(3)).unwrap();
     assert_eq!(pixel(&mut s, &mut text, 2.), paused);
-    s.view.green = 0.75;
-    s.request_rebuild();
+    s.update(|view| view.green = 0.75);
     let color = pixel(&mut s, &mut text, 2.);
     assert_eq!(color[1], 191);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    s.view.invalid = true;
-    s.request_rebuild();
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    s.update(|view| view.invalid = true);
     assert_eq!(pixel(&mut s, &mut text, 1.)[1], 191);
-    assert_eq!(s.adapter.shader_diagnostics().count(), 1);
-    s.view.present = false;
-    s.request_rebuild();
+    assert_eq!(s.shader_diagnostics().count(), 1);
+    s.update(|view| view.present = false);
     s.build_frame(&mut text, 32, 32);
-    assert_eq!(s.adapter.shader_diagnostics().count(), 0);
+    assert_eq!(s.shader_diagnostics().count(), 0);
     assert!(!s.has_anim());
 }
 #[test]
@@ -149,9 +145,9 @@ struct Uniforms { header: vec4<f32>, values: array<vec4<f32>,64> };
     let mut text = TextContext::new();
     let nodes = s.build_frame(&mut text, 16, 16);
     assert!(
-        s.adapter.shader_diagnostics().next().is_none(),
+        s.shader_diagnostics().next().is_none(),
         "{:?}",
-        s.adapter.shader_diagnostics().collect::<Vec<_>>()
+        s.shader_diagnostics().collect::<Vec<_>>()
     );
     let mut scene = Scene::default();
     s.paint_scene(&mut scene, &nodes, &mut text, (16, 16), 1.);
@@ -161,13 +157,23 @@ struct Uniforms { header: vec4<f32>, values: array<vec4<f32>,64> };
     s.build_frame(&mut text, 16, 16);
     assert_eq!(
         (
-            s.adapter.stats.style_writes,
-            s.adapter.stats.paint_writes,
-            s.adapter.stats.layout_runs
+            s.frame_diagnostics().backend.style_writes,
+            s.frame_diagnostics().backend.paint_writes,
+            s.frame_diagnostics().backend.layout_runs
         ),
         (0, 0, 0)
     );
-    let snapshot = s.engine.snapshot();
+    let mut engine = plico::Engine::default();
+    engine
+        .frame_declarations(|cx| {
+            shader(cx, &MODULE)
+                .width(16.)
+                .height(16.)
+                .radius(0.)
+                .values(&[0., 0., 0., 1., 0.2, 0.4, 0.8, 1.]);
+        })
+        .unwrap();
+    let snapshot = engine.snapshot();
     let restored: Vec<plico::ViewNode> =
         serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
     assert!(restored[0].shader.as_ref().unwrap().module);
@@ -217,8 +223,7 @@ fn theme_reveal_keeps_old_and_new_shader_uniforms_independent() {
     let mut s = Source::with_clock(Themed::default(), clock.clone());
     let mut text = TextContext::new();
     draw(&mut s, &mut text);
-    s.view.dark = true;
-    s.request_rebuild();
+    s.update(|view| view.dark = true);
     draw(&mut s, &mut text);
     clock.advance(Duration::from_millis(100)).unwrap();
     let scene = draw(&mut s, &mut text);

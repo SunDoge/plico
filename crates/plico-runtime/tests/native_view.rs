@@ -33,7 +33,7 @@ fn native_view_adapts_the_minimal_application_contract() {
             occurrence: None,
         })
         .unwrap();
-    assert_eq!(driver.source.view.0.count, 1);
+    assert_eq!(driver.view().0.count, 1);
     assert!(
         driver
             .snapshot()

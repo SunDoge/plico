@@ -1,5 +1,6 @@
-use super::backdrop::{encode_backdrop_step, plan_backdrops};
+use super::backdrop::{effect_output_scissor, encode_backdrop_step, plan_backdrops};
 use super::effects::visit_images;
+use super::ring::intersect_scissor;
 use super::*;
 
 impl Renderer {
@@ -72,8 +73,13 @@ impl Renderer {
         self.batch_stats = FrameBatchStats::default();
         self.frame_budget = FrameBudget::default();
         if self.layer_depth == 0 {
-            self.pending_commands.clear();
+            self.poll_class_pipelines();
+            self.frame_prefix_commands.clear();
             self.poll_gpu_budget();
+            self.backdrop_pool.begin_frame();
+            if let Some(compositor) = &mut self.backdrop_compositor {
+                compositor.begin_frame();
+            }
         }
         self.validate_frame(items.len(), size, background, time)?;
         let unchanged = regions.is_some_and(|r| r.is_empty())
@@ -85,8 +91,17 @@ impl Renderer {
             self.prepare_effect_frame(items)?;
         }
         let result = self.encode_frame_at(items, size, background, time, regions, [0.; 2]);
+        if result.is_ok()
+            && let Some(mips) = self.images.pending_mip_commands(&self.device)
+        {
+            // Image reductions must execute before child layers or the final
+            // frame samples them. They remain one command buffer in the same
+            // queue submission rather than creating a hidden cold-frame submit.
+            self.frame_prefix_commands.push(mips);
+        }
         if result.is_err() {
-            self.pending_commands.clear();
+            self.frame_prefix_commands.clear();
+            self.cancel_gpu_budget();
         }
         // Encoded commands retain their own GPU references. Pass-local image
         // bindings, deferred layer scenes and effects must not keep evicted
@@ -135,7 +150,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,scene_passes=self.batch_stats.passes,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,occlusion_culled_draws=self.batch_stats.occlusion_culled_draws,ring_split_quads=self.batch_stats.ring_split_quads,analytic_clip_draws=self.batch_stats.analytic_clip_draws,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,glyph_draw_calls=self.batch_stats.glyph_draw_calls,color_glyph_draw_calls=self.batch_stats.color_glyph_draw_calls,image_draw_calls=self.batch_stats.image_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -177,6 +192,23 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
         origin: [f32; 2],
     ) -> Result<wgpu::CommandEncoder> {
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.begin_gpu_budget(&mut encoder);
+        self.encode_frame_into(items, size, background, time, regions, origin, &mut encoder)?;
+        Ok(encoder)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn encode_frame_into(
+        &mut self,
+        items: DrawSource<'_>,
+        size: [u32; 2],
+        background: [f32; 4],
+        time: f32,
+        regions: Option<&[[u32; 4]]>,
+        origin: [f32; 2],
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<()> {
         if self.layer_depth == 0 {
             self.frame_layer_bytes = 0;
             self.context_charged.fill(false);
@@ -198,22 +230,48 @@ impl Renderer {
             items
         };
         let prepare_started = Instant::now();
-        let mut instances = if regions.is_some_and(|r| r.is_empty()) {
-            Vec::new()
+        let mut prepared = if regions.is_some_and(|r| r.is_empty()) {
+            let mut instances = std::mem::take(&mut self.instance_scratch);
+            instances.clear();
+            let mut scissors = std::mem::take(&mut self.scissor_scratch);
+            scissors.clear();
+            PreparedInstances {
+                instances,
+                scissors,
+            }
         } else {
-            self.prepare_instances(items, size)?
+            self.prepare_instances(items, size, origin, encoder)?
         };
         if let Some(regions) = regions {
-            instances.retain(|instance| {
-                let [x, y, w, h] = instance.rect;
-                regions.iter().any(|&[rx, ry, rw, rh]| {
-                    x - 1. < (rx + rw) as f32
-                        && x + w + 1. > rx as f32
-                        && y - 1. < (ry + rh) as f32
-                        && y + h + 1. > ry as f32
-                })
-            });
+            let mut write = 0;
+            for read in 0..prepared.instances.len() {
+                let instance = prepared.instances[read];
+                let keep = if let Some(split) = prepared.scissors[read] {
+                    regions
+                        .iter()
+                        .any(|&area| intersect_scissor(split, area).is_some())
+                } else {
+                    let [x, y, w, h] = instance.rect;
+                    regions.iter().any(|&[rx, ry, rw, rh]| {
+                        x - 1. < (rx + rw) as f32
+                            && x + w + 1. > rx as f32
+                            && y - 1. < (ry + rh) as f32
+                            && y + h + 1. > ry as f32
+                    })
+                };
+                if keep {
+                    prepared.instances[write] = instance;
+                    prepared.scissors[write] = prepared.scissors[read];
+                    write += 1;
+                }
+            }
+            prepared.instances.truncate(write);
+            prepared.scissors.truncate(write);
         }
+        let PreparedInstances {
+            instances,
+            scissors,
+        } = prepared;
         self.frame_budget.prepare_ms += prepare_started.elapsed().as_secs_f64() * 1e3;
         let backdrop_plan = plan_backdrops(
             &instances,
@@ -286,13 +344,11 @@ impl Renderer {
             .view
             .clone();
         let mut flush_draws: u64 = 0;
-        let mut flush_plain_draws: u64 = 0;
+        let mut class_draws = [0_u64; PipelineClass::COUNT];
         let encode_started = Instant::now();
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.begin_gpu_budget(&mut encoder);
         if let Some(base) = &self.inherited_backdrop {
             base.seed(
-                &mut encoder,
+                encoder,
                 &self.target.as_ref().unwrap().texture,
                 origin,
                 size,
@@ -366,15 +422,19 @@ impl Renderer {
                         (instances[i].config[2] == 4.).then_some(instances[i].config[3] as usize)
                     };
                     let texture = key(first);
-                    // Class runs: adjacent plain fills share the specialized
-                    // pipeline, everything else keeps the general shader. The
-                    // run boundary never reorders painter sequence.
+                    // Class runs: adjacent plain and ordinary fills use their
+                    // specialized pipelines; images, glyphs, shadows and
+                    // materials keep the general shader. Painter order stays
+                    // unchanged.
                     // Backdrop markers (color[3] == 2) are singleton runs: they
                     // never join a class run or the joiner.
                     let backdrop_at = (instances[first].color[3] == 2.)
                         .then(|| instances[first].config[3] as usize);
-                    let plain =
-                        backdrop_at.is_none() && !self.force_general && is_plain(&instances[first]);
+                    let class = if backdrop_at.is_some() {
+                        PipelineClass::General
+                    } else {
+                        pipeline_class(&instances[first], force_general)
+                    };
                     let mut end = first + 1;
                     while backdrop_at.is_none()
                         && end < segment_end
@@ -384,7 +444,8 @@ impl Renderer {
                         && (instances[end].config[2] == 4. && instances[end].config[1] == 1.)
                             == (instances[first].config[2] == 4.
                                 && instances[first].config[1] == 1.)
-                        && (!force_general && is_plain(&instances[end])) == plain
+                        && pipeline_class(&instances[end], force_general) == class
+                        && scissors[end] == scissors[first]
                     {
                         end += 1;
                     }
@@ -395,25 +456,28 @@ impl Renderer {
                     let run = RunFlush {
                         start: first,
                         end,
-                        plain,
+                        class,
                         plus,
                         texture,
                         mask,
+                        scissor: scissors[first],
                     };
                     if let Some((previous, previous_small)) = &mut pending
                         && *previous_small
                         && small
                         && previous.texture == texture
                         && previous.mask == mask
+                        && previous.scissor == run.scissor
                         && !previous.plus
                         && !plus
                         && backdrop_at.is_none()
                     {
-                        // Only the class differs; extend the pending run. The
-                        // merged run keeps the plain pipeline only if every
-                        // merged part was plain.
+                        // Only the class differs; extend the pending run. A
+                        // mixed-class run uses the general pipeline.
                         previous.end = run.end;
-                        previous.plain = previous.plain && run.plain;
+                        if previous.class != run.class {
+                            previous.class = PipelineClass::General;
+                        }
                     } else {
                         if let Some((previous, _)) = pending.take() {
                             self.flush_run(
@@ -424,21 +488,16 @@ impl Renderer {
                                 areas,
                                 &mut scissor_run,
                                 &mut flush_draws,
-                                &mut flush_plain_draws,
+                                &mut class_draws,
                             );
                         }
                         if let Some(effect_index) = backdrop_at {
                             let marker = instances[run.start];
-                            let [x, y, w, h] = marker.rect;
-                            let [cx, cy, cw, ch] = marker.clip;
-                            if x.max(cx).max(origin[0])
-                                >= (x + w).min(cx + cw).min(origin[0] + width as f32)
-                                || y.max(cy).max(origin[1])
-                                    >= (y + h).min(cy + ch).min(origin[1] + height as f32)
-                            {
+                            let Some(output_scissor) = effect_output_scissor(marker, origin, size)
+                            else {
                                 first = end;
                                 continue;
-                            }
+                            };
                             // Split the pass: everything before the effect is
                             // now in the target; copy that region out, render
                             // the effect with it bound, then continue the rest
@@ -453,10 +512,11 @@ impl Renderer {
                                             let requests = &backdrop_plan.groups[group];
                                             let views = crate::backdrop_batch::capture(
                                                 &self.device,
-                                                &mut encoder,
+                                                encoder,
                                                 &self.target.as_ref().unwrap().texture,
                                                 requests,
                                                 &mut self.backdrop_batch_prefilter,
+                                                &mut self.backdrop_pool,
                                             );
                                             let levels =
                                                 requests.iter().map(|r| r.levels).max().unwrap();
@@ -478,14 +538,13 @@ impl Renderer {
                                 );
                             let effect = self.backdrop_effects[effect_index].clone();
                             let mut effects = self.effects.take();
-                            let mut compositor = self.backdrop_compositor.take();
                             pass = encode_backdrop_step(
                                 &self.device,
                                 &self.queue,
                                 self.target.as_ref(),
                                 &mut effects,
-                                &mut compositor,
                                 &mut self.backdrop_prefilter,
+                                &mut self.backdrop_pool,
                                 &mut self.batch_stats,
                                 shared.as_ref(),
                                 &self.atlas_texture.layout,
@@ -496,7 +555,7 @@ impl Renderer {
                                 },
                                 instances[run.start],
                                 origin,
-                                &mut encoder,
+                                encoder,
                                 &view,
                                 {
                                     let [x, y, w, h] = instances[run.start].rect;
@@ -504,9 +563,9 @@ impl Renderer {
                                 },
                                 &effect,
                                 size,
+                                output_scissor,
                             );
                             self.effects = effects;
-                            self.backdrop_compositor = compositor;
                             self.batch_stats.passes += 1;
                             pass.set_bind_group(0, &self.bind, &[]);
                             pass.set_vertex_buffer(0, self.instances.slice(..));
@@ -527,7 +586,7 @@ impl Renderer {
                         areas,
                         &mut scissor_run,
                         &mut flush_draws,
-                        &mut flush_plain_draws,
+                        &mut class_draws,
                     );
                 }
             }
@@ -541,20 +600,31 @@ impl Renderer {
                 .scene
                 .backdrop_bounds()
                 .map_or(output, |rect| rect.union(output));
-            let context = self.capture_backdrop_context(&mut encoder, origin, size, input)?;
-            let previous = std::mem::replace(
-                &mut encoder,
-                self.device.create_command_encoder(&Default::default()),
-            );
-            self.pending_commands.push(previous.finish());
+            let context = self.capture_backdrop_context(encoder, origin, size, input)?;
 
-            let resource = self.render_layer(&layer, Some(context.clone()))?;
+            let resource = self.render_layer(&layer, Some(context.clone()), encoder)?;
             let output_view = resource.texture.create_view(&Default::default());
             let base_view = context.texture.create_view(&Default::default());
             let mask = instances[marker].clip_params[2] as usize;
-            let compositor = self.backdrop_compositor.get_or_insert_with(|| {
-                crate::backdrop_composite::Compositor::new(&self.device, &self.atlas_texture.layout)
-            });
+            let compositor = self
+                .backdrop_compositor
+                .get_or_insert_with(|| crate::backdrop_composite::Compositor::new(&self.device));
+            compositor.prepare_pipeline(&self.device, &self.atlas_texture.layout);
+            let i = instances[marker];
+            let [x, y, w, h] = i.rect;
+            let composite = [
+                [x - origin[0], y - origin[1], w, h],
+                i.clip,
+                i.mask_rect,
+                [origin[0], origin[1], f32::from(mask > 0), i.clip_params[0]],
+            ];
+            let mix = [
+                layer.alpha,
+                1.,
+                origin[0] - context.origin[0],
+                origin[1] - context.origin[1],
+            ];
+            let mut uniforms = None;
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("atomic backdrop group"),
@@ -569,8 +639,6 @@ impl Renderer {
                     })],
                     ..Default::default()
                 });
-                let i = instances[marker];
-                let [x, y, w, h] = i.rect;
                 let full = [[0, 0, width, height]];
                 for &[rx, ry, rw, rh] in regions.unwrap_or(&full) {
                     let x0 = (x - origin[0]).floor().max(rx as f32).max(0.) as u32;
@@ -586,8 +654,17 @@ impl Renderer {
                     if x1 <= x0 || y1 <= y0 {
                         continue;
                     }
+                    let uniforms = uniforms.get_or_insert_with(|| {
+                        compositor.prepare_uniforms(
+                            &self.device,
+                            &self.queue,
+                            [0.; 4],
+                            composite,
+                            mix,
+                        )
+                    });
                     pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
-                    compositor.encode_group(
+                    compositor.encode(
                         &self.device,
                         &output_view,
                         &base_view,
@@ -596,14 +673,7 @@ impl Renderer {
                         } else {
                             &self.atlas_texture.bind
                         },
-                        [
-                            [x - origin[0], y - origin[1], w, h],
-                            i.clip,
-                            i.mask_rect,
-                            [origin[0], origin[1], f32::from(mask > 0), i.clip_params[0]],
-                        ],
-                        layer.alpha,
-                        [origin[0] - context.origin[0], origin[1] - context.origin[1]],
+                        uniforms,
                         &mut pass,
                     );
                     flush_draws += 1;
@@ -613,14 +683,21 @@ impl Renderer {
             segment_start = marker + 1;
         }
         self.batch_stats.draw_calls += flush_draws;
-        self.batch_stats.plain_draw_calls += flush_plain_draws;
+        self.batch_stats.plain_draw_calls += class_draws[PipelineClass::Plain.slot().unwrap()];
+        self.batch_stats.fill_draw_calls += class_draws[PipelineClass::Fill.slot().unwrap()];
+        self.batch_stats.shadow_draw_calls += class_draws[PipelineClass::Shadow.slot().unwrap()];
+        self.batch_stats.glyph_draw_calls += class_draws[PipelineClass::Glyph.slot().unwrap()];
+        self.batch_stats.color_glyph_draw_calls +=
+            class_draws[PipelineClass::ColorGlyph.slot().unwrap()];
+        self.batch_stats.image_draw_calls += class_draws[PipelineClass::Image.slot().unwrap()];
         self.frame_budget.instances += instances.len() as u64;
         self.frame_budget.draw_calls += flush_draws;
         self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;
-        Ok(encoder)
+        self.scissor_scratch = scissors;
+        Ok(())
     }
     #[allow(clippy::too_many_arguments)]
     fn flush_run(
@@ -632,7 +709,7 @@ impl Renderer {
         areas: &[[u32; 4]],
         scissor_run: &mut Option<[u32; 4]>,
         draw_calls: &mut u64,
-        plain_draw_calls: &mut u64,
+        class_draws: &mut [u64; PipelineClass::COUNT],
     ) {
         // Resolve every self borrow before the pass ops so the caller's
         // encoder/pass lifetimes stay disjoint from self.
@@ -661,12 +738,19 @@ impl Renderer {
                 },
             )
         });
-        let pipeline = if run.plus {
-            self.plus_pipeline.as_ref().expect("plus pipeline prepared") as &wgpu::RenderPipeline
-        } else if run.plain {
-            &self.plain_pipeline
+        let (pipeline, specialized) = if run.plus {
+            (
+                self.plus_pipeline.as_ref().expect("plus pipeline prepared")
+                    as &wgpu::RenderPipeline,
+                false,
+            )
         } else {
-            self.pipeline.as_ref().expect("material installed")
+            let general = self.pipeline.as_ref().expect("material installed");
+            let specialized = run
+                .class
+                .slot()
+                .and_then(|slot| self.class_pipelines[slot].as_ref());
+            (specialized.unwrap_or(general), specialized.is_some())
         };
         let atlas_bind = &self.atlas_texture.bind;
         let texture_bind = run
@@ -680,7 +764,13 @@ impl Renderer {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(1, texture_bind, &[]);
         pass.set_bind_group(2, mask_bind, &[]);
-        for &[x, y, w, h] in areas {
+        for &area in areas {
+            let Some([x, y, w, h]) = run
+                .scissor
+                .map_or(Some(area), |split| intersect_scissor(split, area))
+            else {
+                continue;
+            };
             if bounds.is_some_and(|[left, top, right, bottom]| {
                 right <= x as f32
                     || bottom <= y as f32
@@ -695,8 +785,8 @@ impl Renderer {
             }
             pass.draw(0..6, run.start as u32..run.end as u32);
             *draw_calls += 1;
-            if run.plain {
-                *plain_draw_calls += 1;
+            if specialized && let Some(slot) = run.class.slot() {
+                class_draws[slot] += 1;
             }
         }
     }

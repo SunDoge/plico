@@ -36,8 +36,7 @@ fn wheel(delta: f64) -> UiEvent {
     })
 }
 fn offset(s: &Source<Demo>) -> f32 {
-    s.adapter
-        .placed
+    s.placed_nodes()
         .iter()
         .find(|p| p.scroll.port[3] == 180. && p.parent_node_id.is_some())
         .unwrap()
@@ -77,14 +76,14 @@ fn clock_samples_visible_rows_pauses_and_finishes_exactly() {
     clock.advance(Duration::from_millis(80)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 3500.);
-    assert_eq!(s.view.built.first(), Some(&85));
-    assert!(s.adapter.placed.len() < 25);
+    assert_eq!(s.view().built.first(), Some(&85));
+    assert!(s.placed_nodes().len() < 25);
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 3500.);
     clock.advance(Duration::from_millis(80)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 4000.);
-    assert_eq!(s.view.built.first(), Some(&98));
+    assert_eq!(s.view().built.first(), Some(&98));
     assert_eq!(clock.now(), Duration::from_millis(160));
     settle_scrollbar_fade(&mut s, &clock, &mut tcx);
     assert_eq!(offset(&s), 4000.);
@@ -134,8 +133,7 @@ fn shrinking_content_cancels_out_of_range_motion() {
     s.handle_event(wheel(4000.));
     clock.advance(Duration::from_millis(40)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
-    s.view.count = 1;
-    s.request_rebuild();
+    s.update(|view| view.count = 1);
     s.build_frame(&mut tcx, 400, 300);
     assert_eq!(offset(&s), 0.);
     assert!(!s.has_anim());
@@ -152,8 +150,7 @@ fn grabbing_thumb_interrupts_animation_and_dragging_is_direct() {
     clock.advance(Duration::from_millis(80)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
     let port = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap();
@@ -235,8 +232,7 @@ fn nested_smooth_ports_chain_to_ancestors_and_settle() {
     clock.advance(Duration::from_millis(160)).unwrap();
     s.build_frame(&mut tcx, 400, 300);
     let ports: Vec<_> = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|p| p.scroll.scrollable[1])
         .collect();
@@ -244,7 +240,7 @@ fn nested_smooth_ports_chain_to_ancestors_and_settle() {
     for port in ports {
         assert_eq!(port.scroll.offset[1], port.scroll.range[1]);
     }
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     settle_scrollbar_fade(&mut s, &clock, &mut tcx);
 }
 
@@ -278,16 +274,14 @@ fn focusing_a_control_cancels_scroll_and_reveals_it_immediately() {
     s.handle_event(wheel(400.));
     assert!(s.has_anim());
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Item 19", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Focus { target }));
     s.build_frame(&mut tcx, 400, 300);
     let port = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap();

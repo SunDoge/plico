@@ -63,7 +63,7 @@ fn managed_kit_counterparts_have_bounded_pagination_and_native_actions() {
         .count();
     assert!(pages <= 5);
     click(&mut ui, "Next page");
-    assert_eq!(ui.source.view.page, usize::MAX);
+    assert_eq!(ui.view().page, usize::MAX);
     let next = ui
         .snapshot()
         .exposed_nodes()
@@ -73,19 +73,19 @@ fn managed_kit_counterparts_have_bounded_pagination_and_native_actions() {
         .clone();
     assert!(next.disabled);
     click(&mut ui, "Previous page");
-    assert_eq!(ui.source.view.page, usize::MAX - 1);
+    assert_eq!(ui.view().page, usize::MAX - 1);
     click(&mut ui, "Page 1");
-    assert_eq!(ui.source.view.page, 1);
+    assert_eq!(ui.view().page, 1);
     click(&mut ui, "Pinned");
-    assert!(ui.source.view.selected);
+    assert!(ui.view().selected);
     click(&mut ui, "Pinned");
-    assert!(!ui.source.view.selected);
+    assert!(!ui.view().selected);
     click(&mut ui, "Remove Rust");
-    assert!(!ui.source.view.tag);
+    assert!(!ui.view().tag);
     click(&mut ui, "Dismiss notification");
-    assert!(!ui.source.view.notice);
+    assert!(!ui.view().notice);
     click(&mut ui, "Clear query");
-    assert_eq!(ui.source.view.actions, 1);
+    assert_eq!(ui.view().actions, 1);
 }
 #[test]
 fn info_tone_is_theme_resolved_and_old_theme_json_remains_compatible() {
@@ -125,16 +125,17 @@ fn skeleton_uses_native_animation_without_redeclaring_the_view_and_can_go_idle()
     let mut text = TextContext::new();
     source.build_frame(&mut text, 320, 200);
     assert!(source.has_anim());
-    let shows = source.view.shows;
+    let shows = source.view().shows;
     for _ in 0..3 {
         clock.advance(Duration::from_millis(16)).unwrap();
         let mut scene = Scene::new();
-        source.render_retained_frame(&mut scene, &mut text, (320, 200), 1.);
+        source
+            .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+            .unwrap();
     }
-    assert_eq!(source.view.shows, shows);
+    assert_eq!(source.view().shows, shows);
     assert!(clock.now() >= Duration::from_millis(48));
-    source.view.animated = false;
-    source.request_rebuild();
+    source.update(|view| view.animated = false);
     source.build_frame(&mut text, 320, 200);
     assert!(!source.has_anim());
 }
@@ -164,4 +165,120 @@ fn migrated_semantic_status_tones_remain_distinguishable_on_default_surfaces() {
             assert!(contrast >= 2.75, "{tone:?}: {contrast}");
         }
     }
+}
+
+#[derive(Default)]
+struct Disclosure {
+    open: bool,
+}
+
+impl HostView for Disclosure {
+    #[component]
+    fn show(&mut self, cx: &mut UiContext) {
+        collapsible(cx, "Details", &mut self.open, |cx| {
+            column(cx).height(80.).shrink(0.).children(|cx| {
+                button(cx).text("Inner action");
+            });
+        });
+    }
+}
+
+fn placed_text<'a, V: HostView>(
+    source: &'a plico_runtime::Source<V>,
+    label: &str,
+) -> Option<&'a plico_renderer::layout::PlacedNode> {
+    source
+        .placed_nodes()
+        .iter()
+        .find(|node| node.paint.text.as_deref() == Some(label))
+}
+
+#[test]
+fn collapsible_grows_clips_and_retires_content_on_the_injected_clock() {
+    use plico::VirtualClock;
+    use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
+    use std::time::Duration;
+
+    let clock = VirtualClock::default();
+    let mut source = plico_runtime::Source::with_clock(Disclosure::default(), clock.clone());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 360, 240);
+    let details = source
+        .semantics()
+        .node_by_role(SemanticRole::Button, "Details", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target: details }));
+    source.build_frame(&mut text, 360, 240);
+
+    clock.advance(Duration::from_millis(100)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    let action = placed_text(&source, "Inner action").expect("opening content stays mounted");
+    let [_, y0, _, y1] = action.clip.expect("animated panel clips its content");
+    let height = y1 - y0;
+    assert!(
+        height > 0. && height < 88.,
+        "midpoint panel height: {height}"
+    );
+
+    clock.advance(Duration::from_millis(150)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    let action = placed_text(&source, "Inner action").unwrap();
+    let [_, y0, _, y1] = action.clip.unwrap();
+    assert!((y1 - y0 - 88.).abs() < 0.01);
+
+    let details = source
+        .semantics()
+        .node_by_role(SemanticRole::Button, "Details", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Click { target: details }));
+    source.build_frame(&mut text, 360, 240);
+    clock.advance(Duration::from_millis(100)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    assert!(placed_text(&source, "Inner action").is_some());
+    assert!(
+        source
+            .semantics()
+            .node_by_role(SemanticRole::Button, "Inner action", None)
+            .is_none(),
+        "closing content must not remain interactive"
+    );
+
+    clock.advance(Duration::from_millis(150)).unwrap();
+    source.build_frame(&mut text, 360, 240);
+    assert!(placed_text(&source, "Inner action").is_none());
+    assert!(!source.has_anim());
+}
+
+#[test]
+fn collapsible_reduced_motion_mounts_and_unmounts_without_retirement() {
+    use plico_renderer::{
+        FrameSource, SemanticAction, SemanticRole, TextContext, UiEvent, WindowMetrics,
+    };
+
+    let mut source = plico_runtime::Source::new(Disclosure::default());
+    source.handle_event(UiEvent::WindowMetrics(WindowMetrics {
+        reduced_motion: true,
+        ..Default::default()
+    }));
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 360, 240);
+    let click_details = |source: &mut plico_runtime::Source<Disclosure>| {
+        let target = source
+            .semantics()
+            .node_by_role(SemanticRole::Button, "Details", None)
+            .unwrap()
+            .id;
+        assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+    };
+    click_details(&mut source);
+    source.build_frame(&mut text, 360, 240);
+    assert!(placed_text(&source, "Inner action").is_some());
+    assert!(!source.has_anim());
+
+    click_details(&mut source);
+    source.build_frame(&mut text, 360, 240);
+    assert!(placed_text(&source, "Inner action").is_none());
+    assert!(!source.has_anim());
 }

@@ -2,7 +2,7 @@
 //!
 //! Everything in this module is a side-effect-free mapping from winit types
 //! (`TouchPhase`, `PointerSource`, `Key`, `ModifiersState`, …) to the
-//! host-agnostic [`crate::source`] vocabulary, plus the frame-wake and
+//! host-agnostic [`plico_renderer::source`] vocabulary, plus the frame-wake and
 //! custom-decoration geometry decisions that depend only on their arguments.
 //! Keeping them free of `App` state makes them directly unit-testable.
 
@@ -11,15 +11,15 @@ use std::time::{Duration, Instant};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ButtonSource, DeviceId, MouseButton, TabletToolData, TouchPhase};
 use winit::event::{PointerKind as WinitPointerKind, PointerSource};
-use winit::keyboard::{Key, KeyLocation as WinitKeyLocation, ModifiersState};
+use winit::keyboard::{Key, KeyLocation as WinitKeyLocation, ModifiersState, PhysicalKey};
 use winit::raw_window_handle::RawWindowHandle;
 use winit::window::{ImeHint, ImePurpose as WinitImePurpose, ResizeDirection};
 
-use crate::source::{
+use plico_renderer::platform::window_lifecycle::WindowCapabilities;
+use plico_renderer::source::{
     EventResponse, GesturePhase, KeyLocation, Modifiers, Point, PointerButton, PointerId,
     PointerProperties, PointerType,
 };
-use crate::window_lifecycle::WindowCapabilities;
 
 pub(super) fn ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
@@ -67,7 +67,7 @@ pub(super) fn resize_direction_at(
     width: f64,
     height: f64,
     border: f64,
-    edges: crate::WindowResizeEdges,
+    edges: plico_renderer::WindowResizeEdges,
 ) -> Option<ResizeDirection> {
     if width <= 0.0
         || height <= 0.0
@@ -79,10 +79,12 @@ pub(super) fn resize_direction_at(
         return None;
     }
     let border = border.max(0.0).min(width * 0.5).min(height * 0.5);
-    let west = edges.contains(crate::WindowResizeEdges::LEFT) && position.x <= border;
-    let east = edges.contains(crate::WindowResizeEdges::RIGHT) && position.x >= width - border;
-    let north = edges.contains(crate::WindowResizeEdges::TOP) && position.y <= border;
-    let south = edges.contains(crate::WindowResizeEdges::BOTTOM) && position.y >= height - border;
+    let west = edges.contains(plico_renderer::WindowResizeEdges::LEFT) && position.x <= border;
+    let east =
+        edges.contains(plico_renderer::WindowResizeEdges::RIGHT) && position.x >= width - border;
+    let north = edges.contains(plico_renderer::WindowResizeEdges::TOP) && position.y <= border;
+    let south =
+        edges.contains(plico_renderer::WindowResizeEdges::BOTTOM) && position.y >= height - border;
     match (west, east, north, south) {
         (true, _, true, _) => Some(ResizeDirection::NorthWest),
         (_, true, true, _) => Some(ResizeDirection::NorthEast),
@@ -211,6 +213,17 @@ pub(super) fn pointer_button(button: &ButtonSource) -> PointerButton {
         ButtonSource::Mouse(MouseButton::Back) => PointerButton::Other(3),
         ButtonSource::Mouse(MouseButton::Forward) => PointerButton::Other(4),
         _ => PointerButton::Primary,
+    }
+}
+
+/// Mouse history buttons are navigation keys, matching native browser and
+/// MyGO routing semantics. Keeping them out of the pointer button mask avoids
+/// leaving a captured pointer behind when navigation replaces the page.
+pub(super) fn pointer_navigation_key(button: &ButtonSource) -> Option<&'static str> {
+    match button {
+        ButtonSource::Mouse(MouseButton::Back) => Some("BrowserBack"),
+        ButtonSource::Mouse(MouseButton::Forward) => Some("BrowserForward"),
+        _ => None,
     }
 }
 
@@ -383,6 +396,16 @@ pub(super) fn logical_key_name(key: &Key) -> String {
     }
 }
 
+/// DOM-compatible physical key identity shared by native and browser hosts.
+/// Formatting `PhysicalKey` itself would produce `Code(KeyK)`, while the web
+/// host and the public `Shortcut::physical("KeyK", ..)` API use `KeyK`.
+pub(super) fn physical_key_name(key: PhysicalKey) -> String {
+    match key {
+        PhysicalKey::Code(code) => format!("{code:?}"),
+        PhysicalKey::Unidentified(code) => format!("Unidentified({code:?})"),
+    }
+}
+
 pub(super) fn key_location(location: WinitKeyLocation) -> KeyLocation {
     match location {
         WinitKeyLocation::Standard => KeyLocation::Standard,
@@ -451,17 +474,17 @@ pub(super) fn ime_hint_and_purpose(state: Option<&crate::ImeState>) -> (ImeHint,
         hint |= ImeHint::SPELLCHECK;
     }
     let purpose = match state.purpose {
-        crate::WidgetImePurpose::Normal => WinitImePurpose::Normal,
-        crate::WidgetImePurpose::Password => WinitImePurpose::Password,
-        crate::WidgetImePurpose::Terminal => WinitImePurpose::Terminal,
-        crate::WidgetImePurpose::Number => WinitImePurpose::Number,
-        crate::WidgetImePurpose::Phone => WinitImePurpose::Phone,
-        crate::WidgetImePurpose::Url => WinitImePurpose::Url,
-        crate::WidgetImePurpose::Email => WinitImePurpose::Email,
-        crate::WidgetImePurpose::Pin => WinitImePurpose::Pin,
-        crate::WidgetImePurpose::Date => WinitImePurpose::Date,
-        crate::WidgetImePurpose::Time => WinitImePurpose::Time,
-        crate::WidgetImePurpose::DateTime => WinitImePurpose::DateTime,
+        plico_renderer::WidgetImePurpose::Normal => WinitImePurpose::Normal,
+        plico_renderer::WidgetImePurpose::Password => WinitImePurpose::Password,
+        plico_renderer::WidgetImePurpose::Terminal => WinitImePurpose::Terminal,
+        plico_renderer::WidgetImePurpose::Number => WinitImePurpose::Number,
+        plico_renderer::WidgetImePurpose::Phone => WinitImePurpose::Phone,
+        plico_renderer::WidgetImePurpose::Url => WinitImePurpose::Url,
+        plico_renderer::WidgetImePurpose::Email => WinitImePurpose::Email,
+        plico_renderer::WidgetImePurpose::Pin => WinitImePurpose::Pin,
+        plico_renderer::WidgetImePurpose::Date => WinitImePurpose::Date,
+        plico_renderer::WidgetImePurpose::Time => WinitImePurpose::Time,
+        plico_renderer::WidgetImePurpose::DateTime => WinitImePurpose::DateTime,
     };
     (hint, purpose)
 }

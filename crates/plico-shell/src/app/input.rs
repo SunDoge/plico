@@ -101,6 +101,18 @@ impl App {
         state: ElementState,
         properties: PointerProperties,
     ) {
+        if let Some(key) = pointer_navigation_key(&source) {
+            self.dispatch_event(UiEvent::Key(KeyEvent::logical(
+                if state == ElementState::Pressed {
+                    KeyPhase::Down
+                } else {
+                    KeyPhase::Up
+                },
+                key,
+                self.modifiers,
+            )));
+            return;
+        }
         if state == ElementState::Pressed {
             self.sync_multi_click_settings();
         }
@@ -136,7 +148,9 @@ impl App {
             }
         }
         #[cfg(target_os = "linux")]
-        if state == ElementState::Pressed && properties.pointer_type == crate::PointerType::Mouse {
+        if state == ElementState::Pressed
+            && properties.pointer_type == plico_renderer::PointerType::Mouse
+        {
             self.reset_ime_before_pointer_selection();
         }
         let phase = match state {

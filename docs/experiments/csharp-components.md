@@ -1,5 +1,7 @@
 # C# component identity wrapper experiment
 
+> 历史实验：C# 前端与跨语言 ABI 已从当前源码树移除。本文保留测量结论；其中命令和源码路径仅适用于对应历史提交。
+
 Implemented: a small incremental Roslyn generator transforms the *authoring
 convention*, not the method body. `[Component] CounterBody` adds a `Counter`
 entry point in another partial declaration. It does not rewrite captures,

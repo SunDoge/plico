@@ -20,22 +20,21 @@ fn key(value: &str) -> UiEvent {
 }
 fn frame(s: &mut Source<Launcher>, tcx: &mut TextContext) {
     s.build_frame(tcx, 680, 526);
-    assert!(s.last_error.is_none(), "{:?}", s.last_error);
 }
 #[test]
 fn programmatic_selection_updates_the_immediate_view() {
     let mut s = Source::new(Launcher::default());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx);
-    for index in 1..=3 {
-        s.view.select_result(index);
-    }
-    s.request_rebuild();
+    s.update(|view| {
+        for index in 1..=3 {
+            view.select_result(index);
+        }
+    });
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.selected_id(), Some("browser"));
+    assert_eq!(s.view().selected_id(), Some("browser"));
     assert_eq!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Button, "Browser", None)
             .unwrap()
             .states
@@ -49,38 +48,36 @@ fn autofocus_navigation_reveal_and_activation_keep_search_focus() {
     let mut s = Source::new(Launcher::default());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx);
-    let focus = s.adapter.focused();
+    let focus = s.focused();
     assert!(focus.is_some());
     assert!(s.ime_state().is_some());
     for _ in 0..8 {
         assert!(s.handle_event(key("ArrowDown")).consume_key_text);
         frame(&mut s, &mut tcx);
-        assert_eq!(s.adapter.focused(), focus);
+        assert_eq!(s.focused(), focus);
     }
-    assert_eq!(s.view.selected_id(), Some("theme"));
+    assert_eq!(s.view().selected_id(), Some("theme"));
     let port = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.scroll.scrollable[1])
         .unwrap();
     assert!(port.scroll.offset[1] > 0.);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "切换明暗主题", None)
         .unwrap()
         .id;
-    assert!(s.view.dark());
+    assert!(s.view().dark());
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert!(!s.view.dark());
-    assert_eq!(s.adapter.focused(), focus);
-    assert!(s.view.feedback().contains("已切换"));
+    assert!(!s.view().dark());
+    assert_eq!(s.focused(), focus);
+    assert!(s.view().feedback().contains("已切换"));
     // Accessibility/mouse-equivalent click follows the same action path.
     s.handle_semantic_action(SemanticAction::Click { target });
     frame(&mut s, &mut tcx);
-    assert!(s.view.dark());
+    assert!(s.view().dark());
 }
 #[test]
 fn search_empty_recovery_and_escape_close_are_native_actions() {
@@ -89,15 +86,15 @@ fn search_empty_recovery_and_escape_close_are_native_actions() {
     frame(&mut s, &mut tcx);
     s.handle_event(UiEvent::TextInput("找不到这个应用".into()));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.result_count(), 0);
-    assert_eq!(s.view.selected_id(), None);
+    assert_eq!(s.view().result_count(), 0);
+    assert_eq!(s.view().selected_id(), None);
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
     assert!(s.take_host_action().is_none());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(s.view.query_is_empty());
-    assert!(s.view.result_count() > 0);
+    assert!(s.view().query_is_empty());
+    assert!(s.view().result_count() > 0);
     assert!(s.take_host_action().is_none());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
@@ -119,15 +116,15 @@ fn ime_owns_arrows_enter_and_first_escape_while_composing() {
     assert!(!s.handle_event(key("ArrowDown")).consume_key_text);
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.selected_id(), Some("code"));
-    assert!(s.view.feedback().is_empty());
+    assert_eq!(s.view().selected_id(), Some("code"));
+    assert!(s.view().feedback().is_empty());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
-    assert!(!s.view.query_is_composing());
+    assert!(!s.view().query_is_composing());
     assert!(s.take_host_action().is_none());
     s.handle_event(UiEvent::Ime(ImeEvent::Commit("终端".into())));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.selected_id(), Some("terminal"));
+    assert_eq!(s.view().selected_id(), Some("terminal"));
 }
 #[test]
 fn filter_change_and_case_insensitive_multi_token_search_reset_selection() {
@@ -136,14 +133,16 @@ fn filter_change_and_case_insensitive_multi_token_search_reset_selection() {
     frame(&mut s, &mut tcx);
     s.handle_event(UiEvent::TextInput("VISUAL code".into()));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.result_count(), 1);
-    assert_eq!(s.view.selected_id(), Some("code"));
-    s.view.clear_query();
-    s.view.set_category(Category::Commands);
+    assert_eq!(s.view().result_count(), 1);
+    assert_eq!(s.view().selected_id(), Some("code"));
+    s.update(|view| {
+        view.clear_query();
+        view.set_category(Category::Commands);
+    });
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.result_count(), 3);
-    assert_eq!(s.view.selected_id(), Some("theme"));
+    assert_eq!(s.view().result_count(), 3);
+    assert_eq!(s.view().selected_id(), Some("theme"));
     s.handle_event(key("PageDown"));
     frame(&mut s, &mut tcx);
-    assert_eq!(s.view.selected_id(), Some("close"));
+    assert_eq!(s.view().selected_id(), Some("close"));
 }

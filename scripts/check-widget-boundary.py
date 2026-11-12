@@ -40,6 +40,47 @@ for path in sorted((ROOT / "apps").rglob("*.rs")):
         elif IMPL_RENDERER_WIDGET.search(line):
             violations.append(f"{path.relative_to(ROOT)}:{number}: impl: {line.strip()}")
 
+# Interaction results are immutable snapshots queried like MyGO Elements. Keep
+# structural payloads (`inner`) public, but do not expose event flags that apps
+# can fabricate or mutate independently of the declaration that produced them.
+response_types = {
+    "Response": set(),
+    "ToggleResponse": set(),
+    "InputResponse": set(),
+    "SliderResponse": set(),
+    "ValueControlResponse": {"inner"},
+    "ModalResponse": {"inner"},
+    "SelectResponse": set(),
+    "SearchResponse": set(),
+    "FindResponse": set(),
+    "CalendarResponse": set(),
+}
+response_sources = [
+    (path, path.read_text())
+    for path in sorted((ROOT / "crates/plico/src").rglob("*.rs"))
+]
+for name, allowed in response_types.items():
+    matches = []
+    for path, source in response_sources:
+        match = re.search(
+            rf"pub struct {name}(?:<[^>]+>)?\s*\{{(?P<body>.*?)^\}}",
+            source,
+            re.MULTILINE | re.DOTALL,
+        )
+        if match is not None:
+            matches.append((path, match))
+    if len(matches) != 1:
+        locations = [str(path.relative_to(ROOT)) for path, _ in matches]
+        violations.append(f"plico sources: expected one response struct {name}, found {locations}")
+        continue
+    path, match = matches[0]
+    public = set(re.findall(r"^\s*pub\s+(\w+)\s*:", match.group("body"), re.MULTILINE))
+    if public != allowed:
+        violations.append(
+            f"{path.relative_to(ROOT)}: {name} public fields {sorted(public)}; "
+            f"expected {sorted(allowed)}"
+        )
+
 
 if violations:
     sys.exit(

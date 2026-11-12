@@ -41,8 +41,7 @@ impl HostView for Demo {
 }
 fn action(s: &mut Source<Demo>, label: &str, focus: bool) {
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, label, None)
         .unwrap()
         .id;
@@ -74,7 +73,7 @@ fn anchored_panel_flips_clamps_and_routes_action_in_placed_geometry() {
     action(&mut s, "Options", true);
     action(&mut s, "Options", false);
     s.build_frame(&mut tcx, 320, 240);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let trigger = snapshot
         .node_by_role(SemanticRole::Button, "Options", None)
         .unwrap();
@@ -92,9 +91,9 @@ fn anchored_panel_flips_clamps_and_routes_action_in_placed_geometry() {
     assert!(apply.bounds[1] >= panel.bounds[1] && apply.bounds[3] <= panel.bounds[3]);
     action(&mut s, "Apply", false);
     s.build_frame(&mut tcx, 320, 240);
-    assert_eq!(s.view.clicks, 1);
-    assert!(!s.view.popup.is_open());
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(trigger.id));
+    assert_eq!(s.view().clicks, 1);
+    assert!(!s.view().popup.is_open());
+    assert_eq!(s.semantics().focus, Some(trigger.id));
 }
 #[test]
 fn tab_leaves_popup_and_exit_does_not_steal_focus() {
@@ -107,8 +106,8 @@ fn tab_leaves_popup_and_exit_does_not_steal_focus() {
     s.build_frame(&mut tcx, 600, 400);
     assert!(s.handle_event(key("Tab")).handled);
     s.build_frame(&mut tcx, 600, 400);
-    assert!(!s.view.popup.is_open());
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    assert!(!s.view().popup.is_open());
+    let snapshot = s.semantics();
     let after = snapshot
         .node_by_role(SemanticRole::Button, "After", None)
         .unwrap()
@@ -116,7 +115,7 @@ fn tab_leaves_popup_and_exit_does_not_steal_focus() {
     assert_eq!(snapshot.focus, Some(after));
     clock.advance(Duration::from_secs(1)).unwrap();
     s.build_frame(&mut tcx, 600, 400);
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(after));
+    assert_eq!(s.semantics().focus, Some(after));
 }
 #[test]
 fn disabled_trigger_does_not_open_and_popup_state_is_portable() {
@@ -127,12 +126,11 @@ fn disabled_trigger_does_not_open_and_popup_state_is_portable() {
         ..Default::default()
     });
     s.build_frame(&mut TextContext::new(), 180, 100);
-    assert!(!s.view.popup.is_open());
+    assert!(!s.view().popup.is_open());
     assert!(
-        !s.engine
-            .snapshot()
-            .iter()
-            .any(|n| n.style.popup_anchor.is_some())
+        s.semantics()
+            .node_by_role(SemanticRole::Dialog, "Options", None)
+            .is_none()
     );
 }
 
@@ -145,7 +143,7 @@ fn pointer_uses_positioned_panel_and_resize_reanchors_without_ui_state_reset() {
     action(&mut s, "Options", false);
     s.build_frame(&mut tcx, 600, 400);
     s.build_frame(&mut tcx, 260, 220);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let panel = snapshot
         .node_by_role(SemanticRole::Dialog, "Options", None)
         .unwrap();
@@ -166,8 +164,8 @@ fn pointer_uses_positioned_panel_and_resize_reanchors_without_ui_state_reset() {
         }));
     }
     s.build_frame(&mut tcx, 260, 220);
-    assert_eq!(s.view.clicks, 1);
-    assert!(!s.view.popup.is_open());
+    assert_eq!(s.view().clicks, 1);
+    assert!(!s.view().popup.is_open());
 }
 
 #[derive(Default)]
@@ -200,14 +198,13 @@ fn popup_inside_modal_is_exposed_to_accessibility_and_escape_restores_parent_sco
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 600, 400);
     let trigger = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Child popup", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target: trigger }));
     s.build_frame(&mut tcx, 600, 400);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     assert!(
         snapshot
             .node_by_role(SemanticRole::Button, "Child action", None)
@@ -235,9 +232,9 @@ fn popup_inside_modal_is_exposed_to_accessibility_and_escape_restores_parent_sco
     );
     s.handle_event(key("Escape"));
     s.build_frame(&mut tcx, 600, 400);
-    assert!(s.view.dialog.is_open());
-    assert!(!s.view.popup.is_open());
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(trigger));
+    assert!(s.view().dialog.is_open());
+    assert!(!s.view().popup.is_open());
+    assert_eq!(s.semantics().focus, Some(trigger));
     assert!(s.handle_semantic_action(SemanticAction::Click {
         target: parent_action
     }));
@@ -251,11 +248,11 @@ fn popup_animation_frames_keep_application_and_layout_idle() {
     s.build_frame(&mut tcx, 600, 400);
     action(&mut s, "Options", false);
     s.build_frame(&mut tcx, 600, 400);
-    let before = s.view.shows;
+    let before = s.view().shows;
     clock.advance(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut tcx, 600, 400);
-    assert_eq!(s.view.shows, before);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.view().shows, before);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 }
 
 #[test]
@@ -268,7 +265,7 @@ fn automatic_popup_focus_preserves_pointer_or_keyboard_modality() {
     source.build_frame(&mut text, 400, 400);
     clock.advance(Duration::from_secs(1)).unwrap();
     let nodes = source.build_frame(&mut text, 400, 400);
-    assert!(source.view.popup.is_open());
+    assert!(source.view().popup.is_open());
     assert!(
         nodes.iter().all(|n| n.paint.outline_width == 0.),
         "automatic popup focus must not opt pointer users into focus rings"

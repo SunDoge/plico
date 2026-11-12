@@ -1,4 +1,4 @@
-//! Platform contracts shared by Wabou runtimes, backend shells, and extensions.
+//! Platform contracts shared by Plico runtimes, backend shells, and extensions.
 
 #![warn(missing_docs)]
 
@@ -6,8 +6,7 @@ pub mod accessibility;
 pub mod app_dirs;
 pub mod color;
 pub mod effect;
-mod generated;
-use generated::effect_abi;
+mod effect_protocol;
 pub mod event;
 pub mod floating;
 mod resource;
@@ -21,7 +20,7 @@ pub use app_dirs::{AppDirectories, AppDirectoryConfig};
 pub use color::RgbaColor;
 pub use effect::{
     CapabilityId, ClipboardContent, ClipboardImage, ContextMenuItem, ContextMenuRequest,
-    DialogFilter, EFFECT_ABI_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
+    DialogFilter, EFFECT_PROTOCOL_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
     EffectExecutor, EffectId, EffectOp, EffectPayload, EffectRequest, EffectResult, EffectScope,
     EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel, MessageDialogRequest,
     MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,

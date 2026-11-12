@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Keep application and host code on Source's stable runtime surface.
+
+The runtime implementation may compose Engine and Adapter directly. Other
+production Rust code should use Source queries/update instead of reaching
+through public retained state.
+Runnable examples and probes use the same stable surface. Integration tests are
+migrated separately to testing::Driver and diagnostics.
+
+This is intentionally a source-level guard, not a Rust name resolver.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DIRECT_SOURCE_FIELD = re.compile(
+    r"(?:\bsource|\.source)\s*\.\s*"
+    r"(engine|adapter|view|declaration_stats|declaration_micros)\b(?!\s*\()"
+)
+
+violations = []
+migrated_test_roots = {
+    ("apps", "backend-settings", "tests"),
+    ("apps", "gallery", "tests"),
+    ("apps", "launcher", "tests"),
+    ("apps", "services-demo", "tests"),
+    ("crates", "plico-desktop", "tests"),
+    ("crates", "plico-runtime", "tests"),
+    ("crates", "plico-skia", "tests"),
+    ("crates", "plico-wgpu", "tests"),
+}
+migrated_test_files = {
+    Path("crates/plico-desktop/tests/absolute.rs"),
+    Path("crates/plico-desktop/tests/alignment.rs"),
+    Path("crates/plico-desktop/tests/backdrop.rs"),
+    Path("crates/plico-desktop/tests/batching.rs"),
+    Path("crates/plico-desktop/tests/button_content.rs"),
+    Path("crates/plico-desktop/tests/button_states.rs"),
+    Path("crates/plico-desktop/tests/calendar.rs"),
+    Path("crates/plico-desktop/tests/capabilities.rs"),
+    Path("crates/plico-desktop/tests/compact_flicker.rs"),
+    Path("crates/plico-desktop/tests/clock.rs"),
+    Path("crates/plico-desktop/tests/composable_widgets.rs"),
+    Path("crates/plico-desktop/tests/feedback_motion.rs"),
+    Path("crates/plico-desktop/tests/font_family.rs"),
+    Path("crates/plico-desktop/tests/gallery.rs"),
+    Path("crates/plico-desktop/tests/flex_layout.rs"),
+    Path("crates/plico-desktop/tests/glass_pixels.rs"),
+    Path("crates/plico-desktop/tests/interactive_glass.rs"),
+    Path("crates/plico-desktop/tests/icons.rs"),
+    Path("crates/plico-desktop/tests/incremental.rs"),
+    Path("crates/plico-desktop/tests/layout_features.rs"),
+    Path("crates/plico-desktop/tests/layout_reuse.rs"),
+    Path("crates/plico-desktop/tests/materials.rs"),
+    Path("crates/plico-desktop/tests/modal.rs"),
+    Path("crates/plico-desktop/tests/native_surface.rs"),
+    Path("crates/plico-desktop/tests/popover.rs"),
+    Path("crates/plico-desktop/tests/presentation_motion.rs"),
+    Path("crates/plico-desktop/tests/retained_frame.rs"),
+    Path("crates/plico-desktop/tests/retained_sampling.rs"),
+    Path("crates/plico-desktop/tests/rich_text.rs"),
+    Path("crates/plico-desktop/tests/route_nav.rs"),
+    Path("crates/plico-desktop/tests/save_button_flicker.rs"),
+    Path("crates/plico-desktop/tests/scene_layers.rs"),
+    Path("crates/plico-desktop/tests/scroll.rs"),
+    Path("crates/plico-desktop/tests/scroll_clip.rs"),
+    Path("crates/plico-desktop/tests/scroll_presentation.rs"),
+    Path("crates/plico-desktop/tests/select_menu.rs"),
+    Path("crates/plico-desktop/tests/search_input.rs"),
+    Path("crates/plico-desktop/tests/shader.rs"),
+    Path("crates/plico-desktop/tests/shader_transition.rs"),
+    Path("crates/plico-desktop/tests/slider.rs"),
+    Path("crates/plico-desktop/tests/smooth_scroll.rs"),
+    Path("crates/plico-desktop/tests/style_geometry.rs"),
+    Path("crates/plico-desktop/tests/style_motion.rs"),
+    Path("crates/plico-desktop/tests/structural_sync.rs"),
+    Path("crates/plico-desktop/tests/svg_assets.rs"),
+    Path("crates/plico-desktop/tests/text_input.rs"),
+    Path("crates/plico-desktop/tests/text_selection.rs"),
+    Path("crates/plico-desktop/tests/toggles.rs"),
+    Path("crates/plico-desktop/tests/tooltip.rs"),
+    Path("crates/plico-desktop/tests/tree_keyboard.rs"),
+    Path("crates/plico-desktop/tests/virtual_list.rs"),
+    Path("crates/plico-runtime/tests/adapter_work.rs"),
+    Path("crates/plico-runtime/tests/alert_dialog.rs"),
+    Path("crates/plico-runtime/tests/component_kit.rs"),
+    Path("crates/plico-runtime/tests/deadline.rs"),
+    Path("crates/plico-runtime/tests/display_preferences.rs"),
+    Path("crates/plico-runtime/tests/focus_navigation.rs"),
+    Path("crates/plico-runtime/tests/font_family.rs"),
+    Path("crates/plico-runtime/tests/hover.rs"),
+    Path("crates/plico-runtime/tests/indicator_semantics.rs"),
+    Path("crates/plico-runtime/tests/retained_frame.rs"),
+    Path("crates/plico-runtime/tests/range_slider.rs"),
+    Path("crates/plico-runtime/tests/scroll_layout_motion.rs"),
+    Path("crates/plico-runtime/tests/secondary_click.rs"),
+    Path("crates/plico-runtime/tests/test_protocol.rs"),
+    Path("crates/plico-runtime/tests/toast_motion.rs"),
+    Path("crates/plico-runtime/tests/user_activity.rs"),
+    Path("crates/plico-runtime/tests/variable_list.rs"),
+    Path("crates/plico-runtime/tests/virtual_table_width.rs"),
+}
+for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
+    for path in sorted(root.rglob("*.rs")):
+        relative = path.relative_to(ROOT)
+        parts = relative.parts
+        migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
+        if "tests" in parts and not migrated_test:
+            continue
+        if parts[:3] == ("crates", "plico-runtime", "src"):
+            continue
+        contents = path.read_text()
+        for match in DIRECT_SOURCE_FIELD.finditer(contents):
+            number = contents.count("\n", 0, match.start()) + 1
+            line = contents.splitlines()[number - 1].strip()
+            violations.append(
+                f"{relative}:{number}: Source.{match.group(1)} field: {line}"
+            )
+
+source_definition = (ROOT / "crates/plico-runtime/src/source.rs").read_text()
+for field in ("engine", "adapter", "view"):
+    if not re.search(rf"^\s*pub\(crate\) {field}:", source_definition, re.MULTILINE):
+        violations.append(
+            f"crates/plico-runtime/src/source.rs: Source.{field} must remain crate-private"
+        )
+
+runtime_root = (ROOT / "crates/plico-runtime/src/lib.rs").read_text()
+if not re.search(r"^pub\(crate\) use adapter::Adapter;", runtime_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-runtime/src/lib.rs: Adapter must remain crate-private"
+    )
+
+desktop_root = (ROOT / "crates/plico-desktop/src/lib.rs").read_text()
+if re.search(r"^pub use plico_runtime::\*;", desktop_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-desktop/src/lib.rs: desktop must explicitly curate runtime exports"
+    )
+
+dev_root = (ROOT / "crates/plico-dev/src/lib.rs").read_text()
+app_trait = re.search(
+    r"^pub trait App\s*\{(?P<body>.*?)^\}",
+    dev_root,
+    re.MULTILINE | re.DOTALL,
+)
+if app_trait is None:
+    violations.append("crates/plico-dev/src/lib.rs: missing public App trait")
+elif any(
+    protocol_detail in app_trait.group("body")
+    for protocol_detail in ("serde_json", "set_services", "take_service_commands")
+):
+    violations.append(
+        "crates/plico-dev/src/lib.rs: App must not expose split-host JSON hooks"
+    )
+if not re.search(r"^pub\(crate\) trait ProtocolApp: App", dev_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-dev/src/lib.rs: split-host hooks must remain on private ProtocolApp"
+    )
+
+services_root = (ROOT / "crates/plico-dev/src/services.rs").read_text()
+if re.search(r"^pub trait ServiceApp\s*:\s*Default", services_root, re.MULTILINE):
+    violations.append(
+        "crates/plico-dev/src/services.rs: static ServiceApp must not require Default"
+    )
+for trait_name in ("HostService", "ServiceApp"):
+    trait = re.search(
+        rf"^pub trait {trait_name}\s*\{{(?P<body>.*?)^\}}",
+        services_root,
+        re.MULTILINE | re.DOTALL,
+    )
+    if trait is None:
+        violations.append(
+            f"crates/plico-dev/src/services.rs: missing public {trait_name} trait"
+        )
+    elif any(
+        protocol_bound in trait.group("body")
+        for protocol_bound in ("Serialize", "DeserializeOwned")
+    ):
+        violations.append(
+            f"crates/plico-dev/src/services.rs: static {trait_name} must not require serialization"
+        )
+
+if violations:
+    sys.exit(
+        "Runtime/API boundary failed:\n  " + "\n  ".join(violations)
+    )
+
+print("Runtime boundary holds: stable Source and application lifecycle APIs")

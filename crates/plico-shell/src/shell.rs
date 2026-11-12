@@ -1,7 +1,7 @@
 //! Reusable window + Vello GPU backend + scene + text context.
 //!
 //! Extracted from the app so multiple hosts share one windowing setup. A host
-//! provides a [`crate::source::FrameSource`] that fills the scene each frame;
+//! provides a [`plico_renderer::source::FrameSource`] that fills the scene each frame;
 //! [`Shell`] handles presentation + vsync + resize.
 
 #![warn(missing_docs)]
@@ -9,16 +9,16 @@
 use snafu::ResultExt;
 use std::sync::Arc;
 
-use crate::Scene;
 use peniko::Color;
+use plico_renderer::Scene;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes};
 
 use crate::accessibility::AccessibilityState;
-use crate::source::{WindowInputMode, WindowLevel, WindowOptions};
-use crate::text::TextContext;
 use crate::window_renderer::WindowRenderer;
 use plico_renderer::platform::WindowBackground;
+use plico_renderer::source::{WindowInputMode, WindowLevel, WindowOptions};
+use plico_renderer::text::TextContext;
 
 /// Native rendering resources owned by one live window.
 pub struct Shell {
@@ -235,7 +235,7 @@ impl Shell {
             Default::default()
         }
     }
-    pub(crate) fn observe_native_events(&mut self, _wake: crate::WakeCallback) {
+    pub(crate) fn observe_native_events(&mut self, _wake: plico_renderer::WakeCallback) {
         self.renderer.set_surface_wake(_wake.clone());
         #[cfg(target_os = "macos")]
         {

@@ -59,17 +59,17 @@ impl HostView for Form {
 fn frame(s: &mut Source<Form>, text: &mut TextContext) {
     s.render_retained_frame(&mut Scene::new(), text, (600, 2200), 1.)
         .unwrap();
-    assert!(s.last_error.is_none(), "{:?}", s.last_error);
+}
+fn stats<V: HostView>(source: &Source<V>) -> plico_runtime::BackendStats {
+    source.frame_diagnostics().backend
 }
 fn input<'a>(s: &'a Source<Form>, label: &str) -> &'a plico_renderer::layout::PlacedNode {
     let bounds = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::TextInput, label, None)
         .unwrap()
         .bounds;
-    s.adapter
-        .placed
+    s.placed_nodes()
         .iter()
         .find(|n| n.rect == bounds && n.paint.widget.is_some())
         .unwrap()
@@ -77,8 +77,7 @@ fn input<'a>(s: &'a Source<Form>, label: &str) -> &'a plico_renderer::layout::Pl
 
 fn focus(s: &mut Source<Form>, label: &str) {
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::TextInput, label, None)
         .unwrap()
         .id;
@@ -90,20 +89,19 @@ fn moving_unchanged_inputs_reuses_local_fragments_and_focus_geometry() {
     s.set_reduced_motion(true);
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.input_rebuilds, 20);
-    assert_eq!(s.adapter.stats.selection_visits, 0);
-    assert_eq!(s.adapter.stats.slider_visits, 0);
-    assert_eq!(s.adapter.stats.shader_visits, 0);
+    assert_eq!(stats(&s).input_rebuilds, 20);
+    assert_eq!(stats(&s).selection_visits, 0);
+    assert_eq!(stats(&s).slider_visits, 0);
+    assert_eq!(stats(&s).shader_visits, 0);
     focus(&mut s, "Field 0");
     frame(&mut s, &mut text);
     let caret = s.ime_state().unwrap().cursor_area;
     let fragment = input(&s, "Field 0").paint.widget.clone().unwrap();
-    s.view.offset += 40.;
-    s.request_rebuild();
+    s.update(|view| view.offset += 40.);
     frame(&mut s, &mut text);
-    assert!(s.adapter.stats.layout_runs > 0);
-    assert_eq!(s.adapter.stats.input_rebuilds, 0);
-    assert_eq!(s.adapter.stats.input_reuses, 20);
+    assert!(stats(&s).layout_runs > 0);
+    assert_eq!(stats(&s).input_rebuilds, 0);
+    assert_eq!(stats(&s).input_reuses, 20);
     assert!(Arc::ptr_eq(
         &fragment,
         input(&s, "Field 0").paint.widget.as_ref().unwrap()
@@ -114,14 +112,16 @@ fn moving_unchanged_inputs_reuses_local_fragments_and_focus_geometry() {
     assert!(s.handle_event(UiEvent::TextInput("中文".into())).handled);
     frame(&mut s, &mut text);
     assert_eq!(
-        s.adapter.stats.input_rebuilds, 1,
+        stats(&s).input_rebuilds,
+        1,
         "editing one buffer must not repaint the other 19"
     );
     assert_eq!(
-        s.adapter.stats.input_reuses, 0,
+        stats(&s).input_reuses,
+        0,
         "fixed-size editing does not even visit unrelated inputs"
     );
-    assert_eq!(s.view.buffers[0].text().as_deref(), Some("中文"));
+    assert_eq!(s.view().buffers[0].text().as_deref(), Some("中文"));
     assert!(!Arc::ptr_eq(
         &fragment,
         input(&s, "Field 0").paint.widget.as_ref().unwrap()
@@ -132,7 +132,7 @@ fn moving_unchanged_inputs_reuses_local_fragments_and_focus_geometry() {
         cursor: None,
     }));
     frame(&mut s, &mut text);
-    assert!(s.adapter.stats.input_rebuilds >= 1);
+    assert!(stats(&s).input_rebuilds >= 1);
     assert!(!Arc::ptr_eq(
         &fragment,
         input(&s, "Field 0").paint.widget.as_ref().unwrap()
@@ -145,12 +145,14 @@ fn input_fragment_cache_invalidates_for_context_style_size_and_buffer_rebinding(
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
     let first = input(&s, "Field 0").paint.widget.clone().unwrap();
-    s.view.buffers[0] = TextBuffer::new();
-    s.view.offset += 1.;
-    s.request_rebuild();
+    s.update(|view| {
+        view.buffers[0] = TextBuffer::new();
+        view.offset += 1.;
+    });
     frame(&mut s, &mut text);
     assert_eq!(
-        s.adapter.stats.input_rebuilds, 1,
+        stats(&s).input_rebuilds,
+        1,
         "different empty buffers still have different caret/revision identity"
     );
     assert!(!Arc::ptr_eq(
@@ -159,21 +161,17 @@ fn input_fragment_cache_invalidates_for_context_style_size_and_buffer_rebinding(
     ));
     for change in 0..7 {
         match change {
-            0 => s.view.placeholder = "New hint",
-            1 => s.view.width = 210.,
-            2 => s.view.dark = true,
+            0 => s.update(|view| view.placeholder = "New hint"),
+            1 => s.update(|view| view.width = 210.),
+            2 => s.update(|view| view.dark = true),
             3 => text.clear_caches(),
             4 => text = TextContext::new(),
             5 => s.set_font_family("monospace"),
-            _ => s.view.font = 20,
+            _ => s.update(|view| view.font = 20),
         }
-        s.view.offset += 1.;
-        s.request_rebuild();
+        s.update(|view| view.offset += 1.);
         frame(&mut s, &mut text);
-        assert_eq!(
-            s.adapter.stats.input_rebuilds, 2,
-            "cache invalidation {change}"
-        );
+        assert_eq!(stats(&s).input_rebuilds, 2, "cache invalidation {change}");
     }
 }
 #[test]
@@ -181,21 +179,18 @@ fn enabling_and_removing_last_selectable_owner_updates_selection_index() {
     let mut s = Source::new(Form::new(1));
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.selection_visits, 0);
-    s.view.selectable = true;
-    s.request_rebuild();
+    assert_eq!(stats(&s).selection_visits, 0);
+    s.update(|view| view.selectable = true);
     frame(&mut s, &mut text);
-    assert!(s.adapter.stats.selection_visits > 0);
-    s.view.selectable = false;
-    s.request_rebuild();
+    assert!(stats(&s).selection_visits > 0);
+    s.update(|view| view.selectable = false);
     frame(&mut s, &mut text);
     // The previous selectable paragraph is invalidated once; later paint/layout
     // work must no longer rebuild an empty selection model.
-    s.view.offset += 1.;
-    s.request_rebuild();
+    s.update(|view| view.offset += 1.);
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.selection_visits, 0);
-    assert!(s.adapter.selected_text().is_none());
+    assert_eq!(stats(&s).selection_visits, 0);
+    assert!(s.selected_text().is_none());
 }
 
 #[test]
@@ -225,36 +220,33 @@ fn shader_registry_tracks_mount_and_unmount_without_gpu_rasterization() {
     source
         .render_retained_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
         .unwrap();
-    assert!(source.last_error.is_none());
-    assert_eq!(source.adapter.stats.shader_visits, 1);
-    source.view.present = false;
-    source.request_rebuild();
+    assert_eq!(stats(&source).shader_visits, 1);
+    source.update(|view| view.present = false);
     source
         .render_retained_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
         .unwrap();
-    assert_eq!(source.adapter.stats.shader_visits, 0);
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert_eq!(stats(&source).shader_visits, 0);
+    assert!(source.shader_diagnostics().next().is_none());
 }
 
 #[test]
 fn unrelated_leaf_paint_does_not_rebuild_selectable_paragraphs() {
     let mut s = Source::new(Form::new(1));
-    s.view.selectable = true;
+    s.update(|view| view.selectable = true);
     s.set_reduced_motion(true);
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
-    assert!(s.adapter.stats.selection_visits > 0);
+    assert!(stats(&s).selection_visits > 0);
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::CheckBox, "Unrelated toggle", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target }));
     frame(&mut s, &mut text);
-    assert!(s.view.checked);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.selection_visits, 0);
+    assert!(s.view().checked);
+    assert_eq!(stats(&s).layout_runs, 0);
+    assert_eq!(stats(&s).selection_visits, 0);
 }
 
 #[test]
@@ -289,26 +281,23 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
     let mut text = TextContext::new();
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
-    assert_eq!(s.adapter.stats.scroll_visits, 1);
+    assert_eq!(stats(&s).scroll_visits, 1);
     let before = s.batch_stats().scroll_viewport_visits;
     let target = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::CheckBox, "Toggle", None)
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target }));
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
-    assert!(s.last_error.is_none());
     assert_eq!(s.batch_stats().scroll_viewport_visits - before, 1);
-    assert_eq!(s.adapter.stats.scroll_visits, 1);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    s.view.scroll = false;
-    s.request_rebuild();
+    assert_eq!(stats(&s).scroll_visits, 1);
+    assert_eq!(stats(&s).layout_runs, 0);
+    s.update(|view| view.scroll = false);
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
-    assert_eq!(s.adapter.stats.scroll_visits, 0);
+    assert_eq!(stats(&s).scroll_visits, 0);
     let before = s.batch_stats().scroll_viewport_visits;
     s.request_rebuild();
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
@@ -322,41 +311,36 @@ fn geometry_alignment_only_visits_controls_and_reuses_metrics_without_origin_dri
     s.set_reduced_motion(true);
     let mut text = TextContext::new();
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    assert_eq!(stats(&s).control_metric_builds, 1);
     let origin = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Unrelated toggle"))
         .unwrap()
         .content_origin;
     for _ in 0..3 {
-        s.view.offset += 40.;
-        s.request_rebuild();
+        s.update(|view| view.offset += 40.);
         frame(&mut s, &mut text);
-        assert_eq!(s.adapter.stats.control_align_checks, 1);
-        assert_eq!(s.adapter.stats.input_align_checks, 20);
-        assert_eq!(s.adapter.stats.control_metric_builds, 0);
-        assert_eq!(s.adapter.stats.control_metric_reuses, 1);
+        assert_eq!(stats(&s).control_align_checks, 1);
+        assert_eq!(stats(&s).input_align_checks, 20);
+        assert_eq!(stats(&s).control_metric_builds, 0);
+        assert_eq!(stats(&s).control_metric_reuses, 1);
     }
     let next = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Unrelated toggle"))
         .unwrap()
         .content_origin;
     assert_eq!(next[0], origin[0]);
     assert!((next[1] - origin[1] - 120.).abs() < 0.01);
-    s.view.dark = true;
-    s.request_rebuild();
+    s.update(|view| view.dark = true);
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    assert_eq!(stats(&s).control_metric_builds, 1);
     text.clear_caches();
-    s.view.offset += 1.;
-    s.request_rebuild();
+    s.update(|view| view.offset += 1.);
     frame(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    assert_eq!(stats(&s).control_metric_builds, 1);
 }
 
 #[derive(Clone)]
@@ -393,47 +377,41 @@ fn control_metric_invalidation_matches_fresh_layout_and_cleans_unmounted_members
     let draw = |s: &mut Source<Controls>, text: &mut TextContext| {
         s.render_retained_frame(&mut Scene::new(), text, (600, 600), 1.)
             .unwrap();
-        assert!(s.last_error.is_none(), "{:?}", s.last_error);
     };
     draw(&mut s, &mut text);
     for change in 0..3 {
         match change {
-            0 => s.view.width = 120.,
-            1 => s.view.font = 24,
-            _ => s.view.label = "New label",
+            0 => s.update(|view| view.width = 120.),
+            1 => s.update(|view| view.font = 24),
+            _ => s.update(|view| view.label = "New label"),
         }
-        s.request_rebuild();
         draw(&mut s, &mut text);
-        assert_eq!(s.adapter.stats.control_metric_builds, 1);
-        let mut fresh = Source::new(s.view.clone());
+        assert_eq!(stats(&s).control_metric_builds, 1);
+        let mut fresh = Source::new(s.view().clone());
         fresh.set_reduced_motion(true);
         draw(&mut fresh, &mut text);
         let actual = s
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
-            .find(|n| n.paint.text.as_deref() == Some(s.view.label))
+            .find(|n| n.paint.text.as_deref() == Some(s.view().label))
             .unwrap();
         let expected = fresh
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
-            .find(|n| n.paint.text.as_deref() == Some(s.view.label))
+            .find(|n| n.paint.text.as_deref() == Some(s.view().label))
             .unwrap();
         assert_eq!(actual.rect, expected.rect);
         assert_eq!(actual.content_origin, expected.content_origin);
         assert_eq!(actual.content_size, expected.content_size);
     }
-    s.view.visible = false;
-    s.request_rebuild();
+    s.update(|view| view.visible = false);
     draw(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.control_align_checks, 0);
-    assert_eq!(s.adapter.stats.control_metric_reuses, 0);
-    s.view.visible = true;
-    s.request_rebuild();
+    assert_eq!(stats(&s).control_align_checks, 0);
+    assert_eq!(stats(&s).control_metric_reuses, 0);
+    s.update(|view| view.visible = true);
     draw(&mut s, &mut text);
-    assert_eq!(s.adapter.stats.control_align_checks, 1);
-    assert_eq!(s.adapter.stats.control_metric_builds, 1);
+    assert_eq!(stats(&s).control_align_checks, 1);
+    assert_eq!(stats(&s).control_metric_builds, 1);
 }
 
 #[test]
@@ -460,19 +438,17 @@ fn shader_diagnostics_follow_asset_path_changes_and_recover() {
     });
     let mut text = TextContext::new();
     for path in ["effects/first.wgsl", "effects/second.wgsl"] {
-        source.view.path = path;
-        source.request_rebuild();
+        source.update(|view| view.path = path);
         source
             .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
             .unwrap();
-        let errors: Vec<_> = source.adapter.shader_diagnostics().collect();
+        let errors: Vec<_> = source.shader_diagnostics().collect();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].starts_with(&format!("{path}: ")), "{}", errors[0]);
     }
-    source.view.valid = true;
-    source.request_rebuild();
+    source.update(|view| view.valid = true);
     source
         .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
         .unwrap();
-    assert!(source.adapter.shader_diagnostics().next().is_none());
+    assert!(source.shader_diagnostics().next().is_none());
 }

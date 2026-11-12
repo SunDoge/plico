@@ -1,6 +1,6 @@
 //! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
-use crate::{RenderBackend, Scene};
 use peniko::Color;
+use plico_renderer::{RenderBackend, Scene};
 #[cfg(feature = "skia")]
 use snafu::ResultExt;
 use std::sync::Arc;
@@ -120,6 +120,7 @@ impl WindowRenderer {
                     encode_ms: budget.encode_ms,
                     submit_ms: budget.submit_ms,
                     submissions: budget.submissions,
+                    command_buffers: budget.command_buffers,
                     wait_ms: budget.wait_ms,
                     gpu_ms: budget.gpu_ms,
                     upload_bytes: budget.upload_bytes,
@@ -372,7 +373,7 @@ impl WindowRenderer {
             renderer.invalidate_presentation();
         }
     }
-    pub(crate) fn set_surface_wake(&mut self, wake: crate::WakeCallback) {
+    pub(crate) fn set_surface_wake(&mut self, wake: plico_renderer::WakeCallback) {
         #[cfg(feature = "wgpu")]
         if let Self::Wgpu {
             active: Some(renderer),

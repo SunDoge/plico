@@ -93,14 +93,14 @@ pub enum PaintCommand {
         font: FontData,
         font_size: f32,
         hint: bool,
-        normalized_coords: Vec<NormalizedCoord>,
+        normalized_coords: Arc<[NormalizedCoord]>,
         embolden: Vec2,
         style: Style,
         brush: Brush,
         brush_alpha: f32,
         transform: Affine,
         glyph_transform: Option<Affine>,
-        glyphs: Vec<Glyph>,
+        glyphs: Arc<[Glyph]>,
     },
     /// Draw a blurred rounded rectangle.
     BoxShadow {
@@ -256,6 +256,27 @@ impl Scene {
             tolerance,
             commands: CommandBuffer::default(),
         }
+    }
+
+    /// Record a fill whose compatible path and analytical primitive have
+    /// already been resolved by the renderer. This avoids flattening an
+    /// internal [`PaintShape`] into a second allocation through the generic
+    /// [`Shape`] entry point.
+    pub(crate) fn fill_paint_shape<'a>(
+        &mut self,
+        fill: Fill,
+        transform: Affine,
+        brush: impl Into<BrushRef<'a>>,
+        brush_transform: Option<Affine>,
+        shape: PaintShape,
+    ) {
+        self.commands.push(PaintCommand::Fill {
+            fill,
+            transform,
+            brush: own_brush(brush.into()),
+            brush_transform,
+            shape,
+        });
     }
 }
 
@@ -495,7 +516,7 @@ pub trait PaintScene {
                     brush_alpha,
                     transform * local,
                     glyph_transform,
-                    glyphs.into_iter(),
+                    glyphs.iter().copied(),
                 ),
                 PaintCommand::BoxShadow {
                     transform: local,
@@ -689,14 +710,14 @@ impl PaintScene for Scene {
             font: font.clone(),
             font_size,
             hint,
-            normalized_coords: normalized_coords.to_vec(),
+            normalized_coords: Arc::from(normalized_coords),
             embolden,
             style: style.into().to_owned(),
             brush: own_brush(brush.into()),
             brush_alpha,
             transform,
             glyph_transform,
-            glyphs,
+            glyphs: glyphs.into(),
         });
     }
 

@@ -89,17 +89,10 @@ fn runtime_source_bytes_restore_into_a_fresh_process() {
     });
     reader.restore_persisted(&bytes);
     reader.build_frame(&mut tcx, 400, 300);
-    let engine = &reader.engine;
-    let root = engine.root();
-    let text = engine
-        .node(root)
-        .unwrap()
-        .children
+    let text = reader
+        .placed_nodes()
         .iter()
-        .find_map(|child| {
-            let node = engine.node(*child).unwrap();
-            (node.kind == plico::Kind::Text).then(|| node.text.to_owned())
-        })
+        .find_map(|node| node.paint.text.as_deref())
         .expect("a declared text node");
     assert_eq!(text, "value 1234");
 }

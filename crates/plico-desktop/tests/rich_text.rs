@@ -22,10 +22,8 @@ fn styled_ranges_reach_shaper_and_can_be_removed_without_replacing_node() {
     let mut tcx = TextContext::new();
     // Byte offsets are validated, including non-ASCII boundaries.
     source.build_frame(&mut tcx, 640, 400);
-    assert!(source.last_error.is_none());
     let node = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.is_some())
         .unwrap();
@@ -34,18 +32,23 @@ fn styled_ranges_reach_shaper_and_can_be_removed_without_replacing_node() {
     assert_eq!(node.paint.text_runs[0].font_weight, 700.);
     assert!(node.paint.text_runs[0].font_italic);
     source.build_frame(&mut tcx, 640, 400);
-    assert_eq!(source.adapter.stats.paint_writes, 0);
-    source.view.styled = false;
+    assert_eq!(source.frame_diagnostics().backend.paint_writes, 0);
+    source.update(|view| view.styled = false);
     source.build_frame(&mut tcx, 640, 400);
     let node = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.node_id == id)
         .unwrap();
     assert!(node.paint.text_runs.is_empty());
-    assert_eq!(source.adapter.stats.created, 0);
-    assert!(source.adapter.stats.text_measure_invalidations > 0);
+    assert_eq!(source.frame_diagnostics().backend.created, 0);
+    assert!(
+        source
+            .frame_diagnostics()
+            .backend
+            .text_measure_invalidations
+            > 0
+    );
 }
 #[test]
 fn protocol_rejects_invalid_utf8_span_and_roundtrips_valid_spans() {

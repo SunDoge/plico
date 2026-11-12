@@ -29,9 +29,7 @@ fn channels(packed: u32) -> [u8; 3] {
 
 fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
     let (_, color) = ui
-        .source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find_map(|node| node.paint.border)
         .expect("the text input paints a border");
@@ -45,9 +43,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
     assert_eq!(input_border(&ui), channels(theme.border));
     let fill = ui
-        .source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.border.is_some())
         .and_then(|node| node.paint.background)
@@ -58,9 +54,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     });
 
     let (x, y) = ui
-        .source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.border.is_some())
         .map(|node| {
@@ -99,9 +93,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
 fn focused_text_input_uses_one_accent_border_without_a_generic_outer_ring() {
     let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
     let input = |ui: &Driver<Demo>| {
-        ui.source
-            .adapter
-            .placed
+        ui.placed_nodes()
             .iter()
             .find(|node| node.paint.border.is_some())
             .unwrap()

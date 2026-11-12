@@ -26,12 +26,12 @@ fn injected_clock_drives_ui_pause_and_future_frames_without_sleep() {
     let mut s = Source::with_clock(Timed::default(), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 600, 300);
-    assert_eq!(s.view.seen[0], FrameTime::default());
+    assert_eq!(s.view().seen[0], FrameTime::default());
     assert!(s.has_anim());
     clock.advance(Duration::from_millis(100)).unwrap();
     let nodes = s.build_frame(&mut text, 600, 300);
     assert_eq!(
-        s.view.seen.last().unwrap().delta,
+        s.view().seen.last().unwrap().delta,
         Duration::from_millis(100)
     );
     assert!(
@@ -40,19 +40,18 @@ fn injected_clock_drives_ui_pause_and_future_frames_without_sleep() {
             .any(|n| n.paint.text.as_deref() == Some("Time: 100"))
     );
     s.build_frame(&mut text, 600, 300);
-    assert_eq!(s.view.seen.last().unwrap().delta, Duration::ZERO);
+    assert_eq!(s.view().seen.last().unwrap().delta, Duration::ZERO);
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Increment", None)
         .unwrap()
         .id;
     s.handle_semantic_action(SemanticAction::Click { target: id });
-    let before = s.view.seen.len();
+    let before = s.view().seen.len();
     s.build_frame(&mut text, 600, 300);
-    assert_eq!(s.view.count, 1);
-    assert_eq!(s.view.seen.len(), before + 2);
-    assert_eq!(s.view.seen[before], s.view.seen[before + 1]);
+    assert_eq!(s.view().count, 1);
+    assert_eq!(s.view().seen.len(), before + 2);
+    assert_eq!(s.view().seen[before], s.view().seen[before + 1]);
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut text, 600, 300);
     assert!(!s.has_anim());
@@ -71,8 +70,7 @@ fn injected_clock_drives_host_layout_tweens_too() {
     let mut s = Source::with_clock(BoxView(false), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 600, 300);
-    s.view.0 = true;
-    s.request_rebuild();
+    s.update(|view| view.0 = true);
     s.build_frame(&mut text, 600, 300);
     clock.advance(Duration::from_millis(100)).unwrap();
     let nodes = s.build_frame(&mut text, 600, 300);
@@ -96,7 +94,7 @@ fn external_clock_trait_does_not_require_instant() {
     let mut s = Source::with_clock(Timed::default(), GameClock);
     let mut text = TextContext::new();
     s.build_frame(&mut text, 600, 300);
-    assert_eq!(s.view.seen[0].now, Duration::from_secs(3));
-    assert_eq!(s.view.seen[0].delta, Duration::ZERO);
+    assert_eq!(s.view().seen[0].now, Duration::from_secs(3));
+    assert_eq!(s.view().seen[0].delta, Duration::ZERO);
     assert!(!s.has_anim());
 }

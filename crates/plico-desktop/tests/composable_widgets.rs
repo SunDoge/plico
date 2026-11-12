@@ -63,8 +63,7 @@ fn clicking_an_svg_child_and_keyboard_activation_target_the_composite_parent() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 320, 200);
     let icon = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.svg.is_some())
         .unwrap()
@@ -74,57 +73,52 @@ fn clicking_an_svg_child_and_keyboard_activation_target_the_composite_parent() {
     s.handle_event(pointer(PointerPhase::Down, x, y));
     s.handle_event(pointer(PointerPhase::Up, x, y));
     s.build_frame(&mut tcx, 320, 200);
-    assert_eq!(s.view.count, 1);
+    assert_eq!(s.view().count, 1);
     let save = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Save", None)
         .unwrap()
         .id;
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(save));
+    assert_eq!(s.semantics().focus, Some(save));
     s.handle_event(key("Enter"));
     s.build_frame(&mut tcx, 320, 200);
-    assert_eq!(s.view.count, 2);
+    assert_eq!(s.view().count, 2);
     s.handle_event(key("Tab"));
     let bare = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Bare action", None)
         .unwrap()
         .id;
-    assert_eq!(s.adapter.semantics(&s.engine, 0).focus, Some(bare));
-    s.view.disabled = true;
+    assert_eq!(s.semantics().focus, Some(bare));
+    s.update(|view| view.disabled = true);
     s.build_frame(&mut tcx, 320, 200);
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: save }));
     assert!(
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(SemanticRole::Label, "Save content", None)
             .unwrap()
             .disabled
     );
-    assert_eq!(s.view.count, 2);
+    assert_eq!(s.view().count, 2);
 }
 #[test]
 fn headless_button_has_no_implicit_background_or_control_padding() {
     let mut s = Source::new(Demo::default());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 320, 200);
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    let semantics = s.semantics();
     let bare = semantics
         .node_by_role(SemanticRole::Button, "Bare action", None)
         .unwrap();
     let p = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.rect == bare.bounds && p.depth == 1)
         .unwrap();
     assert!(p.paint.background.is_none());
     assert!(p.rect[3] - p.rect[1] < 36.);
     let text = s
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Save content"))
         .unwrap();

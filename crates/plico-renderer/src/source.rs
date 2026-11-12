@@ -56,6 +56,26 @@ pub use crate::platform::{
     RenderBackend, WindowCommand, WindowInputMode, WindowLevel, WindowOptions, WindowResizeEdges,
 };
 
+/// Failure produced while a [`FrameSource`] constructs or encodes a frame.
+///
+/// The renderer contract owns the common error envelope so native shells can
+/// drive heterogeneous sources through `dyn FrameSource`. Implementations keep
+/// their typed errors at their direct API and convert only at this boundary.
+#[derive(Debug, snafu::Snafu)]
+#[snafu(display("frame construction failed: {message}"))]
+pub struct FrameSourceError {
+    message: String,
+}
+
+impl FrameSourceError {
+    /// Wrap an implementation-specific frame diagnostic.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
 /// Retained UI producer consumed by the native shell.
 ///
 /// All methods run on the UI thread. Background work communicates through
@@ -95,7 +115,9 @@ pub trait FrameSource {
     /// Commit state queued by a previous native event before another event is
     /// dispatched. This is distinct from painting: input ordering must remain
     /// correct even when several platform events arrive before the next vsync.
-    fn prepare_for_event(&mut self, _tcx: &mut TextContext) {}
+    fn prepare_for_event(&mut self, _tcx: &mut TextContext) -> Result<(), FrameSourceError> {
+        Ok(())
+    }
 
     /// Lay out for `width x height` and return the paint-ordered node list.
     /// Borrowed `tcx` is used for text measurement (parley).
@@ -123,7 +145,7 @@ pub trait FrameSource {
     }
 
     /// Prepare, encode and compose a retained frame without exporting owned nodes.
-    /// Returning None leaves the frame untouched and asks the host to use build_frame.
+    /// Returning `Ok(None)` leaves the frame untouched and asks the host to use build_frame.
     /// A successful implementation includes paint_debug_overlay and returns
     /// (node_count, build_frame_ms, scene_ms), with CPU durations in milliseconds.
     fn render_retained_frame(
@@ -132,8 +154,8 @@ pub trait FrameSource {
         _tcx: &mut TextContext,
         _size: (u32, u32),
         _scale: f64,
-    ) -> Option<(usize, f64, f64)> {
-        None
+    ) -> Result<Option<(usize, f64, f64)>, FrameSourceError> {
+        Ok(None)
     }
 
     /// Build a frame and encode it into `scene` in one pass. Returns
@@ -148,7 +170,7 @@ pub trait FrameSource {
         width: u32,
         height: u32,
         scale: f64,
-    ) -> (usize, f64, f64) {
+    ) -> Result<(usize, f64, f64), FrameSourceError> {
         tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
         let nodes = self.build_frame(tcx, width, height);
@@ -156,7 +178,7 @@ pub trait FrameSource {
         let start = Instant::now();
         self.paint_scene(scene, &nodes, tcx, (width, height), scale);
         self.paint_debug_overlay(scene, &nodes, tcx, scale);
-        (nodes.len(), build_ms, start.elapsed().as_secs_f64() * 1000.)
+        Ok((nodes.len(), build_ms, start.elapsed().as_secs_f64() * 1000.))
     }
 
     /// Enable semantic snapshot production while a platform accessibility

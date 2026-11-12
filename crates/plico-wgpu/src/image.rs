@@ -1,6 +1,6 @@
 //! Immutable image resources, separate from the glyph atlas and bounded by bytes.
 use crate::{Error, Quad, Result};
-use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality};
+use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality, WeakBlob};
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroUsize,
@@ -45,12 +45,11 @@ pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
     // Pass explicitly: WebGL2 GLSL ES 3.0 has no textureQueryLevels.
     pub mip_levels: u32,
-    // Retain the actual source allocation, not just its identity.
-    _source: Option<ImageData>,
 }
 struct TextureEntry {
     texture: wgpu::Texture,
-    source: ImageData,
+    source: WeakBlob<u8>,
+    used: u64,
     bytes: usize,
     primary: Option<(u8, Rc<GpuImage>)>,
     additional: HashMap<u8, Rc<GpuImage>>,
@@ -58,7 +57,12 @@ struct TextureEntry {
 pub(crate) struct ImageCache {
     entries: lru::LruCache<Key, TextureEntry>,
     mip_generator: Option<crate::mipmap::MipGenerator>,
+    // Textures whose base level is staged but whose mip commands have not yet
+    // reached the queue. Keep these across failed/abandoned frames so retrying
+    // cannot sample uninitialized levels.
+    pending_mips: Vec<wgpu::Texture>,
     frame_sources: HashSet<u64>,
+    frame: u64,
     #[cfg(test)]
     force_cpu_mips: bool,
     bytes: usize,
@@ -73,7 +77,9 @@ impl Default for ImageCache {
             entries: lru::LruCache::new(NonZeroUsize::new(256).unwrap()),
             bytes: 0,
             mip_generator: None,
+            pending_mips: Vec::new(),
             frame_sources: HashSet::new(),
+            frame: 0,
             #[cfg(test)]
             force_cpu_mips: false,
             uploads: 0,
@@ -84,6 +90,34 @@ impl Default for ImageCache {
     }
 }
 impl ImageCache {
+    pub(crate) fn validate_source(device: &wgpu::Device, image: &ImageData) -> Result<usize> {
+        let bytes = image
+            .format
+            .size_in_bytes(image.width, image.height)
+            .ok_or_else(|| Error::InvalidInput {
+                reason: "image byte size overflow".into(),
+            })?;
+        let limit = device.limits().max_texture_dimension_2d;
+        if image.width == 0
+            || image.height == 0
+            || image.width > limit
+            || image.height > limit
+            || bytes > 128 * 1024 * 1024
+            || image.data.data().len() < bytes
+        {
+            return Err(Error::InvalidInput {
+                reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
+            });
+        }
+        if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
+            return Err(Error::Unsupported {
+                command: 0,
+                reason: "image pixel format".into(),
+            });
+        }
+        Ok(bytes)
+    }
+
     #[cfg(test)]
     pub fn force_cpu_mips(&mut self) {
         self.force_cpu_mips = true;
@@ -144,6 +178,7 @@ impl ImageCache {
                 | (u8::from(mipmaps) << 7),
         );
         if let Some(entry) = self.entries.get_mut(&key) {
+            entry.used = self.frame;
             self.hits += 1;
             let (image, created) = entry.binding(device, layout, quality, extend);
             self.bindings += usize::from(created);
@@ -153,24 +188,7 @@ impl ImageCache {
         let _upload = tracing::debug_span!(target: "plico::perf", "wgpu.upload_image",
             width=image.width, height=image.height)
         .entered();
-        let bytes = image
-            .format
-            .size_in_bytes(image.width, image.height)
-            .ok_or_else(|| Error::InvalidInput {
-                reason: "image byte size overflow".into(),
-            })?;
-        let limit = device.limits().max_texture_dimension_2d;
-        if image.width == 0
-            || image.height == 0
-            || image.width > limit
-            || image.height > limit
-            || bytes > 128 * 1024 * 1024
-            || image.data.data().len() < bytes
-        {
-            return Err(Error::InvalidInput {
-                reason: "image exceeds dimensions/128 MiB limit or has truncated pixels".into(),
-            });
-        }
+        let bytes = Self::validate_source(device, image)?;
         // write_texture copies/owns its staging data before returning. Already
         // premultiplied RGBA can borrow source bytes for this call, avoiding a
         // full-image temporary allocation and a no-op per-pixel conversion walk.
@@ -191,12 +209,6 @@ impl ImageCache {
         } else if image.format == ImageFormat::Rgba8 && image.alpha_type != ImageAlphaType::Alpha {
             std::borrow::Cow::Borrowed(&image.data.data()[..bytes])
         } else {
-            if !matches!(image.format, ImageFormat::Rgba8 | ImageFormat::Bgra8) {
-                return Err(Error::Unsupported {
-                    command: 0,
-                    reason: "image pixel format".into(),
-                });
-            }
             let mut pixels = image.data.data()[..bytes].to_vec();
             for p in pixels.as_chunks_mut::<4>().0 {
                 if image.format == ImageFormat::Bgra8 {
@@ -295,11 +307,11 @@ impl ImageCache {
             previous_size = [width, height];
         }
         if gpu_mips {
-            let generator = self.mip_generator.get_or_insert_with(|| {
+            self.mip_generator.get_or_insert_with(|| {
                 tracing::debug_span!(target: "plico::perf", "wgpu.compile_mip_pipeline")
                     .in_scope(|| crate::mipmap::MipGenerator::new(device))
             });
-            generator.generate(device, queue, &texture);
+            self.pending_mips.push(texture.clone());
         }
         let bytes = texture_bytes;
         while self.bytes + bytes > 128 * 1024 * 1024
@@ -313,7 +325,8 @@ impl ImageCache {
         }
         let mut entry = TextureEntry {
             texture,
-            source: image.clone(),
+            source: image.data.downgrade(),
+            used: self.frame,
             bytes,
             primary: None,
             additional: HashMap::new(),
@@ -327,16 +340,27 @@ impl ImageCache {
         Ok(binding)
     }
     pub fn begin_frame(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
         self.frame_sources.clear();
     }
     pub fn retain_source(&mut self, image: &ImageData) {
         self.frame_sources.insert(image.data.id());
     }
     pub fn finish_frame(&mut self) {
+        const GRACE_FRAMES: u64 = 240;
+
+        for (_, entry) in self.entries.iter_mut() {
+            if self.frame_sources.contains(&entry.source.id()) {
+                entry.used = self.frame;
+            }
+        }
         let stale: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, entry)| !self.frame_sources.contains(&entry.source.data.id()))
+            .filter(|(_, entry)| {
+                entry.source.upgrade().is_none()
+                    || self.frame.wrapping_sub(entry.used) > GRACE_FRAMES
+            })
             .map(|(key, _)| *key)
             .collect();
         for key in stale {
@@ -350,6 +374,7 @@ impl ImageCache {
         self.entries.clear();
         self.frame_sources.clear();
         self.mip_generator = None;
+        self.pending_mips.clear();
         self.bytes = 0;
         self.bindings = 0;
     }
@@ -358,6 +383,37 @@ impl ImageCache {
     }
     pub fn stats(&self) -> (usize, usize, u64, u64) {
         (self.entries.len(), self.bytes, self.uploads, self.hits)
+    }
+
+    /// Encode every uncommitted mip chain into one command buffer. The
+    /// textures stay pending until the renderer actually submits the frame;
+    /// an abandoned surface acquisition can therefore encode them again.
+    pub fn pending_mip_commands(&self, device: &wgpu::Device) -> Option<wgpu::CommandBuffer> {
+        let generator = self.mip_generator.as_ref()?;
+        if self.pending_mips.is_empty() {
+            return None;
+        }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Plico image mip chains"),
+        });
+        for texture in &self.pending_mips {
+            generator.encode(device, &mut encoder, texture);
+        }
+        Some(
+            tracing::debug_span!(target: "plico::perf", "wgpu.finish_mips")
+                .in_scope(|| encoder.finish()),
+        )
+    }
+
+    /// The frame submission containing the pending mip commands reached the
+    /// queue, so retries no longer need to regenerate them.
+    pub fn commit_pending_mips(&mut self) {
+        self.pending_mips.clear();
+    }
+
+    #[cfg(test)]
+    pub fn pending_mip_count(&self) -> usize {
+        self.pending_mips.len()
     }
 }
 
@@ -415,7 +471,6 @@ impl TextureEntry {
         let image = Rc::new(GpuImage {
             bind,
             mip_levels: self.texture.mip_level_count(),
-            _source: Some(self.source.clone()),
         });
         if self.primary.is_none() {
             self.primary = Some((key, image.clone()));
@@ -461,7 +516,6 @@ impl GpuImage {
         Rc::new(Self {
             bind,
             mip_levels: 1,
-            _source: None,
         })
     }
 }

@@ -1,4 +1,4 @@
-//! Typed, value-only bridge. Host resources and callbacks never cross the module ABI.
+//! Typed, value-only bridge. Host resources and callbacks never cross the split-host boundary.
 use crate::{App, Frame, Request, Result};
 use plico::{FrameTime, Theme, UiContext};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -7,8 +7,11 @@ pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Implemented in the executable. `send` should enqueue work, never block for IO.
 pub trait HostService {
-    type Snapshot: Default + Serialize + DeserializeOwned;
-    type Command: Serialize + DeserializeOwned;
+    /// In-process projection type. It need not implement `Default` or Serde;
+    /// split hosts add their transport bounds at the rendering entry point.
+    type Snapshot;
+    /// In-process command type, with the same transport-independent contract.
+    type Command;
     /// An explicit presentation projection, never an SDK session or native handle.
     fn snapshot(&self) -> Self::Snapshot;
     /// Optional projection version. Change it whenever snapshot data changes.
@@ -63,7 +66,7 @@ impl<S, C> Services<S, C> {
         &self.snapshot
     }
     /// Retain a read-only snapshot while emitting commands, without deep-cloning it.
-    /// The Arc remains local to this Rust context; only values cross the module ABI.
+    /// The Arc remains local to this Rust context; only values cross the split-host boundary.
     pub fn snapshot_shared(&self) -> Arc<S> {
         Arc::clone(&self.snapshot)
     }
@@ -80,10 +83,12 @@ impl<S, C> Services<S, C> {
     }
 }
 
-/// Reloadable UI with a typed host projection/message protocol. Only `Self` is restored.
-pub trait ServiceApp: Default {
-    type Snapshot: Default + Serialize + DeserializeOwned;
-    type Command: Serialize + DeserializeOwned;
+/// UI with a typed host projection/message protocol.
+pub trait ServiceApp {
+    /// Read-only host projection used while declaring one frame.
+    type Snapshot;
+    /// Commands emitted to the resident host service.
+    type Command;
     fn show(
         &mut self,
         ui: &mut UiContext<'_>,
@@ -93,30 +98,24 @@ pub trait ServiceApp: Default {
         Theme::default()
     }
     fn set_frame_time(&mut self, _time: FrameTime) {}
-    fn on_key(
-        &mut self,
-        _key: &str,
-        _services: &mut Services<Self::Snapshot, Self::Command>,
-    ) -> bool {
-        false
-    }
     /// Full fallback event; standard controls and IME retain priority.
     fn on_key_event(
         &mut self,
-        key: &crate::KeyEvent,
-        services: &mut Services<Self::Snapshot, Self::Command>,
+        _key: &crate::KeyEvent,
+        _services: &mut Services<Self::Snapshot, Self::Command>,
     ) -> bool {
-        key.phase == crate::KeyPhase::Down
-            && !key.synthetic
-            && key.modifiers.is_empty()
-            && self.on_key(&key.key, services)
+        false
     }
 }
 struct ServiceModule<A: ServiceApp> {
     app: A,
     services: Services<A::Snapshot, A::Command>,
 }
-impl<A: ServiceApp> Default for ServiceModule<A> {
+impl<A> Default for ServiceModule<A>
+where
+    A: ServiceApp + Default,
+    A::Snapshot: Default,
+{
     fn default() -> Self {
         Self {
             app: A::default(),
@@ -129,7 +128,11 @@ impl<A: ServiceApp + Serialize> Serialize for ServiceModule<A> {
         self.app.serialize(serializer)
     }
 }
-impl<'de, A: ServiceApp + Deserialize<'de>> Deserialize<'de> for ServiceModule<A> {
+impl<'de, A> Deserialize<'de> for ServiceModule<A>
+where
+    A: ServiceApp + Deserialize<'de>,
+    A::Snapshot: Default,
+{
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         Ok(Self {
             app: A::deserialize(deserializer)?,
@@ -137,7 +140,26 @@ impl<'de, A: ServiceApp + Deserialize<'de>> Deserialize<'de> for ServiceModule<A
         })
     }
 }
-impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
+impl<A: ServiceApp> App for ServiceModule<A> {
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        self.app.show(ui, &mut self.services);
+    }
+    fn theme(&self) -> Theme {
+        self.app.theme()
+    }
+    fn set_frame_time(&mut self, time: FrameTime) {
+        self.app.set_frame_time(time);
+    }
+    fn on_key_event(&mut self, key: &crate::KeyEvent) -> bool {
+        self.app.on_key_event(key, &mut self.services)
+    }
+}
+impl<A> crate::ProtocolApp for ServiceModule<A>
+where
+    A: ServiceApp,
+    A::Snapshot: Default + DeserializeOwned,
+    A::Command: Serialize,
+{
     fn set_services(&mut self, snapshot: serde_json::Value) -> Result<()> {
         let snapshot = if snapshot.is_null() {
             A::Snapshot::default()
@@ -154,26 +176,14 @@ impl<A: ServiceApp + Serialize + DeserializeOwned> App for ServiceModule<A> {
             .map(|c| serde_json::to_value(c).map_err(|source| crate::Error::Json { source }))
             .collect()
     }
-    fn show(&mut self, ui: &mut UiContext<'_>) {
-        self.app.show(ui, &mut self.services);
-    }
-    fn theme(&self) -> Theme {
-        self.app.theme()
-    }
-    fn set_frame_time(&mut self, time: FrameTime) {
-        self.app.set_frame_time(time);
-    }
-    fn on_key_event(&mut self, key: &crate::KeyEvent) -> bool {
-        self.app.on_key_event(key, &mut self.services)
-    }
-    fn on_key(&mut self, key: &str) -> bool {
-        self.app.on_key(key, &mut self.services)
-    }
 }
-pub fn render<A: ServiceApp + Serialize + DeserializeOwned + 'static>(
-    request: Request,
-) -> Result<Frame> {
-    crate::render::<ServiceModule<A>>(request)
+pub fn render<A>(request: Request) -> Result<Frame>
+where
+    A: ServiceApp + Default + Serialize + DeserializeOwned + 'static,
+    A::Snapshot: Default + DeserializeOwned,
+    A::Command: Serialize,
+{
+    crate::render_protocol::<ServiceModule<A>>(request)
 }
 impl<I, T, E> Services<crate::tasks::TaskStatus<T, E>, crate::tasks::TaskCommand<I>> {
     /// Access a host-owned task's status and send start/cancel/reset commands.

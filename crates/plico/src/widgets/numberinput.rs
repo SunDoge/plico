@@ -6,11 +6,13 @@ use crate::prelude::*;
 struct NumberEntry {
     buffer: TextBuffer,
     last: f64,
+    focused: bool,
 }
 
 impl PartialEq for NumberEntry {
     fn eq(&self, other: &Self) -> bool {
         self.last.to_bits() == other.last.to_bits()
+            && self.focused == other.focused
             && self.buffer.revision() == other.buffer.revision()
     }
 }
@@ -20,6 +22,7 @@ impl std::fmt::Debug for NumberEntry {
         formatter
             .debug_struct("NumberEntry")
             .field("last", &self.last)
+            .field("focused", &self.focused)
             .field("revision", &self.buffer.revision())
             .finish()
     }
@@ -27,16 +30,15 @@ impl std::fmt::Debug for NumberEntry {
 
 /// A bounded number field (MyGO `NumberInput`): a text field between two
 /// bounds with − and + buttons changing it by `step`. Typed text applies as
-/// soon as it parses to a number inside the bounds; Enter rewrites it in
-/// canonical form, and Enter with invalid text restores the current value.
+/// soon as it parses to a number inside the bounds; Up/Down step it, and Enter
+/// or leaving the field rewrites it in canonical form. Invalid text restores
+/// the current value when submitted or blurred.
 /// Returns whether the value changed.
 /// Non-finite bounds skip the control without changing the value. Non-finite
 /// values reset to the lower bound; reversed finite bounds are accepted.
 ///
 /// Values are formatted with the decimals implied by `step` (at most six
-/// decimals); a zero step leaves the buttons at one whole unit. MyGO moves the
-/// value with Up/Down and formats on blur; Plico has no blur hook here, so the
-/// buttons are the stepping path and the field formats on Enter.
+/// decimals); a zero step leaves the buttons at one whole unit.
 ///
 /// ```text
 /// if number_input(cx, "Copies", &mut copies, 1., 99., 1.) {
@@ -74,6 +76,7 @@ pub fn number_input(
         NumberEntry {
             buffer,
             last: *value,
+            focused: false,
         }
     });
     let mut entry = state.get();
@@ -86,14 +89,16 @@ pub fn number_input(
             .width(0.)
             .grow(1.)
             .min_width(64.)
+            .navigation(true)
             .response();
         if button(cx)
             .text("−")
             .aria_label(format!("Decrease {label}"))
             .ghost()
+            .disabled(*value <= min)
             .clicked()
         {
-            *value = (*value - step).clamp(min, max);
+            *value = stepped(*value, -step, min, max, decimals);
             entry.buffer.set(format_number(*value, decimals).into());
             entry.last = *value;
         }
@@ -101,9 +106,10 @@ pub fn number_input(
             .text("+")
             .aria_label(format!("Increase {label}"))
             .ghost()
+            .disabled(*value >= max)
             .clicked()
         {
-            *value = (*value + step).clamp(min, max);
+            *value = stepped(*value, step, min, max, decimals);
             entry.buffer.set(format_number(*value, decimals).into());
             entry.last = *value;
         }
@@ -111,7 +117,7 @@ pub fn number_input(
     });
     let response = response.inner;
     let text = entry.buffer.text().unwrap_or_default();
-    if response.changed
+    if response.changed()
         && let Some(parsed) = parse_number(&text)
         && (min..=max).contains(&parsed)
         && parsed != *value
@@ -119,7 +125,7 @@ pub fn number_input(
         *value = parsed;
         entry.last = parsed;
     }
-    if response.submitted {
+    if response.submitted() {
         match parse_number(&text).filter(|parsed| (min..=max).contains(parsed)) {
             Some(parsed) => {
                 *value = parsed;
@@ -129,8 +135,31 @@ pub fn number_input(
             None => entry.buffer.set(format_number(*value, decimals).into()),
         }
     }
+    match response.navigation() {
+        Some(crate::InputNavigation::Previous) => {
+            *value = stepped(*value, step, min, max, decimals);
+            entry.last = *value;
+            entry.buffer.set(format_number(*value, decimals).into());
+        }
+        Some(crate::InputNavigation::Next) => {
+            *value = stepped(*value, -step, min, max, decimals);
+            entry.last = *value;
+            entry.buffer.set(format_number(*value, decimals).into());
+        }
+        _ => {}
+    }
+    if entry.focused && !response.focused() {
+        entry.buffer.set(format_number(*value, decimals).into());
+    }
+    entry.focused = response.focused();
     state.set(entry);
     *value != before
+}
+
+fn stepped(value: f64, delta: f64, min: f64, max: f64, decimals: usize) -> f64 {
+    let value = (value + delta).clamp(min, max);
+    let scale = 10_f64.powi(decimals as i32);
+    ((value * scale).round() / scale).clamp(min, max)
 }
 
 fn parse_number(text: &str) -> Option<f64> {

@@ -61,7 +61,7 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             x: f64::from(node.content_origin[0] + caret[0]) + 0.1,
             y: f64::from(node.content_origin[1] + (caret[1] + caret[3]) * 0.5),
         };
-        let shows = source.view.shows;
+        let shows = source.view().shows;
         for _ in 0..2 {
             for phase in [PointerPhase::Down, PointerPhase::Up] {
                 source.handle_event(UiEvent::Pointer(PointerEvent {
@@ -76,7 +76,7 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             clock.advance(Duration::from_millis(100)).unwrap();
         }
         assert_eq!(
-            source.adapter.selected_text().as_deref(),
+            source.selected_text().as_deref(),
             Some("two"),
             "scale={scale}"
         );
@@ -84,17 +84,19 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             .render_retained_frame(&mut scene, &mut text, (size[0], size[1]), scale)
             .unwrap();
         let after = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
+        let backend = source.frame_diagnostics().backend;
         assert!(
             before != after,
             "selection did not paint at scale={scale}; visits={} writes={} builds={} reuses={} commands={}",
-            source.adapter.stats.selection_visits,
-            source.adapter.stats.paint_writes,
-            source.adapter.stats.scene_builds,
-            source.adapter.stats.scene_reuses,
+            backend.selection_visits,
+            backend.paint_writes,
+            backend.scene_builds,
+            backend.scene_reuses,
             scene.flattened().commands.len()
         );
         assert_eq!(
-            source.view.shows, shows,
+            source.view().shows,
+            shows,
             "selection reran application declarations"
         );
         let response = source.handle_event(UiEvent::Key(KeyEvent {
@@ -130,6 +132,6 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             before == cleared,
             "clearing selection left stale pixels at scale={scale}"
         );
-        assert_eq!(source.view.shows, shows);
+        assert_eq!(source.view().shows, shows);
     }
 }

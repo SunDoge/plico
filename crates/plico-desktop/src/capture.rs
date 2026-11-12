@@ -53,6 +53,10 @@ pub enum CaptureError {
     Image { source: image::ImageError },
     #[snafu(display("capture backend {backend:?} is unavailable"))]
     Backend { backend: crate::RenderBackend },
+    #[snafu(display("capture frame failed: {source}"))]
+    Frame {
+        source: plico_renderer::FrameSourceError,
+    },
     #[cfg(feature = "wgpu")]
     #[snafu(display("wgpu capture failed: {source}"))]
     Wgpu { source: plico_wgpu::Error },
@@ -81,6 +85,36 @@ pub(crate) enum CaptureRenderer {
     Wgpu(Box<plico_wgpu::Renderer>),
 }
 impl CaptureRenderer {
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn force_general_pipelines(&mut self, force: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::Wgpu(renderer) = self {
+            renderer.force_general_pipelines(force);
+        }
+    }
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn force_no_occlusion_culling(&mut self, force: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::Wgpu(renderer) = self {
+            renderer.force_no_occlusion_culling(force);
+        }
+    }
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn force_no_ring_splitting(&mut self, force: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::Wgpu(renderer) = self {
+            renderer.force_no_ring_splitting(force);
+        }
+    }
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
+        match self {
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(renderer) => Some(renderer.batch_stats()),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
     pub(crate) fn adapter_name(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "skia")]
@@ -161,6 +195,7 @@ impl CaptureRenderer {
                     encode_ms: budget.encode_ms,
                     submit_ms: budget.submit_ms,
                     submissions: budget.submissions,
+                    command_buffers: budget.command_buffers,
                     wait_ms: budget.wait_ms,
                     gpu_ms: budget.gpu_ms,
                     upload_bytes: budget.upload_bytes,
@@ -277,10 +312,12 @@ impl Capture<'_> {
             if self
                 .source
                 .render_retained_frame(&mut scene, text, (self.width, self.height), self.scale)
+                .map_err(|source| CaptureError::Frame { source })?
                 .is_none()
             {
                 self.source
-                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale);
+                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale)
+                    .map_err(|source| CaptureError::Frame { source })?;
             }
             if pass == self.settle_passes || !self.source.poll_async() {
                 let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;

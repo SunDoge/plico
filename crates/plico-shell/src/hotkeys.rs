@@ -1,9 +1,10 @@
 //! Optional system-wide hotkey integration with the existing native event loop.
-use crate::{ExtensionContext, ShellExtension, WakeCallback};
+use crate::{ExtensionContext, ShellExtension};
 pub use plico_native::hotkeys::{
     BackendKind, Error, GlobalShortcuts, HotkeyEvent, RegistrationStatus,
 };
-/// One host-resident binding. Actions are never serialized into reloadable UI state.
+use plico_renderer::WakeCallback;
+/// One host-resident binding. Actions are never serialized into application state.
 pub struct GlobalHotkeyBinding<A> {
     /// Stable application action ID; used by the Wayland desktop to remember preferences.
     pub id: String,

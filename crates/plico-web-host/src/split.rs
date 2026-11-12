@@ -2,7 +2,6 @@ use crate::WebHost;
 use js_sys::Function;
 use plico::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
 use plico_dev::{Frame, PROTOCOL_VERSION, Request};
-use plico_renderer::FrameSource;
 use plico_runtime::HostView;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -28,7 +27,7 @@ struct RemoteView {
     calls: u64,
     input_bytes: u64,
     output_bytes: u64,
-    last_error: Option<String>,
+    module_error: Option<String>,
 }
 impl RemoteView {
     fn new(module: Function) -> Result<Self, JsValue> {
@@ -60,7 +59,7 @@ impl RemoteView {
             calls: 1,
             input_bytes: initial_input as u64,
             output_bytes: initial_output as u64,
-            last_error: None,
+            module_error: None,
         })
     }
     fn request(&self, clicks: Vec<Vec<PathKey>>, values: Vec<(Vec<PathKey>, f64)>) -> Request {
@@ -98,7 +97,7 @@ impl RemoteView {
         self.rendered_scrolls = self.scroll_viewports.clone();
         self.rendered_hovered = self.hovered.clone();
         self.dirty = false;
-        self.last_error = None;
+        self.module_error = None;
     }
     fn dispatch(
         &mut self,
@@ -236,7 +235,7 @@ impl HostView for RemoteView {
             }
             Ok(_) => false,
             Err(e) => {
-                self.last_error = Some(format!("{e:?}"));
+                self.module_error = Some(format!("{e:?}"));
                 false
             }
         }
@@ -257,7 +256,7 @@ impl HostView for RemoteView {
             || self.rendered_hovered != self.hovered)
             && let Err(e) = self.dispatch(clicks, values)
         {
-            self.last_error = Some(format!("{e:?}"));
+            self.module_error = Some(format!("{e:?}"));
             self.dirty = false;
             self.frame.requests.remove(plico::Changes::ANIMATE);
         }
@@ -347,36 +346,35 @@ impl SplitHost {
         self.host.key(time, &event)
     }
     pub fn activate(&mut self, module: Function) -> Result<(), JsValue> {
-        self.host.source.prepare_for_event(&mut self.host.text);
-        self.host.source.view.activate(module)?;
-        self.host.source.request_rebuild();
+        self.host
+            .source
+            .try_prepare_for_event(&mut self.host.text)
+            .map_err(err)?;
+        self.host.source.update(|view| view.activate(module))?;
         Ok(())
     }
     pub fn advance_service(&mut self) {
         self.service_ticks += 1;
-        self.host.source.view.services = json!({"instance":1,"progress":self.service_ticks});
-        self.host.source.view.dirty = true;
-        self.host.source.request_rebuild();
+        self.host.source.update(|view| {
+            view.services = json!({"instance":1,"progress":self.service_ticks});
+            view.dirty = true;
+        });
     }
     pub fn stats(&self) -> String {
-        let view = &self.host.source.view;
+        let view = self.host.source.view();
+        let diagnostics = self.host.source.frame_diagnostics();
         serde_json::to_string(&json!({
-            "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.last_error,
+            "state":view.frame.state.decode::<serde_json::Value>().ok(),"state_bytes":view.frame.state,"reset":view.frame.reset,"error":view.module_error,
             "reloads":view.reloads,"calls":view.calls,
             "input_bytes":view.input_bytes,"output_bytes":view.output_bytes,
             "font_loads":self.font_loads, "text_cache":self.host.text.cache_entries(),"service":view.services,
-            "nodes":view.keys.len(),"svg_parses":self.host.source.adapter.stats.svg_parses,
-            "created":self.host.source.adapter.stats.created
+            "nodes":view.keys.len(),"svg_parses":diagnostics.backend.svg_parses,
+            "created":diagnostics.backend.created
         }))
         .unwrap()
     }
     pub fn semantics(&self) -> String {
-        let nodes = self
-            .host
-            .source
-            .adapter
-            .semantics(&self.host.source.engine, 0)
-            .nodes;
+        let nodes = self.host.source.semantics().nodes;
         serde_json::to_string(
             &nodes
                 .iter()

@@ -20,14 +20,13 @@ fn picker_closes_on_selection_and_on_reselecting_the_same_date() {
     let mut label = "Pick a date".to_owned();
     for _ in 0..2 {
         let trigger = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, &label, None)
             .unwrap()
             .id;
         assert!(source.handle_semantic_action(SemanticAction::Click { target: trigger }));
         source.build_frame(&mut text, 1120, 820);
-        let tree = source.adapter.semantics(&source.engine, 0);
+        let tree = source.semantics();
         let panel = tree
             .node_by_role(SemanticRole::Dialog, &label, None)
             .unwrap();
@@ -48,7 +47,7 @@ fn picker_closes_on_selection_and_on_reselecting_the_same_date() {
         source.build_frame(&mut text, 1120, 820);
         label = gallery::i18n::catalog(gallery::i18n::Language::English)
             .date(plico::CalendarDate::new(2026, 10, 15).unwrap());
-        let tree = source.adapter.semantics(&source.engine, 0);
+        let tree = source.semantics();
         assert!(
             tree.node_by_role(SemanticRole::Button, &label, None)
                 .is_some()

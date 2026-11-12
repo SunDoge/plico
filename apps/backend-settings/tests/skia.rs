@@ -15,15 +15,15 @@ fn complete_settings_scenes_replay_on_skia_in_both_themes() {
     for dark in [false, true] {
         for page in [Page::Overview, Page::Activity, Page::Preferences] {
             for (width, height) in [(1100, 820), (520, 760)] {
-                source.view.set_dark(dark);
-                source.view.set_advanced(true);
-                source.view.set_inspector(true);
-                source.view.go(page);
-                source.request_rebuild();
+                source.update(|view| {
+                    view.dark = dark;
+                    view.advanced = true;
+                    view.inspector = true;
+                    view.go(page);
+                });
                 tick += 300;
                 clock.set(Duration::from_millis(tick)).unwrap();
                 let nodes = source.build_frame(&mut text, width, height);
-                assert!(source.last_error.is_none());
                 let mut output = Scene::new();
                 scene::build_scene(
                     &mut output,
@@ -60,8 +60,7 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
     source.build_frame(&mut text, 1100, 820);
     let click = |source: &mut Source<Settings>, label| {
         let id = source
-            .adapter
-            .semantics(&source.engine, 0)
+            .semantics()
             .node_by_role(SemanticRole::Button, label, None)
             .unwrap()
             .id;
@@ -86,9 +85,9 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
             .render_scene(&output, peniko::Color::TRANSPARENT)
             .unwrap();
         if time == 130 {
-            assert!(source.view.inspector_width() > 0. && source.view.inspector_width() < 248.);
+            assert!(source.view().inspector_width() > 0. && source.view().inspector_width() < 248.);
         } else {
-            assert_eq!(source.view.inspector_width(), 248.);
+            assert_eq!(source.view().inspector_width(), 248.);
             assert_ne!(pixels, previous);
         }
         previous = pixels;
@@ -97,7 +96,7 @@ fn animation_frames_replay_without_changing_the_shared_state_model() {
     source.build_frame(&mut text, 1100, 820);
     clock.set(Duration::from_millis(1500)).unwrap();
     let nodes = source.build_frame(&mut text, 1100, 820);
-    assert!((source.view.progress() - 0.5).abs() < 0.001);
+    assert!((source.view().progress() - 0.5).abs() < 0.001);
     let mut output = Scene::new();
     scene::build_scene(
         &mut output,

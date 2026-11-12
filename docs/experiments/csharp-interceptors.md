@@ -1,5 +1,7 @@
 # C# component interceptors experiment
 
+> 历史实验：C# 前端与跨语言 ABI 已从当前源码树移除。本文保留测量结论；其中命令和源码路径仅适用于对应历史提交。
+
 The SDK package and C# Gallery now use this path. The Body-wrapper
 probe remains a regression fixture; the implementation still has the boundaries
 listed below. The compiler mechanism itself is stable in SDK 9.0.2xx and later;

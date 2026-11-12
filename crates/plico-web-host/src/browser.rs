@@ -92,10 +92,8 @@ impl<V: HostView> WebHost<V> {
             .configure_text(&mut self.text)
             .map_err(|e| error(e.to_string()))?;
         self.source
-            .render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale);
-        if let Some(e) = &self.source.last_error {
-            return Err(error(e.to_string()));
-        }
+            .try_render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale)
+            .map_err(|e| error(e.to_string()))?;
         let size = [
             (f64::from(width) * scale).ceil() as u32,
             (f64::from(height) * scale).ceil() as u32,
@@ -114,15 +112,16 @@ impl<V: HostView> WebHost<V> {
         event: UiEvent,
     ) -> Result<plico_renderer::EventResponse, JsValue> {
         self.set_time(milliseconds)?;
-        self.source.prepare_for_event(&mut self.text);
+        self.source
+            .try_prepare_for_event(&mut self.text)
+            .map_err(|e| error(e.to_string()))?;
         Ok(self.source.handle_event(event))
     }
     pub fn selected_text(&self) -> Option<String> {
-        self.source.adapter.selected_text()
+        self.source.selected_text()
     }
     pub fn pointer(&mut self, time: f64, event: &web_sys::PointerEvent) -> Result<(), JsValue> {
         use plico_renderer::*;
-        let rect = self.canvas.get_bounding_client_rect();
         let phase = match event.type_().as_str() {
             "pointerdown" => PointerPhase::Down,
             "pointerup" => PointerPhase::Up,
@@ -136,6 +135,31 @@ impl<V: HostView> WebHost<V> {
             event.alt_key(),
             event.meta_key(),
         );
+        if event.pointer_type() == "mouse"
+            && let Some(key) = match event.button() {
+                3 => Some("BrowserBack"),
+                4 => Some("BrowserForward"),
+                _ => None,
+            }
+        {
+            let response = self.dispatch(
+                time,
+                UiEvent::Key(KeyEvent::logical(
+                    if phase == PointerPhase::Down {
+                        KeyPhase::Down
+                    } else {
+                        KeyPhase::Up
+                    },
+                    key,
+                    modifiers,
+                )),
+            )?;
+            if response.handled {
+                event.prevent_default();
+            }
+            return Ok(());
+        }
+        let rect = self.canvas.get_bounding_client_rect();
         // Native layout: primary=1, secondary=2, auxiliary=4, matching DOM buttons.
         self.dispatch(
             time,
@@ -256,7 +280,7 @@ fn error(message: impl AsRef<str>) -> JsValue {
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
 pub struct Gallery {
-    host: WebHost<plico_runtime::NativeApp<gallery::Gallery>>,
+    host: WebHost<plico_app_host::NativeApp<gallery::Gallery>>,
 }
 #[cfg(feature = "gallery")]
 #[wasm_bindgen]
@@ -276,7 +300,7 @@ impl Gallery {
         Ok(Self {
             host: WebHost::new_wgpu(
                 canvas,
-                plico_runtime::NativeApp(gallery::Gallery::default()),
+                plico_app_host::NativeApp(gallery::Gallery::default()),
                 backend,
             )
             .await?,
@@ -318,14 +342,10 @@ impl Gallery {
         Ok(())
     }
     pub fn debug_state(&self) -> String {
-        serde_json::to_string(&self.host.source.view.0).unwrap()
+        serde_json::to_string(&self.host.source.view().0).unwrap()
     }
     pub fn semantics(&self) -> String {
-        let snapshot = self
-            .host
-            .source
-            .adapter
-            .semantics(&self.host.source.engine, 0);
+        let snapshot = self.host.source.semantics();
         let nodes: Vec<_> = snapshot
             .nodes
             .iter()

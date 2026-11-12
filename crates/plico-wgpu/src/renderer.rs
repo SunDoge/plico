@@ -21,6 +21,22 @@ struct Instance {
     radii: [f32; 4],
 }
 
+/// CPU-only draw metadata. Scissors are target-relative `[x, y, width,
+/// height]`; keeping them out of `Instance` avoids charging every GPU draw
+/// for the uncommon split-ring path.
+struct PreparedInstances {
+    instances: Vec<Instance>,
+    scissors: Vec<Option<[u32; 4]>>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct OcclusionInfo {
+    visible: Option<[f32; 4]>,
+    opaque: Option<[f32; 4]>,
+    barrier: bool,
+    culled: bool,
+}
+
 /// Per-corner radii as the shader draws them: nonnegative and shrunk so that
 /// adjacent corners on an edge never overlap (the CSS proportional rule).
 /// Uniform single-radius quads pass through unchanged.
@@ -89,6 +105,20 @@ pub struct LayerPoolStats {
     pub retained_bytes: u64,
     pub backdrop_context_entries: usize,
     pub backdrop_context_bytes: u64,
+    /// Snapshot textures retained for ordinary and grouped backdrop readers.
+    pub backdrop_entries: usize,
+    pub backdrop_bytes: u64,
+    /// Cumulative snapshot texture creations and cross-frame reuses.
+    pub backdrop_allocations: u64,
+    pub backdrop_reuses: u64,
+    /// Retained aligned mapping/composite uniform entries and cumulative use.
+    pub backdrop_uniform_entries: usize,
+    pub backdrop_uniform_allocations: u64,
+    pub backdrop_uniform_reuses: u64,
+    /// Small effect-parameter buffers used by fused direct backdrop draws.
+    pub backdrop_effect_uniform_entries: usize,
+    pub backdrop_effect_uniform_allocations: u64,
+    pub backdrop_effect_uniform_reuses: u64,
 }
 /// Work encoded by the most recent root scene attempt, including child layers.
 /// Counts exclude effect/blur pipelines, target readback and presentation blits.
@@ -100,6 +130,25 @@ pub struct FrameBatchStats {
     pub draw_calls: u64,
     /// Draw calls through the specialized plain-fill pipeline.
     pub plain_draw_calls: u64,
+    /// Draw calls through the specialized gradient/border fill pipeline.
+    pub fill_draw_calls: u64,
+    /// Draw calls through the specialized box-shadow pipeline.
+    pub shadow_draw_calls: u64,
+    /// Draw calls through the specialized monochrome-glyph pipeline.
+    pub glyph_draw_calls: u64,
+    /// Draw calls through the specialized color-glyph pipeline.
+    pub color_glyph_draw_calls: u64,
+    /// Draw calls through the specialized image pipeline.
+    pub image_draw_calls: u64,
+    /// Painter-ordered draws omitted because a later opaque rectangle covers
+    /// their complete visible bounds. Scope markers are never counted.
+    pub occlusion_culled_draws: u64,
+    /// Border-only source quads split into scissored strips so their
+    /// transparent interior is never shaded.
+    pub ring_split_quads: u64,
+    /// Prepared draws clipped by an analytical rounded rectangle instead of a
+    /// sampled coverage mask.
+    pub analytic_clip_draws: u64,
     /// Prepared plain fills whose entire AA quad is inside a rectangular clip.
     /// Counted before damage filtering, rather than once per scissor replay.
     pub clip_coverage_skips: u64,
@@ -114,19 +163,24 @@ pub struct FrameBatchStats {
     /// Transient backdrop texture payload encoded this frame, including all mips.
     /// Not retained cache bytes or process RSS.
     pub backdrop_bytes: u64,
-    /// Physical backdrop texture allocations encoded this frame (arrays count once).
+    /// Backdrop texture resources used this frame (arrays count once). The
+    /// renderer may obtain them from its cross-frame pool.
     pub backdrop_textures: u64,
     /// Effects reading slices of a same-stage snapshot array.
     pub backdrop_shared_reads: u64,
+    /// Physical pixels admitted by fused backdrop-effect scissors. This is an
+    /// upper bound on fragment work before rounded/mask coverage rejection.
+    pub backdrop_effect_pixels: u64,
 }
 /// CPU and GPU work spent on the most recently encoded frame, in milliseconds.
 ///
 /// CPU stages are measured with `Instant` and are always available. `gpu_ms`
 /// brackets the frame between timestamp queries, which requires
 /// `wgpu::Features::TIMESTAMP_QUERY` and the `PLICO_GPU_TIMER` environment
-/// variable (or a profiling renderer). Child-layer command buffers and the
-/// closing presentation blit or readback copy execute in the same ordered queue
-/// submission and are therefore included.
+/// variable (or a profiling renderer). Child layers and effects are recorded in
+/// the root encoder; the closing presentation blit or readback copy is therefore
+/// included. A separately encoded image-mip prefix is not inside the timestamp
+/// bracket and is reported by `command_buffers`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameBudget {
     /// Building the instance stream: scene flattening, text/glyph preparation.
@@ -138,8 +192,11 @@ pub struct FrameBudget {
     /// CPU time for the frame's queue submission.
     pub submit_ms: f64,
     /// Queue submissions issued for the frame. Normal rendering should use
-    /// one even when it contains several painter-ordered command buffers.
+    /// one even when it contains an image-mip prefix command buffer.
     pub submissions: u64,
+    /// Command buffers in the frame submission. Normally one; two when newly
+    /// uploaded images require a mip-generation prefix.
+    pub command_buffers: u64,
     /// Blocking GPU wait for offscreen readback; zero for window presentation.
     pub wait_ms: f64,
     /// Instance-stream and frame-uniform bytes written this frame.
@@ -221,6 +278,7 @@ pub struct Renderer {
     backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
+    backdrop_pool: crate::backdrop_pool::Pool,
     force_separate_backdrops: bool,
     frame_layout: wgpu::BindGroupLayout,
     layout: wgpu::PipelineLayout,
@@ -228,9 +286,13 @@ pub struct Renderer {
     bind: wgpu::BindGroup,
     pipeline: Option<wgpu::RenderPipeline>,
     plus_pipeline: Option<wgpu::RenderPipeline>,
-    /// Specialized pipeline for plain solid fills (mygo's ClassPlain). Static
-    /// source: it never recompiles and is not part of pipeline_compilations.
-    plain_pipeline: wgpu::RenderPipeline,
+    /// Static specialized pipelines indexed by `PipelineClass::slot`. They
+    /// never recompile and are not part of `pipeline_compilations`.
+    class_pipelines: [Option<wgpu::RenderPipeline>; PipelineClass::COUNT],
+    /// Native backends compile class pipelines away from startup. Until each
+    /// arrives, its runs use the pixel-identical general pipeline.
+    #[cfg(not(target_arch = "wasm32"))]
+    class_pipeline_rx: std::sync::mpsc::Receiver<(PipelineClass, wgpu::RenderPipeline)>,
     /// Comparison switch disabling class specialization (mygo's NoClasses).
     force_general: bool,
     #[cfg(test)]
@@ -253,6 +315,19 @@ pub struct Renderer {
     /// previous frame grew instead of allocating from empty. Rust pattern:
     /// std::mem::take + clear + write back on success.
     instance_scratch: Vec<Instance>,
+    /// CPU-only per-instance scissors. The vector is retained beside instance
+    /// staging so ordinary frames do not allocate a sidecar from empty.
+    scissor_scratch: Vec<Option<[u32; 4]>>,
+    /// Reused per-layer painter-order plans. Nested isolated layers use their
+    /// own depth slot, so preparing a child cannot invalidate its parent's plan.
+    occlusion_scratch: Vec<Vec<OcclusionInfo>>,
+    /// Comparison switch matching MyGO's `NoCull`.
+    force_no_occlusion_culling: bool,
+    /// Comparison switch matching MyGO's `NoRingSplit`.
+    force_no_ring_splitting: bool,
+    /// Comparison switch retaining raster masks for otherwise reducible leaf
+    /// rounded clips.
+    pub(crate) force_no_analytic_clip_reduction: bool,
     compilations: usize,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     pub(crate) paragraphs: Option<std::rc::Rc<std::cell::RefCell<crate::paragraph::Cache>>>,
@@ -285,7 +360,7 @@ pub struct Renderer {
     layer_reuses: u64,
     filter_allocations: u64,
     filter_reuses: u64,
-    effects: Option<plico_renderer::shader::ShaderRenderer>,
+    effects: Option<crate::shader::ShaderRenderer>,
     frame_effect_draws: usize,
     frame_effect_bytes: u64,
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
@@ -294,10 +369,10 @@ pub struct Renderer {
     frame_budget: FrameBudget,
     gpu_timer: Option<gpu_timer::GpuTimer>,
     pending_gpu_slot: Option<usize>,
-    /// Painter-ordered command buffers from effects and isolated layer
-    /// segments. The frame's final encoder is appended and all are submitted
-    /// together, preserving dependencies without repeated queue submissions.
-    pending_commands: Vec<wgpu::CommandBuffer>,
+    /// Commands that must execute before the frame encoder. This is limited to
+    /// image mip generation discovered while preparing the scene; effects and
+    /// isolated layers encode directly into the frame encoder.
+    frame_prefix_commands: Vec<wgpu::CommandBuffer>,
     /// Profiling-only A/B switch that submits each recorded segment
     /// separately while keeping the same independent layer buffers.
     split_submits: bool,
@@ -313,10 +388,11 @@ impl Renderer {
         &mut self,
         encoder: wgpu::CommandEncoder,
     ) -> wgpu::SubmissionIndex {
-        self.pending_commands.push(encoder.finish());
-        let commands = std::mem::take(&mut self.pending_commands);
-        if self.split_submits {
-            let mut commands = commands.into_iter();
+        let final_command = encoder.finish();
+        let prefixes = std::mem::take(&mut self.frame_prefix_commands);
+        self.frame_budget.command_buffers += prefixes.len() as u64 + 1;
+        let submission = if self.split_submits {
+            let mut commands = prefixes.into_iter().chain(std::iter::once(final_command));
             let first = commands.next().expect("a frame has a final command buffer");
             let mut submission = self.queue.submit([first]);
             self.frame_budget.submissions += 1;
@@ -327,8 +403,11 @@ impl Renderer {
             submission
         } else {
             self.frame_budget.submissions += 1;
-            self.queue.submit(commands)
-        }
+            self.queue
+                .submit(prefixes.into_iter().chain(std::iter::once(final_command)))
+        };
+        self.images.commit_pending_mips();
+        submission
     }
 }
 /// The specialized plain-fill fragment: the strict subset of the general
@@ -336,26 +415,338 @@ impl Renderer {
 /// hard or antialiased clip. mygo specializes the heaviest shader paths out
 /// of the instance stream most of a window is made of; this is Plico's first
 /// class. Drawn pixels must be identical to the general pipeline.
-const PLAIN_FRAGMENT: &str = r#"
-@fragment fn fs_main(input: Vertex) -> @location(0) vec4f {
+const PLAIN_CLASS_SHADER: &str = r#"
+struct PlainVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_plain(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> PlainVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: PlainVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.clip=clip;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: PlainVertex) -> @location(0) vec4f {
     let world=input.position.xy+frame.origin.xy;
-    let clip=input.clip;
-    var clip_alpha=1.;
-    if input.clip_params.x>0.5 {
-        clip_alpha=coverage(world-clip.xy,clip.zw,vec4f(0.));
-        if clip_alpha<=0. { discard; }
-    } else if input.clip_params.x >= 0. && (any(world<clip.xy) || any(world>=clip.xy+clip.zw)) { discard; }
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
     let outer=coverage(input.local,input.size,input.radii);
     let alpha=input.color.a*outer*clip_alpha;
     return vec4f(input.color.rgb*alpha,alpha);
 }
 "#;
 
+/// MyGO's ClassFill counterpart: gradients and borders share only analytical
+/// shape/clip coverage and never compile the image, glyph, shadow or material
+/// paths into their fragment pipeline.
+const FILL_CLASS_SHADER: &str = r#"
+struct FillVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(3) color2: vec4f,
+    @interpolate(flat) @location(4) border: vec4f,
+    @interpolate(flat) @location(5) config: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_fill(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(2) color2: vec4f,
+    @location(3) border: vec4f,
+    @location(4) config: vec4f,
+    @location(5) clip: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> FillVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: FillVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.color2=color2;
+    out.border=border;
+    out.config=config;
+    out.clip=clip;
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: FillVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    let outer=coverage(input.local,input.size,input.radii);
+    let width=min(input.config.y,min(input.size.x,input.size.y)*0.5);
+    var fill=input.color;
+    if any(input.gradient.xy!=input.gradient.zw) || input.clip_params.y>0.5 {
+        let start=input.gradient.xy*input.size;
+        let direction=(input.gradient.zw-input.gradient.xy)*input.size;
+        let t=clamp(dot(input.local-start,direction)/max(dot(direction,direction),0.000001),0.,1.);
+        fill=mix(input.color,input.color2,t);
+        if input.clip_params.y>0.5 {
+            let a=vec4f(input.color.rgb*input.color.a,input.color.a);
+            let b=vec4f(input.color2.rgb*input.color2.a,input.color2.a);
+            let premultiplied=mix(a,b,t);
+            fill=vec4f(premultiplied.rgb/max(premultiplied.a,0.000001),premultiplied.a);
+        }
+    }
+    if width<=0. {
+        let alpha=fill.a*outer;
+        return vec4f(fill.rgb*alpha,alpha)*clip_alpha;
+    }
+    let inner_size=max(input.size-2.*width,vec2f(0));
+    var inner=0.;
+    if all(inner_size>vec2f(0)) {
+        inner=coverage(input.local-vec2f(width),inner_size,max(input.radii-vec4f(width),vec4f(0.)));
+    }
+    let alpha=fill.a*inner;
+    let border_alpha=input.border.a*max(outer-inner,0.);
+    return vec4f(fill.rgb*alpha+input.border.rgb*border_alpha,alpha+border_alpha)*clip_alpha;
+}
+"#;
+
+/// MyGO's ClassShadow counterpart: outer and inset shadows keep only their
+/// analytical contour/Gaussian path and shared clip coverage.
+const SHADOW_CLASS_SHADER: &str = r#"
+struct ShadowVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(5) config: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_shadow(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(4) config: vec4f,
+    @location(5) clip: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> ShadowVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: ShadowVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.color=color;
+    out.config=config;
+    out.clip=clip;
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: ShadowVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    if input.config.z>=6. {
+        let hole=input.gradient;
+        var covered=0.;
+        if all(hole.zw>vec2f(0.)) {
+            if input.config.y>0. {
+                covered=shadow_coverage(input.local-hole.xy,hole.zw,input.config.x,input.config.y,input.config.w);
+            } else {
+                covered=shadow_contour_coverage(input.local-hole.xy,hole.zw,input.config.x,input.config.w);
+            }
+        }
+        let alpha=input.color.a*(1.-covered)*clip_alpha;
+        return vec4f(input.color.rgb*alpha,alpha);
+    }
+    let alpha=input.color.a*shadow_coverage(
+        input.local-vec2f(input.gradient.x),input.gradient.zw,input.config.x,input.gradient.y,input.config.w,
+    )*clip_alpha;
+    return vec4f(input.color.rgb*alpha,alpha);
+}
+"#;
+
+/// Monochrome atlas glyphs only need tint, UV and clip coverage.
+const GLYPH_CLASS_SHADER: &str = r#"
+struct GlyphVertex {
+    @builtin(position) position: vec4f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_glyph(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> GlyphVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: GlyphVertex;
+    out.position=geometry.position;
+    out.color=color;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: GlyphVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    let alpha=textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.).a*input.color.a;
+    return vec4f(input.color.rgb*alpha,alpha)*clip_alpha;
+}
+"#;
+
+/// Color atlas glyphs preserve their premultiplied channels and apply opacity.
+const COLOR_GLYPH_CLASS_SHADER: &str = r#"
+struct ColorGlyphVertex {
+    @builtin(position) position: vec4f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+}
+@vertex fn vs_color_glyph(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+) -> ColorGlyphVertex {
+    let geometry=quad_geometry(index,rect);
+    var out: ColorGlyphVertex;
+    out.position=geometry.position;
+    out.color=color;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    return out;
+}
+@fragment fn fs_main(input: ColorGlyphVertex) -> @location(0) vec4f {
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    return textureSampleLevel(glyph_atlas,glyph_sampler,input.uv,0.)*input.color.a*clip_alpha;
+}
+"#;
+
+/// Images retain only their sampling, rounded coverage and clip paths.
+const IMAGE_CLASS_SHADER: &str = r#"
+struct ImageVertex {
+    @builtin(position) position: vec4f,
+    @location(0) local: vec2f,
+    @interpolate(flat) @location(1) size: vec2f,
+    @interpolate(flat) @location(2) color: vec4f,
+    @interpolate(flat) @location(3) color2: vec4f,
+    @interpolate(flat) @location(6) clip: vec4f,
+    @location(7) uv: vec2f,
+    @interpolate(flat) @location(8) gradient: vec4f,
+    @interpolate(flat) @location(9) clip_params: vec4f,
+    @interpolate(flat) @location(10) mask_rect: vec4f,
+    @interpolate(flat) @location(11) radii: vec4f,
+}
+@vertex fn vs_image(
+    @builtin(vertex_index) index: u32,
+    @location(0) rect: vec4f,
+    @location(1) color: vec4f,
+    @location(2) color2: vec4f,
+    @location(5) clip: vec4f,
+    @location(6) uv: vec4f,
+    @location(7) gradient: vec4f,
+    @location(8) clip_params: vec4f,
+    @location(9) mask_rect: vec4f,
+    @location(10) radii: vec4f,
+) -> ImageVertex {
+    let geometry=quad_geometry(index,rect);
+    let world=rect.xy+geometry.local;
+    var out: ImageVertex;
+    out.position=geometry.position;
+    out.local=geometry.local;
+    out.size=rect.zw;
+    out.color=color;
+    out.color2=color2;
+    out.clip=clip;
+    out.uv=uv.xy+geometry.local/rect.zw*uv.zw;
+    if clip_params.y>0.5 {
+        out.uv=vec2f(uv.x*world.x+uv.z*world.y,uv.y*world.x+uv.w*world.y)+gradient.zw;
+    }
+    out.gradient=gradient;
+    out.clip_params=clip_params;
+    out.mask_rect=mask_rect;
+    out.radii=radii;
+    return out;
+}
+@fragment fn fs_main(input: ImageVertex) -> @location(0) vec4f {
+    let source_size=vec2f(textureDimensions(glyph_atlas,0));
+    let footprint=max(length(dpdx(input.uv)*source_size),length(dpdy(input.uv)*source_size));
+    let lod=clamp(log2(max(footprint,1.)),0.,max(input.color2.x-1.,0.));
+    let world=input.position.xy+frame.origin.xy;
+    let clip_alpha=clip_coverage(world,input.clip,input.clip_params,input.mask_rect);
+    if clip_alpha<=0. { discard; }
+    let extend=input.gradient.xy;
+    let uv=vec2f(image_uv_axis(input.uv.x,extend.x),image_uv_axis(input.uv.y,extend.y));
+    var pixel: vec4f;
+    if input.clip_params.w>0.5 {
+        let lower=i32(floor(lod));
+        let upper=min(lower+1,i32(max(input.color2.x,1.))-1);
+        pixel=bicubic(uv,extend,lower);
+        if upper!=lower && fract(lod)>0.0001 {
+            pixel=mix(pixel,bicubic(uv,extend,upper),fract(lod));
+        }
+    } else {
+        pixel=textureSampleLevel(glyph_atlas,glyph_sampler,uv,select(lod,0.,input.clip_params.w< -0.5));
+    }
+    return pixel*input.color.a*coverage(input.local,input.size,input.radii)*clip_alpha;
+}
+"#;
+
 /// A plain fill: solid color (equal endpoint colors make the gradient mix a
-/// no-op), no border, no material, not an image/glyph/shadow instance, and no
-/// coverage mask. Everything the general fragment does beyond the SDF and
-/// clip is absent, so the specialized pipeline draws the same pixels with a
-/// much smaller shader.
+/// no-op), no border, no material, and not an image/glyph/shadow instance.
+/// A coverage mask is clip state and remains eligible, as in mygo's classOf.
+/// Everything the general fragment does beyond the SDF and clip is absent, so
+/// the specialized pipeline draws the same pixels with a much smaller shader.
 /// The most pixels a run may cover for joinLast to merge it with its
 /// neighbors of other classes (mygo's joinArea). On an M5 a draw call costs
 /// about 1.1 µs of CPU and 0.1 µs of GPU, while a plain fill drawn through
@@ -370,10 +761,39 @@ const JOIN_AREA: f32 = 128. * 128.;
 struct RunFlush {
     start: usize,
     end: usize,
-    plain: bool,
+    class: PipelineClass,
     plus: bool,
     texture: Option<usize>,
     mask: u32,
+    scissor: Option<[u32; 4]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PipelineClass {
+    General,
+    Plain,
+    Fill,
+    Shadow,
+    Glyph,
+    ColorGlyph,
+    Image,
+}
+type ClassPipelineSpec = (PipelineClass, &'static str, &'static str, &'static str);
+
+impl PipelineClass {
+    const COUNT: usize = 6;
+
+    const fn slot(self) -> Option<usize> {
+        match self {
+            Self::General => None,
+            Self::Plain => Some(0),
+            Self::Fill => Some(1),
+            Self::Shadow => Some(2),
+            Self::Glyph => Some(3),
+            Self::ColorGlyph => Some(4),
+            Self::Image => Some(5),
+        }
+    }
 }
 
 fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
@@ -389,17 +809,38 @@ fn run_area(instances: &[Instance], start: usize, end: usize) -> f32 {
 }
 
 fn is_plain(instance: &Instance) -> bool {
-    instance.config[2] == 0.
-        && instance.config[1] == 0.
-        && instance.clip_params[2] == 0.
-        && instance.color == instance.color2
+    instance.config[2] == 0. && instance.config[1] == 0. && instance.color == instance.color2
+}
+
+fn pipeline_class(instance: &Instance, force_general: bool) -> PipelineClass {
+    if force_general {
+        PipelineClass::General
+    } else if is_plain(instance) {
+        PipelineClass::Plain
+    } else if instance.config[2] == 0. {
+        PipelineClass::Fill
+    } else if instance.config[2] == 5. || instance.config[2] == 6. {
+        PipelineClass::Shadow
+    } else if instance.config[2] == 2. {
+        PipelineClass::Glyph
+    } else if instance.config[2] == 3. {
+        PipelineClass::ColorGlyph
+    } else if instance.config[2] == 4. {
+        PipelineClass::Image
+    } else {
+        PipelineClass::General
+    }
 }
 
 /// MyGO Builder.markFill (MIT, ee3d4bd9): leave three physical pixels for
-/// the vertex AA fringe and clip coverage. Masked and non-fill instances keep
-/// the general path. Negative clip_params.x means coverage is identically one.
+/// the vertex AA fringe and clip coverage. Masked instances still sample their
+/// mask and non-fill instances keep the general path. Negative clip_params.x
+/// means rectangular clip coverage is identically one.
 fn skip_interior_clip(instance: &mut Instance) -> bool {
-    if !is_plain(instance) || !(0. ..=1.).contains(&instance.color[3]) {
+    if !is_plain(instance)
+        || instance.clip_params[2] > 0.
+        || !(0. ..=1.).contains(&instance.color[3])
+    {
         return false;
     }
     let [x, y, w, h] = instance.rect;
@@ -420,6 +861,7 @@ mod encode;
 mod gpu_timer;
 mod layers;
 mod render;
+mod ring;
 mod setup;
 mod surface;
 mod text;

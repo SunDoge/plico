@@ -21,8 +21,7 @@ fn capture_at(source: &mut Source<Settings>, tcx: &mut TextContext, path: &str, 
 
 fn click(source: &mut Source<Settings>, label: &str) {
     let id = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, label, None)
         .expect("button")
         .id;

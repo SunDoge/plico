@@ -156,22 +156,45 @@ impl Renderer {
         let capacity = INITIAL_INSTANCE_CAPACITY;
         let instances = Self::instance_buffer(&device, capacity);
         // Everything up to the general fragment entry point is shared vertex
-        // and SDF code; the plain fragment below is a strict subset of it.
+        // and SDF code; class fragments below are strict subsets of it.
         let quad_source = include_str!("../quad.wgsl");
-        let plain_common = &quad_source[..quad_source
+        let class_common = &quad_source[..quad_source
             .rfind("@fragment")
             .expect("the quad shader defines one fragment entry point")];
-        let plain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Plico plain quads"),
-            source: wgpu::ShaderSource::Wgsl(format!("{plain_common}\n{PLAIN_FRAGMENT}").into()),
-        });
-        let plain_pipeline = Self::quad_pipeline(
-            &device,
-            &layout,
-            &plain_shader,
-            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-            "Plico plain quads",
-        );
+        #[cfg(not(target_arch = "wasm32"))]
+        let (class_pipelines, class_pipeline_rx) = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let warm_device = device.clone();
+            let warm_layout = layout.clone();
+            let warm_common = class_common.to_owned();
+            let worker = std::thread::Builder::new()
+                .name("plico-class-pipelines".into())
+                .spawn(move || {
+                    for (class, source, vertex, label) in Self::class_pipeline_specs() {
+                        let pipeline = Self::class_pipeline(
+                            &warm_device,
+                            &warm_layout,
+                            &warm_common,
+                            source,
+                            vertex,
+                            label,
+                        );
+                        if sender.send((class, pipeline)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            if worker.is_ok() {
+                (std::array::from_fn(|_| None), receiver)
+            } else {
+                (
+                    Self::class_pipelines(&device, &layout, class_common),
+                    receiver,
+                )
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let class_pipelines = Self::class_pipelines(&device, &layout, class_common);
         let gpu_timer = gpu_timer::GpuTimer::new(&device);
         let mut renderer = Self {
             device,
@@ -182,6 +205,7 @@ impl Renderer {
             backdrop_compositor: None,
             backdrop_prefilter: None,
             backdrop_batch_prefilter: None,
+            backdrop_pool: Default::default(),
             force_separate_backdrops: false,
             frame_layout: group,
             layout,
@@ -189,7 +213,9 @@ impl Renderer {
             bind,
             pipeline: None,
             plus_pipeline: None,
-            plain_pipeline,
+            class_pipelines,
+            #[cfg(not(target_arch = "wasm32"))]
+            class_pipeline_rx,
             force_general: false,
             #[cfg(test)]
             profile_no_batch_cull: false,
@@ -202,6 +228,11 @@ impl Renderer {
             instances,
             capacity,
             instance_scratch: Vec::new(),
+            scissor_scratch: Vec::new(),
+            occlusion_scratch: Vec::new(),
+            force_no_occlusion_culling: false,
+            force_no_ring_splitting: false,
+            force_no_analytic_clip_reduction: false,
             backdrop_effects: Vec::new(),
             deferred_layers: Vec::new(),
             inherited_backdrop: None,
@@ -246,7 +277,7 @@ impl Renderer {
             frame_budget: FrameBudget::default(),
             gpu_timer,
             pending_gpu_slot: None,
-            pending_commands: Vec::new(),
+            frame_prefix_commands: Vec::new(),
             split_submits: std::env::var_os("PLICO_SPLIT_SUBMITS")
                 .is_some_and(|value| value != "0"),
             atlas_texture,
@@ -269,11 +300,40 @@ impl Renderer {
     pub fn pipeline_compilations(&self) -> usize {
         self.compilations
     }
-    /// Draw plain fills through the general shader instead of the specialized
-    /// plain pipeline, so tests and measurements can compare the two (mygo's
-    /// NoClasses). Pixels must be identical either way.
+    /// Draw every class through the general shader instead of the specialized
+    /// plain/fill/shadow pipelines, so tests and measurements can compare them
+    /// (mygo's NoClasses). Pixels must be identical either way.
     pub fn force_general_pipelines(&mut self, force: bool) {
         self.force_general = force;
+    }
+    /// Disable conservative painter-order occlusion culling for pixel and
+    /// performance comparisons (MyGO's `NoCull`).
+    pub fn force_no_occlusion_culling(&mut self, force: bool) {
+        self.force_no_occlusion_culling = force;
+    }
+
+    /// Disable MyGO-style scissor splitting for large border-only quads.
+    /// This comparison switch preserves identical pixels and is intended for
+    /// renderer profiling rather than application policy.
+    pub fn force_no_ring_splitting(&mut self, force: bool) {
+        self.force_no_ring_splitting = force;
+    }
+    /// Retain pixel masks for rounded leaf clips, for performance/quality A/Bs.
+    pub fn force_no_analytic_clip_reduction(&mut self, force: bool) {
+        if self.force_no_analytic_clip_reduction != force {
+            self.force_no_analytic_clip_reduction = force;
+            self.prepared_cache.clear();
+            self.scene_damage.invalidate();
+        }
+    }
+    /// Publish class pipelines completed by the native background warmer.
+    /// Frames encoded before a class arrives use the general pipeline.
+    pub(super) fn poll_class_pipelines(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        while let Ok((class, pipeline)) = self.class_pipeline_rx.try_recv() {
+            self.class_pipelines[class.slot().expect("general pipeline is not warmed")] =
+                Some(pipeline);
+        }
     }
     /// Disable same-stage backdrop batching for pixel/performance comparisons.
     pub fn force_separate_backdrops(&mut self, force: bool) {
@@ -347,6 +407,7 @@ impl Renderer {
         device: &wgpu::Device,
         layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
+        vertex_entry: &str,
         blend: &wgpu::BlendState,
         label: &str,
     ) -> wgpu::RenderPipeline {
@@ -356,7 +417,7 @@ impl Renderer {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: shader,
-                entry_point: Some("vs_main"),
+                entry_point: Some(vertex_entry),
                 compilation_options: Default::default(),
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Instance>() as u64,
@@ -381,6 +442,79 @@ impl Renderer {
             cache: None,
         })
     }
+    fn class_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        common: &str,
+        class: &str,
+        vertex_entry: &str,
+        label: &str,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(format!("{common}\n{class}").into()),
+        });
+        Self::quad_pipeline(
+            device,
+            layout,
+            &shader,
+            vertex_entry,
+            &wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            label,
+        )
+    }
+    fn class_pipeline_specs() -> [ClassPipelineSpec; PipelineClass::COUNT] {
+        [
+            (
+                PipelineClass::Plain,
+                PLAIN_CLASS_SHADER,
+                "vs_plain",
+                "Plico plain quads",
+            ),
+            (
+                PipelineClass::Glyph,
+                GLYPH_CLASS_SHADER,
+                "vs_glyph",
+                "Plico glyph quads",
+            ),
+            (
+                PipelineClass::Image,
+                IMAGE_CLASS_SHADER,
+                "vs_image",
+                "Plico image quads",
+            ),
+            (
+                PipelineClass::Fill,
+                FILL_CLASS_SHADER,
+                "vs_fill",
+                "Plico fill quads",
+            ),
+            (
+                PipelineClass::Shadow,
+                SHADOW_CLASS_SHADER,
+                "vs_shadow",
+                "Plico shadow quads",
+            ),
+            (
+                PipelineClass::ColorGlyph,
+                COLOR_GLYPH_CLASS_SHADER,
+                "vs_color_glyph",
+                "Plico color glyph quads",
+            ),
+        ]
+    }
+    fn class_pipelines(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        common: &str,
+    ) -> [Option<wgpu::RenderPipeline>; PipelineClass::COUNT] {
+        let mut pipelines = std::array::from_fn(|_| None);
+        for (class, source, vertex, label) in Self::class_pipeline_specs() {
+            let pipeline = Self::class_pipeline(device, layout, common, source, vertex, label);
+            pipelines[class.slot().expect("class pipeline must be specialized")] = Some(pipeline);
+        }
+        pipelines
+    }
     fn material_pipeline(
         &self,
         shader: &wgpu::ShaderModule,
@@ -390,6 +524,7 @@ impl Renderer {
             &self.device,
             &self.layout,
             shader,
+            "vs_main",
             &blend,
             "Plico SDF quads",
         )

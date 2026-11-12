@@ -44,6 +44,15 @@ pub fn resolve_local_transforms(node: &PlacedNode) -> (Affine, Affine) {
 
 /// Resolve static CSS and host-driven runtime state into window coordinates.
 pub fn resolve_node_transform(node: &PlacedNode, parent_transform: Affine) -> Affine {
+    // Most nodes carry no authored or presentation transform. As in MyGO's
+    // Painter.add identity fast path, keep those nodes on the parent's matrix
+    // without building and multiplying two origin translations plus identities.
+    if node.paint.transform.is_empty()
+        && node.paint.motion_transform.is_none()
+        && node.paint.runtime_transform.is_none()
+    {
+        return parent_transform;
+    }
     let [x0, y0, x1, y1] = node.rect;
     let rect = Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64);
     let resolve = |length: &IrLength, size: f32| match length {
@@ -166,7 +175,20 @@ fn visual_bounds(node: &PlacedNode) -> Rect {
     bounds
 }
 
+fn paint_is_cullable(node: &PlacedNode) -> bool {
+    node.paint.vector_path.is_none()
+        && node.paint.widget.as_ref().is_none_or(|widget| {
+            matches!(
+                widget.commands.first(),
+                Some(crate::PaintCommand::PushClip { .. })
+            )
+        })
+}
+
 fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool {
+    if !paint_is_cullable(node) {
+        return true;
+    }
     let bounds = transform.transform_rect_bbox(visual_bounds(node));
     bounds.width() > 0.
         && bounds.height() > 0.
@@ -174,6 +196,118 @@ fn paints_viewport(node: &PlacedNode, transform: Affine, viewport: Rect) -> bool
         && bounds.x0 <= viewport.x1
         && bounds.y1 >= viewport.y0
         && bounds.y0 <= viewport.y1
+}
+
+fn rect_intersects(bounds: Rect, clip: Rect) -> bool {
+    bounds.width() > 0.
+        && bounds.height() > 0.
+        && bounds.x1 >= clip.x0
+        && bounds.x0 <= clip.x1
+        && bounds.y1 >= clip.y0
+        && bounds.y0 <= clip.y1
+}
+
+#[derive(Clone, Copy)]
+struct SubtreeInk {
+    own: Rect,
+    ink: Rect,
+    end: usize,
+    has_ink: bool,
+    own_cullable: bool,
+    cullable: bool,
+}
+
+/// Reusable allocation for presented scene encoding.
+///
+/// Hosts should keep one per retained scene source. The contents are transient
+/// and never part of a cached scene snapshot.
+#[derive(Default)]
+pub struct SceneScratch {
+    subtree_ink: Vec<SubtreeInk>,
+    subtree_stack: Vec<usize>,
+}
+
+fn prepare_subtree_ink(nodes: &[PlacedNode], out: &mut Vec<SubtreeInk>, stack: &mut Vec<usize>) {
+    fn close(nodes: &[PlacedNode], out: &mut [SubtreeInk], stack: &mut Vec<usize>, end: usize) {
+        let index = stack.pop().unwrap();
+        out[index].end = end;
+        let sigma = nodes[index].paint.foreground_blur;
+        if out[index].has_ink && sigma.is_finite() && sigma > 0. {
+            let extent = f64::from(sigma.min(64.)) * 3.;
+            out[index].ink = out[index].ink.inflate(extent, extent);
+        }
+        if let Some(&parent) = stack.last() {
+            let child = out[index];
+            out[parent].cullable &= child.cullable;
+            if child.has_ink {
+                if out[parent].has_ink {
+                    out[parent].ink = out[parent].ink.union(child.ink);
+                } else {
+                    out[parent].ink = child.ink;
+                    out[parent].has_ink = true;
+                }
+            }
+        }
+    }
+
+    out.clear();
+    stack.clear();
+    out.reserve(nodes.len().saturating_sub(out.capacity()));
+    for (index, node) in nodes.iter().enumerate() {
+        while stack
+            .last()
+            .is_some_and(|&open| nodes[open].depth >= node.depth)
+        {
+            close(nodes, out, stack, index);
+        }
+        let own = node
+            .world_transform
+            .transform_rect_bbox(visual_bounds(node));
+        let finite = [own.x0, own.y0, own.x1, own.y1]
+            .into_iter()
+            .all(f64::is_finite);
+        // Typed vector paths and unclipped widget fragments are intentionally
+        // unconstrained by the layout box. Until their exact bounds are
+        // retained, treat the node and its ancestors like MyGO's noCull
+        // elements.
+        let own_cullable = finite && paint_is_cullable(node);
+        let visible = finite
+            && own.width() > 0.
+            && own.height() > 0.
+            && node.world_opacity > 0.
+            && node.paint.motion_opacity.unwrap_or(1.).clamp(0., 1.) > 0.;
+        out.push(SubtreeInk {
+            own,
+            ink: own,
+            end: nodes.len(),
+            has_ink: visible,
+            own_cullable,
+            cullable: own_cullable,
+        });
+        stack.push(index);
+    }
+    while !stack.is_empty() {
+        close(nodes, out, stack, nodes.len());
+    }
+}
+
+fn should_prepare_subtree_ink(nodes: &[PlacedNode], viewport: Rect) -> bool {
+    const SAMPLES: usize = 32;
+    if nodes.len() < 64 || !nodes.windows(2).any(|pair| pair[1].depth > pair[0].depth) {
+        return false;
+    }
+    let samples = nodes.len().min(SAMPLES);
+    let mut outside = 0;
+    for sample in 0..samples {
+        let index = sample * (nodes.len() - 1) / (samples - 1);
+        let node = &nodes[index];
+        outside += usize::from(
+            node.world_opacity <= 0. || !paints_viewport(node, node.world_transform, viewport),
+        );
+    }
+    // The prepass pays for itself when it can skip a material fraction of
+    // nested entries. Near-fully-visible scenes keep the direct encoder.
+    outside * 4 >= samples
 }
 
 // A transformed clip's bounding box is conservative: rounded corners and
@@ -328,12 +462,12 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
                 },
             );
         } else {
-            scene.fill(
+            scene.fill_paint_shape(
                 Fill::NonZero,
                 transform,
                 background,
                 None,
-                &corner_shape(rect, radii, node.paint.corner_smoothing),
+                corner_shape(rect, radii, node.paint.corner_smoothing),
             );
         }
     }
@@ -398,6 +532,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
                         outer_radii.inset(width as f32),
                         node.paint.corner_smoothing,
                     )
+                    .into_bez_path()
                     .elements()
                     .iter()
                     .copied(),
@@ -426,7 +561,7 @@ fn draw_node_box(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
             );
             if inner.width() > 0. && inner.height() > 0. {
                 let shape = corner_shape(inner, radii.inset(top), node.paint.corner_smoothing);
-                ring.extend(shape.elements().iter().copied());
+                ring.extend(shape.into_bez_path().elements().iter().copied());
             }
             scene.fill(Fill::EvenOdd, transform, border_color, None, &ring);
             return;
@@ -756,10 +891,8 @@ fn draw_outline_text(
     device_scale: f64,
 ) {
     let transform = text_transform * Affine::scale(device_scale.recip());
-    // Direct encoding avoids a retained-fragment issue on Metal. It also
-    // keeps transformed/faux-style fallback text at the native font weight
-    // instead of geometrically emboldening it.
-    tcx.draw_native_weight_layout_into(scene, layout, transform, device_scale);
+    let glyphs = tcx.native_weight_glyph_scene_scaled(layout, device_scale);
+    scene.append_scene((*glyphs).clone(), transform);
 }
 
 /// Replay the prior application scene into a GPU-filtered layer, then clip its
@@ -814,11 +947,6 @@ fn draw_backdrop(scene: &mut Scene, node: &PlacedNode, transform: Affine, device
     scene.pop_layer();
 }
 
-enum Layer {
-    Clip,
-    Opacity,
-}
-
 /// Paint `nodes` into `scene` over a `base_color` background. Text nodes are
 /// use the host-selected paragraph engine.
 pub fn build_scene(
@@ -864,6 +992,82 @@ pub fn build_scene_scaled_layers(
     base_color: Color,
     device_scale: f64,
 ) {
+    build_scene_scaled_layers_impl(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        false,
+        None,
+    );
+}
+
+/// Encode layers whose [`PlacedNode`] presentation fields were refreshed by
+/// the host. This keeps hit testing and painting on one composed transform.
+#[doc(hidden)]
+pub fn build_presented_scene_scaled_layers(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+) {
+    let mut scratch = SceneScratch::default();
+    build_presented_scene_scaled_layers_with_scratch(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        &mut scratch,
+    );
+}
+
+/// Encode host-resolved layers while reusing subtree-culling scratch storage.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn build_presented_scene_scaled_layers_with_scratch(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+    scratch: &mut SceneScratch,
+) {
+    build_scene_scaled_layers_impl(
+        scene,
+        roots,
+        tcx,
+        width,
+        height,
+        base_color,
+        device_scale,
+        true,
+        Some(scratch),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scene_scaled_layers_impl(
+    scene: &mut Scene,
+    roots: &[&[PlacedNode]],
+    tcx: &mut TextContext,
+    width: u32,
+    height: u32,
+    base_color: Color,
+    device_scale: f64,
+    use_presentations: bool,
+    scratch: Option<&mut SceneScratch>,
+) {
     scene.reset();
     let device = Affine::scale(device_scale);
     let bg = Rect::new(0.0, 0.0, width as f64, height as f64);
@@ -876,9 +1080,22 @@ pub fn build_scene_scaled_layers(
         bg,
         viewport: bg,
         device_scale,
+        use_presentations,
     };
+    let mut local_scratch = SceneScratch::default();
+    let scratch = scratch.unwrap_or(&mut local_scratch);
     for nodes in roots {
-        encoder.encode_nodes(scene, nodes, Affine::IDENTITY, bg, 1.);
+        let subtree_ink = (use_presentations && should_prepare_subtree_ink(nodes, bg)).then(|| {
+            prepare_subtree_ink(nodes, &mut scratch.subtree_ink, &mut scratch.subtree_stack);
+            scratch.subtree_ink.as_slice()
+        });
+        if let Some(subtree_ink) = subtree_ink {
+            encoder.encode_nodes::<true>(scene, nodes, subtree_ink, Affine::IDENTITY, bg, 1.);
+        } else {
+            // Keep the common all-visible and small-scene path monomorphized
+            // without one optional-ink branch per node.
+            encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, 1.);
+        }
     }
 }
 
@@ -888,64 +1105,78 @@ struct Encoder<'a> {
     bg: Rect,
     viewport: Rect,
     device_scale: f64,
+    use_presentations: bool,
 }
+
+#[derive(Clone, Copy)]
+struct NodeBatch<'a> {
+    nodes: &'a [PlacedNode],
+    subtree_ink: &'a [SubtreeInk],
+}
+
 impl Encoder<'_> {
-    fn encode_nodes(
+    fn encode_nodes<const SUBTREE_CULL: bool>(
         &mut self,
         scene: &mut Scene,
-        mut nodes: &[PlacedNode],
+        nodes: &[PlacedNode],
+        subtree_ink: &[SubtreeInk],
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
-        while let Some(first) = nodes.first() {
-            let len = nodes[1..]
-                .iter()
-                .position(|node| node.depth <= first.depth)
-                .map_or(nodes.len(), |index| index + 1);
-            self.encode_one(
+        let batch = NodeBatch { nodes, subtree_ink };
+        let mut cursor = 0;
+        while cursor < nodes.len() {
+            self.encode_subtree::<SUBTREE_CULL>(
                 scene,
-                &nodes[..len],
+                batch,
+                &mut cursor,
                 parent_transform,
                 inherited_clip,
                 raster_factor,
             );
-            nodes = &nodes[len..];
         }
     }
 
-    fn encode_one(
+    /// Encode one preorder subtree and leave `cursor` at its next sibling.
+    ///
+    /// The old slice-based walk searched forward for the end of every
+    /// subtree before recursively doing the same work again. A deep tree
+    /// therefore revisited the tail at every level. The cursor consumes each
+    /// entry once, matching the single DFS used by MyGO's linked node tree.
+    fn encode_subtree<const SUBTREE_CULL: bool>(
         &mut self,
         scene: &mut Scene,
-        nodes: &[PlacedNode],
+        batch: NodeBatch<'_>,
+        cursor: &mut usize,
         parent_transform: Affine,
         inherited_clip: Rect,
         raster_factor: f64,
     ) {
-        self.encode_contents(
-            scene,
-            nodes,
-            parent_transform,
-            inherited_clip,
-            raster_factor,
-        );
-    }
-
-    fn encode_contents(
-        &mut self,
-        scene: &mut Scene,
-        nodes: &[PlacedNode],
-        parent_transform: Affine,
-        inherited_clip: Rect,
-        raster_factor: f64,
-    ) {
-        let n = &nodes[0];
+        let index = *cursor;
+        if SUBTREE_CULL {
+            let ink = batch.subtree_ink[index];
+            if ink.cullable && (!ink.has_ink || !rect_intersects(ink.ink, inherited_clip)) {
+                *cursor = ink.end;
+                return;
+            }
+        }
+        let n = &batch.nodes[index];
+        let depth = n.depth;
         let opacity = n.paint.opacity * n.paint.motion_opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
+            *cursor += 1;
+            while *cursor < batch.nodes.len() && batch.nodes[*cursor].depth > depth {
+                *cursor += 1;
+            }
             return;
         }
         let has_rounded_corners = n.paint.border_radii.max() > 0.0;
-        let css_transform = resolve_node_transform(n, parent_transform);
+        let css_transform = if self.use_presentations {
+            n.world_transform
+        } else {
+            resolve_node_transform(n, parent_transform)
+        };
         let node_transform = self.device * css_transform;
         let raster_factor = raster_factor
             * f64::from(if n.paint.raster_scale_correction > 0. {
@@ -953,7 +1184,12 @@ impl Encoder<'_> {
             } else {
                 1.
             });
-        let paints_node = paints_viewport(n, css_transform, inherited_clip);
+        let paints_node = if SUBTREE_CULL {
+            let ink = batch.subtree_ink[index];
+            !ink.own_cullable || (ink.has_ink && rect_intersects(ink.own, inherited_clip))
+        } else {
+            paints_viewport(n, css_transform, inherited_clip)
+        };
         let child_clip = n
             .own_clip
             .and_then(|clip| clip_bounds(clip, css_transform))
@@ -969,13 +1205,26 @@ impl Encoder<'_> {
             device_scale: self.device_scale,
             raster_factor,
         };
-        let mut layers = Vec::new();
-        encode_node(scene, self.tcx, &enc, &mut layers);
-        self.encode_nodes(scene, &nodes[1..], css_transform, child_clip, raster_factor);
-        if paints_viewport(n, css_transform, self.viewport) {
+        let layers = encode_node(scene, self.tcx, &enc);
+        *cursor += 1;
+        while *cursor < batch.nodes.len() && batch.nodes[*cursor].depth > depth {
+            self.encode_subtree::<SUBTREE_CULL>(
+                scene,
+                batch,
+                cursor,
+                css_transform,
+                child_clip,
+                raster_factor,
+            );
+        }
+        // The scrollbar lives inside the node's border box, so the node's
+        // existing visibility result also covers it. Most nodes have no live
+        // overlay scrollbar; do not recompute visual bounds and transform
+        // them a second time for those nodes.
+        if paints_node && n.scroll.opacity > 0.0 {
             draw_scrollbars(scene, n, node_transform, self.device_scale);
         }
-        while layers.pop().is_some() {
+        for _ in 0..layers {
             scene.pop_layer();
         }
     }
@@ -993,12 +1242,7 @@ struct EncodeCtx<'a> {
     device_scale: f64,
     raster_factor: f64,
 }
-fn encode_node(
-    scene: &mut Scene,
-    tcx: &mut TextContext,
-    enc: &EncodeCtx<'_>,
-    layers: &mut Vec<Layer>,
-) {
+fn encode_node(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) -> usize {
     let EncodeCtx {
         node: n,
         node_transform,
@@ -1017,6 +1261,7 @@ fn encode_node(
     let device_scale = *device_scale;
     let paints_node = *paints_node;
     let has_rounded_corners = *has_rounded_corners;
+    let mut layers = 0;
 
     // Keep ancestor transform, opacity, and clip state even when this
     // node's own visual bounds are offscreen: a transformed descendant can
@@ -1039,10 +1284,10 @@ fn encode_node(
             Some(Arc::new(filter)),
             None,
         );
-        layers.push(Layer::Opacity);
+        layers += 1;
     } else if opacity < 1.0 {
         scene.push_layer(BlendMode::default(), opacity, device, &bg, None, None);
-        layers.push(Layer::Opacity);
+        layers += 1;
     }
 
     if paints_node {
@@ -1072,7 +1317,7 @@ fn encode_node(
             *node_transform,
             &corner_shape(clip_rect, n.own_clip_radii, n.paint.corner_smoothing),
         );
-        layers.push(Layer::Clip);
+        layers += 1;
     }
 
     if paints_node {
@@ -1118,6 +1363,7 @@ fn encode_node(
     if paints_node {
         draw_text_at_raster_scale(scene, n, tcx, *node_transform, device_scale, *raster_factor);
     }
+    layers
 }
 
 #[cfg(test)]
@@ -1158,6 +1404,7 @@ mod tests {
                 CornerRadii::uniform(4.).inset(border_width as f32),
                 1.,
             )
+            .into_bez_path()
             .elements()
             .iter()
             .copied(),
@@ -1377,6 +1624,8 @@ mod tests {
             node_id,
             parent_node_id: None,
             depth: 0,
+            world_transform: Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [0.0; 4],
             content_origin: [0.0; 2],
             content_size: [0.0; 2],
@@ -1397,6 +1646,337 @@ mod tests {
         let (_, presented) = resolve_local_transforms(&node);
 
         assert_eq!(presented, Affine::translate((8.0, 0.0)));
+    }
+
+    #[test]
+    fn untransformed_node_reuses_the_parent_matrix_exactly() {
+        let mut node = test_node(0, [20., 30., 140., 90.]);
+        node.paint.transform_origin = [
+            IrLength::Percent { value: 0.3 },
+            IrLength::Percent { value: 0.7 },
+        ];
+        let parent = Affine::new([1.25, 0.1, -0.05, 0.9, 17., 23.]);
+        assert_eq!(resolve_node_transform(&node, parent), parent);
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_untransformed_node_resolution() {
+        fn previous(node: &PlacedNode, parent_transform: Affine) -> Affine {
+            let [x0, y0, x1, y1] = node.rect;
+            let resolve = |length: &IrLength, size: f32| match length {
+                IrLength::Px { value } => f64::from(*value),
+                IrLength::Percent { value } => f64::from(*value * size),
+                IrLength::Auto => 0.,
+            };
+            let (static_transform, runtime_transform) = resolve_local_transforms(node);
+            let origin = kurbo::Vec2::new(
+                f64::from(x0) + resolve(&node.paint.transform_origin[0], x1 - x0),
+                f64::from(y0) + resolve(&node.paint.transform_origin[1], y1 - y0),
+            );
+            parent_transform
+                * Affine::translate(origin)
+                * static_transform
+                * runtime_transform
+                * Affine::translate(-origin)
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        let node = test_node(0, [20., 30., 140., 90.]);
+        let parent = Affine::new([1.25, 0.1, -0.05, 0.9, 17., 23.]);
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..1_000_000 {
+                let result = if sample % 2 == 0 {
+                    resolve_node_transform(
+                        std::hint::black_box(&node),
+                        std::hint::black_box(parent),
+                    )
+                } else {
+                    previous(std::hint::black_box(&node), std::hint::black_box(parent))
+                };
+                std::hint::black_box(result);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / 1_000_000.;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "untransformed resolve ns/node: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_hidden_scrollbar_visibility() {
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        let node = test_node(0, [20., 30., 140., 90.]);
+        let viewport = Rect::new(0., 0., 800., 600.);
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..1_000_000 {
+                let result = if sample % 2 == 0 {
+                    let node = std::hint::black_box(&node);
+                    node.scroll.opacity > 0.0
+                        && paints_viewport(
+                            node,
+                            std::hint::black_box(Affine::IDENTITY),
+                            std::hint::black_box(viewport),
+                        )
+                } else {
+                    paints_viewport(
+                        std::hint::black_box(&node),
+                        std::hint::black_box(Affine::IDENTITY),
+                        std::hint::black_box(viewport),
+                    )
+                };
+                std::hint::black_box(result);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / 1_000_000.;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "hidden scrollbar visibility ns/node: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_recorded_background_fill() {
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+        const ITERATIONS: usize = 200_000;
+        let rect = Rect::new(20., 30., 140., 90.);
+        let radii = CornerRadii::default();
+        let mut scene = Scene::new();
+        let mut fast = Vec::new();
+        let mut old = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                scene.reset();
+                let shape =
+                    corner_shape(std::hint::black_box(rect), std::hint::black_box(radii), 0.);
+                if sample % 2 == 0 {
+                    scene.fill_paint_shape(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::BLACK,
+                        None,
+                        shape,
+                    );
+                } else {
+                    // The previous representation retained this fallback path
+                    // beside every analytical rectangle, even though wgpu
+                    // consumed only the primitive.
+                    let fallback = shape.to_path(0.1);
+                    std::hint::black_box(&fallback);
+                    scene.fill_paint_shape(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        Color::BLACK,
+                        None,
+                        shape,
+                    );
+                }
+                std::hint::black_box(scene.commands.len());
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                fast.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "background fill ns/op: old={:.2} fast={:.2}",
+            median(&mut old),
+            median(&mut fast)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_preorder_subtree_walk() {
+        fn previous(mut depths: &[usize]) -> usize {
+            let mut visited = 0;
+            while let Some(&depth) = depths.first() {
+                let len = depths[1..]
+                    .iter()
+                    .position(|child| *child <= depth)
+                    .map_or(depths.len(), |index| index + 1);
+                visited += 1 + previous(&depths[1..len]);
+                depths = &depths[len..];
+            }
+            visited
+        }
+        fn cursor(depths: &[usize], at: &mut usize) -> usize {
+            let depth = depths[*at];
+            *at += 1;
+            let mut visited = 1;
+            while *at < depths.len() && depths[*at] > depth {
+                visited += cursor(depths, at);
+            }
+            visited
+        }
+        fn fast(depths: &[usize]) -> usize {
+            let mut at = 0;
+            let mut visited = 0;
+            while at < depths.len() {
+                visited += cursor(depths, &mut at);
+            }
+            visited
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+
+        const NODES: usize = 256;
+        const ITERATIONS: usize = 2_000;
+        let depths: Vec<_> = (0..NODES).collect();
+        assert_eq!(previous(&depths), NODES);
+        assert_eq!(fast(&depths), NODES);
+        let mut old = Vec::new();
+        let mut linear = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                let visited = if sample % 2 == 0 {
+                    fast(std::hint::black_box(&depths))
+                } else {
+                    previous(std::hint::black_box(&depths))
+                };
+                std::hint::black_box(visited);
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e9 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                linear.push(elapsed);
+            } else {
+                old.push(elapsed);
+            }
+        }
+        eprintln!(
+            "256-deep preorder walk ns/tree: old={:.2} linear={:.2}",
+            median(&mut old),
+            median(&mut linear)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU profile"]
+    fn profile_subtree_ink_culling() {
+        fn encode<const SUBTREE_CULL: bool>(
+            nodes: &[PlacedNode],
+            scene: &mut Scene,
+            text: &mut TextContext,
+            scratch: &mut SceneScratch,
+            viewport: Rect,
+        ) {
+            scene.reset();
+            if SUBTREE_CULL {
+                prepare_subtree_ink(nodes, &mut scratch.subtree_ink, &mut scratch.subtree_stack);
+            }
+            Encoder {
+                tcx: text,
+                device: Affine::IDENTITY,
+                bg: viewport,
+                viewport,
+                device_scale: 1.,
+                use_presentations: true,
+            }
+            .encode_nodes::<SUBTREE_CULL>(
+                scene,
+                nodes,
+                &scratch.subtree_ink,
+                Affine::IDENTITY,
+                viewport,
+                1.,
+            );
+            std::hint::black_box(scene.commands.len());
+        }
+        fn median(values: &mut [f64]) -> f64 {
+            values.sort_by(f64::total_cmp);
+            values[values.len() / 2]
+        }
+
+        let viewport = Rect::new(0., 0., 800., 600.);
+        let mut nodes = vec![test_node(0, [0., 0., 800., 96_000.])];
+        for row in 0..4_000 {
+            let y = row as f32 * 24.;
+            nodes.push(test_node(1, [0., y, 800., y + 20.]));
+            nodes.push(test_node(2, [8., y + 2., 300., y + 18.]));
+        }
+        crate::layout::refresh_presentations(&mut nodes);
+        assert!(should_prepare_subtree_ink(&nodes, viewport));
+
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        let mut scratch = SceneScratch::default();
+        encode::<false>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+        encode::<true>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+
+        const ITERATIONS: usize = 100;
+        let mut direct = Vec::new();
+        let mut ink = Vec::new();
+        for sample in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..ITERATIONS {
+                if sample % 2 == 0 {
+                    encode::<false>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+                } else {
+                    encode::<true>(&nodes, &mut scene, &mut text, &mut scratch, viewport);
+                }
+            }
+            let elapsed = started.elapsed().as_secs_f64() * 1e6 / ITERATIONS as f64;
+            if sample % 2 == 0 {
+                direct.push(elapsed);
+            } else {
+                ink.push(elapsed);
+            }
+        }
+        let tall_viewport = Rect::new(0., 0., 800., 96_000.);
+        assert!(!should_prepare_subtree_ink(&nodes, tall_viewport));
+        const HEURISTIC_ITERATIONS: usize = 10_000;
+        let mut heuristic = Vec::new();
+        for _ in 0..10 {
+            let started = std::time::Instant::now();
+            for _ in 0..HEURISTIC_ITERATIONS {
+                std::hint::black_box(should_prepare_subtree_ink(
+                    std::hint::black_box(&nodes),
+                    std::hint::black_box(tall_viewport),
+                ));
+            }
+            heuristic.push(started.elapsed().as_secs_f64() * 1e6 / HEURISTIC_ITERATIONS as f64);
+        }
+        eprintln!(
+            "4000-row scene us/frame: direct={:.2} subtree-ink={:.2}; all-visible sampling us/frame={:.2}",
+            median(&mut direct),
+            median(&mut ink),
+            median(&mut heuristic),
+        );
     }
 
     #[test]
@@ -1439,6 +2019,8 @@ mod tests {
             node_id,
             parent_node_id: None,
             depth: 0,
+            world_transform: Affine::IDENTITY,
+            world_opacity: 1.0,
             rect: [0.0; 4],
             content_origin: [0.0; 2],
             content_size: [0.0; 2],
@@ -1471,6 +2053,168 @@ mod tests {
             1.0,
         );
         scene
+    }
+
+    #[test]
+    fn presented_scene_reuses_the_transform_shared_with_hit_testing() {
+        let mut parent = test_node(0, [0., 0., 40., 40.]);
+        parent.paint.runtime_transform = Some([1., 0., 0., 1., 12., 3.]);
+        parent.paint.opacity = 0.5;
+        let mut child = test_node(1, [4., 5., 20., 25.]);
+        child.paint.runtime_transform = Some([1., 0., 0., 1., 2., -1.]);
+        child.paint.opacity = 0.5;
+        let mut nodes = [parent, child];
+        crate::layout::refresh_presentations(&mut nodes);
+
+        assert_eq!(nodes[0].world_transform, Affine::translate((12., 3.)));
+        assert_eq!(nodes[1].world_transform, Affine::translate((14., 2.)));
+        assert_eq!(nodes[1].world_opacity, 0.25);
+
+        let ordinary = encoded(&nodes);
+        let mut presented = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut presented,
+            &[&nodes],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(presented.commands, ordinary.commands);
+    }
+
+    #[test]
+    fn presented_scene_culls_offscreen_subtrees_but_keeps_transformed_overflow() {
+        let parent = test_node(0, [200., 200., 240., 240.]);
+        let mut hidden_text = test_node(1, [204., 204., 230., 220.]);
+        hidden_text.paint.text = Some(Arc::from("Must not shape"));
+        let sibling = test_node(0, [10., 10., 30., 30.]);
+        let mut nodes = [parent, hidden_text, sibling.clone()];
+        crate::layout::refresh_presentations(&mut nodes);
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert_eq!(scene.commands, encoded(&[sibling]).commands);
+        assert_eq!(text.cache_entries(), (0, 0));
+
+        let parent = test_node(0, [200., 200., 240., 240.]);
+        let mut overflowing = test_node(1, [204., 204., 230., 220.]);
+        overflowing.paint.runtime_transform = Some([1., 0., 0., 1., -200., -200.]);
+        let mut nodes = [parent.clone(), overflowing];
+        crate::layout::refresh_presentations(&mut nodes);
+        let mut scene = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[&nodes],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        assert!(scene.commands.len() > encoded(&[parent]).commands.len());
+    }
+
+    #[test]
+    fn unclipped_widget_overflow_disables_layout_box_culling() {
+        let mut fragment = Scene::new();
+        fragment.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(-200., -200., -180., -180.),
+        );
+        let mut node = test_node(0, [200., 200., 240., 240.]);
+        node.paint.background = None;
+        node.content_origin = [200., 200.];
+        node.paint.widget = Some(Arc::new(fragment));
+        crate::layout::refresh_presentations(std::slice::from_mut(&mut node));
+        assert!(!paint_is_cullable(&node));
+
+        let mut scene = Scene::new();
+        build_presented_scene_scaled_layers(
+            &mut scene,
+            &[std::slice::from_ref(&node)],
+            &mut TextContext::new(),
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+        );
+        let crate::PaintCommand::Fill {
+            transform, shape, ..
+        } = &scene.commands[0]
+        else {
+            panic!("unclipped widget overflow should remain in the scene");
+        };
+        assert!(rect_intersects(
+            transform.transform_rect_bbox(shape.bounding_box()),
+            Rect::new(0., 0., 100., 100.),
+        ));
+    }
+
+    #[test]
+    fn subtree_ink_prepass_is_selected_only_for_cullable_nested_work() {
+        let root = test_node(0, [0., 0., 100., 100.]);
+        let mut nodes = vec![root.clone()];
+        for row in 0..64 {
+            let y = 200. + row as f32 * 24.;
+            nodes.push(test_node(1, [0., y, 100., y + 20.]));
+            let mut text = test_node(2, [4., y + 2., 96., y + 18.]);
+            text.paint.text = Some(Arc::from("Offscreen retained row"));
+            nodes.push(text);
+        }
+        let visible = test_node(1, [8., 8., 32., 32.]);
+        nodes.push(visible.clone());
+        crate::layout::refresh_presentations(&mut nodes);
+        let viewport = Rect::new(0., 0., 100., 100.);
+        assert!(should_prepare_subtree_ink(&nodes, viewport));
+
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        let mut scratch = SceneScratch::default();
+        build_presented_scene_scaled_layers_with_scratch(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+            &mut scratch,
+        );
+        assert_eq!(scene.commands, encoded(&[root, visible]).commands);
+        assert_eq!(text.cache_entries(), (0, 0));
+        let capacity = scratch.subtree_ink.capacity();
+        let allocation = scratch.subtree_ink.as_ptr();
+        assert!(capacity >= nodes.len());
+        build_presented_scene_scaled_layers_with_scratch(
+            &mut scene,
+            &[&nodes],
+            &mut text,
+            100,
+            100,
+            Color::TRANSPARENT,
+            1.,
+            &mut scratch,
+        );
+        assert_eq!(scratch.subtree_ink.capacity(), capacity);
+        assert_eq!(scratch.subtree_ink.as_ptr(), allocation);
+
+        let mut visible_nodes = vec![test_node(0, [0., 0., 100., 100.])];
+        visible_nodes.extend((0..64).map(|_| test_node(1, [8., 8., 32., 32.])));
+        crate::layout::refresh_presentations(&mut visible_nodes);
+        assert!(!should_prepare_subtree_ink(&visible_nodes, viewport));
     }
 
     #[test]
@@ -1531,6 +2275,26 @@ mod tests {
         let mut parent = test_node(0, [0., 0., 20., 20.]);
         parent.own_clip = Some([f32::NEG_INFINITY, 0., f32::INFINITY, 20.]);
         let child = test_node(1, [30., 30., 50., 50.]);
+        assert_eq!(
+            encoded(&[parent.clone(), child]).commands,
+            encoded(&[parent]).commands
+        );
+    }
+
+    #[test]
+    fn ancestor_clip_culls_overlay_scrollbars_with_their_node() {
+        let mut parent = test_node(0, [0., 0., 20., 20.]);
+        parent.own_clip = Some([0., 0., 20., 20.]);
+        let mut child = test_node(1, [30., 30., 50., 50.]);
+        child.paint.background = None;
+        child.scroll = crate::layout::ScrollMetrics {
+            port: child.rect,
+            scrollable: [false, true],
+            range: [0., 100.],
+            offset: [0., 50.],
+            opacity: 1.,
+            interaction: 0,
+        };
         assert_eq!(
             encoded(&[parent.clone(), child]).commands,
             encoded(&[parent]).commands

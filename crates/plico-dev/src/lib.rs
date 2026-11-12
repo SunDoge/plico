@@ -42,11 +42,13 @@ pub struct Request {
     #[serde(default)]
     pub services: serde_json::Value,
     #[serde(default)]
+    /// Shorthand logical key presses, optionally prefixed by modifiers such as
+    /// `Alt+ArrowLeft`. The protocol normalizes these into `KeyEvent`.
     pub keys: Vec<String>,
     /// Current hovered control by logical identity; persistent across settle passes.
     #[serde(default)]
     pub hovered: Option<Vec<PathKey>>,
-    /// Full fallback keyboard events, including modifiers. Legacy keys remain accepted.
+    /// Full fallback keyboard events, including modifiers and physical codes.
     #[serde(default)]
     pub key_events: Vec<KeyEvent>,
     #[serde(default)]
@@ -61,7 +63,7 @@ pub struct Request {
     pub scroll_viewports: Vec<(Vec<PathKey>, [f32; 2])>,
     /// The module retains its application instance: skip the per-frame state
     /// serialize/deserialize roundtrip. Full frames (events, activation) still
-    /// exchange state for crash-safe recovery and reload migration.
+    /// exchange state for crash-safe recovery across a split host boundary.
     #[serde(default)]
     pub lean: bool,
     /// Continue this module's UI-thread session; state is only a recovery checkpoint.
@@ -137,46 +139,97 @@ impl<A: App> plico::View for AppView<'_, A> {
 }
 /// Application root with ordinary Rust state and host events.
 /// Its `show` and `theme` methods are the ordinary application UI surface.
-pub trait App: Default {
-    #[doc(hidden)]
-    fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
-        Ok(())
-    }
-    #[doc(hidden)]
-    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
-        Ok(Vec::new())
-    }
+pub trait App {
     fn set_frame_time(&mut self, _time: plico::FrameTime) {}
-    /// Unmodified window-local fallback keys, after controls/IME decline them.
-    fn on_key(&mut self, _key: &str) -> bool {
-        false
-    }
     /// Window-local fallback after focused controls/IME decline a key.
-    /// Override for combinations; the default preserves legacy unmodified keys.
-    fn on_key_event(&mut self, key: &KeyEvent) -> bool {
-        key.phase == KeyPhase::Down
-            && !key.synthetic
-            && key.modifiers.is_empty()
-            && self.on_key(&key.key)
+    fn on_key_event(&mut self, _key: &KeyEvent) -> bool {
+        false
     }
     fn show(&mut self, ui: &mut UiContext<'_>);
     fn theme(&self) -> Theme {
         Theme::default()
     }
 }
+
+/// Private value-protocol hooks layered underneath the public application lifecycle.
+pub(crate) trait ProtocolApp: App {
+    fn set_services(&mut self, _snapshot: serde_json::Value) -> Result<()> {
+        Ok(())
+    }
+    fn take_service_commands(&mut self) -> Result<Vec<serde_json::Value>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Default, Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct PlainModule<A>(A);
+
+impl<A: App> App for PlainModule<A> {
+    fn set_frame_time(&mut self, time: plico::FrameTime) {
+        self.0.set_frame_time(time);
+    }
+    fn on_key_event(&mut self, key: &KeyEvent) -> bool {
+        self.0.on_key_event(key)
+    }
+    fn show(&mut self, ui: &mut UiContext<'_>) {
+        self.0.show(ui);
+    }
+    fn theme(&self) -> Theme {
+        self.0.theme()
+    }
+}
+
+fn logical_key_press(key: &str) -> KeyEvent {
+    let mut logical = key;
+    let mut modifiers = Modifiers::empty();
+    while let Some((prefix, rest)) = logical.split_once('+') {
+        let modifier = match prefix {
+            "Shift" => Modifiers::SHIFT,
+            "Control" | "Ctrl" => Modifiers::CONTROL,
+            "Alt" | "Option" => Modifiers::ALT,
+            "Meta" | "Command" | "Cmd" => Modifiers::META,
+            _ => {
+                modifiers = Modifiers::empty();
+                logical = key;
+                break;
+            }
+        };
+        if rest.is_empty() {
+            modifiers = Modifiers::empty();
+            logical = key;
+            break;
+        }
+        modifiers |= modifier;
+        logical = rest;
+    }
+    KeyEvent::logical(KeyPhase::Down, logical, modifiers)
+}
+
+impl<A: App> ProtocolApp for PlainModule<A> {}
+
 struct Session<A> {
     app: A,
     engine: Engine,
 }
 
-pub fn render<A: App + Serialize + DeserializeOwned + 'static>(request: Request) -> Result<Frame> {
+pub fn render<A: App + Default + Serialize + DeserializeOwned + 'static>(
+    request: Request,
+) -> Result<Frame> {
+    render_protocol::<PlainModule<A>>(request)
+}
+
+pub(crate) fn render_protocol<A: ProtocolApp + Default + Serialize + DeserializeOwned + 'static>(
+    request: Request,
+) -> Result<Frame> {
     snafu::ensure!(
         request.version == PROTOCOL_VERSION,
         ProtocolSnafu {
             actual: request.version
         }
     );
-    // One application session per loaded image/UI thread. No Rust object crosses the ABI.
+    // One application session per module/UI thread. Only serialized values cross
+    // the split-host boundary.
     thread_local! {
         static RETAINED: std::cell::RefCell<Option<Box<dyn std::any::Any>>> =
             std::cell::RefCell::new(None);
@@ -230,7 +283,7 @@ pub fn render<A: App + Serialize + DeserializeOwned + 'static>(request: Request)
             }
         }
         for key in &request.keys {
-            key_handled |= app.on_key(key);
+            key_handled |= app.on_key_event(&logical_key_press(key));
         }
         if let Some([width, height]) = request.viewport {
             engine.set_viewport(width, height).context(FrameSnafu)?;

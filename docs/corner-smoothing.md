@@ -1,19 +1,7 @@
 # Continuous corners
 
-`Style::corner_smoothing` / C# `CornerSmoothing(amount)` opt custom-drawn nodes
-into eased corners. The default is zero, preserving circular rounded rectangles
-and their analytical renderer fast path. Radius retains its existing meaning.
-
-```csharp
-using (ui.Column().Width(300).Height(160).Radius(28)
-    .CornerSmoothing(1).Clip().Background(ui.Theme.Panel)
-    .Border(1, ui.Theme.Border))
-{
-    // Child content follows the same continuous contour.
-}
-```
-
-Rust layout/widget builders expose `.corner_smoothing(1.)`. Values must be finite
+Rust layout/widget builders expose `.corner_smoothing(1.)` to opt custom-drawn
+nodes into eased corners. Values must be finite
 and in `0..=1`. Native platform controls are not automatically restyled.
 
 ## Geometry
@@ -68,21 +56,14 @@ fill and clip alpha within two 8-bit levels. Existing circular quad checks remai
 unchanged. Plico's path rasterizer and MyGO's fragment shader use different
 antialiasing; these checks do not claim pixel-identical renderer output.
 
-Rust Gallery and the managed Gallery both provide **Component kit → Corners**,
-with a smoothing slider and fill, border, and clipped artwork comparisons.
+Rust Gallery provides **Component kit → Corners**, with a smoothing slider and
+fill, border, and clipped artwork comparisons.
 Typed Rust LiquidGlass now passes the same corner_smoothing field to its WGSL
 contour. A GPU regression compares that implicit field against the shared
 renderer geometry, including cramped corners, intermediate amounts and 2× DPI.
 The opaque material fallback follows that contour too.
 
-For Rust, run `cargo run -p gallery -- --scenario apps/gallery/scenarios/component-kit-corners.json --capture reports/corners.png`.
- The lyric panel also explicitly enables it.
-Rebuild the matching native library before using the new C# property:
-
-```sh
-cargo build --locked -p plico-csharp --release
-export PLICO_NATIVE_LIBRARY="$PWD/target/release/libplico_csharp.so"
-dotnet run --project apps/gallery-csharp -- --scene apps/gallery-csharp/scenes/components-corners.json --capture /tmp/plico-corners.png
-```
+Run `cargo run -p gallery -- --scenario apps/gallery/scenarios/component-kit-corners.json --capture reports/corners.png`.
+The lyric panel also explicitly enables it.
 
 Generated screenshots are local artifacts, not committed documentation assets.

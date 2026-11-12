@@ -5,6 +5,9 @@ Services<_, _>)` receive full fallback events, including modifiers, the logical
 key without modifiers, physical code, location and repeat/synthetic flags. The
 same event type is exported by `plico`, `plico-dev` and `plico-renderer`.
 It has no renderer/window dependency in the application protocol.
+Synthetic hosts use `KeyEvent::logical(phase, key, modifiers)` for transitions
+without committed text or a physical code; desktop and browser recipes share
+these defaults.
 
 ```rust
 use plico::{KeyEvent, Shortcut};
@@ -14,8 +17,9 @@ fn on_key_event(&mut self, event: &KeyEvent) -> bool {
     if Shortcut::primary("k").matches(event) {
         self.command_palette_open = true;
         true
-    } else if event.modifiers.is_empty() {
-        self.on_key(&event.key) // Keep existing F5/arrow-key handlers.
+    } else if event.modifiers.is_empty() && event.key == "F5" {
+        self.reload_requested = true;
+        true
     } else {
         false
     }
@@ -29,9 +33,11 @@ exact: additional Alt/Shift/Meta/Control modifiers do not accidentally trigger
 a binding. Automatic repeats are ignored unless `.repeating()` is requested.
 Key-up and synthetic focus-recovery events never trigger `Shortcut`.
 
-The default `on_key_event` forwards only unmodified real key presses to the
-existing `on_key(&str)` method. Existing applications need no changes. If you
-override it, explicitly delegate legacy keys as above if you still use them.
+There is one application keyboard hook. Recipe/protocol shorthand such as
+`keys: ["F5", "Alt+ArrowLeft"]` is normalized into the same `KeyEvent` path
+rather than invoking a second string-only callback. `Shift`, `Ctrl`/`Control`,
+`Alt`/`Option`, and `Meta`/`Cmd`/`Command` prefixes are accepted. This keeps
+native, WASM and scripted input semantics identical.
 
 ## Optional action map and explicit scopes
 
@@ -66,7 +72,8 @@ the field is focused. Plain text is not intercepted. During IME composition or
 while a popup/modal owns input, the application fallback is suppressed.
 These are fallback shortcuts, not a capture-phase override of editor behavior.
 
-`NativeApp`, `impl_host_view_for_app!` and `ServiceView` all forward full events.
+`plico-app-host` 的 `NativeApp`, `impl_host_view_for_app!` and `ServiceView` all
+forward full events; `plico-desktop` re-exports them for ordinary desktop apps.
 Typed service commands from a consumed shortcut follow the same outbox path as
 button clicks. Scenario recipes can send the same structured key events without
 adding a separate dynamic-module protocol.
@@ -78,3 +85,9 @@ coordinates or a window.
 System-wide hotkeys are a separate optional [host service](global-hotkeys.md).
 This window-local API does not update native menu accelerators,
 implement multi-stroke chords, or automatically derive active scopes from widgets.
+
+`Router::handle_key_event` implements the usual history bindings after controls
+decline them: mouse Back/Forward, Command+[ / Command+] on macOS, and Alt+Left /
+Alt+Right elsewhere. Native and browser hosts expose the same DOM-compatible
+physical key codes (`KeyK`, `BracketLeft`, …), so `Shortcut::physical` does not
+depend on a backend's debug formatting.

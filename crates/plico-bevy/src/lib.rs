@@ -30,7 +30,7 @@ pub enum PlicoSystems {
     Input,
 }
 
-/// Errors remain visible in [`PlicoUi::last_error`] and are logged by the plugin.
+/// Errors remain visible through [`PlicoUi::error`] and are logged by the plugin.
 #[derive(Debug, snafu::Snafu)]
 pub enum Error {
     #[snafu(display("Plico GPU rendering failed: {source}"))]
@@ -78,7 +78,7 @@ impl<V: plico::View + 'static> PlicoUi<V> {
         }
     }
     pub fn view(&self) -> &V {
-        &self.source.view.0
+        &self.source.view().0
     }
     pub fn update<R>(&mut self, update: impl FnOnce(&mut V) -> R) -> R {
         self.source.update(|view| update(&mut view.0))
@@ -86,12 +86,15 @@ impl<V: plico::View + 'static> PlicoUi<V> {
     pub fn request_rebuild(&mut self) {
         self.source.request_rebuild();
     }
-    pub fn last_error(&self) -> Option<&Error> {
+    pub fn error(&self) -> Option<&Error> {
         self.error.as_ref()
     }
     /// Native protocol injection, also useful for deterministic application tests.
     pub fn send_event(&mut self, event: plico_renderer::UiEvent) -> plico_renderer::EventResponse {
-        self.source.prepare_for_event(&mut self.text);
+        if let Err(source) = self.source.try_prepare_for_event(&mut self.text) {
+            self.error = Some(Error::Declaration { source });
+            return plico_renderer::EventResponse::default();
+        }
         self.source.handle_event(event)
     }
     /// Inspect retained layout and batching counters without a GPU readback.
@@ -242,18 +245,17 @@ fn prepare<V: plico::View + 'static>(
         let resized = size != ui.size;
         ui.source.poll_async();
         let previous = ui.scene.clone();
-        ui.source.render_retained_frame(
-            &mut ui.scene,
-            &mut ui.text,
-            (
-                window.width().round() as u32,
-                window.height().round() as u32,
-            ),
-            scale,
-        );
-        if let Some(source) = ui.source.last_error.take() {
-            return Err(Error::Declaration { source });
-        }
+        ui.source
+            .try_render_retained_frame(
+                &mut ui.scene,
+                &mut ui.text,
+                (
+                    window.width().round() as u32,
+                    window.height().round() as u32,
+                ),
+                scale,
+            )
+            .map_err(|source| Error::Declaration { source })?;
         if resized
             || output.0.as_ref().is_none_or(|frame| frame.window != entity)
             || !ui.scene.shares_commands_with(&previous)

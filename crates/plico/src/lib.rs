@@ -55,11 +55,11 @@ pub use clock::{Clock, ClockError, FrameTime, SystemClock, VirtualClock};
 pub use engine::Engine;
 pub use model::{
     Align, BoxShadow, Changes, Color, Easing, FocusAxis, FontFamily, FrameDelta, FrameError,
-    FrameStats, ImplicitKey, Justify, Key, Kind, KindFamily, Motion, NodeChange, NodeRef,
-    Presentation, Size, SliderSpec, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths,
+    FrameStats, ImplicitKey, Justify, Key, Kind, Motion, NodeChange, NodeRef, Presentation, Size,
+    SliderSpec, SliderThumb, Style, StyleDiff, StyleProperties, TextSpan, UnmatchedPaths,
     WidgetRole,
 };
-pub use plico_macros::{InvalidateChannels, KindClass, Route, component, text};
+pub use plico_macros::{Route, component, text};
 pub use router::{DEFAULT_HISTORY_LIMIT, Route, Router, RouterTransition, RouterView};
 pub use snapshot::{PathKey, ViewNode};
 pub use theme::{Metrics, Theme};
@@ -78,8 +78,6 @@ where
         self(ui)
     }
 }
-#[doc(hidden)]
-pub use View as DeclareView;
 pub use engine::View;
 pub use ui::{
     Button, ButtonBase, Image, InnerResponse, Input, InputResponse, Layout, Response, Shader,
@@ -108,8 +106,8 @@ pub mod macro_support {
         (hash ^ site as u64).wrapping_mul(0x100000001b3)
     }
     /// FNV-1a hasher for runtime scope identity. Unlike `DefaultHasher`, its
-    /// output is stable across compiler versions; reload identity matching
-    /// depends on this, so it shares the algorithm with `site_id`.
+    /// output is stable across compiler versions, so declaration paths and
+    /// persisted snapshots share identities with `site_id`.
     pub struct StableHasher(u64);
     impl Default for StableHasher {
         fn default() -> Self {

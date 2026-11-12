@@ -10,6 +10,12 @@ use snafu::Snafu;
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
+    /// Application source rejected frame construction.
+    #[snafu(display("{source}"))]
+    Frame {
+        /// Source-provided frame diagnostic.
+        source: plico_renderer::FrameSourceError,
+    },
     /// A requested renderer is unavailable in this build or configuration.
     #[snafu(display("renderer initialization failed: {message}"))]
     Renderer {

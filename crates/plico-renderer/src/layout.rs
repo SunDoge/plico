@@ -42,6 +42,13 @@ pub struct PlacedNode {
     pub parent_node_id: Option<taffy::NodeId>,
     /// Zero-based depth in the retained tree.
     pub depth: usize,
+    /// Composed presentation transform in logical window coordinates.
+    ///
+    /// The runtime refreshes this after layout or transform motion so hit
+    /// testing and scene encoding can share one authoritative result.
+    pub world_transform: kurbo::Affine,
+    /// Opacity composed through the placed ancestor chain.
+    pub world_opacity: f32,
     /// Absolute border-box: (x0, y0, x1, y1).
     pub rect: [f32; 4],
     /// Absolute content-box top-left: (x, y). Text runs are anchored here.
@@ -414,6 +421,33 @@ pub fn flatten_with_scroll_into(
         &mut output,
     );
     output.nodes.truncate(output.used);
+    refresh_presentations(output.nodes);
+}
+
+/// Refresh composed transforms and opacity for a preorder placed-node list.
+///
+/// This is the shared presentation pass used after layout, scroll projection,
+/// sticky positioning, or paint-only transform motion. Keeping the result on
+/// each placed node avoids a parallel identity map in hosts and lets painting
+/// consume the exact geometry used by hit testing.
+pub fn refresh_presentations(nodes: &mut [PlacedNode]) {
+    let mut ancestors = Vec::new();
+    for node in nodes {
+        while ancestors
+            .last()
+            .is_some_and(|(depth, _, _)| *depth >= node.depth)
+        {
+            ancestors.pop();
+        }
+        let (parent, opacity) = ancestors
+            .last()
+            .map_or((kurbo::Affine::IDENTITY, 1.0), |(_, world, opacity)| {
+                (*world, *opacity)
+            });
+        node.world_transform = crate::scene::resolve_node_transform(node, parent);
+        node.world_opacity = opacity * node.paint.opacity;
+        ancestors.push((node.depth, node.world_transform, node.world_opacity));
+    }
 }
 
 /// Re-encode one previously placed subtree after a structure-stable layout.
@@ -609,6 +643,8 @@ fn walk(
                 node_id: node,
                 parent_node_id,
                 depth,
+                world_transform: kurbo::Affine::IDENTITY,
+                world_opacity: 1.0,
                 rect,
                 content_origin: [cx, cy],
                 content_size: [content_width, content_height],
@@ -647,6 +683,8 @@ fn walk(
             node_id: slot_node_id,
             parent_node_id: slot_parent_node_id,
             depth: slot_depth,
+            world_transform: slot_world_transform,
+            world_opacity: slot_world_opacity,
             rect: slot_rect,
             content_origin: slot_content_origin,
             content_size: slot_content_size,
@@ -664,6 +702,8 @@ fn walk(
         *slot_node_id = node;
         *slot_parent_node_id = parent_node_id;
         *slot_depth = depth;
+        *slot_world_transform = kurbo::Affine::IDENTITY;
+        *slot_world_opacity = 1.0;
         *slot_rect = rect;
         *slot_content_origin = [cx, cy];
         *slot_content_size = [content_width, content_height];

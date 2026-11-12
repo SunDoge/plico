@@ -87,6 +87,42 @@ Plico 的布局、smooth scroll、滚动钳位、焦点滚动和 popover 重定�
 的范围，还包含滚动/控件几何等后处理，并非纯 Taffy compute。分配计数目前仍为全帧
 统计，没有把每阶段的分配请求单独归因。实际 GPU 时间不在测量范围内。
 
+布局完成后的 retained layout cache 也不再先复制全部 NodeId，或在递归访问每个节点时
+复制一次 children Vec。全量路径直接遍历 retained storage；局部子树路径使用一个跨帧
+复用的迭代栈。这同时去掉深树递归深度风险，并避免结构 patch 为遍历本身制造按节点的
+小分配。回归清空一棵实际 Taffy 树的 layout snapshot 后重复缓存两次，验证所有节点恢复
+且栈的 backing allocation 保持不变。
+
+## 资源缓存的线性存活扫描
+
+MyGO 的 SVG picture cache 给每个条目记录最后使用帧，并在若干帧未使用后淘汰；它不会
+让每个 cache entry 重新搜索整棵 element tree。Plico 原先在结构或主题变化后，对每个
+image source 和每个 SVG 颜色变体调用一次 `nodes.values().any(...)`，因此维护成本是
+O(资源条目数 × retained 节点数)，而且刚卸载的资源立即变冷。
+
+现在一次遍历 retained nodes，直接命中 image/SVG cache 并刷新条目的使用 generation，
+随后线性遍历 cache 淘汰过期条目，不再构造额外 live-key 集合。不再存活的资源仍保留
+30 次维护，方便临时页面或主题切换快速返回。有效、无效 SVG 与 checkbox 的主题颜色使用
+同一规则。维护只在结构、主题或新解析发生时运行，不给普通 paint-only 帧增加全树扫描。
+`BackendStats` 分别报告此次访问的节点数与淘汰条目数。
+
+release 同进程交替探针使用 4001 个 retained 节点和 256 个不存活资源。旧的嵌套查询为
+883.78 µs/pass，线性 generation 路径为 4.62 µs/pass。它是刻意放大的 cache-maintenance
+微基准，不代表普通应用整帧能减少相同比例；回归还验证 live variant 不会因年龄被删，
+刚卸载资源保持 warm，超过 grace 后才释放。复现：
+
+```sh
+cargo test --release -p plico-runtime profile_linear_asset_cache_liveness -- --ignored --nocapture
+```
+
+wgpu 的不可变图片纹理采用相同原则，但同时服从原有 128 MiB / 256 entries LRU
+硬上限。图片短暂不在当前 Scene 时不再立即销毁纹理；仍有 CPU owner 的条目保温
+240 个实际编码帧，随后释放。缓存只保存像素 Blob 的 weak handle，不能为了 GPU
+保温而延长整份 CPU RGBA 的生命周期；CPU owner 已消失的条目在下一次维护立即释放。
+因此页面切换返回可避免重复 `write_texture`，而连续访问不同图片仍受字节和数量预算约束。
+GPU 回归覆盖一帧离场后零重复上传、超过 grace 后重传，以及 300 source 压力下的
+LRU/binding 记账；它们需要真实 wgpu adapter，默认 ignored。
+
 ## 静态图片声明的重复编码
 
 `ImageAsset` 保留懒初始化的十六进制编码，复用资源时不再每帧遍历 PNG/JPEG 字节重新编码。
@@ -853,15 +889,25 @@ XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland �
 
 ## WGPU 单次提交与 adapter 选择
 
-隔离子层、backdrop 分段、自定义 effect 和最终呈现仍分别录制保持 painter order 的
-command buffer，但不再在各段之间调用 `queue.submit`。每个子层使用独立且跨帧复用的
-uniform/instance buffer，因此父层也无需在子层返回后重新上传。正常帧把全部 command
-buffers 作为一个有序批次提交；`PLICO_SPLIT_SUBMITS=1` 仅用于与原多次提交路径做 A/B。
+隔离子层、自定义 effect、backdrop 分段和最终呈现现在按 painter order 直接录入同一个
+根 `CommandEncoder`。每个子层仍使用独立且跨帧复用的 uniform/instance buffer，因此
+递归编码不会让后续 `write_buffer` 改写父层已经引用的数据。只有遍历场景时新发现的图片
+mip 链保留一个必须先执行的前缀 command buffer：普通帧一个 command buffer，冷图片帧
+最多两个，仍由一次 `queue.submit` 提交。`FrameBudget::command_buffers` 明确报告这个数。
+`PLICO_SPLIT_SUBMITS=1` 仅用于把这些 buffer 分开提交的诊断 A/B。
 
 本机 `effects-glass-hover` 场景中，实际提交次数从 6 降到 1。Intel iGPU 离屏 capture
 的 `submit_ms` 噪声较大，三组交错样本的中位数约为 1.71ms（合并）与 1.75ms（拆分），
 不能据此声称显著时延收益；这次优化确定消除的是 CPU/driver 提交边界和父层重复上传。
 嵌套隔离层、backdrop 与最终像素由真实 adapter 回归测试覆盖。
+
+随后以 `0e94e77` 的“每个子层/effect 独立 command buffer”实现为基线，对 release
+`effects.json` 交替运行 12 对、每次 capture 10 帧。场景的 command buffer 数从 4 降为
+1；输出 PNG 的 SHA-256 完全相同。两位小数计时的中位数为：`prepare_ms` 0.34→0.25ms，
+`encode_ms` 0.12→0.11ms，`submit_ms` 1.485→1.53ms。只把 prepare 的下降视为本机方向性
+证据，不宣称跨机器比例；submit 没有改善。新版本的 GPU timestamp 首次真正包住子层与
+effect，旧版本只包住根 command buffer，因此旧/新 `gpu_ms` 的采样范围不同，不能据此
+判断 GPU 回归或收益。
 
 ### GPU adapter selection
 

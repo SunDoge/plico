@@ -19,7 +19,7 @@
 //! ```
 use serde::{Deserialize, Serialize};
 
-use crate::{Display, Entity, Position, UiContext, widgets::column};
+use crate::{Display, Entity, KeyEvent, Modifiers, Position, Shortcut, UiContext, widgets::column};
 
 const KEPT_PAGE_COUNT: usize = 10;
 const PAGE_SLOTS: usize = KEPT_PAGE_COUNT + 1;
@@ -290,6 +290,37 @@ impl<Route: Copy + Eq> Router<Route> {
     /// Whether `forward` would move.
     pub fn can_forward(&self) -> bool {
         self.cursor + 1 < self.history.len()
+    }
+    /// Apply a platform history-navigation key.
+    ///
+    /// This follows MyGO/browser conventions: mouse side buttons arrive as
+    /// `BrowserBack` / `BrowserForward`; macOS uses Command+[ / Command+], and
+    /// other desktop platforms use Alt+Left / Alt+Right. Applications call
+    /// this from their window-local `App::on_key_event` fallback so focused
+    /// editors and IME composition keep priority.
+    pub fn handle_key_event(&mut self, event: &KeyEvent) -> bool {
+        let (back, forward) = if cfg!(target_os = "macos") {
+            (
+                Shortcut::physical("BracketLeft", Modifiers::META),
+                Shortcut::physical("BracketRight", Modifiers::META),
+            )
+        } else {
+            (
+                Shortcut::new("ArrowLeft", Modifiers::ALT),
+                Shortcut::new("ArrowRight", Modifiers::ALT),
+            )
+        };
+        if Shortcut::new("BrowserBack", Modifiers::empty()).matches(event) || back.matches(event) {
+            self.back();
+            true
+        } else if Shortcut::new("BrowserForward", Modifiers::empty()).matches(event)
+            || forward.matches(event)
+        {
+            self.forward();
+            true
+        } else {
+            false
+        }
     }
     /// History length after truncation, for diagnostics and tests.
     pub fn depth(&self) -> usize {
@@ -634,6 +665,21 @@ mod tests {
         List,
         Detail,
     }
+
+    fn key(name: &str, code: &str, modifiers: Modifiers) -> KeyEvent {
+        KeyEvent {
+            phase: crate::KeyPhase::Down,
+            key: name.into(),
+            key_without_modifiers: name.into(),
+            code: code.into(),
+            text: None,
+            text_with_all_modifiers: None,
+            location: crate::KeyLocation::Standard,
+            modifiers,
+            repeat: false,
+            synthetic: false,
+        }
+    }
     #[test]
     fn navigation_pushes_history_and_back_forward_moves_through_it() {
         let mut router = Router::new(Page::Home);
@@ -650,6 +696,32 @@ mod tests {
         assert_eq!(router.forward(), Page::Detail);
         assert!(!router.can_forward());
         assert_eq!(router.forward(), Page::Detail);
+    }
+    #[test]
+    fn history_keys_follow_browser_and_platform_conventions() {
+        let mut router = Router::new(Page::Home);
+        router.go(Page::List);
+        assert!(router.handle_key_event(&key("BrowserBack", "BrowserBack", Modifiers::empty(),)));
+        assert!(router.show(Page::Home));
+        assert!(router.handle_key_event(&key(
+            "BrowserForward",
+            "BrowserForward",
+            Modifiers::empty(),
+        )));
+        assert!(router.show(Page::List));
+
+        let (name, code, modifiers) = if cfg!(target_os = "macos") {
+            ("[", "BracketLeft", Modifiers::META)
+        } else {
+            ("ArrowLeft", "ArrowLeft", Modifiers::ALT)
+        };
+        assert!(router.handle_key_event(&key(name, code, modifiers)));
+        assert!(router.show(Page::Home));
+
+        let mut repeated = key("BrowserForward", "BrowserForward", Modifiers::empty());
+        repeated.repeat = true;
+        assert!(!router.handle_key_event(&repeated));
+        assert!(router.show(Page::Home));
     }
     #[test]
     fn repeat_navigation_is_a_no_op_and_replace_skips_history() {

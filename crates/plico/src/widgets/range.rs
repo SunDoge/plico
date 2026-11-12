@@ -2,14 +2,11 @@
 use crate::prelude::*;
 
 /// A range slider (MyGO `RangeSlider`): a low and a high thumb on one track,
-/// with the active filled between them. Tabbing to it focuses the control;
-/// the arrows, Home and End move the thumb last touched, and a press picks the
-/// nearer thumb. The thumbs cannot cross. Returns whether either value changed.
-///
-/// MyGO gives each knob its own focus stop and exposes two named sliders to
-/// assistive technology. Plico's slider core currently has one focusable
-/// entity per slider, so the pair shares one focus and one semantic value
-/// (the low bound); the high bound is drawn but not yet separately exposed.
+/// with the active filled between them. Each thumb is a separate Tab stop;
+/// arrows, Home and End move the focused thumb, and a press picks and focuses
+/// the nearer thumb. The thumbs cannot cross. Assistive technology sees a
+/// named group with "minimum" and "maximum" sliders. Returns whether either
+/// value changed.
 ///
 /// ```text
 /// if range_slider(cx, "Price", &mut low, &mut high, 0.0..=1000.0) {

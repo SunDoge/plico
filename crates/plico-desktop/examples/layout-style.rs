@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
     source.build_frame_at(&mut tcx, 920, 780, now);
     let target = source
-        .adapter
-        .semantics(&source.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Animate layout", None)
         .unwrap()
         .id;
@@ -40,7 +39,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             source.base_color(),
             &format!("{directory}/{ms}.png"),
         )?;
-        report.push(serde_json::json!({"time_ms":ms,"build_us":build_us,"scene_us":scene_us,"has_animation":source.has_anim(),"layout_style_writes":source.adapter.stats.style_writes,"paint_writes":source.adapter.stats.paint_writes}));
+        let backend = source.frame_diagnostics().backend;
+        report.push(serde_json::json!({"time_ms":ms,"build_us":build_us,"scene_us":scene_us,"has_animation":source.has_anim(),"layout_style_writes":backend.style_writes,"paint_writes":backend.paint_writes}));
     }
     assert!(!source.has_anim());
     std::fs::write(
@@ -58,15 +58,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             calls: 0,
         });
         source.build_frame_at(&mut tcx, 920, 30000, now);
-        source.view.expanded = true;
-        source.request_rebuild();
+        source.update(|view| view.expanded = true);
         source.build_frame_at(&mut tcx, 920, 30000, now);
-        let calls = source.view.calls;
+        let calls = source.view().calls;
         for ms in [100, 200] {
             let start = Instant::now();
             source.build_frame_at(&mut tcx, 920, 30000, now + Duration::from_millis(ms));
-            assert_eq!(source.view.calls, calls);
-            batches.push(serde_json::json!({"nodes":count,"time_ms":ms,"build_us":start.elapsed().as_micros(),"app_calls":source.view.calls,"has_animation":source.has_anim()}));
+            assert_eq!(source.view().calls, calls);
+            batches.push(serde_json::json!({"nodes":count,"time_ms":ms,"build_us":start.elapsed().as_micros(),"app_calls":source.view().calls,"has_animation":source.has_anim()}));
         }
         assert!(!source.has_anim());
     }

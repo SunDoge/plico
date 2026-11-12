@@ -35,9 +35,9 @@ ordinary functions combining existing nodes and builders.
 Layout/children, visual content and semantic roles are not input flags. They remain
 in their existing typed representations. A composite ButtonBase can contain text
 and SVG children, expose a button/menu-item role, and activate independently of its
-layout. `Kind::interactive()` remains a compatibility predicate for primary pointer
-and control interaction; focus/navigation/activation callers should use the specific
-capability they need. Selection alone does not make it return true.
+layout. `Kind::interactive()` is the broad primary-pointer/control predicate;
+focus/navigation/activation callers use the specific capability they need.
+Selection alone does not make it return true.
 
 ## Backend behavior
 
@@ -47,10 +47,10 @@ a focusable, non-activatable editor or slider becomes a focus request, not a que
 application click. Existing native editing, numeric adjustment, selection and modal
 protocols remain responsible for their own behavior.
 
-`KindFamily` and `Kind::family()` remain only for source compatibility. No backend
-uses them to select widgets, Flex layout, or fallbacks. They mixed layout, content
-and interaction, and cannot define a reliable universal fallback. Serialized Kind
-values and frame/node formats are unchanged.
+The former coarse `KindFamily` projection was removed. No backend used it to
+select widgets, Flex layout or fallbacks; it mixed layout, content and interaction
+and could not define a reliable universal fallback. Serialized Kind values and
+frame/node formats are unchanged.
 
 The LVGL adapter now has an explicit backend-local object-class mapping. Its Flex
 container decision comes from this native representation, not a core input family.

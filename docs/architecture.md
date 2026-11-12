@@ -3,6 +3,106 @@
 
 当前 crate 划分与旧协议清理见 [后端清理](backend-cleanup.md)；下文部分迁移记录保留历史上下文。
 
+`plico-renderer` 定义布局、文字、paint scene 与经过验证的 shader effect 描述，不能依赖
+具体 GPU API。wgpu 的纹理、bind group、pipeline cache 和 render pass 执行归
+`plico-wgpu` 所有；Skia 与其他后端只消费同一份 effect 描述。CI 通过
+`scripts/check-renderer-boundary.py` 守卫这条依赖方向。
+
+与 MyGO 的公开 `mygo`/`ui` 和私有 `internal/scene`/`internal/surface` 分界一致，
+`plico-shell` 只提供窗口循环、宿主扩展及桌面系统服务，不再二次公开整套
+`plico-renderer` API。应用从 `plico`/`plico-runtime`/`plico-desktop` 使用声明与窗口
+接口；渲染探针和后端实现直接依赖 `plico-renderer`，依赖所有权因此保持显式。
+
+测试遵循 MyGO `ui.Tester` 的封装方式：`plico_runtime::testing::Driver` 不公开内部
+`Source`/Engine/Adapter，只提供 view 断言、受控状态更新、语义快照、声明快照、retained
+layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
+
+测试、capture、recipe、Web 与 Bevy 等需要处理失败的调用方使用
+`try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和
+`try_build_and_paint`，声明或时钟错误沿当前调用直接返回。动态窗口宿主的
+`FrameSource::prepare_for_event`、`render_retained_frame` 与 `build_and_paint` 同样返回
+`FrameSourceError`；shell 统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装
+成成功事务。后续按同一方向
+先补齐查询和受控更新接口，再逐步收回仍公开的 Engine、Adapter 与 view 字段，避免一次机械
+迁移所有旧测试。
+
+和 MyGO 将 runtime、scene 与帧统计留在内部一致，普通宿主通过 `Source::view`、`update`、
+`placed_nodes`、`semantics`、`selected_text`、`focused`、`theme` 和只读 hit-test 诊断读取或更新稳定能力，不拼接
+Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics` 快照；声明计数、耗时与
+后端统计不再是可由调用方改写的 `Source` 状态。CI 的
+`scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
+穿透这条边界。历史集成测试分批
+迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
+`services-demo` 测试也由边界脚本守卫。
+Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。
+`plico-wgpu` 后端测试也只读取 retained nodes、语义、shader diagnostics 与帧诊断，不再将
+runtime 的 Engine/Adapter 当作渲染器测试接口。
+Runtime 外部测试按功能分批迁移；焦点、字体、语义指示器、retained frame、滚动布局动效、
+测试协议、toast、用户活动与虚拟表格宽度测试已进入同一边界守卫。
+Alert dialog、deadline、系统显示偏好与 secondary-click 生命周期测试也已迁移；shader 存在性
+直接从生成的 Scene 断言，不再读取 Engine 声明树。
+Component kit、hover 与 range-slider 测试也已进入守卫。Collapsible 的挂载、裁剪和退场从
+retained layout 与语义快照验证；hit-test 工作量通过类型化只读快照暴露，不泄漏 Adapter 元组。
+固定／可变虚拟列表的稀疏挂载、锚点、sticky header 与 follow-end 测试也只读取 view 和
+retained placed nodes，并通过 `Source::update` 驱动业务状态。最后一组 `adapter_work` 缓存与
+增量测试也已改读统一的 `FrameDiagnostics.backend`、retained nodes、语义和 shader 诊断；
+runtime 的全部外部集成测试已进入同一边界守卫。
+Desktop 测试开始按同一原则迁移：absolute/backdrop/font/rich-text/retained-frame、组合按钮、
+route menu、材质与滚动裁剪首批只使用 `Source` 查询、更新和统一诊断快照。直接验证 renderer-free
+`Engine::frame` 的核心布局测试仍可独立使用 Engine，不经过 Source，也不属于边界穿透。
+第二批覆盖 atomic compact metrics、feedback motion、玻璃像素/交互、native surface、scene layer、
+密码输入与保存按钮稳定性。密码声明快照的核心保密断言保留在 `plico` Engine 测试；desktop
+只验证宿主可观察的 IME、剪贴板与 retained paint，避免重复暴露声明树。
+第三批覆盖 grid/flex 布局、平滑滚动、样式几何和图标缓存。SVG 与 WGSL 资源错误都通过只读
+diagnostics 查询，业务状态统一经 `Source::update` 修改；独立验证序列化声明的测试直接使用
+renderer-free `Engine`，不再借 `Source` 穿透运行时实现。
+随后将时钟、对齐、基础滚动、结构增量同步和 SVG 资源生命周期也迁入守卫。宿主级 flex 测试
+通过 retained paint 标记定位实际布局节点，不要求公开 key→Entity→Taffy 的内部映射；专门验证
+Engine/Adapter 契约的后端测试仍可直接组合二者，与应用侧 `Source` 边界分开。
+Capability、组合按钮、calendar、toggle 与 shader transition 测试同样只依赖语义快照、retained
+paint、帧诊断和业务 view。语义焦点使用快照自己的稳定 ID，不将内部 `Entity` 映射泄漏给
+应用测试；shader 动画采样也不再直接读取 Adapter registry。
+批处理、布局复用、虚拟列表和 GPU shader 测试也已进入边界守卫。批处理仍通过 `BatchStats`
+验证通知合并和声明提交次数，虚拟列表通过 retained node identity 验证复用；shader 声明的 JSON
+往返由独立 Engine 测试承担，窗口路径只验证实际像素、资源诊断和增量帧工作量。
+按钮状态、slider、style motion 与跨段文字选择也只从业务 view、语义、retained paint 和诊断
+观察行为。Sidebar 的焦点选中测试以语义 bounds 关联最终 paint，不再读取 Engine 声明节点；
+文本选择统一通过 `selected_text` 查询，保留复制、反向拖选、重声明和卸载覆盖。
+Popover、search input 与 tooltip 的 overlay、焦点、IME 和退出动效测试也已迁移。禁用 popup
+通过最终语义树不出现 dialog 验证，而不是读取内部 anchor 声明；tooltip 继续覆盖真实 GPU 像素、
+延迟唤醒、modal 内 Escape 优先级和 retained scene 清理。
+Retained sampling 与 presentation motion 测试现只依赖 `FrameDiagnostics`、语义、visual bounds 和
+retained nodes。语义-only 更新通过最终语义变化且 paint/layout/flatten 工作量为零证明，不再公开
+Engine change bit；idle reuse、手动 declare、失败重试和局部 presentation traversal 覆盖保持不变。
+Scroll presentation 的平滑/直接滚动、虚拟行挂载、viewport observation、事件前采样与 scene reuse
+测试也已迁移。时钟采样通过 event preparation 后的实际 presented offset 证明，不再读取
+`Engine::time` 内部状态；scroll observation 的核心声明契约仍由独立 Engine 测试覆盖。
+Select/menu 与 tree keyboard 测试也已迁移到语义快照。稳定 option ID、reorder 后焦点、长列表
+滚动，以及 tree/accordion/sidebar/radio/rating/stepper 的方向键与 tab-stop 行为都不再依赖
+Engine/Adapter 字段；高亮画质仍从 retained paint 验证。
+Incremental 测试也已切到统一帧诊断：1000 节点稀疏 paint/layout patch、声明失败恢复、manual
+declare、共享 scene cache 不可变性和零 placed-node clone 的统计断言均保留，不再读取 Adapter 字段。
+Modal 综合测试也已迁移：portal clip escape、modal root、焦点陷阱、嵌套关闭、IME、backdrop、
+小窗口滚动、退出冻结和 reduced motion 均从语义与 retained presentation 验证。Overlay 与 dialog
+panel 的单一 entrance progress 通过 retained 层级和最终几何关联，不公开 Engine/backend ID 映射。
+最后的 Gallery 综合测试也已进入守卫：真实指针/键盘、主题、路由、工作区持久化、全页面布局、
+spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar.numeric_value` 验证，不要求视觉
+百分比文本重复进入可访问性树。至此 desktop 外部测试不再穿透 Source 字段。
+`Source` 的 Engine、Adapter 与 view 字段现为 `pub(crate)`：runtime 内部 surface/testing 可协作，
+外部 crate 无法访问。边界脚本同时守卫字段可见性、跨行链式穿透，并覆盖 desktop/runtime/Skia/
+wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级检查。
+投影器 `Adapter` 本身也只在 runtime crate 内可见；应用与 desktop 后端通过 `Source` 工作，诊断只
+暴露不可变的 `BackendStats`。需要直接验证投影器代际身份的测试与实现放在同一内部模块。
+`plico-desktop` 不再通配重导出 runtime；它显式列出启动、测试和高级宿主所需 facade，避免 runtime
+新增实现类型时静默扩大桌面公共 API。诊断类型从 runtime 根完整导出，公开字段没有不可命名类型。
+依赖边也按这一分层收紧：应用不再直接依赖只经 desktop 使用的 runtime，runtime 不保留未使用的
+`slotmap`，renderer 不保留空的 WASM 依赖。目标平台过程宏隐式使用的 `windows-core` 与
+`wasm-bindgen-futures` 明确登记为 machete 例外；交叉 target 编译守卫它们不能误删。
+依赖检查同时禁止 core、motion、dev、renderer、runtime、app-host、具体 renderer 与 shell 向上层
+反向依赖；dev-dependencies 可用于下层契约集成测试，不改变生产构建图。
+交互返回值沿用 MyGO Element 的查询语义：`clicked()`、`changed()`、`submitted()`、`focused()` 等
+读取不可变帧快照，事件 flags 不作为可构造的 public fields；`inner` 等结构型 payload 仍可直接取得。
+
 ## 当前实现
 
 ```text
@@ -25,14 +125,23 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 - `plico::View` 是面向应用的最小 UI 接口，只包含 `show` 和 `theme`，可直接驱动
   renderer-free Engine、NSH/LVGL 投影等后端；普通控件和组件继续使用 Rust 函数。
 - `plico_dev::App` 是面向应用的完整根接口，在同样的 `show`/`theme` 之上增加
-  Serde checkpoint、services、快捷键和 FrameTime；静态桌面入口与开发热重载复用它。
+  快捷键和 FrameTime；类型化宿主服务使用独立的 `ServiceApp`。普通 Rust App 由调用者构造，
+  不要求 `Default` 或 Serde；
+  只有需要从值快照创建/恢复实例的 `plico_dev::render` split-host 协议额外要求
+  `Default + Serialize + DeserializeOwned`。JSON service snapshot/command 转换由协议内部的
+  `ProtocolApp` 适配承担，不作为 `App` 的隐藏可覆写方法；类型化服务走 `ServiceApp`。
+  静态 `ServiceApp` / `HostService` 的关联类型可以是任意本地 Rust 类型，只有
+  `services::render` 的 split-host 调用点要求 snapshot 可反序列化、command 可序列化。
 - `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
   能力。`Source<V>` 与
   `plico_desktop::run_host_view_with_options` 接收这一接口。
 
 普通 `View` 由 `NativeView<V>` 适配到 `HostView`；
 `plico_desktop::run_view_with_options` 自动完成该包装，不要求序列化应用状态。
-`NativeApp<A>` 则保留 App 的开发能力并接入原生宿主。
+`plico-app-host` 中的 `NativeApp<A>` / `ServiceView<A, S>` 把 App 与 services
+协议接入 `HostView`；二者都接收已经构造的实例，不继承 split-host 的恢复约束。桌面 crate
+重新导出它们。这样 `plico-runtime` 本身不依赖
+`plico-dev`，HostView/Source 层只面向 core 与 renderer。
 
 core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
 

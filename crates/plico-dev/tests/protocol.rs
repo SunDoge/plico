@@ -443,10 +443,10 @@ struct Editor {
 impl App for Editor {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         let response = ui.text_input("Edit", &self.buffer).response();
-        if response.changed {
+        if response.changed() {
             self.echoed = self.buffer.text().unwrap_or_default();
         }
-        if response.submitted {
+        if response.submitted() {
             self.submitted = true;
         }
     }
@@ -492,7 +492,7 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
     }
     impl App for Counting {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            if ui.text_input("Edit", &self.buffer).response().submitted {
+            if ui.text_input("Edit", &self.buffer).response().submitted() {
                 self.submits += 1;
             }
         }
@@ -578,7 +578,7 @@ impl App for Form {
             .placeholder("Type here")
             .key("field")
             .response()
-            .submitted
+            .submitted()
         {
             self.submits += 1;
         }

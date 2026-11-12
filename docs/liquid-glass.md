@@ -70,79 +70,11 @@ the renderer only samples already-painted content in the pane's local region.
 It cannot sample another window or the desktop. Transformed/masked/partially
 offscreen panes need additional coverage.
 
-## Existing managed / low-level effect contract
-
-The older C# composition API and `plico_renderer::shader::LIQUID_GLASS_WGSL`
-remain available with their existing raw-uniform contract. Its refraction
-parameter is in logical pixels; it is not interchangeable with the typed Rust
-material's displacement multiplier. Rust apps should use `Layout::material`.
-
-
-```csharp
-using (ui.LiquidGlass(new LiquidGlassOptions {
-    Frost = .8f, Tint = .45f, Radius = 20,
-    Refraction = 2, Animated = false,
-}).Width(300).Padding(24).Gap(12)) {
-    ui.Text("Sharp content over a refracted scene");
-    ui.Button("Continue").Primary();
-}
-```
-
-`horizontal: true` creates a row. `Enabled = false` produces an opaque surface
-without a shader; `ReduceMotion = true` suppresses moving reflections. Animation
-is off by default and uses the native clock without rebuilding the C# component.
-The effect samples only content already painted behind the pane. Paint a background
-first; it cannot read the desktop, another window or content painted afterwards.
-
-Parameters are validated before declaring the pane. Frost/Tint/Highlight are 0–1,
-Refraction is 0–64 logical pixels, Bezel is 0–128 logical pixels, Saturation is 0–2 and Radius is 0–256 logical
-pixels. TintColor is RGB. Children remain normal sharp, interactive widgets.
-
-This legacy contract uses `crates/plico-renderer/assets/liquid_glass.wgsl`.
-It is embedded in SunDoge.Plico and exposed to Rust as
-`plico_renderer::shader::LIQUID_GLASS_WGSL`. Advanced callers may use
-`LiquidGlassEffect.Program` and `LiquidGlassEffect.Configure` on a shader surface.
-For Rust/custom effect clients, enable backdrop input and provide these vec4 slots:
-
-| Slot | x | y | z | w |
-| --- | --- | --- | --- | --- |
-| 0 | radius | frost | tint amount | reflection motion multiplier (0/1) |
-| 1 | refraction | saturation | highlight strength | bezel width |
-| 2 | tint red | tint green | tint blue | reserved (0) |
-
-This is a wgpu scene effect, not an OS compositor API or a SkSL implementation.
-wgpu tracks each reader's bounded input and clipped output: unrelated changes
-skip it, while intersecting changes restore its whole input before replay. This
-avoids sampling the previous composited pane or foreground. Unknown consumers
-retain full damage. Rounded masks, cropped opacity layers, offscreen panes and
-1/1.5/2x are covered by GPU differential tests. Prefer a few chrome panes to
-hundreds of independently sampled list cells; dependencies can still expand to
-full replay, especially for overlapping or window-wide inputs. See the
-[backdrop architecture experiment](experiments/wgpu-backdrop-architecture.md).
-
-The C# gallery's shader page demonstrates controls and an interactive pane. Pure
-managed checks cover composition/fallback/validation without loading Rust; native
-application checks cover shader validation and native-only animated frames.
-
 The quartic/Snell lens and smoothed normals follow MyGO (MIT attribution is in
 `crates/plico-renderer/third_party`). Rust now supplies Regular/Clear light/dark presets and a prefiltered blur pyramid.
-The legacy managed shader stays separate; no native NSGlassEffectView bridge is provided.
+No native NSGlassEffectView bridge is provided.
 
 ## Scroll-edge and independent backdrop blur
-
-The managed SDK also offers noninteractive surfaces for already-painted content:
-
-```csharp
-// Declare scrolling content first, then the overlay, then the sharp heading.
-ui.ScrollEdge(ScrollEdgeSide.Top, new BackdropBlurOptions {
-    Radius = 8, Tint = .65f, TintColor = ui.Theme.Panel,
-}).Absolute(0, 0).FillWidth().Height(86);
-ui.Text("Workspace").Absolute(20, 16);
-
-// Uniform rather than progressively masked blur:
-ui.BackdropBlur(new BackdropBlurOptions { Radius = 6 })
-    .Absolute(0, 0).Width(200).Height(80);
-```
 
 Top/Bottom/Left/Right choose which side is strongest. The opposite side preserves
 the original scene; a zero-radius, untinted uniform surface is an identity pass.
@@ -152,7 +84,7 @@ by the caller; the shader does not read application/theme state.
 Rust provides `BackdropBlur`, `ScrollEdgeSide`, `backdrop_blur(cx, options)` and
 `scroll_edge(cx, side, options)` in the prelude. These helpers return normal
 Shader builders for size/position configuration and use the same framework
-asset as the managed API. Theme tint resolves at declaration time.
+asset. Theme tint resolves at declaration time.
 
 The APIs borrow the scroll-edge composition idea from MyGO's `ui` and
 `plugins/glass`, but use Plico's area-prefiltered pyramid and bounded 5×5 residual kernel.
@@ -205,8 +137,7 @@ column(cx).radius(24.).material(LiquidGlass {
 Clarity 的尺寸响应对短边 100 DIP 以内的控件保持原材质，在 100–200 DIP 之间平滑过渡，
 对 200 DIP 以上的大面板完整生效。该参数同时调整大面板的色调、模糊采样范围、bezel 和 rim。
 默认 `LiquidGlass::default()` 仍为 `GlassStyle::Custom`，保留旧 Rust 材质的响应；新增参数
-使用第 3 组 uniform 的 y/z/w，分别是风格、clarity 和 surface 是否偏暗。C# legacy shader
-及其折射像素单位合约没有更改。
+使用第 3 组 uniform 的 y/z/w，分别是风格、clarity 和 surface 是否偏暗。
 
 主按钮使用更强的强调色 tint，高 tint 区间平滑增加覆盖；GPU 像素测试验证内置 Default／Light／Dark 三套主题的 on-accent 文字对比度至少 4.5:1。普通面板的 tint 响应保留。
 禁用的玻璃按钮使用 fallback，保留 disabled 语义与原本的透明度，不创建 shader。
@@ -366,10 +297,11 @@ tracker 按绘制顺序传播背景变化到后续玻璃；重放时将相交玻
 每块区域仍执行一次 copy，减少的是 texture allocations 与预滤波 pass，不宣称减少拷贝总字节。
 中间绘制若写入后续面板的输入区（包括相邻阴影），会阻止它加入该阶段；不重排画家顺序。
 每组最多 16 slices、32 MiB payload、512 instances 前瞻；没有 compute／相应设备限额时
-自动保留独立路径。数组与 views 只属于本次编码，不形成历史纹理缓存。
+自动保留独立路径。数组与 views 只属于本次编码；底层精确规格 texture 可从 renderer 的
+跨帧池复用，同帧不会复用，idle trim 统一释放。
 
 `Renderer::force_separate_backdrops(true)` 用于像素与性能 A/B，默认启用分组。
-`batch_stats()` 新增 `backdrop_textures` 与 `backdrop_shared_reads`；
+`batch_stats()` 的 `backdrop_textures` 与 `backdrop_shared_reads` 记录本帧资源与读者；
 `backdrop_copies` 仍是 copy 次数，`backdrop_mip_passes` 统计实际 render/compute pass。
 最大 sigma 预算已按 device scale 转成物理值，含 1.5/2x 验证。
 详情、测量限制及复跑命令见 [实验记录](experiments/wgpu-backdrop-architecture.md)。

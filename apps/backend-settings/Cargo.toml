@@ -15,7 +15,6 @@ skia = ["dep:plico-shell", "plico-shell/skia", "dep:plico-skia", "dep:tracing-su
 
 [dependencies]
 tracing = { workspace = true, optional = true }
-serde = { workspace = true, features = ["derive"] }
 usage-rs.workspace = true
 snafu.workspace = true
 plico.workspace = true

@@ -45,7 +45,7 @@ fn tab_navigation_and_assistive_activation_use_distinct_capabilities() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 400);
-    let semantics = source.adapter.semantics(&source.engine, 0);
+    let semantics = source.semantics();
     let ids = [
         (SemanticRole::TextInput, "Editor"),
         (SemanticRole::Slider, "Value"),
@@ -56,23 +56,23 @@ fn tab_navigation_and_assistive_activation_use_distinct_capabilities() {
     for id in ids.into_iter().chain([ids[0]]) {
         assert!(source.handle_event(tab()).handled);
         source.build_frame(&mut text, 400, 400);
-        assert_eq!(source.adapter.semantics(&source.engine, 0).focus, Some(id));
+        assert_eq!(source.semantics().focus, Some(id));
     }
     // A non-activatable editor/slider can be focused by an assistive click,
     // without emitting an application activation or changing its value.
     for id in [ids[0], ids[1]] {
         assert!(source.handle_semantic_action(SemanticAction::Click { target: id }));
         source.build_frame(&mut text, 400, 400);
-        assert_eq!(source.adapter.semantics(&source.engine, 0).focus, Some(id));
-        assert_eq!(source.view.clicks, 0);
-        assert_eq!(source.view.value, 0.);
+        assert_eq!(source.semantics().focus, Some(id));
+        assert_eq!(source.view().clicks, 0);
+        assert_eq!(source.view().value, 0.);
     }
     assert!(source.handle_semantic_action(SemanticAction::Click { target: ids[2] }));
     source.build_frame(&mut text, 400, 400);
-    assert!(source.view.checked);
+    assert!(source.view().checked);
     assert!(source.handle_semantic_action(SemanticAction::Click { target: ids[3] }));
     source.build_frame(&mut text, 400, 400);
-    assert_eq!(source.view.clicks, 1);
+    assert_eq!(source.view().clicks, 1);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn programmatic_dialog_focus_does_not_require_a_tab_stop() {
     let mut source = Source::new(EmptyDialog { state });
     let mut text = TextContext::new();
     source.build_frame(&mut text, 400, 400);
-    let snapshot = source.adapter.semantics(&source.engine, 0);
+    let snapshot = source.semantics();
     let dialog = snapshot
         .node_by_role(SemanticRole::Dialog, "Empty", None)
         .unwrap()
@@ -104,18 +104,12 @@ fn programmatic_dialog_focus_does_not_require_a_tab_stop() {
         .id;
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: dialog }));
     source.build_frame(&mut text, 400, 400);
-    assert_eq!(
-        source.adapter.semantics(&source.engine, 0).focus,
-        Some(dialog)
-    );
+    assert_eq!(source.semantics().focus, Some(dialog));
     // The dialog itself accepts programmatic focus, but Tab enters its actual
     // control (the built-in close button), not the dialog or read-only label.
     for _ in 0..2 {
         source.handle_event(tab());
         source.build_frame(&mut text, 400, 400);
-        assert_eq!(
-            source.adapter.semantics(&source.engine, 0).focus,
-            Some(close)
-        );
+        assert_eq!(source.semantics().focus, Some(close));
     }
 }

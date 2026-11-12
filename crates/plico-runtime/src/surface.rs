@@ -209,9 +209,13 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
             self.source.complete_effect(completion);
         }
     }
-    fn prepare_for_event(&mut self, text: &mut TextContext) {
-        self.source.prepare_for_event(text);
+    fn prepare_for_event(
+        &mut self,
+        text: &mut TextContext,
+    ) -> Result<(), plico_renderer::FrameSourceError> {
+        self.source.prepare_for_event(text)?;
         self.widget.prepare_for_event(text);
+        Ok(())
     }
     fn build_frame(&mut self, text: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
         self.event_dirty = false;
@@ -478,7 +482,9 @@ mod tests {
         let mut scene = Scene::new();
         // Includes fractional DPI, returning to 100%, and a later increase.
         for scale in [1., 1.75, 1., 2.] {
-            source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
+            source
+                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .unwrap();
             let flattened = scene.flattened();
             let effects: Vec<_> = flattened
                 .commands

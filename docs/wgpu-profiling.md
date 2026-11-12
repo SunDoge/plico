@@ -184,13 +184,14 @@ file records it. Cache hits return before creating upload-stage spans.
 
 Stages are `wgpu.upload_image`, `wgpu.prepare_image_bytes`,
 `wgpu.allocate_image`, `wgpu.stage_image_level`, `wgpu.cpu_mip`,
-`wgpu.compile_mip_pipeline`, and `wgpu.generate_mips`; the latter additionally
-contains `wgpu.finish_mips` and `wgpu.submit_mips`. All are CPU wall intervals.
+`wgpu.compile_mip_pipeline`, and `wgpu.generate_mips`; deferred GPU mip work is
+finished under `wgpu.finish_mips`. All are CPU wall intervals.
 Fields identify dimensions, source/payload bytes, format/alpha, mip level and
 GPU/CPU selection. Existing INFO behavior does not enable these DEBUG stages.
 
-A follow-up Intel/Mesa dev sample (seven distinct uploads including first use)
-located the long interval at queue submission: mip-submit medians 22.4 / 21.7 ms
+Before mip work was merged into the frame submission, a follow-up Intel/Mesa dev
+sample (seven distinct uploads including first use) located the long interval at
+the then-separate queue submission: mip-submit medians 22.4 / 21.7 ms
 for even/odd 4K inputs, versus encoder-finish 0.141 / 0.125 ms. First pipeline
 creation was 0.481 / 0.474 ms. An earlier staged sample showed occasional stalls
 moving between staging write and submission. These observations identify a CPU
@@ -198,6 +199,17 @@ API boundary, not GPU shader execution duration or proof of a driver defect.
 Staging, driver work and synchronization inside that boundary remain unresolved.
 Do not sum nested span times or separate medians. No upload-speedup claim follows
 from adding instrumentation.
+
+The production path now defers newly uploaded textures' mip encoders and prepends
+their command buffer to the next successful frame. Child layers and effects are
+recorded directly in the root frame encoder; therefore a frame uses one command
+buffer normally and two only when it has a mip prefix, all in one `queue.submit`.
+Child layers and the final frame sample initialized levels without a hidden
+upload-time submit. Pending textures are only
+committed after that submit; abandoning a failed surface frame leaves them
+retryable. The manual upload profile explicitly submits deferred mip work because
+it intentionally bypasses frame encoding. This removes a submission boundary,
+but no before/after end-to-end speedup is claimed without a fresh benchmark.
 
 ### Base-level upload control
 
@@ -244,6 +256,224 @@ pools, other drivers, release profiles and real app concurrency are not evaluate
 by this experiment. The diagnostic remains ignored by default, with no timing
 threshold; Clippy passed.
 
+## Class shader specialization
+
+Plico carries MyGO's ordinary `ClassPlain`, `ClassFill`, `ClassShadow`,
+`ClassGlyph`, and `ClassImage` split. Plico's atlas distinguishes monochrome and
+color glyph instances, so they have separate small pipelines rather than MyGO's
+subpixel class.
+Gradients and bordered fills use a static `ClassFill` fragment pipeline containing
+only clip/shape coverage, gradient interpolation and border composition. Runtime
+materials and backdrop markers remain on the general pipeline; outer and inset
+box shadows use an analytical shadow-only vertex/fragment pair, glyph pipelines
+retain only atlas sampling/tint/clip inputs, and images retain only sampling,
+rounded coverage and clip inputs.
+Small adjacent runs of different classes still use the existing
+`joinLast` threshold and merge into the general pipeline, avoiding extra draw calls.
+`Renderer::force_general_pipelines(true)` provides the pixel oracle, and
+Per-class `FrameBatchStats` counters prove which specialized paths were selected.
+The class pipelines also use dedicated vertex entry points and fragment input
+structures: `ClassPlain` does not export the second color, border, configuration,
+UV or gradient varyings, `ClassFill` does not export image UVs, and glyphs do not
+export shape fields. Coverage masks remain clip state and can use `ClassPlain`;
+they do not force a solid into the larger fill class. This follows MyGO's paired
+class vertex/pixel shaders instead of relying on a backend compiler to discover
+that the general vertex interface is mostly unused. Pipelines live in one
+class-indexed array rather than adding renderer fields per specialization.
+
+On native backends the class pipelines compile sequentially on a worker, following
+MyGO's nonblocking Metal warmup. A frame whose class is not ready uses the general
+pipeline and records no specialized draw for it; pixels are identical. WebAssembly
+builds the same static pipelines synchronously without assuming browser threads.
+An ignored GPU regression forcibly holds every class pending and compares that
+fallback byte-for-byte with `NoClasses`.
+
+Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --test classes -- --ignored --test-threads=1
+cargo test --locked -p plico-wgpu --lib \
+  unavailable_class_pipelines_fall_back_to_identical_general_pixels \
+  -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 cargo test --locked -p plico-wgpu --test classes \
+  profile_glyph_and_image_class_gpu_cost -- --ignored --test-threads=1 --nocapture
+cargo test --locked -p plico-wgpu \
+  --test gradients --test render --test scene --test shadows \
+  --test inset_shadows --test continuous_shadows --test batching --test join \
+  -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 PLICO_FRAME_BUDGET=1 target/release/gallery \
+  --scenario apps/gallery/scenarios/controls.json \
+  --capture /tmp/controls.png --frames 10
+# Add --general-classes for the same-binary NoClasses comparison.
+```
+
+On 2026-11-12, Linux, Intel ARL integrated graphics and Mesa Vulkan, the three
+class tests and 45 broader real-adapter regressions passed. Six alternating
+release pairs per scene produced byte-identical PNGs for both `controls` and
+`effects`. Median prepare/encode times were effectively unchanged: controls
+0.25/0.02 ms for both variants; effects 0.25/0.115 ms general versus
+0.255/0.12 ms specialized. Submit and GPU measurements varied in opposite
+directions between the two scenes, so this is evidence of a smaller selected
+shader with unchanged output, not evidence of a wall-time or FPS improvement.
+An additional ten alternating pairs after trimming the class vertex interfaces
+again produced byte-identical `controls` and `effects` captures. Prepare/encode
+were unchanged; submit/GPU medians moved in opposite directions between the two
+scenes, so the smaller declared interface is likewise not presented as a measured
+frame-time improvement on this adapter.
+
+`ClassShadow` was then measured against `ae2e0a2` (synchronous Plain/Fill, shadows
+general). Sixteen alternating one-frame process pairs reduced median wall time
+from 140.97 to 125.61 ms after moving all class compilation off startup. Ten
+alternating ten-frame pairs measured GPU timestamp medians of 7.50→6.36 ms in
+`effects` and 5.52→5.13 ms in shadow-heavy `mines-playing`; wait medians also
+fell, while submit time was mixed. All startup, effects, and mines PNGs were
+byte-identical. These are local Intel/Mesa results, not cross-adapter guarantees
+or CI thresholds. The final path passed three class-oracle tests, the forced
+pending fallback test, and 48 broader real-adapter regressions including outer,
+inset, continuous-corner, mask, partial-damage and painter-order coverage.
+
+The glyph/image extension was compared with `0184960` (Plain/Fill/Shadow only).
+Ten alternating 20-frame process pairs reversed binary order on every pair.
+`data-table` and `workspace` GPU medians were unchanged (3.21→3.20 ms and
+3.00→3.01 ms); `controls` moved 3.18→3.41 ms. Process medians were effectively
+unchanged across the three scenes, and every PNG was byte-identical. The current
+renderer nevertheless selected 25–31 glyph and 27–39 image draws per frame in
+those fixtures, so the neutral page result is not a failure to exercise the code.
+
+The same-process isolated fill-rate profile removes process startup and alternates
+general/specialized frames. Five runs on the same Intel/Mesa adapter measured
+image medians of 0.260–0.303 ms general versus 0.210–0.244 ms specialized, and
+glyph medians of 0.612–0.773 versus 0.564–0.713 ms. Thus the smaller shaders have
+a repeatable isolated GPU benefit, but normal pages remain draw/submit dominated;
+this is not presented as a page-level FPS improvement. All 137 integration
+hardware tests passed, including byte-exact monochrome, color-emoji and
+high-quality rounded-image oracles plus affine sampling, masks, damage, layers,
+painter order and native text coverage.
+
+## Painter-order occlusion culling
+
+Plico now follows MyGO's bounded reverse `planCull` before creating image
+bindings or isolated-layer targets. A later unmasked, unrounded, borderless,
+non-material rectangle with opaque gradient endpoints contributes its interior
+core; an earlier draw is omitted only when its complete clip/mask-constrained
+visible bounds fit inside one of the eight largest later cores. The one-pixel
+core inset excludes antialiased and fractional clip edges. A backdrop-reading
+effect or layer clears the accumulated cores because it observes prior pixels.
+Effects and layers containing effects remain uncullable, matching MyGO's
+renderer-work boundary.
+Invalid public quad/image input is still validated even when hidden.
+
+`Renderer::force_no_occlusion_culling(true)` and gallery
+`--no-occlusion-culling` reproduce MyGO's `NoCull` comparison. The planner keeps
+one reusable vector per isolated-layer depth, and glyph/image-only scenes first
+take a candidate fast path without computing bounds. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --lib occlusion_tests
+cargo test --locked -p plico-wgpu --test occlusion \
+  opaque_cover_culls_hidden_work_before_resource_preparation_with_identical_pixels \
+  -- --ignored --test-threads=1
+PLICO_GPU_TIMER=1 cargo test --locked -p plico-wgpu --test occlusion \
+  profile_opaque_panel_stack -- --ignored --test-threads=1 --nocapture
+```
+
+On 2026-11-12, Linux, Intel ARL integrated graphics and Mesa Vulkan, five runs of
+a synthetic 1920×1080 stack of twelve translucent panels under one opaque page
+measured 7.678–11.005 ms with all draws versus 3.114–4.511 ms with culling, a
+59–64% reduction in each paired run. The pixel oracle was byte-identical;
+separate regressions proved that a hidden image was not uploaded and a hidden
+isolated layer allocated no offscreen target. `controls`, `data-table` and
+`workspace` each culled zero draws and produced byte-identical captures with the
+switch in either position, so this is a navigation/stacked-page and overlay
+optimization, not a claim that steady-state gallery pages became faster.
+
+## Border-only ring splitting
+
+Plico also adopts MyGO's `NoRingSplit` experiment for large analytical borders.
+A solid border whose fill endpoints are both fully transparent has a rectangular
+core where both outer and inner coverage are exactly one, so its shader returns
+transparent there. The CPU now represents that source quad as up to four ordered
+instances with target-relative hardware scissors around a conservatively inset
+core. The scissor is CPU-only batch metadata: the common GPU `Instance` remains
+unchanged. Quads with material/shadow content, visible fill alpha, no visible
+border, a core below 4096 pixels, or a core below one quarter of the visible quad
+stay as one draw. Damage rectangles intersect the split scissors at encoding
+time; strips that do not intersect any damage are removed before instance
+upload. Isolated layers derive the scissors in the layer target's local
+coordinates.
+
+`Renderer::force_no_ring_splitting(true)` and gallery `--no-ring-splitting`
+provide a byte-exact A/B oracle. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --lib renderer::ring::tests
+cargo test --locked -p plico-wgpu --test ring_split -- \
+  --ignored --skip profile_large_border_only_panel
+PLICO_GPU_TIMER=1 cargo test --release --locked -p plico-wgpu \
+  --test ring_split profile_large_border_only_panel -- --ignored --nocapture
+```
+
+On 2026-11-12, the same Linux Intel/Mesa Vulkan adapter measured a 1920×1080,
+2-pixel rounded border at 5.018 ms unsplit versus 3.809 ms split GPU time
+(24.1% lower). Readback-inclusive wall time moved from 37.542 to 36.679 ms
+because buffer mapping and CPU pixel copying dominate that test. Straight and
+rounded direct draws are byte-identical; a separate moving-border regression
+proves partial damage and cropped isolated-layer coordinates against an unsplit
+full-redraw oracle. The split path uses four instances/draws instead of one, so
+the threshold deliberately excludes small controls. The real
+`component-kit-corners` gallery recipe split one large ring (633 instances / 75
+draws versus 630 / 72 unsplit) and produced the same PNG SHA-256
+`3085f7f0ee2f2e23d84b3d8a0a9c90c21aef3e7242691c3dcd3d5a1b71a7ddef`;
+`controls`, `data-table`, `workspace`, `mines-hard` and `patterns-dark` stayed
+below the threshold and paid no extra draw calls.
+
+### Rejected: opaque-core splitting on the current Vulkan path
+
+MyGO only enables `addOpaque` for renderers that benefit from writing a large
+opaque core without blending; its implementation specifically enables it for
+Metal's tile-based GPUs and notes that other renderers would merely add draw
+calls for the same pixels. Plico therefore tested this as a backend experiment
+rather than adopting it as a general scene transformation.
+
+The experiment split one 1920×1080 solid opaque quad into one no-blend core and
+four normally blended antialiased edge strips. A byte-for-byte oracle passed,
+but on the Linux Intel/Mesa Vulkan adapter the median GPU time was unchanged:
+3.548 ms unsplit and 3.549 ms split. The split also changed one instance and
+one draw into five of each and required another pipeline. The implementation
+was removed. Do not add opaque-core splitting to the shared wgpu path without
+adapter-specific evidence; a future Metal-only experiment should first measure
+on real Apple hardware.
+
+### Analytical leaf rounded clips
+
+Plico follows MyGO `92336637` for the first safely reducible clip case: an
+axis-aligned rounded clip whose scope contains no nested clip or isolated layer,
+whose transformed bounds remain inside its parent rectangle, and which has no
+existing coverage mask. Its per-corner radii are retained on `Quad`/`TextRun`
+draws and evaluated by the same WGSL coverage function as direct rounded
+geometry. Nested/intersecting chains still use the existing mask path.
+
+This removes path rasterization, CPU RGBA mask storage, mask upload and sampling
+for common rounded cards. It also fixes the legacy fractional-edge case that
+multiplied rectangular clip AA by the raster mask's AA; the analytical result is
+byte-identical to drawing the same rounded rectangle directly. Prepared-scene
+materialization preserves the radii, rounded clips cannot become rectangular
+occlusion covers, and `force_no_analytic_clip_reduction` provides the old mask
+path for quality/performance comparisons.
+
+On 2026-11-12, Linux Intel/Mesa Vulkan, a changing 1024×720 rounded clip took
+0.306–0.513 ms median to prepare through the mask path and about 0.001 ms
+analytically. A static warm clip had no repeatable GPU change (representative
+1.681 ms masked versus 1.684 ms analytical), so this is a CPU/memory and edge
+quality result, not a GPU-throughput claim. Reproduction:
+
+```sh
+cargo test --locked -p plico-wgpu --test analytic_clips -- \
+  --ignored --skip profile_leaf_rounded_clip
+PLICO_GPU_TIMER=1 cargo test --release --locked -p plico-wgpu \
+  --test analytic_clips profile_leaf_rounded_clip -- --ignored --nocapture
+```
+
 ## Scene and image residency
 
 Prepared snapshots retain only the graph reachable from the current root. Image
@@ -258,6 +488,20 @@ occurrence reserves one cached output, and a later draw may claim that reserved
 output. Marking all historical outputs as used before forbidding their reuse
 caused linear growth while scrolling. A 96-frame regression checks exact output
 counts, bytes and pixels, including two occurrences of one effect ID.
+
+Backdrop input snapshots use a separate exact-specification pool shared by the
+single-texture and same-stage array paths. Entries are exclusive within one
+frame and reusable in the next ordered queue submission. `LayerPoolStats`
+reports their entries, bytes, cumulative allocations and reuses; the ordinary
+idle cache trim releases them. GPU regressions cover stable reuse, trim/rebuild
+and byte-exact output for both paths.
+
+The paired backdrop mapping and composite uniforms use a second frame arena.
+Each draw gets one device-aligned persistent buffer entry; subsequent ordered
+frames update it instead of creating 16-byte and 80-byte buffers again. Multiple
+damage scissors for one atomic group share its entry. `LayerPoolStats` reports
+entry count and cumulative allocation/reuse, and cache trim drops the entries.
+This is an allocation-lifecycle result, not a wall-time speedup claim.
 
 These counters describe owned texture payload and caches, not process RSS or
 Metal driver allocation. Plicowarden's independent `memory_probe` example records

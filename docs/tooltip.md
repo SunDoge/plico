@@ -51,7 +51,7 @@ cargo run -p gallery
 cargo run -p gallery --example capture -- --page controls --tooltip --out /tmp/tooltip.png
 cargo test -p plico-desktop --test tooltip
 cargo build -p plico-cli
-python3 scripts/check-modal-reload.py
+cargo test -p plico-desktop --test recipes
 ```
 
 集成测试覆盖长空闲后的时钟延迟、等待帧不重声明、键盘/描述/Escape、热区/嵌套、真实指针穿透、禁用/卸载、Modal 与 IME、窗口失焦、长文本/缩窗，以及与 WGSL 同屏的实际 GPU 像素及 scene cache。静态场景的 focus 动作返回可见 tooltip 的描述、bounds 和 focus 作为验证证据；截图属于本地 reports 产物。

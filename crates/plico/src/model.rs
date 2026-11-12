@@ -1,5 +1,4 @@
 use crate::Entity;
-use crate::{InvalidateChannels, KindClass};
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -70,65 +69,52 @@ pub(crate) struct Identity {
     pub key: Key,
     pub scope: u64,
 }
-/// Each variant's classification lives in its `#[kind(...)]` annotation —
-/// family, interactivity and leafness generate from that single site, so a
-/// new kind cannot miss a classification function. Append kinds at the end
+/// Each variant's interaction and leaf classification lives in its
+/// `#[kind(...)]` annotation, so a new kind cannot silently miss either
+/// classification. Append kinds at the end
 /// to preserve existing discriminant fast paths; the wire representation
 /// uses names, not these internal discriminant values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, KindClass)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, plico_macros::KindClass,
+)]
 pub enum Kind {
-    #[kind(family = Container)]
+    #[kind]
     Root,
-    #[kind(family = Container, interactive)]
+    #[kind(interactive)]
     Overlay,
-    #[kind(family = Container)]
+    #[kind]
     Dialog,
     /// Noninteractive group carrying a host-timed tooltip description.
-    #[kind(family = Container)]
+    #[kind]
     TooltipAnchor,
-    #[kind(family = Container)]
+    #[kind]
     Column,
-    #[kind(family = Container)]
+    #[kind]
     Row,
-    #[kind(family = Text, leaf)]
+    #[kind(leaf)]
     Text,
-    #[kind(family = Text, interactive, leaf)]
+    #[kind(interactive, leaf)]
     TextInput,
-    #[kind(family = Media, leaf)]
+    #[kind(leaf)]
     Svg,
-    #[kind(family = Media, leaf)]
+    #[kind(leaf)]
     Shader,
     /// Decoded raster image carried as hex-encoded asset bytes.
-    #[kind(family = Media, leaf)]
+    #[kind(leaf)]
     Image,
-    #[kind(family = Control, interactive, leaf)]
+    #[kind(interactive, leaf)]
     Slider,
     /// A composed numeric editor whose children provide its visuals.
-    #[kind(family = Container, interactive)]
+    #[kind(interactive)]
     ValueControl,
-    #[kind(family = Control, interactive, leaf)]
+    #[kind(interactive, leaf)]
     Button,
-    #[kind(family = Control, interactive, leaf)]
+    #[kind(interactive, leaf)]
     ButtonBase,
-    #[kind(family = Control, interactive, leaf)]
+    #[kind(interactive, leaf)]
     Switch,
-    #[kind(family = Control, interactive, leaf)]
+    #[kind(interactive, leaf)]
     Checkbox,
-}
-/// Coarse projection family for backends without a native widget for every
-/// kind: an adapter degrades along this classification instead of failing.
-/// It is not a capability description — inspect [`Kind::capabilities`] for
-/// input semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KindFamily {
-    /// Holds children: Root, Column, Row, Overlay, Dialog, TooltipAnchor.
-    Container,
-    /// Renders its label: Text, TextInput.
-    Text,
-    /// Interactive control, including composed ValueControl containers.
-    Control,
-    /// Visual content without interaction: Svg, Shader, Image.
-    Media,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Color {
@@ -283,6 +269,8 @@ impl FontFamily {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidgetRole {
+    /// A noninteractive semantic container for related controls.
+    Group,
     /// Toggle semantics independent of the visual primitive.
     CheckBox,
     Switch,
@@ -304,6 +292,8 @@ pub enum WidgetRole {
     Meter,
     /// A work indicator, determinate or not (mygo Spinner).
     ProgressBar,
+    /// A live, noninteractive status message (mygo FindBar match count).
+    Status,
     /// A directly adjustable scalar or multi-axis value.
     Slider,
     /// A pair of arrows stepping a bounded value (mygo Stepper).
@@ -324,6 +314,12 @@ pub enum WidgetRole {
     ColorWell,
     /// A modal alert that needs an explicit answer (mygo AlertDialog).
     AlertDialog,
+}
+/// Logical thumb identity for a composed two-value slider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SliderThumb {
+    Minimum,
+    Maximum,
 }
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {
@@ -379,7 +375,13 @@ impl BoxShadow {
     }
 }
 #[derive(
-    Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, InvalidateChannels,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    plico_macros::InvalidateChannels,
 )]
 #[serde(default)]
 pub struct Style {
@@ -569,6 +571,10 @@ pub struct Style {
     pub input_revision: u64,
     #[invalidates(HIT_TEST)]
     pub input_navigation: bool,
+    /// Route find-field traversal and dismissal keys through InputResponse.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[invalidates(HIT_TEST)]
+    pub input_find_navigation: bool,
     /// Explicit native password reveal; does not expose secrets in snapshots.
     #[serde(default)]
     #[invalidates(PAINT)]
@@ -580,6 +586,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[invalidates(PAINT, SEMANTICS)]
     pub slider: Option<SliderSpec>,
+    /// Connect a focusable semantic thumb to its containing range slider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[invalidates(HIT_TEST, SEMANTICS)]
+    pub slider_thumb: Option<SliderThumb>,
     #[invalidates(SEMANTICS)]
     pub selected: Option<bool>,
     #[invalidates(SEMANTICS)]
@@ -659,10 +669,12 @@ impl Default for Style {
             checked: false,
             input_revision: 0,
             input_navigation: false,
+            input_find_navigation: false,
             input_password_visible: false,
             shader_revision: 0,
             numeric_revision: 0,
             slider: None,
+            slider_thumb: None,
             selected: None,
             expanded: None,
         }

@@ -47,7 +47,7 @@ fn editor_value_never_enters_declarations_or_reload_snapshots() {
     engine
         .frame_declarations(|cx| form(cx, &buffer, &mut response))
         .unwrap();
-    assert!(response.changed && response.submitted);
+    assert!(response.changed() && response.submitted());
     let snapshot = engine.snapshot();
     assert_eq!(snapshot[0].kind, Kind::TextInput);
     assert_eq!(snapshot[0].text, "Password");
@@ -110,7 +110,7 @@ fn string_binding_writes_user_edits_and_preserves_editor_state() {
         .frame_declarations(|cx| form(cx, &mut value, &mut response))
         .unwrap();
     assert_eq!(value, "hello");
-    assert!(!response.changed);
+    assert!(!response.changed());
     assert!(buffer.is_composing());
     assert_eq!(buffer.selection_bytes(), (1, 0));
 
@@ -119,7 +119,7 @@ fn string_binding_writes_user_edits_and_preserves_editor_state() {
         .frame_declarations(|cx| form(cx, &mut value, &mut response))
         .unwrap();
     assert_eq!(value, "Hello");
-    assert!(response.changed);
+    assert!(response.changed());
     assert!(!buffer.is_composing());
     engine
         .frame_declarations(|cx| form(cx, &mut value, &mut response))

@@ -33,6 +33,93 @@ fn interior_clip_preserves_edges_masks_and_nonfill_instances() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+#[cfg(not(target_arch = "wasm32"))]
+fn unavailable_class_pipelines_fall_back_to_identical_general_pixels() {
+    let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+    let mut gradient = crate::Quad::new([8., 8., 112., 112.], [1., 0.2, 0.1, 1.]);
+    gradient.colors[1] = [0.1, 0.3, 1., 1.];
+    let mut shadow = crate::Quad::new([16., 16., 96., 96.], [0., 0., 0., 0.5]);
+    shadow.shadow_sigma = 6.;
+    let plain = crate::Quad::new([0., 0., 128., 128.], [0.9, 0.9, 0.9, 1.]);
+    let quads = [plain, gradient, shadow];
+
+    renderer.force_general_pipelines(true);
+    let general = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
+    let image = crate::image::ImageQuad::new(
+        crate::Quad::new([0., 0., 128., 128.], [1.; 4]),
+        peniko::ImageData {
+            data: peniko::Blob::new(std::sync::Arc::new(vec![255, 0, 0, 255, 0, 0, 255, 255])),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+            width: 2,
+            height: 1,
+        },
+    );
+    let general_image = renderer
+        .render_items(&[crate::Draw::Image(&image)], [128, 128], [0.; 4], 0.)
+        .unwrap();
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    let (layout, general_glyphs) = {
+        let mut request = crate::text::TextRequest::new("AA🙂");
+        request.family = "Noto Sans, Noto Color Emoji, sans-serif";
+        request.size = 180.;
+        let layout = renderer.layout_text(&request).unwrap();
+        let pixels = renderer
+            .render_items(
+                &[crate::Draw::Text(crate::text::TextRun::new(
+                    &layout,
+                    [8., 8.],
+                    [0.2, 0.4, 0.8, 0.9],
+                ))],
+                [640, 240],
+                [0.; 4],
+                0.,
+            )
+            .unwrap();
+        (layout, pixels)
+    };
+
+    // Keep a sender alive so polling sees a genuinely pending warmup rather
+    // than a disconnected worker. Every exercised class must use the general pipeline.
+    let (_pending, receiver) = std::sync::mpsc::channel();
+    renderer.class_pipeline_rx = receiver;
+    renderer.class_pipelines = std::array::from_fn(|_| None);
+    renderer.force_general_pipelines(false);
+    let fallback = renderer.render(&quads, [128, 128], [0.; 4], 0.).unwrap();
+    assert_eq!(fallback, general);
+    assert_eq!(renderer.batch_stats().plain_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().fill_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().shadow_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().glyph_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().color_glyph_draw_calls, 0);
+    assert_eq!(renderer.batch_stats().image_draw_calls, 0);
+    let fallback_image = renderer
+        .render_items(&[crate::Draw::Image(&image)], [128, 128], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(fallback_image, general_image);
+    assert_eq!(renderer.batch_stats().image_draw_calls, 0);
+    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    {
+        let fallback_glyphs = renderer
+            .render_items(
+                &[crate::Draw::Text(crate::text::TextRun::new(
+                    &layout,
+                    [8., 8.],
+                    [0.2, 0.4, 0.8, 0.9],
+                ))],
+                [640, 240],
+                [0.; 4],
+                0.,
+            )
+            .unwrap();
+        assert_eq!(fallback_glyphs, general_glyphs);
+        assert_eq!(renderer.batch_stats().glyph_draw_calls, 0);
+        assert_eq!(renderer.batch_stats().color_glyph_draw_calls, 0);
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn interior_clip_matches_reference_pixels() {
     let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
     for general in [false, true] {
@@ -673,8 +760,15 @@ fn profile_image_upload_cpu_and_gpu_wait() {
                         },
                     )
                     .unwrap();
-                // Flush write_texture staging on the CPU-only mip path too.
-                renderer.queue.submit([]);
+                // This profile bypasses frame encoding, so explicitly submit
+                // the cache's deferred mip work. Production prepends it to the
+                // frame's single submission.
+                if let Some(mips) = renderer.images.pending_mip_commands(&renderer.device) {
+                    renderer.queue.submit([mips]);
+                    renderer.images.commit_pending_mips();
+                } else {
+                    renderer.queue.submit([]);
+                }
                 let cpu_time = start.elapsed();
                 let wait = Instant::now();
                 renderer
@@ -753,7 +847,9 @@ fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
             },
             texture.size(),
         );
-        generator.generate(&renderer.device, &renderer.queue, &texture);
+        let mut mip_encoder = renderer.device.create_command_encoder(&Default::default());
+        generator.encode(&renderer.device, &mut mip_encoder, &texture);
+        renderer.queue.submit([mip_encoder.finish()]);
         let mut previous_gpu = source.clone();
         let mut reference = source;
         let mut previous_size = size;
@@ -825,6 +921,87 @@ fn gpu_mip_levels_match_cpu_area_reference_and_preserve_premultiplication() {
             previous_size = target;
         }
     }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn mip_uploads_remain_retryable_and_join_the_frame_submission() {
+    use crate::{Draw, image::ImageQuad};
+    use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+    use std::sync::Arc;
+
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    assert!(crate::mipmap::MipGenerator::supported(&renderer.device));
+    let image = ImageQuad::new(
+        Quad::new([0., 0., 16., 16.], [1.; 4]),
+        ImageData {
+            data: Blob::new(Arc::new(vec![128; 65 * 67 * 4])),
+            width: 65,
+            height: 67,
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+        },
+    );
+    let draws = [Draw::Image(&image)];
+
+    let abandoned = renderer
+        .encode_frame(&draws, [32, 32], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.images.pending_mip_count(), 1);
+    assert!(!renderer.frame_prefix_commands.is_empty());
+    renderer.frame_prefix_commands.clear();
+    drop(abandoned);
+
+    let retry = renderer
+        .encode_frame(&draws, [32, 32], [0.; 4], 0.)
+        .unwrap();
+    assert_eq!(renderer.images.pending_mip_count(), 1);
+    assert!(!renderer.frame_prefix_commands.is_empty());
+    let pixels = renderer.read_frame(retry, [32, 32]).unwrap();
+    assert_eq!(pixels.len(), 32 * 32 * 4);
+    assert_eq!(renderer.images.pending_mip_count(), 0);
+    assert_eq!(renderer.frame_budget().submissions, 1);
+    assert_eq!(renderer.frame_budget().command_buffers, 2);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn interior_damage_filters_out_nonintersecting_ring_strips_before_upload() {
+    let size = [1024, 720];
+    let background = [0.03, 0.04, 0.06, 1.];
+    let mut ring = Quad::new([20., 20., 984., 680.], [0.; 4]);
+    ring.radii = [48.; 4];
+    ring.border_width = 2.;
+    ring.border_color = [0.25, 0.63, 1., 0.85];
+    let old = Quad::new([480., 340., 16., 16.], [1., 0., 0., 1.]);
+    let new = Quad::new([480., 340., 16., 16.], [0., 1., 0., 1.]);
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    partial
+        .render_items(
+            &[crate::Draw::Quad(&ring), crate::Draw::Quad(&old)],
+            size,
+            background,
+            0.,
+        )
+        .unwrap();
+    let updated = [crate::Draw::Quad(&ring), crate::Draw::Quad(&new)];
+    let encoder = partial
+        .encode_frame_regions(
+            DrawSource::Borrowed(&updated),
+            size,
+            background,
+            0.,
+            Some(&[[478, 338, 20, 20]]),
+        )
+        .unwrap();
+    let actual = partial.read_frame(encoder, size).unwrap();
+    assert_eq!(partial.batch_stats.ring_split_quads, 1);
+    assert_eq!(partial.batch_stats.instances, 1);
+    assert_eq!(partial.batch_stats.draw_calls, 1);
+
+    let mut oracle = pollster::block_on(Renderer::new()).unwrap();
+    let expected = oracle.render_items(&updated, size, background, 0.).unwrap();
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -987,6 +1164,11 @@ fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
         1,
         "isolated and backdrop-reading child layers share the frame submission"
     );
+    assert_eq!(
+        renderer.frame_budget().command_buffers,
+        1,
+        "isolated and backdrop-reading child layers share the root encoder"
+    );
     let broken = crate::image::ImageQuad::new(
         Quad::new([0., 0., 1., 1.], [1.; 4]),
         peniko::ImageData {
@@ -1039,7 +1221,8 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     use crate::{Draw, image::ImageQuad};
     use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
     use std::sync::Arc;
-    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let instance = wgpu::Instance::new(crate::instance_descriptor());
+    let mut renderer = pollster::block_on(Renderer::new_compatible(&instance, None, true)).unwrap();
     let image = ImageQuad::new(
         Quad::new([0., 0., 8., 8.], [1.; 4]),
         ImageData {
@@ -1071,6 +1254,10 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     );
     assert!(renderer.frame_images.is_empty());
     assert!(renderer.frame_image_slots.is_empty());
+    assert!(
+        renderer.pending_gpu_slot.is_none(),
+        "a failed shared encoder must release its timestamp slot"
+    );
     assert_eq!(
         renderer
             .render_items(&[Draw::Image(&image)], [16, 16], [0.; 4], 0.)
@@ -1627,6 +1814,7 @@ fn frame_budget_reports_stages_and_collects_gpu_timestamps() {
     assert_eq!(budget.instances, 0);
     assert_eq!(budget.draw_calls, 0);
     assert_eq!(budget.submissions, 1);
+    assert_eq!(budget.command_buffers, 1);
     assert!(budget.upload_bytes >= 48, "frame uniform upload is counted");
     assert!((budget.prepare_ms + budget.encode_ms + budget.submit_ms).is_finite());
     if renderer.gpu_timer.is_some() {

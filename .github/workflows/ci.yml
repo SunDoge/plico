@@ -38,7 +38,11 @@ jobs:
   quality:
     name: Lightweight Rust checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # A cold Ubuntu runner can spend more than ten minutes refreshing apt and
+    # installing the native text/window headers before Clippy starts. Keep the
+    # individual commands bounded by the job, without cancelling a healthy
+    # cold-cache run halfway through dependency installation.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,14 +60,64 @@ jobs:
         run: cargo run --locked --profile ci -p plico-cli -- fmt --check
       - name: Guard application widget boundaries
         run: python3 scripts/check-widget-boundary.py
+      - name: Guard renderer backend boundaries
+        run: python3 scripts/check-renderer-boundary.py
+      - name: Guard runtime source boundaries
+        run: python3 scripts/check-runtime-boundary.py
       - name: Test the renderer-independent packages
         run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
       - name: Install desktop compile dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev \
+          packages=(
+            pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
+          )
+
+          # Azure-backed Ubuntu mirrors occasionally stop resolving on hosted
+          # runners even though the rest of the network is healthy. Resolve only
+          # the official mirror names through a public resolver as a fallback.
+          for host in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
+            if timeout 5s getent ahostsv4 "${host}" >/dev/null; then
+              continue
+            fi
+
+            address=""
+            for resolver in 1.1.1.1 8.8.8.8; do
+              address="$(timeout 10s dig +short A "${host}" "@${resolver}" \
+                | awk '/^[0-9.]+$/ { print; exit }' || true)"
+              [[ -n "${address}" ]] && break
+            done
+            if [[ -z "${address}" ]]; then
+              echo "Could not resolve ${host} through the runner or fallback DNS" >&2
+              exit 1
+            fi
+            echo "${address} ${host}" | sudo tee -a /etc/hosts
+          done
+
+          # Apt otherwise waits once per package, which can consume the whole
+          # job timeout. Require a complete index refresh and retry the operation
+          # as a unit with bounded network and process waits.
+          for attempt in 1 2 3; do
+            if timeout --kill-after=5s 90s sudo apt-get \
+              -o Acquire::Retries=0 \
+              -o Acquire::http::Timeout=10 \
+              -o Acquire::https::Timeout=10 \
+              update --error-on=any \
+              && timeout --kill-after=5s 120s sudo apt-get \
+                -o Acquire::Retries=0 \
+                -o Acquire::http::Timeout=10 \
+                -o Acquire::https::Timeout=10 \
+                install -y --no-install-recommends "${packages[@]}"
+            then
+              break
+            fi
+
+            if (( attempt == 3 )); then
+              echo "Desktop dependency installation failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
       - name: Lint the mainline without optional backend SDKs
         run: cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
       # The optional Bevy adapter is checked as a library. Do not pull its PBR

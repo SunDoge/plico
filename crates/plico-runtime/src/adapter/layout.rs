@@ -31,26 +31,27 @@ impl Adapter {
     }
 
     pub(super) fn cache_layout_subtree(&mut self, id: NodeId) {
-        let layout = self.tree.layout(id).ok().copied();
-        let children = self.reverse.get(&id).and_then(|entity| {
-            let retained = self.nodes.get_mut(entity)?;
+        let mut pending = std::mem::take(&mut self.layout_cache_scratch);
+        pending.clear();
+        pending.push(id);
+        while let Some(id) = pending.pop() {
+            let layout = self.tree.layout(id).ok().copied();
+            let Some(entity) = self.reverse.get(&id) else {
+                continue;
+            };
+            let Some(retained) = self.nodes.get_mut(entity) else {
+                continue;
+            };
             retained.layout = layout;
-            Some(retained.children.clone())
-        });
-        for child in children.into_iter().flatten() {
-            self.cache_layout_subtree(child);
+            pending.extend(retained.children.iter().copied());
         }
+        self.layout_cache_scratch = pending;
     }
 
     pub(super) fn cache_all_layouts(&mut self) {
-        let ids: Vec<_> = self.nodes.values().map(|retained| retained.id).collect();
-        for id in ids {
-            let layout = self.tree.layout(id).ok().copied();
-            if let Some(entity) = self.reverse.get(&id)
-                && let Some(retained) = self.nodes.get_mut(entity)
-            {
-                retained.layout = layout;
-            }
+        let tree = &self.tree;
+        for retained in self.nodes.values_mut() {
+            retained.layout = tree.layout(retained.id).ok().copied();
         }
     }
 
@@ -373,6 +374,7 @@ impl Adapter {
             cached_svg(
                 &mut self.svg_cache,
                 &mut self.stats,
+                self.resource_generation,
                 plico::icons::CHECK.source(),
                 Some(theme.on_accent),
             )

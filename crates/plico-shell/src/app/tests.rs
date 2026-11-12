@@ -1,7 +1,7 @@
 use super::event_translate::{
-    FrameWake, allowed_external_url, frame_wake, namespaced_pointer_id, pointer_source_properties,
-    printable_key_text, resize_direction_at, scheduled_frame_wake, unconsumed_key_text,
-    update_present_retry, window_capabilities,
+    FrameWake, allowed_external_url, frame_wake, namespaced_pointer_id, physical_key_name,
+    pointer_source_properties, printable_key_text, resize_direction_at, scheduled_frame_wake,
+    unconsumed_key_text, update_present_retry, window_capabilities,
 };
 use super::*;
 use peniko::Color;
@@ -46,9 +46,9 @@ fn frame_scheduler_preserves_a_deadline_when_the_source_reports_now_relative_tim
     );
     assert_eq!(scheduled, None);
 }
-use crate::layout::PlacedNode;
-use crate::source::KeyLocation;
-use crate::text::TextContext;
+use plico_renderer::layout::PlacedNode;
+use plico_renderer::source::KeyLocation;
+use plico_renderer::text::TextContext;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Waker;
@@ -65,7 +65,7 @@ fn custom_decoration_edges_map_to_native_resize_directions() {
             900.0,
             600.0,
             CUSTOM_DECORATION_RESIZE_BORDER,
-            crate::WindowResizeEdges::all(),
+            plico_renderer::WindowResizeEdges::all(),
         )
     };
 
@@ -361,6 +361,8 @@ impl FrameSource for EventActionSource {
 
 #[test]
 fn named_editing_keys_use_dom_compatible_names() {
+    use winit::keyboard::{KeyCode, NativeKeyCode, PhysicalKey};
+
     assert_eq!(
         logical_key_name(&Key::Named(NamedKey::Backspace)),
         "Backspace"
@@ -369,6 +371,11 @@ fn named_editing_keys_use_dom_compatible_names() {
     assert_eq!(logical_key_name(&Key::Named(NamedKey::Enter)), "Enter");
     assert_eq!(logical_key_name(&Key::Character(" ".into())), " ");
     assert_eq!(logical_key_name(&Key::Character("a".into())), "a");
+    assert_eq!(physical_key_name(PhysicalKey::Code(KeyCode::KeyK)), "KeyK");
+    assert!(
+        physical_key_name(PhysicalKey::Unidentified(NativeKeyCode::Unidentified))
+            .starts_with("Unidentified(")
+    );
     assert_eq!(printable_key_text("a"), Some("a".into()));
     assert_eq!(printable_key_text("\u{8}"), None);
     assert_eq!(printable_key_text("\u{7f}"), None);
@@ -403,6 +410,38 @@ fn named_editing_keys_use_dom_compatible_names() {
 }
 
 #[test]
+fn mouse_history_buttons_are_delivered_as_navigation_keys() {
+    use winit::event::MouseButton;
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let mut app = App::new(Box::new(EventRecordingSource(events.clone())));
+    app.handle_pointer_button(
+        PhysicalPosition::new(12.0, 8.0),
+        ButtonSource::Mouse(MouseButton::Back),
+        ElementState::Pressed,
+        PointerProperties::default(),
+    );
+    app.handle_pointer_button(
+        PhysicalPosition::new(12.0, 8.0),
+        ButtonSource::Mouse(MouseButton::Back),
+        ElementState::Released,
+        PointerProperties::default(),
+    );
+
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 2);
+    for (event, phase) in events.iter().zip([KeyPhase::Down, KeyPhase::Up]) {
+        let UiEvent::Key(event) = event else {
+            panic!("history button must not enter the pointer capture path");
+        };
+        assert_eq!(event.phase, phase);
+        assert_eq!(event.key, "BrowserBack");
+        assert!(event.code.is_empty());
+        assert!(event.modifiers.is_empty());
+    }
+}
+
+#[test]
 fn failed_present_gets_one_recovery_frame_without_a_busy_loop() {
     let mut pending = false;
     assert!(update_present_retry(false, &mut pending));
@@ -434,7 +473,7 @@ fn ime_snapshot_maps_backend_neutral_purpose_and_hints_to_winit() {
         selection_utf16: 5..5,
         selection_reversed: false,
         marked_range_utf16: None,
-        purpose: crate::WidgetImePurpose::Terminal,
+        purpose: plico_renderer::WidgetImePurpose::Terminal,
         multiline: true,
         completion: true,
         spellcheck: false,
@@ -458,7 +497,7 @@ fn ime_session_restarts_only_when_focus_moves_between_distinct_text_clients() {
         selection_utf16: 0..0,
         selection_reversed: false,
         marked_range_utf16: None,
-        purpose: crate::WidgetImePurpose::Normal,
+        purpose: plico_renderer::WidgetImePurpose::Normal,
         multiline: false,
         completion: true,
         spellcheck: true,
@@ -670,7 +709,7 @@ fn skipped_present_keeps_animation_paced_without_polling() {
 
 #[test]
 fn restricted_edges_project_corners_onto_allowed_resize_axes() {
-    use crate::WindowResizeEdges as Edges;
+    use plico_renderer::WindowResizeEdges as Edges;
     let at = |x, y, edges| resize_direction_at(Point { x, y }, 900., 600., 12., edges);
     let vertical = Edges::TOP | Edges::BOTTOM;
     assert_eq!(at(0., 0., vertical), Some(ResizeDirection::North));

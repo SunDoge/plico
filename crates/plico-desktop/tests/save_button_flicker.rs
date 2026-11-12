@@ -121,7 +121,8 @@ fn hover_and_save_are_stable_on_the_retained_present_path() {
     );
     let mut tcx = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
-    s.build_and_paint(&mut scene, &mut tcx, 1120, 820, 1.);
+    s.try_build_and_paint(&mut scene, &mut tcx, 1120, 820, 1.)
+        .unwrap();
     let save = {
         let nodes = s.build_frame(&mut tcx, 1120, 820);
         nodes
@@ -168,7 +169,8 @@ fn hover_anywhere_keeps_action_buttons_presented() {
         clock.clone(),
     );
     let mut tcx = TextContext::new();
-    s.build_and_paint(&mut scene_placeholder(), &mut tcx, 1120, 820, 1.);
+    s.try_build_and_paint(&mut scene_placeholder(), &mut tcx, 1120, 820, 1.)
+        .unwrap();
     // Sweep hover across the whole window like a moving mouse.
     for step in 0..40 {
         clock.advance(Duration::from_millis(16)).unwrap();
@@ -203,7 +205,8 @@ fn scene_rebuilds_never_lose_button_glyphs() {
     );
     let mut tcx = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
-    s.build_and_paint(&mut scene, &mut tcx, 1120, 820, 1.);
+    s.try_build_and_paint(&mut scene, &mut tcx, 1120, 820, 1.)
+        .unwrap();
     // Baseline scene content: count glyph runs and total glyphs.
     let baseline: (usize, usize) =
         scene
@@ -255,7 +258,7 @@ fn scene_rebuilds_never_lose_button_glyphs() {
             "tick {tick}: scene glyph content changed ({content:?} vs {baseline:?})"
         );
         assert_eq!(
-            s.adapter.stats.scene_builds + s.adapter.stats.scene_reuses,
+            s.frame_diagnostics().backend.scene_builds + s.frame_diagnostics().backend.scene_reuses,
             1
         );
     }

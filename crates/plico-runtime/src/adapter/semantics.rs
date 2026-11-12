@@ -2,12 +2,17 @@
 use super::*;
 
 impl Adapter {
+    pub(crate) fn invalidate_semantics(&mut self) {
+        let semantic = self.semantic.get_mut();
+        semantic.epoch = semantic.epoch.wrapping_add(1);
+    }
+
     /// Invalid SVG sources remain cached while referenced, avoiding parse retries every frame.
     pub fn svg_diagnostics(&self) -> impl Iterator<Item = &str> {
         self.svg_cache
             .values()
             .flat_map(|variants| variants.values())
-            .filter_map(|v| v.as_ref().err().map(|e| e.as_ref()))
+            .filter_map(|entry| entry.value.as_ref().err().map(|error| error.as_ref()))
     }
     pub fn semantics(&self, engine: &Engine, revision: u64) -> plico_renderer::SemanticSnapshot {
         (*self.semantics_shared(engine, revision)).clone()
@@ -64,6 +69,9 @@ impl Adapter {
                 let cached = cacheable
                     .then(|| self.semantic.borrow().nodes.get(&e).cloned())
                     .flatten();
+                let semantic_numeric = (n.style.role != Some(plico::WidgetRole::Group))
+                    .then_some(n.numeric)
+                    .flatten();
                 let mut semantic = if let Some(cached) = cached {
                     self.semantic.borrow_mut().reuses += 1;
                     cached
@@ -72,6 +80,7 @@ impl Adapter {
                     SemanticNode {
                         id: semantic_id(e),
                         role: match n.style.role {
+                            Some(plico::WidgetRole::Group) => Role::Group,
                             Some(plico::WidgetRole::CheckBox) => Role::CheckBox,
                             Some(plico::WidgetRole::Switch) => Role::Switch,
                             Some(plico::WidgetRole::ComboBox) => Role::ComboBox,
@@ -86,6 +95,7 @@ impl Adapter {
                             Some(plico::WidgetRole::Link) => Role::Link,
                             Some(plico::WidgetRole::Meter) => Role::Meter,
                             Some(plico::WidgetRole::ProgressBar) => Role::ProgressBar,
+                            Some(plico::WidgetRole::Status) => Role::Status,
                             Some(plico::WidgetRole::Slider) => Role::Slider,
                             Some(plico::WidgetRole::SpinButton) => Role::SpinButton,
                             Some(plico::WidgetRole::Separator) => Role::Separator,
@@ -115,11 +125,11 @@ impl Adapter {
                                 .find(|n| n.kind == Kind::Text)
                                 .map(|n| n.text.to_owned())
                         } else {
-                            n.numeric.map(|range| range.value.to_string())
+                            semantic_numeric.map(|range| range.value.to_string())
                         },
-                        numeric_value: n.numeric.map(|range| range.value),
-                        min_numeric_value: n.numeric.map(|range| range.min),
-                        max_numeric_value: n.numeric.map(|range| range.max),
+                        numeric_value: semantic_numeric.map(|range| range.value),
+                        min_numeric_value: semantic_numeric.map(|range| range.min),
+                        max_numeric_value: semantic_numeric.map(|range| range.max),
                         bounds: p.rect,
                         children: n
                             .children
@@ -245,7 +255,7 @@ impl Adapter {
         action: plico_renderer::SemanticAction,
     ) -> bool {
         use plico_renderer::SemanticAction;
-        self.semantic.get_mut().epoch = self.semantic.get_mut().epoch.wrapping_add(1);
+        self.invalidate_semantics();
         let target = match action {
             SemanticAction::Click { target }
             | SemanticAction::Focus { target }
@@ -278,17 +288,21 @@ impl Adapter {
         if !self.modal_allows(engine, e) || !engine.node(e).is_some_and(|n| !n.style.disabled) {
             return false;
         }
-        let caps = engine.node(e).unwrap().kind.capabilities();
+        let target_node = engine.node(e).unwrap();
+        let caps = target_node.kind.capabilities();
+        let semantic_group = target_node.style.role == Some(plico::WidgetRole::Group);
         let allowed = match action {
             SemanticAction::Focus { .. } | SemanticAction::Blur { .. } => {
-                caps.contains(Capabilities::FOCUS)
+                !semantic_group && caps.contains(Capabilities::FOCUS)
             }
             SemanticAction::Click { .. } => {
                 caps.intersects(Capabilities::ACTIVATE | Capabilities::FOCUS)
             }
             SemanticAction::SetNumericValue { .. }
             | SemanticAction::Increment { .. }
-            | SemanticAction::Decrement { .. } => caps.contains(Capabilities::VALUE_EDIT),
+            | SemanticAction::Decrement { .. } => {
+                !semantic_group && caps.contains(Capabilities::VALUE_EDIT)
+            }
             _ => false,
         };
         if !allowed {
@@ -304,6 +318,37 @@ impl Adapter {
             action
         };
         let old_focus = self.focused;
+        if let Some((owner, thumb)) = self.range_owner(engine, e)
+            && let Some(range) = engine.node(owner).and_then(|node| node.numeric)
+        {
+            let low = engine.pending_value(owner).unwrap_or(range.value);
+            let high = engine
+                .pending_high_value(owner)
+                .or(range.high)
+                .unwrap_or(low);
+            let current = if thumb == plico::SliderThumb::Minimum {
+                low
+            } else {
+                high
+            };
+            let value = match action {
+                SemanticAction::SetNumericValue { value, .. } => Some(value),
+                SemanticAction::Increment { .. } => Some(current + range.increment()),
+                SemanticAction::Decrement { .. } => Some(current - range.increment()),
+                _ => None,
+            };
+            if let Some(value) = value {
+                if !value.is_finite() {
+                    return false;
+                }
+                if thumb == plico::SliderThumb::Minimum {
+                    engine.queue_value(owner, range.normalize(value).min(high));
+                } else {
+                    engine.queue_high_value(owner, range.normalize(value).max(low));
+                }
+                return true;
+            }
+        }
         if let Some(range) = engine.node(e).and_then(|n| n.numeric) {
             let current = engine.pending_value(e).unwrap_or(range.value);
             let value = match action {

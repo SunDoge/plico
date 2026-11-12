@@ -54,7 +54,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 clock.clone(),
             );
             let mut scene = Scene::new();
-            source.render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.);
+            source
+                .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                .unwrap();
             if scene_copies.is_none() {
                 let mut deep = Vec::new();
                 let mut shared = Vec::new();
@@ -71,9 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             if mode != "idle" {
-                source.view.active = true;
-                source.request_rebuild();
-                source.render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.);
+                source.update(|view| view.active = true);
+                source
+                    .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                    .unwrap();
             }
             let mut times = Vec::new();
             let mut clones = 0;
@@ -83,7 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 clock.advance(Duration::from_millis(1))?;
                 let start = Instant::now();
                 if retained {
-                    black_box(source.render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.));
+                    black_box(
+                        source
+                            .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                            .unwrap(),
+                    );
                 } else {
                     let nodes = source.build_frame(&mut tcx, 800, 30000);
                     source.paint_scene(&mut scene, &nodes, &mut tcx, (800, 30000), 1.);
@@ -91,9 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     black_box(nodes);
                 }
                 times.push(start.elapsed().as_micros());
-                clones += source.adapter.stats.placed_node_clones;
-                layouts += source.adapter.stats.layout_runs;
-                builds += source.adapter.stats.scene_builds;
+                let backend = source.frame_diagnostics().backend;
+                clones += backend.placed_node_clones;
+                layouts += backend.layout_runs;
+                builds += backend.scene_builds;
             }
             if retained {
                 assert_eq!(clones, 0);

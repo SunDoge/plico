@@ -5,7 +5,7 @@
 //! the guard — which is what flushes the trace JSON.
 use plico::{UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use std::time::Duration;
 struct Demo {
     revision: u32,
@@ -38,12 +38,15 @@ fn main() {
         let mut source = Source::with_clock(Demo { revision: 0 }, clock.clone());
         let mut text = TextContext::new();
         let mut scene = Scene::new();
-        source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+        source
+            .try_build_and_paint(&mut scene, &mut text, 800, 600, 1.)
+            .unwrap();
         for frame in 0..8 {
             clock.advance(Duration::from_millis(16)).unwrap();
-            source.view.revision = frame;
-            source.request_rebuild();
-            source.build_and_paint(&mut scene, &mut text, 800, 600, 1.);
+            source.update(|view| view.revision = frame);
+            source
+                .try_build_and_paint(&mut scene, &mut text, 800, 600, 1.)
+                .unwrap();
         }
     }
     let Some(path) = path else {

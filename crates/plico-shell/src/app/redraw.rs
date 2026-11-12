@@ -29,7 +29,13 @@ impl App {
         let semantics_enabled = self.force_semantics || shell.accessibility.prepare_frame();
         self.source.set_semantics_enabled(semantics_enabled);
         for action in shell.accessibility.take_actions() {
-            self.source.prepare_for_event(&mut shell.tcx);
+            if let Err(source) = self.source.prepare_for_event(&mut shell.tcx) {
+                crate::telemetry::report_error(
+                    "accessibility event preparation rejected",
+                    &crate::Error::Frame { source },
+                );
+                break;
+            }
             self.source.handle_semantic_action(action);
         }
         let (node_count, build_frame_ms, scene_ms) =

@@ -63,6 +63,12 @@ fn tile(cx: &mut UiContext, x: f32, y: f32, scale: f32) {
 命中测试反变换指针到布局空间，并检查祖先裁剪。零缩放不可逆，因此不参与指针命中。
 slider 拖动、输入选择与 IME caret、tooltip 以及语义边界使用相应的呈现坐标。
 
+呈现几何现在直接保存在 `PlacedNode`，不再由 runtime 维护一份
+`HashMap<NodeId, Presentation>` 平行副本。局部传播范围没有扩大；变化子树仍按 preorder
+连续区间更新。runtime 的 scene 路径直接复用相同的 world transform，因此命中、语义和绘制
+不再分别查表或再次组合矩阵。独立使用 renderer 的低层调用者仍可走普通 scene API，由
+encoder 当场解析变换；runtime 使用已解析的专用入口，两个入口有命令流一致性回归。
+
 浮层是一个明确的依赖例外：移动 anchor 会改变独立 portal 的摆放，需要重定位并运行
 相应布局；浮层自身普通 opacity 动画不再引起这项工作。这里不承诺任意嵌套浮层零重排。
 

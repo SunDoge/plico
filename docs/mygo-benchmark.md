@@ -29,9 +29,9 @@ Rust 类型、children、编译期身份与 host 动画是 Plico 可以发挥的
 
 | MyGO 的设计 | Plico 的取舍与实际进度 |
 | --- | --- |
-| Context 管构建环境，独立函数返回 Element | 新增 UiContext 与 widgets::button/text/column 等函数；普通函数是主要应用组件入口。Ui 原方法兼容保留。 |
+| Context 管构建环境，独立函数返回 Element | UiContext 与 widgets::button/text/column 等函数是主要应用入口；不保留 Ui 兼容别名。 |
 | Element 为池化节点的短期句柄，运行时检查 build generation | 保留借用 Context 的真实 Rust builder，不引入每控件 RefCell/锁。配置结束时提交；还不能像通用 Element 那样创建后任意交错修改。 |
-| Children 暂时改变 Context.parent | 保留同步 children 与显式重新借用；component 支持合法 Rust 的双分号简写，view 宏已移除。 |
+| Children 暂时改变 Context.parent | 保留同步 children 与显式重新借用；使用普通 Rust 的 `+ |cx| { ... }` 或底层 `.children(...)`。 |
 | 行为 base 与主题外观分开 | button_base 已支持组合、焦点、语义与禁用继承；其余多 part 控件尚未迁入。 |
 | 颜色和 spacing/font/radius 来自同一个主题 | 公共 Theme/Metrics 同时用于默认控件与工作台，light/dark/compact 可实测。 |
 | 自定义 widget 是普通函数，可返回 Element | nav_item/project_tile 使用普通函数，panel 返回自定义可配置容器，不强制 Widget trait。 |

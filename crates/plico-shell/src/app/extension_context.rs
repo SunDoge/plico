@@ -224,8 +224,14 @@ impl ExtensionContext<'_> {
         let Some(app) = find_window_by_key(self.windows.values_mut(), window_key) else {
             return false;
         };
-        if let Some(shell) = app.state.as_mut() {
-            app.source.prepare_for_event(&mut shell.tcx);
+        if let Some(shell) = app.state.as_mut()
+            && let Err(source) = app.source.prepare_for_event(&mut shell.tcx)
+        {
+            crate::telemetry::report_error(
+                "semantic focus preparation rejected",
+                &crate::Error::Frame { source },
+            );
+            return false;
         }
         app.source
             .handle_semantic_action(SemanticAction::Focus { target: node_id })
@@ -243,8 +249,14 @@ impl ExtensionContext<'_> {
         let Some(app) = find_window_by_key(self.windows.values_mut(), window_key) else {
             return false;
         };
-        if let Some(shell) = app.state.as_mut() {
-            app.source.prepare_for_event(&mut shell.tcx);
+        if let Some(shell) = app.state.as_mut()
+            && let Err(source) = app.source.prepare_for_event(&mut shell.tcx)
+        {
+            crate::telemetry::report_error(
+                "semantic action preparation rejected",
+                &crate::Error::Frame { source },
+            );
+            return false;
         }
         app.source.handle_semantic_action(action)
     }

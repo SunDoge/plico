@@ -45,7 +45,7 @@ impl MultiWindowApp {
     }
 
     pub(super) fn release_window_resource(&mut self, window_key: WindowResourceKey) {
-        let key = WindowSlotKey::from(KeyData::from_ffi(window_key.as_ffi()));
+        let key = WindowSlotKey::from(KeyData::from_ffi(window_key.into_packed()));
         self.window_resources.remove(key);
     }
 
@@ -169,7 +169,7 @@ impl MultiWindowApp {
             };
             let key = self.window_resources.insert(());
             let window_id = key.data().as_ffi();
-            let window_key = crate::WindowResourceKey::from_ffi(window_id)
+            let window_key = crate::WindowResourceKey::from_packed(window_id)
                 .expect("live window registry key must be valid");
             let result = match factory(window_key, &request.options) {
                 Ok(source) => {
@@ -315,7 +315,7 @@ impl ApplicationHandler for MultiWindowApp {
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
         for mut app in self.pending.drain(..) {
             app.window_key =
-                WindowResourceKey::from_ffi(self.window_resources.insert(()).data().as_ffi())
+                WindowResourceKey::from_packed(self.window_resources.insert(()).data().as_ffi())
                     .expect("live window registry key must be valid");
             app.can_create_surfaces(event_loop);
             if let Some(id) = app.state.as_ref().map(|shell| shell.window().id()) {

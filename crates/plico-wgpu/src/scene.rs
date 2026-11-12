@@ -1,6 +1,6 @@
 //! Supported shared paint replay. Unsupported operations are errors, never omissions.
 use crate::{Draw, Error, Quad, Renderer, Result};
-use kurbo::{Affine, Rect};
+use kurbo::{Affine, Rect, Shape};
 use peniko::Brush;
 use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
@@ -59,6 +59,7 @@ struct PreparedText {
     scale: f64,
     color: [f32; 4],
     clip: [f32; 4],
+    clip_radii: [f32; 4],
 }
 enum PreparedDraw {
     Quad(usize),
@@ -82,6 +83,18 @@ fn layer_draw(payloads: &mut Payloads, layer: PreparedLayer) -> PreparedDraw {
     PreparedDraw::Layer(stash(&mut payloads.layers, layer))
 }
 impl PreparedDraw {
+    fn set_clip_radii(&self, payloads: &mut Payloads, radii: [f32; 4]) {
+        match self {
+            Self::Quad(index) => payloads.quads[*index].clip_radii = radii,
+            Self::Layer(index) => payloads.layers[*index].quad.clip_radii = radii,
+            Self::Effect(index) => payloads.effects[*index].1.clip_radii = radii,
+            Self::Image(index) => payloads.images[*index].quad.clip_radii = radii,
+            Self::SetMask(_) | Self::ResetMask => {}
+            #[cfg(all(target_os = "linux", feature = "system-text"))]
+            Self::Text(index) => payloads.text[*index].clip_radii = radii,
+        }
+    }
+
     fn ink_bounds(&self, payloads: &Payloads) -> Rect {
         let bounds = |q: &Quad| {
             let [x, y, w, h] = q.rect;
@@ -160,6 +173,14 @@ impl PreparedScene {
                 .layers
                 .iter()
                 .any(|layer| layer.scene.reads_backdrop())
+    }
+    pub(crate) fn occlusion_cullable(&self) -> bool {
+        self.payloads.effects.is_empty()
+            && self
+                .payloads
+                .layers
+                .iter()
+                .all(|layer| layer.scene.occlusion_cullable())
     }
     fn content_bounds(&self) -> Option<Rect> {
         let mut mask = None;
@@ -276,6 +297,7 @@ impl PreparedScene {
                 let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
                 run.scale = text.scale;
                 run.clip = Some(text.clip);
+                run.clip_radii = text.clip_radii;
                 run.clip_antialias = true;
                 Draw::Text(run)
             }
@@ -362,6 +384,71 @@ fn geometry(shape: &PaintShape, index: usize) -> Result<(Rect, [f64; 4])> {
             "arbitrary paths need a path raster backend",
         )),
     }
+}
+
+fn contains_rect(outer: Rect, inner: Rect) -> bool {
+    outer.x0 <= inner.x0 && outer.y0 <= inner.y0 && outer.x1 >= inner.x1 && outer.y1 >= inner.y1
+}
+
+/// A deliberately narrow first form of MyGO's analytic clip reduction: the
+/// rounded clip must be a leaf scope. Nested clips/layers keep the existing
+/// mask path until their intersections can be reduced as one chain.
+fn leaf_clip_scope(commands: &[PaintCommand], index: usize) -> bool {
+    for command in &commands[index + 1..] {
+        match command {
+            PaintCommand::PushClip { .. } | PaintCommand::PushLayer { .. } => return false,
+            PaintCommand::PopLayer => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+#[derive(Clone, Copy)]
+struct AnalyticClip {
+    rect: Rect,
+    radii: [f32; 4],
+}
+
+#[derive(Clone, Copy)]
+struct ClipParent {
+    rect: Rect,
+    masked: bool,
+    radii: [f32; 4],
+}
+
+fn reduce_leaf_clip(
+    commands: &[PaintCommand],
+    index: usize,
+    primitive: Option<(Rect, [f64; 4])>,
+    transform: Affine,
+    parent: ClipParent,
+    disabled: bool,
+) -> Option<AnalyticClip> {
+    if disabled || parent.masked || parent.radii != [0.; 4] || !leaf_clip_scope(commands, index) {
+        return None;
+    }
+    let (rect, radii) = primitive?;
+    if radii.iter().all(|radius| *radius == 0.) {
+        return None;
+    }
+    let (scale, _) = uniform(transform, index).ok()?;
+    let rect = transform.transform_rect_bbox(rect);
+    contains_rect(parent.rect, rect).then(|| AnalyticClip {
+        rect,
+        radii: radii.map(|radius| (radius * scale) as f32),
+    })
+}
+
+// Mask cache storage includes raster padding. Analytical clips retain their
+// exact transformed bounds separately, like MyGO's clip.scissor + maskArea;
+// arbitrary paths keep the conservative raster extent for AA correctness.
+fn mask_clip_bounds(shape: &PaintShape, transform: Affine, storage: Rect) -> Rect {
+    shape.primitive().map_or(storage, |_| {
+        transform
+            .transform_rect_bbox(shape.bounding_box())
+            .intersect(storage)
+    })
 }
 fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
     let (scale, [tx, ty]) = uniform(transform, index)?;
@@ -543,6 +630,7 @@ impl Renderer {
         };
         let scene = &flattened;
         let mut clips = vec![root_clip];
+        let mut analytic_clips = vec![[0.; 4]];
         let mut masks: Vec<Option<std::rc::Rc<crate::mask::CoverageMask>>> = vec![None];
         let mut draws = Vec::new();
         let mut payloads = Payloads::default();
@@ -927,7 +1015,8 @@ impl Renderer {
                             {
                                 let mask =
                                     self.masks.intersect(image, bounds, parent.as_deref())?;
-                                layer_clip = layer_clip.intersect(mask.bounds());
+                                let bounds = mask_clip_bounds(shape, *transform, mask.bounds());
+                                layer_clip = layer_clip.intersect(bounds);
                                 composite_mask = Some(mask);
                             } else {
                                 layer_clip = Rect::ZERO;
@@ -993,11 +1082,28 @@ impl Renderer {
                             return Err(unsupported(index, "clip depth exceeds 128"));
                         }
                         let previous = masks.last().unwrap().clone();
-                        if let Ok((rect, radii)) = geometry(shape, index)
-                            && radii.iter().all(|r| *r == 0.)
+                        let primitive = geometry(shape, index).ok();
+                        if let Some((rect, radii)) = primitive
                             && uniform(*transform, index).is_ok()
+                            && radii.iter().all(|radius| *radius == 0.)
                         {
                             clips.push(clip.intersect(transform.transform_rect_bbox(rect)));
+                            analytic_clips.push([0.; 4]);
+                            masks.push(previous);
+                        } else if let Some(analytic) = reduce_leaf_clip(
+                            &scene.commands,
+                            index,
+                            primitive,
+                            *transform,
+                            ClipParent {
+                                rect: clip,
+                                masked: previous.is_some(),
+                                radii: *analytic_clips.last().unwrap(),
+                            },
+                            self.force_no_analytic_clip_reduction,
+                        ) {
+                            clips.push(analytic.rect);
+                            analytic_clips.push(analytic.radii);
                             masks.push(previous);
                         } else {
                             let command = PaintCommand::Fill {
@@ -1016,11 +1122,14 @@ impl Renderer {
                             if let Some((image, bounds)) = raster {
                                 let mask =
                                     self.masks.intersect(image, bounds, previous.as_deref())?;
-                                clips.push(clip.intersect(mask.bounds()));
+                                let bounds = mask_clip_bounds(shape, *transform, mask.bounds());
+                                clips.push(clip.intersect(bounds));
+                                analytic_clips.push([0.; 4]);
                                 masks.push(Some(mask.clone()));
                                 draws.push(PreparedDraw::SetMask(mask));
                             } else {
                                 clips.push(Rect::ZERO);
+                                analytic_clips.push([0.; 4]);
                                 masks.push(previous);
                             }
                         }
@@ -1030,6 +1139,7 @@ impl Renderer {
                             return Err(unsupported(index, "unbalanced clip pop"));
                         }
                         clips.pop();
+                        analytic_clips.pop();
                         let old = masks.pop().unwrap();
                         let restored = masks.last().unwrap();
                         let same = match (&old, restored) {
@@ -1196,6 +1306,7 @@ impl Renderer {
                                     clip.width() as f32,
                                     clip.height() as f32,
                                 ],
+                                clip_radii: [0.; 4],
                             });
                             draws.push(PreparedDraw::Text(payloads.text.len() - 1));
                         }
@@ -1376,6 +1487,12 @@ impl Renderer {
                     }
                 }
             }
+            let clip_radii = *analytic_clips.last().unwrap();
+            if clip_radii != [0.; 4] {
+                for draw in &draws[first_draw..] {
+                    draw.set_clip_radii(&mut payloads, clip_radii);
+                }
+            }
             // Bounds come from the native geometry actually submitted, not a
             // second paragraph engine with potentially different metrics.
             if ink[index].is_none()
@@ -1384,7 +1501,7 @@ impl Renderer {
                 ink[index] = Some(draw.ink_bounds(&payloads));
             }
         }
-        if clips.len() != 1 {
+        if clips.len() != 1 || analytic_clips.len() != 1 {
             return Err(unsupported(scene.commands.len(), "unclosed clip scopes"));
         }
         let prepared = std::rc::Rc::new(PreparedScene {

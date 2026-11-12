@@ -7,7 +7,6 @@ description = "Host-agnostic declaration runtime for Plico: adapter, source, vie
 
 [dependencies]
 unicode-segmentation = "1.12"
-slotmap.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 web-time = "1.1"
@@ -18,12 +17,12 @@ plico-motion.workspace = true
 taffy.workspace = true
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
-plico-dev.workspace = true
 snafu.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 gallery = { path = "../../apps/gallery" }
+plico-dev.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 plico-shell.workspace = true

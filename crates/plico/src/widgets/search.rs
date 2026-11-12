@@ -25,6 +25,7 @@ const SEARCH: SvgAsset = SvgAsset::new(
 pub struct SearchResponse {
     changed: bool,
     submitted: bool,
+    navigation: Option<crate::InputNavigation>,
 }
 
 impl SearchResponse {
@@ -35,6 +36,9 @@ impl SearchResponse {
     /// Enter was pressed in the field.
     pub const fn submitted(self) -> bool {
         self.submitted
+    }
+    pub(crate) const fn navigation(self) -> Option<crate::InputNavigation> {
+        self.navigation
     }
 }
 
@@ -57,7 +61,7 @@ pub fn search_field(
     placeholder: &str,
     value: &mut String,
 ) -> SearchResponse {
-    search_field_with(cx, label, placeholder, value, false)
+    search_field_with(cx, label, placeholder, value, false, false)
 }
 
 /// [`search_field`] with a one-shot focus request when the field mounts, for
@@ -68,10 +72,12 @@ pub(crate) fn search_field_with(
     placeholder: &str,
     value: &mut String,
     autofocus: bool,
+    find_navigation: bool,
 ) -> SearchResponse {
     let m = cx.theme().metrics;
     let mut changed = false;
     let mut submitted = false;
+    let mut navigation = None;
     cx.input_field()
         .align(Align::Center)
         .gap(m.spacing as f32 * 1.5)
@@ -82,6 +88,8 @@ pub(crate) fn search_field_with(
             let response = text_input_string(cx, label, value)
                 .placeholder(placeholder)
                 .autofocus(autofocus)
+                .select_all_on_autofocus(autofocus)
+                .find_navigation(find_navigation)
                 .unstyled()
                 .width(0.)
                 .min_width(0.)
@@ -89,8 +97,9 @@ pub(crate) fn search_field_with(
                 .height(m.font_size as f32 * 1.4)
                 .min_height(0.)
                 .response();
-            changed |= response.changed;
-            submitted |= response.submitted;
+            changed |= response.changed();
+            submitted |= response.submitted();
+            navigation = response.navigation();
             if !value.is_empty()
                 && button_base(cx, "Clear search")
                     .width(m.space(5) as f32)
@@ -112,5 +121,9 @@ pub(crate) fn search_field_with(
                 changed = true;
             }
         });
-    SearchResponse { changed, submitted }
+    SearchResponse {
+        changed,
+        submitted,
+        navigation,
+    }
 }

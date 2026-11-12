@@ -1,7 +1,7 @@
 //! Isolate post-hint geometric expansion on an integer-aligned one-pixel stem.
 use kurbo::{Affine, Diagonal2, Join, Rect, Shape, expand_path};
 use peniko::{Color, Fill};
-use plico_shell::{PaintScene, Scene};
+use plico_renderer::{PaintScene, Scene};
 
 fn main() {
     let output = std::path::Path::new("reports/hinted-embolden");

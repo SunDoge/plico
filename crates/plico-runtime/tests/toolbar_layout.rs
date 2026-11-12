@@ -26,8 +26,7 @@ fn spacer_absorbs_extra_width_and_keeps_trailing_action_at_the_end() {
         source.build_frame(&mut text, width, 200);
         let find = |label: &str| {
             source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .find(|placed| placed.paint.text.as_deref() == Some(label))
                 .unwrap()

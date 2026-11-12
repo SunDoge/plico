@@ -60,16 +60,14 @@ fn main() {
                     "Preferences"
                 };
                 let target = source
-                    .adapter
-                    .semantics(&source.engine, 0)
+                    .semantics()
                     .node_by_role(SemanticRole::Button, label, None)
                     .unwrap()
                     .id;
                 assert!(source.handle_semantic_action(SemanticAction::Click { target }));
             }
             90 => {
-                source.view.dark = true;
-                source.request_rebuild();
+                source.update(|view| view.dark = true);
             }
             120 => {
                 for command in [
@@ -102,12 +100,9 @@ fn main() {
             _ => {}
         }
         clock.advance(Duration::from_millis(16)).unwrap();
-        source.render_retained_frame(&mut scene, &mut text, (1100, 820), 1.);
-        assert!(
-            source.last_error.is_none(),
-            "frame {frame}: {:?}",
-            source.last_error
-        );
+        source
+            .render_retained_frame(&mut scene, &mut text, (1100, 820), 1.)
+            .unwrap();
         let t = Instant::now();
         let damage = tracked
             .draw_scene_tracked(&scene, source.base_color())

@@ -46,12 +46,33 @@ impl Renderer {
             stats.backdrop_context_bytes +=
                 u64::from(context.size[0]) * u64::from(context.size[1]) * 4;
         }
+        let (entries, bytes, allocations, reuses) = self.backdrop_pool.stats();
+        stats.backdrop_entries = entries;
+        stats.backdrop_bytes = bytes;
+        stats.backdrop_allocations = allocations;
+        stats.backdrop_reuses = reuses;
+        if let Some(compositor) = &self.backdrop_compositor {
+            let (entries, allocations, reuses) = compositor.uniform_stats();
+            stats.backdrop_uniform_entries = entries;
+            stats.backdrop_uniform_allocations = allocations;
+            stats.backdrop_uniform_reuses = reuses;
+        }
+        if let Some(effects) = &self.effects {
+            let (entries, allocations, reuses) = effects.direct_uniform_stats();
+            stats.backdrop_effect_uniform_entries = entries;
+            stats.backdrop_effect_uniform_allocations = allocations;
+            stats.backdrop_effect_uniform_reuses = reuses;
+        }
         stats
     }
     /// Release idle intermediate targets without invalidating retained final pixels.
     pub fn trim_layer_pool(&mut self) {
         self.backdrop_contexts.clear();
         self.context_charged.clear();
+        self.backdrop_pool.clear();
+        if let Some(compositor) = &mut self.backdrop_compositor {
+            compositor.clear_uniforms();
+        }
         self.layer_pool.clear();
         self.layer_used.clear();
         self.clear_frame_images();
@@ -149,6 +170,7 @@ impl Renderer {
         &mut self,
         layer: &crate::scene::PreparedLayer,
         inherited: Option<crate::backdrop_context::Context>,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<LayerRaster> {
         let [x, y, width, height] = layer.quad.rect;
         let size = [width as u32, height as u32];
@@ -238,16 +260,17 @@ impl Renderer {
         let parent_backdrops = std::mem::take(&mut self.backdrop_effects);
         let parent_layers = std::mem::take(&mut self.deferred_layers);
         let parent_context = std::mem::replace(&mut self.inherited_backdrop, inherited);
-        let encoded = self.encode_frame_at(
+        let encoded = self.encode_frame_into(
             DrawSource::Prepared(&layer.scene),
             size,
             [0.; 4],
             0.,
             None,
             [x, y],
+            encoder,
         );
         let mut resource = cached_image;
-        let result = encoded.map(|mut encoder| {
+        let result = encoded.map(|()| {
             let image = if let Some(image) = &resource {
                 self.layer_reuses += 1;
                 image.clone()
@@ -282,12 +305,11 @@ impl Renderer {
                     self.filter_reuses += 1;
                 }
                 let (work, image) = workspace.as_ref().unwrap();
-                pipeline.encode(&self.queue, &mut encoder, work, blur.sigma, blur.edge);
+                pipeline.encode(&self.queue, encoder, work, blur.sigma, blur.edge);
                 (image.clone(), work.output.clone())
             } else {
                 (image, self.target.as_ref().unwrap().texture.clone())
             };
-            self.pending_commands.push(encoder.finish());
             LayerRaster { image, texture }
         });
         let child_buffers = LayerBuffers {

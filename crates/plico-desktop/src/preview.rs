@@ -111,6 +111,12 @@ pub struct PreviewSession {
     backend: crate::RenderBackend,
     renderer: Option<crate::capture::CaptureRenderer>,
     dimensions: (u32, u32),
+    #[cfg(feature = "wgpu")]
+    force_general_pipelines: bool,
+    #[cfg(feature = "wgpu")]
+    force_no_occlusion_culling: bool,
+    #[cfg(feature = "wgpu")]
+    force_no_ring_splitting: bool,
 }
 impl PreviewSession {
     pub fn new(backend: crate::RenderBackend) -> Self {
@@ -118,6 +124,36 @@ impl PreviewSession {
             backend,
             renderer: None,
             dimensions: (0, 0),
+            #[cfg(feature = "wgpu")]
+            force_general_pipelines: false,
+            #[cfg(feature = "wgpu")]
+            force_no_occlusion_culling: false,
+            #[cfg(feature = "wgpu")]
+            force_no_ring_splitting: false,
+        }
+    }
+    /// Compare captures with every quad class drawn by the general shader.
+    #[cfg(feature = "wgpu")]
+    pub fn force_general_pipelines(&mut self, force: bool) {
+        self.force_general_pipelines = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_general_pipelines(force);
+        }
+    }
+    /// Disable conservative painter-order culling for pixel/performance A/Bs.
+    #[cfg(feature = "wgpu")]
+    pub fn force_no_occlusion_culling(&mut self, force: bool) {
+        self.force_no_occlusion_culling = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_occlusion_culling(force);
+        }
+    }
+    /// Disable large border-only scissor splitting for pixel/performance A/Bs.
+    #[cfg(feature = "wgpu")]
+    pub fn force_no_ring_splitting(&mut self, force: bool) {
+        self.force_no_ring_splitting = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_ring_splitting(force);
         }
     }
     /// Renderer CPU stages and GPU time from the most recent capture.
@@ -125,6 +161,13 @@ impl PreviewSession {
         self.renderer
             .as_ref()
             .and_then(|renderer| renderer.frame_budget())
+    }
+    /// Renderer batching and specialized-pipeline counters from the latest capture.
+    #[cfg(feature = "wgpu")]
+    pub fn last_batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
+        self.renderer
+            .as_ref()
+            .and_then(|renderer| renderer.batch_stats())
     }
     /// Name reported by the active GPU adapter, for reproducible profiling.
     pub fn adapter_name(&self) -> Option<&str> {
@@ -141,11 +184,14 @@ impl PreviewSession {
         let fixed_size = matches!(self.backend, crate::RenderBackend::Skia)
             || (matches!(self.backend, crate::RenderBackend::Auto) && !cfg!(feature = "wgpu"));
         if self.renderer.is_none() || (fixed_size && self.dimensions != (width, height)) {
-            self.renderer = Some(crate::capture::CaptureRenderer::new(
-                self.backend,
-                width,
-                height,
-            )?);
+            let mut renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
+            #[cfg(feature = "wgpu")]
+            renderer.force_general_pipelines(self.force_general_pipelines);
+            #[cfg(feature = "wgpu")]
+            renderer.force_no_occlusion_culling(self.force_no_occlusion_culling);
+            #[cfg(feature = "wgpu")]
+            renderer.force_no_ring_splitting(self.force_no_ring_splitting);
+            self.renderer = Some(renderer);
             self.dimensions = (width, height);
         }
         Ok(self.renderer.as_mut().unwrap())
@@ -227,14 +273,14 @@ impl<S> PreviewScenario<S> {
             .configure_text(&mut text, v.scale)
             .map_err(|source| PreviewError::Capture { source })?;
         let frame = |source: &mut F, text: &mut TextContext| -> Result<(), PreviewError> {
-            source.build_frame(text, v.width, v.height);
-            if let Some(error) = &source.ui_source().last_error {
-                return Err(PreviewError::Input {
+            source
+                .ui_source()
+                .try_build_frame(text, v.width, v.height)
+                .map_err(|error| PreviewError::Input {
                     source: plico_runtime::testing::Error::Declaration {
                         message: error.to_string(),
                     },
-                });
-            }
+                })?;
             Ok(())
         };
         frame(&mut source, &mut text)?;
@@ -260,13 +306,6 @@ impl<S> PreviewScenario<S> {
             .scale(v.scale)
             .render_with_borrowed(renderer, &mut text)
             .map_err(|source| PreviewError::Capture { source })?;
-        if let Some(error) = &source.ui_source().last_error {
-            return Err(PreviewError::Input {
-                source: plico_runtime::testing::Error::Declaration {
-                    message: error.to_string(),
-                },
-            });
-        }
         Ok(image)
     }
 }

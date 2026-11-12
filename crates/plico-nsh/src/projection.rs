@@ -134,9 +134,11 @@ fn validate_node(node: &NodeRef<'_>) -> Result<(), Error> {
     } else if style.checked
         || style.input_revision != 0
         || style.input_navigation
+        || style.input_find_navigation
         || style.input_password_visible
         || style.shader_revision != 0
         || style.numeric_revision != 0
+        || style.slider_thumb.is_some()
         || style.slider.is_some()
     {
         Some("control state without a supported control")

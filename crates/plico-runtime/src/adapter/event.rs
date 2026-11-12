@@ -371,9 +371,6 @@ impl Adapter {
         items.get(next).copied()
     }
 
-    pub fn event(&mut self, engine: &mut Engine, event: UiEvent) -> EventResponse {
-        self.event_with_invalidation(engine, event).0
-    }
     /// A repaint does not always require evaluating application declarations.
     /// Keep this distinction internal; the public event response still tells
     /// every host when it needs to present another frame.

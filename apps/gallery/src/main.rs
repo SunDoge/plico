@@ -10,6 +10,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         /// and pipelines are warm when `PLICO_FRAME_BUDGET` is printed.
         #[usage(long)]
         frames: Option<u32>,
+        /// Draw every wgpu quad class through the general shader for A/B profiles.
+        #[usage(long)]
+        general_classes: bool,
+        /// Keep draws hidden by later opaque rectangles for A/B profiles.
+        #[usage(long)]
+        no_occlusion_culling: bool,
+        /// Shade the transparent interiors of large border-only quads for A/B profiles.
+        #[usage(long)]
+        no_ring_splitting: bool,
     }
     let options = Options::parse();
     #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
@@ -19,6 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(any(feature = "desktop", feature = "wgpu", feature = "skia"))]
     if let Some(output) = options.capture {
         let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Auto);
+        #[cfg(feature = "wgpu")]
+        session.force_general_pipelines(options.general_classes);
+        #[cfg(feature = "wgpu")]
+        session.force_no_occlusion_culling(options.no_occlusion_culling);
+        #[cfg(feature = "wgpu")]
+        session.force_no_ring_splitting(options.no_ring_splitting);
         let mut captured = None;
         for _ in 0..options.frames.unwrap_or(1).max(1) {
             let scenario = if let Some(path) = &options.scenario {
@@ -36,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             println!("adapter: {}", session.adapter_name().unwrap_or("unknown"));
             println!(
-                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} instances, {} draws, {} KiB uploaded",
+                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} instances, {} draws, {} KiB uploaded",
                 budget.prepare_ms,
                 budget.upload_ms,
                 budget.encode_ms,
@@ -46,10 +61,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .gpu_ms
                     .map_or_else(|| "n/a".to_owned(), |ms| format!("{ms:.2}ms")),
                 budget.submissions,
+                budget.command_buffers,
                 budget.instances,
                 budget.draw_calls,
                 budget.upload_bytes / 1024,
             );
+            #[cfg(feature = "wgpu")]
+            if let Some(stats) = session.last_batch_stats() {
+                println!(
+                    "class draws: plain={} fill={} shadow={} glyph={} color-glyph={} image={} general-or-joined={} occlusion-culled={} ring-split={}",
+                    stats.plain_draw_calls,
+                    stats.fill_draw_calls,
+                    stats.shadow_draw_calls,
+                    stats.glyph_draw_calls,
+                    stats.color_glyph_draw_calls,
+                    stats.image_draw_calls,
+                    stats.draw_calls.saturating_sub(
+                        stats.plain_draw_calls
+                            + stats.fill_draw_calls
+                            + stats.shadow_draw_calls
+                            + stats.glyph_draw_calls
+                            + stats.color_glyph_draw_calls
+                            + stats.image_draw_calls
+                    ),
+                    stats.occlusion_culled_draws,
+                    stats.ring_split_quads,
+                );
+            }
         }
         return Ok(());
     }

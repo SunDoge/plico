@@ -19,12 +19,14 @@ impl HostView for Flex {
             .children(|ui| {
                 ui.column()
                     .key("fixed")
+                    .background(plico::Color::Literal(0x110000))
                     .width(80.)
                     .shrink(0.)
                     .height(30.)
                     .children(|_ui| {});
                 ui.column()
                     .key("grow")
+                    .background(plico::Color::Literal(0x001100))
                     .width(0.)
                     .grow(1.)
                     .height(50.)
@@ -32,6 +34,7 @@ impl HostView for Flex {
                 let _ = ui
                     .column()
                     .key("ratio")
+                    .background(plico::Color::Literal(0x000011))
                     .width_percent(25.)
                     .shrink(0.)
                     .height(70.)
@@ -40,19 +43,15 @@ impl HostView for Flex {
     }
 }
 fn rect(s: &Source<Flex>, key: &str) -> [f32; 4] {
-    // Fixture keys, not application identity generation.
-    let row = s.engine.find(s.engine.root(), "row").unwrap();
-    let key = match key {
-        "fixed" => "fixed",
-        "grow" => "grow",
-        _ => "ratio",
+    let index = match key {
+        "fixed" => 0,
+        "grow" => 1,
+        _ => 2,
     };
-    let entity = s.engine.find(row, key).unwrap();
-    let id = s.adapter.backend_id(entity).unwrap();
-    s.adapter
-        .placed
+    s.placed_nodes()
         .iter()
-        .find(|n| n.node_id == id)
+        .filter(|node| node.paint.background.is_some())
+        .nth(index)
         .unwrap()
         .rect
 }
@@ -65,7 +64,6 @@ fn fixed_grow_and_percentage_share_space_and_resize() {
     let mut tcx = TextContext::new();
     for width in [400, 800] {
         s.build_frame(&mut tcx, width, 200);
-        assert!(s.last_error.is_none());
         let fixed = rect(&s, "fixed");
         let grow = rect(&s, "grow");
         let ratio = rect(&s, "ratio");
@@ -84,14 +82,13 @@ fn cross_axis_changes_invalidate_geometry_and_settle() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 200);
     assert_eq!(rect(&s, "fixed")[1], 0.);
-    s.view.align = Align::End;
+    s.update(|view| view.align = Align::End);
     s.build_frame(&mut tcx, 400, 200);
-    assert!(s.engine.changes().contains(plico::Changes::LAYOUT));
-    assert_eq!(s.adapter.stats.layout_runs, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 1);
     assert_eq!(rect(&s, "fixed")[1], 130.);
     s.build_frame(&mut tcx, 400, 200);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.sync_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
 }
 struct Wrap(bool);
 impl HostView for Wrap {
@@ -111,14 +108,13 @@ fn wrap_reflows_real_children_instead_of_manually_positioning_them() {
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 300, 200);
     let y = |s: &Source<Wrap>, label: &str| {
-        s.adapter
-            .semantics(&s.engine, 0)
+        s.semantics()
             .node_by_role(plico_renderer::SemanticRole::Label, label, None)
             .unwrap()
             .bounds[1]
     };
     assert_eq!(y(&s, "item-0"), y(&s, "item-2"));
-    s.view.0 = true;
+    s.update(|view| view.0 = true);
     s.build_frame(&mut tcx, 300, 200);
     assert!(y(&s, "item-2") > y(&s, "item-0"));
 }

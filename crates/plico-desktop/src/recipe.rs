@@ -2,7 +2,7 @@
 //! Each case gets a fresh app, input state and virtual clock; only renderer resources are shared.
 use crate::{CaptureError, CapturedFrame, HostView, PreviewSession, PreviewViewport, Source};
 use plico::VirtualClock;
-use plico_renderer::{FrameSource, SemanticRole, SemanticSnapshot, TextContext};
+use plico_renderer::{SemanticRole, SemanticSnapshot, TextContext};
 use plico_runtime::testing::{Command, dispatch};
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -299,13 +299,11 @@ fn frame<V: HostView>(
     text: &mut TextContext,
     viewport: PreviewViewport,
 ) -> Result<(), RecipeError> {
-    source.build_frame(text, viewport.width, viewport.height);
-    if let Some(error) = &source.last_error {
-        return Err(failed(error.to_string()));
-    }
+    source
+        .try_build_frame(text, viewport.width, viewport.height)
+        .map_err(|error| failed(error.to_string()))?;
     if source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .any(|n| !n.rect.iter().all(|x| x.is_finite()))
     {
@@ -317,8 +315,7 @@ fn check<V: HostView>(source: &Source<V>, assertion: &Assertion) -> Result<(), R
     match assertion {
         Assertion::Text { text, present } => {
             let found = source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|node| node.paint.text.as_deref() == Some(text));
             if found != *present {
@@ -328,7 +325,7 @@ fn check<V: HostView>(source: &Source<V>, assertion: &Assertion) -> Result<(), R
             }
         }
         Assertion::Nodes { selector, expect } => {
-            let snapshot = source.adapter.semantics(&source.engine, 0);
+            let snapshot = source.semantics();
             let matches: Vec<_> = snapshot
                 .exposed_nodes()
                 .into_iter()
@@ -391,7 +388,7 @@ fn wait_for<V: HostView>(
     assertion: &Assertion,
     timing: WaitTiming,
 ) -> Result<(), RecipeError> {
-    let mut last_error = match check(source, assertion) {
+    let mut last_failure = match check(source, assertion) {
         Ok(()) => return Ok(()),
         Err(error) => error,
     };
@@ -406,11 +403,11 @@ fn wait_for<V: HostView>(
         frame(source, text, viewport)?;
         match check(source, assertion) {
             Ok(()) => return Ok(()),
-            Err(error) => last_error = error,
+            Err(error) => last_failure = error,
         }
     }
     Err(failed(format!(
-        "wait timed out after {} ms: {last_error}",
+        "wait timed out after {} ms: {last_failure}",
         timing.timeout_ms
     )))
 }
@@ -502,22 +499,15 @@ fn run_case<S, V: HostView>(
                                 occurrence,
                             },
                             Command::KeyEvent {
-                                event: plico_renderer::KeyEvent {
-                                    phase: plico_renderer::KeyPhase::Down,
-                                    key: "a".into(),
-                                    key_without_modifiers: "a".into(),
-                                    code: "KeyA".into(),
-                                    text: None,
-                                    text_with_all_modifiers: None,
-                                    location: plico_renderer::KeyLocation::Standard,
-                                    modifiers: if cfg!(target_os = "macos") {
+                                event: plico_renderer::KeyEvent::logical(
+                                    plico_renderer::KeyPhase::Down,
+                                    "a",
+                                    if cfg!(target_os = "macos") {
                                         plico::Modifiers::META
                                     } else {
                                         plico::Modifiers::CONTROL
                                     },
-                                    repeat: false,
-                                    synthetic: false,
-                                },
+                                ),
                             },
                             Command::Key {
                                 key: "Backspace".into(),
@@ -554,8 +544,7 @@ fn run_case<S, V: HostView>(
                         },
                     )?,
                     Operation::Event { event: value } => {
-                        event(&mut source.view, &value).map_err(failed)?;
-                        source.request_rebuild();
+                        source.update(|view| event(view, &value)).map_err(failed)?;
                     }
                     Operation::Capture { name } => {
                         if let Some(renderer) = renderer.as_deref_mut() {
@@ -606,10 +595,9 @@ fn run_case<S, V: HostView>(
         Ok(())
     })();
     if execute.is_err() {
-        result.evidence = evidence(&source.adapter.semantics(&source.engine, 0));
+        result.evidence = evidence(&source.semantics());
         result.rendered_text = source
-            .adapter
-            .placed
+            .placed_nodes()
             .iter()
             .filter_map(|node| node.paint.text.as_deref().map(str::to_owned))
             .collect();

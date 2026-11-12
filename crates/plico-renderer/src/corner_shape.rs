@@ -256,7 +256,8 @@ mod tests {
             corners: [corner; 4],
             amount: 1.,
         };
-        for el in shape.elements() {
+        let path = shape.clone().into_bez_path();
+        for el in path.elements() {
             if let kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) = el {
                 assert!(
                     contour.value(*p).abs() < 0.00001,
@@ -264,7 +265,7 @@ mod tests {
                 );
             }
         }
-        assert!(shape.elements().len() < 512);
+        assert!(shape.clone().into_bez_path().elements().len() < 512);
         let moved = corner_shape(
             Rect::new(10., 20., 310., 180.),
             CornerRadii::uniform(28.),

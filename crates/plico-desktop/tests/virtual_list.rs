@@ -46,55 +46,49 @@ fn large_list_scrolls_to_real_rows_and_clamps_after_shrink() {
     });
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.built, (0..7).collect::<Vec<_>>());
+    assert_eq!(source.view().built, (0..7).collect::<Vec<_>>());
     // A composable button includes its row, control and label. Bound the
     // retained projection by mounted rows rather than the old leaf-button count.
-    assert!(source.adapter.placed.len() < source.view.built.len() * 4 + 8);
+    assert!(source.placed_nodes().len() < source.view().built.len() * 4 + 8);
     let port = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap();
     assert_eq!(port.scroll.range[1], 399_820.);
     assert!(source.handle_event(wheel(4000.)).handled);
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.built, (98..107).collect::<Vec<_>>());
+    assert_eq!(source.view().built, (98..107).collect::<Vec<_>>());
     let row = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 100"))
         .unwrap();
     // The label is centered inside a composable button; test the row container.
     let parent = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| Some(p.node_id) == row.parent_node_id)
         .unwrap();
     assert_eq!(parent.rect[1], 0.);
     // A composable button includes its row, control and label. Bound the
     // retained projection by mounted rows rather than the old leaf-button count.
-    assert!(source.adapter.placed.len() < source.view.built.len() * 4 + 8);
+    assert!(source.placed_nodes().len() < source.view().built.len() * 4 + 8);
     assert!(source.handle_event(wheel(1_000_000.)).handled);
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.built.last(), Some(&9999));
-    source.view.count = 1;
-    source.request_rebuild();
+    assert_eq!(source.view().built.last(), Some(&9999));
+    source.update(|view| view.count = 1);
     source.build_frame(&mut tcx, 400, 300);
-    assert_eq!(source.view.built, [0]);
+    assert_eq!(source.view().built, [0]);
     let port = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.port[3] == 180. && p.parent_node_id.is_some())
         .unwrap();
     assert_eq!(port.scroll.offset[1], 0.);
-    source.view.count = 0;
-    source.request_rebuild();
+    source.update(|view| view.count = 0);
     source.build_frame(&mut tcx, 400, 300);
-    assert!(source.view.built.is_empty());
+    assert!(source.view().built.is_empty());
 }
 
 #[test]
@@ -106,8 +100,7 @@ fn overlapping_rows_keep_entity_identity() {
     let mut tcx = TextContext::new();
     source.build_frame(&mut tcx, 400, 300);
     let before = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 3"))
         .unwrap()
@@ -115,8 +108,7 @@ fn overlapping_rows_keep_entity_identity() {
     assert!(source.handle_event(wheel(80.)).handled);
     source.build_frame(&mut tcx, 400, 300);
     let after = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 3"))
         .unwrap()
@@ -158,35 +150,31 @@ fn fill_mode_windows_from_the_observed_viewport_and_tracks_resize() {
     source.build_frame(&mut tcx, 400, 300);
     source.build_frame(&mut tcx, 400, 300);
     let port = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap();
     assert_eq!(port.scroll.port[3] - port.scroll.port[1], 300.);
     // 300 px of 40 px rows plus overscan renders a full viewport of rows.
-    assert!(source.view.built.last().is_some_and(|&i| i >= 9));
-    assert!(source.view.built.len() < 20);
+    assert!(source.view().built.last().is_some_and(|&i| i >= 9));
+    assert!(source.view().built.len() < 20);
     // Growing the window re-windows without re-declaring row identity.
     let before = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 3"))
         .unwrap()
         .node_id;
     source.build_frame(&mut tcx, 400, 500);
     let after = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some("Item 3"))
         .unwrap()
         .node_id;
     assert_eq!(before, after);
     let port = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|p| p.scroll.scrollable[1])
         .unwrap();
@@ -195,14 +183,14 @@ fn fill_mode_windows_from_the_observed_viewport_and_tracks_resize() {
     // reported viewport re-declares on the following frame.
     source.build_frame(&mut tcx, 400, 500);
     assert!(
-        source.view.built.len() > 10,
+        source.view().built.len() > 10,
         "{:?}",
-        source.view.built.len()
+        source.view().built.len()
     );
     // Wheel scrolling still moves the window in fill mode.
     assert!(source.handle_event(wheel(400.)).handled);
     source.build_frame(&mut tcx, 400, 500);
-    assert!(source.view.built.first().is_some_and(|&i| i > 0));
+    assert!(source.view().built.first().is_some_and(|&i| i > 0));
 }
 
 #[test]
@@ -221,7 +209,7 @@ fn retained_resize_refreshes_observed_rows_before_returning_to_idle() {
             .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
             .unwrap();
     }
-    assert_eq!(source.view.built.len(), 10);
+    assert_eq!(source.view().built.len(), 10);
     source
         .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
         .unwrap();
@@ -229,7 +217,7 @@ fn retained_resize_refreshes_observed_rows_before_returning_to_idle() {
     source
         .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
         .unwrap();
-    assert_eq!(source.view.built.len(), 15);
+    assert_eq!(source.view().built.len(), 15);
     let batches = source.batch_stats().declaration_batches;
     source
         .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)

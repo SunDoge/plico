@@ -5,9 +5,8 @@
 //! dependent; it does not create a layer-shell surface.
 use kurbo::{Affine, Rect, Stroke};
 use peniko::Color;
-use plico_shell::{
-    FrameSource, PaintScene, Scene, TextContext, WindowOptions, run_window_with_options,
-};
+use plico_renderer::{FrameSource, PaintScene, Scene, TextContext, WindowOptions};
+use plico_shell::run_window_with_options;
 
 struct Overlay;
 
@@ -17,7 +16,7 @@ impl FrameSource for Overlay {
         _: &mut TextContext,
         _: u32,
         _: u32,
-    ) -> Vec<plico_shell::layout::PlacedNode> {
+    ) -> Vec<plico_renderer::layout::PlacedNode> {
         Vec::new()
     }
 
@@ -28,7 +27,7 @@ impl FrameSource for Overlay {
     fn paint_scene(
         &mut self,
         scene: &mut Scene,
-        _: &[plico_shell::layout::PlacedNode],
+        _: &[plico_renderer::layout::PlacedNode],
         _: &mut TextContext,
         _: (u32, u32),
         scale: f64,

@@ -34,10 +34,9 @@ fn gallery_pages_native_text_and_damage_match_full_replay() {
             let mut scene = Scene::new();
             for delta in [0, 200, 2000, 15000] {
                 clock.advance(Duration::from_millis(delta)).unwrap();
-                source
-                    .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
-                    .unwrap();
-                if let Some(error) = &source.last_error {
+                if let Err(error) =
+                    source.try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+                {
                     failures.push(format!("{language:?}/{page:?}: {error}"));
                     break;
                 }
@@ -93,9 +92,12 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
         assert!(
             source
                 .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+                .unwrap()
                 .is_none()
         );
-        source.build_and_paint(&mut scene, &mut text, 1120, 820, 1.);
+        source
+            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .unwrap();
         assert!(
             !text.set_native_paragraph_scale(zoom),
             "measurement scale was not synchronized"
@@ -129,7 +131,9 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
             .render_scene(&scene, [1120, 820], [1.; 4], true)
             .unwrap();
         assert_eq!(actual, expected);
-        source.build_and_paint(&mut scene, &mut text, 1120, 820, 1.);
+        source
+            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .unwrap();
         assert_eq!(
             generation,
             text.cache_generation(),
@@ -192,8 +196,9 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         let mut frame = |source: &mut SurfaceSource<gallery::images::GalleryHost, ImageSurface>,
                          partial: &mut Renderer| {
             source.poll_async();
-            source.build_and_paint(&mut scene, &mut text, 1120, 820, scale);
-            assert!(source.source.last_error.is_none());
+            source
+                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .unwrap();
             assert!(text.take_native_paragraph_error().is_none());
             let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
             let expected = full.render_scene(&scene, size, [1.; 4], false).unwrap();
@@ -280,8 +285,7 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         assert!(
             source
                 .source
-                .adapter
-                .placed
+                .placed_nodes()
                 .iter()
                 .any(|p| p.paint.text.as_deref() == Some("Deterministic image load failure"))
         );
@@ -329,7 +333,6 @@ fn mines_reveal_reuses_native_paragraphs_and_partial_pixels_match_full() {
         source
             .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
-        assert!(source.last_error.is_none());
         let actual = renderer
             .render_scene(&scene, [1120, 820], [1.; 4], true)
             .unwrap();
@@ -396,7 +399,7 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     renderer
         .render_scene(&scene, [400, 200], [1.; 4], false)
         .unwrap();
-    let shows = source.view.0.shows;
+    let shows = source.view().0.shows;
     let mut misses = None;
     for ms in [16, 32, 64, 100, 160, 220] {
         clock.set(Duration::from_millis(ms)).unwrap();
@@ -407,10 +410,11 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
             .render_scene(&scene, [400, 200], [1.; 4], false)
             .unwrap();
         assert_eq!(
-            source.view.0.shows, shows,
+            source.view().0.shows,
+            shows,
             "motion re-evaluated the application"
         );
-        assert_eq!(source.adapter.stats.layout_runs, 0);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
         let current = renderer.paragraph_cache_stats().misses;
         if let Some(misses) = misses {
             assert_eq!(current, misses, "scale motion reshaped text at {ms} ms");

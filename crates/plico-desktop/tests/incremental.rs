@@ -48,19 +48,18 @@ fn sparse_paint_animation_touches_only_active_node_and_skips_layout() {
     let geometry: Vec<_> = nodes.iter().map(|n| n.rect).collect();
     let nodes = s.build_frame(&mut text, 800, 30000);
     paint(&mut s, &mut text, &nodes);
-    assert_eq!(s.adapter.stats.sync_visits, 0);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
-    assert_eq!(s.adapter.stats.scene_reuses, 1);
-    s.view.fade = true;
-    s.request_rebuild();
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.scene_reuses, 1);
+    s.update(|view| view.fade = true);
     s.build_frame(&mut text, 800, 30000);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     for ms in [100, 100] {
         clock.advance(Duration::from_millis(ms)).unwrap();
         let nodes = s.build_frame(&mut text, 800, 30000);
         paint(&mut s, &mut text, &nodes);
-        let stats = s.adapter.stats;
-        assert_eq!(s.view.calls, calls);
+        let stats = s.frame_diagnostics().backend;
+        assert_eq!(s.view().calls, calls);
         assert_eq!(stats.sync_visits, 1);
         assert_eq!(stats.layout_style_builds, 0);
         assert_eq!(stats.layout_runs, 0);
@@ -77,8 +76,8 @@ fn sparse_paint_animation_touches_only_active_node_and_skips_layout() {
     assert!(!s.has_anim());
     let nodes = s.build_frame(&mut text, 800, 30000);
     paint(&mut s, &mut text, &nodes);
-    assert_eq!(s.adapter.stats.sync_visits, 0);
-    assert_eq!(s.adapter.stats.scene_reuses, 1);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
+    assert_eq!(s.frame_diagnostics().backend.scene_reuses, 1);
 }
 #[test]
 fn sparse_layout_animation_syncs_one_node_and_commits_current_geometry() {
@@ -86,17 +85,16 @@ fn sparse_layout_animation_syncs_one_node_and_commits_current_geometry() {
     let mut s = Source::with_clock(Sparse::new(), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 800, 30000);
-    s.view.wider = true;
-    s.request_rebuild();
+    s.update(|view| view.wider = true);
     s.build_frame(&mut text, 800, 30000);
-    let calls = s.view.calls;
+    let calls = s.view().calls;
     clock.advance(Duration::from_millis(100)).unwrap();
     let nodes = s.build_frame(&mut text, 800, 30000);
-    assert_eq!(s.view.calls, calls);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.layout_style_builds, 1);
-    assert_eq!(s.adapter.stats.layout_runs, 1);
-    assert_eq!(s.adapter.stats.flatten_visits, nodes.len());
+    assert_eq!(s.view().calls, calls);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_style_builds, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 1);
+    assert_eq!(s.frame_diagnostics().backend.flatten_visits, nodes.len());
     let first = nodes
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Row 0"))
@@ -121,16 +119,15 @@ fn declaration_journal_survives_settling_and_patches_only_the_changed_label() {
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(plico_renderer::SemanticRole::Button, "Increment", None)
         .unwrap()
         .id;
     s.handle_semantic_action(plico_renderer::SemanticAction::Click { target: id });
     let nodes = s.build_frame(&mut text, 400, 300);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.layout_style_builds, 0);
-    assert_eq!(s.adapter.stats.layout_runs, 1);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_style_builds, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 1);
     assert!(
         nodes
             .iter()
@@ -143,9 +140,10 @@ fn disabling_transition_midflight_snaps_geometry_and_paint_without_losing_dirty_
     let mut s = Source::with_clock(Sparse::new(), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 800, 30000);
-    s.view.fade = true;
-    s.view.wider = true;
-    s.request_rebuild();
+    s.update(|view| {
+        view.fade = true;
+        view.wider = true;
+    });
     s.build_frame(&mut text, 800, 30000);
     clock.advance(Duration::from_millis(50)).unwrap();
     s.build_frame(&mut text, 800, 30000);
@@ -180,21 +178,24 @@ fn failed_declaration_does_not_hide_property_changes_from_the_next_commit() {
     });
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
-    s.view.width = 300.;
-    s.view.invalid = true;
-    s.request_rebuild();
-    s.build_frame(&mut text, 400, 300);
-    assert!(s.last_error.is_some());
-    s.view.invalid = false;
-    s.request_rebuild();
-    let nodes = s.build_frame(&mut text, 400, 300);
-    assert!(s.last_error.is_none());
+    s.update(|view| {
+        view.width = 300.;
+        view.invalid = true;
+    });
+    assert!(s.try_build_frame(&mut text, 400, 300).is_err());
+    s.update(|view| view.invalid = false);
+    let nodes = s.try_build_frame(&mut text, 400, 300).unwrap();
     let p = nodes
         .iter()
         .find(|n| n.paint.text.as_deref() == Some("Box"))
         .unwrap();
     assert_eq!(p.rect[2] - p.rect[0], 300.);
-    assert!(s.adapter.stats.changes.contains(Changes::STRUCTURE));
+    assert!(
+        s.frame_diagnostics()
+            .backend
+            .changes
+            .contains(Changes::STRUCTURE)
+    );
 }
 
 #[test]
@@ -208,7 +209,7 @@ fn manual_declaration_preserves_pending_backend_work_until_commit() {
     let mut s = Source::new(Width(100.));
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
-    s.view.0 = 300.;
+    s.update(|view| view.0 = 300.);
     s.try_declare().unwrap();
     let nodes = s.build_frame(&mut text, 400, 300);
     let p = nodes
@@ -232,7 +233,7 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     let mut s = Source::with_clock(Controls(false), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
-    let snapshot = s.adapter.semantics(&s.engine, 0);
+    let snapshot = s.semantics();
     let a = snapshot
         .node_by_role(SemanticRole::Button, "A", None)
         .unwrap()
@@ -243,8 +244,8 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Focus { target: a }));
     s.build_frame(&mut text, 400, 300);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     clock.advance(Duration::from_millis(200)).unwrap();
     let nodes = s.build_frame(&mut text, 400, 300);
     assert_eq!(
@@ -256,13 +257,12 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
             .outline_width,
         2.0
     );
-    s.view.0 = true;
-    s.request_rebuild();
+    s.update(|view| view.0 = true);
     s.build_frame(&mut text, 400, 300);
     clock.advance(Duration::from_millis(200)).unwrap();
     let nodes = s.build_frame(&mut text, 400, 300);
-    assert!(s.adapter.semantics(&s.engine, 0).focus.is_none());
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert!(s.semantics().focus.is_none());
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     assert_eq!(
         nodes
             .iter()
@@ -275,8 +275,8 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: a }));
     assert!(s.handle_semantic_action(SemanticAction::Focus { target: b }));
     s.build_frame(&mut text, 400, 300);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
 }
 
 #[test]
@@ -286,25 +286,27 @@ fn retained_presentation_exports_no_nodes_and_shared_scene_cache_is_immutable() 
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     let first = s
-        .render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     assert_eq!(first.0, 1001);
-    assert_eq!(s.adapter.stats.placed_node_clones, 0);
+    assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
     let original = scene.clone();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
-    assert_eq!(s.adapter.stats.placed_node_clones, 0);
-    assert_eq!(s.adapter.stats.scene_reuses, 1);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
+    assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
+    assert_eq!(s.frame_diagnostics().backend.scene_reuses, 1);
     assert_eq!(original.commands.as_ptr(), scene.commands.as_ptr());
-    s.view.fade = true;
-    s.request_rebuild();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
-    let calls = s.view.calls;
+    s.update(|view| view.fade = true);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
+    let calls = s.view().calls;
     clock.advance(Duration::from_millis(100)).unwrap();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
-    assert_eq!(s.view.calls, calls);
-    assert_eq!(s.adapter.stats.sync_visits, 1);
-    assert_eq!(s.adapter.stats.placed_node_clones, 0);
-    assert_eq!(s.adapter.stats.layout_runs, 0);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
+    assert_eq!(s.view().calls, calls);
+    assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
+    assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
+    assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     assert_ne!(original.commands, scene.commands);
     // The former immutable commands remain usable after subsequent paints.
     assert_ne!(original.commands.as_ptr(), scene.commands.as_ptr());
@@ -314,9 +316,9 @@ fn event_preparation_commits_geometry_without_exporting_a_snapshot() {
     let mut s = Source::new(Sparse::new());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    s.render_retained_frame(&mut scene, &mut text, (800, 30000), 1.);
-    s.view.wider = true;
-    s.request_rebuild();
-    s.prepare_for_event(&mut text);
-    assert_eq!(s.adapter.stats.placed_node_clones, 0);
+    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .unwrap();
+    s.update(|view| view.wider = true);
+    s.prepare_for_event(&mut text).unwrap();
+    assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
 }

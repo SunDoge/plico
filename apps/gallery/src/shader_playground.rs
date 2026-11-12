@@ -46,6 +46,7 @@ impl PartialEq for DropMotion {
         self.target == other.target && self.drag == other.drag
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl DropMotion {
     fn sample(&mut self, cx: &mut UiContext, target: f64, paused: bool) -> (f32, bool) {
         let target = target as f32;

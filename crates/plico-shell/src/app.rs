@@ -28,17 +28,17 @@ use winit::window::{
 
 use crate::WindowResourceKey;
 use crate::shell::Shell;
-use crate::source::{
+use plico_renderer::platform::window_lifecycle::{
+    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
+};
+use plico_renderer::source::{
     AppLifecycleEvent, ClipboardRequest, EventResponse, FileDropEvent, FileDropPhase, FrameSource,
     FrameStats, GestureEvent, HostAction, ImeEvent, KeyEvent, KeyPhase, Modifiers, Point,
     PointerButton, PointerEvent, PointerId, PointerPhase, PointerProperties, PointerType,
     SemanticAction, SemanticRole, UiEvent, WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand,
     WindowMetrics, WindowOptions,
 };
-use crate::style::CursorStyle;
-use crate::window_lifecycle::{
-    WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
-};
+use plico_renderer::style::CursorStyle;
 
 mod effects;
 mod event;
@@ -58,9 +58,10 @@ use event_translate::{
     CUSTOM_DECORATION_RESIZE_BORDER, FrameWake, allowed_external_url, button_mask,
     button_source_properties, committed_key_text, display_wait_wake, gesture_phase,
     ime_client_changed, ime_cursor_rect, ime_hint_and_purpose, key_location, logical_key_name,
-    modifiers as translate_modifiers, ms, namespaced_pointer_id, pointer_button,
-    pointer_kind_properties, pointer_source_properties, presentation_work, resize_direction_at,
-    scheduled_frame_wake, unconsumed_key_text, update_present_retry, window_capabilities,
+    modifiers as translate_modifiers, ms, namespaced_pointer_id, physical_key_name, pointer_button,
+    pointer_kind_properties, pointer_navigation_key, pointer_source_properties, presentation_work,
+    resize_direction_at, scheduled_frame_wake, unconsumed_key_text, update_present_retry,
+    window_capabilities,
 };
 
 type ModalEffectFuture = Pin<Box<dyn Future<Output = crate::EffectCompletion>>>;
@@ -153,7 +154,7 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
-    multi_click_settings: Option<crate::source::MultiClickSettings>,
+    multi_click_settings: Option<plico_renderer::source::MultiClickSettings>,
     performance_hud: crate::performance_hud::PerformanceHud,
 }
 

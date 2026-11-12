@@ -1,6 +1,6 @@
 use kurbo::{Rect, Shape};
+use plico::VirtualClock;
 use plico::prelude::*;
-use plico::{Entity, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::layout::PlacedNode;
 use plico_renderer::{
@@ -43,8 +43,7 @@ impl HostView for Demo {
     }
 }
 fn placed<'a>(s: &'a Source<Demo>, label: &str) -> &'a PlacedNode {
-    s.adapter
-        .placed
+    s.placed_nodes()
         .iter()
         .find(|p| p.paint.text.as_deref() == Some(label))
         .unwrap()
@@ -69,31 +68,25 @@ fn key(key: &str) -> UiEvent {
         synthetic: false,
     })
 }
-fn entity(s: &Source<Demo>, label: &str) -> Entity {
-    let root = s.engine.node(s.engine.root()).unwrap().children[0];
-    s.engine
-        .node(root)
-        .unwrap()
-        .children
-        .iter()
-        .copied()
-        .find(|id| s.engine.node(*id).unwrap().text == label)
-        .unwrap()
-}
 #[test]
 fn keyboard_and_semantic_actions_apply_final_disabled_config_and_toggle_once() {
     let mut s = Source::new(Demo::default());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 240);
     s.handle_event(key("Tab"));
-    s.prepare_for_event(&mut tcx);
-    assert_eq!(s.adapter.focused(), Some(entity(&s, "Editable")));
+    s.prepare_for_event(&mut tcx).unwrap();
+    let editable = s
+        .semantics()
+        .node_by_role(SemanticRole::Switch, "Editable", None)
+        .unwrap()
+        .id;
+    assert_eq!(s.semantics().focus, Some(editable));
     s.handle_event(key("Space"));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     s.build_frame(&mut tcx, 400, 240);
-    assert!(s.view.checked);
-    assert_eq!(s.view.actions, 1);
-    let semantics = s.adapter.semantics(&s.engine, 0);
+    assert!(s.view().checked);
+    assert_eq!(s.view().actions, 1);
+    let semantics = s.semantics();
     let locked = semantics
         .node_by_role(SemanticRole::CheckBox, "Locked", None)
         .unwrap();
@@ -101,15 +94,14 @@ fn keyboard_and_semantic_actions_apply_final_disabled_config_and_toggle_once() {
     assert_eq!(locked.states.checked, Some(SemanticToggleState::On));
     assert!(!s.handle_semantic_action(SemanticAction::Click { target: locked.id }));
     s.handle_event(key("Tab"));
-    s.prepare_for_event(&mut tcx);
-    assert_eq!(s.adapter.focused(), Some(entity(&s, "Editable"))); // skips the disabled checkbox
-    s.view.locked = true;
-    s.request_rebuild();
+    s.prepare_for_event(&mut tcx).unwrap();
+    assert_eq!(s.semantics().focus, Some(editable)); // skips the disabled checkbox
+    s.update(|view| view.locked = true);
     s.build_frame(&mut tcx, 400, 240);
-    assert!(s.adapter.focused().is_none());
+    assert!(s.focused().is_none());
     assert!(!s.handle_event(key("Space")).handled);
     s.build_frame(&mut tcx, 400, 240);
-    assert_eq!(s.view.actions, 1);
+    assert_eq!(s.view().actions, 1);
 }
 #[test]
 fn density_changes_indicator_and_label_geometry_together() {
@@ -125,8 +117,7 @@ fn density_changes_indicator_and_label_geometry_together() {
     );
     assert_eq!(full_switch.content_origin[0] - full_switch.rect[0], 42.);
     assert_eq!(indicator(placed(&s, "Locked")).width(), 16.);
-    s.view.compact = true;
-    s.request_rebuild();
+    s.update(|view| view.compact = true);
     s.build_frame(&mut tcx, 400, 240);
     let compact = placed(&s, "Editable");
     let compact_indicator = indicator(compact);
@@ -146,8 +137,7 @@ fn animated_gap_keeps_the_indicator_anchored_to_padding() {
     let mut s = Source::with_clock(Demo::default(), clock.clone());
     let mut tcx = TextContext::new();
     s.build_frame(&mut tcx, 400, 240);
-    s.view.gap = Some(20);
-    s.request_rebuild();
+    s.update(|view| view.gap = Some(20));
     s.build_frame(&mut tcx, 400, 240);
     let start = placed(&s, "Editable").content_origin[0];
     clock.set(Duration::from_millis(70)).unwrap();

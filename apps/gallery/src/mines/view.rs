@@ -120,10 +120,10 @@ impl Mines {
                                     .navigation(true).autofocus(i == 0).response();
                             };
                             text(cx, *caption).font_size((11. * scale) as u16).weight(600).color(MUTED);
-                            if response.focused {
+                            if response.focused() {
                                 self.selected_field = i;
                             }
-                            if response.changed {
+                            if response.changed() {
                                 self.selected_field = i;
                                 self.fields[i].retain(|c| c.is_ascii_digit());
                                 if !self.fields[i].is_empty() {
@@ -134,7 +134,7 @@ impl Mines {
                                             [i].to_string();
                                 }
                             }
-                            if let Some(nav) = response.navigation {
+                            if let Some(nav) = response.navigation() {
                                 self.selected_field = i;
                                 match nav {
                                     plico::InputNavigation::Previous => {
@@ -147,11 +147,11 @@ impl Mines {
                                 }
                                 self.fields[i] =
                                     [self.columns, self.rows, self.mine_count][i].to_string();
-                            } else if !response.focused {
+                            } else if !response.focused() {
                                 self.fields[i] =
                                     [self.columns, self.rows, self.mine_count][i].to_string();
                             }
-                            if response.submitted {
+                            if response.submitted() {
                                 self.restart();
                             }
                         };

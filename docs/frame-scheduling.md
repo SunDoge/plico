@@ -26,7 +26,7 @@ update 在 UI 线程立即执行闭包并标记失效。多次 update 的操作�
 
 组件内的 `request_animation_frame()` 仍表示下一帧需要执行应用逻辑；已有 opacity、transform、shader、theme 等宿主动画不需要组件为每一帧重复请求逻辑动画。业务依赖时间变化时，需要明确请求后续逻辑帧。
 
-BatchStats.retained_samples 统计原生路径复用声明的采样次数；declaration_batches/passes、backend_commits 和 layout_runs 可区分实际工作。未执行声明的采样将 declaration_stats 和 declaration_micros 清零，避免报告上一次声明的耗时。标记 retained 不意味着 GPU 已提交，也不意味着跳过全部渲染工作。
+BatchStats.retained_samples 统计原生路径复用声明的采样次数；declaration_batches/passes、backend_commits 和 layout_runs 可区分实际工作。未执行声明的采样会让 `FrameDiagnostics::declaration` 和 `declaration_micros` 归零，避免报告上一次声明的耗时。标记 retained 不意味着 GPU 已提交，也不意味着跳过全部渲染工作。
 
 ## 模拟时钟验证
 

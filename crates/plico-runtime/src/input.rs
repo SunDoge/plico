@@ -497,6 +497,45 @@ impl Adapter {
                         ..EventResponse::IGNORED
                     });
                 }
+                if engine.node(entity)?.style.input_find_navigation
+                    && !buffer.is_composing()
+                    && !key.repeat
+                {
+                    let shift = key.modifiers.shift();
+                    let find_navigation = match key.key.as_str() {
+                        "Escape" if key.modifiers.is_empty() => {
+                            Some(plico::InputNavigation::Cancel)
+                        }
+                        "Enter" if key.modifiers == plico::Modifiers::SHIFT => {
+                            Some(plico::InputNavigation::Previous)
+                        }
+                        "F3" if key.modifiers.is_empty()
+                            || key.modifiers == plico::Modifiers::SHIFT =>
+                        {
+                            Some(if shift {
+                                plico::InputNavigation::Previous
+                            } else {
+                                plico::InputNavigation::Next
+                            })
+                        }
+                        _ if key.modifiers.primary_shortcut()
+                            && (key.key_without_modifiers.eq_ignore_ascii_case("g")
+                                || key.key.eq_ignore_ascii_case("g")) =>
+                        {
+                            Some(if shift {
+                                plico::InputNavigation::Previous
+                            } else {
+                                plico::InputNavigation::Next
+                            })
+                        }
+                        _ => None,
+                    };
+                    if let Some(action) = find_navigation {
+                        buffer.edit(InputEdit::Navigate(action));
+                        response.consume_key_text = true;
+                        return Some(response);
+                    }
+                }
                 if engine.node(entity)?.style.input_navigation && key.modifiers.is_empty() {
                     let navigation = match key.key.as_str() {
                         "ArrowUp" => Some(plico::InputNavigation::Previous),

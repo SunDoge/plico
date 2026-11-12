@@ -56,11 +56,18 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    borders, rounded image corners and mitered strokes keep every corner's own arc, adjacent
    corners shrink proportionally on the CPU before upload, and nonuniform corner radii no
    longer fall back to CPU raster. Gaussian box shadows stay on the uniform-radius path,
-   matching the single-radius shared command. Class specialization has begun following
-   mygo's `ClassOf`: adjacent plain solid fills (no border, gradient, material, image or
-   mask) draw through a small dedicated fragment pipeline in their own instance runs;
+   matching the single-radius shared command. Class specialization follows mygo's
+   `ClassOf`: adjacent plain solid fills draw through a minimal fragment pipeline, while
+   ordinary gradients and borders use a `ClassFill` pipeline, outer/inset box shadows use
+   `ClassShadow`, monochrome/color atlas glyphs use two glyph classes, and sampled images
+   use `ClassImage`; each paired vertex/fragment interface omits unrelated varyings and
+   paths. This follows MyGO's full class split while retaining Plico's distinct colored-glyph
+   instance kind. Native class pipelines warm sequentially on a worker; an early frame preserves
+   identical pixels through the general pipeline for each class that has not arrived yet.
+   WebAssembly keeps synchronous creation because browser threads are not assumed.
    `Renderer::force_general_pipelines` reproduces mygo's NoClasses for pixel-identity
-   comparison, and `FrameBatchStats::plain_draw_calls` reports the split. mygo's joinLast is
+   comparison; `FrameBatchStats` reports actual specialized draws for every class. mygo's
+   joinLast is
    applied: adjacent runs that differ only in their class and each cover at most 128x128 pixels
    (mygo's measured call-vs-specialization trade-off) merge into one general-pipeline call, so
    class-interleaved scenes - a shadow then its fill per box - no longer pay one call per
@@ -75,7 +82,17 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    short list of prepared variants per key, and identity falls back to full command equality
    for isolated-layer children that are rebuilt every frame; a single-entry cache ping-ponged
    between the root scene and its layers, so frames containing isolated groups never hit at
-   all and re-prepared the whole tree every frame.
+   all and re-prepared the whole tree every frame. Before resource preparation, a bounded
+   reverse painter-order pass now follows MyGO `planCull`: up to eight large opaque rectangular
+   cores can remove earlier draws whose complete visible bounds they contain. Coverage masks,
+   rounded/translucent/material fills never become occluders, and backdrop readers reset the
+   cover set. Per-layer scratch is retained by nesting depth; `force_no_occlusion_culling`
+   provides a byte-exact oracle and `occlusion_culled_draws` reports actual removals.
+   Large border-only analytical quads now follow MyGO's ring split: a conservative
+   transparent core is omitted with up to four target-local hardware scissors,
+   including damage and cropped-layer intersections. CPU-only scissor metadata
+   keeps the GPU instance ABI compact; `force_no_ring_splitting` provides the
+   unsplit pixel/performance oracle and `ring_split_quads` reports source splits.
 3. **Resource coverage:** RGBA/BGRA images and cached resvg SVG rasterization are
    implemented. Image upload handles straight/premultiplied alpha before filtering; sampling
    policies share source textures, with separate binding and upload counters;
@@ -84,8 +101,11 @@ Never compensate for an unknown gamma/sampling problem by silently adding weight
    now merges adjacent repeated images without sorting; encoded batch counters are exposed. Affine images and image-filled
    paths now combine cached shape coverage with GPU world-to-source sampling.
    Solid, linear, radial and sweep gradient general paths have a tiny-skia fallback with even-odd fill, curves,
-   rotation and dashed strokes. Nested nonrectangular clips now use cached
-   coverage masks, while rect clips keep the fast path. General filter graphs and background-reading blend modes remain; isolated additive Plus/PlusLighter composition is implemented. Single Gaussian filtered
+   rotation and dashed strokes. Reducible leaf rounded clips now follow MyGO's
+   analytic-clip path: their per-corner radii travel with prepared draws and use
+   the same fragment coverage as direct rounded geometry, avoiding CPU raster
+   and mask upload. Nested or intersecting nonrectangular clip chains retain
+   cached coverage masks, while rect clips keep the fast path. General filter graphs and background-reading blend modes remain; isolated additive Plus/PlusLighter composition is implemented. Single Gaussian filtered
    layers now use two GPU passes, and the real gallery Glass page renders. Gaussian box shadows now use quad coverage with
    four-sigma damage bounds and a numerical convolution reference. Shared native WGSL effect surfaces now use the
    existing public shader widget with local damage and injected time; texture
@@ -242,9 +262,14 @@ compute or fallback behavior.
 CPU source copying/premultiplication, first pipeline compilation and GPU execution
 still have costs. The earlier 78 ms CPU odd-size figure now characterizes the
 fallback/reference path, not compute-enabled mip generation. No end-to-end upload
-speedup is claimed without measuring the new path. DEBUG `wgpu.generate_mips`
-records mip encoding/submission CPU duration and dimensions/level count; it
-excludes lazy pipeline construction and does not measure GPU completion.
+speedup is claimed without measuring the new path. GPU mip commands are deferred,
+prepended before layer/frame sampling, and included in the frame's queue
+submission. The cache only commits them after a real submit, so a failed or
+abandoned surface frame can retry safely. DEBUG `wgpu.generate_mips` records mip
+encoding CPU duration and dimensions/level count; `wgpu.finish_mips` covers the
+deferred command-buffer finish. Neither span measures queue submission or GPU
+completion. An ignored real-adapter regression exercises abandon/retry and
+asserts one frame-budget submission.
 
 ## Real gallery image-window acceptance
 

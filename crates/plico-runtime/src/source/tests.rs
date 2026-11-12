@@ -85,7 +85,7 @@ fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(plico_renderer::SemanticAction::Click { target }));
-    s.prepare_for_event(&mut tcx);
+    s.prepare_for_event(&mut tcx).unwrap();
     let nodes = s.build_frame(&mut tcx, 920, 780);
     assert!(!s.declarations_reused);
     assert_eq!(s.view.gallery.count, 1);
@@ -96,4 +96,30 @@ fn animated_theme_reuses_scene_and_accepts_events_without_stale_geometry() {
             .any(|n| n.paint.text.as_deref() == Some(expected.as_str())),
         "updated caption missing: expected {expected:?}"
     );
+}
+
+#[test]
+fn checked_frames_return_declaration_errors_without_side_channels() {
+    struct DuplicateKeys;
+
+    impl HostView for DuplicateKeys {
+        fn show(&mut self, ui: &mut plico::UiContext<'_>) {
+            ui.text("First").key("duplicate");
+            ui.text("Second").key("duplicate");
+        }
+    }
+
+    let mut source = Source::new(DuplicateKeys);
+    let mut text = TextContext::new();
+    assert!(source.try_build_frame(&mut text, 320, 200).is_err());
+
+    source.request_rebuild();
+    let error = source.try_prepare_for_event(&mut text).unwrap_err();
+    assert!(error.to_string().contains("duplicate UI key"));
+
+    let mut scene = Scene::new();
+    let error =
+        FrameSource::render_retained_frame(&mut source, &mut scene, &mut text, (320, 200), 1.)
+            .unwrap_err();
+    assert!(error.to_string().contains("duplicate UI key"));
 }

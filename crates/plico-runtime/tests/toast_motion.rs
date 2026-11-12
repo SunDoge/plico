@@ -24,12 +24,15 @@ fn hovering_noninteractive_toast_content_pauses_without_spinning_and_exit_keeps_
     let mut source = Source::with_clock(view, clock.clone());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     clock.advance(Duration::from_millis(140)).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     let card = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.background.is_some())
         .unwrap()
@@ -56,7 +59,9 @@ fn hovering_noninteractive_toast_content_pauses_without_spinning_and_exit_keeps_
             .handle_event(event(PointerPhase::Move))
             .request_redraw
     );
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     assert!(
         !source.has_anim(),
         "held, settled toast should let the host idle"
@@ -67,30 +72,37 @@ fn hovering_noninteractive_toast_content_pauses_without_spinning_and_exit_keeps_
         "hover cancels expiry wake"
     );
     clock.advance(Duration::from_secs(10)).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
-    assert_eq!(source.view.toasts.len(), 1);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
+    assert_eq!(source.view().toasts.len(), 1);
     assert!(
         source
             .handle_event(event(PointerPhase::Leave))
             .request_redraw
     );
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     assert_eq!(
-        source.view.toasts.len(),
+        source.view().toasts.len(),
         1,
         "idle hover time must not be charged on release"
     );
     clock.advance(Duration::from_millis(3860)).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
-    assert!(source.view.toasts.is_empty());
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
+    assert!(source.view().toasts.is_empty());
     assert!(
         source.has_anim(),
         "exit must remain driven even though logical len is zero"
     );
     clock.advance(Duration::from_millis(140)).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     assert!(!source.has_anim());
-    assert!(source.last_error.is_none());
 }
 
 #[test]
@@ -115,12 +127,15 @@ fn toast_portal_escapes_a_small_clipped_calling_container() {
     let mut source = Source::with_clock(Nested { toasts: host }, clock.clone());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     clock.advance(Duration::from_millis(140)).unwrap();
-    source.render_retained_frame(&mut scene, &mut text, (500, 300), 1.);
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
+        .unwrap();
     let card = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .find(|node| node.paint.background.is_some())
         .unwrap()
@@ -168,16 +183,16 @@ fn settled_toast_sleeps_until_expiration_then_animates_its_exit() {
         source
             .render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
             .unwrap();
-        assert_eq!(source.view.toasts.len(), 1);
+        assert_eq!(source.view().toasts.len(), 1);
         assert!(!source.has_anim());
-        assert_eq!(source.adapter.stats.sync_visits, 0);
+        assert_eq!(source.frame_diagnostics().backend.sync_visits, 0);
         assert_eq!(source.animation_deadline(), Some(deadline));
     }
     clock.set(Duration::from_secs(4)).unwrap();
     source
         .render_retained_frame(&mut scene, &mut text, (500, 300), 1.)
         .unwrap();
-    assert!(source.view.toasts.is_empty());
+    assert!(source.view().toasts.is_empty());
     assert!(source.has_anim());
     clock.advance(Duration::from_millis(140)).unwrap();
     source

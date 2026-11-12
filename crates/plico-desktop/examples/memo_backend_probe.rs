@@ -56,26 +56,25 @@ fn main() {
         let mut before_calls = 0;
         for frame in 0..136 {
             if frame == 16 {
-                before_calls = source.view.calls;
+                before_calls = source.view().calls;
             }
             clock.advance(Duration::from_millis(16)).unwrap();
             if mode == "host_opacity" && frame == 1 {
-                source.view.changed = true;
-                source.request_rebuild();
+                source.update(|view| view.changed = true);
             }
             if matches!(mode, "forced_unchanged" | "one_color_change") {
-                source.view.changed = mode == "one_color_change" && frame % 2 == 0;
-                source.request_rebuild();
+                source.update(|view| {
+                    view.changed = mode == "one_color_change" && frame % 2 == 0;
+                });
             }
             let start = Instant::now();
             source
                 .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let us = start.elapsed().as_secs_f64() * 1e6;
-            assert!(source.last_error.is_none());
             if frame >= 16 {
                 samples.push(us);
-                let s = source.adapter.stats;
+                let s = source.frame_diagnostics().backend;
                 for (sum, value) in sums.iter_mut().zip([
                     s.sync_visits,
                     s.layout_runs,
@@ -88,7 +87,7 @@ fn main() {
             }
         }
         samples.sort_by(f64::total_cmp);
-        let calls = source.view.calls - before_calls;
+        let calls = source.view().calls - before_calls;
         assert_eq!(
             calls,
             if matches!(mode, "host_opacity" | "direct_unchanged") {

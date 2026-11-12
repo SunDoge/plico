@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ExtensionContext, ShellExtension, WindowOptions, WindowResourceKey};
+use crate::{ExtensionContext, ShellExtension, WindowResourceKey};
+use plico_renderer::WindowOptions;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 struct SavedWindowState {
@@ -157,7 +158,7 @@ impl WindowStatePersistence {
 }
 
 impl ShellExtension for WindowStatePersistence {
-    fn initialize(&mut self, _wake: crate::WakeCallback) -> Result<(), String> {
+    fn initialize(&mut self, _wake: plico_renderer::WakeCallback) -> Result<(), String> {
         Ok(())
     }
 

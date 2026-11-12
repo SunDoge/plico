@@ -42,8 +42,7 @@ impl HostView for TwoCards {
 
 fn click<V: HostView>(s: &mut Source<V>, tcx: &mut TextContext, label: &str) {
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, label, Some(0))
         .unwrap_or_else(|| panic!("missing calendar button {label}"))
         .id;
@@ -61,20 +60,20 @@ fn range_selection_completes_reorders_and_restarts() {
 
     click(&mut s, &mut tcx, "8");
     assert_eq!(
-        s.view.state.selected_range(),
+        s.view().state.selected_range(),
         Some((date(2026, 10, 8), None))
     );
 
     click(&mut s, &mut tcx, "3");
     assert_eq!(
-        s.view.state.selected_range(),
+        s.view().state.selected_range(),
         Some((date(2026, 10, 3), Some(date(2026, 10, 8)))),
         "an earlier second click reorders the range"
     );
 
     click(&mut s, &mut tcx, "20");
     assert_eq!(
-        s.view.state.selected_range(),
+        s.view().state.selected_range(),
         Some((date(2026, 10, 20), None)),
         "a third click restarts the range"
     );
@@ -90,27 +89,30 @@ fn navigation_is_per_card_and_keeps_selection() {
     let _ = s.build_frame(&mut tcx, 920, 700);
 
     click(&mut s, &mut tcx, "25");
-    assert_eq!(s.view.single.selected(), Some(date(2026, 10, 25)));
+    assert_eq!(s.view().single.selected(), Some(date(2026, 10, 25)));
 
     click(&mut s, &mut tcx, "Next month");
-    assert_eq!(s.view.single.month(), date(2026, 11, 1));
-    assert_eq!(s.view.single.selected(), Some(date(2026, 10, 25)));
+    assert_eq!(s.view().single.month(), date(2026, 11, 1));
+    assert_eq!(s.view().single.selected(), Some(date(2026, 10, 25)));
     assert_eq!(
-        s.view.range.month(),
+        s.view().range.month(),
         date(2026, 10, 1),
         "card two stays put"
     );
 
     let id = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Next month", Some(1))
         .expect("range card nav button")
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target: id }));
     let _ = s.build_frame(&mut tcx, 920, 700);
-    assert_eq!(s.view.range.month(), date(2026, 11, 1), "card two follows");
-    assert_eq!(s.view.single.month(), date(2026, 11, 1));
+    assert_eq!(
+        s.view().range.month(),
+        date(2026, 11, 1),
+        "card two follows"
+    );
+    assert_eq!(s.view().single.month(), date(2026, 11, 1));
 }
 
 #[test]
@@ -124,8 +126,7 @@ fn year_one_renders_empty_leading_cells_and_refuses_to_go_earlier() {
     let _ = s.build_frame(&mut tcx, 920, 700);
 
     let prev = s
-        .adapter
-        .semantics(&s.engine, 0)
+        .semantics()
         .node_by_role(SemanticRole::Button, "Previous month", None)
         .expect("nav button")
         .id;
@@ -133,7 +134,7 @@ fn year_one_renders_empty_leading_cells_and_refuses_to_go_earlier() {
         !s.handle_semantic_action(SemanticAction::Click { target: prev }),
         "the disabled boundary must refuse the click"
     );
-    assert_eq!(s.view.state.month(), date(1, 1, 1));
+    assert_eq!(s.view().state.month(), date(1, 1, 1));
 }
 
 #[test]
@@ -146,5 +147,5 @@ fn outside_month_days_stay_clickable_and_select_their_real_date() {
 
     // The leading September 30 cell must act on its real date.
     click(&mut s, &mut tcx, "30");
-    assert_eq!(s.view.state.selected(), Some(date(2026, 9, 30)));
+    assert_eq!(s.view().state.selected(), Some(date(2026, 9, 30)));
 }

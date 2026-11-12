@@ -207,7 +207,8 @@ impl Renderer {
         }
     }
 
-    /// Start timing the root encoder; child-layer command buffers stay in its queue bracket.
+    /// Start timing the root encoder, including child-layer and effect passes.
+    /// A separately encoded image-mip prefix remains outside this bracket.
     pub(super) fn begin_gpu_budget(&mut self, encoder: &mut wgpu::CommandEncoder) {
         // Child-layer encoders share the frame's bracket; do not replace the
         // root slot while one is active.

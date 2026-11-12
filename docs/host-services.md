@@ -33,6 +33,6 @@ impl ServiceApp for Application {
 
 读取大快照并发送消息时，`snapshot_shared()` 返回本地 Arc，避免深拷贝。快照替换不影响旧读句柄。`ServiceView` 统一负责投影、命令 drain 和唤醒；`run_service_app_with_options` 直接启动这个适配器。
 
-Future 任务使用 `plico_runtime::tasks::Task` / `TaskService` 和调用方执行器，暴露 Idle、Pending、Ready(Result)、Cancelled 等状态。原生阻塞工作可使用 `plico_runtime::background::Worker`，保留 worker-local 模型或客户端，支持替换请求、过期结果过滤和合并唤醒。取消是合作式的，不代表已发出的网络请求或磁盘操作已撤销。
+Future 任务使用 `plico_dev::tasks::Task` / `TaskService` 和调用方执行器，暴露 Idle、Pending、Ready(Result)、Cancelled 等状态。原生阻塞工作可使用 `plico_runtime::background::Worker`，保留 worker-local 模型或客户端，支持替换请求、过期结果过滤和合并唤醒。取消是合作式的，不代表已发出的网络请求或磁盘操作已撤销。
 
 预览时通过 `PreviewScenario` 的工厂构造假服务或固定结果，不必加载真实模型、重新登录或调用付费 API。详见[场景预览](preview.md)。

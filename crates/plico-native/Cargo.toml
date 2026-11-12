@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[package.metadata.cargo-machete]
+# Referenced by code generated from windows::core #[interface]/#[implement].
+ignored = ["windows-core"]
+
 [features]
 default = []
 # Native vertical-rl layout and rasterization on the current desktop OS.

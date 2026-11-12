@@ -639,7 +639,6 @@ dependencies = [
  "plico-runtime",
  "plico-shell",
  "plico-skia",
- "serde",
  "snafu",
  "tracing",
  "tracing-subscriber",
@@ -2440,16 +2439,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "csbindgen"
-version = "1.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "950f59b281d7e20f050b4efd56d7c36c0deb853bf9ea1f20b985a75ae5b03b34"
-dependencies = [
- "regex",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "cssparser"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2827,7 +2816,6 @@ dependencies = [
  "plico-desktop",
  "plico-dev",
  "plico-runtime",
- "serde",
 ]
 
 [[package]]
@@ -4533,7 +4521,6 @@ dependencies = [
  "plico",
  "plico-desktop",
  "plico-renderer",
- "plico-runtime",
  "plico-shell",
  "snafu",
  "usage-rs",
@@ -6190,6 +6177,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "plico-app-host"
+version = "0.3.2"
+dependencies = [
+ "plico",
+ "plico-dev",
+ "plico-renderer",
+ "plico-runtime",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "plico-bevy"
 version = "0.3.2"
 dependencies = [
@@ -6228,23 +6227,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plico-csharp"
-version = "0.3.2"
-dependencies = [
- "csbindgen",
- "image",
- "plico",
- "plico-desktop",
- "plico-renderer",
- "plico-runtime",
- "serde",
- "serde_json",
- "snafu",
- "usage-rs",
- "zeroize",
-]
-
-[[package]]
 name = "plico-desktop"
 version = "0.3.2"
 dependencies = [
@@ -6253,6 +6235,7 @@ dependencies = [
  "kurbo",
  "peniko",
  "plico",
+ "plico-app-host",
  "plico-dev",
  "plico-renderer",
  "plico-runtime",
@@ -6432,7 +6415,6 @@ dependencies = [
  "peniko",
  "plico",
  "plico-motion",
- "rustc-hash 2.1.3",
  "serde",
  "serde_json",
  "snafu",
@@ -6440,9 +6422,7 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "usvg 0.48.1",
- "web-sys",
  "web-time",
- "wgpu",
 ]
 
 [[package]]
@@ -6459,7 +6439,6 @@ dependencies = [
  "plico-shell",
  "serde",
  "serde_json",
- "slotmap",
  "snafu",
  "taffy",
  "tracing",
@@ -6578,6 +6557,7 @@ dependencies = [
  "gallery",
  "js-sys",
  "plico",
+ "plico-app-host",
  "plico-dev",
  "plico-renderer",
  "plico-runtime",
@@ -6612,6 +6592,7 @@ dependencies = [
  "pollster 1.0.1",
  "raw-window-handle",
  "resvg 0.48.1",
+ "rustc-hash 2.1.3",
  "snafu",
  "tracing",
  "tracing-subscriber",
@@ -7542,12 +7523,9 @@ dependencies = [
  "plico-desktop",
  "plico-dev",
  "plico-renderer",
- "plico-runtime",
  "plico-shell",
  "serde",
- "serde_json",
  "snafu",
- "tempfile",
  "usage-rs",
 ]
 

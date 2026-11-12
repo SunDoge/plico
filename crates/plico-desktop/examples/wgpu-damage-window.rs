@@ -97,7 +97,7 @@ impl plico_renderer::FrameSource for Paced {
         text: &mut plico_renderer::TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Option<(usize, f64, f64)> {
+    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
         let result = self.source.render_retained_frame(scene, text, size, scale);
         self.next = std::time::Instant::now() + Duration::from_secs_f64(1. / 60.);
         result
@@ -140,13 +140,13 @@ mod tests {
     #[test]
     fn animation_probe_advances_and_requests_real_frames() {
         let mut ui = plico_desktop::testing::Driver::new(Demo::default(), 720, 640).unwrap();
-        assert!(ui.source.has_anim());
-        let before = ui.source.view.frames;
+        assert!(ui.has_animation());
+        let before = ui.view().frames;
         ui.advance(Duration::from_millis(100)).unwrap();
-        assert!(ui.source.view.frames > before);
-        assert!(ui.source.has_anim());
+        assert!(ui.view().frames > before);
+        assert!(ui.has_animation());
         ui.advance(Duration::from_secs(19)).unwrap();
-        assert!(ui.source.view.close);
+        assert!(ui.view().close);
     }
     #[test]
     fn retained_animation_probe_keeps_raf_across_native_frames() {
@@ -157,9 +157,8 @@ mod tests {
         for frame in 0..60 {
             clock.advance(Duration::from_millis(16)).unwrap();
             source.render_retained_frame(&mut scene, &mut text, (720, 500), 1.75);
-            assert!(source.last_error.is_none());
             assert!(source.has_anim(), "frame {frame}");
-            assert!(source.view.frames >= frame + 1);
+            assert!(source.view().frames >= frame + 1);
         }
     }
 }

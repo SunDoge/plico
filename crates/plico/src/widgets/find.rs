@@ -22,10 +22,9 @@ impl FindResponse {
 /// owns the query and counts the matches; `current` is clamped to them and
 /// moves round the ends.
 ///
-/// Enter in the field goes to the next match, and opening the bar focuses the
-/// field. Escape in the field does not close the bar yet (Plico does not route
-/// it out of the text input), and Cmd+G / F3 and closing from the keyboard are
-/// not wired; Done closes.
+/// Enter in the field goes to the next match; Shift+Enter, Primary+G and F3
+/// move in either direction, and Escape or Done closes. Opening focuses the
+/// field and selects the previous query for immediate replacement.
 ///
 /// ```text
 /// if find_bar(cx, &mut finding, &mut query, matches.len(), &mut current).changed() {
@@ -62,10 +61,24 @@ pub fn find_bar(
         .children(|cx| {
             let field = column(cx).grow(1.).max_width(360.);
             let response = field
-                .children(|cx| search_field_with(cx, "Find", "Find", query, true))
+                .children(|cx| search_field_with(cx, "Find", "Find", query, true, true))
                 .inner;
-            if response.submitted() && matches > 0 {
-                *current = (*current + 1) % matches;
+            let step = match response.navigation() {
+                Some(crate::InputNavigation::Previous) => -1,
+                Some(crate::InputNavigation::Next) => 1,
+                Some(crate::InputNavigation::Cancel) => {
+                    closed = true;
+                    0
+                }
+                _ if response.submitted() => 1,
+                _ => 0,
+            };
+            if step != 0 && matches > 0 {
+                *current = if step < 0 {
+                    (*current + matches - 1) % matches
+                } else {
+                    (*current + 1) % matches
+                };
                 changed = true;
             }
             let status = if query.is_empty() {
@@ -76,7 +89,10 @@ pub fn find_bar(
                 Some(format!("{} of {matches}", *current + 1))
             };
             if let Some(status) = status {
-                let _ = text(cx, status).font_size(m.label_size).color(Color::Muted);
+                let _ = text(cx, status)
+                    .font_size(m.label_size)
+                    .color(Color::Muted)
+                    .semantic_role(WidgetRole::Status);
             }
             let can = matches > 0;
             if button(cx)

@@ -261,10 +261,8 @@ fn native_runtime_selection_drag_and_copy_use_painted_geometry() {
     let mut tcx = TextContext::new();
     SkiaSurface::new(400, 200).unwrap().configure_text(&mut tcx);
     source.build_frame(&mut tcx, 400, 200);
-    assert!(source.last_error.is_none());
     let origins: Vec<_> = source
-        .adapter
-        .placed
+        .placed_nodes()
         .iter()
         .filter(|p| p.paint.text.is_some())
         .map(|p| {
@@ -295,7 +293,6 @@ fn native_runtime_selection_drag_and_copy_use_painted_geometry() {
     source.build_frame(&mut tcx, 400, 200);
     assert!(
         source
-            .adapter
             .selected_text()
             .unwrap()
             .starts_with("First 中文 paragraph\n\n")
