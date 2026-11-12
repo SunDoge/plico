@@ -12,7 +12,7 @@ pub use plico_runtime::{SurfaceSource, ZoomController, ZoomSource};
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
 mod capture;
 #[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
-pub use capture::{Capture, CaptureError, CapturedFrame, capture};
+pub use capture::{Capture, CaptureError, CaptureProfile, CapturedFrame, capture};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::Error as DesktopError;

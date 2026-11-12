@@ -3,7 +3,7 @@ use crate::{Error, Renderer, Result};
 use peniko::Color;
 use plico_renderer::{Scene, TextContext};
 use raw_window_handle::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, WindowHandle,
 };
 use std::sync::Arc;
 use winit::window::Window;
@@ -241,6 +241,16 @@ impl WgpuWindow {
     /// Adapter selected for this window; useful for native-backend diagnostics.
     pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
         self.renderer.adapter_info()
+    }
+    /// Context shared with framework-owned external GPU surfaces.
+    pub fn gpu_context(&self) -> plico_renderer::source::GpuContext {
+        let mut context = self.renderer.external_gpu_context();
+        context.native_display = self
+            .window
+            .display_handle()
+            .ok()
+            .and_then(|handle| native_display(handle.as_raw()));
+        plico_renderer::source::GpuContext::new("wgpu", context)
     }
     /// Whether a background acquisition worker is installed. Useful for A/B
     /// diagnostics to distinguish requested configuration from a sync fallback.
@@ -628,6 +638,18 @@ impl WgpuWindow {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.idle_resources.used(std::time::Instant::now());
         Ok(true)
+    }
+}
+
+fn native_display(handle: RawDisplayHandle) -> Option<crate::NativeDisplay> {
+    match handle {
+        RawDisplayHandle::Xlib(handle) => handle
+            .display
+            .map(|display| crate::NativeDisplay::X11(display.as_ptr() as usize)),
+        RawDisplayHandle::Wayland(handle) => Some(crate::NativeDisplay::Wayland(
+            handle.display.as_ptr() as usize,
+        )),
+        _ => None,
     }
 }
 

@@ -1,6 +1,26 @@
 //! Backend-selected offscreen capture for tests, documentation, and offline exports.
 use plico_renderer::{FrameSource, Scene, TextContext};
 use snafu::Snafu;
+use std::time::Instant;
+
+/// Exact CPU and renderer stages for the final pass of an offscreen capture.
+///
+/// Unlike the window HUD this is a raw sample, not an exponential average.
+/// PNG encoding is deliberately excluded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
+pub struct CaptureProfile {
+    /// Retained nodes participating in the captured frame.
+    pub node_count: usize,
+    /// Application declaration, retained update and layout time.
+    pub build_frame_ms: f64,
+    /// Backend-neutral paint scene assembly time.
+    pub scene_ms: f64,
+    /// Renderer draw and offscreen readback wall time.
+    pub draw_ms: f64,
+    /// Backend renderer stages when the selected backend exposes them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub renderer: Option<plico_renderer::FrameBudgetSample>,
+}
 
 /// A rendered, premultiplied-RGBA frame in physical pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,26 +326,46 @@ impl Capture<'_> {
         renderer: &mut CaptureRenderer,
         text: &mut TextContext,
     ) -> Result<CapturedFrame, CaptureError> {
+        self.render_profiled_with_borrowed(renderer, text)
+            .map(|(frame, _)| frame)
+    }
+    pub(crate) fn render_profiled_with_borrowed(
+        self,
+        renderer: &mut CaptureRenderer,
+        text: &mut TextContext,
+    ) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
         let (width, height) = dimensions(self.width, self.height, self.scale)?;
         for pass in 0..=self.settle_passes {
             let mut scene = Scene::new();
-            if self
+            let measured = if let Some(measured) = self
                 .source
                 .render_retained_frame(&mut scene, text, (self.width, self.height), self.scale)
                 .map_err(|source| CaptureError::Frame { source })?
-                .is_none()
             {
+                measured
+            } else {
                 self.source
                     .build_and_paint(&mut scene, text, self.width, self.height, self.scale)
-                    .map_err(|source| CaptureError::Frame { source })?;
-            }
+                    .map_err(|source| CaptureError::Frame { source })?
+            };
             if pass == self.settle_passes || !self.source.poll_async() {
+                let draw_started = Instant::now();
                 let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;
-                return Ok(CapturedFrame {
-                    width,
-                    height,
-                    rgba,
-                });
+                let profile = CaptureProfile {
+                    node_count: measured.0,
+                    build_frame_ms: measured.1,
+                    scene_ms: measured.2,
+                    draw_ms: draw_started.elapsed().as_secs_f64() * 1_000.,
+                    renderer: renderer.frame_budget(),
+                };
+                return Ok((
+                    CapturedFrame {
+                        width,
+                        height,
+                        rgba,
+                    },
+                    profile,
+                ));
             }
         }
         unreachable!("bounded settle loop always captures its final pass")

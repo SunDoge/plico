@@ -1,5 +1,28 @@
 use plico::{Engine, VisibleRegion, prelude::*};
 
+#[component]
+fn component_variable_list(cx: &mut UiContext, rendered: &mut std::ops::Range<usize>) {
+    *rendered = variable_virtual_list(cx, 100, 20.)
+        .height(100.)
+        .rows(
+            |index| index as u64,
+            |cx, index| {
+                text(cx, format!("row {index}"));
+            },
+        )
+        .rendered;
+}
+
+#[test]
+fn component_accepts_variable_virtual_list_borrowing_builder() {
+    let mut engine = Engine::default();
+    let mut rendered = 0..0;
+    engine
+        .frame_declarations(|cx| component_variable_list(cx, &mut rendered))
+        .unwrap();
+    assert_eq!(rendered, 0..8);
+}
+
 #[test]
 fn clipping_handles_empty_touching_and_unknown_bounds_conservatively() {
     let viewport = VisibleRegion::from_rect([10., 20., 110., 220.]);

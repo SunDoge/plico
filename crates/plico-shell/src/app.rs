@@ -204,6 +204,7 @@ impl ApplicationHandler for App {
             shell.observe_native_events(wake);
             shell.refresh_display_preferences();
         }
+        self.source.set_gpu_context(shell.gpu_context());
         let window = shell.window().clone();
         self.state = Some(shell);
         self.sync_multi_click_settings();
@@ -212,6 +213,7 @@ impl ApplicationHandler for App {
     }
 
     fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
+        self.source.set_gpu_context(None);
         self.state = None;
     }
 

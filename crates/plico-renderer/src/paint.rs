@@ -12,6 +12,82 @@ use peniko::{BlendMode, Brush, BrushRef, Color, Fill, FontData, ImageBrushRef, S
 
 use crate::{PaintShape, ShaderEffect};
 
+/// Immutable identity and backend payload for a GPU-produced image.
+///
+/// A new handle revision must be recorded whenever the producer changes the
+/// pixels. This keeps retained-scene equality and damage tracking correct even
+/// though the underlying GPU allocation remains stable.
+#[derive(Clone)]
+pub struct ExternalSurface {
+    id: u64,
+    revision: u64,
+    dimensions: [u32; 2],
+    backend: &'static str,
+    resource: Arc<dyn std::any::Any + Send + Sync>,
+}
+
+impl ExternalSurface {
+    /// Construct a typed backend surface handle.
+    pub fn new<T: std::any::Any + Send + Sync>(
+        id: u64,
+        revision: u64,
+        dimensions: [u32; 2],
+        backend: &'static str,
+        resource: Arc<T>,
+    ) -> Self {
+        Self {
+            id,
+            revision,
+            dimensions,
+            backend,
+            resource,
+        }
+    }
+
+    /// Returns the stable identity assigned by the producer.
+    pub const fn id(&self) -> u64 {
+        self.id
+    }
+    /// Returns the producer-defined content revision.
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+    /// Returns the surface dimensions in physical pixels.
+    pub const fn dimensions(&self) -> [u32; 2] {
+        self.dimensions
+    }
+    /// Returns the renderer backend that owns this surface.
+    pub const fn backend(&self) -> &'static str {
+        self.backend
+    }
+    /// Borrows the renderer-specific resource when its concrete type matches.
+    pub fn downcast_ref<T: std::any::Any>(&self) -> Option<&T> {
+        self.resource.downcast_ref()
+    }
+}
+
+impl std::fmt::Debug for ExternalSurface {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExternalSurface")
+            .field("id", &self.id)
+            .field("revision", &self.revision)
+            .field("dimensions", &self.dimensions)
+            .field("backend", &self.backend)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ExternalSurface {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.revision == other.revision
+            && self.dimensions == other.dimensions
+            && self.backend == other.backend
+            && Arc::ptr_eq(&self.resource, &other.resource)
+    }
+}
+
 /// Font variation coordinate in normalized OpenType representation.
 pub type NormalizedCoord = i16;
 
@@ -131,6 +207,12 @@ pub enum PaintCommand {
         effect: ShaderEffect,
         transform: Affine,
     },
+    /// Draw pixels produced directly into a backend GPU resource.
+    ExternalSurface {
+        surface: ExternalSurface,
+        transform: Affine,
+        alpha: f32,
+    },
 }
 
 impl PaintCommand {
@@ -146,6 +228,7 @@ impl PaintCommand {
             | Self::InsetBoxShadow { transform, .. }
             | Self::Svg { transform, .. }
             | Self::Shader { transform, .. }
+            | Self::ExternalSurface { transform, .. }
             | Self::Paragraph { transform, .. } => transform,
             Self::PopLayer => return self,
         };
@@ -241,6 +324,21 @@ impl Scene {
     /// Create an empty scene fragment.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Draw one backend-owned GPU image. Unsupported renderers return a typed
+    /// error instead of silently omitting it.
+    pub fn draw_external_surface(
+        &mut self,
+        surface: ExternalSurface,
+        transform: Affine,
+        alpha: f32,
+    ) {
+        self.commands.push(PaintCommand::ExternalSurface {
+            surface,
+            transform,
+            alpha,
+        });
     }
 
     /// Expand retained subtree references into the ordinary flat command stream.
@@ -440,6 +538,15 @@ pub trait PaintScene {
     fn draw_svg(&mut self, document: SvgDocument, transform: Affine);
     /// Draw a retained custom WGSL effect.
     fn draw_shader_effect(&mut self, effect: ShaderEffect, transform: Affine);
+    /// Draw a backend-owned GPU surface.
+    fn draw_external_surface(
+        &mut self,
+        _surface: ExternalSurface,
+        _transform: Affine,
+        _alpha: f32,
+    ) {
+        panic!("external GPU surface sent to an incompatible painter");
+    }
     /// Native paragraph commands require a compatible host painter.
     fn draw_paragraph(
         &mut self,
@@ -564,6 +671,11 @@ pub trait PaintScene {
                     effect,
                     transform: local,
                 } => self.draw_shader_effect(effect, transform * local),
+                PaintCommand::ExternalSurface {
+                    surface,
+                    transform: local,
+                    alpha,
+                } => self.draw_external_surface(surface, transform * local, alpha),
             }
         }
     }
@@ -785,6 +897,10 @@ impl PaintScene for Scene {
     fn draw_shader_effect(&mut self, effect: ShaderEffect, transform: Affine) {
         self.commands
             .push(PaintCommand::Shader { effect, transform });
+    }
+
+    fn draw_external_surface(&mut self, surface: ExternalSurface, transform: Affine, alpha: f32) {
+        Scene::draw_external_surface(self, surface, transform, alpha);
     }
 }
 

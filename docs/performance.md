@@ -123,6 +123,14 @@ wgpu 的不可变图片纹理采用相同原则，但同时服从原有 128 MiB 
 GPU 回归覆盖一帧离场后零重复上传、超过 grace 后重传，以及 300 source 压力下的
 LRU/binding 记账；它们需要真实 wgpu adapter，默认 ignored。
 
+prepared Scene 的当前图存活集合也保留为 renderer scratch。此前即使根 Scene 完整命中
+缓存，清理历史子层时仍会为临时 HashSet 分配；现在集合容量跨帧复用。分配计数探针预热
+后连续调用 100 次 `prepare_scene`，缓存命中路径为 0 次分配：
+
+```sh
+cargo run --release -p plico-wgpu --example prepared-traversal
+```
+
 ## 静态图片声明的重复编码
 
 `ImageAsset` 保留懒初始化的十六进制编码，复用资源时不再每帧遍历 PNG/JPEG 字节重新编码。

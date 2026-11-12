@@ -12,6 +12,108 @@ use std::sync::Arc;
 struct View {
     value: i32,
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn external_gpu_surface_participates_in_scene_composition() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let gpu = renderer.external_gpu_context();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("external surface test"),
+        size: wgpu::Extent3d {
+            width: 8,
+            height: 8,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        texture.as_image_copy(),
+        &[255; 8 * 8 * 4],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(8 * 4),
+            rows_per_image: Some(8),
+        },
+        texture.size(),
+    );
+    let resource = Arc::new(plico_wgpu::ExternalTexture::new(texture, [8, 8]));
+    let mut scene = Scene::new();
+    scene.draw_external_surface(
+        plico_renderer::ExternalSurface::new(7, 1, [8, 8], "wgpu", resource),
+        Affine::translate((8., 8.)) * Affine::scale(2.),
+        1.,
+    );
+    let pixels = renderer
+        .render_scene(&scene, [32, 32], [0., 0., 0., 1.], false)
+        .unwrap();
+    let center = (16 * 32 + 16) * 4;
+    assert_eq!(&pixels[center..center + 4], &[255, 255, 255, 255]);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn copied_external_gpu_surface_participates_in_scene_composition() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let gpu = renderer.external_gpu_context();
+    let size = wgpu::Extent3d {
+        width: 640,
+        height: 360,
+        depth_or_array_layers: 1,
+    };
+    let make = |label, usage| {
+        gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let source = make(
+        "copied external source",
+        wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+    );
+    let target = make(
+        "copied external target",
+        wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    let pixel = [78, 78, 253, 255];
+    gpu.queue.write_texture(
+        source.as_image_copy(),
+        &pixel.repeat(640 * 360),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(640 * 4),
+            rows_per_image: Some(360),
+        },
+        size,
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_texture(source.as_image_copy(), target.as_image_copy(), size);
+    gpu.queue.submit([encoder.finish()]);
+    let resource = Arc::new(plico_wgpu::ExternalTexture::new(target, [640, 360]));
+    let surface = plico_renderer::ExternalSurface::new(8, 1, [640, 360], "wgpu", resource);
+    let mut text = plico_renderer::TextContext::new();
+    let mut paint = plico_renderer::PaintContext::new(640., 360., 1., &mut text);
+    paint.draw_external_surface_in(surface, [0., 0., 640., 360.]);
+    let scene = paint.finish();
+    let pixels = renderer
+        .render_scene(&scene, [640, 360], [0., 0., 0., 1.], false)
+        .unwrap();
+    let center = (180 * 640 + 320) * 4;
+    assert_eq!(&pixels[center..center + 4], &pixel);
+}
 impl plico::View for View {
     fn theme(&self) -> Theme {
         Theme::light()

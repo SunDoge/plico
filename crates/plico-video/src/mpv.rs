@@ -27,6 +27,8 @@ pub enum Error {
     Thread { source: std::io::Error },
     #[snafu(display("video worker has stopped"))]
     Disconnected,
+    #[snafu(display("GPU video output failed: {message}"))]
+    Gpu { message: String },
 }
 /// Host-owned software output and network playback settings.
 #[derive(Clone, Debug)]
@@ -35,6 +37,10 @@ pub struct PlayerOptions {
     pub height: u32,
     /// Use a null audio device for probes.
     pub muted: bool,
+    /// Prefer rendering libmpv directly into the texture sampled by wgpu.
+    /// The Linux GL backend enables this by default; set
+    /// `PLICO_VIDEO_ZERO_COPY=0` to force its staging reference path.
+    pub prefer_zero_copy: bool,
     pub referrer: Option<String>,
     pub user_agent: Option<String>,
 }
@@ -44,6 +50,7 @@ impl Default for PlayerOptions {
             width: 1280,
             height: 720,
             muted: false,
+            prefer_zero_copy: true,
             referrer: None,
             user_agent: None,
         }
@@ -63,6 +70,10 @@ pub struct Snapshot {
     pub frames: u64,
     /// Cumulative render-call wall time, including mpv frame pacing; excludes GPU upload.
     pub render_micros: u64,
+    /// Active hardware decoding method reported by mpv, such as `vaapi` or
+    /// `vaapi-copy`. `None` means software decode or that playback has not
+    /// initialized far enough to report it.
+    pub hwdec: Option<String>,
     pub error: Option<String>,
 }
 struct Shared {
@@ -239,7 +250,7 @@ impl Drop for Software {
         unsafe { ffi::mpv_render_context_free(self.context) };
     }
 }
-fn check(code: i32) -> Result<(), Error> {
+pub(crate) fn check(code: i32) -> Result<(), Error> {
     if code < 0 {
         Err(Error::Mpv {
             source: libmpv2::Error::Raw(code),
@@ -248,7 +259,7 @@ fn check(code: i32) -> Result<(), Error> {
         Ok(())
     }
 }
-fn param(kind: u32, data: *mut c_void) -> ffi::mpv_render_param {
+pub(crate) fn param(kind: u32, data: *mut c_void) -> ffi::mpv_render_param {
     ffi::mpv_render_param { type_: kind, data }
 }
 fn run(

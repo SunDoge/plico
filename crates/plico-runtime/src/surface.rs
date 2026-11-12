@@ -169,6 +169,11 @@ impl<V: HostView, W: Widget> Drop for SurfaceSource<V, W> {
     }
 }
 impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
+    fn set_gpu_context(&mut self, context: Option<plico_renderer::source::GpuContext>) {
+        self.source.set_gpu_context(context.clone());
+        self.widget.set_gpu_context(context);
+    }
+
     fn set_multi_click_settings(&mut self, settings: plico_renderer::MultiClickSettings) {
         self.source.set_multi_click_settings(settings);
         self.widget.set_multi_click_interval(settings.interval);

@@ -49,6 +49,7 @@ struct Payloads {
     layers: Vec<PreparedLayer>,
     effects: Vec<(plico_renderer::ShaderEffect, Quad)>,
     images: Vec<crate::image::ImageQuad>,
+    external_images: Vec<crate::image::ExternalImageQuad>,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
     text: Vec<PreparedText>,
 }
@@ -66,6 +67,7 @@ enum PreparedDraw {
     Layer(usize),
     Effect(usize),
     Image(usize),
+    ExternalImage(usize),
     SetMask(std::rc::Rc<crate::mask::CoverageMask>),
     ResetMask,
     #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -79,6 +81,12 @@ fn stash<T>(table: &mut Vec<T>, value: T) -> usize {
 fn image_draw(payloads: &mut Payloads, image: crate::image::ImageQuad) -> PreparedDraw {
     PreparedDraw::Image(stash(&mut payloads.images, image))
 }
+fn external_image_draw(
+    payloads: &mut Payloads,
+    image: crate::image::ExternalImageQuad,
+) -> PreparedDraw {
+    PreparedDraw::ExternalImage(stash(&mut payloads.external_images, image))
+}
 fn layer_draw(payloads: &mut Payloads, layer: PreparedLayer) -> PreparedDraw {
     PreparedDraw::Layer(stash(&mut payloads.layers, layer))
 }
@@ -89,6 +97,7 @@ impl PreparedDraw {
             Self::Layer(index) => payloads.layers[*index].quad.clip_radii = radii,
             Self::Effect(index) => payloads.effects[*index].1.clip_radii = radii,
             Self::Image(index) => payloads.images[*index].quad.clip_radii = radii,
+            Self::ExternalImage(index) => payloads.external_images[*index].quad.clip_radii = radii,
             Self::SetMask(_) | Self::ResetMask => {}
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             Self::Text(index) => payloads.text[*index].clip_radii = radii,
@@ -106,6 +115,7 @@ impl PreparedDraw {
             Self::Layer(i) => bounds(&payloads.layers[*i].quad),
             Self::Effect(i) => bounds(&payloads.effects[*i].1),
             Self::Image(i) => bounds(&payloads.images[*i].quad),
+            Self::ExternalImage(i) => bounds(&payloads.external_images[*i].quad),
             #[cfg(all(target_os = "linux", feature = "system-text"))]
             Self::Text(i) => {
                 let text = &payloads.text[*i];
@@ -199,6 +209,7 @@ impl PreparedScene {
                 PreparedDraw::Layer(i) => self.payloads.layers[*i].quad.clip,
                 PreparedDraw::Effect(i) => self.payloads.effects[*i].1.clip,
                 PreparedDraw::Image(i) => self.payloads.images[*i].quad.clip,
+                PreparedDraw::ExternalImage(i) => self.payloads.external_images[*i].quad.clip,
                 #[cfg(all(target_os = "linux", feature = "system-text"))]
                 PreparedDraw::Text(i) => Some(self.payloads.text[*i].clip),
             };
@@ -262,7 +273,8 @@ impl PreparedScene {
         let bytes = data.quads.capacity() * size_of::<Quad>()
             + data.layers.capacity() * size_of::<PreparedLayer>()
             + data.effects.capacity() * size_of::<(plico_renderer::ShaderEffect, Quad)>()
-            + data.images.capacity() * size_of::<crate::image::ImageQuad>();
+            + data.images.capacity() * size_of::<crate::image::ImageQuad>()
+            + data.external_images.capacity() * size_of::<crate::image::ExternalImageQuad>();
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         let bytes = bytes + data.text.capacity() * size_of::<PreparedText>();
         PreparedStorageStats {
@@ -289,6 +301,7 @@ impl PreparedScene {
                 Draw::Effect(effect, q)
             }
             PreparedDraw::Image(i) => Draw::Image(&data.images[*i]),
+            PreparedDraw::ExternalImage(i) => Draw::ExternalImage(&data.external_images[*i]),
             PreparedDraw::SetMask(mask) => Draw::SetMask(mask),
             PreparedDraw::ResetMask => Draw::ResetMask,
             #[cfg(all(target_os = "linux", feature = "system-text"))]
@@ -565,12 +578,14 @@ impl Renderer {
                 collect(&layer.scene, live);
             }
         }
-        let mut live = std::collections::HashSet::new();
+        let mut live = std::mem::take(&mut self.prepared_live_scratch);
+        live.clear();
         collect(&prepared, &mut live);
         self.prepared_cache.retain(|_, entries| {
             entries.retain(|entry| live.contains(&std::rc::Rc::as_ptr(entry)));
             !entries.is_empty()
         });
+        self.prepared_live_scratch = live;
         Ok(prepared)
     }
     fn prepare_scene_with_clip(
@@ -811,6 +826,37 @@ impl Renderer {
                 }
             } else {
                 match command {
+                    PaintCommand::ExternalSurface {
+                        surface,
+                        transform,
+                        alpha,
+                    } => {
+                        let [width, height] = surface.dimensions();
+                        if surface.backend() != "wgpu"
+                            || width == 0
+                            || height == 0
+                            || !alpha.is_finite()
+                            || !(0. ..=1.).contains(alpha)
+                        {
+                            return Err(unsupported(index, "invalid external wgpu surface"));
+                        }
+                        if surface
+                            .downcast_ref::<crate::ExternalTexture>()
+                            .is_none_or(|texture| texture.size() != [width, height])
+                        {
+                            return Err(unsupported(index, "external surface resource mismatch"));
+                        }
+                        let rect = Rect::new(0., 0., f64::from(width), f64::from(height));
+                        let q = quad(rect, [0.; 4], *transform, clip, index)?;
+                        draws.push(external_image_draw(
+                            &mut payloads,
+                            crate::image::ExternalImageQuad {
+                                quad: q,
+                                surface: surface.clone(),
+                                alpha: *alpha,
+                            },
+                        ));
+                    }
                     PaintCommand::Fill {
                         transform,
                         brush: paint,
@@ -1480,6 +1526,7 @@ impl Renderer {
                                 match command {
                                     PaintCommand::GlyphRun { .. } => "positioned glyph",
                                     PaintCommand::Fragment { .. } => "unflattened fragment",
+                                    PaintCommand::ExternalSurface { .. } => "external surface",
                                     _ => "unknown",
                                 }
                             ),

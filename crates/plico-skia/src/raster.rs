@@ -1053,6 +1053,9 @@ impl SkiaSurface {
                     canvas.draw_rect(skia_safe::Rect::from_wh(size[0], size[1]), &paint);
                     canvas.restore();
                 }
+                PaintCommand::ExternalSurface { .. } => {
+                    return unsupported("external GPU surface");
+                }
             }
         }
         if !restore_counts.is_empty() {

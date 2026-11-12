@@ -307,6 +307,20 @@ impl<V: HostView> Driver<V> {
         self.source.placed_nodes()
     }
 
+    /// Drain host/service completions and settle the resulting UI frame.
+    pub fn poll_async(&mut self) -> Result<bool, Error> {
+        let changed = self.source.poll_async();
+        if changed {
+            self.frame()?;
+        }
+        Ok(changed)
+    }
+
+    /// Drain one native host action emitted by the application under test.
+    pub fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
+        self.source.take_host_action()
+    }
+
     /// Theme used by the latest settled declaration.
     pub fn theme(&self) -> plico::Theme {
         self.source.theme()
@@ -315,6 +329,16 @@ impl<V: HostView> Driver<V> {
     /// Whether the real runtime currently requests further animation frames.
     pub fn has_animation(&self) -> bool {
         self.source.has_anim()
+    }
+
+    /// Earliest deterministic repaint requested by motion or deferred UI work.
+    pub fn animation_deadline(&self) -> Option<web_time::Instant> {
+        self.source.animation_deadline()
+    }
+
+    /// Shader validation messages produced by the latest settled frame.
+    pub fn shader_diagnostics(&self) -> impl Iterator<Item = &str> {
+        self.source.shader_diagnostics()
     }
 
     /// Deliver a backend-neutral event and settle the resulting frame.

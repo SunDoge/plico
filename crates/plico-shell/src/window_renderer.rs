@@ -21,6 +21,18 @@ pub(crate) enum WindowRenderer {
     },
 }
 impl WindowRenderer {
+    pub(crate) fn gpu_context(&self) -> Option<plico_renderer::source::GpuContext> {
+        #[cfg(feature = "wgpu")]
+        if let Self::Wgpu {
+            active: Some(renderer),
+            ..
+        } = self
+        {
+            return Some(renderer.gpu_context());
+        }
+        None
+    }
+
     pub(crate) fn defers_initial_show(&self) -> bool {
         #[cfg(all(target_os = "macos", feature = "wgpu"))]
         {

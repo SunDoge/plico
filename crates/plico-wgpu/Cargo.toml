@@ -9,11 +9,13 @@ description = "Experimental instanced-quad wgpu renderer for Plico"
 [features]
 default = ["system-text"]
 system-text = ["dep:plico-native"]
+vulkan-dmabuf = ["dep:wgpu-dmabuf"]
 web = ["wgpu/webgl", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:unicode-segmentation"]
 window = ["dep:winit", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2", "dep:objc2-app-kit", "dep:objc2-quartz-core"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
+wgpu-dmabuf = { version = "0.1", features = ["gbm"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["windows-text"], optional = true }
@@ -56,6 +58,10 @@ image = { workspace = true, features = ["png"] }
 
 [[example]]
 name = "image-minification"
+
+[[example]]
+name = "dmabuf-probe"
+required-features = ["vulkan-dmabuf"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", optional = true, features = ["Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d", "TextMetrics", "ImageData"] }

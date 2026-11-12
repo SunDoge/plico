@@ -84,5 +84,21 @@ fn main() -> plico_wgpu::Result<()> {
             elapsed.as_micros()
         );
     }
+    ALLOCS.set(0);
+    BYTES.set(0);
+    TRACK.set(true);
+    let started = Instant::now();
+    for _ in 0..100 {
+        black_box(renderer.prepare_scene(&scene, [128, 128])?);
+    }
+    let elapsed = started.elapsed();
+    TRACK.set(false);
+    let allocations = ALLOCS.get();
+    let bytes = BYTES.get();
+    assert_eq!(allocations, 0, "warm prepared-scene hits allocated");
+    println!(
+        "prepared-cache-hit: calls=100 allocations={allocations} requested_bytes={bytes} elapsed_us={}",
+        elapsed.as_micros()
+    );
     Ok(())
 }
