@@ -28,7 +28,10 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                     }
                 }
             };
-            column(cx).height(0.).grow(1.).scroll_y(true).gap(16).min_width(0.) + |cx| {
+            // Let the scrollbar's hit lane reach the panel edge while keeping
+            // source-list content aligned to the sidebar's ten-DIP inset.
+            column(cx).height(0.).grow(1.).scroll_y(true).gap(16).min_width(0.)
+                .margin_left(-10).margin_right(-10).padding_left(10).padding_right(10) + |cx| {
                 for (section, title, routes) in [
                     ("sidebar-workspace", "Workspace", &[Page::Workspace][..]),
                     (

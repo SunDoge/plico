@@ -164,7 +164,7 @@ pub fn page(cx: &mut UiContext) {
     let deployments = cx.persisted_state("deployment-tree", TreeState::deployment);
     let mut files_state = files.get();
     let mut deployment_state = deployments.get();
-    column(cx).height(0.).grow(1.).scroll_y(true).gap(20) + |cx| {
+    column(cx).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(20) + |cx| {
         row(cx).gap(20).wrap(true).align(Align::Start) + |cx| {
             column(cx).flex_basis(360.).grow(1.).min_width(280.).padding(20).gap(16).radius(12.)
                 .background(Color::Panel).border(1., Color::Border) + |cx|

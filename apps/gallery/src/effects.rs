@@ -50,7 +50,7 @@ impl Default for Effects {
 pub fn page(ui: &mut UiContext, state: &mut Effects) {
     heading(ui, "WGSL effects",
         "Three MyGO-inspired GPU surfaces: frosted glass, an assistant orb and a flowing wind field.");
-    column(ui).height(0.).grow(1.).scroll_y(true).gap(14) + |ui| {
+    column(ui).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(14) + |ui| {
         row(ui).gap(12).wrap(true).align(Align::Center) + |ui| {
             if button(ui).text(if state.paused { "Resume" } else { "Pause" }).ghost().clicked() {
                 state.paused = !state.paused;
@@ -95,8 +95,11 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
             };
             // A busy, saturated backdrop makes the pane's blur and rim refraction
             // visible; the shader reads everything painted before it.
+            // Continuous corners carry a longer shoulder than circular arcs.
+            // Use the pane token rather than the old circular 18-DIP radius so
+            // the large surface reads rounded instead of almost rectangular.
             column(ui).position(Position::Relative).width_percent(100.).height(300.).shrink(0.).clip(true)
-                .radius(18.).corner_smoothing(1.).background(Color::Literal(0x121826)) + |ui|
+                .radius(24.).corner_smoothing(1.).background(Color::Literal(0x121826)) + |ui|
             {
                 column(ui).absolute(-50., -70.).width(280.).height(280.).radius(140.)
                     .background(Color::Literal(0xf97316)) + |_ui|
@@ -108,7 +111,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                     .background(Color::Literal(0xa855f7)) + |_ui|
                 {};
                 column(ui).absolute(0., 0.).width_percent(100.).height_percent(100.).padding(28).gap(4)
-                    .radius(18.).corner_smoothing(1.).material(LiquidGlass {
+                    .radius(24.).corner_smoothing(1.).material(LiquidGlass {
                     frost: state.frost as f32,
                     tint_opacity: if state.glass_style == "custom" { 0.55 } else { 0. },
                     refraction: state.bend as f32 / 24.,
@@ -117,7 +120,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                     ..material
                 }) + |ui|
                 {
-                    column(ui).width(360).padding(18).gap(12).radius(16.).corner_smoothing(1.)
+                    column(ui).width(360).padding(18).gap(12).radius(20.).corner_smoothing(1.)
                         .background(Color::Panel).background_alpha(0.94).elevation(Elevation::CONTROL) + |ui|
                     {
                         text(ui, "Material preview").font_size(24).weight(650);

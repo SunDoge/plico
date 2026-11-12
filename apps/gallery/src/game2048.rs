@@ -259,7 +259,8 @@ impl Game {
         if elapsed < 0.6 {
             cx.request_animation_frame();
         }
-        column(cx).width_percent(100.).height(0.).grow(1.).align(Align::Center).scroll_y(true).padding(18).gap(16)
+        column(cx).width_percent(100.).height(0.).grow(1.).align(Align::Center).scroll_y(true)
+            .padding(18).padding_right(24).gap(16)
             .background(PAPER).radius(10.) + |cx|
         {
             column(cx).width(size).gap(14) + |cx| {

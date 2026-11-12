@@ -113,7 +113,7 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
     if tabs(ui, &mut state.tab, &["Overview", "Details", "Activity"]) {
         ui.request_rebuild();
     }
-    column(ui).height(0.).grow(1.).gap(16).scroll_y(true) + |ui| {
+    column(ui).height(0.).grow(1.).gap(16).scroll_y(true).padding_right(24) + |ui| {
         panel(ui, None) + |ui| {
             match state.tab {
                 0 => {

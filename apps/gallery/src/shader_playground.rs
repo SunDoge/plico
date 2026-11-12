@@ -90,7 +90,7 @@ pub fn page(cx: &mut UiContext, state: &mut Playground) {
             });
         }
     };
-    column(cx).height(0.).grow(1.).scroll_y(true).gap(16) + |cx| {
+    column(cx).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |cx| {
         row(cx).gap(12).wrap(true).align(Align::Center) + |cx| {
             if button(cx).text(if state.paused { "Play" } else { "Pause" }).clicked() {
                 state.paused = !state.paused;

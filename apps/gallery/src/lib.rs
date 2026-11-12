@@ -173,8 +173,9 @@ impl Gallery {
         let m = ui.theme().metrics;
         row(ui).width_percent(100.).height_percent(100.).align(Align::Stretch) + |ui| {
             sidebar::show(ui, self);
-            column(ui).width(0.).min_width(0.).grow(1.).padding(m.space(6)).gap(m.space(4)).children(|ui| {
-                row(ui).justify(Justify::SpaceBetween).wrap(true).gap(8) + |ui| {
+            column(ui).width(0.).min_width(0.).grow(1.).padding_left(m.space(6))
+                .padding_top(m.space(6)).padding_bottom(m.space(6)).gap(m.space(4)).children(|ui| {
+                row(ui).justify(Justify::SpaceBetween).wrap(true).gap(8).padding_right(m.space(6)) + |ui| {
                     text(ui, l.text("workspace-gallery", "Workspace / Gallery")).font_size(12)
                         .color(Color::Muted).grow(1.);
                     switch(ui, l.text("dark-theme", "Dark theme"), &mut self.dark);
@@ -256,7 +257,7 @@ impl Gallery {
             &l.text("small-interactions-shared-state-leave-the-page-and-your-values-stay",
                 "Small interactions, shared state. Leave the page and your values stay."),
         );
-        column(ui).height(0.).grow(1.).scroll_y(true).gap(16) + |ui| {
+        column(ui).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |ui| {
             panel(ui, l.text("hover-and-activation", "Hover and activation").as_ref()) + |ui| {
                 let activations = ui.state(|| 0_u32);
                 let response = button(ui).text(l.text("hover-or-activate", "Hover or activate")).response();
@@ -412,7 +413,7 @@ impl Gallery {
             &l.text("motion-description", "One state change. Dimensions, spacing, color and opacity move together."));
         // The two demo cards plus the shader do not fit the 640px minimum
         // window; the page scrolls rather than overflowing the viewport.
-        column(ui).height(0.).grow(1.).scroll_y(true).gap(20) + |ui| {
+        column(ui).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(20) + |ui| {
             column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
                 row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
                     text(ui, "Layout + style").font_size(17).weight(650).grow(1.);

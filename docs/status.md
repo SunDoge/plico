@@ -260,6 +260,8 @@ geometry and image-filled/stroked paths use cached coverage with GPU source samp
 uses a cached resvg fallback. Static box backgrounds, continuous-corner borders, outlines,
 overflow/widget/backdrop clips, scrollbars, text-selection rectangles, image destinations,
 axis-aligned SVG destinations and rectangular strokes snap both physical edges independently.
+Overlay scrollbars follow MyGO's split geometry: a 12-DIP edge-aligned track/hit lane contains
+a centered 6-DIP thumb with two-DIP end gaps, so content padding does not shrink the hit target.
 SVGs raster at that exact size; nonzero borders round to at least one physical pixel, and shadow
 boxes plus inset-shadow offsets share the same device grid. This matches MyGO's small-icon and
 control-chrome policy without snapping glyph outlines, animated transforms or arbitrary curves. Shared native WGSL

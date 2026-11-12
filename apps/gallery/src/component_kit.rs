@@ -35,7 +35,7 @@ pub fn page(cx: &mut UiContext, state: &mut ComponentKit) {
         corners(cx, &mut state.smoothing);
         return;
     }
-    column(cx).width_percent(100.).height(0.).grow(1.).scroll_y(true).gap(16) + |cx| {
+    column(cx).width_percent(100.).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |cx| {
         row(cx).gap(12).align(Align::Center) + |cx| {
             if button(cx).text("Reset examples").ghost().clicked() {
                 *state = ComponentKit::default();
@@ -112,7 +112,7 @@ pub fn page(cx: &mut UiContext, state: &mut ComponentKit) {
 #[component]
 #[rustfmt::skip]
 fn corners(cx: &mut UiContext, smoothing: &mut f64) {
-    column(cx).width_percent(100.).height(0.).grow(1.).scroll_y(true) + |cx| {
+    column(cx).width_percent(100.).height(0.).grow(1.).scroll_y(true).padding_right(24) + |cx| {
         panel(cx, Some("Continuous corners"))
             .description("The same radius, with a gentler transition into straight edges.") + |cx|
         {
