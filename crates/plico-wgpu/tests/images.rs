@@ -359,7 +359,51 @@ fn source_eviction_releases_all_bindings_without_corrupting_in_flight_draws() {
         .render_scene(&return_to_first, [1, 1], [0.; 4], false)
         .unwrap();
     assert_eq!(renderer.image_cache_stats().2, 301);
-    assert_eq!(renderer.image_binding_stats(), (1, 601));
+    assert_eq!(renderer.image_cache_stats().0, 256);
+    assert_eq!(renderer.image_binding_stats(), (511, 601));
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn live_image_texture_stays_warm_while_temporarily_absent_then_ages_out() {
+    let image = ImageData {
+        data: Blob::new(Arc::new([40u8, 120, 220, 255].repeat(16))),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: 4,
+        height: 4,
+    };
+    let mut scene = Scene::new();
+    scene.draw_image((&image).into(), Affine::IDENTITY);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    renderer
+        .render_scene(&scene, [4, 4], [0.; 4], false)
+        .unwrap();
+    assert_eq!(renderer.image_cache_stats().2, 1);
+
+    renderer
+        .render_scene(&Scene::new(), [4, 4], [0.; 4], false)
+        .unwrap();
+    assert_eq!(renderer.image_cache_stats().0, 1);
+    renderer
+        .render_scene(&scene, [4, 4], [0.; 4], false)
+        .unwrap();
+    assert_eq!(
+        renderer.image_cache_stats().2,
+        1,
+        "a one-frame page switch reuploaded a live source"
+    );
+
+    for _ in 0..241 {
+        renderer
+            .render_scene(&Scene::new(), [4, 4], [0.; 4], false)
+            .unwrap();
+    }
+    assert_eq!(renderer.image_cache_stats().0, 0);
+    renderer
+        .render_scene(&scene, [4, 4], [0.; 4], false)
+        .unwrap();
+    assert_eq!(renderer.image_cache_stats().2, 2);
 }
 
 #[test]

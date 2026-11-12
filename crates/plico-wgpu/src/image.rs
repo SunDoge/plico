@@ -1,6 +1,6 @@
 //! Immutable image resources, separate from the glyph atlas and bounded by bytes.
 use crate::{Error, Quad, Result};
-use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality};
+use peniko::{Extend, ImageAlphaType, ImageData, ImageFormat, ImageQuality, WeakBlob};
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroUsize,
@@ -45,12 +45,11 @@ pub(crate) struct GpuImage {
     pub bind: wgpu::BindGroup,
     // Pass explicitly: WebGL2 GLSL ES 3.0 has no textureQueryLevels.
     pub mip_levels: u32,
-    // Retain the actual source allocation, not just its identity.
-    _source: Option<ImageData>,
 }
 struct TextureEntry {
     texture: wgpu::Texture,
-    source: ImageData,
+    source: WeakBlob<u8>,
+    used: u64,
     bytes: usize,
     primary: Option<(u8, Rc<GpuImage>)>,
     additional: HashMap<u8, Rc<GpuImage>>,
@@ -63,6 +62,7 @@ pub(crate) struct ImageCache {
     // cannot sample uninitialized levels.
     pending_mips: Vec<wgpu::Texture>,
     frame_sources: HashSet<u64>,
+    frame: u64,
     #[cfg(test)]
     force_cpu_mips: bool,
     bytes: usize,
@@ -79,6 +79,7 @@ impl Default for ImageCache {
             mip_generator: None,
             pending_mips: Vec::new(),
             frame_sources: HashSet::new(),
+            frame: 0,
             #[cfg(test)]
             force_cpu_mips: false,
             uploads: 0,
@@ -177,6 +178,7 @@ impl ImageCache {
                 | (u8::from(mipmaps) << 7),
         );
         if let Some(entry) = self.entries.get_mut(&key) {
+            entry.used = self.frame;
             self.hits += 1;
             let (image, created) = entry.binding(device, layout, quality, extend);
             self.bindings += usize::from(created);
@@ -323,7 +325,8 @@ impl ImageCache {
         }
         let mut entry = TextureEntry {
             texture,
-            source: image.clone(),
+            source: image.data.downgrade(),
+            used: self.frame,
             bytes,
             primary: None,
             additional: HashMap::new(),
@@ -337,16 +340,27 @@ impl ImageCache {
         Ok(binding)
     }
     pub fn begin_frame(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
         self.frame_sources.clear();
     }
     pub fn retain_source(&mut self, image: &ImageData) {
         self.frame_sources.insert(image.data.id());
     }
     pub fn finish_frame(&mut self) {
+        const GRACE_FRAMES: u64 = 240;
+
+        for (_, entry) in self.entries.iter_mut() {
+            if self.frame_sources.contains(&entry.source.id()) {
+                entry.used = self.frame;
+            }
+        }
         let stale: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, entry)| !self.frame_sources.contains(&entry.source.data.id()))
+            .filter(|(_, entry)| {
+                entry.source.upgrade().is_none()
+                    || self.frame.wrapping_sub(entry.used) > GRACE_FRAMES
+            })
             .map(|(key, _)| *key)
             .collect();
         for key in stale {
@@ -457,7 +471,6 @@ impl TextureEntry {
         let image = Rc::new(GpuImage {
             bind,
             mip_levels: self.texture.mip_level_count(),
-            _source: Some(self.source.clone()),
         });
         if self.primary.is_none() {
             self.primary = Some((key, image.clone()));
@@ -503,7 +516,6 @@ impl GpuImage {
         Rc::new(Self {
             bind,
             mip_levels: 1,
-            _source: None,
         })
     }
 }

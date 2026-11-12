@@ -109,6 +109,14 @@ release 同进程交替探针使用 4001 个 retained 节点和 256 个不存活
 cargo test --release -p plico-runtime profile_linear_asset_cache_liveness -- --ignored --nocapture
 ```
 
+wgpu 的不可变图片纹理采用相同原则，但同时服从原有 128 MiB / 256 entries LRU
+硬上限。图片短暂不在当前 Scene 时不再立即销毁纹理；仍有 CPU owner 的条目保温
+240 个实际编码帧，随后释放。缓存只保存像素 Blob 的 weak handle，不能为了 GPU
+保温而延长整份 CPU RGBA 的生命周期；CPU owner 已消失的条目在下一次维护立即释放。
+因此页面切换返回可避免重复 `write_texture`，而连续访问不同图片仍受字节和数量预算约束。
+GPU 回归覆盖一帧离场后零重复上传、超过 grace 后重传，以及 300 source 压力下的
+LRU/binding 记账；它们需要真实 wgpu adapter，默认 ignored。
+
 ## 静态图片声明的重复编码
 
 `ImageAsset` 保留懒初始化的十六进制编码，复用资源时不再每帧遍历 PNG/JPEG 字节重新编码。
