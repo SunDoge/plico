@@ -259,6 +259,13 @@ cargo run -p plico-wgpu --example continuous_shadow_profile
 若使用低层 `ShaderEffectSource`，对应 metadata 是 `.with_backdrop_prefilter(Some(max_sigma))`。
 手动绑定单层背景的宿主仍可执行同一 shader，退回原来的稀疏核。
 
+`max_sigma` 同时是采样依赖契约：renderer 按 MyGO 的做法在输出四周读取
+`ceil(3 * max_sigma * device_scale) + 1` 个物理像素。普通 `plico_backdrop_at` 仍把
+surface 外的 UV 视为透明；`plico_backdrop_blur` 则可读取这段外围背景，避免玻璃边缘
+把自身最后一列像素拉宽。靠近 framebuffer 边缘时，copy window 向内平移而不缩小，
+因此同尺寸 surface 仍可进入同一个数组 batch。damage tracker 使用相同的 3σ 输入范围，
+背景在控件外变化时也会重算受影响的玻璃。
+
 层级数为 `ceil(log2(max_sigma * device_scale)) + 1`，受区域尺寸限制；sigma≤1 的
 1x 表面不生成额外层级。玻璃按 Custom／Regular／Clear 的最大 sigma 设置预算，
 ScrollEdge 使用其最大半径。层级通过 render pass 生成，不依赖 compute shader。
@@ -268,7 +275,8 @@ ScrollEdge 使用其最大半径。层级通过 render pass 生成，不依赖 c
 两倍 base，通常约 4/3；统计同样覆盖透明子层中的背景采样。
 
 验证覆盖 1/1.5/2x、奇数／单像素轴、premultiplied RGBA、移除后的 effect target 释放、
-父级圆角裁剪与裁剪离屏目标、局部重绘、跨 2/4/8/16/32 sigma 的 LOD 连续性。
+父级圆角裁剪与裁剪离屏目标、局部重绘、surface 外背景进入边缘 blur、
+跨 2/4/8/16/32 sigma 的 LOD 连续性。
 细条纹回归的均匀灰度 RMS 从约 66–127 降至 0.5–1.5/255；
 阶跃边缘 sigma 4/12/32 的 Gaussian CDF RMS 分别约 0.51/0.83/1.69，最大误差低于 6/255。
 它们是具体测试图案的证据，不外推为全图误差上界。
@@ -279,11 +287,16 @@ cargo test -p plico-wgpu --test backdrop_prefilter profile_many -- --ignored --n
 cargo plico capture apps/gallery --scenario apps/gallery/scenarios/effects-prefilter.json --output reports/prefilter.png
 ```
 
-固定 16 个 128×64 backdrop、sigma=8 的 Intel ARL/Vulkan 全重绘探针中，
-单层／预滤波中位墙钟约 10.02／13.01 ms（含 CPU 准备、GPU 同步和图像回读）；
-预滤波额外 48 个 pass，payload 为 696,320 B，相比 base 524,288 B。
-这是以一些工作量换取采样质量，不是性能加速宣称；实际窗口和 macOS 应在目标机重测。
-Gallery Effects 现在有稀疏核与预滤波的细纹理并排对照，可由场景 JSON 重建。
+固定 16 个 128×64 backdrop、sigma=8 的 Intel ARL/Vulkan 全重绘探针中，声明的
+3σ 外围使总 payload 成为约 1.72 MiB。独立 snapshot 是 16 textures／48 mip passes；
+同阶段数组是 1 texture／3 mip passes。一次本机记录的墙钟中位约 6.8／3.3 ms，包含
+CPU 准备、GPU 同步和图像回读，只证明该次运行中 batching 抵消了外围采样成本。
+
+Gallery Effects 用旧版与 3σ 版交替各跑五次的 GPU timestamp 中位数为：Regular
+5.61／4.55 ms，Clear 6.33／5.95 ms；backdrop payload 分别从 1651／1561 KiB 增至
+2616／1942 KiB，pass/copy 数不变。样本波动约 3.7–11.5 ms，因此不把中位差宣称为
+通用提速；当前证据只排除了明显 GPU 退化，并由像素测试证明外围背景确实进入 blur。
+实际窗口和 macOS 仍应在目标机器重测。Gallery Effects 的细纹理对照可由场景 JSON 重建。
 
 ## 背景依赖与同阶段分组
 

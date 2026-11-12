@@ -87,13 +87,23 @@ var plico_backdrop_sampler: sampler;
 @group(1) @binding(2)
 var<uniform> plico_backdrop_mapping: vec4f;
 
+fn backdrop_mapped_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
+    let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
+    let level = u32(clamp(lod,0.0,f32(textureNumLevels(plico_backdrop)-1u)));
+    let half_pixel = 0.5/vec2f(textureDimensions(plico_backdrop,level));
+    return textureSampleLevel(
+        plico_backdrop,
+        plico_backdrop_sampler,
+        clamp(mapped,half_pixel,vec2f(1.0)-half_pixel),
+        lod,
+    );
+}
+
 fn backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
     if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
         return vec4<f32>(0.0);
     }
-    let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
-    if any(mapped < vec2f(0.0)) || any(mapped > vec2f(1.0)) { return vec4f(0.0); }
-    return textureSampleLevel(plico_backdrop,plico_backdrop_sampler,mapped,lod);
+    return backdrop_mapped_at_lod(uv,lod);
 }
 
 fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
@@ -120,7 +130,7 @@ fn plico_backdrop_blur(uv: vec2<f32>, sigma: f32) -> vec4<f32> {
         for(var x=-2; x<=2; x++) {
             let offset=vec2f(f32(x),f32(y));
             let weight=exp(-dot(offset,offset)*0.5);
-            sum+=backdrop_at_lod(clamp(uv+offset*spread,pixel,vec2f(1.)-pixel),lod)*weight;
+            sum+=backdrop_mapped_at_lod(uv+offset*spread,lod)*weight;
             weights+=weight;
         }
     }

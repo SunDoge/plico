@@ -24,6 +24,45 @@ const BLUR: &str = "fn plico_effect(uv:vec2f)->vec4f { return plico_backdrop_blu
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn blur_reads_declared_sigma_reach_outside_its_output_surface() {
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut edge = [0_u8; 2];
+    for (index, outside) in [false, true].into_iter().enumerate() {
+        let mut scene = Scene::new();
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(0., 0., 160., 80.),
+        );
+        if outside {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                Color::WHITE,
+                None,
+                &Rect::new(72., 8., 80., 72.),
+            );
+        }
+        scene.append_scene(
+            effect(&mut text, 64., 64., 1., BLUR, true, &[8.]),
+            Affine::translate((80., 8.)),
+        );
+        let pixels = renderer
+            .render_scene(&scene, [160, 80], [0.; 4], false)
+            .unwrap();
+        edge[index] = pixels[((40 * 160 + 81) * 4) as usize];
+    }
+    assert!(
+        edge[1] > edge[0] + 20,
+        "outside backdrop must contribute across the output edge: {edge:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn pyramid_removes_sparse_kernel_aliasing_on_fine_stripes_across_scales() {
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let mut text = TextContext::new();
