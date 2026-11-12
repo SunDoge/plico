@@ -56,6 +56,7 @@
 | [自动身份](identity.md) | `#[component]` 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
+| [节点编辑器](node-editor.md) | 可序列化图模型、节点拖动、端口连接、批量 Bézier 边与当前交互边界 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |
 | [呈现生命周期](presentation.md) | MyGO 对照、完整弹窗退场、玻璃组背景与文字缩放缓存 |
 | [macOS 与 MyGO 对照](macos-mygo.md) | 原生窗口、文字缓存、空闲调度、macOS 验证入口与未完成项 |

@@ -15,6 +15,7 @@ plico-desktop = { path = "../../crates/plico-desktop", optional = true, default-
 plico.workspace = true
 plico-i18n = { path = "../../crates/plico-i18n" }
 plico-markdown = { path = "../../crates/plico-markdown" }
+plico-node-editor.workspace = true
 plico-dev.workspace = true
 plico-wgpu = { path = "../../crates/plico-wgpu", optional = true }
 pollster = { version = "1.0", optional = true }

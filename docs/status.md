@@ -2,6 +2,13 @@
 
 # 实现状态与边界
 
+## 节点编辑器
+
+`plico-node-editor` 提供独立可复用的图模型与普通 immediate 组合界面：稳定 ID、类型化端口校验、
+级联删除、序列化、节点拖动、画布平移、缩放、选择和点击式连线已实现。所有边合并为一个 SVG
+绘制层，节点仍是普通 Plico 控件；Gallery 提供实际页面、recipe 截图和交互测试。拖线预览、框选、
+剪贴板及撤销命令尚未实现，详见 [节点编辑器](node-editor.md)。
+
 ## 框架材质
 
 `plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；

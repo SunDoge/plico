@@ -3302,6 +3302,7 @@ dependencies = [
  "plico-editor",
  "plico-i18n",
  "plico-markdown",
+ "plico-node-editor",
  "plico-renderer",
  "plico-shell",
  "plico-wgpu",
@@ -6453,6 +6454,16 @@ dependencies = [
  "windows",
  "windows-core",
  "yeslogic-fontconfig-sys",
+]
+
+[[package]]
+name = "plico-node-editor"
+version = "0.3.2"
+dependencies = [
+ "plico",
+ "serde",
+ "serde_json",
+ "snafu",
 ]
 
 [[package]]

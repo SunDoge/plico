@@ -19,6 +19,7 @@ pub mod glass;
 mod layout_demo;
 pub mod markdown_chat;
 pub mod mines;
+mod node_editor_demo;
 mod patterns;
 mod sidebar;
 pub mod workspace;
@@ -77,6 +78,8 @@ pub enum Page {
     ShaderPlayground,
     #[route(label = "Component kit", icon = color_icons::DESIGN_IDEAS)]
     ComponentKit,
+    #[route(label = "Node editor", icon = color_icons::DESIGN_IDEAS)]
+    NodeEditor,
 }
 
 /// A spring-driven demo chip on the Motion page. The framework owns the
@@ -97,6 +100,7 @@ pub struct Gallery {
     pub effects: effects::Effects,
     pub shader_playground: shader_playground::Playground,
     pub component_kit: component_kit::ComponentKit,
+    pub node_editor: node_editor_demo::NodeEditorDemo,
     #[serde(skip)]
     pub spring: SpringDemo,
     #[cfg(all(feature = "host", not(target_arch = "wasm32")))]
@@ -205,6 +209,7 @@ impl Gallery {
                         shader_playground::page(ui, &mut self.shader_playground)
                     }
                     Page::ComponentKit => component_kit::page(ui, &mut self.component_kit),
+                    Page::NodeEditor => node_editor_demo::page(ui, &mut self.node_editor),
                 });
             })
         };
