@@ -10,12 +10,14 @@ extern crate self as plico_shell;
 
 // Shell implementation vocabulary. Keep this private: applications consume
 // these contracts from plico-renderer/plico-runtime instead of a second facade.
+#[cfg(all(test, target_os = "linux", feature = "wgpu"))]
+use plico_renderer::ScreenshotRequest;
 use plico_renderer::{
     ColorScheme, ImeState, SemanticAction, SemanticCurrent, SemanticNode, SemanticPopup,
     SemanticRole, SemanticSnapshot, SemanticSortDirection, SemanticToggleState, WHEEL_LINE_DELTA,
 };
 #[cfg(test)]
-use plico_renderer::{PaintContext, ScreenshotRequest, SemanticStates};
+use plico_renderer::{PaintContext, SemanticStates};
 
 pub mod telemetry;
 
