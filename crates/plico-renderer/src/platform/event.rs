@@ -550,7 +550,7 @@ pub struct ScreenshotRequest {
 }
 
 /// Backend-neutral renderer work for one frame, blended into [`FrameStats`].
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
 pub struct FrameBudgetSample {
     /// CPU time building the instance stream.
     pub prepare_ms: f64,

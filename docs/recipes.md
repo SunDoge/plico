@@ -120,6 +120,12 @@ Warden example 不构造真实 `Host`，不打开 SDK worker，不读取用户�
 - 失败时的 `<case>/_failure.png`、最后一个通过的截图路径、语义节点和 rendered_text。
 - `pipeline.json`：类型检查、生成、构建（如果执行）、运行的独立墙钟耗时。
 
+视觉模式的每个 capture 步骤还在 `results.json` 的 `frame` 中记录最终 settle pass 的原始
+阶段数据：应用声明/布局 `build_frame_ms`、后端无关 Scene 组装 `scene_ms`、含离屏读回的
+`draw_ms`、节点数，以及 wgpu 的 prepare/upload/encode/submit/wait、上传量、实例数、
+draw call 和 command buffer 数。PNG 编码不计入这些阶段；它仍包含在步骤墙钟时间中。
+设置 `PLICO_GPU_TIMER=1` 后，支持 timestamp query 的 adapter 还会报告 `gpu_ms`。
+
 一步失败则停止当前案例，后续独立案例继续；任何案例失败使进程返回非零状态。
 错误源位置来自 Bun 执行 TS 时的调用栈，生成后规范为仓库相对路径，
 公共 helper 中的错误指向 helper，并同时显示 flow 名称。它不是任意 transpiler 的 source map 支持。
