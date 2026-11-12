@@ -118,6 +118,7 @@ impl Adapter {
             cached_svg(
                 &mut self.svg_cache,
                 &mut self.stats,
+                self.resource_generation,
                 n.text,
                 svg_color(n.text, visual_style, engine.theme()),
             )
@@ -125,7 +126,12 @@ impl Adapter {
             None
         };
         let image = if n.kind == Kind::Image {
-            cached_image(&mut self.image_cache, &mut self.stats, n.text)
+            cached_image(
+                &mut self.image_cache,
+                &mut self.stats,
+                self.resource_generation,
+                n.text,
+            )
         } else {
             None
         };

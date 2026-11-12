@@ -87,6 +87,28 @@ Plico 的布局、smooth scroll、滚动钳位、焦点滚动和 popover 重定�
 的范围，还包含滚动/控件几何等后处理，并非纯 Taffy compute。分配计数目前仍为全帧
 统计，没有把每阶段的分配请求单独归因。实际 GPU 时间不在测量范围内。
 
+## 资源缓存的线性存活扫描
+
+MyGO 的 SVG picture cache 给每个条目记录最后使用帧，并在若干帧未使用后淘汰；它不会
+让每个 cache entry 重新搜索整棵 element tree。Plico 原先在结构或主题变化后，对每个
+image source 和每个 SVG 颜色变体调用一次 `nodes.values().any(...)`，因此维护成本是
+O(资源条目数 × retained 节点数)，而且刚卸载的资源立即变冷。
+
+现在一次遍历 retained nodes，直接命中 image/SVG cache 并刷新条目的使用 generation，
+随后线性遍历 cache 淘汰过期条目，不再构造额外 live-key 集合。不再存活的资源仍保留
+30 次维护，方便临时页面或主题切换快速返回。有效、无效 SVG 与 checkbox 的主题颜色使用
+同一规则。维护只在结构、主题或新解析发生时运行，不给普通 paint-only 帧增加全树扫描。
+`BackendStats` 分别报告此次访问的节点数与淘汰条目数。
+
+release 同进程交替探针使用 4001 个 retained 节点和 256 个不存活资源。旧的嵌套查询为
+883.78 µs/pass，线性 generation 路径为 4.62 µs/pass。它是刻意放大的 cache-maintenance
+微基准，不代表普通应用整帧能减少相同比例；回归还验证 live variant 不会因年龄被删，
+刚卸载资源保持 warm，超过 grace 后才释放。复现：
+
+```sh
+cargo test --release -p plico-runtime profile_linear_asset_cache_liveness -- --ignored --nocapture
+```
+
 ## 静态图片声明的重复编码
 
 `ImageAsset` 保留懒初始化的十六进制编码，复用资源时不再每帧遍历 PNG/JPEG 字节重新编码。

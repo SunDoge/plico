@@ -12,7 +12,7 @@ impl Adapter {
         self.svg_cache
             .values()
             .flat_map(|variants| variants.values())
-            .filter_map(|v| v.as_ref().err().map(|e| e.as_ref()))
+            .filter_map(|entry| entry.value.as_ref().err().map(|error| error.as_ref()))
     }
     pub fn semantics(&self, engine: &Engine, revision: u64) -> plico_renderer::SemanticSnapshot {
         (*self.semantics_shared(engine, revision)).clone()

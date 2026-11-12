@@ -77,6 +77,10 @@ pub struct BackendStats {
     pub scene_builds: usize,
     pub scene_reuses: usize,
     pub svg_parses: usize,
+    /// Retained nodes visited by the last linear asset-cache liveness pass.
+    pub resource_prune_visits: usize,
+    /// Decoded image/SVG cache entries evicted by the last liveness pass.
+    pub resource_evictions: usize,
     pub changes: plico::Changes,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -146,31 +150,48 @@ pub(super) struct PaintKey {
 }
 
 pub(super) type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
-pub(super) type SvgCache = HashMap<Arc<str>, HashMap<Option<u32>, SvgResult>>;
+pub(super) struct CachedSvg {
+    value: SvgResult,
+    used: u64,
+}
+pub(super) type SvgCache = HashMap<Arc<str>, HashMap<Option<u32>, CachedSvg>>;
 fn svg_color(source: &str, style: plico::Style, theme: Theme) -> Option<u32> {
     source
         .contains("currentColor")
         .then(|| theme.resolve(style.foreground))
 }
-pub(super) type ImageCache = HashMap<Arc<str>, Option<Arc<plico_renderer::image::RasterImage>>>;
+pub(super) struct CachedImage {
+    value: Option<Arc<plico_renderer::image::RasterImage>>,
+    used: u64,
+}
+pub(super) type ImageCache = HashMap<Arc<str>, CachedImage>;
 fn cached_image(
     cache: &mut ImageCache,
     stats: &mut BackendStats,
+    generation: u64,
     encoded: &str,
 ) -> Option<Arc<plico_renderer::image::RasterImage>> {
-    if let Some(image) = cache.get(encoded) {
-        return image.clone();
+    if let Some(image) = cache.get_mut(encoded) {
+        image.used = generation;
+        return image.value.clone();
     }
     stats.svg_parses += 1;
     let image = plico::ImageAsset::decode(encoded)
         .and_then(|bytes| plico_renderer::image::RasterImage::decode(&bytes).ok())
         .map(Arc::new);
-    cache.insert(Arc::from(encoded), image.clone());
+    cache.insert(
+        Arc::from(encoded),
+        CachedImage {
+            value: image.clone(),
+            used: generation,
+        },
+    );
     image
 }
 fn cached_svg(
     cache: &mut SvgCache,
     stats: &mut BackendStats,
+    generation: u64,
     source: &str,
     color: Option<u32>,
 ) -> Option<Arc<plico_renderer::svg::SvgImage>> {
@@ -178,23 +199,21 @@ fn cached_svg(
         cache.insert(Arc::from(source), HashMap::new());
     }
     let variants = cache.get_mut(source).unwrap();
-    variants
-        .entry(color)
-        .or_insert_with(|| {
-            stats.svg_parses += 1;
-            let result = match color {
-                Some(color) => {
-                    plico_renderer::svg::SvgImage::parse_with_current_color(source, color)
-                }
-                None => plico_renderer::svg::SvgImage::parse(source),
-            };
-            result
+    let entry = variants.entry(color).or_insert_with(|| {
+        stats.svg_parses += 1;
+        let result = match color {
+            Some(color) => plico_renderer::svg::SvgImage::parse_with_current_color(source, color),
+            None => plico_renderer::svg::SvgImage::parse(source),
+        };
+        CachedSvg {
+            value: result
                 .map(Arc::new)
-                .map_err(|error| Arc::from(error.to_string()))
-        })
-        .as_ref()
-        .ok()
-        .cloned()
+                .map_err(|error| Arc::from(error.to_string())),
+            used: generation,
+        }
+    });
+    entry.used = generation;
+    entry.value.as_ref().ok().cloned()
 }
 
 pub struct Adapter {
@@ -271,6 +290,7 @@ pub struct Adapter {
     pub(super) synced_scratch: HashSet<Entity>,
     pub(super) svg_cache: SvgCache,
     pub(super) image_cache: ImageCache,
+    pub(super) resource_generation: u64,
     pub(super) semantic: RefCell<SemanticCache>,
     pub(super) hit: RefCell<HitCache>,
 }
@@ -345,6 +365,7 @@ impl Default for Adapter {
             synced_scratch: HashSet::new(),
             svg_cache: HashMap::new(),
             image_cache: HashMap::new(),
+            resource_generation: 0,
             semantic: Default::default(),
             hit: Default::default(),
             viewport: None,
@@ -352,6 +373,59 @@ impl Default for Adapter {
     }
 }
 impl Adapter {
+    fn prune_asset_caches(&mut self) {
+        const GRACE_GENERATIONS: u64 = 30;
+
+        let generation = self.resource_generation;
+        for retained in self.nodes.values() {
+            match retained.paint_key.kind {
+                Kind::Image => {
+                    if let Some(entry) = self.image_cache.get_mut(retained.text.as_ref()) {
+                        entry.used = generation;
+                    }
+                }
+                Kind::Svg => {
+                    let color = svg_color(
+                        &retained.text,
+                        retained.paint_key.style,
+                        retained.paint_key.theme,
+                    );
+                    if let Some(entry) = self
+                        .svg_cache
+                        .get_mut(retained.text.as_ref())
+                        .and_then(|variants| variants.get_mut(&color))
+                    {
+                        entry.used = generation;
+                    }
+                }
+                Kind::Checkbox => {
+                    let color = Some(retained.paint_key.theme.on_accent);
+                    if let Some(entry) = self
+                        .svg_cache
+                        .get_mut(plico::icons::CHECK.source())
+                        .and_then(|variants| variants.get_mut(&color))
+                    {
+                        entry.used = generation;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let before =
+            self.image_cache.len() + self.svg_cache.values().map(HashMap::len).sum::<usize>();
+        self.image_cache
+            .retain(|_, entry| generation.wrapping_sub(entry.used) <= GRACE_GENERATIONS);
+        self.svg_cache.retain(|_, variants| {
+            variants.retain(|_, entry| generation.wrapping_sub(entry.used) <= GRACE_GENERATIONS);
+            !variants.is_empty()
+        });
+        let after =
+            self.image_cache.len() + self.svg_cache.values().map(HashMap::len).sum::<usize>();
+        self.stats.resource_prune_visits += self.nodes.len();
+        self.stats.resource_evictions += before - after;
+    }
+
     pub fn focused(&self) -> Option<Entity> {
         self.focused
     }
@@ -569,27 +643,8 @@ impl Adapter {
         if structural || theme_changed || self.stats.svg_parses > 0 {
             #[cfg(feature = "profiling")]
             let _span = tracing::trace_span!(target: "plico::layout", "backend.assets").entered();
-            self.image_cache.retain(|encoded, _| {
-                self.nodes
-                    .values()
-                    .any(|n| n.paint_key.kind == Kind::Image && n.text == *encoded)
-            });
-            self.svg_cache.retain(|source, variants| {
-                variants.retain(|color, _| {
-                    self.nodes.values().any(|n| {
-                        let PaintKey {
-                            style, kind, theme, ..
-                        } = &n.paint_key;
-                        (*kind == Kind::Svg
-                            && n.text == *source
-                            && svg_color(source, *style, *theme) == *color)
-                            || (*kind == Kind::Checkbox
-                                && source.as_ref() == plico::icons::CHECK.source()
-                                && *color == Some(theme.on_accent))
-                    })
-                });
-                !variants.is_empty()
-            });
+            self.resource_generation = self.resource_generation.wrapping_add(1);
+            self.prune_asset_caches();
         }
         self.dirty_scratch = dirty;
         self.last_theme = Some(engine.theme());

@@ -373,6 +373,7 @@ impl Adapter {
             cached_svg(
                 &mut self.svg_cache,
                 &mut self.stats,
+                self.resource_generation,
                 plico::icons::CHECK.source(),
                 Some(theme.on_accent),
             )
