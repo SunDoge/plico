@@ -33,7 +33,7 @@ fn fs(@builtin(position) position: vec4f) -> @location(0) vec4f {
     if any(pixel >= size) {
         return vec4f(0.);
     }
-    let radius = i32(ceil(4. * params.sigma));
+    let radius = i32(select(u32(ceil(4. * params.sigma)), params.padding, params.padding > 0u));
     // Uniform for the pass; hoist out of the tap loop.
     let falloff = -0.5 / (params.sigma * params.sigma);
     let delta = select(vec2i(0, 1), vec2i(1, 0), params.axis == 0u);

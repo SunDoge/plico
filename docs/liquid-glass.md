@@ -63,15 +63,18 @@ and MIT attribution are in `crates/plico/third_party`.
 
 Enabled glass currently requires the wgpu WGSL backdrop path. Skia/SkSL glass,
 OS compositor integration and native material calibration are not implemented.
-The wgpu backdrop uses a bounded area-prefilter pyramid plus a residual blur kernel
-(see below); it is not a direct copy of MyGO's separable Gaussian implementation. Opaque fallback uses ordinary primitives. Keep a small
+Built-in Liquid Glass uses a bounded MyGO-style area reduction plus two-axis
+Gaussian fast path; custom backdrop shaders, BackdropBlur and ScrollEdge retain
+the general area-prefilter pyramid plus residual kernel (see below). Opaque fallback uses ordinary primitives. Keep a small
 number of chrome panes: backdrop readers still require ordered background snapshots, and
 the renderer only samples already-painted content in the pane's local region.
 It cannot sample another window or the desktop. Transformed/masked/partially
 offscreen panes need additional coverage.
 
-The quartic/Snell lens and smoothed normals follow MyGO (MIT attribution is in
-`crates/plico-renderer/third_party`). Rust now supplies Regular/Clear light/dark presets and a prefiltered blur pyramid.
+The quartic/Snell lens, smoothed normals and fixed-Gaussian reduction follow MyGO
+(MIT attribution is in `crates/plico/third_party`). Rust supplies
+Regular/Clear light/dark presets, the specialized Liquid Glass filter and a
+general prefiltered blur pyramid.
 No native NSGlassEffectView bridge is provided.
 
 ## Scroll-edge and independent backdrop blur
@@ -87,7 +90,7 @@ Shader builders for size/position configuration and use the same framework
 asset. Theme tint resolves at declaration time.
 
 The APIs borrow the scroll-edge composition idea from MyGO's `ui` and
-`plugins/glass`, but use Plico's area-prefiltered pyramid and bounded 5×5 residual kernel.
+`plugins/glass`, but use Plico's general area-prefiltered pyramid and bounded 5×5 residual kernel.
 They do not implement automatic focus-aware material policy,
 per-platform native materials or arbitrary clip masks. Position these rectangular
 surfaces explicitly; only scene pixels in the effect surface are sampled. They
@@ -243,10 +246,29 @@ cargo run -p plico-wgpu --example continuous_shadow_profile
 
 后续优先维护 wgpu，不以 Skia 特效对齐作为交付前置。
 
-## 面积预滤波模糊金字塔
+## 固定 Gaussian 快路径与通用模糊金字塔
+
+内置 Liquid Glass 现在采用与 MyGO `BackdropOf` 相同的固定滤波结构。宿主在布局完成后，
+根据最终 surface 尺寸、材质模式、Clarity、Frost、按压 inset 和 DPI 只计算一次 sigma；
+renderer 选择 1／2／4／8 倍面积降采样，扣除 box filter 已贡献的方差，再执行横向和纵向
+3σ Gaussian。材质 shader 随后只读取一次预模糊背景。未模糊的原始 snapshot 仍单独绑定，
+因此圆角抗锯齿以外的像素不会被模糊背景污染。
+
+快路径只允许框架嵌入的 Liquid Glass 源码使用；自定义 WGSL 不能声明内置语义。
+设备不支持 compute、区域无法满足降采样尺寸约束，或设置
+`PLICO_FORCE_GENERIC_BACKDROP=1` / `Renderer::force_generic_backdrop(true)` 时，会自动退回
+通用路径。固定滤波 workspace 按帧序号与规格跨帧复用，并纳入 layer-pool 统计和 idle trim。
+
+Gallery `effects-regular.json` 在 Intel ARL/Vulkan、同一 release binary 的交替测量中，
+三次 GPU timestamp 中位约从 9.62 ms 降至 8.22 ms，背景滤波 pass 从 27 降至 16，约减少
+15% GPU 时间。快路径当帧资源约 2719 KiB，而通用路径约 2075 KiB：它以较多可复用工作纹理
+换取更少采样与 pass。该结果只说明本机场景中的方向有效，macOS 和其他 adapter 仍需重测；
+两条路径的截图 RMSE 约为 0.09%，不是逐像素等同。
+
+### 通用面积预滤波金字塔
 
 参考 MyGO `Renderer.readBackdrop` 的先降采样再模糊思路，wgpu 的玻璃、BackdropBlur 和
-四方向 ScrollEdge 现在先生成背景的面积预滤波层级，再按物理 sigma 选取 LOD 并执行
+四方向 ScrollEdge 的通用回退先生成背景的面积预滤波层级，再按物理 sigma 选取 LOD 并执行
 25 点残余 Gaussian 核。层级之间使用线性插值，预滤波已贡献的方差从残余 sigma 中扣除。
 这是 Plico 的多层级实现，不是逐行移植 MyGO 的两轴 Gaussian pass，亦不声称任意图案上
 等同于精确 Gaussian。
@@ -273,6 +295,8 @@ ScrollEdge 使用其最大半径。层级通过 render pass 生成，不依赖 c
 `Renderer::batch_stats()` 可查看 `backdrop_copies`、`backdrop_mip_passes` 与
 `backdrop_bytes`（本帧编码的瞬时背景 payload，非 RSS）。所有层级 payload 总和小于
 两倍 base，通常约 4/3；统计同样覆盖透明子层中的背景采样。
+字段名 `backdrop_mip_passes` 为兼容已有探针而保留，现在同时统计面积缩减、mip 和
+两轴 Gaussian filter pass。
 
 验证覆盖 1/1.5/2x、奇数／单像素轴、premultiplied RGBA、移除后的 effect target 释放、
 父级圆角裁剪与裁剪离屏目标、局部重绘、surface 外背景进入边缘 blur、

@@ -7,7 +7,7 @@
 `plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；
 容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
-启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。wgpu 已有受最大 sigma 限制的面积预滤波模糊金字塔；Skia 材质与原生系统玻璃尚未实现。
+启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。内置 Liquid Glass 已走 MyGO 风格固定 sigma、1／2／4／8 面积缩减与两轴 Gaussian 快路径；其他 backdrop shader 使用受最大 sigma 限制的通用预滤波金字塔。Skia 材质与原生系统玻璃尚未实现。
 背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
 wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有界纹理数组，批量生成 mip；
 普通 backdrop effect 已将 shader 与 clip/mask replacement 合为直接 framebuffer pass，不再为每个 pane
@@ -70,8 +70,9 @@ Gallery Effects 提供三种模式、清晰度和控件示例；材质参数、G
 新增 `.inset_shadow(BoxShadow)`，在背景上绘制模糊孔洞的补集，并沿连续圆角和祖先 clip 限制范围。
 wgpu 内外阴影现已沿连续 caster／孔洞求 Gaussian coverage，显式圆弧和正圆／胶囊继续保留。
 CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 damage 有 GPU 回归。
-玻璃与 ScrollEdge 已接入面积预滤波金字塔＋残余 Gaussian 核，减少大半径稀疏采样混叠；
-层级按声明的最大 sigma 与 DPI 截止，不保留历史背景纹理，新增颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
+内置玻璃已接入固定 sigma、面积缩减和两轴 3σ Gaussian 快路径，workspace 跨帧复用；
+ScrollEdge、BackdropBlur 与通用回退继续使用预滤波金字塔＋残余 Gaussian 核。
+依赖范围按实际或声明的最大 sigma 与 DPI 截止，并有颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
 后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
 
 ## 已退役 C# 实验迁入 Rust 的能力

@@ -8,14 +8,23 @@ fn backdrop_region(
     let [x, y, width, height] = rect;
     // Match MyGO's backdrop dependency: a Gaussian can read three sigma
     // beyond the output, plus one texel for area reduction/interpolation.
-    let reach = effect
-        .prefilter_backdrop()
-        .map(|sigma| (3. * sigma * effect.device_scale()).ceil() + 1.)
+    let gaussian = effect.backdrop_gaussian_plan();
+    let reach = gaussian
+        .map(|plan| plan.reach)
+        .or_else(|| {
+            effect
+                .prefilter_backdrop()
+                .map(|sigma| (3. * sigma * effect.device_scale()).ceil() + 1.)
+        })
         .unwrap_or_default();
     let desired_left = (x - reach).floor() as i64;
     let desired_top = (y - reach).floor() as i64;
-    let desired_width = ((x + width + reach).ceil() as i64 - desired_left).max(1) as u32;
-    let desired_height = ((y + height + reach).ceil() as i64 - desired_top).max(1) as u32;
+    let mut desired_width = ((x + width + reach).ceil() as i64 - desired_left).max(1) as u32;
+    let mut desired_height = ((y + height + reach).ceil() as i64 - desired_top).max(1) as u32;
+    if let Some(plan) = gaussian {
+        desired_width = desired_width.div_ceil(plan.down) * plan.down;
+        desired_height = desired_height.div_ceil(plan.down) * plan.down;
+    }
     // Slide an edge-clipped window inward instead of shrinking it. Equal-size
     // effects then retain equal-size snapshots and can share an array capture;
     // the mapping still addresses their original physical coordinates.
@@ -126,6 +135,11 @@ pub(super) fn plan_backdrops(
             continue;
         }
         let effect = &effects[i.config[3] as usize];
+        // Fixed Gaussians own a separable prefilter workspace rather than a
+        // same-stage texture array. Keep their painter-order barrier explicit.
+        if effect.backdrop_gaussian_plan().is_some() {
+            continue;
+        }
         let [left, top, width, height] =
             backdrop_region([x - origin[0], y - origin[1], w, h], effect, size);
         requests.push(crate::backdrop_batch::Request {
@@ -150,6 +164,7 @@ pub(super) fn encode_backdrop_step<'p>(
     target: Option<&Target>,
     effects: &mut Option<crate::shader::ShaderRenderer>,
     prefilter: &mut Option<crate::backdrop_prefilter::Prefilter>,
+    gaussian: &mut Option<crate::backdrop_gaussian::GaussianBackdrops>,
     textures: &mut crate::backdrop_pool::Pool,
     stats: &mut FrameBatchStats,
     shared: Option<&wgpu::TextureView>,
@@ -161,6 +176,7 @@ pub(super) fn encode_backdrop_step<'p>(
     frame_view: &wgpu::TextureView,
     rect: [f32; 4],
     effect: &plico_renderer::ShaderEffect,
+    force_generic: bool,
     size: [u32; 2],
     scissor: [u32; 4],
 ) -> wgpu::RenderPass<'p> {
@@ -172,9 +188,33 @@ pub(super) fn encode_backdrop_step<'p>(
         height,
         depth_or_array_layers: 1,
     };
-    let backdrop_view = if let Some(view) = shared {
+    let mut fixed_gaussian = false;
+    let (backdrop_view, original_view) = if let Some(view) = shared {
         stats.backdrop_shared_reads += 1;
-        view.clone()
+        (view.clone(), view.clone())
+    } else if let Some(plan) = effect.backdrop_gaussian_plan().filter(|plan| {
+        !force_generic
+            && width.is_multiple_of(plan.down)
+            && height.is_multiple_of(plan.down)
+            && crate::backdrop_gaussian::GaussianBackdrops::supported(device)
+    }) {
+        let (view, original, passes, bytes) = gaussian
+            .get_or_insert_with(|| crate::backdrop_gaussian::GaussianBackdrops::new(device))
+            .encode(
+                device,
+                queue,
+                encoder,
+                &target.texture,
+                [left, top, width, height],
+                plan,
+            );
+        fixed_gaussian = true;
+        stats.backdrop_copies += 1;
+        stats.backdrop_textures +=
+            1 + u64::from(plan.down > 1) + u64::from(plan.reduced_sigma > 0.) * 2;
+        stats.backdrop_mip_passes += passes;
+        stats.backdrop_bytes += bytes;
+        (view, original)
     } else {
         let mip_levels = crate::backdrop_prefilter::levels(
             region.width,
@@ -219,7 +259,8 @@ pub(super) fn encode_backdrop_step<'p>(
                 .get_or_insert_with(|| crate::backdrop_prefilter::Prefilter::new(device))
                 .encode(device, encoder, &backdrop);
         }
-        backdrop.create_view(&wgpu::TextureViewDescriptor::default())
+        let view = backdrop.create_view(&wgpu::TextureViewDescriptor::default());
+        (view.clone(), view)
     };
     let mapping = [
         (x - left as f32) / region.width as f32,
@@ -246,9 +287,10 @@ pub(super) fn encode_backdrop_step<'p>(
     effects.render_backdrop_direct(
         effect,
         &backdrop_view,
+        &original_view,
         mapping,
         composite,
-        [1., 0., 0., 0.],
+        [1., f32::from(fixed_gaussian), 0., 0.],
         mask_layout,
         mask,
         device,

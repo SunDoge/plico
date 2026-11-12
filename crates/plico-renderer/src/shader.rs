@@ -11,6 +11,23 @@ const MAX_SOURCE_BYTES: usize = 64 * 1024;
 const PARAMETER_COUNT: usize = 256;
 const UNIFORM_FLOAT_COUNT: usize = PARAMETER_COUNT + 4;
 
+fn mix(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn smoothstep(lo: f32, hi: f32, value: f32) -> f32 {
+    let t = ((value - lo) / (hi - lo)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
+}
+
+fn glass_parameter(frost: f32, mid: f32, clear: f32, clarity: f32) -> f32 {
+    if clarity <= 0.5 {
+        mix(frost, mid, clarity * 2.)
+    } else {
+        mix(mid, clear, (clarity - 0.5) * 2.)
+    }
+}
+
 /// `.values()` carries finite f32 words, not arbitrary host-shared bytes. Validate
 /// nested members too: accepting integer fields would reinterpret float bits.
 fn validate_float_uniform(
@@ -86,6 +103,8 @@ var plico_backdrop: texture_2d<f32>;
 var plico_backdrop_sampler: sampler;
 @group(1) @binding(2)
 var<uniform> plico_backdrop_mapping: vec4f;
+@group(1) @binding(3)
+var plico_backdrop_original: texture_2d<f32>;
 
 fn backdrop_mapped_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
     let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
@@ -104,6 +123,18 @@ fn backdrop_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
         return vec4<f32>(0.0);
     }
     return backdrop_mapped_at_lod(uv,lod);
+}
+
+fn backdrop_original_mapped_at_lod(uv: vec2<f32>, lod: f32) -> vec4<f32> {
+    let mapped = uv * plico_backdrop_mapping.zw + plico_backdrop_mapping.xy;
+    let level = u32(clamp(lod,0.0,f32(textureNumLevels(plico_backdrop_original)-1u)));
+    let half_pixel = 0.5/vec2f(textureDimensions(plico_backdrop_original,level));
+    return textureSampleLevel(
+        plico_backdrop_original,
+        plico_backdrop_sampler,
+        clamp(mapped,half_pixel,vec2f(1.0)-half_pixel),
+        lod,
+    );
 }
 
 fn backdrop_at(uv: vec2<f32>) -> vec4<f32> {
@@ -140,6 +171,12 @@ fn plico_backdrop_blur(uv: vec2<f32>, sigma: f32) -> vec4<f32> {
 /// The surface's own sample of its backdrop at uv, premultiplied.
 fn plico_backdrop_at(uv: vec2<f32>) -> vec4<f32> {
     return backdrop_at(uv);
+}
+fn plico_backdrop_original_at(uv: vec2<f32>) -> vec4<f32> {
+    if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 {
+        return vec4<f32>(0.0);
+    }
+    return backdrop_original_mapped_at_lod(uv,0.);
 }
 "#;
 
@@ -204,9 +241,29 @@ pub struct ShaderEffectSource {
     reads_backdrop: bool,
     // Validated finite sigma bits keep the retained source key Eq + Hash.
     prefilter_backdrop: Option<u32>,
+    builtin: Option<plico::ShaderBuiltin>,
 }
 
 impl ShaderEffectSource {
+    /// Attach framework-owned effect semantics to validated authored code.
+    #[doc(hidden)]
+    pub fn with_builtin(mut self, builtin: Option<plico::ShaderBuiltin>) -> Result<Self, String> {
+        if builtin.is_some()
+            && (!self.reads_backdrop || self.interface != ShaderEffectInterface::PlicoEffect)
+        {
+            return Err("builtin shader behavior requires a backdrop-reading plico_effect".into());
+        }
+        if builtin == Some(plico::ShaderBuiltin::LiquidGlass) {
+            let expected = format!(
+                "{SHADER_PREFIX}\n{SHADER_BACKDROP_PREFIX}\n{LIQUID_GLASS_WGSL}\n{SHADER_SUFFIX}"
+            );
+            if self.wgsl.as_ref() != expected {
+                return Err("LiquidGlass builtin behavior requires Plico's embedded source".into());
+            }
+        }
+        self.builtin = builtin;
+        Ok(self)
+    }
     /// Attach an optional SkSL implementation, compiled by the Skia backend.
     pub fn with_sksl(mut self, source: &str) -> Result<Self, String> {
         if source.trim().is_empty() || source.len() > MAX_SOURCE_BYTES {
@@ -341,6 +398,17 @@ impl ShaderEffectSource {
                                 1,
                                 Some("plico_backdrop_sampler"),
                                 naga::TypeInner::Sampler { comparison: false },
+                            ) | (
+                                3,
+                                Some("plico_backdrop_original"),
+                                naga::TypeInner::Image {
+                                    dim: naga::ImageDimension::D2,
+                                    arrayed: false,
+                                    class: naga::ImageClass::Sampled {
+                                        kind: naga::ScalarKind::Float,
+                                        multi: false,
+                                    },
+                                },
                             )
                         )
                 })
@@ -478,6 +546,7 @@ impl ShaderEffectSource {
             parameters: parameters.into(),
             reads_backdrop,
             prefilter_backdrop: None,
+            builtin: None,
         })
     }
 
@@ -564,6 +633,21 @@ pub struct ShaderEffect {
     pub(crate) device_scale: f32,
 }
 
+/// MyGO-style fixed backdrop Gaussian resolved for one effect surface.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackdropGaussian {
+    /// Requested standard deviation in physical pixels.
+    pub sigma: f32,
+    /// Area-reduction factor before the separable Gaussian (1, 2, 4, or 8).
+    pub down: u32,
+    /// Gaussian standard deviation in reduced texels.
+    pub reduced_sigma: f32,
+    /// Three-sigma kernel radius in reduced texels.
+    pub radius: u32,
+    /// Required source reach around the output in physical pixels.
+    pub reach: f32,
+}
+
 impl ShaderEffect {
     /// Stable surface identity used by renderer backends for retained output.
     #[doc(hidden)]
@@ -586,6 +670,9 @@ impl ShaderEffect {
                 let count = self.values.len().min(PARAMETER_COUNT);
                 uniforms[4..4 + count].copy_from_slice(&self.values[..count]);
                 uniforms[3] = self.device_scale;
+                if self.source.builtin == Some(plico::ShaderBuiltin::LiquidGlass) {
+                    uniforms[4 + 20] = self.liquid_glass_sigma_logical();
+                }
             }
             ShaderEffectInterface::CompleteModule => {
                 let count = self.values.len().min(PARAMETER_COUNT);
@@ -610,6 +697,56 @@ impl ShaderEffect {
     pub fn prefilter_backdrop(&self) -> Option<f32> {
         self.source.prefilter_backdrop.map(f32::from_bits)
     }
+    /// Fixed physical Gaussian sigma for a framework-owned backdrop effect.
+    pub fn backdrop_gaussian(&self) -> Option<f32> {
+        (self.source.builtin == Some(plico::ShaderBuiltin::LiquidGlass))
+            .then(|| self.liquid_glass_sigma_logical() * self.device_scale)
+    }
+
+    /// Resolve the fixed Gaussian exactly as MyGO's `BackdropOf` does.
+    pub fn backdrop_gaussian_plan(&self) -> Option<BackdropGaussian> {
+        let sigma = self.backdrop_gaussian()?.max(0.);
+        let mut down = 1_u32;
+        while down < 8 && sigma / (2 * down) as f32 >= 2. {
+            down *= 2;
+        }
+        let reduced_sigma = if sigma == 0. {
+            0.
+        } else {
+            (sigma.mul_add(sigma, -((down * down) as f32) / 12.).max(0.)).sqrt() / down as f32
+        };
+        let radius = (3. * reduced_sigma).ceil() as u32;
+        Some(BackdropGaussian {
+            sigma,
+            down,
+            reduced_sigma,
+            radius,
+            reach: (radius * down + down) as f32,
+        })
+    }
+
+    fn liquid_glass_sigma_logical(&self) -> f32 {
+        let value =
+            |index: usize, fallback: f32| self.values.get(index).copied().unwrap_or(fallback);
+        let frost = value(1, 0.42).clamp(0., 1.);
+        let style = value(13, 0.);
+        let clarity = value(14, 0.).clamp(0., 1.);
+        let pressed = value(17, 0.).clamp(0., 1.);
+        let inset_x = value(18, 0.) - 1.1 * pressed;
+        let inset_y = value(19, 0.) - 0.45 * pressed;
+        let short_side = (self.logical_size[0] - 2. * inset_x)
+            .min(self.logical_size[1] - 2. * inset_y)
+            .max(0.);
+        if style > 1.5 {
+            return frost / 0.42;
+        }
+        if style <= 0.5 {
+            return 0.6 + frost * 5.;
+        }
+        let pane = smoothstep(100., 200., short_side);
+        let cap = mix(10., glass_parameter(10., 5., 2., clarity), pane);
+        (short_side.mul_add(0.035, 0.).max(1.).min(cap)) * frost / 0.42
+    }
     /// Injected animation time in seconds.
     pub fn time(&self) -> f32 {
         self.time
@@ -633,9 +770,9 @@ impl ShaderEffect {
     }
 }
 
-/// Built-in Liquid Glass effect body, shared with the managed SDK.
+/// Built-in Liquid Glass effect body from Plico's single framework asset.
 /// Requires backdrop input; see docs/liquid-glass.md for uniform slots.
-pub const LIQUID_GLASS_WGSL: &str = include_str!("../assets/liquid_glass.wgsl");
+pub const LIQUID_GLASS_WGSL: &str = plico::materials::liquid_glass_shader().source();
 
 /// Progressive backdrop blur body shared with the managed SDK.
 pub const BACKDROP_BLUR_WGSL: &str = plico::materials::backdrop_blur_shader().source();
@@ -886,5 +1023,52 @@ struct Uniforms { size: vec2<f32>, time: f32, speed: f32 };
         };
         let uniforms = effect.uniform_words();
         assert_eq!(&uniforms[..4], &[640.0, 360.0, 2.5, 0.75]);
+    }
+
+    #[test]
+    fn liquid_glass_resolves_one_mygo_style_sigma_per_surface() {
+        let source = ShaderEffectSource::with_backdrop(LIQUID_GLASS_WGSL, true)
+            .unwrap()
+            .with_builtin(Some(plico::ShaderBuiltin::LiquidGlass))
+            .unwrap();
+        let effect = |size: [f32; 2], frost: f32, style: f32, clarity: f32| {
+            let mut values = vec![0.; 20];
+            values[1] = frost;
+            values[13] = style;
+            values[14] = clarity;
+            ShaderEffect {
+                id: ShaderEffectId::new(),
+                source: source.clone(),
+                time: 0.,
+                values: values.into(),
+                physical_size: [size[0] as u16 * 2, size[1] as u16 * 2],
+                logical_size: size,
+                device_scale: 2.,
+            }
+        };
+        let custom = effect([80., 36.], 0.5, 0., 0.);
+        assert!((custom.backdrop_gaussian().unwrap() - 6.2).abs() < 1e-5);
+        let control = effect([120., 36.], 0.42, 1., 0.5);
+        assert!((control.backdrop_gaussian().unwrap() - 2.52).abs() < 1e-5);
+        let pane = effect([400., 300.], 0.42, 1., 0.5);
+        assert!((pane.backdrop_gaussian().unwrap() - 10.).abs() < 1e-5);
+        let plan = pane.backdrop_gaussian_plan().unwrap();
+        assert_eq!(plan.down, 4);
+        assert_eq!(plan.radius, 8);
+        assert_eq!(plan.reach, 36.);
+        let clear = effect([400., 300.], 0.42, 2., 0.);
+        assert!((clear.backdrop_gaussian().unwrap() - 2.).abs() < 1e-5);
+        assert_eq!(pane.uniform_words()[4 + 20], 5.);
+
+        let custom_source = ShaderEffectSource::with_backdrop(
+            "fn plico_effect(uv:vec2f)->vec4f{return plico_backdrop_at(uv);}",
+            true,
+        )
+        .unwrap();
+        assert!(
+            custom_source
+                .with_builtin(Some(plico::ShaderBuiltin::LiquidGlass))
+                .is_err()
+        );
     }
 }

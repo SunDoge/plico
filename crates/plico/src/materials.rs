@@ -7,7 +7,9 @@ use crate::{
 };
 
 static LIQUID_GLASS: crate::ShaderAsset =
-    crate::shader_asset!("../assets/materials/liquid_glass.wgsl").prefilter_backdrop(128.);
+    crate::shader_asset!("../assets/materials/liquid_glass.wgsl")
+        .prefilter_backdrop(128.)
+        .builtin(crate::ShaderBuiltin::LiquidGlass);
 
 /// Embedded material source for renderer validation and backend conformance tests.
 /// Applications should normally use `Layout::material` instead of raw uniforms.

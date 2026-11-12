@@ -114,21 +114,22 @@ rendering the complete page with Skia at two viewport sizes.
 
 ## MyGO 效果研究（Effects 页）
 
-`apps/gallery/src/effects.rs` 与 `apps/gallery/assets/shaders/` 下的三个
-WGSL 效果参考本机 MyGO 的示例，全部通过 `ShaderEffectSource` 的 Naga
-校验，并由 Effects 页实时绘制；三个效果共用一个暂停开关。
+`apps/gallery/src/effects.rs` 使用框架 Liquid Glass，并从
+`apps/gallery/assets/shaders/` 加载另外两个 WGSL 效果。它们参考本机 MyGO
+示例，全部通过 `ShaderEffectSource` 的 Naga 校验，并由 Effects 页实时绘制；
+三个效果共用一个暂停开关。
 
 | 文件 | 参考 | 参数（`values` 顺序） | 说明 |
 |---|---|---|---|
-| `liquid_glass.wgsl` | `examples/liquid-glass` | `frost`、`bend`（像素）、`sheen` | 必须 `read_backdrop()`：九点模糊、圆角边缘折射、色散边缘、内圈高光与缓慢扫过的高光带 |
+| `crates/plico/assets/materials/liquid_glass.wgsl` | `plugins/glass` | `LiquidGlass` 类型化材质参数 | 框架内置 backdrop 材质：尺寸响应 sigma、固定 Gaussian 快路径、连续圆角折射、tone 与 rim |
 | `orb.wgsl` | `examples/chat-glow/orb.kage` | `energy` 0..1 | 玻璃球体：五团流动色光、rim、镜面高光与外部光晕；输出预乘 alpha |
 | `wind.wgsl` | `examples/wind/wind.kage` | `glow` 0..1、`hue` | domain-warped value noise 的发光风带、漂移星点与暗角 |
 
 差异与边界：MyGO 的效果是跨 Metal/D3D11/OpenGL/WebGL2 与 CPU 的同一份
 shader 源；这里只提供 WGSL，因此仅在 native wgpu（以及支持 effect 的后端）
-上绘制，Skia 需要另行提供 SkSL。`liquid_glass` 读取 backdrop，宿主对它使用
-full-damage 语义；orb 与 wind 不读 backdrop。三者都是单 pass，不接收纹理
-或 storage buffer。Effects 页可在无窗口下捕获：
+上绘制，Skia 需要另行提供 SkSL。Liquid Glass 读取有界 backdrop，damage tracker
+按 3σ 输入范围传播变化；orb 与 wind 不读 backdrop。Liquid Glass 的 wgpu 后端会先执行
+面积缩减与两轴 Gaussian，另外两个效果保持单 pass。Effects 页可在无窗口下捕获：
 
 ```sh
 cargo run -p gallery --example capture -- --page effects --out reports/effects.png

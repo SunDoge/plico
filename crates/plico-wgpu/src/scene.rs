@@ -6,8 +6,13 @@ use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
 fn backdrop_input_bounds(effect: &plico_renderer::ShaderEffect, output: Rect) -> Rect {
     let reach = effect
-        .prefilter_backdrop()
-        .map(|sigma| f64::from((3. * sigma * effect.device_scale()).ceil() + 1.))
+        .backdrop_gaussian_plan()
+        .map(|plan| f64::from(plan.reach))
+        .or_else(|| {
+            effect
+                .prefilter_backdrop()
+                .map(|sigma| f64::from((3. * sigma * effect.device_scale()).ceil() + 1.))
+        })
         .unwrap_or_default();
     output.inflate(reach, reach)
 }

@@ -623,6 +623,99 @@ fn builtin_liquid_glass_renders_a_local_pane() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn builtin_liquid_glass_uses_reusable_mygo_fixed_gaussian_path() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let source = ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true)
+        .unwrap()
+        .with_backdrop_prefilter(Some(10.))
+        .unwrap()
+        .with_builtin(Some(plico::ShaderBuiltin::LiquidGlass))
+        .unwrap();
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    for x in 0..320 {
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            if x % 8 < 4 {
+                Color::from_rgb8(255, 80, 20)
+            } else {
+                Color::from_rgb8(20, 120, 255)
+            },
+            None,
+            &Rect::new(f64::from(x), 0., f64::from(x + 1), 220.),
+        );
+    }
+    let mut values = vec![0.; 20];
+    values[0] = 18.;
+    values[1] = 0.42;
+    values[4] = 1.6;
+    values[5] = 1.;
+    values[6] = 0.35;
+    values[7] = 36.;
+    values[8..11].copy_from_slice(&[0.98, 0.99, 1.]);
+    values[12] = 1.;
+    values[13] = 1.;
+    values[14] = 0.5;
+    let mut paint = plico_renderer::widget::PaintContext::new(300., 200., 1., &mut text);
+    paint.draw_shader_effect(ShaderEffectId::new(), source, 0., values.into());
+    scene.append_scene(paint.finish(), Affine::translate((10., 10.)));
+
+    let mut fast = pollster::block_on(Renderer::new()).unwrap();
+    let mut generic = pollster::block_on(Renderer::new()).unwrap();
+    generic.force_generic_backdrop(true);
+    let fast_pixels = fast
+        .render_scene(&scene, [320, 220], [0.; 4], false)
+        .unwrap();
+    let generic_pixels = generic
+        .render_scene(&scene, [320, 220], [0.; 4], false)
+        .unwrap();
+    assert!(
+        fast_pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255)
+    );
+    assert!(
+        generic_pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255)
+    );
+    assert_eq!(fast.batch_stats().backdrop_mip_passes, 3);
+    assert_eq!(fast.batch_stats().backdrop_textures, 4);
+    assert_eq!(generic.batch_stats().backdrop_mip_passes, 4);
+    let first = fast.layer_pool_stats();
+    assert_eq!(first.backdrop_entries, 4);
+    fast.render_scene(&scene, [320, 220], [0.; 4], false)
+        .unwrap();
+    let reused = fast.layer_pool_stats();
+    assert_eq!(reused.backdrop_allocations, first.backdrop_allocations);
+    assert!(reused.backdrop_reuses > first.backdrop_reuses);
+
+    let mut plain = Scene::new();
+    plain.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgb8(12, 18, 24),
+        None,
+        &Rect::new(0., 0., 320., 220.),
+    );
+    fast.render_scene(&plain, [320, 220], [0.; 4], false)
+        .unwrap();
+    fast.render_scene(&scene, [320, 220], [0.; 4], false)
+        .unwrap();
+    let after_gap = fast.layer_pool_stats();
+    assert_eq!(after_gap.backdrop_allocations, first.backdrop_allocations);
+    assert!(after_gap.backdrop_reuses > reused.backdrop_reuses);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill, Gradient};
@@ -641,22 +734,27 @@ fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
         None,
         &Rect::new(0., 0., 160., 120.),
     );
-    let expected = renderer
-        .render_scene(&base, [160, 120], [0.; 4], false)
-        .unwrap();
     let source =
         ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true).unwrap();
-    let mut paint = plico_renderer::widget::PaintContext::new(160., 120., 1., &mut text);
-    paint.draw_shader_effect(
-        ShaderEffectId::new(),
-        source,
-        0.,
-        vec![18., 0., 0., 0., 8., 1., 0., 36., 1., 1., 1., 0.].into(),
-    );
-    base.append_scene(paint.finish(), Affine::IDENTITY);
-    let actual = renderer
-        .render_scene(&base, [160, 120], [0.; 4], false)
-        .unwrap();
+    let mut render = |refraction| {
+        let mut scene = base.clone();
+        let mut paint = plico_renderer::widget::PaintContext::new(160., 120., 1., &mut text);
+        paint.draw_shader_effect(
+            ShaderEffectId::new(),
+            source.clone(),
+            0.,
+            vec![
+                18., 0., 0., 0., refraction, 1., 0., 36., 1., 1., 1., 0., 0., 0., 0., 0.,
+            ]
+            .into(),
+        );
+        scene.append_scene(paint.finish(), Affine::IDENTITY);
+        renderer
+            .render_scene(&scene, [160, 120], [0.; 4], false)
+            .unwrap()
+    };
+    let expected = render(0.);
+    let actual = render(8.);
     let red = |pixels: &[u8], x: usize, y: usize| pixels[(y * 160 + x) * 4];
     assert!(
         red(&actual, 80, 3).abs_diff(red(&expected, 80, 3)) <= 1,

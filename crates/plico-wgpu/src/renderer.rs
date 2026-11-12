@@ -158,7 +158,7 @@ pub struct FrameBatchStats {
     pub clears: u64,
     /// Backdrop snapshots encoded, including snapshots in child layers.
     pub backdrop_copies: u64,
-    /// Area-prefilter passes encoded for opted-in backdrop shaders.
+    /// Area-reduction and Gaussian passes encoded for backdrop filters.
     pub backdrop_mip_passes: u64,
     /// Transient backdrop texture payload encoded this frame, including all mips.
     /// Not retained cache bytes or process RSS.
@@ -213,7 +213,7 @@ pub struct FrameBudget {
     pub effect_bytes: u64,
     /// Backdrop snapshots copied by this frame.
     pub backdrop_copies: u64,
-    /// Additional area-prefilter passes for backdrop snapshots.
+    /// Additional area-reduction and Gaussian backdrop-filter passes.
     pub backdrop_mip_passes: u64,
     /// Transient backdrop texture payload used by this frame.
     pub backdrop_bytes: u64,
@@ -297,8 +297,10 @@ pub struct Renderer {
     backdrop_compositor: Option<crate::backdrop_composite::Compositor>,
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
+    backdrop_gaussian: Option<crate::backdrop_gaussian::GaussianBackdrops>,
     backdrop_pool: crate::backdrop_pool::Pool,
     force_separate_backdrops: bool,
+    force_generic_backdrop: bool,
     frame_layout: wgpu::BindGroupLayout,
     layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,

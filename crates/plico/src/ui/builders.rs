@@ -1349,6 +1349,7 @@ impl<'e> UiContext<'e> {
                 sksl: asset.sksl().map(str::to_owned),
                 reads_backdrop: asset.reads_backdrop(),
                 prefilter_backdrop: asset.backdrop_prefiltered(),
+                builtin: asset.builtin_kind(),
                 ..Default::default()
             },
         }

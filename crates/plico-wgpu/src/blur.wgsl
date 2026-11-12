@@ -26,7 +26,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if any(vec2i(id.xy) >= size) {
         return;
     }
-    let radius = i32(ceil(4. * params.sigma));
+    let radius = i32(select(u32(ceil(4. * params.sigma)), params.padding, params.padding > 0u));
     // Sigma and axis are uniform for the whole pass; hoist them out of the
     // tap loop so each texel only does one multiply and one exp.
     let falloff = -0.5 / (params.sigma * params.sigma);

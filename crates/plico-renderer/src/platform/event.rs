@@ -611,7 +611,7 @@ pub struct FrameBudgetSample {
     pub effect_bytes: u64,
     /// Backdrop snapshots copied by this frame.
     pub backdrop_copies: u64,
-    /// Additional area-prefilter passes for backdrop snapshots.
+    /// Additional area-reduction and Gaussian backdrop-filter passes.
     pub backdrop_mip_passes: u64,
     /// Transient backdrop texture payload used by this frame.
     pub backdrop_bytes: u64,

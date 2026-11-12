@@ -1,4 +1,13 @@
 //! Portable authored shader parameters; GPU validation and resources belong to the host.
+/// Framework-owned shader whose host contract includes behavior beyond raw WGSL.
+/// Application shaders remain ordinary [`ShaderAsset`] values with no builtin tag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ShaderBuiltin {
+    /// Plico's MyGO-style liquid-glass material. The host resolves its fixed
+    /// Gaussian sigma once from the final surface size and material values.
+    LiquidGlass,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ShaderAsset {
     source: &'static str,
@@ -9,6 +18,7 @@ pub struct ShaderAsset {
     /// Backdrop): the host binds the region's rendered content as an input.
     reads_backdrop: bool,
     prefilter_backdrop: Option<f32>,
+    builtin: Option<ShaderBuiltin>,
 }
 impl ShaderAsset {
     pub const fn new(source: &'static str) -> Self {
@@ -19,6 +29,7 @@ impl ShaderAsset {
             sksl: None,
             reads_backdrop: false,
             prefilter_backdrop: None,
+            builtin: None,
         }
     }
     pub const fn module(source: &'static str) -> Self {
@@ -29,6 +40,7 @@ impl ShaderAsset {
             sksl: None,
             reads_backdrop: false,
             prefilter_backdrop: None,
+            builtin: None,
         }
     }
     /// Declare that the effect's `plico_effect` calls `plico.backdrop_at(uv)`.
@@ -48,6 +60,13 @@ impl ShaderAsset {
     }
     pub const fn backdrop_prefiltered(self) -> Option<f32> {
         self.prefilter_backdrop
+    }
+    pub(crate) const fn builtin(mut self, builtin: ShaderBuiltin) -> Self {
+        self.builtin = Some(builtin);
+        self
+    }
+    pub const fn builtin_kind(self) -> Option<ShaderBuiltin> {
+        self.builtin
     }
     pub const fn reads_backdrop(self) -> bool {
         self.reads_backdrop
@@ -161,6 +180,10 @@ pub struct ShaderParams {
     pub reads_backdrop: bool,
     /// Maximum logical-pixel sigma for an area-prefiltered backdrop, or None.
     pub prefilter_backdrop: Option<f32>,
+    /// Framework-owned shader behavior. Custom shaders should leave this unset.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<ShaderBuiltin>,
 }
 impl Default for ShaderParams {
     fn default() -> Self {
@@ -178,6 +201,7 @@ impl Default for ShaderParams {
             module: false,
             reads_backdrop: false,
             prefilter_backdrop: None,
+            builtin: None,
         }
     }
 }
@@ -189,9 +213,12 @@ impl ShaderParams {
                 && sigma.is_finite()
                 && (0. ..=128.).contains(&sigma)
         }) && self
-            .paint_outset
-            .iter()
-            .all(|v| v.is_finite() && (0. ..=64.).contains(v))
+            .builtin
+            .is_none_or(|_| self.reads_backdrop && !self.module)
+            && self
+                .paint_outset
+                .iter()
+                .all(|v| v.is_finite() && (0. ..=64.).contains(v))
             && self.transitions.len() <= 256
             && self.transitions.iter().enumerate().all(|(i, t)| {
                 t.index < 256
@@ -256,6 +283,13 @@ mod tests {
         assert!(
             !ShaderParams {
                 prefilter_backdrop: Some(8.),
+                ..Default::default()
+            }
+            .valid()
+        );
+        assert!(
+            !ShaderParams {
+                builtin: Some(ShaderBuiltin::LiquidGlass),
                 ..Default::default()
             }
             .valid()

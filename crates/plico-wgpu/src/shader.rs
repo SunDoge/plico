@@ -145,6 +145,16 @@ impl ShaderRenderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let backdrop_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -258,6 +268,7 @@ impl ShaderRenderer {
         &mut self,
         effect: &ShaderEffect,
         backdrop: &wgpu::TextureView,
+        original_backdrop: &wgpu::TextureView,
         mapping: [f32; 4],
         composite: [[f32; 4]; 4],
         mix: [f32; 4],
@@ -300,6 +311,10 @@ impl ShaderRenderer {
                         offset: self.direct_mapping_offset,
                         size: std::num::NonZeroU64::new(MAPPING_BYTES),
                     }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(original_backdrop),
                 },
             ],
         });
@@ -464,6 +479,7 @@ impl ShaderRenderer {
         let effect_words = effect.uniform_words();
         let effect_bytes = bytemuck::cast_slice(&effect_words);
         self.direct_upload[..effect_bytes.len()].copy_from_slice(effect_bytes);
+        self.direct_upload[(4 + 21) * 4..(4 + 22) * 4].copy_from_slice(bytemuck::bytes_of(&mix[1]));
         let mapping_offset = self.direct_mapping_offset as usize;
         self.direct_upload[mapping_offset..mapping_offset + MAPPING_BYTES as usize]
             .copy_from_slice(bytemuck::bytes_of(&mapping));

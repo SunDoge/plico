@@ -77,6 +77,9 @@ impl Renderer {
             self.frame_prefix_commands.clear();
             self.poll_gpu_budget();
             self.backdrop_pool.begin_frame();
+            if let Some(gaussian) = &mut self.backdrop_gaussian {
+                gaussian.begin_frame();
+            }
             if let Some(compositor) = &mut self.backdrop_compositor {
                 compositor.begin_frame();
             }
@@ -544,6 +547,7 @@ impl Renderer {
                                 self.target.as_ref(),
                                 &mut effects,
                                 &mut self.backdrop_prefilter,
+                                &mut self.backdrop_gaussian,
                                 &mut self.backdrop_pool,
                                 &mut self.batch_stats,
                                 shared.as_ref(),
@@ -562,6 +566,7 @@ impl Renderer {
                                     [x - origin[0], y - origin[1], w, h]
                                 },
                                 &effect,
+                                self.force_generic_backdrop,
                                 size,
                                 output_scissor,
                             );

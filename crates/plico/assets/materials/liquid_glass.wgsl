@@ -5,7 +5,7 @@
 // See ../../third_party/README.md and ../../third_party/mygo-LICENSE.
 fn glass_backdrop(uv: vec2<f32>) -> vec4<f32> {
     let pixel = 0.5 / max(plico.resolution_time_scale.xy, vec2<f32>(1.0));
-    return plico_backdrop_at(clamp(uv, pixel, vec2<f32>(1.0) - pixel));
+    return plico_backdrop_original_at(clamp(uv, pixel, vec2<f32>(1.0) - pixel));
 }
 fn glass_sample(uv: vec2<f32>) -> vec3<f32> {
     return glass_backdrop(uv).rgb;
@@ -133,15 +133,29 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let refraction = bezel * plico.values[1].x * glass_lens(depth, bezel);
     let lens = uv - normal * refraction * scale / resolution;
     let frost = clamp(plico.values[0].y, 0.0, 1.0);
-    var sigma = 0.6 + frost * 5.0;
-    if material > 0.5 {
-        sigma = min(max(short_side * 0.035, 1.0), glass_parameter(10.0, 5.0, 2.0, clarity, pane));
-        if material > 1.5 {
-            sigma = 1.0;
+    // The host resolves MyGO's size-responsive material sigma once per
+    // surface. The renderer and shader therefore share one fixed backdrop
+    // contract instead of recomputing a dynamic blur at every fragment.
+    var sigma = max(plico.values[5].x, 0.0);
+    // Raw users of the exported WGSL do not carry the builtin metadata. Keep
+    // that compatibility path while framework-authored glass uses the single
+    // host-resolved value above.
+    if sigma == 0.0 && plico.values[5].y <= 0.5 {
+        sigma = 0.6 + frost * 5.0;
+        if material > 0.5 {
+            sigma = min(max(short_side * 0.035, 1.0), glass_parameter(10.0, 5.0, 2.0, clarity, pane));
+            if material > 1.5 {
+                sigma = 1.0;
+            }
+            sigma *= frost / 0.42;
         }
-        sigma *= frost / 0.42;
     }
-    let blurred = plico_backdrop_blur(lens, sigma * scale).rgb;
+    var blurred = vec3f(0.);
+    if plico.values[5].y > 0.5 {
+        blurred = plico_backdrop_at(lens).rgb;
+    } else {
+        blurred = plico_backdrop_blur(lens, sigma * scale).rgb;
+    }
     let luminance = dot(blurred, vec3<f32>(0.2126, 0.7152, 0.0722));
     // A clearer MyGO-style light material: the scene remains legible through
     // broad panes, while surface text is painted separately and stays sharp.

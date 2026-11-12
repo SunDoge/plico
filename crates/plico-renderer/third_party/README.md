@@ -12,8 +12,8 @@ The translated implicit equation and its constants follow that source. Plico's
 adaptive contour tracing, interpolation parameter and bounded translation-free
 cache are its own integration. MyGO is not a build or runtime dependency.
 
-`assets/liquid_glass.wgsl` adapts the quartic lens / Snell refraction formula,
-smoothed surface normals and directional rim from MyGO's
-`plugins/glass/effect.go` and `plugins/glass/glass.glsl` (same local revision,
-MIT license above). The WGSL integration and bounded sampling kernel are Plico's;
-MyGO's blur pyramid, material calibration and native glass bridge are not ported.
+Liquid Glass now has one framework-owned source at
+`../plico/assets/materials/liquid_glass.wgsl`; its attribution and integration
+notes live in `../plico/third_party/README.md`. `plico-renderer` consumes that
+embedded asset through `plico::materials::liquid_glass_shader()` instead of
+maintaining a second shader copy.
