@@ -186,6 +186,20 @@ HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外
 `plico_wgpu::FrameBudget` 记录最近一帧渲染器的工作，窗口宿主经
 `FrameStats::apply_budget` 以 EMA 合并到既有诊断；计数类字段保留当帧原值。
 
+与 MyGO 的逐帧阶段日志一致，`FrameStats` 同时保留一组不做 EMA 的相关样本：
+`sample_declaration_ms`、`sample_sync_ms`、`sample_backend_ms`、
+`sample_build_frame_ms`、`sample_scene_ms`、`sample_present_ms` 与
+`sample_renderer`。settle pass、Taffy layout run、flatten visit、Scene command 数和
+完整 Scene 复用标记也是当帧原值。retained 帧会把 declaration/sync/backend 工作明确
+归零；没有成功提交 renderer 的帧会清空 `sample_renderer`，不会把上一帧误配到当前帧。
+`frame.complete` 将这些字段写入同一 tracing 事件，HUD 的首行显示当前 Declare、Backend
+和 Scene 样本；原有平滑字段继续用于趋势显示。
+
+`sample_renderer` 还包含 MyGO 式 effect 成本证据：颜色 pass 数、isolated-layer 与普通
+effect 纹理字节、backdrop copy/mip pass/纹理字节，以及 backdrop scissor 实际放行的物理
+像素数。后续缩小 effect 边界或改变离屏层复用策略时，应比较这些原始计数和最终像素，不能只
+比较总 GPU 时间。
+
 | 字段 | 含义 |
 |---|---|
 | `prepare_ms` | 生成有序 instance 流（scene flatten、文字/glyph 准备、damage 过滤） |

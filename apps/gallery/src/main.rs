@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             println!("adapter: {}", session.adapter_name().unwrap_or("unknown"));
             println!(
-                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} instances, {} draws, {} KiB uploaded",
+                "frame budget: prepare={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms wait={:.2}ms gpu={} | {} submits, {} command buffers, {} passes, {} instances, {} draws, {} KiB uploaded | layers={} KiB effects={} KiB backdrop={} KiB/{} copies/{} mip passes/{} Kpx",
                 budget.prepare_ms,
                 budget.upload_ms,
                 budget.encode_ms,
@@ -62,9 +62,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_or_else(|| "n/a".to_owned(), |ms| format!("{ms:.2}ms")),
                 budget.submissions,
                 budget.command_buffers,
+                budget.passes,
                 budget.instances,
                 budget.draw_calls,
                 budget.upload_bytes / 1024,
+                budget.layer_bytes / 1024,
+                budget.effect_bytes / 1024,
+                budget.backdrop_bytes / 1024,
+                budget.backdrop_copies,
+                budget.backdrop_mip_passes,
+                budget.backdrop_effect_pixels / 1000,
             );
             #[cfg(feature = "wgpu")]
             if let Some(stats) = session.last_batch_stats() {

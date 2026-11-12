@@ -258,11 +258,16 @@ fn visual_checkpoints_capture_one_continuous_flow_and_keep_failure_evidence() {
     ] {
         assert!(profile.node_count > 0);
         assert!(profile.build_frame_ms >= 0.);
+        assert!(profile.declaration_ms >= 0.);
+        assert!(profile.sync_ms >= 0.);
+        assert!(profile.backend_ms >= 0.);
         assert!(profile.scene_ms >= 0.);
+        assert!(profile.scene_commands > 0);
         assert!(profile.draw_ms > 0.);
         let renderer = profile.renderer.as_ref().unwrap();
         assert_eq!(renderer.submissions, 1);
         assert!(renderer.command_buffers >= 1);
+        assert!(renderer.passes >= 1);
     }
     assert!(results[0].steps[1].frame.is_none());
     assert!(results[0].steps[2].frame.is_none());

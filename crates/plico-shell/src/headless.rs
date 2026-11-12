@@ -56,6 +56,7 @@ impl HeadlessFrameProfiler {
 
         self.stats
             .update(build_frame_ms, scene_ms, 0.0, nodes.len());
+        source.augment_frame_stats(&mut self.stats);
         source.push_frame_stats(&self.stats);
         nodes
     }

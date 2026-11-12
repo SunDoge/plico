@@ -693,6 +693,15 @@ impl Renderer {
         self.frame_budget.instances += instances.len() as u64;
         self.frame_budget.draw_calls += flush_draws;
         self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
+        if self.layer_depth == 0 {
+            self.frame_budget.passes = self.batch_stats.passes;
+            self.frame_budget.layer_bytes = self.frame_layer_bytes;
+            self.frame_budget.effect_bytes = self.frame_effect_bytes;
+            self.frame_budget.backdrop_copies = self.batch_stats.backdrop_copies;
+            self.frame_budget.backdrop_mip_passes = self.batch_stats.backdrop_mip_passes;
+            self.frame_budget.backdrop_bytes = self.batch_stats.backdrop_bytes;
+            self.frame_budget.backdrop_effect_pixels = self.batch_stats.backdrop_effect_pixels;
+        }
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;

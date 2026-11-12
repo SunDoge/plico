@@ -1169,6 +1169,16 @@ fn encoded_layers_release_scene_owners_before_submission_and_after_failure() {
         1,
         "isolated and backdrop-reading child layers share the root encoder"
     );
+    let budget = renderer.frame_budget();
+    assert!(budget.passes >= 2, "root and isolated passes are counted");
+    assert!(
+        budget.layer_bytes > 0,
+        "isolated texture payload is counted"
+    );
+    assert!(
+        budget.backdrop_copies > 0 && budget.backdrop_effect_pixels > 0,
+        "backdrop copy and shaded-pixel work are counted"
+    );
     let broken = crate::image::ImageQuad::new(
         Quad::new([0., 0., 1., 1.], [1.; 4]),
         peniko::ImageData {

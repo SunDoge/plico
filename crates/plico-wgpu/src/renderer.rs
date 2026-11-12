@@ -205,6 +205,20 @@ pub struct FrameBudget {
     pub instances: u64,
     /// Instanced scene draw calls, including damage-scissor replays.
     pub draw_calls: u64,
+    /// Scene color passes, including isolated layers.
+    pub passes: u64,
+    /// Isolated-layer texture payload charged to this frame.
+    pub layer_bytes: u64,
+    /// Non-backdrop custom-effect target payload used by this frame.
+    pub effect_bytes: u64,
+    /// Backdrop snapshots copied by this frame.
+    pub backdrop_copies: u64,
+    /// Additional area-prefilter passes for backdrop snapshots.
+    pub backdrop_mip_passes: u64,
+    /// Transient backdrop texture payload used by this frame.
+    pub backdrop_bytes: u64,
+    /// Physical pixels admitted by backdrop-effect scissors.
+    pub backdrop_effect_pixels: u64,
     /// GPU time of the root command encoder, when timestamps are available.
     pub gpu_ms: Option<f64>,
 }

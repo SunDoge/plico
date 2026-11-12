@@ -13,8 +13,24 @@ pub struct CaptureProfile {
     pub node_count: usize,
     /// Application declaration, retained update and layout time.
     pub build_frame_ms: f64,
+    /// Application declaration time; zero when retained declarations were reused.
+    pub declaration_ms: f64,
+    /// Retained-node synchronization time.
+    pub sync_ms: f64,
+    /// Layout, flatten and retained presentation-update time.
+    pub backend_ms: f64,
+    /// Declaration settle passes in the captured frame.
+    pub declaration_passes: u64,
+    /// Taffy layout runs in the captured frame.
+    pub layout_runs: u64,
+    /// Retained nodes visited by flattening in the captured frame.
+    pub flatten_visits: u64,
     /// Backend-neutral paint scene assembly time.
     pub scene_ms: f64,
+    /// Commands in the backend-neutral captured scene.
+    pub scene_commands: u64,
+    /// Whether the complete backend-neutral Scene was reused.
+    pub scene_reused: bool,
     /// Renderer draw and offscreen readback wall time.
     pub draw_ms: f64,
     /// Backend renderer stages when the selected backend exposes them.
@@ -221,6 +237,13 @@ impl CaptureRenderer {
                     upload_bytes: budget.upload_bytes,
                     instances: budget.instances,
                     draw_calls: budget.draw_calls,
+                    passes: budget.passes,
+                    layer_bytes: budget.layer_bytes,
+                    effect_bytes: budget.effect_bytes,
+                    backdrop_copies: budget.backdrop_copies,
+                    backdrop_mip_passes: budget.backdrop_mip_passes,
+                    backdrop_bytes: budget.backdrop_bytes,
+                    backdrop_effect_pixels: budget.backdrop_effect_pixels,
                 })
             }
         }
@@ -351,10 +374,20 @@ impl Capture<'_> {
             if pass == self.settle_passes || !self.source.poll_async() {
                 let draw_started = Instant::now();
                 let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;
+                let mut source_stats = plico_renderer::FrameStats::default();
+                self.source.augment_frame_stats(&mut source_stats);
                 let profile = CaptureProfile {
                     node_count: measured.0,
                     build_frame_ms: measured.1,
+                    declaration_ms: source_stats.sample_declaration_ms,
+                    sync_ms: source_stats.sample_sync_ms,
+                    backend_ms: source_stats.sample_backend_ms,
+                    declaration_passes: source_stats.declaration_passes,
+                    layout_runs: source_stats.layout_runs,
+                    flatten_visits: source_stats.flatten_visits,
                     scene_ms: measured.2,
+                    scene_commands: scene.commands.len() as u64,
+                    scene_reused: source_stats.scene_reused,
                     draw_ms: draw_started.elapsed().as_secs_f64() * 1_000.,
                     renderer: renderer.frame_budget(),
                 };

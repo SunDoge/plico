@@ -166,9 +166,9 @@ impl PerformanceHud {
         );
 
         for (label, value, x) in [
-            ("JS", stats.js_tick_ms, 14.0),
-            ("Build", stats.build_frame_ms, 95.0),
-            ("Scene", stats.scene_ms, 200.0),
+            ("Declare", stats.sample_declaration_ms, 14.0),
+            ("Backend", stats.sample_backend_ms, 116.0),
+            ("Scene", stats.sample_scene_ms, 230.0),
         ] {
             self.text(
                 scene,
@@ -181,9 +181,9 @@ impl PerformanceHud {
                 scale,
             );
             let value_x = x + match label {
-                "JS" => 23.0,
-                "Build" => 39.0,
-                _ => 40.0,
+                "Declare" => 48.0,
+                "Backend" => 51.0,
+                _ => 38.0,
             };
             self.text(
                 scene,
