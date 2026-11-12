@@ -11,8 +11,8 @@ mod scene;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use plico_renderer::{
-    ExternalSurface, GpuContext, KeyPhase, PaintContext, PointerButton, PointerPhase, UiEvent,
-    WakeCallback, Widget, WidgetChanges, WidgetEventResult, WidgetGeometry,
+    ExternalSurface, FrameTime, GpuContext, KeyPhase, PaintContext, PointerButton, PointerPhase,
+    UiEvent, WakeCallback, Widget, WidgetChanges, WidgetEventResult, WidgetGeometry,
 };
 use plico_wgpu::{ExternalGpuContext, ExternalTexture};
 use std::{
@@ -25,7 +25,10 @@ use wgpu::util::DeviceExt;
 const SIMULATION_SIZE: u32 = 256;
 const CAUSTIC_SIZE: u32 = 1024;
 const MAX_OUTPUT_EDGE: f32 = 1920.0;
-const MAX_SIM_PASSES: usize = 24;
+const MAX_SIM_PASSES: usize = 40;
+const SIMULATION_TICK: Duration = Duration::from_nanos(16_666_667);
+const MAX_FRAME_DELTA: Duration = Duration::from_millis(100);
+const MAX_SIMULATION_TICKS: usize = 6;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -52,6 +55,8 @@ pub struct WaterSurface {
     light_tracks_camera: bool,
     initialized: bool,
     visible: bool,
+    simulation_accumulator: Duration,
+    discard_next_delta: bool,
     revision: u64,
     surface_id: u64,
     shared: Arc<Mutex<SharedState>>,
@@ -126,6 +131,8 @@ impl Default for WaterSurface {
             light_tracks_camera: false,
             initialized: false,
             visible: true,
+            simulation_accumulator: Duration::ZERO,
+            discard_next_delta: false,
             revision: 0,
             surface_id,
             shared: Arc::new(Mutex::new(SharedState {
@@ -184,6 +191,16 @@ impl WaterSurface {
             ]
         })
     }
+
+    fn take_simulation_ticks(&mut self) -> usize {
+        if self.paused {
+            return 0;
+        }
+        let ticks = (self.simulation_accumulator.as_nanos() / SIMULATION_TICK.as_nanos())
+            .min(MAX_SIMULATION_TICKS as u128) as usize;
+        self.simulation_accumulator -= SIMULATION_TICK * ticks as u32;
+        ticks
+    }
 }
 
 fn ray_sphere(origin: Vec3, ray: Vec3, center: Vec3, radius: f32) -> Option<f32> {
@@ -204,7 +221,22 @@ impl Widget for WaterSurface {
         self.engine = context
             .and_then(|context| context.downcast_ref::<ExternalGpuContext>().cloned())
             .map(Engine::new);
+        self.simulation_accumulator = Duration::ZERO;
+        self.discard_next_delta = true;
         self.revision = 0;
+    }
+
+    fn set_frame_time(&mut self, time: FrameTime) {
+        if self.paused {
+            self.simulation_accumulator = Duration::ZERO;
+        } else if self.discard_next_delta {
+            self.discard_next_delta = false;
+        } else {
+            self.simulation_accumulator = self
+                .simulation_accumulator
+                .saturating_add(time.delta)
+                .min(MAX_FRAME_DELTA);
+        }
     }
 
     fn layout_changed(&mut self, geometry: WidgetGeometry) {
@@ -212,6 +244,10 @@ impl Widget for WaterSurface {
     }
 
     fn visibility_changed(&mut self, visible: bool) -> WidgetChanges {
+        if visible && !self.visible {
+            self.simulation_accumulator = Duration::ZERO;
+            self.discard_next_delta = true;
+        }
         self.visible = visible;
         WidgetChanges::REDRAW
     }
@@ -219,7 +255,11 @@ impl Widget for WaterSurface {
     fn handle_event(&mut self, event: &UiEvent) -> WidgetEventResult {
         if let UiEvent::Key(key) = event {
             match (key.phase, key.key.as_str()) {
-                (KeyPhase::Down, " " | "Space") if !key.repeat => self.paused = !self.paused,
+                (KeyPhase::Down, " " | "Space") if !key.repeat => {
+                    self.paused = !self.paused;
+                    self.simulation_accumulator = Duration::ZERO;
+                    self.discard_next_delta = true;
+                }
                 (KeyPhase::Down, "g" | "G") if !key.repeat => {
                     self.gravity_enabled = !self.gravity_enabled;
                 }
@@ -233,13 +273,13 @@ impl Widget for WaterSurface {
             return WidgetEventResult::IGNORED;
         };
         let position = [pointer.position.x, pointer.position.y];
-        match pointer.phase {
+        let redraw = match pointer.phase {
             PointerPhase::Down if pointer.button == Some(PointerButton::Primary) => {
                 let size = self.geometry.content_size;
                 let Some((eye, ray)) =
                     scene::camera_ray(self.angle_x, self.angle_y, size, position)
                 else {
-                    return WidgetEventResult::HANDLED;
+                    return WidgetEventResult::handled_with(WidgetChanges::empty());
                 };
                 if let Some(distance) = ray_sphere(eye, ray, self.sphere, 0.25) {
                     let center_ray = scene::camera_ray(
@@ -259,18 +299,21 @@ impl Widget for WaterSurface {
                 } else {
                     self.drag = DragMode::Orbit { last: position };
                 }
+                false
             }
             PointerPhase::Move => match self.drag {
                 DragMode::Drop => {
                     if let Some(drop) = self.normalized_pointer(position[0], position[1]) {
                         self.pending_drop = Some(drop);
                     }
+                    true
                 }
                 DragMode::Orbit { last } => {
                     self.angle_y -= (position[0] - last[0]) as f32;
                     self.angle_x =
                         (self.angle_x - (position[1] - last[1]) as f32).clamp(-89.999, 89.999);
                     self.drag = DragMode::Orbit { last: position };
+                    true
                 }
                 DragMode::Sphere {
                     previous_hit,
@@ -296,13 +339,21 @@ impl Widget for WaterSurface {
                             };
                         }
                     }
+                    true
                 }
-                DragMode::None => {}
+                DragMode::None => false,
             },
-            PointerPhase::Up | PointerPhase::Cancel => self.drag = DragMode::None,
-            _ => {}
+            PointerPhase::Up | PointerPhase::Cancel => {
+                self.drag = DragMode::None;
+                false
+            }
+            _ => return WidgetEventResult::IGNORED,
+        };
+        if redraw {
+            WidgetEventResult::HANDLED
+        } else {
+            WidgetEventResult::handled_with(WidgetChanges::empty())
         }
-        WidgetEventResult::HANDLED
     }
 
     fn animation_deadline(&self) -> Option<Instant> {
@@ -319,21 +370,26 @@ impl Widget for WaterSurface {
             (logical_width * scale * output_scale).round().max(1.) as u32,
             (logical_height * scale * output_scale).round().max(1.) as u32,
         ];
-        if !self.paused {
+        let simulation_ticks = self.take_simulation_ticks();
+        if simulation_ticks > 0 {
             if matches!(self.drag, DragMode::Sphere { .. }) {
                 self.velocity = Vec3::ZERO;
             } else if self.gravity_enabled {
-                let seconds = 1.0 / 60.0;
-                let submerged = ((0.25 - self.sphere.y) / 0.5).clamp(0.0, 1.0);
-                self.velocity += Vec3::new(0.0, -4.0, 0.0) * (seconds - 1.1 * seconds * submerged);
-                let speed = self.velocity.length();
-                if speed > 1.0e-5 {
-                    self.velocity -= self.velocity / speed * submerged * seconds * speed * speed;
-                }
-                self.sphere += self.velocity * seconds;
-                if self.sphere.y < -0.75 {
-                    self.sphere.y = -0.75;
-                    self.velocity.y = self.velocity.y.abs() * 0.7;
+                let seconds = SIMULATION_TICK.as_secs_f32();
+                for _ in 0..simulation_ticks {
+                    let submerged = ((0.25 - self.sphere.y) / 0.5).clamp(0.0, 1.0);
+                    self.velocity +=
+                        Vec3::new(0.0, -4.0, 0.0) * (seconds - 1.1 * seconds * submerged);
+                    let speed = self.velocity.length();
+                    if speed > 1.0e-5 {
+                        self.velocity -=
+                            self.velocity / speed * submerged * seconds * speed * speed;
+                    }
+                    self.sphere += self.velocity * seconds;
+                    if self.sphere.y < -0.75 {
+                        self.sphere.y = -0.75;
+                        self.velocity.y = self.velocity.y.abs() * 0.7;
+                    }
                 }
             }
         }
@@ -380,7 +436,7 @@ impl Widget for WaterSurface {
             &disturbances,
             old_sphere,
             new_sphere,
-            !self.paused,
+            simulation_ticks,
             scene,
         );
         self.rendered_sphere = new_sphere;
@@ -557,7 +613,7 @@ impl Engine {
         disturbances: &[DropCommand],
         old_sphere: Vec3,
         new_sphere: Vec3,
-        advance: bool,
+        simulation_ticks: usize,
         scene_state: scene::SceneState,
     ) {
         if size != self.output_size {
@@ -592,7 +648,7 @@ impl Engine {
                 control: [1., 0., 0., 0.],
             });
         }
-        if advance {
+        for _ in 0..simulation_ticks {
             for _ in 0..2 {
                 passes.push(SimParams {
                     drop: [0.; 4],
@@ -649,7 +705,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plico_renderer::{KeyEvent, Modifiers};
+    use plico_renderer::{KeyEvent, Modifiers, Point, PointerEvent, PointerProperties};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -725,5 +781,58 @@ mod tests {
         assert!(water.light_tracks_camera);
         assert!(water.handle_event(&key(KeyPhase::Up, "L")).is_handled());
         assert!(!water.light_tracks_camera);
+    }
+
+    #[test]
+    fn simulation_uses_elapsed_time_instead_of_paint_count() {
+        let mut water = WaterSurface::new();
+        water.set_frame_time(FrameTime {
+            now: SIMULATION_TICK,
+            delta: SIMULATION_TICK,
+        });
+
+        assert_eq!(water.take_simulation_ticks(), 1);
+        assert_eq!(water.take_simulation_ticks(), 0);
+
+        water.set_frame_time(FrameTime {
+            now: SIMULATION_TICK + Duration::from_millis(8),
+            delta: Duration::from_millis(8),
+        });
+        assert_eq!(water.take_simulation_ticks(), 0);
+        water.set_frame_time(FrameTime {
+            now: SIMULATION_TICK + Duration::from_millis(18),
+            delta: Duration::from_millis(10),
+        });
+        assert_eq!(water.take_simulation_ticks(), 1);
+    }
+
+    #[test]
+    fn unpausing_discards_the_idle_gap() {
+        let mut water = WaterSurface::new();
+        water.paused = true;
+        water.discard_next_delta = true;
+        water.paused = false;
+        water.set_frame_time(FrameTime {
+            now: Duration::from_secs(30),
+            delta: Duration::from_secs(30),
+        });
+
+        assert_eq!(water.take_simulation_ticks(), 0);
+    }
+
+    #[test]
+    fn idle_pointer_motion_does_not_request_an_extra_paint() {
+        let mut water = WaterSurface::new();
+        let result = water.handle_event(&UiEvent::Pointer(PointerEvent {
+            phase: PointerPhase::Move,
+            position: Point { x: 10.0, y: 20.0 },
+            button: None,
+            buttons: 0,
+            modifiers: Modifiers::empty(),
+            properties: PointerProperties::default(),
+        }));
+
+        assert!(result.is_handled());
+        assert!(!result.requests_redraw());
     }
 }
