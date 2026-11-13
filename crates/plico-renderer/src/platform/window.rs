@@ -111,6 +111,10 @@ pub struct WindowOptions {
     pub resizable: bool,
     /// Whether the OS draws its standard title bar and border.
     pub decorations: bool,
+    /// Ask the native window system to draw an outer window shadow.
+    /// Transparent overlays can disable this without changing their content.
+    #[serde(default = "default_window_shadow")]
+    pub has_shadow: bool,
     /// Let the pure-Rust Linux host supply a shadow, continuous contour and
     /// resize margin when native decorations are disabled. Ignored elsewhere.
     #[serde(default)]
@@ -120,10 +124,10 @@ pub struct WindowOptions {
     #[serde(default)]
     pub titlebar_overlay: bool,
     /// Client-area corner radius in logical pixels. macOS uses native continuous
-    /// content-layer corners and a system shadow. Linux uses this radius when
-    /// `linux_csd` is enabled for an undecorated window; decorated windows leave
-    /// their contour to the window system. Other paths use a visual GPU clip,
-    /// which requires compositor alpha.
+    /// content-layer corners. Windows 11 maps any positive value to its system
+    /// rounded-corner preference. Linux uses this radius when `linux_csd` is
+    /// enabled for an undecorated window; decorated windows leave their contour
+    /// to the window system. Other paths use a visual GPU clip.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.
@@ -144,6 +148,10 @@ fn default_activate_on_show() -> bool {
     true
 }
 
+fn default_window_shadow() -> bool {
+    true
+}
+
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
@@ -158,6 +166,7 @@ impl Default for WindowOptions {
             resize_edges: WindowResizeEdges::all(),
             resizable: true,
             decorations: true,
+            has_shadow: true,
             linux_csd: false,
             titlebar_overlay: false,
             corner_radius: 0,
@@ -185,6 +194,7 @@ impl WindowOptions {
     pub fn floating_overlay() -> Self {
         Self::new()
             .decorations(false)
+            .has_shadow(false)
             .background(WindowBackground::Transparent)
             .window_level(WindowLevel::AlwaysOnTop)
             .input_mode(WindowInputMode::Passthrough)
@@ -305,6 +315,12 @@ impl WindowOptions {
         self
     }
 
+    /// Enable or disable the native outer window shadow.
+    pub fn has_shadow(mut self, has_shadow: bool) -> Self {
+        self.has_shadow = has_shadow;
+        self
+    }
+
     /// Enable the pure-Rust Linux client-side frame for undecorated windows.
     /// The application remains responsible for its titlebar contents and drag
     /// regions; the host supplies the outer contour, shadow and resize margin.
@@ -403,8 +419,10 @@ mod tests {
         assert_eq!(restored, options);
         json.as_object_mut().unwrap().remove("titlebarOverlay");
         json.as_object_mut().unwrap().remove("linuxCsd");
+        json.as_object_mut().unwrap().remove("hasShadow");
         let legacy: WindowOptions = serde_json::from_value(json).unwrap();
         assert!(legacy.decorations && !legacy.titlebar_overlay);
+        assert!(legacy.has_shadow);
         assert!(!legacy.linux_csd);
     }
 

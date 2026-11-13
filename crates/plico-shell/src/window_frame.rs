@@ -7,11 +7,10 @@ use plico_renderer::{PaintCommand, Scene, style::CornerRadii};
 /// resize target and compositor-style shadow.
 pub(crate) const LINUX_CSD_INSET: f64 = 14.;
 
-/// Linux leaves the outer contour to the compositor/CSD. MyGO likewise does
-/// not round frameless Linux windows: cutting transparent holes in the client
-/// surface produces a contour without the matching native border and shadow.
+/// Linux CSD and Windows DWM own their outer contours. MyGO likewise avoids a
+/// second client clip there: it would disagree with the native border/shadow.
 pub(crate) fn client_corner_radius(requested: u32, decorations: bool) -> u32 {
-    if cfg!(target_os = "linux") {
+    if cfg!(any(target_os = "linux", target_os = "windows")) {
         0
     } else {
         let _ = decorations;
@@ -65,6 +64,7 @@ pub(crate) fn decorate_linux_client_scene(
     radius: f64,
     scale: f64,
     base: Color,
+    has_shadow: bool,
 ) -> Color {
     let inset = (inset * scale).max(0.);
     if inset <= 0. {
@@ -85,14 +85,16 @@ pub(crate) fn decorate_linux_client_scene(
         1.,
     );
     let application = std::mem::replace(scene, Scene::new());
-    scene.commands.push(PaintCommand::BoxShadow {
-        transform: Affine::translate((0., scale)),
-        rect: content,
-        brush: Color::from_rgba8(28, 24, 38, 72),
-        radius,
-        std_dev: 6.5 * scale,
-        corner_smoothing: 1.,
-    });
+    if has_shadow {
+        scene.commands.push(PaintCommand::BoxShadow {
+            transform: Affine::translate((0., scale)),
+            rect: content,
+            brush: Color::from_rgba8(28, 24, 38, 72),
+            radius,
+            std_dev: 6.5 * scale,
+            corner_smoothing: 1.,
+        });
+    }
     scene.commands.push(PaintCommand::PushClip {
         transform: Affine::IDENTITY,
         clip: contour.clone(),
@@ -170,15 +172,23 @@ mod tests {
         assert!(checked.load(Ordering::SeqCst));
     }
     #[test]
-    fn linux_windows_delegate_the_outer_contour() {
+    fn native_desktop_windows_delegate_the_outer_contour() {
         assert_eq!(
             client_corner_radius(16, false),
-            if cfg!(target_os = "linux") { 0 } else { 16 }
+            if cfg!(any(target_os = "linux", target_os = "windows")) {
+                0
+            } else {
+                16
+            }
         );
         assert_eq!(client_corner_radius(0, true), 0);
         assert_eq!(
             client_corner_radius(16, true),
-            if cfg!(target_os = "linux") { 0 } else { 16 }
+            if cfg!(any(target_os = "linux", target_os = "windows")) {
+                0
+            } else {
+                16
+            }
         );
     }
     #[test]
@@ -191,7 +201,8 @@ mod tests {
             None,
             &Rect::new(0., 0., 72., 52.),
         );
-        let base = decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK);
+        let base =
+            decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK, true);
         assert_eq!(base, Color::TRANSPARENT);
         assert!(matches!(
             scene.commands.first(),
@@ -222,7 +233,8 @@ mod tests {
             None,
             &Rect::new(0., 0., 72., 52.),
         );
-        let base = decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK);
+        let base =
+            decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK, true);
         let path = folder.path().join("linux-csd.png");
         crate::renderer::render_to_png(&scene, 100, 80, base, path.to_str().unwrap()).unwrap();
         let image = image::open(path).unwrap().into_rgba8();

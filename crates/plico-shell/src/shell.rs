@@ -34,6 +34,7 @@ pub struct Shell {
     corner_radius: u32,
     requested_corner_radius: u32,
     decorations: bool,
+    has_shadow: bool,
     linux_csd: bool,
     min_content_size: Option<(u32, u32)>,
     max_content_size: Option<(u32, u32)>,
@@ -67,6 +68,13 @@ impl Shell {
         self.requested_corner_radius = requested_corner_radius;
         self.corner_radius =
             crate::window_frame::client_corner_radius(requested_corner_radius, decorations);
+        #[cfg(target_os = "windows")]
+        crate::windows_window_frame::apply(
+            self.window.as_ref(),
+            decorations,
+            self.has_shadow,
+            requested_corner_radius,
+        );
         let inset = self.client_frame_inset();
         self.sync_surface_size_constraints(inset);
         let _ = self.window.request_surface_size(
@@ -166,17 +174,29 @@ impl Shell {
                 initial_surface_size.1,
             ));
         #[cfg(target_os = "macos")]
-        if options.titlebar_overlay && options.decorations {
+        {
             // Set platform attributes after the common decoration choice:
-            // decorations override these AppKit titlebar properties otherwise.
+            // decorations override titlebar properties otherwise, while the
+            // explicit shadow contract applies to borderless utility windows too.
             use winit::platform::macos::WindowAttributesMacOS;
-            attrs = attrs.with_platform_attributes(Box::new(
-                WindowAttributesMacOS::default()
+            let mut platform = WindowAttributesMacOS::default().with_has_shadow(options.has_shadow);
+            if options.titlebar_overlay && options.decorations {
+                platform = platform
                     .with_titlebar_transparent(true)
                     .with_title_hidden(true)
                     .with_fullsize_content_view(true)
-                    .with_movable_by_window_background(false),
-            ));
+                    .with_movable_by_window_background(false);
+            }
+            attrs = attrs.with_platform_attributes(Box::new(platform));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            attrs =
+                attrs.with_platform_attributes(Box::new(crate::windows_window_frame::attributes(
+                    options.decorations,
+                    options.has_shadow,
+                    options.corner_radius,
+                )));
         }
         if let Some((x, y)) = options.initial_position {
             attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
@@ -242,6 +262,7 @@ impl Shell {
             native_frame.apply(
                 window.as_ref(),
                 options.corner_radius,
+                options.has_shadow,
                 [surface_width, surface_height],
             );
         }
@@ -260,6 +281,7 @@ impl Shell {
             corner_radius,
             requested_corner_radius: options.corner_radius,
             decorations: options.decorations,
+            has_shadow: options.has_shadow,
             linux_csd: options.linux_csd,
             min_content_size: options.min_inner_size,
             max_content_size: options.max_inner_size,
@@ -489,6 +511,7 @@ impl Shell {
                 f64::from(self.requested_corner_radius),
                 scale,
                 base_color,
+                self.has_shadow,
             );
         }
         let radius = if self.is_maximized() {
@@ -498,9 +521,12 @@ impl Shell {
         };
         #[cfg(target_os = "macos")]
         if self.corner_radius > 0
-            && self
-                .native_frame
-                .apply(self.window.as_ref(), radius, self.surface_size)
+            && self.native_frame.apply(
+                self.window.as_ref(),
+                radius,
+                self.has_shadow,
+                self.surface_size,
+            )
         {
             // Native continuous corners clip content and compositor shadow.
             // Preserve the scene clear; a second GPU clip would square off the

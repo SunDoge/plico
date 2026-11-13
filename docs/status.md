@@ -41,6 +41,13 @@ macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、
 旧的仅含尺寸的 JSON 仍然兼容。`run_with_persistence` 默认在应用数据目录恢复
 `window-state.json`。
 
+无系统标题栏窗口已按平台拆分外框：macOS 使用 Core Animation continuous corner 与
+AppKit shadow；Windows 保留 Win32 sizing/system-menu style，使用 DWM shadow 和 Windows 11
+系统圆角；Linux 可选纯 Rust/wgpu CSD margin、阴影和连续轮廓。`has_shadow` 是显式窗口
+契约，透明 overlay 默认关闭；运行时 decorations 切换同步 Windows/Linux frame。
+Linux 有实际 wgpu 像素回归，Windows GNU/MSVC 已交叉编译，macOS/Windows 真机外观与
+Windows Snap UI 尚待物理平台验收。详见 [窗口轮廓](window-corners.md)。
+
 剪贴板在原有文本 effect 之外增加 `ClipboardReadContent` / `ClipboardWriteContent`：
 读取时返回可用的文本、HTML、RGBA 图像与文件列表；写入按文件列表、图像、HTML（带纯文本
 回退）、文本的顺序选择平台能承载的最丰富表示。

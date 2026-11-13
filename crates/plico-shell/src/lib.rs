@@ -101,6 +101,8 @@ pub use winit::raw_window_handle;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod window_frame;
+#[cfg(target_os = "windows")]
+mod windows_window_frame;
 
 #[cfg(all(
     feature = "global-hotkeys",
