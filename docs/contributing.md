@@ -1,13 +1,19 @@
 # 提交规范
 
-使用 Cocogitto 校验 Conventional Commits。工具由根目录 mise.toml 声明；新 checkout 后执行：
+使用 hk 管理仓库共享 Git hooks，Cocogitto 校验 Conventional Commits。工具由根目录
+`mise.toml` 声明；新 checkout 后执行：
 
 ```sh
 mise install
-mise exec -- cog install-hook commit-msg
+mise exec -- hk install --mise
 ```
 
-Git hook 是本地配置，不会随 clone 自动安装。commit-msg hook 仅校验当前提交信息；完整历史使用 cog check 验证，不在消息 hook 中重复运行完整构建。
+Git hook 本身不会随 clone 自动安装，`hk.pkl` 中的共享配置会提交到仓库。pre-commit
+和 pre-push 只把本次涉及的 Rust/WGSL 文件传给 Plico formatter，避免每次运行耗时较长的
+全仓扫描；commit-msg 通过 Cocogitto 校验当前提交信息。完整历史使用 `cog check`
+验证，不在消息 hook 中重复运行完整构建。CI 仍运行全仓格式检查作为最终兜底。
+需要在提交前手动预览同一检查时运行 `mise exec -- hk check`；它只选择当前修改且
+匹配的文件。
 
 ## 提交格式
 

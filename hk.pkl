@@ -1,0 +1,38 @@
+amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
+
+local plicoFormat = new Step {
+  glob = List("*.rs", "*.wgsl")
+  check = "cargo run --locked --profile ci -p plico-cli -- fmt --check {{files}}"
+}
+
+hooks {
+  ["check"] {
+    timeout = "2m"
+    steps {
+      ["plico-format"] = plicoFormat
+    }
+  }
+
+  ["pre-commit"] {
+    stash = "git"
+    timeout = "2m"
+    steps {
+      ["plico-format"] = plicoFormat
+    }
+  }
+
+  ["pre-push"] {
+    timeout = "2m"
+    steps {
+      ["plico-format"] = plicoFormat
+    }
+  }
+
+  ["commit-msg"] {
+    steps {
+      ["conventional-commit"] {
+        check = "cog verify --file {{commit_msg_file}}"
+      }
+    }
+  }
+}
