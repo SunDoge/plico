@@ -295,8 +295,8 @@ sessions and physical-display DPI transitions still need verification. See [expe
 
 ## Renderer maintenance policy
 
-The independent `plico-wgpu` backend is the default desktop renderer and remains
-under active development. Skia is the primary rendering-quality reference.
+The independent `plico-wgpu` backend is the maintained desktop renderer. Skia is
+deprecated, excluded from the main CI matrix, and retained only for historical comparisons.
 The shared `plico-renderer` crate no longer owns wgpu devices, textures, bind
 groups, pipelines or render passes. It retains the backend-neutral scene and
 validated shader-effect contract; concrete shader execution lives in
@@ -327,16 +327,16 @@ Alert-dialog, deadline, display-preference and secondary-click fixtures are
 also migrated; scene assertions replace declaration-tree inspection where the
 test is about rendered shader presence.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
-path and the `vello-compare` tooling are deleted; wgpu is the default desktop
-renderer and Skia remains the quality comparison target. The browser Gallery
+path and the `vello-compare` tooling are deleted; wgpu is the maintained desktop
+renderer and Skia is being retired. The browser Gallery
 uses wgpu (WebGPU adapter detection with WebGL2 fallback), with Canvas2D
 ordinary text and a render-pass Gaussian blur on WebGL2. WebGL2 interaction
 tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU, rich text and
 full IME are not yet accepted. See [browser scope](web.md).
 
 The default Cargo features, automatic window/capture selection and new-app CLI
-template now use wgpu. Explicit Skia selection remains supported; video examples
-that require Skia retain their explicit feature. Changing the default does not
+template now use wgpu. Explicit Skia selection remains temporarily supported for
+historical comparisons, outside main CI. Changing the default does not
 imply full renderer parity or Windows/macOS runtime acceptance.
 
 Shared Scene support in `plico-wgpu` is unconditional; the former `paint-scene`

@@ -15,6 +15,7 @@ default = []
 vertical-text = ["linux-text", "macos-text", "windows-text"]
 screen-capture = ["dep:ashpd", "ashpd/screenshot", "dep:tokio"]
 global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
+skia-reference = ["dep:plico-skia"]
 macos-text = ["dep:objc2", "dep:objc2-app-kit", "dep:unicode-bidi", "dep:objc2-core-foundation", "dep:objc2-core-text", "dep:objc2-core-graphics"]
 windows-text = ["dep:windows", "dep:windows-core", "dep:unicode-bidi"]
 linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru", "dep:fontconfig-sys", "dep:tempfile"]
@@ -22,7 +23,6 @@ linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru", "dep:fon
 [dependencies]
 snafu.workspace = true
 unicode-bidi = { version = "0.3.18", default-features = false, features = ["hardcoded-data"], optional = true }
-serde_json = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
 global-hotkey = { version = "0.9", path = "../../vendor/global-hotkey", optional = true }
@@ -31,6 +31,8 @@ global-hotkey = { version = "0.9", path = "../../vendor/global-hotkey", optional
 ashpd = { version = "0.13.13", default-features = false, features = ["tokio", "global_shortcuts"], optional = true }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }
+serde_json = { workspace = true, optional = true }
+plico-skia = { path = "../plico-skia", default-features = false, features = ["raster"], optional = true }
 cairo-rs = { version = "0.22", optional = true, features = ["freetype"] }
 pango = { version = "0.22", optional = true, features = ["v1_50"] }
 pangocairo = { version = "0.22", optional = true }
@@ -47,11 +49,10 @@ cosmic-text = "0.19"
 wgpu.workspace = true
 pollster = "1.0"
 bytemuck = { workspace = true, features = ["derive"] }
-plico-skia = { path = "../plico-skia", default-features = false, features = ["raster"] }
 kurbo.workspace = true
 peniko.workspace = true
 plico-renderer.workspace = true
-plico-shell = { workspace = true, features = ["skia"] }
+plico-shell.workspace = true
 image = { workspace = true, features = ["png"] }
 
 [[example]]
@@ -65,7 +66,7 @@ required-features = ["linux-text"]
 [[example]]
 name = "system_text_wgpu"
 path = "examples/system_text_wgpu/main.rs"
-required-features = ["linux-text"]
+required-features = ["linux-text", "skia-reference"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", optional = true, default-features = false, features = ["std", "Win32_Graphics_DirectWrite", "Win32_Globalization", "Win32_Foundation"] }

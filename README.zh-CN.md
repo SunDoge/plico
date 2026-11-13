@@ -27,7 +27,7 @@ Plico 提供 immediate mode 的编写方式，底层保留节点、布局、文�
   字节用于存储。
 - **可重复的开发预览。** 普通 Rust 程序自动编译重启；JSON 场景配置状态、操作与虚拟时间，直接生成离屏 PNG。桌面热重载已移除，App 不再被迫序列化。参见[场景预览](docs/preview.md)。
 
-- **为不同后端留出空间。** wgpu 是默认桌面渲染器，Skia 是主要渲染质量对照。可选 FLTK + Taffy、LVGL 和
+- **GPU 优先的渲染路径。** wgpu 是持续维护的桌面渲染器；旧 Skia 后端只保留历史对照。可选 FLTK + Taffy、LVGL 和
   浏览器/WASM 路径验证同一套声明模型。LVGL 已在 ESP32-P4 / ESP-IDF 上验证。
 
 ## 一个小例子
@@ -85,7 +85,7 @@ CLI 支持按需生成应用自有的 SVG 图标集合，普通构建不依赖�
 | 路径 | 当前范围 |
 | --- | --- |
 | wgpu | 默认桌面渲染器，系统文字、WGSL 特效与自适应局部重绘，持续开发中 |
-| Skia | 主要渲染质量对照，CPU/Vulkan 回放与 Vulkan 窗口 |
+| Skia | 已弃用的历史对照后端，不进入主线 CI |
 | FLTK + Taffy | 实验性原生控件和共享设置页，样式与平台覆盖有限 |
 | LVGL | 实验性原生控件映射、SDL2/离屏验证，以及 ESP32-P4 / ESP-IDF 上板测试 |
 | Bevy | 实验性 primary window UI 插件，共享 wgpu 设备与 3D 场景覆盖层；[用法](docs/bevy.md) |
@@ -96,12 +96,12 @@ Plico **不是细粒度响应式 runtime**。业务声明仍会执行视图代�
 开发重启会重建应用状态；持久化由应用正常管理。各后端尚未完全对齐，
 `no_std` 尚未接入。
 
-桌面窗口和离屏截图默认优先使用 wgpu；启用 `plico-desktop/skia` 可做对照，同时启用时显式选择 Skia。
+桌面窗口和离屏截图默认使用 wgpu；已弃用的 `plico-desktop/skia` 暂时保留用于历史对照，同时启用时显式选择 Skia。
 关闭默认 feature 并单独启用 `skia`，可以只编译一个 renderer。
 当前 Skia 窗口后端使用 Vulkan；设备初始化失败时不会自动切换 renderer。
 
 
-默认运行：`cargo run -p gallery`。Skia 独立对照：
+默认运行：`cargo run -p gallery`。旧 Skia 独立对照：
 `cargo run -p gallery --no-default-features --features skia`。
 
 ## 项目结构
