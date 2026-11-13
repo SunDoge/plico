@@ -250,7 +250,8 @@ pub use composite::{
 };
 pub use dateinput::{date_input, date_input_with};
 pub use desktop::{
-    Toast, ToastHost, ToastKind, drag_area, tabs, toast_viewport, toolbar, toolbar_spacer,
+    Toast, ToastHost, ToastKind, drag_area, drag_area_content, tabs, toast_viewport, toolbar,
+    toolbar_spacer,
 };
 pub use find::{FindResponse, find_bar};
 pub use form::{Field, field, fieldset, form};

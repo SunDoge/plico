@@ -587,11 +587,25 @@ pub fn toolbar_spacer(cx: &mut UiContext) {
 /// releases on a restore.
 #[track_caller]
 pub fn drag_area(cx: &mut UiContext, on_drag: &mut dyn FnMut(f64, f64)) -> bool {
+    drag_area_content(cx, "Drag surface", |_| {}, on_drag)
+}
+
+/// A [`drag_area`] with caller-provided visual content and an accessible name.
+/// Use this for visible handles so the draggable hit target and its decoration
+/// remain one control instead of overlapping interactive nodes.
+#[track_caller]
+pub fn drag_area_content(
+    cx: &mut UiContext,
+    accessible_name: &str,
+    content: impl FnOnce(&mut UiContext<'_>),
+    on_drag: &mut dyn FnMut(f64, f64),
+) -> bool {
     let mut dragging = false;
-    button_base(cx, "Drag surface")
+    button_base(cx, accessible_name)
         .width_percent(100.)
         .height_percent(100.)
         .children(|cx| {
+            content(cx);
             let drag = cx.state(DragState::default);
             // Inside the button's scope the pressed query reports this node.
             if cx.pressed()
