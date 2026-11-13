@@ -29,6 +29,8 @@ impl plico_dev::App for Application {
 Engine 的显式持久状态保存，不依赖动态热重载 ABI。
 
 布局使用 `UiContext` 首参的独立函数；自定义组件也优先使用普通 Rust 函数。
+上下文参数与 children 闭包统一命名为 `cx`；`ui` 仅表示界面概念，不作为新的
+`UiContext` 变量名。
 `#[component]` 只注入组件和调用点身份。容器通过 `+ |cx| { ... }` 或底层
 `.children(...)` 嵌套。静态节点不手写 key，动态列表使用业务 ID。已有字符串直接
 借用，动态文字优先使用 `text!`。

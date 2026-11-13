@@ -10,6 +10,7 @@
 - CLI 参数解析统一使用 usage-rs，不引入 Clap 或自行维护完整参数解析器。错误处理使用 Snafu。
 
 - 新的布局代码可使用 #[component] + #[rustfmt::skip]，以原生 `layout + |cx| { ... };` 声明嵌套 children。#[component] 注入组件和调用点身份；不再支持双分号语法。原生 `.children(|cx| { ... })` 保留为底层 API。专用 formatter 使用 plico fmt（--check 只检查），view! 已移除。
+- 开发中按改动 package 或文件运行 `plico fmt`；准备 commit／push 时，必须在最后一次源码修改之后运行与 CI 完全相同的 `cargo run --locked --profile ci -p plico-cli -- fmt --check`。这条检查之后若又修改 Rust／WGSL，检查结果立即作废，提交前必须重跑；不得把远程 CI 当作格式检查器。
 
 - 根接口按受众分层：App 和 plico::View 面向用户，前者包含应用级状态与开发生命周期，后者是最小 show/theme 声明接口；plico_runtime::HostView 只面向后端和需要宿主能力的高级应用。简单组件继续使用普通 Rust 函数。
 - 新应用使用普通 Rust 状态和 plico_dev::App::show；事件触发声明，后端保留节点、文字、布局与绘制缓存。静态节点不手写 key，动态列表使用业务 ID。应用不维护 changed。宏仅注入组件和调用点身份，不自动收集依赖或改写闭包捕获。时间从 Clock/FrameTime 注入，不在组件中读取系统 Instant。

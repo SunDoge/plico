@@ -504,6 +504,38 @@ fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize
     Ok(q)
 }
 
+fn rectangular_quad(rect: Rect, transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
+    let [sx, b, c, sy, tx, ty] = transform.as_coeffs();
+    if ![sx, b, c, sy, tx, ty].iter().all(|value| value.is_finite())
+        || sx <= 0.
+        || sy <= 0.
+        || b.abs() > 1e-9
+        || c.abs() > 1e-9
+    {
+        return Err(unsupported(
+            index,
+            "only positive axis-aligned scale and translation are supported",
+        ));
+    }
+    let mut q = Quad::new(
+        [
+            (rect.x0 * sx + tx) as f32,
+            (rect.y0 * sy + ty) as f32,
+            (rect.width() * sx) as f32,
+            (rect.height() * sy) as f32,
+        ],
+        [0.; 4],
+    );
+    q.clip_antialias = true;
+    q.clip = Some([
+        clip.x0 as f32,
+        clip.y0 as f32,
+        clip.x1 as f32,
+        clip.y1 as f32,
+    ]);
+    Ok(q)
+}
+
 fn snap_quad_rect(q: &mut Quad) {
     let x0 = q.rect[0].round();
     let y0 = q.rect[1].round();
@@ -866,7 +898,7 @@ impl Renderer {
                             return Err(unsupported(index, "external surface resource mismatch"));
                         }
                         let rect = Rect::new(0., 0., f64::from(width), f64::from(height));
-                        let q = quad(rect, [0.; 4], *transform, clip, index)?;
+                        let q = rectangular_quad(rect, *transform, clip, index)?;
                         draws.push(external_image_draw(
                             &mut payloads,
                             crate::image::ExternalImageQuad {
@@ -1859,6 +1891,33 @@ impl Renderer {
 #[cfg(test)]
 mod storage_profile {
     use super::*;
+
+    #[test]
+    fn external_rect_accepts_independent_positive_pixel_scales() {
+        let transform =
+            Affine::translate((12.5, 7.25)) * Affine::scale_non_uniform(0.999_75, 1.000_5);
+        let q = rectangular_quad(
+            Rect::new(0., 0., 800., 600.),
+            transform,
+            Rect::new(0., 0., 1000., 800.),
+            8,
+        )
+        .unwrap();
+
+        assert_eq!(q.rect, [12.5, 7.25, 799.8, 600.3]);
+        assert_eq!(q.radii, [0.; 4]);
+    }
+
+    #[test]
+    fn external_rect_rejects_rotation_flip_and_nonfinite_values() {
+        let rect = Rect::new(0., 0., 10., 10.);
+        let clip = Rect::new(0., 0., 100., 100.);
+        assert!(rectangular_quad(rect, Affine::rotate(0.1), clip, 0).is_err());
+        assert!(rectangular_quad(rect, Affine::scale_non_uniform(-1., 1.), clip, 0).is_err());
+        assert!(
+            rectangular_quad(rect, Affine::new([1., 0., 0., 1., f64::NAN, 0.]), clip, 0).is_err()
+        );
+    }
 
     #[test]
     fn physical_box_edges_snap_without_changing_the_opposite_edge_independently() {

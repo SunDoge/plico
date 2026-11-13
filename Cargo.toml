@@ -28,7 +28,6 @@ arboard = { version = "3.6.1", default-features = false, features = ["wayland-da
 bitflags = "2.13.2"
 bytemuck = "1.25.2"
 directories = "6.0.0"
-glifo = "0.4"
 image = { version = "0.25", default-features = false }
 naga = { version = "30", features = ["wgsl-in"] }
 notify-rust = "=4.18.2"
@@ -51,7 +50,6 @@ peniko = "0.6.1"
 zeroize = "1.9"
 plico-motion = { path = "crates/plico-motion" }
 plico-node-editor = { path = "crates/plico-node-editor" }
-plico-water = { path = "crates/plico-water" }
 wgpu = "30"
 winit = "=0.31.0-beta.3"
 

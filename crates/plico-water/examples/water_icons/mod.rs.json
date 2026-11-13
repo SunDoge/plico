@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "provider": "lucide",
+  "repository": "https://github.com/lucide-icons/lucide",
+  "commit": "02eb9161b57917ccaa262f1bf070507cddde3b08",
+  "rust_crate": "plico",
+  "files": {
+    "grip-vertical.svg": "ddf3a20c45869614f7b49dd14c5cbaba026d4155382e30b0ae8418f31c1ce2c5"
+  },
+  "rust_sha256": "2f15284f758966f37859821b39f581b623ce3c645f77dd49e4c4bd262b432c09",
+  "license_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+}

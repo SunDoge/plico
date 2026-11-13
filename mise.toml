@@ -1,5 +1,6 @@
 [tools]
 cocogitto = "latest"
+hk = "2.12.0"
 release-plz = "0.4.0"
 "github:bnjbvr/cargo-machete" = "latest"
 "github:wgsl-analyzer/wgsl-analyzer" = "latest"
