@@ -283,7 +283,8 @@ impl WindowOptions {
     }
 
     /// Clip client content to rounded corners on an alpha-capable native surface.
-    /// Ignored for Linux decorated windows. The OS input region remains separate.
+    /// Linux delegates the outer contour to its compositor/CSD because a client
+    /// clip cannot supply the matching native border and shadow.
     pub fn corner_radius(mut self, radius: u32) -> Self {
         self.corner_radius = radius;
         self

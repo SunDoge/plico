@@ -3,14 +3,14 @@ use kurbo::{Affine, Rect};
 use peniko::Color;
 use plico_renderer::{PaintCommand, Scene};
 
-/// Linux decorated windows leave the outer contour to the window system
-/// (server decorations or winit's negotiated client decorations). Do not cut
-/// transparent holes into their rectangular content surface as well.
-/// Explicit frameless windows retain the renderer fallback.
+/// Linux leaves the outer contour to the compositor/CSD. MyGO likewise does
+/// not round frameless Linux windows: cutting transparent holes in the client
+/// surface produces a contour without the matching native border and shadow.
 pub(crate) fn client_corner_radius(requested: u32, decorations: bool) -> u32 {
-    if cfg!(target_os = "linux") && decorations {
+    if cfg!(target_os = "linux") {
         0
     } else {
+        let _ = decorations;
         requested
     }
 }
@@ -100,8 +100,11 @@ mod tests {
         assert!(checked.load(Ordering::SeqCst));
     }
     #[test]
-    fn decorated_linux_windows_delegate_the_contour_but_frameless_keeps_fallback() {
-        assert_eq!(client_corner_radius(16, false), 16);
+    fn linux_windows_delegate_the_outer_contour() {
+        assert_eq!(
+            client_corner_radius(16, false),
+            if cfg!(target_os = "linux") { 0 } else { 16 }
+        );
         assert_eq!(client_corner_radius(0, true), 0);
         assert_eq!(
             client_corner_radius(16, true),
