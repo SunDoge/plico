@@ -70,8 +70,8 @@ impl Adapter {
             .resize(self.placed.len(), HitSubtree::default());
         let mut ancestors: Vec<usize> = Vec::new();
         let mut last_children: Vec<Option<usize>> = vec![None; self.placed.len()];
-        for index in 0..self.placed.len() {
-            let depth = self.placed[index].depth;
+        for (index, placed) in self.placed.iter().enumerate() {
+            let depth = placed.depth;
             while ancestors.len() > depth {
                 let ended = ancestors.pop().unwrap();
                 cache.subtrees[ended].end = index;
@@ -91,8 +91,7 @@ impl Adapter {
         while let Some(ended) = ancestors.pop() {
             cache.subtrees[ended].end = self.placed.len();
         }
-        for index in (0..self.placed.len()).rev() {
-            let placed = &self.placed[index];
+        for (index, placed) in self.placed.iter().enumerate().rev() {
             let rect = self.visual_bounds(placed.node_id).unwrap_or(placed.rect);
             let mut bounds = (rect[0] < rect[2] && rect[1] < rect[3]).then_some(rect);
             let mut child = cache.subtrees[index].first_child;

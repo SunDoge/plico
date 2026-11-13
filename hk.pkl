@@ -10,6 +10,11 @@ local cargoManifest = new Step {
   check = "CARGO_BUILD_WARNINGS=deny cargo metadata --locked --no-deps --format-version 1 >/dev/null"
 }
 
+local workspaceClippy = new Step {
+  glob = List("*.rs", "Cargo.toml", "Cargo.lock")
+  check = "CARGO_BUILD_WARNINGS=deny CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings"
+}
+
 hooks {
   ["check"] {
     timeout = "2m"
@@ -29,10 +34,11 @@ hooks {
   }
 
   ["pre-push"] {
-    timeout = "2m"
+    timeout = "10m"
     steps {
       ["cargo-manifest"] = cargoManifest
       ["plico-format"] = plicoFormat
+      ["workspace-clippy"] = workspaceClippy
     }
   }
 
