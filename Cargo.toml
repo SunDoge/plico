@@ -50,6 +50,8 @@ kurbo = "0.13.1"
 peniko = "0.6.1"
 zeroize = "1.9"
 plico-motion = { path = "crates/plico-motion" }
+plico-node-editor = { path = "crates/plico-node-editor" }
+plico-water = { path = "crates/plico-water" }
 wgpu = "30"
 winit = "=0.31.0-beta.3"
 

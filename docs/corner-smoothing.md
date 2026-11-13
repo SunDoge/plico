@@ -1,8 +1,8 @@
 # Continuous corners
 
-Rust layout/widget builders expose `.corner_smoothing(1.)` to opt custom-drawn
-nodes into eased corners. Values must be finite
-and in `0..=1`. Native platform controls are not automatically restyled.
+Rust layout/widget builders and backend-neutral renderer paint default to
+`.corner_smoothing(1.)`. Values must be finite and in `0..=1`; an explicit zero
+selects circular arcs. Native platform controls are not automatically restyled.
 
 ## Geometry
 
@@ -19,11 +19,13 @@ and vertical clamp factors. The shape is the intersection of all four corners,
 including unequal corners that can extend past a side's midpoint. Radii are
 fitted by neighboring sums, as in MyGO.
 
-One uses that reference field. Zero remains the existing circular primitive;
-intermediate amounts interpolate the circular and continuous fields. This does
-not claim that MyGO exposes the same smoothing slider. MyGO itself defaults to
-continuous corners on macOS and circular corners on other platforms; Plico keeps
-this an explicit cross-platform choice.
+One uses that reference field. Zero remains the circular primitive; intermediate
+amounts interpolate the circular and continuous fields. MyGO applies one global
+platform policy—continuous on macOS, circular on Windows/Linux—to fills, clips,
+images, materials and shadows. Plico follows the same single-policy architecture,
+but deliberately uses continuous corners across platforms for a stable framework
+visual language. Fully rounded circles and capsules automatically clamp back to
+exact circular arcs.
 
 The shared contour is traced adaptively from the field, rather than substituting
 an independently chosen Bezier shoulder. Local geometry is cached without its
@@ -42,9 +44,10 @@ corner easing add two inline floats to retained Paint; the measured 64-bit
 record size is 416 bytes including alignment (previously 400). The size guard
 was updated explicitly; these features do not add per-node callback objects.
 
-Box-shadow geometry is still the existing rounded-rectangle approximation.
-Native/embedded widgets that paint their own background must opt into this
-geometry themselves; a containing continuous clip does not rewrite their paint.
+Box shadows and inset shadows inherit the same continuous profile; the low-level
+shadow convenience methods use it by default. Native/embedded widgets that paint
+their own background must still adopt this geometry themselves; a containing
+continuous clip does not rewrite their paint.
 
 ## Verification and preview
 

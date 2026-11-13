@@ -77,6 +77,9 @@ impl Renderer {
             self.frame_prefix_commands.clear();
             self.poll_gpu_budget();
             self.backdrop_pool.begin_frame();
+            if let Some(gaussian) = &mut self.backdrop_gaussian {
+                gaussian.begin_frame();
+            }
             if let Some(compositor) = &mut self.backdrop_compositor {
                 compositor.begin_frame();
             }
@@ -150,7 +153,7 @@ impl Renderer {
             let rasters = self.raster_cache_stats();
             tracing::trace!(target:"plico::perf",target_color_bytes=target.0,readback_buffer_bytes=target.1,path_raster_bytes=rasters[0].1,svg_raster_bytes=rasters[1].1,clip_raster_bytes=rasters[2].1,layer_allocations=self.layer_allocations-counters.0,
                 layer_reuses=self.layer_reuses-counters.1,layer_frame_bytes=self.frame_layer_bytes,
-                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,occlusion_culled_draws=self.batch_stats.occlusion_culled_draws,ring_split_quads=self.batch_stats.ring_split_quads,analytic_clip_draws=self.batch_stats.analytic_clip_draws,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,glyph_draw_calls=self.batch_stats.glyph_draw_calls,color_glyph_draw_calls=self.batch_stats.color_glyph_draw_calls,image_draw_calls=self.batch_stats.image_draw_calls,scene_passes=self.batch_stats.passes,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
+                layer_pool_entries=stats.entries,layer_pool_bytes=stats.retained_bytes,filter_allocations=stats.filter_allocations,filter_reuses=stats.filter_reuses,backdrop_pool_entries=stats.backdrop_entries,backdrop_pool_bytes=stats.backdrop_bytes,backdrop_allocations_total=stats.backdrop_allocations,backdrop_reuses_total=stats.backdrop_reuses,backdrop_uniform_entries=stats.backdrop_uniform_entries,backdrop_uniform_allocations_total=stats.backdrop_uniform_allocations,backdrop_uniform_reuses_total=stats.backdrop_uniform_reuses,backdrop_effect_uniform_entries=stats.backdrop_effect_uniform_entries,backdrop_effect_uniform_allocations_total=stats.backdrop_effect_uniform_allocations,backdrop_effect_uniform_reuses_total=stats.backdrop_effect_uniform_reuses,effect_targets=effect_stats.0,effect_bytes=effect_stats.1,effect_pipelines=effect_stats.2,positioned_fonts=positioned.0,positioned_source_bytes=positioned.1,positioned_rasters=positioned.2,positioned_raster_bytes=positioned.3,image_sources=image_sources.0,image_texture_bytes=image_sources.1,image_uploads_total=image_sources.2,image_source_hits_total=image_sources.3,image_bindings=image_bindings.0,image_binding_creations_total=image_bindings.1,scene_instances=self.batch_stats.instances,scene_draw_calls=self.batch_stats.draw_calls,occlusion_culled_draws=self.batch_stats.occlusion_culled_draws,ring_split_quads=self.batch_stats.ring_split_quads,analytic_clip_draws=self.batch_stats.analytic_clip_draws,plain_draw_calls=self.batch_stats.plain_draw_calls,fill_draw_calls=self.batch_stats.fill_draw_calls,shadow_draw_calls=self.batch_stats.shadow_draw_calls,glyph_draw_calls=self.batch_stats.glyph_draw_calls,color_glyph_draw_calls=self.batch_stats.color_glyph_draw_calls,image_draw_calls=self.batch_stats.image_draw_calls,scene_passes=self.batch_stats.passes,backdrop_textures=self.batch_stats.backdrop_textures,backdrop_shared_reads=self.batch_stats.backdrop_shared_reads,backdrop_effect_pixels=self.batch_stats.backdrop_effect_pixels,damage_clears=self.batch_stats.clears,"wgpu frame resources");
         }
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         if tracing::enabled!(target: "plico::perf", tracing::Level::TRACE) {
@@ -544,6 +547,7 @@ impl Renderer {
                                 self.target.as_ref(),
                                 &mut effects,
                                 &mut self.backdrop_prefilter,
+                                &mut self.backdrop_gaussian,
                                 &mut self.backdrop_pool,
                                 &mut self.batch_stats,
                                 shared.as_ref(),
@@ -562,6 +566,7 @@ impl Renderer {
                                     [x - origin[0], y - origin[1], w, h]
                                 },
                                 &effect,
+                                self.force_generic_backdrop,
                                 size,
                                 output_scissor,
                             );
@@ -693,6 +698,17 @@ impl Renderer {
         self.frame_budget.instances += instances.len() as u64;
         self.frame_budget.draw_calls += flush_draws;
         self.frame_budget.encode_ms += encode_started.elapsed().as_secs_f64() * 1e3;
+        if self.layer_depth == 0 {
+            self.frame_budget.passes = self.batch_stats.passes;
+            self.frame_budget.layer_bytes = self.frame_layer_bytes;
+            self.frame_budget.effect_bytes = self.frame_effect_bytes;
+            self.frame_budget.backdrop_copies = self.batch_stats.backdrop_copies;
+            self.frame_budget.backdrop_mip_passes = self.batch_stats.backdrop_mip_passes;
+            self.frame_budget.backdrop_bytes = self.batch_stats.backdrop_bytes;
+            self.frame_budget.backdrop_textures = self.batch_stats.backdrop_textures;
+            self.frame_budget.backdrop_shared_reads = self.batch_stats.backdrop_shared_reads;
+            self.frame_budget.backdrop_effect_pixels = self.batch_stats.backdrop_effect_pixels;
+        }
         // Keep this frame's grown capacity for the next frame's staging vector.
         // Error paths drop the buffer instead; the next frame simply reallocates.
         self.instance_scratch = instances;

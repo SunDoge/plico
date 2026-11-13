@@ -216,8 +216,11 @@ impl Renderer {
             backdrop_compositor: None,
             backdrop_prefilter: None,
             backdrop_batch_prefilter: None,
+            backdrop_gaussian: None,
             backdrop_pool: Default::default(),
             force_separate_backdrops: false,
+            force_generic_backdrop: std::env::var_os("PLICO_FORCE_GENERIC_BACKDROP")
+                .is_some_and(|value| value != "0"),
             frame_layout: group,
             layout,
             frame,
@@ -350,6 +353,10 @@ impl Renderer {
     /// Disable same-stage backdrop batching for pixel/performance comparisons.
     pub fn force_separate_backdrops(&mut self, force: bool) {
         self.force_separate_backdrops = force;
+    }
+    /// Disable framework-owned fixed backdrop filters for A/B comparisons.
+    pub fn force_generic_backdrop(&mut self, force: bool) {
+        self.force_generic_backdrop = force;
     }
     /// Runtime shader replacement. Invalid input preserves the last working pipeline.
     /// Loading the same source again is a no-op. No Rust compilation is involved.

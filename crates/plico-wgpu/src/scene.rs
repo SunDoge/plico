@@ -4,6 +4,19 @@ use kurbo::{Affine, Rect, Shape};
 use peniko::Brush;
 use plico_renderer::{PaintCommand, PaintShape, PrimitiveShape, Scene};
 
+fn backdrop_input_bounds(effect: &plico_renderer::ShaderEffect, output: Rect) -> Rect {
+    let reach = effect
+        .backdrop_gaussian_plan()
+        .map(|plan| f64::from(plan.reach))
+        .or_else(|| {
+            effect
+                .prefilter_backdrop()
+                .map(|sigma| f64::from((3. * sigma * effect.device_scale()).ceil() + 1.))
+        })
+        .unwrap_or_default();
+    output.inflate(reach, reach)
+}
+
 /// Reborrow either an existing draw slice or a prepared payload without materialization.
 #[derive(Clone, Copy)]
 pub(crate) enum DrawSource<'a> {
@@ -162,7 +175,10 @@ impl PreparedScene {
         for (effect, quad) in &self.payloads.effects {
             if effect.reads_backdrop() {
                 let [x, y, w, h] = quad.rect;
-                let rect = Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
+                let rect = backdrop_input_bounds(
+                    effect,
+                    Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64),
+                );
                 bounds = Some(bounds.map_or(rect, |old| old.union(rect)));
             }
         }
@@ -254,12 +270,15 @@ impl PreparedScene {
             |_, command| match command {
                 PaintCommand::Shader { effect, transform } if effect.reads_backdrop() => {
                     let [width, height] = effect.logical_size();
-                    Some(transform.transform_rect_bbox(Rect::new(
-                        0.,
-                        0.,
-                        f64::from(width),
-                        f64::from(height),
-                    )))
+                    Some(backdrop_input_bounds(
+                        effect,
+                        transform.transform_rect_bbox(Rect::new(
+                            0.,
+                            0.,
+                            f64::from(width),
+                            f64::from(height),
+                        )),
+                    ))
                 }
                 _ => None,
             },

@@ -505,6 +505,32 @@ pub struct FrameStats {
     /// Renderer submission and presentation time in milliseconds, or zero when
     /// the active native toolkit does not expose a reliable completion time.
     pub present_ms: f64,
+    /// Raw build sample for the most recently completed frame. Unlike
+    /// [`Self::build_frame_ms`], this is not blended and can be correlated
+    /// with the other `sample_*` fields.
+    pub sample_build_frame_ms: f64,
+    /// Raw scene-assembly sample for the most recently completed frame.
+    pub sample_scene_ms: f64,
+    /// Raw presentation sample for the most recently completed frame.
+    pub sample_present_ms: f64,
+    /// Application declaration time in the most recently completed frame.
+    /// Zero means that the retained declaration tree was reused.
+    pub sample_declaration_ms: f64,
+    /// Retained-backend synchronization time in the most recently completed frame.
+    pub sample_sync_ms: f64,
+    /// Retained-backend layout, flatten and presentation-update time in the
+    /// most recently completed frame.
+    pub sample_backend_ms: f64,
+    /// Declaration settle passes in the most recently completed frame.
+    pub declaration_passes: u64,
+    /// Taffy layout runs in the most recently completed frame.
+    pub layout_runs: u64,
+    /// Retained nodes visited while flattening in the most recently completed frame.
+    pub flatten_visits: u64,
+    /// Commands in the backend-neutral scene submitted by the latest frame.
+    pub scene_commands: u64,
+    /// Whether the latest frame reused its complete backend-neutral scene.
+    pub scene_reused: bool,
     /// CPU time building the renderer's instance stream.
     pub prepare_ms: f64,
     /// CPU time in instance and frame-uniform uploads.
@@ -525,6 +551,9 @@ pub struct FrameStats {
     pub instances: u64,
     /// Instanced scene draw calls, including damage-scissor replays.
     pub draw_calls: u64,
+    /// Raw renderer budget for the latest successfully submitted frame.
+    /// The sibling timing fields remain exponential moving averages for the HUD.
+    pub sample_renderer: FrameBudgetSample,
     /// GPU frame time when timestamp queries are enabled. `None` when the
     /// backend does not report it. Blended like the other timings; the first
     /// sample is kept at full weight.
@@ -574,6 +603,24 @@ pub struct FrameBudgetSample {
     pub instances: u64,
     /// Instanced scene draw calls, including damage-scissor replays.
     pub draw_calls: u64,
+    /// Scene color passes, including isolated layers.
+    pub passes: u64,
+    /// Isolated-layer texture payload charged to this frame.
+    pub layer_bytes: u64,
+    /// Non-backdrop custom-effect target payload used by this frame.
+    pub effect_bytes: u64,
+    /// Backdrop snapshots copied by this frame.
+    pub backdrop_copies: u64,
+    /// Additional area-reduction and Gaussian backdrop-filter passes.
+    pub backdrop_mip_passes: u64,
+    /// Transient backdrop texture payload used by this frame.
+    pub backdrop_bytes: u64,
+    /// Physical backdrop texture resources used this frame; an array counts once.
+    pub backdrop_textures: u64,
+    /// Backdrop readers served from same-stage snapshot arrays.
+    pub backdrop_shared_reads: u64,
+    /// Physical pixels admitted by backdrop-effect scissors.
+    pub backdrop_effect_pixels: u64,
 }
 
 impl FrameStats {
@@ -598,6 +645,7 @@ impl FrameStats {
         self.command_buffers = budget.command_buffers;
         self.instances = budget.instances;
         self.draw_calls = budget.draw_calls;
+        self.sample_renderer = budget;
     }
 
     /// Blend this frame's raw samples into the EMA and refresh the node count.
@@ -608,10 +656,16 @@ impl FrameStats {
         present_ms: f64,
         node_count: usize,
     ) {
+        // A frame without a successful renderer submission must not expose the
+        // previous frame's raw budget as if it belonged to this one.
+        self.sample_renderer = FrameBudgetSample::default();
         let prev = 1.0 - Self::ALPHA;
         self.build_frame_ms = self.build_frame_ms * prev + build_frame_ms * Self::ALPHA;
         self.scene_ms = self.scene_ms * prev + scene_ms * Self::ALPHA;
         self.present_ms = self.present_ms * prev + present_ms * Self::ALPHA;
+        self.sample_build_frame_ms = build_frame_ms;
+        self.sample_scene_ms = scene_ms;
+        self.sample_present_ms = present_ms;
         self.node_count = node_count;
     }
 }
@@ -657,6 +711,11 @@ mod budget_tests {
             upload_bytes: 4096,
             instances: 700,
             draw_calls: 90,
+            passes: 4,
+            backdrop_textures: 2,
+            backdrop_shared_reads: 7,
+            backdrop_effect_pixels: 1234,
+            ..FrameBudgetSample::default()
         });
         assert!((stats.prepare_ms - 0.4).abs() < 1e-9);
         assert!((stats.upload_ms - 0.2).abs() < 1e-9);
@@ -669,6 +728,12 @@ mod budget_tests {
         assert_eq!(stats.command_buffers, 1);
         assert_eq!(stats.instances, 700);
         assert_eq!(stats.draw_calls, 90);
+        assert_eq!(stats.sample_renderer.prepare_ms, 4.0);
+        assert_eq!(stats.sample_renderer.gpu_ms, Some(8.0));
+        assert_eq!(stats.sample_renderer.passes, 4);
+        assert_eq!(stats.sample_renderer.backdrop_textures, 2);
+        assert_eq!(stats.sample_renderer.backdrop_shared_reads, 7);
+        assert_eq!(stats.sample_renderer.backdrop_effect_pixels, 1234);
 
         stats.apply_budget(FrameBudgetSample {
             prepare_ms: 0.0,
@@ -682,11 +747,33 @@ mod budget_tests {
             upload_bytes: 2048,
             instances: 10,
             draw_calls: 2,
+            ..FrameBudgetSample::default()
         });
         assert!((stats.prepare_ms - 0.36).abs() < 1e-9);
         // A backend without timestamps keeps the previous GPU average.
         assert_eq!(stats.gpu_ms, Some(8.0));
         assert_eq!(stats.upload_bytes, 2048);
         assert_eq!(stats.command_buffers, 3);
+        assert_eq!(stats.sample_renderer.command_buffers, 3);
+        assert_eq!(stats.sample_renderer.prepare_ms, 0.0);
+
+        stats.update(1.0, 1.0, 1.0, 1);
+        assert_eq!(stats.sample_renderer, FrameBudgetSample::default());
+    }
+
+    #[test]
+    fn frame_update_keeps_a_raw_correlated_sample_beside_the_ema() {
+        let mut stats = FrameStats::default();
+        stats.update(10.0, 4.0, 2.0, 12);
+        assert_eq!(stats.sample_build_frame_ms, 10.0);
+        assert_eq!(stats.sample_scene_ms, 4.0);
+        assert_eq!(stats.sample_present_ms, 2.0);
+        assert!((stats.build_frame_ms - 1.0).abs() < 1e-9);
+
+        stats.update(2.0, 1.0, 0.5, 8);
+        assert_eq!(stats.sample_build_frame_ms, 2.0);
+        assert_eq!(stats.sample_scene_ms, 1.0);
+        assert_eq!(stats.sample_present_ms, 0.5);
+        assert_eq!(stats.node_count, 8);
     }
 }

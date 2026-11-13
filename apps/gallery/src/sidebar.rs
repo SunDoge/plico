@@ -28,7 +28,11 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                     }
                 }
             };
-            column(cx).height(0.).grow(1.).scroll_y(true).gap(16).min_width(0.) + |cx| {
+            // Let the scrollbar's hit lane reach the panel edge while keeping
+            // source-list content aligned to the sidebar's ten-DIP inset.
+            column(cx).height(0.).grow(1.).scroll_y(true).gap(16).min_width(0.).margin_left(-10)
+                .margin_right(-10).padding_left(10).padding_right(10) + |cx|
+            {
                 for (section, title, routes) in [
                     ("sidebar-workspace", "Workspace", &[Page::Workspace][..]),
                     (
@@ -44,6 +48,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                             Page::Calendar,
                             Page::Localization,
                             Page::Patterns,
+                            Page::NodeEditor,
                         ][..],
                     ),
                     (
@@ -137,7 +142,7 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Controls | Page::Localization => &icons::SLIDERS_HORIZONTAL,
         Page::Lists | Page::DataTable | Page::TreeView => &icons::LIST,
         Page::Calendar => &icons::LAYOUT_GRID,
-        Page::Patterns | Page::ComponentKit => &icons::LAYERS,
+        Page::Patterns | Page::ComponentKit | Page::NodeEditor => &icons::LAYERS,
         Page::Effects | Page::ShaderPlayground => &icons::SPARKLES,
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,

@@ -225,6 +225,7 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     fn build_frame(&mut self, text: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
         self.event_dirty = false;
         let mut nodes = self.source.build_frame(text, width, height);
+        self.widget.set_frame_time(self.source.engine.time());
         self.entity = Self::locate(&self.source.engine, self.source.engine.root(), self.slot);
         self.node = self.entity.and_then(|e| self.source.adapter.backend_id(e));
         let slot = self
@@ -530,5 +531,40 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(*value.lock().unwrap(), Some(interval));
+    }
+
+    #[test]
+    fn hosted_widget_receives_the_injected_frame_clock() {
+        struct Capture(std::sync::Arc<std::sync::Mutex<Vec<plico::FrameTime>>>);
+        impl plico_renderer::Widget for Capture {
+            fn paint(&mut self, _: &mut PaintContext<'_>) {}
+            fn set_frame_time(&mut self, time: plico::FrameTime) {
+                self.0.lock().unwrap().push(time);
+            }
+        }
+        let times = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let clock = plico::VirtualClock::default();
+        let mut source = SurfaceSource::with_clock(
+            ShaderView,
+            Capture(times.clone()),
+            "unused-slot",
+            clock.clone(),
+        );
+        let mut text = TextContext::new();
+
+        source.build_frame(&mut text, 640, 480);
+        clock.advance(std::time::Duration::from_millis(25)).unwrap();
+        source.build_frame(&mut text, 640, 480);
+
+        assert_eq!(
+            *times.lock().unwrap(),
+            vec![
+                plico::FrameTime::default(),
+                plico::FrameTime {
+                    now: std::time::Duration::from_millis(25),
+                    delta: std::time::Duration::from_millis(25),
+                },
+            ]
+        );
     }
 }

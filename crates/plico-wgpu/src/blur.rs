@@ -26,6 +26,12 @@ pub(crate) struct Timing {
     resolve: wgpu::Buffer,
     pub readback: wgpu::Buffer,
 }
+impl Workspace {
+    pub fn bytes(&self) -> u64 {
+        let size = self.output.size();
+        u64::from(size.width) * u64::from(size.height) * 4 * 2
+    }
+}
 impl Blur {
     pub fn new(device: &wgpu::Device) -> Self {
         Self::with_source(device, include_str!("blur.wgsl"), false)
@@ -249,12 +255,24 @@ impl Blur {
         sigma: f32,
         edge: plico_renderer::filter::BlurEdge,
     ) {
+        self.encode_with_radius(queue, encoder, workspace, sigma, edge, 0);
+    }
+
+    pub fn encode_with_radius(
+        &self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        workspace: &Workspace,
+        sigma: f32,
+        edge: plico_renderer::filter::BlurEdge,
+        radius: u32,
+    ) {
         let size = workspace.temporary.size();
         for axis in 0..2 {
             queue.write_buffer(
                 &workspace.uniforms[axis],
                 0,
-                bytemuck::cast_slice(&[sigma.to_bits(), axis as u32, edge as u32, 0]),
+                bytemuck::cast_slice(&[sigma.to_bits(), axis as u32, edge as u32, radius]),
             );
             match &self.pass {
                 Pass::Compute(pipeline) => {

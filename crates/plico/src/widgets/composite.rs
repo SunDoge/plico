@@ -10,7 +10,6 @@ pub fn badge(cx: &mut UiContext, label: &str) {
         .padding_x(m.spacing as f32 * 1.5)
         .padding_y(0)
         .radius(999.)
-        .corner_smoothing(0.)
         .shrink(0.)
         .background(Color::Foreground)
         .background_alpha(0.1);
@@ -544,7 +543,6 @@ pub fn progress(cx: &mut UiContext, label: &str, fraction: f32) {
                 .height(m.spacing.max(1) as f32 * 1.5)
                 .width_percent(100.)
                 .radius(m.spacing as f32 * 0.75)
-                .corner_smoothing(0.)
                 .background(Color::Border)
                 .semantic_hidden(true)
                 .children(|cx| {
@@ -552,7 +550,6 @@ pub fn progress(cx: &mut UiContext, label: &str, fraction: f32) {
                         .width_percent(fraction * 100.)
                         .height_percent(100.)
                         .radius(m.spacing as f32 * 0.75)
-                        .corner_smoothing(0.)
                         .background(Color::Accent)
                         .children(|_cx| {});
                 })

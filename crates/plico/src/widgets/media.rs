@@ -79,7 +79,6 @@ impl Drop for Avatar<'_, '_> {
             .width(self.size)
             .height(self.size)
             .radius(self.size / 2.)
-            .corner_smoothing(0.)
             .children(|cx| {
                 if let Some(asset) = self.image {
                     image(cx, asset).size(self.size, self.size);

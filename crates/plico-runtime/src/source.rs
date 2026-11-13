@@ -81,6 +81,7 @@ pub struct Source<V: HostView> {
     pub(crate) view: V,
     declaration_stats: plico::FrameStats,
     declaration_micros: u128,
+    declaration_passes: u64,
     revision: u64,
     semantics_enabled: bool,
     pending: bool,
@@ -120,6 +121,7 @@ impl<V: HostView> Source<V> {
             view,
             declaration_stats: Default::default(),
             declaration_micros: 0,
+            declaration_passes: 0,
             revision: 0,
             semantics_enabled: false,
             pending: false,
@@ -457,6 +459,7 @@ impl<V: HostView> Source<V> {
         let now = self.last_tick.map_or(now, |previous| previous.max(now));
         self.adapter.stats = BackendStats::default();
         self.declaration_micros = 0;
+        self.declaration_passes = 0;
         self.declaration_stats = plico::FrameStats::default();
         self.frame_time = now;
         self.set_tick(now, true);
@@ -711,6 +714,7 @@ impl<V: HostView> Source<V> {
             })?;
         self.display_preferences_dirty = false;
         self.batch_stats.declaration_passes += passes as usize;
+        self.declaration_passes = u64::from(passes);
         self.declaration_stats = self.engine.last_stats();
         self.declared_dirty.extend(self.engine.drain_settle_dirty());
         self.declared_changes |= self.engine.take_settle_changes();
@@ -972,5 +976,19 @@ impl<V: HostView> FrameSource for Source<V> {
     }
     fn pointer_cursor(&self) -> CursorStyle {
         self.adapter.cursor()
+    }
+    fn augment_frame_stats(&self, stats: &mut plico_renderer::FrameStats) {
+        let backend = self.adapter.stats;
+        stats.sample_declaration_ms = self.declaration_micros as f64 / 1_000.0;
+        stats.sample_sync_ms = backend.sync_micros as f64 / 1_000.0;
+        stats.sample_backend_ms = backend.layout_micros as f64 / 1_000.0;
+        stats.declaration_passes = self.declaration_passes;
+        stats.layout_runs = backend.layout_runs as u64;
+        stats.flatten_visits = backend.flatten_visits as u64;
+        stats.scene_commands = self
+            .target_scene
+            .as_ref()
+            .map_or(0, |(scene, _, _)| scene.commands.len() as u64);
+        stats.scene_reused = backend.scene_reuses > 0;
     }
 }

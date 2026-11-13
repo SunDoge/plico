@@ -49,7 +49,7 @@ pub fn page(cx: &mut UiContext, language: Language) {
     let count = cx.state(|| 1_i64);
     let nested = cx.state(|| CalendarState::new(CalendarDate::new(2026, 11, 1).unwrap()));
     let catalog = catalog(language);
-    column(cx).gap(16).height(0.).grow(1.).scroll_y(true) + |cx| {
+    column(cx).gap(16).height(0.).grow(1.).scroll_y(true).padding_right(24) + |cx| {
         column(cx).padding(24).gap(16).radius(12.).background(Color::Panel).border(1., Color::Border) + |cx| {
             let mut args = FluentArgs::new();
             args.set("name", "Plico");

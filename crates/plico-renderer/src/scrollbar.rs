@@ -67,39 +67,32 @@ pub fn resolve(node: &PlacedNode, axis: ScrollAxis) -> Option<ResolvedScrollbarG
         return None;
     }
     let style = node.paint.scrollbar_style();
-    let thickness = f64::from(style.thickness).clamp(0.0, cross);
-    let margin = f64::from(style.margin).clamp(0.0, (cross - thickness).max(0.0));
+    let track_thickness = f64::from(style.track_thickness).clamp(0.0, cross);
+    let thumb_thickness = f64::from(style.thumb_thickness).clamp(0.0, track_thickness);
+    let cross_margin = (track_thickness - thumb_thickness) * 0.5;
+    let end_margin = f64::from(style.end_margin).clamp(0.0, main * 0.5);
     let track = match axis {
-        ScrollAxis::Horizontal => Rect::new(
-            port.x0,
-            port.y1 - margin - thickness,
-            port.x1,
-            port.y1 - margin,
-        ),
-        ScrollAxis::Vertical => Rect::new(
-            port.x1 - margin - thickness,
-            port.y0,
-            port.x1 - margin,
-            port.y1,
-        ),
+        ScrollAxis::Horizontal => Rect::new(port.x0, port.y1 - track_thickness, port.x1, port.y1),
+        ScrollAxis::Vertical => Rect::new(port.x1 - track_thickness, port.y0, port.x1, port.y1),
     };
     let range = f64::from(node.scroll.range[index]);
-    let length = (main * main / (main + range))
+    let inner = (main - 2.0 * end_margin).max(0.0);
+    let length = (inner * main / (main + range))
         .max(f64::from(style.min_thumb_length))
-        .clamp(0.0, main);
+        .clamp(0.0, inner);
     let progress = (f64::from(node.scroll.offset[index]) / range).clamp(0.0, 1.0);
-    let start = progress * (main - length);
+    let start = end_margin + progress * (inner - length);
     let thumb = match axis {
         ScrollAxis::Horizontal => Rect::new(
             port.x0 + start,
-            track.y0,
+            track.y0 + cross_margin,
             port.x0 + start + length,
-            track.y1,
+            track.y1 - cross_margin,
         ),
         ScrollAxis::Vertical => Rect::new(
-            track.x0,
+            track.x0 + cross_margin,
             port.y0 + start,
-            track.x1,
+            track.x1 - cross_margin,
             port.y0 + start + length,
         ),
     };
@@ -165,7 +158,9 @@ pub fn drag_ratio(node: &PlacedNode, axis: ScrollAxis) -> f64 {
         ScrollAxis::Horizontal => thumb.width(),
         ScrollAxis::Vertical => thumb.height(),
     };
-    let play = viewport - length;
+    let style = node.paint.scrollbar_style();
+    let end_margin = f64::from(style.end_margin).clamp(0.0, viewport * 0.5);
+    let play = viewport - 2.0 * end_margin - length;
     if play > 0.0 {
         f64::from(node.scroll.range[index]) / play
     } else {
@@ -238,9 +233,9 @@ mod tests {
         let node = node(450.0);
         assert_eq!(
             thumb(&node, ScrollAxis::Vertical),
-            Some(Rect::new(88.0, 34.0, 98.0, 66.0))
+            Some(Rect::new(91.0, 38.0, 97.0, 62.0))
         );
-        assert!((drag_ratio(&node, ScrollAxis::Vertical) - 900.0 / 68.0).abs() < 0.001);
+        assert!((drag_ratio(&node, ScrollAxis::Vertical) - 900.0 / 72.0).abs() < 0.001);
         assert_eq!(
             hit(&node, Point::new(95.0, 50.0)),
             Some(ScrollbarTarget {
@@ -254,13 +249,14 @@ mod tests {
     fn custom_appearance_changes_shared_paint_and_hit_geometry() {
         let mut node = node(450.0);
         set_style(&mut node, |style| {
-            style.thickness = 14.0;
-            style.margin = 3.0;
+            style.track_thickness = 14.0;
+            style.thumb_thickness = 8.0;
+            style.end_margin = 3.0;
             style.min_thumb_length = 40.0;
         });
         assert_eq!(
             thumb(&node, ScrollAxis::Vertical),
-            Some(Rect::new(83.0, 30.0, 97.0, 70.0))
+            Some(Rect::new(89.0, 30.0, 97.0, 70.0))
         );
         assert_eq!(
             hit(&node, Point::new(90.0, 90.0)),
@@ -275,13 +271,14 @@ mod tests {
     fn extreme_custom_dimensions_are_clamped_to_the_scroll_port() {
         let mut node = node(450.0);
         set_style(&mut node, |style| {
-            style.thickness = 500.0;
-            style.margin = 500.0;
+            style.track_thickness = 500.0;
+            style.thumb_thickness = 500.0;
+            style.end_margin = 500.0;
             style.min_thumb_length = 500.0;
         });
         let geometry = resolve(&node, ScrollAxis::Vertical).unwrap();
         assert_eq!(geometry.track, Rect::new(0.0, 0.0, 100.0, 100.0));
-        assert_eq!(geometry.thumb, Rect::new(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(geometry.thumb, Rect::new(0.0, 50.0, 100.0, 50.0));
         assert_eq!(drag_ratio(&node, ScrollAxis::Vertical), 0.0);
     }
 }

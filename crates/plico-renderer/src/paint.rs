@@ -475,7 +475,7 @@ pub trait PaintScene {
             glyphs.into_iter(),
         )
     }
-    /// Draw a circular-corner blurred box shadow.
+    /// Draw a continuous-corner blurred box shadow.
     fn draw_box_shadow(
         &mut self,
         transform: Affine,
@@ -491,11 +491,11 @@ pub trait PaintScene {
             ShadowProfile {
                 radius,
                 std_dev,
-                corner_smoothing: 0.,
+                corner_smoothing: 1.,
             },
         );
     }
-    /// Paint the blurred complement of a circular rounded hole inside bounds.
+    /// Paint the blurred complement of a continuous rounded hole inside bounds.
     fn draw_inset_box_shadow(
         &mut self,
         transform: Affine,
@@ -513,7 +513,7 @@ pub trait PaintScene {
             ShadowProfile {
                 radius,
                 std_dev,
-                corner_smoothing: 0.,
+                corner_smoothing: 1.,
             },
         );
     }
@@ -907,6 +907,39 @@ impl PaintScene for Scene {
 #[cfg(test)]
 mod snapshot_tests {
     use super::*;
+    #[test]
+    fn shadow_convenience_methods_follow_the_continuous_default() {
+        let mut scene = Scene::new();
+        scene.draw_box_shadow(
+            Affine::IDENTITY,
+            Rect::new(0., 0., 40., 24.),
+            Color::BLACK,
+            6.,
+            2.,
+        );
+        scene.draw_inset_box_shadow(
+            Affine::IDENTITY,
+            Rect::new(0., 0., 40., 24.),
+            Rect::new(2., 2., 38., 22.),
+            Color::BLACK,
+            4.,
+            2.,
+        );
+        assert!(matches!(
+            scene.commands[0],
+            PaintCommand::BoxShadow {
+                corner_smoothing: 1.,
+                ..
+            }
+        ));
+        assert!(matches!(
+            scene.commands[1],
+            PaintCommand::InsetBoxShadow {
+                corner_smoothing: 1.,
+                ..
+            }
+        ));
+    }
     #[test]
     fn cloned_scenes_share_commands_and_mutation_preserves_the_snapshot() {
         let mut scene = Scene::new();

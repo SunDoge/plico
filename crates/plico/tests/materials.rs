@@ -38,6 +38,7 @@ fn material_declares_positioned_backdrop_before_content_and_updates_without_layo
     let params = engine.node(shader).unwrap().shader.unwrap();
     assert!(params.reads_backdrop);
     assert!(params.prefilter_backdrop.is_some());
+    assert_eq!(params.builtin, Some(plico::ShaderBuiltin::LiquidGlass));
     assert!(!params.animated);
     assert_eq!(params.values[0], 18.);
     assert_eq!(params.values[4], 1.6);

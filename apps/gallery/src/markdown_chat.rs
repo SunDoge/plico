@@ -93,8 +93,8 @@ impl Chat {
                     && self.follow;
         };
         separator(cx);
-        column(cx).height(0.).grow(1.).scroll_y(true).gap(20).padding(16).radius(14.).background(Color::Surface)
-        + |cx|
+        column(cx).height(0.).grow(1.).scroll_y(true).gap(20).padding(16).padding_right(24).radius(14.)
+            .background(Color::Surface) + |cx|
         {
             if let Some([offset, _]) = cx.scroll_viewport() {
                 if !resume_follow && offset < self.previous_offset {

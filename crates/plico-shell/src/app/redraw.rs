@@ -11,6 +11,9 @@ impl App {
             window_id = %self.window_key,
             node_count = tracing::field::Empty,
             build_ms = tracing::field::Empty,
+            declaration_ms = tracing::field::Empty,
+            sync_ms = tracing::field::Empty,
+            backend_ms = tracing::field::Empty,
             scene_ms = tracing::field::Empty,
             present_ms = tracing::field::Empty,
         );
@@ -143,6 +146,18 @@ impl App {
         #[cfg(feature = "profiling")]
         frame_span.record("build_ms", build_frame_ms);
         #[cfg(feature = "profiling")]
+        let source_sample = {
+            let mut sample = FrameStats::default();
+            self.source.augment_frame_stats(&mut sample);
+            sample
+        };
+        #[cfg(feature = "profiling")]
+        frame_span.record("declaration_ms", source_sample.sample_declaration_ms);
+        #[cfg(feature = "profiling")]
+        frame_span.record("sync_ms", source_sample.sample_sync_ms);
+        #[cfg(feature = "profiling")]
+        frame_span.record("backend_ms", source_sample.sample_backend_ms);
+        #[cfg(feature = "profiling")]
         frame_span.record("scene_ms", scene_ms);
         #[cfg(feature = "profiling")]
         frame_span.record("present_ms", present_ms);
@@ -152,7 +167,15 @@ impl App {
             window_id = %self.window_key,
             node_count,
             build_ms = build_frame_ms,
+            declaration_ms = source_sample.sample_declaration_ms,
+            declaration_passes = source_sample.declaration_passes,
+            sync_ms = source_sample.sample_sync_ms,
+            backend_ms = source_sample.sample_backend_ms,
+            layout_runs = source_sample.layout_runs,
+            flatten_visits = source_sample.flatten_visits,
             scene_ms,
+            scene_commands = source_sample.scene_commands,
+            scene_reused = source_sample.scene_reused,
             present_ms,
             presented = presented && !present_skipped,
             present_skipped,

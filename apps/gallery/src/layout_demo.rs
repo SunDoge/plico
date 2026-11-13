@@ -14,7 +14,7 @@ pub fn show(cx: &mut UiContext, expanded: &mut bool) {
         l.text("tracks-constraints-and-alignment-with-real-layout",
             "Tracks, constraints and alignment — with real layout."),
     ).font_size(13).color(Color::Muted);
-    column(cx).height(0.).grow(1.).scroll_y(true).gap(16) + |cx| {
+    column(cx).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |cx| {
         column(cx).padding(18).gap(12).radius(14.).background(Color::Panel) + |cx| {
             row(cx).gap(12).justify(Justify::SpaceBetween) + |cx| {
                 text(cx, l.text("a-workspace-in-three-areas", "A workspace in three areas")).font_size(16).weight(650);

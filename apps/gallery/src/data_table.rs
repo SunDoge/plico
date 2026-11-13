@@ -179,7 +179,7 @@ pub fn page(cx: &mut UiContext) {
         &l.text("table-description", "Filter, sort and select the projects you want to work on."));
     let storage = cx.persisted_state("projects", TableState::default);
     let mut state = storage.get();
-    column(cx).height(0.).grow(1.).scroll_y(true).gap(16) + |cx| {
+    column(cx).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |cx| {
         column(cx).radius(12.).clip(true).background(Color::Panel).border(1., Color::Border) + |cx| {
             row(cx).padding(16).gap(12).wrap(true).align(Align::Center) + |cx| {
                 let search = l.text("table-filter", "Filter projects");

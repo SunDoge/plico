@@ -887,6 +887,13 @@ pub trait Widget {
         None
     }
 
+    /// Supply the host's monotonic logical time for the frame being painted.
+    ///
+    /// Animated widgets must advance simulation from this value instead of
+    /// counting paint calls: input, exposure, and capture can all request
+    /// additional paints between display frames.
+    fn set_frame_time(&mut self, _time: crate::FrameTime) {}
+
     /// Local content-box area which the platform IME candidate window should
     /// avoid. Text editors should include the caret or active preedit run.
     fn ime_cursor_area(&self) -> Option<[f32; 4]> {

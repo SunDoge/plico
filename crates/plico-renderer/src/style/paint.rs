@@ -413,7 +413,10 @@ impl DeclaredPaint {
             cursor: inherited.cursor,
             backdrop_blur: 0.,
             foreground_blur: 0.,
-            corner_smoothing: 0.,
+            // Plico uses MyGO's continuous contour by default on every
+            // platform. Fully rounded circles and capsules clamp back to
+            // exact circular arcs in `corner_shape`.
+            corner_smoothing: 1.,
             sticky_top: None,
             sticky_push: false,
             text: host.text,
@@ -482,10 +485,12 @@ pub struct ScrollbarStyle {
     pub hide_delay: std::time::Duration,
     /// Fade duration after [`Self::hide_delay`].
     pub fade_duration: std::time::Duration,
-    /// Track/thumb thickness in logical pixels.
-    pub thickness: f32,
-    /// Inset from the scroll port edge.
-    pub margin: f32,
+    /// Track and pointer-hit lane thickness in logical pixels.
+    pub track_thickness: f32,
+    /// Visible thumb thickness, centered inside [`Self::track_thickness`].
+    pub thumb_thickness: f32,
+    /// Gap between the thumb and each end of its track.
+    pub end_margin: f32,
     /// Minimum draggable thumb length.
     pub min_thumb_length: f32,
     /// Negative means half the thumb thickness.
@@ -506,9 +511,10 @@ impl Default for ScrollbarStyle {
             visibility: ScrollbarVisibility::Auto,
             hide_delay: std::time::Duration::from_millis(500),
             fade_duration: std::time::Duration::from_millis(200),
-            thickness: 10.0,
-            margin: 2.0,
-            min_thumb_length: 32.0,
+            track_thickness: 12.0,
+            thumb_thickness: 6.0,
+            end_margin: 2.0,
+            min_thumb_length: 24.0,
             radius: -1.0,
             track_color: Color::TRANSPARENT,
             thumb_color: Color::from_rgba8(100, 116, 139, 190),

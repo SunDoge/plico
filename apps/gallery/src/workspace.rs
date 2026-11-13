@@ -61,7 +61,9 @@ impl Workspace {
                     "Choose a project, adjust its preferences, and save your changes."),
             ).font_size(m.font_size).color(Color::Muted);
         };
-        column(ui).height(0.).grow(1.).scroll_y(true).gap(m.space(7)).padding_y(m.space(2)) + |ui| {
+        column(ui).height(0.).grow(1.).scroll_y(true).gap(m.space(7)).padding_y(m.space(2)).padding_right(m.space(6))
+        + |ui|
+        {
             column(ui).gap(m.space(3)) + |ui| {
                 text(ui, l.text("projects", "Projects")).font_size(m.font_size + 2).weight(650);
                 let active = self.projects.iter().filter(|p| !p.archived).count();

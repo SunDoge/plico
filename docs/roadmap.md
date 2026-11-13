@@ -23,9 +23,11 @@
 
 ## 2. 测清应用声明与 Scene/GPU 边界
 
-现有 renderer 的 instance 生成、编码和单批 submit 已有独立计时；下一步补齐应用 build、
-声明 settle、Taffy、flatten、Scene fragment、GPU effect pass 的同帧关联。优先减少玻璃/backdrop
-的着色像素和离屏面积；只有证据指向 CPU 时才增加新的缓存层。
+renderer 的 instance 生成、编码和单批 submit 已有独立计时；应用 declaration/settle、retained
+sync、Taffy/flatten、Scene 构建与完整复用现在也进入同一原始帧样本。renderer 样本同时记录
+isolated layer/effect/backdrop 的 pass、纹理字节和实际 scissor 像素，并随 recipe capture 报告
+序列化。下一步用这些证据减少玻璃/backdrop 的着色像素和离屏面积；只有证据指向 CPU 时才
+增加新的缓存层。
 
 验收：普通控件、滚动列表、玻璃和动画四类 recipe 都能导出稳定阶段预算；优化前后使用同一
 adapter、分辨率和像素 oracle；空闲帧停止，局部更新不退化成无依据的全量遍历。

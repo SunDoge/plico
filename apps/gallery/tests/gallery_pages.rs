@@ -83,7 +83,7 @@ fn table_selection_survives_sort_filter_navigation_and_empty_results() {
     );
     click(&mut d, "button", "Layout");
     d.execute(Command::Key {
-        key: "Alt+ArrowLeft".into(),
+        key: "BrowserBack".into(),
     })
     .unwrap();
     assert!(
@@ -171,7 +171,7 @@ fn tree_scopes_keep_independent_selection_and_restore_after_navigation() {
     );
     click(&mut d, "button", "Layout");
     d.execute(Command::Key {
-        key: "Alt+ArrowLeft".into(),
+        key: "BrowserBack".into(),
     })
     .unwrap();
     assert!(

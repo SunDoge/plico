@@ -138,6 +138,15 @@ impl WindowRenderer {
                     upload_bytes: budget.upload_bytes,
                     instances: budget.instances,
                     draw_calls: budget.draw_calls,
+                    passes: budget.passes,
+                    layer_bytes: budget.layer_bytes,
+                    effect_bytes: budget.effect_bytes,
+                    backdrop_copies: budget.backdrop_copies,
+                    backdrop_mip_passes: budget.backdrop_mip_passes,
+                    backdrop_bytes: budget.backdrop_bytes,
+                    backdrop_textures: budget.backdrop_textures,
+                    backdrop_shared_reads: budget.backdrop_shared_reads,
+                    backdrop_effect_pixels: budget.backdrop_effect_pixels,
                 })
             }
             #[cfg(feature = "wgpu")]

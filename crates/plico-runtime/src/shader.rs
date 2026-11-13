@@ -125,6 +125,7 @@ impl Adapter {
                 || surface.params.module != params.module
                 || surface.params.reads_backdrop != params.reads_backdrop
                 || surface.params.prefilter_backdrop != params.prefilter_backdrop
+                || surface.params.builtin != params.builtin
                 || surface.params.sksl != params.sksl
                 || surface.source.is_none() && surface.error.is_none();
             let values_changed = surface.params.values != params.values
@@ -138,6 +139,7 @@ impl Adapter {
                         ShaderEffectSource::with_backdrop(logical.text, params.reads_backdrop)
                     }
                     .and_then(|source| source.with_backdrop_prefilter(params.prefilter_backdrop))
+                    .and_then(|source| source.with_builtin(params.builtin))
                     .and_then(|source| match &params.sksl {
                         Some(sksl) => source.with_sksl(sksl),
                         None => Ok(source),

@@ -1,6 +1,6 @@
 //! Shared layout, text, paint and widget contracts for native and browser hosts.
 #![warn(missing_docs)]
-pub use plico::DisplayPreferences;
+pub use plico::{DisplayPreferences, FrameTime};
 pub mod animated_image;
 pub mod corner_shape;
 pub mod damage;
@@ -30,7 +30,7 @@ pub use paint::{
     ExternalSurface, Glyph, NormalizedCoord, PaintCommand, PaintScene, Scene, ShadowProfile,
     SvgDocument,
 };
-pub use shader::{ShaderEffect, ShaderEffectId, ShaderEffectSource};
+pub use shader::{BackdropGaussian, ShaderEffect, ShaderEffectId, ShaderEffectSource};
 pub use source::{
     AppLifecycleEvent, ClipboardRequest, ColorScheme, EventResponse, FileDropEvent, FileDropPhase,
     FrameBudgetSample, FrameSource, FrameSourceError, FrameStats, GestureEvent, GesturePhase,

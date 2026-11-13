@@ -183,11 +183,11 @@ fn badges_avatars_and_progress_use_the_mygo_reference_recipes() {
     assert_eq!(badge.padding_y, Some(0.));
     assert_eq!(badge.background, Some(Color::Foreground));
     assert_eq!(badge.background_alpha, 0.1);
-    assert_eq!(badge.corner_smoothing, 0.);
+    assert_eq!(badge.corner_smoothing, 1.);
     let avatar = engine.node(children[1]).unwrap();
     assert_eq!(avatar.style.width, Some(31.5));
     assert_eq!(avatar.style.height, Some(31.5));
-    assert_eq!(avatar.style.corner_smoothing, 0.);
+    assert_eq!(avatar.style.corner_smoothing, 1.);
     assert_eq!(avatar.style.background, Some(Color::Literal(0xbf6d58)));
     assert_eq!(
         engine.node(avatar.children[0]).unwrap().style.font_weight,

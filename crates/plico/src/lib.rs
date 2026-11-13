@@ -39,7 +39,7 @@ pub use virtual_list::{VariableVirtualList, VirtualList, VirtualListResponse};
 mod numeric;
 pub use numeric::{NumericRange, SliderResponse, ValueControlResponse};
 mod shader;
-pub use shader::{ShaderAsset, ShaderParams, ShaderTransition, ShaderValue};
+pub use shader::{ShaderAsset, ShaderBuiltin, ShaderParams, ShaderTransition, ShaderValue};
 mod snapshot;
 mod text_style;
 mod time;
