@@ -5,10 +5,16 @@ local plicoFormat = new Step {
   check = "cargo run --locked --profile ci -p plico-cli -- fmt --check {{files}}"
 }
 
+local cargoManifest = new Step {
+  glob = List("Cargo.toml", "Cargo.lock")
+  check = "CARGO_BUILD_WARNINGS=deny cargo metadata --locked --no-deps --format-version 1 >/dev/null"
+}
+
 hooks {
   ["check"] {
     timeout = "2m"
     steps {
+      ["cargo-manifest"] = cargoManifest
       ["plico-format"] = plicoFormat
     }
   }
@@ -17,6 +23,7 @@ hooks {
     stash = "git"
     timeout = "2m"
     steps {
+      ["cargo-manifest"] = cargoManifest
       ["plico-format"] = plicoFormat
     }
   }
@@ -24,6 +31,7 @@ hooks {
   ["pre-push"] {
     timeout = "2m"
     steps {
+      ["cargo-manifest"] = cargoManifest
       ["plico-format"] = plicoFormat
     }
   }
