@@ -55,6 +55,13 @@ impl Shell {
         self.renderer.gpu_context()
     }
 
+    pub(crate) fn set_decorations(&mut self, decorations: bool, requested_corner_radius: u32) {
+        self.window.set_decorations(decorations);
+        self.corner_radius =
+            crate::window_frame::client_corner_radius(requested_corner_radius, decorations);
+        self.window.request_redraw();
+    }
+
     /// Create the window, selected graphics backend and a fresh
     /// [`TextContext`]. Returns a typed error when any window/GPU step fails.
     pub fn create(

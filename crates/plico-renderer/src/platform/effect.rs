@@ -384,6 +384,10 @@ impl EffectPayload {
                 ..
             } => builtin::WINDOW_SET_TITLE,
             Self::WindowControl {
+                command: WindowCommand::SetDecorations(_),
+                ..
+            } => builtin::WINDOW_SET_DECORATIONS,
+            Self::WindowControl {
                 command: WindowCommand::Minimize,
                 ..
             } => builtin::WINDOW_MINIMIZE,
@@ -614,6 +618,7 @@ mod tests {
         assert_eq!(builtin::WINDOW_MINIMIZE, EffectOp::new(2, 5));
         assert_eq!(builtin::WINDOW_START_DRAGGING, EffectOp::new(2, 6));
         assert_eq!(builtin::WINDOW_SHOW, EffectOp::new(2, 7));
+        assert_eq!(builtin::WINDOW_SET_DECORATIONS, EffectOp::new(2, 9));
         assert_eq!(builtin::CONTEXT_MENU_SHOW, EffectOp::new(3, 1));
         assert_eq!(builtin::APP_DIRS_RESOLVE, EffectOp::new(4, 1));
         assert_eq!(builtin::DIALOG_OPEN, EffectOp::new(5, 1));

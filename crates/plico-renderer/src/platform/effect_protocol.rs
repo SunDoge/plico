@@ -41,6 +41,9 @@ pub const WINDOW_SHOW: crate::platform::effect::EffectOp =
 /// Change native fullscreen state.
 pub const WINDOW_SET_FULLSCREEN: crate::platform::effect::EffectOp =
     crate::platform::effect::EffectOp::new(2, 8);
+/// Enable or disable native window-manager decorations.
+pub const WINDOW_SET_DECORATIONS: crate::platform::effect::EffectOp =
+    crate::platform::effect::EffectOp::new(2, 9);
 /// Show a native context menu.
 pub const CONTEXT_MENU_SHOW: crate::platform::effect::EffectOp =
     crate::platform::effect::EffectOp::new(3, 1);

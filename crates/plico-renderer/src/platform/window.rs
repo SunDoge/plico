@@ -355,6 +355,8 @@ pub enum WindowCommand {
     ToggleFullscreen,
     /// Replace the native window title.
     SetTitle(String),
+    /// Enable or disable native window-manager decorations at runtime.
+    SetDecorations(bool),
     /// Begin an OS-managed window drag from the current pointer gesture.
     /// macOS titlebar double clicks follow the system action instead.
     StartDragging,

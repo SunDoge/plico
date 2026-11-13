@@ -283,6 +283,20 @@ fn targeted_window_commands_do_not_affect_other_windows() {
 }
 
 #[test]
+fn decoration_commands_update_the_window_contract_before_surface_creation() {
+    let source = Box::new(EventRecordingSource(Arc::new(Mutex::new(Vec::new()))));
+    let mut app = App::with_options(
+        source,
+        WindowOptions::new().decorations(true).corner_radius(16),
+    );
+
+    apply_window_command(&mut app, WindowCommand::SetDecorations(false));
+
+    assert!(!app.window_options.decorations);
+    assert_eq!(app.window_options.corner_radius, 16);
+}
+
+#[test]
 fn closed_window_handles_cannot_target_reused_slots() {
     let mut resources = SlotMap::<WindowSlotKey, ()>::with_key();
     let closed = resources.insert(());

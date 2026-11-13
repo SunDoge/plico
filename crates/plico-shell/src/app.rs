@@ -336,6 +336,12 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
                 shell.window().set_title(&title);
             }
         }
+        WindowCommand::SetDecorations(decorations) => {
+            app.window_options.decorations = decorations;
+            if let Some(shell) = app.state.as_mut() {
+                shell.set_decorations(decorations, app.window_options.corner_radius);
+            }
+        }
         WindowCommand::StartDragging => {
             if let Some(shell) = app.state.as_mut() {
                 shell.start_window_drag();
