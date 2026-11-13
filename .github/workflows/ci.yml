@@ -119,7 +119,7 @@ jobs:
             sleep 5
           done
       - name: Lint the mainline without optional backend SDKs
-        run: cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
+        run: cargo clippy --locked --profile ci --workspace --exclude plico-skia --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
       # The optional Bevy adapter is checked as a library. Do not pull its PBR
       # example/test dependency graph into every workspace Clippy invocation.
       - name: Check the Bevy plugin library
@@ -146,7 +146,7 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check Windows MSVC with Skia and wgpu
-        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features plico-desktop/skia,backend-settings/skia,backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
+      - name: Check Windows MSVC with wgpu
+        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-skia --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
       - name: Check the Bevy plugin on Windows MSVC
         run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p plico-bevy --lib

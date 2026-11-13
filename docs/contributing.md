@@ -61,10 +61,10 @@ Windows 等 Linux 检查成功后再执行。纯文档与发布配置改动通�
 - 检查 Rust 与 component 格式和 Widget 边界；所有 Cargo 命令使用 `--locked`。
 - 测试 `plico`、`plico-macros`、`plico-motion`、`plico-dev`、
   `plico-cli`、`plico-markdown`、`plico-i18n`，以及无窗口的 runtime 语义协议测试。
-- 其余主线代码通过 workspace Clippy 检查，默认使用 wgpu，并启用 Skia 对照与全局热键；不启用 FLTK、LVGL、ESP-IDF。额外对 WASM host 的 gallery/split 组合运行 Clippy，避免浏览器专属代码被 native 构建跳过。不运行 OS 自动化。
+- 其余主线代码通过 workspace Clippy 检查，使用 wgpu 与全局热键；退役中的 Skia、以及 FLTK、LVGL、ESP-IDF 不进入主线矩阵。额外对 WASM host 的 gallery/split 组合运行 Clippy，避免浏览器专属代码被 native 构建跳过。不运行 OS 自动化。
 - formatter、测试与 Clippy 在同一 runner 复用缓存；取消同分支的过期运行，15 分钟超时。
 
-Windows 只运行同一主线默认 feature 的 `cargo check --all-targets`，不运行测试或桌面自动化，20 分钟超时。
+Windows 只运行同一条 wgpu 主线的 `cargo check --all-targets`，不运行退役中的 Skia、测试或桌面自动化，20 分钟超时。
 
 CI 不启动窗口/GPU、不截图，不安装 mise 工具集、不运行 release-plz 仿真或
 cargo-machete，不设置全量/窗口验收开关，也不增加定时全量任务。
