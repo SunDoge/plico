@@ -1,4 +1,5 @@
 use super::*;
+use peniko::Color;
 
 impl ExtensionContext<'_> {
     /// Serialize the primary window's persisted state, when its source has any.
@@ -23,11 +24,15 @@ impl ExtensionContext<'_> {
     ) -> Result<(), String> {
         let app = find_window_by_key(self.windows.values_mut(), window_key)
             .ok_or_else(|| "native window is not visible".to_owned())?;
-        let base_color = app.source.base_color();
         let shell = app
             .state
             .as_mut()
             .ok_or_else(|| "native window has no render surface".to_owned())?;
+        let base_color = if shell.client_frame_inset() > 0. {
+            Color::TRANSPARENT
+        } else {
+            app.source.base_color()
+        };
         let (width, height) = shell.size();
         shell
             .renderer
@@ -64,10 +69,14 @@ impl ExtensionContext<'_> {
         let Some(shell) = app.state.as_mut() else {
             return false;
         };
-        if let Some(size) = shell
-            .window()
-            .request_surface_size(LogicalSize::new(f64::from(width), f64::from(height)).into())
-        {
+        let inset = shell.client_frame_inset();
+        if let Some(size) = shell.window().request_surface_size(
+            LogicalSize::new(
+                f64::from(width) + inset * 2.,
+                f64::from(height) + inset * 2.,
+            )
+            .into(),
+        ) {
             // Some platforms apply the size synchronously and need not emit a
             // SurfaceResized event. Never keep rendering at the old extent.
             shell.resize(size.width, size.height);

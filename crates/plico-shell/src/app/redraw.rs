@@ -64,9 +64,10 @@ impl App {
         let Some(shell) = self.state.as_mut() else {
             return;
         };
+        let content_offset = shell.content_offset();
         shell
             .accessibility
-            .set_snapshot(self.source.semantic_snapshot());
+            .set_snapshot_with_offset(self.source.semantic_snapshot(), content_offset);
         let (logical_width, logical_height) = shell.logical_size();
         let scale = shell.scale_factor();
         let mut hud_stats = self.frame_stats;

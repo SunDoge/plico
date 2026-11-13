@@ -111,14 +111,19 @@ pub struct WindowOptions {
     pub resizable: bool,
     /// Whether the OS draws its standard title bar and border.
     pub decorations: bool,
+    /// Let the pure-Rust Linux host supply a shadow, continuous contour and
+    /// resize margin when native decorations are disabled. Ignored elsewhere.
+    #[serde(default)]
+    pub linux_csd: bool,
     /// Extend app content into the transparent macOS titlebar while retaining
     /// native traffic lights. Ignored on other platforms or without decorations.
     #[serde(default)]
     pub titlebar_overlay: bool,
     /// Client-area corner radius in logical pixels. macOS uses native continuous
-    /// content-layer corners and a system shadow. Linux decorated windows leave
-    /// their contour to the window system and ignore this radius. Other paths
-    /// use a visual GPU clip, which requires compositor alpha.
+    /// content-layer corners and a system shadow. Linux uses this radius when
+    /// `linux_csd` is enabled for an undecorated window; decorated windows leave
+    /// their contour to the window system. Other paths use a visual GPU clip,
+    /// which requires compositor alpha.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.
@@ -153,6 +158,7 @@ impl Default for WindowOptions {
             resize_edges: WindowResizeEdges::all(),
             resizable: true,
             decorations: true,
+            linux_csd: false,
             titlebar_overlay: false,
             corner_radius: 0,
             centered: false,
@@ -292,10 +298,18 @@ impl WindowOptions {
 
     /// Enable or disable native window-manager decorations.
     /// On Linux, decorated windows leave the outer contour to the window system;
-    /// `corner_radius` does not additionally clip their client area. A compositor
-    /// may choose square corners. Frameless windows retain renderer clipping.
+    /// `corner_radius` does not additionally clip their client area. Enable
+    /// `linux_csd` to give undecorated windows a Plico-drawn frame.
     pub fn decorations(mut self, decorations: bool) -> Self {
         self.decorations = decorations;
+        self
+    }
+
+    /// Enable the pure-Rust Linux client-side frame for undecorated windows.
+    /// The application remains responsible for its titlebar contents and drag
+    /// regions; the host supplies the outer contour, shadow and resize margin.
+    pub fn linux_csd(mut self, enabled: bool) -> Self {
+        self.linux_csd = enabled;
         self
     }
 
@@ -388,8 +402,10 @@ mod tests {
         let restored: WindowOptions = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(restored, options);
         json.as_object_mut().unwrap().remove("titlebarOverlay");
+        json.as_object_mut().unwrap().remove("linuxCsd");
         let legacy: WindowOptions = serde_json::from_value(json).unwrap();
         assert!(legacy.decorations && !legacy.titlebar_overlay);
+        assert!(!legacy.linux_csd);
     }
 
     #[test]

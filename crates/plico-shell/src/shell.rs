@@ -32,6 +32,11 @@ pub struct Shell {
     /// Current physical render size.
     surface_size: [u32; 2],
     corner_radius: u32,
+    requested_corner_radius: u32,
+    decorations: bool,
+    linux_csd: bool,
+    min_content_size: Option<(u32, u32)>,
+    max_content_size: Option<(u32, u32)>,
     deferred_show: bool,
     #[cfg(target_os = "macos")]
     native_frame: crate::macos_window_frame::NativeWindowFrame,
@@ -56,10 +61,54 @@ impl Shell {
     }
 
     pub(crate) fn set_decorations(&mut self, decorations: bool, requested_corner_radius: u32) {
+        let content_size = self.logical_size();
         self.window.set_decorations(decorations);
+        self.decorations = decorations;
+        self.requested_corner_radius = requested_corner_radius;
         self.corner_radius =
             crate::window_frame::client_corner_radius(requested_corner_radius, decorations);
+        let inset = self.client_frame_inset();
+        self.sync_surface_size_constraints(inset);
+        let _ = self.window.request_surface_size(
+            winit::dpi::LogicalSize::new(
+                f64::from(content_size.0) + inset * 2.,
+                f64::from(content_size.1) + inset * 2.,
+            )
+            .into(),
+        );
         self.window.request_redraw();
+    }
+
+    fn sync_surface_size_constraints(&self, inset: f64) {
+        let framed = |(width, height): (u32, u32)| {
+            winit::dpi::LogicalSize::new(
+                f64::from(width) + inset * 2.,
+                f64::from(height) + inset * 2.,
+            )
+            .into()
+        };
+        self.window
+            .set_min_surface_size(self.min_content_size.map(framed));
+        self.window
+            .set_max_surface_size(self.max_content_size.map(framed));
+    }
+
+    pub(crate) fn client_frame_inset(&self) -> f64 {
+        if cfg!(target_os = "linux")
+            && self.linux_csd
+            && !self.decorations
+            && !self.is_maximized()
+            && self.window.fullscreen().is_none()
+        {
+            crate::window_frame::LINUX_CSD_INSET
+        } else {
+            0.
+        }
+    }
+
+    pub(crate) fn content_offset(&self) -> [f64; 2] {
+        let inset = self.client_frame_inset();
+        [inset, inset]
     }
 
     /// Create the window, selected graphics backend and a fresh
@@ -71,7 +120,26 @@ impl Shell {
         let options = options.clone().normalized();
         let corner_radius =
             crate::window_frame::client_corner_radius(options.corner_radius, options.decorations);
-        let transparent = options.background != WindowBackground::Opaque || corner_radius > 0;
+        let client_frame_inset = if cfg!(target_os = "linux")
+            && options.linux_csd
+            && !options.decorations
+            && !options.maximized
+            && !options.fullscreen
+        {
+            crate::window_frame::LINUX_CSD_INSET
+        } else {
+            0.
+        };
+        let transparent = options.background != WindowBackground::Opaque
+            || corner_radius > 0
+            || cfg!(target_os = "linux") && options.linux_csd;
+        let framed_size = |(width, height): (u32, u32)| {
+            (
+                f64::from(width) + client_frame_inset * 2.,
+                f64::from(height) + client_frame_inset * 2.,
+            )
+        };
+        let initial_surface_size = framed_size(options.initial_inner_size);
         if matches!(
             options.background,
             WindowBackground::Blurred | WindowBackground::Mica | WindowBackground::MicaAlt
@@ -94,8 +162,8 @@ impl Shell {
                 WindowLevel::AlwaysOnTop => winit::window::WindowLevel::AlwaysOnTop,
             })
             .with_surface_size(winit::dpi::LogicalSize::new(
-                options.initial_inner_size.0,
-                options.initial_inner_size.1,
+                initial_surface_size.0,
+                initial_surface_size.1,
             ));
         #[cfg(target_os = "macos")]
         if options.titlebar_overlay && options.decorations {
@@ -120,9 +188,11 @@ impl Shell {
             attrs = attrs.with_fullscreen(Some(winit::monitor::Fullscreen::Borderless(None)));
         }
         if let Some((width, height)) = options.min_inner_size {
+            let (width, height) = framed_size((width, height));
             attrs = attrs.with_min_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
         if let Some((width, height)) = options.max_inner_size {
+            let (width, height) = framed_size((width, height));
             attrs = attrs.with_max_surface_size(winit::dpi::LogicalSize::new(width, height));
         }
         if options.centered
@@ -132,8 +202,8 @@ impl Shell {
             && let (Some(origin), Some(mode)) = (monitor.position(), monitor.current_video_mode())
         {
             let scale = monitor.scale_factor().max(f64::EPSILON);
-            let width = (f64::from(options.initial_inner_size.0) * scale).round() as i32;
-            let height = (f64::from(options.initial_inner_size.1) * scale).round() as i32;
+            let width = (initial_surface_size.0 * scale).round() as i32;
+            let height = (initial_surface_size.1 * scale).round() as i32;
             let size = mode.size();
             attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(
                 origin.x + (size.width as i32 - width).max(0) / 2,
@@ -188,6 +258,11 @@ impl Shell {
             frame_clock: None,
             window,
             corner_radius,
+            requested_corner_radius: options.corner_radius,
+            decorations: options.decorations,
+            linux_csd: options.linux_csd,
+            min_content_size: options.min_inner_size,
+            max_content_size: options.max_inner_size,
             deferred_show,
             #[cfg(target_os = "macos")]
             native_frame,
@@ -383,8 +458,7 @@ impl Shell {
     }
 
     /// CSS/layout viewport in logical pixels; the surface remains physical.
-    /// Current logical client-area size, clamped to at least 1×1.
-    pub fn logical_size(&self) -> (u32, u32) {
+    pub(crate) fn surface_logical_size(&self) -> (u32, u32) {
         let (width, height) = self.size();
         let scale = self.scale_factor();
         (
@@ -393,8 +467,30 @@ impl Shell {
         )
     }
 
+    /// Current logical application content size, excluding a Linux CSD frame.
+    pub fn logical_size(&self) -> (u32, u32) {
+        let (width, height) = self.surface_logical_size();
+        let inset = self.client_frame_inset();
+        (
+            (f64::from(width) - inset * 2.).ceil().max(1.0) as u32,
+            (f64::from(height) - inset * 2.).ceil().max(1.0) as u32,
+        )
+    }
+
     /// Apply client-area rounding after scene/HUD assembly, before screenshots.
     pub fn prepare_window_frame(&mut self, base_color: Color) -> Color {
+        let client_inset = self.client_frame_inset();
+        if client_inset > 0. {
+            let scale = self.scale_factor();
+            return crate::window_frame::decorate_linux_client_scene(
+                &mut self.scene,
+                self.surface_size,
+                client_inset,
+                f64::from(self.requested_corner_radius),
+                scale,
+                base_color,
+            );
+        }
         let radius = if self.is_maximized() {
             0
         } else {

@@ -6,10 +6,11 @@ impl App {
             .state
             .as_ref()
             .map_or(1.0, |shell| shell.scale_factor());
-        Point {
-            x: position.x / scale,
-            y: position.y / scale,
-        }
+        let [offset_x, offset_y] = self
+            .state
+            .as_ref()
+            .map_or([0., 0.], |shell| shell.content_offset());
+        event_translate::content_pointer_position(position, scale, [offset_x, offset_y])
     }
 
     pub(super) fn update_pointer_state(

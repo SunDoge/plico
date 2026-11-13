@@ -1,7 +1,11 @@
 //! Native client-area clipping, independent of platform window decorations.
 use kurbo::{Affine, Rect};
 use peniko::Color;
-use plico_renderer::{PaintCommand, Scene};
+use plico_renderer::{PaintCommand, Scene, style::CornerRadii};
+
+/// Logical room reserved around Linux application content for the client-side
+/// resize target and compositor-style shadow.
+pub(crate) const LINUX_CSD_INSET: f64 = 14.;
 
 /// Linux leaves the outer contour to the compositor/CSD. MyGO likewise does
 /// not round frameless Linux windows: cutting transparent holes in the client
@@ -48,6 +52,72 @@ pub fn clip_window_frame(scene: &mut Scene, size: [u32; 2], radius: f64, base: C
         );
     }
     scene.commands.push(PaintCommand::PopLayer);
+    Color::TRANSPARENT
+}
+
+/// Wrap a completed physical-pixel application scene in Plico's pure-Rust
+/// Linux client-side frame. The outer surface stays transparent; content,
+/// semantics and input use coordinates relative to the inset rectangle.
+pub(crate) fn decorate_linux_client_scene(
+    scene: &mut Scene,
+    surface_size: [u32; 2],
+    inset: f64,
+    radius: f64,
+    scale: f64,
+    base: Color,
+) -> Color {
+    let inset = (inset * scale).max(0.);
+    if inset <= 0. {
+        return base;
+    }
+    let width = f64::from(surface_size[0]);
+    let height = f64::from(surface_size[1]);
+    let content = Rect::new(inset, inset, width - inset, height - inset);
+    if content.width() <= 0. || content.height() <= 0. {
+        return Color::TRANSPARENT;
+    }
+    let radius = (radius * scale)
+        .max(0.)
+        .min(content.width().min(content.height()) * 0.5);
+    let contour = plico_renderer::corner_shape::corner_shape(
+        content,
+        CornerRadii::uniform(radius as f32),
+        1.,
+    );
+    let application = std::mem::replace(scene, Scene::new());
+    scene.commands.push(PaintCommand::BoxShadow {
+        transform: Affine::translate((0., scale)),
+        rect: content,
+        brush: Color::from_rgba8(28, 24, 38, 72),
+        radius,
+        std_dev: 6.5 * scale,
+        corner_smoothing: 1.,
+    });
+    scene.commands.push(PaintCommand::PushClip {
+        transform: Affine::IDENTITY,
+        clip: contour.clone(),
+    });
+    if base != Color::TRANSPARENT {
+        scene.commands.push(PaintCommand::Fill {
+            fill: peniko::Fill::NonZero,
+            transform: Affine::IDENTITY,
+            brush: base.into(),
+            brush_transform: None,
+            shape: contour.clone(),
+        });
+    }
+    scene.commands.push(PaintCommand::Fragment {
+        scene: application,
+        transform: Affine::translate((inset, inset)),
+    });
+    scene.commands.push(PaintCommand::PopLayer);
+    scene.commands.push(PaintCommand::Stroke {
+        style: kurbo::Stroke::new(scale.max(1.)),
+        transform: Affine::IDENTITY,
+        brush: Color::from_rgba8(90, 82, 104, 42).into(),
+        brush_transform: None,
+        shape: contour,
+    });
     Color::TRANSPARENT
 }
 #[cfg(test)]
@@ -110,6 +180,55 @@ mod tests {
             client_corner_radius(16, true),
             if cfg!(target_os = "linux") { 0 } else { 16 }
         );
+    }
+    #[test]
+    fn linux_csd_wraps_content_in_a_continuous_shadowed_frame() {
+        let mut scene = Scene::new();
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(20, 30, 40),
+            None,
+            &Rect::new(0., 0., 72., 52.),
+        );
+        let base = decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK);
+        assert_eq!(base, Color::TRANSPARENT);
+        assert!(matches!(
+            scene.commands.first(),
+            Some(PaintCommand::BoxShadow {
+                corner_smoothing: 1.,
+                ..
+            })
+        ));
+        assert!(scene.commands.iter().any(|command| matches!(
+            command,
+            PaintCommand::Fragment { transform, .. }
+                if *transform == Affine::translate((14., 14.))
+        )));
+        assert!(matches!(
+            scene.commands.last(),
+            Some(PaintCommand::Stroke { .. })
+        ));
+    }
+
+    #[test]
+    fn linux_csd_frame_renders_a_transparent_margin_and_opaque_content() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut scene = Scene::new();
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            Color::from_rgb8(30, 40, 50),
+            None,
+            &Rect::new(0., 0., 72., 52.),
+        );
+        let base = decorate_linux_client_scene(&mut scene, [100, 80], 14., 16., 1., Color::BLACK);
+        let path = folder.path().join("linux-csd.png");
+        crate::renderer::render_to_png(&scene, 100, 80, base, path.to_str().unwrap()).unwrap();
+        let image = image::open(path).unwrap().into_rgba8();
+        assert_eq!(image.get_pixel(0, 0)[3], 0);
+        assert_eq!(image.get_pixel(50, 40)[3], 255);
+        assert!(image.get_pixel(7, 40)[3] > 0);
     }
     #[test]
     fn rounded_window_has_transparent_corners_at_both_scales() {
