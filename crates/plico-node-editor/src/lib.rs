@@ -436,7 +436,7 @@ pub fn node_editor(
                 ).elevation(if is_selected { Elevation::CONTROL } else { Elevation::SUBTLE }) + |cx|
                 {
                     let header = button_base(cx, format!("Move {}", node.title)).width_percent(100.)
-                        .height(42. * state.zoom).padding_x(14)
+                        .height(42. * state.zoom).padding_x(14).radius(13.).clip(true)
                         .background(if is_selected { Color::Selection } else { Color::Control }).children(|cx| {
                         text(cx, &node.title).weight(650)
                             .font_size((14. * state.zoom).clamp(11., 18.) as u16).ellipsis(true).width(0.)
