@@ -1251,7 +1251,7 @@ impl Renderer {
                             });
                         }
                     }
-                    #[cfg(all(target_os = "linux", feature = "system-text"))]
+                    #[cfg(not(target_arch = "wasm32"))]
                     PaintCommand::GlyphRun { .. } => {
                         if let Some((image, bounds)) =
                             self.glyphs.raster(command).map_err(|error| match error {

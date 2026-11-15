@@ -165,6 +165,51 @@ impl SpringOptions {
             precision,
         }
     }
+
+    /// Sample a normalized spring moving from zero to one after `elapsed`.
+    ///
+    /// The result may overshoot one. It follows the same analytic trajectory
+    /// as [`UiContext::spring`](crate::UiContext::spring), but has no retained
+    /// channel, which makes it suitable for deterministic media frames.
+    pub fn progress(self, elapsed: Duration) -> f64 {
+        if elapsed.is_zero() {
+            return 0.;
+        }
+        let spring = self.physics();
+        let (displacement, _) = solve_spring(
+            -1.,
+            f64::from(self.velocity),
+            spring.mass,
+            spring.stiffness,
+            spring.damping,
+            elapsed.as_secs_f64(),
+        );
+        1. + displacement
+    }
+
+    /// Time for a normalized spring to satisfy the runtime's rest thresholds.
+    /// The search is deterministic to one millisecond and bounded to one minute.
+    pub fn settle_time(self) -> Duration {
+        let spring = self.physics();
+        let mut displacement = -1.;
+        let mut velocity = f64::from(self.velocity);
+        let step = Duration::from_millis(1);
+        let speed_precision = spring.precision * (spring.stiffness / spring.mass).sqrt();
+        for millis in 1..=60_000 {
+            (displacement, velocity) = solve_spring(
+                displacement,
+                velocity,
+                spring.mass,
+                spring.stiffness,
+                spring.damping,
+                step.as_secs_f64(),
+            );
+            if displacement.abs() <= spring.precision && velocity.abs() <= speed_precision {
+                return Duration::from_millis(millis);
+            }
+        }
+        Duration::from_secs(60)
+    }
 }
 
 impl Default for SpringOptions {
@@ -448,6 +493,20 @@ mod tests {
             "{direct} {partitioned}"
         );
         assert!(direct > 100., "bouncy preset should overshoot: {direct}");
+    }
+
+    #[test]
+    fn public_spring_sampling_matches_the_retained_channel() {
+        let options = SpringOptions::BOUNCY;
+        let elapsed = Duration::from_millis(360);
+        let mut channel = ValueChannel::new(0., Duration::ZERO);
+        channel.sample(Duration::ZERO, 1., Animation::BOUNCY, false);
+        let retained = channel.sample(elapsed, 1., Animation::BOUNCY, false).0;
+        let sampled = options.progress(elapsed);
+        assert!((f64::from(retained) - sampled).abs() < 1e-6);
+        let settled = options.settle_time();
+        assert!(settled > Duration::ZERO && settled <= Duration::from_secs(60));
+        assert!((options.progress(settled) - 1.).abs() <= 0.002);
     }
 
     #[test]

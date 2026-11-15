@@ -1,8 +1,38 @@
-//! Reference contract: MyGO 9b265767 ui/theme.go, widgets.go, textinput.go.
+//! Interaction contract: MyGO 9b265767 ui/theme.go, widgets.go, textinput.go.
+//! Default geometry follows Plico's CUI-derived design baseline.
 use plico::{Engine, Kind, Theme, prelude::*};
 
 #[test]
-fn light_and_dark_control_faces_match_mygo_reference() {
+fn default_metrics_form_one_concentric_four_point_system() {
+    let metrics = plico::Metrics::default();
+    assert_eq!(metrics.spacing, 4);
+    assert_eq!(metrics.control_small(), 30);
+    assert_eq!(metrics.control_medium(), 36);
+    assert_eq!(metrics.control_large(), 44);
+    assert_eq!(metrics.radius, 10);
+    assert_eq!(metrics.panel_radius(), 14);
+    assert_eq!(metrics.surface_radius(), 18);
+    assert_eq!(metrics.inset_radius(metrics.panel_radius(), 4), 10);
+    assert_eq!(
+        [
+            metrics.icon_small(),
+            metrics.icon_medium(),
+            metrics.icon_large()
+        ],
+        [14, 16, 18]
+    );
+    assert_eq!(metrics.control_icon(), 16);
+
+    let compact = plico::Metrics::compact();
+    assert_eq!(compact.spacing, 4);
+    assert_eq!(compact.control_medium(), 30);
+    assert_eq!(compact.panel_radius(), 12);
+    assert_eq!(compact.surface_radius(), 16);
+    assert_eq!(compact.control_icon(), 14);
+}
+
+#[test]
+fn light_and_dark_control_faces_keep_mygo_interaction_colors() {
     for (theme, text, accent, hover, pressed, danger) in [
         (
             Theme::light(),
@@ -27,7 +57,7 @@ fn light_and_dark_control_faces_match_mygo_reference() {
         assert_eq!(theme.control_pressed, pressed);
         assert_eq!(theme.danger, danger);
         assert_eq!(theme.metrics.spacing, 4);
-        assert_eq!(theme.metrics.radius, 6);
+        assert_eq!(theme.metrics.radius, 10);
     }
 }
 
@@ -51,7 +81,7 @@ fn ordinary_controls_use_reference_padding_without_shadows() {
     for style in &styles {
         assert_eq!(style.shadow, None);
         assert_eq!(style.ambient_shadow, None);
-        assert_eq!(style.radius, 6.);
+        assert_eq!(style.radius, 10.);
     }
     assert_eq!(styles[0].padding_x, Some(14.));
     assert_eq!(styles[0].padding_y, Some(6.));
@@ -60,7 +90,7 @@ fn ordinary_controls_use_reference_padding_without_shadows() {
     assert_eq!(styles[1].border_width, 0.);
     assert_eq!(styles[2].background, None);
     assert_eq!(styles[2].border_width, 0.);
-    assert_eq!(styles[3].padding_x, Some(10.));
+    assert_eq!(styles[3].padding_x, Some(12.));
     assert_eq!(styles[3].padding_y, Some(6.));
     assert_eq!(engine.node(children[3]).unwrap().kind, Kind::TextInput);
 }
@@ -119,7 +149,7 @@ fn bare_editor_does_not_repeat_its_composite_field_chrome() {
     assert_eq!(style.padding, 0.);
     assert_eq!(style.padding_x, None);
     assert_eq!(style.padding_y, None);
-    assert_eq!(style.min_height, Some(20.));
+    assert_eq!(style.min_height, Some(24.));
     assert_eq!(style.background, None);
     assert_eq!(style.border_width, 0.);
     assert!(!style.control_chrome);
@@ -151,7 +181,7 @@ fn calendar_uses_mygo_day_geometry_and_accent_selection_without_an_extra_card() 
     }
     let day = find(&engine, engine.root(), true, false).unwrap();
     assert_eq!(day.height, Some(28.));
-    assert_eq!(day.radius, 6.);
+    assert_eq!(day.radius, 10.);
     assert_eq!(day.foreground, Color::OnAccent);
     assert_eq!(day.border_width, 0.);
     assert_eq!(
@@ -185,8 +215,9 @@ fn badges_avatars_and_progress_use_the_mygo_reference_recipes() {
     assert_eq!(badge.background_alpha, 0.1);
     assert_eq!(badge.corner_smoothing, 1.);
     let avatar = engine.node(children[1]).unwrap();
-    assert_eq!(avatar.style.width, Some(31.5));
-    assert_eq!(avatar.style.height, Some(31.5));
+    let avatar_size = engine.theme().metrics.font_size as f32 * 2.25;
+    assert_eq!(avatar.style.width, Some(avatar_size));
+    assert_eq!(avatar.style.height, Some(avatar_size));
     assert_eq!(avatar.style.corner_smoothing, 1.);
     assert_eq!(avatar.style.background, Some(Color::Literal(0xbf6d58)));
     assert_eq!(

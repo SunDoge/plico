@@ -1,5 +1,5 @@
 //! Text inputs keep their fill and move hover/focus feedback to the border,
-//! following MyGO's `inputBorder`.
+//! following MyGO's states and Plico's CUI-derived edge hierarchy.
 use plico::Theme;
 use plico::prelude::*;
 use plico_runtime::{
@@ -41,7 +41,8 @@ fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
 fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     let theme = Theme::default();
     let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
-    assert_eq!(input_border(&ui), channels(theme.border));
+    let rest = theme.blend(Color::Border, Color::Foreground, 0.35);
+    assert_eq!(input_border(&ui), channels(theme.resolve(rest)));
     let fill = ui
         .placed_nodes()
         .iter()
@@ -69,11 +70,11 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         y: y as f64,
     })
     .unwrap();
-    let hovered = theme.blend(Color::Border, Color::Foreground, 0.25);
+    let hovered = theme.blend(Color::Border, Color::Foreground, 0.45);
     assert_eq!(
         input_border(&ui),
         channels(theme.resolve(hovered)),
-        "hover mixes the default border 25% toward text"
+        "hover firms the field border toward text"
     );
 
     ui.execute(Command::Focus {

@@ -4,6 +4,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [默认视觉规范](design.md) | CUI 启发的尺寸、圆角、表面、阴影与动效纪律，以及和 MyGO 行为规格的分工 |
 | [历史 C# 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md) | 已退役前端中可复用能力的 Rust 迁移记录 |
 | [MyGo 对标方向](mygo-benchmark.md) | 完整界面的验收标准与下一条应用切片 |
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
@@ -40,6 +41,7 @@
 | [Immediate diff CPU 测量](immediate-diff-cost.md) | 节点协调、属性比较与声明总成本的采样区分 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
 | [libmpv 视频实验](video.md) | 可选宿主播放器、软件帧 surface、暂停/跳转与 GPU 接入限制 |
+| [确定性 UI 视频渲染](render.md) | Frame/Sequence/插值/弹簧、复用 wgpu capture、PNG 序列与 FFmpeg sidecar 视频输出 |
 | [Skia / Vello 绘制对照](skia.md) | SkParagraph 普通文字、CPU / Vulkan Skia，以及相同 Parley glyph 的后端对照 |
 | [Pango/Cairo 文字对照](pango-text-comparison.md) | 排版指标、相同 Parley glyph 的绘制对照与文字清晰度排查 |
 | [文字渲染排查结论](text-rendering-investigation.md) | 精确基线、Chrome 对照、字体回退与覆盖率策略的证据及限制 |

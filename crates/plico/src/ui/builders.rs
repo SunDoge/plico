@@ -623,7 +623,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
             .children(name.as_deref().unwrap_or(&text), true, |cx| {
                 entity = Some(cx.parent);
                 if let Some(asset) = icon {
-                    let size = cx.inherited.font_size.saturating_add(2) as f32;
+                    let size = cx.theme().metrics.control_icon() as f32;
                     cx.svg(&asset)
                         .key(Key::Static("__button_icon"))
                         .size(size, size);
@@ -933,7 +933,7 @@ pub(super) fn style_input(style: &mut Style, theme: Theme) {
     let m = theme.metrics;
     style.min_height = Some(m.control_height as f32);
     style.padding = 0.;
-    style.padding_x = Some(m.spacing as f32 * 2.5);
+    style.padding_x = Some(m.space(3) as f32);
     style.padding_y = Some(m.spacing as f32 * 1.5);
     style.radius = m.radius as f32;
     style.border_width = 1.;

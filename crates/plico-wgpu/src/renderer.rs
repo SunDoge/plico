@@ -369,7 +369,7 @@ pub struct Renderer {
     images: crate::image::ImageCache,
     pub(crate) svgs: crate::svg::SvgCache,
     pub(crate) paths: crate::path::PathCache,
-    #[cfg(all(target_os = "linux", feature = "system-text"))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) glyphs: crate::glyphs::GlyphCache,
     pub(crate) masks: crate::mask::MaskCache,
     pub(crate) scene_prepare_depth: u8,

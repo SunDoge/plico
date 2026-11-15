@@ -1,0 +1,20 @@
+[package]
+name = "plico-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Deterministic Plico compositions rendered to images and video"
+
+[dependencies]
+ffmpeg-sidecar.workspace = true
+plico.workspace = true
+plico-desktop = { path = "../plico-desktop", default-features = false, features = ["wgpu"] }
+plico-runtime.workspace = true
+snafu.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[example]]
+name = "hello"

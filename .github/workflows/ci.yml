@@ -65,7 +65,7 @@ jobs:
       - name: Guard runtime source boundaries
         run: python3 scripts/check-runtime-boundary.py
       - name: Test the renderer-independent packages
-        run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
+        run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n -p plico-render --all-targets --all-features
       - name: Install desktop compile dependencies
         run: |
           packages=(

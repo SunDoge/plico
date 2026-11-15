@@ -74,6 +74,17 @@ Rust Style、renderer Paint 与低层阴影便利接口的默认 corner_smoothin
 显式 0 保留圆弧；正圆与完全圆角胶囊在 CPU 与玻璃 WGSL 均保持精确圆弧，不变成方圆形。
 默认／serde／显式覆盖、几何与 GPU 圆角和裁剪回归已覆盖。
 
+## 默认视觉规范
+
+默认 theme 已采用 4 point 网格、30/36/44 控件高度、10/14/18 控件／panel／surface
+连续圆角和 14/16/18 偶数图标尺寸；compact 保持同一网格而使用 30 point 控件。
+输入框静止与 hover 边界强于普通按钮 hairline，focus 才使用 accent。普通组件不默认投影；
+popover 和 dialog 使用各自圆角以及 contact + ambient 两层浮层阴影。按钮按压在宿主层执行
+0.97 paint-only 缩放，整行控件使用 0.98，不改变布局和命中。
+这些约束参考 CUI revision `6e6b35326f655405822fcf863fac0d3bb35bb787`，来源与后续
+动效收口清单见 [默认视觉规范](design.md)。尚未完成的 100/180/280/320/340/160 ms
+用途化动效不能视为已实现。
+
 ## MyGO 材质继续迁移
 
 新增 `LiquidGlass::regular()` / `clear()`、`GlassStyle` 与 Clarity。Regular 的明暗 tone
@@ -341,6 +352,16 @@ uses wgpu (WebGPU adapter detection with WebGL2 fallback), with Canvas2D
 ordinary text and a render-pass Gaussian blur on WebGL2. WebGL2 interaction
 tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU, rich text and
 full IME are not yet accepted. See [browser scope](web.md).
+
+`plico-render` now builds ordinary immediate views against an injected frame
+clock and keeps one wgpu capture session warm across a composition. The public
+frame surface includes shift/loop/sequence, piecewise interpolation, analytic
+spring sampling and sampled motion blur. PNG sequences and H.264 MP4 / VP9
+WebM are implemented; video frames use `ffmpeg-sidecar` without its automatic
+download feature. The verified 1280×720 example produced exactly 90 H.264
+frames at 30 fps. This path still performs GPU readback before the raw RGBA
+stdin pipe; native hardware-encoder textures, audio mixing and live preview
+are not implemented.
 
 The default Cargo features, automatic window/capture selection and new-app CLI
 template now use wgpu. Explicit Skia selection remains temporarily supported for

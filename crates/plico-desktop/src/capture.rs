@@ -79,6 +79,26 @@ impl CapturedFrame {
     pub fn into_rgba(self) -> Vec<u8> {
         self.rgba
     }
+
+    /// Construct a frame from renderer-native premultiplied RGBA8 pixels.
+    pub fn from_premultiplied_rgba(
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<Self, CaptureError> {
+        let expected = usize::try_from(width)
+            .ok()
+            .and_then(|width| usize::try_from(height).ok().map(|height| width * height))
+            .and_then(|pixels| pixels.checked_mul(4));
+        if width == 0 || height == 0 || expected != Some(rgba.len()) {
+            return Err(CaptureError::InvalidOptions);
+        }
+        Ok(Self {
+            width,
+            height,
+            rgba,
+        })
+    }
 }
 
 #[derive(Debug, Snafu)]
@@ -309,6 +329,66 @@ pub struct Capture<'a> {
     scale: f64,
     settle_passes: usize,
     backend: crate::RenderBackend,
+}
+
+/// Reusable renderer and text state for a fixed-size sequence of captures.
+///
+/// Unlike [`Capture::render`], a session keeps GPU pipelines, glyph caches and
+/// the retained offscreen target warm between frames. Video and image-sequence
+/// exporters use this path so frame N does not initialize a renderer again.
+pub struct CaptureSession {
+    renderer: CaptureRenderer,
+    text: TextContext,
+    width: u32,
+    height: u32,
+    scale: f64,
+    settle_passes: usize,
+}
+
+impl CaptureSession {
+    pub fn new(
+        backend: crate::RenderBackend,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Self, CaptureError> {
+        let (physical_width, physical_height) = dimensions(width, height, scale)?;
+        let mut renderer = CaptureRenderer::new(backend, physical_width, physical_height)?;
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale)?;
+        Ok(Self {
+            renderer,
+            text,
+            width,
+            height,
+            scale,
+            settle_passes: 0,
+        })
+    }
+
+    pub fn settle_passes(mut self, passes: usize) -> Self {
+        self.settle_passes = passes;
+        self
+    }
+
+    pub fn renderer_name(&self) -> Option<&str> {
+        self.renderer.adapter_name()
+    }
+
+    pub fn render(&mut self, source: &mut dyn FrameSource) -> Result<CapturedFrame, CaptureError> {
+        self.render_profiled(source).map(|(frame, _)| frame)
+    }
+
+    pub fn render_profiled(
+        &mut self,
+        source: &mut dyn FrameSource,
+    ) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
+        capture(source)
+            .size(self.width, self.height)
+            .scale(self.scale)
+            .settle_passes(self.settle_passes)
+            .render_profiled_with_borrowed(&mut self.renderer, &mut self.text)
+    }
 }
 impl Capture<'_> {
     pub fn size(mut self, width: u32, height: u32) -> Self {

@@ -32,6 +32,7 @@ image = { version = "0.25", default-features = false }
 naga = { version = "30", features = ["wgsl-in"] }
 notify-rust = "=4.18.2"
 interprocess = "2.4.3"
+ffmpeg-sidecar = { version = "2.7.0", default-features = false }
 open = "5.4.4"
 parley = { version = "0.12", features = ["bytemuck", "complex-scripts"] }
 rfd = "0.17.2"

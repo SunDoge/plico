@@ -313,6 +313,31 @@ fn glass_dialog_background_stays_outside_its_content_scroller_and_has_opaque_fal
 }
 
 #[test]
+fn ordinary_dialog_uses_surface_radius_and_overlay_only_elevation() {
+    let mut engine = Engine::default();
+    let mut state = ModalState::default();
+    state.open();
+    engine
+        .frame_declarations(|cx| {
+            modal(cx, &mut state).title("Plain dialog").children(|cx| {
+                text(cx, "Dialog content");
+            });
+        })
+        .unwrap();
+    let dialog = descendants(&engine, engine.root())
+        .into_iter()
+        .map(|id| engine.node(id).unwrap())
+        .find(|node| node.kind == Kind::Dialog)
+        .unwrap();
+    assert_eq!(
+        dialog.style.radius,
+        engine.theme().metrics.surface_radius() as f32
+    );
+    assert_eq!(dialog.style.shadow, Elevation::OVERLAY.contact);
+    assert_eq!(dialog.style.ambient_shadow, Elevation::OVERLAY.ambient);
+}
+
+#[test]
 fn mygo_glass_presets_keep_theme_and_clarity_in_paint_parameters() {
     assert_eq!(LiquidGlass::default().style, GlassStyle::Custom);
     assert_eq!(LiquidGlass::regular().style, GlassStyle::Regular);

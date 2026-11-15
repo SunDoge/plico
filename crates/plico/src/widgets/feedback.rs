@@ -35,16 +35,53 @@ pub fn badge_tone(cx: &mut UiContext, label: &str, tone: Tone) {
         .background(Color::Control)
         .color(tone.color());
 }
-/// A native button chip; returns true when its caller-owned selection changes.
+/// A compact selection pill following CUI's 30-point chip geometry and
+/// MyGO's restrained button faces. Selected chips use a subtle fill, accent
+/// text and a check instead of turning into miniature primary actions.
+///
+/// CUI reference: `src/cui_controls.c` at
+/// 6e6b35326f655405822fcf863fac0d3bb35bb787 (MIT; see `licenses/CUI-MIT.txt`).
 #[component]
 pub fn chip(cx: &mut UiContext, label: &str, selected: &mut bool) -> bool {
-    let control = button(cx).text(label).radius(18.).height(32.);
-    let control = if *selected {
-        control.primary()
-    } else {
-        control.ghost().border(1., Color::Border)
-    };
-    if control.clicked() {
+    let m = cx.theme().metrics;
+    let height = m.control_small() as f32;
+    let on = *selected;
+    let response = (button_base(cx, label)
+        .selected(on)
+        .height(height)
+        .min_width(0.)
+        .padding_x(m.space(3))
+        .padding_y(0)
+        .gap(6)
+        .radius(height * 0.5)
+        // A pill is an exact pair of semicircles, not a smoothed rectangle.
+        .corner_smoothing(0.)
+        .background(if on { Color::Selection } else { Color::Panel })
+        .hover_background(if on {
+            Color::Selection
+        } else {
+            Color::ControlHover
+        })
+        .pressed_background(if on {
+            Color::Selection
+        } else {
+            Color::ControlPressed
+        })
+        .border(1., if on { Color::Focus } else { Color::Border })
+        .color(if on { Color::Accent } else { Color::Foreground })
+        + |cx| {
+            if on {
+                svg(cx, &crate::icons::CHECK)
+                    .size(m.icon_small() as f32, m.icon_small() as f32)
+                    .color(Color::Accent);
+            }
+            text(cx, label)
+                .font_size(m.label_size)
+                .weight(if on { 600 } else { 500 })
+                .color(if on { Color::Accent } else { Color::Foreground });
+        })
+    .response;
+    if response.clicked() {
         *selected = !*selected;
         true
     } else {

@@ -270,7 +270,7 @@ impl Renderer {
             images: Default::default(),
             svgs: Default::default(),
             paths: Default::default(),
-            #[cfg(all(target_os = "linux", feature = "system-text"))]
+            #[cfg(not(target_arch = "wasm32"))]
             glyphs: Default::default(),
             masks: Default::default(),
             scene_prepare_depth: 0,
