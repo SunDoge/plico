@@ -69,7 +69,7 @@ impl<'e> UiContext<'e> {
             .get(self.parent, self.scope, site, self.engine.epoch, init)
     }
 
-    fn channel_state<T: 'static>(
+    pub(crate) fn channel_state<T: 'static>(
         &mut self,
         namespace: u8,
         name: &'static str,
@@ -491,7 +491,20 @@ impl<'e> UiContext<'e> {
     /// for app declarations such as [`Self::loop_progress`] and
     /// [`Self::animate`] that must sample the injected clock again.
     pub fn request_animation_frame(&mut self) {
+        self.engine.animation_requests = self.engine.animation_requests.wrapping_add(1);
         self.engine.changes.insert(Changes::ANIMATE);
+    }
+    /// Coordinate several scalar tweens on one retained playhead.
+    ///
+    /// The current element, component scope and `key` own the timeline. Ask
+    /// for it again on every declaration frame, then feed its sampled values
+    /// into layout, presentation or paint properties.
+    pub fn timeline<'u>(
+        &'u mut self,
+        key: &'static str,
+        options: crate::TimelineOptions,
+    ) -> crate::Timeline<'u, 'e> {
+        crate::Timeline::new(self, key, options)
     }
     /// The progress of an animation that starts over every `period`, from
     /// 0 toward 1, sampled at the injected frame clock (MyGO's Loop).
@@ -676,6 +689,47 @@ impl<'e> UiContext<'e> {
     /// Request another declaration for a non-event update performed during show.
     pub fn request_rebuild(&mut self) {
         self.engine.changes.insert(Changes::VIEW);
+    }
+    /// Skip an unchanged declaration subtree while retaining its committed nodes.
+    ///
+    /// Dependencies should be small owned values such as revisions or tuples of
+    /// scalar properties. Pending input, host context changes, settle passes and
+    /// declaration-driven animation automatically rebuild the subtree even when
+    /// `dependency` is unchanged.
+    #[track_caller]
+    pub fn memo<D: PartialEq + 'static>(
+        &mut self,
+        dependency: D,
+        build: impl FnOnce(&mut UiContext<'_>),
+    ) {
+        let location = std::panic::Location::caller();
+        let mut site = crate::macro_support::StableHasher::new();
+        site.write(location.file().as_bytes());
+        site.write_u64(location.line() as u64);
+        site.write_u64(location.column() as u64);
+        self.memo_at(site.finish(), dependency, build);
+    }
+    #[doc(hidden)]
+    pub fn memo_at<D: PartialEq + 'static>(
+        &mut self,
+        site: u64,
+        dependency: D,
+        build: impl FnOnce(&mut UiContext<'_>),
+    ) {
+        let scope =
+            crate::macro_support::site_id("plico.scope", 0) ^ self.scope.rotate_left(17) ^ site;
+        let key = crate::memo::MemoKey {
+            parent: self.parent,
+            scope,
+        };
+        if self.engine.try_reuse_memo(key, &dependency) {
+            return;
+        }
+        let mark = self.engine.memo_mark(self.parent);
+        self.scope(site, build);
+        if self.engine.error.is_none() {
+            self.engine.store_memo(key, dependency, mark);
+        }
     }
     #[doc(hidden)]
     /// Open a child declaration scope: node identity inside `build` is

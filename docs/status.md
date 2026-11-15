@@ -41,6 +41,13 @@ macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、
 旧的仅含尺寸的 JSON 仍然兼容。`run_with_persistence` 默认在应用数据目录恢复
 `window-state.json`。
 
+无系统标题栏窗口已按平台拆分外框：macOS 使用 Core Animation continuous corner 与
+AppKit shadow；Windows 保留 Win32 sizing/system-menu style，使用 DWM shadow 和 Windows 11
+系统圆角；Linux 可选纯 Rust/wgpu CSD margin、阴影和连续轮廓。`has_shadow` 是显式窗口
+契约，透明 overlay 默认关闭；运行时 decorations 切换同步 Windows/Linux frame。
+Linux 有实际 wgpu 像素回归，Windows GNU/MSVC 已交叉编译，macOS/Windows 真机外观与
+Windows Snap UI 尚待物理平台验收。详见 [窗口轮廓](window-corners.md)。
+
 剪贴板在原有文本 effect 之外增加 `ClipboardReadContent` / `ClipboardWriteContent`：
 读取时返回可用的文本、HTML、RGBA 图像与文件列表；写入按文件列表、图像、HTML（带纯文本
 回退）、文本的顺序选择平台能承载的最丰富表示。
@@ -163,7 +170,8 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 
 ## 当前代价和限制
 
-一次业务声明仍会执行视图函数、匹配节点并扫描提交状态；增量后端不等于整条链路 O(Δ)。
+未显式使用 `UiContext::memo` 的业务声明仍会执行视图函数、匹配节点并扫描提交状态；memo 命中可跳过
+局部声明闭包，但当前仍递归保活该 retained 子树并扫描提交状态，因此增量后端不等于整条链路 O(Δ)。
 依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
 布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。不计划增加 Region 独立布局求解；继续扩大缓存前应先补充全量差分和真实窗口验收。
 WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。

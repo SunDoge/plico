@@ -7,8 +7,8 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Hash, PartialEq, Eq)]
-struct SlotKey {
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub(crate) struct LocalKey {
     parent: Entity,
     scope: u64,
     namespace: u8,
@@ -23,12 +23,13 @@ struct Slot {
 }
 #[derive(Default)]
 pub(crate) struct LocalStore {
-    slots: HashMap<SlotKey, Slot>,
+    slots: HashMap<LocalKey, Slot>,
     changed: Rc<Cell<bool>>,
+    accessed: RefCell<Vec<LocalKey>>,
 }
 impl LocalStore {
-    fn channel_key(parent: Entity, scope: u64, namespace: u8, name: &'static str) -> SlotKey {
-        SlotKey {
+    fn channel_key(parent: Entity, scope: u64, namespace: u8, name: &'static str) -> LocalKey {
+        LocalKey {
             parent,
             scope,
             namespace,
@@ -46,7 +47,7 @@ impl LocalStore {
         epoch: u64,
         init: impl FnOnce() -> T,
     ) -> LocalState<T> {
-        let key = SlotKey {
+        let key = LocalKey {
             parent,
             scope,
             namespace: 0,
@@ -77,6 +78,7 @@ impl LocalStore {
         name: &'static str,
     ) -> Option<LocalState<T>> {
         let key = Self::channel_key(parent, scope, namespace, name);
+        self.accessed.borrow_mut().push(key.clone());
         let value = self
             .slots
             .get(&key)?
@@ -89,10 +91,11 @@ impl LocalStore {
     }
     fn get_slot<T: 'static>(
         &mut self,
-        key: SlotKey,
+        key: LocalKey,
         epoch: u64,
         init: impl FnOnce() -> T,
     ) -> LocalState<T> {
+        self.accessed.borrow_mut().push(key.clone());
         let slot = self.slots.entry(key).or_insert_with(|| Slot {
             value: Box::new(Rc::new(RefCell::new(init()))),
             epoch,
@@ -109,6 +112,23 @@ impl LocalStore {
     }
     pub fn take_changed(&self) -> bool {
         self.changed.replace(false)
+    }
+    pub fn access_mark(&self) -> usize {
+        self.accessed.borrow().len()
+    }
+    pub fn accesses_since(&self, mark: usize) -> Vec<LocalKey> {
+        self.accessed.borrow()[mark..].to_vec()
+    }
+    pub fn touch(&mut self, keys: &[LocalKey], epoch: u64) {
+        for key in keys {
+            if let Some(slot) = self.slots.get_mut(key) {
+                slot.epoch = epoch;
+                self.accessed.borrow_mut().push(key.clone());
+            }
+        }
+    }
+    pub fn clear_accesses(&mut self) {
+        self.accessed.get_mut().clear();
     }
     pub fn retain(&mut self, mut keep: impl FnMut(Entity, u64) -> bool) {
         self.slots.retain(|key, slot| keep(key.parent, slot.epoch));

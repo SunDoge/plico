@@ -13,6 +13,7 @@ pub(crate) struct NativeWindowFrame {
 #[derive(Clone, Copy)]
 struct AppliedFrame {
     radius: u32,
+    has_shadow: bool,
     size: [u32; 2],
     // Identity only: these addresses are never dereferenced or retained here.
     window: usize,
@@ -21,7 +22,13 @@ struct AppliedFrame {
 impl NativeWindowFrame {
     /// Radius is in AppKit points, never framebuffer pixels. The native content
     /// layer masks the Metal sublayer too; do not clip the GPU scene a second time.
-    pub fn apply(&mut self, window: &dyn Window, radius: u32, size: [u32; 2]) -> bool {
+    pub fn apply(
+        &mut self,
+        window: &dyn Window,
+        radius: u32,
+        has_shadow: bool,
+        size: [u32; 2],
+    ) -> bool {
         let Ok(handle) = window.window_handle() else {
             return false;
         };
@@ -45,6 +52,7 @@ impl NativeWindowFrame {
         };
         let current = AppliedFrame {
             radius,
+            has_shadow,
             size,
             window: std::ptr::from_ref(&*native) as usize,
             layer: std::ptr::from_ref(&*layer) as usize,
@@ -52,7 +60,10 @@ impl NativeWindowFrame {
         // MyGO configures the native mask as window style, not per-size paint.
         // Reapply after content-layer/window replacement even at identical size.
         let style_changed = self.applied.is_none_or(|old| {
-            old.radius != radius || old.window != current.window || old.layer != current.layer
+            old.radius != radius
+                || old.has_shadow != has_shadow
+                || old.window != current.window
+                || old.layer != current.layer
         }) || layer.cornerRadius() != f64::from(radius)
             || !layer.masksToBounds();
         let size_changed = self.applied.is_none_or(|old| old.size != size);
@@ -64,7 +75,7 @@ impl NativeWindowFrame {
             // the NSWindow itself must remain clear.
             native.setOpaque(false);
             native.setBackgroundColor(Some(&NSColor::clearColor()));
-            native.setHasShadow(true);
+            native.setHasShadow(has_shadow);
             CATransaction::begin();
             CATransaction::setDisableActions(true);
             layer.setCornerRadius(f64::from(radius));

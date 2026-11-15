@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use winit::dpi::{LogicalPosition, LogicalSize};
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::{ButtonSource, DeviceId, MouseButton, TabletToolData, TouchPhase};
 use winit::event::{PointerKind as WinitPointerKind, PointerSource};
 use winit::keyboard::{Key, KeyLocation as WinitKeyLocation, ModifiersState, PhysicalKey};
@@ -61,6 +61,17 @@ pub(super) fn window_capabilities(handle: Option<RawWindowHandle>) -> WindowCapa
 // logical pixels so the target remains usable at every display scale; the
 // outer few pixels are otherwise surprisingly difficult to hit on touchpads.
 pub(super) const CUSTOM_DECORATION_RESIZE_BORDER: f64 = 12.0;
+
+pub(super) fn content_pointer_position(
+    position: PhysicalPosition<f64>,
+    scale: f64,
+    offset: [f64; 2],
+) -> Point {
+    Point {
+        x: position.x / scale - offset[0],
+        y: position.y / scale - offset[1],
+    }
+}
 
 pub(super) fn resize_direction_at(
     position: Point,

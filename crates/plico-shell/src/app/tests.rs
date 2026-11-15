@@ -1,7 +1,7 @@
 use super::event_translate::{
-    FrameWake, allowed_external_url, frame_wake, namespaced_pointer_id, physical_key_name,
-    pointer_source_properties, printable_key_text, resize_direction_at, scheduled_frame_wake,
-    unconsumed_key_text, update_present_retry, window_capabilities,
+    FrameWake, allowed_external_url, content_pointer_position, frame_wake, namespaced_pointer_id,
+    physical_key_name, pointer_source_properties, printable_key_text, resize_direction_at,
+    scheduled_frame_wake, unconsumed_key_text, update_present_retry, window_capabilities,
 };
 use super::*;
 use peniko::Color;
@@ -82,6 +82,19 @@ fn custom_decoration_edges_map_to_native_resize_directions() {
     assert_eq!(direction(13.0, 300.0), None);
     assert_eq!(direction(450.0, 300.0), None);
     assert_eq!(direction(-1.0, 300.0), None);
+}
+
+#[test]
+fn linux_csd_pointer_coordinates_are_relative_to_content() {
+    let physical = PhysicalPosition::new(40., 60.);
+    assert_eq!(
+        content_pointer_position(physical, 2., [14., 14.]),
+        Point { x: 6., y: 16. }
+    );
+    assert_eq!(
+        content_pointer_position(physical, 2., [0., 0.]),
+        Point { x: 20., y: 30. }
+    );
 }
 
 #[test]
@@ -280,6 +293,20 @@ fn targeted_window_commands_do_not_affect_other_windows() {
         )
         .is_none()
     );
+}
+
+#[test]
+fn decoration_commands_update_the_window_contract_before_surface_creation() {
+    let source = Box::new(EventRecordingSource(Arc::new(Mutex::new(Vec::new()))));
+    let mut app = App::with_options(
+        source,
+        WindowOptions::new().decorations(true).corner_radius(16),
+    );
+
+    apply_window_command(&mut app, WindowCommand::SetDecorations(false));
+
+    assert!(!app.window_options.decorations);
+    assert_eq!(app.window_options.corner_radius, 16);
 }
 
 #[test]

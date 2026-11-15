@@ -68,6 +68,13 @@ pub struct Engine {
     pub(crate) changes: Changes,
     pub(crate) time: crate::FrameTime,
     pub(crate) format_buffer: String,
+    pub(crate) memos: crate::memo::MemoStore,
+    /// Host-owned inputs and environment observed by declarations.
+    pub(crate) declaration_context_revision: std::cell::Cell<u64>,
+    /// A settle pass requested by the preceding declaration must not skip stateful scopes.
+    pub(crate) rebuild_memos: bool,
+    pub(crate) memo_deadline_due: bool,
+    pub(crate) animation_requests: u64,
 }
 impl Default for Engine {
     fn default() -> Self {
@@ -131,10 +138,19 @@ impl Default for Engine {
             changes: Changes::empty(),
             time: Default::default(),
             format_buffer: String::new(),
+            memos: Default::default(),
+            declaration_context_revision: std::cell::Cell::new(0),
+            rebuild_memos: false,
+            memo_deadline_due: false,
+            animation_requests: 0,
         }
     }
 }
 impl Engine {
+    fn bump_declaration_context(&self) {
+        self.declaration_context_revision
+            .set(self.declaration_context_revision.get().wrapping_add(1));
+    }
     /// Serialize only when a host requests a checkpoint, never during normal frames.
     pub fn persisted_snapshot(&self) -> Result<crate::StateStorageSnapshot, crate::StorageError> {
         self.storage.snapshot()
@@ -240,6 +256,9 @@ impl Engine {
     /// Synchronize the backend-owned focus into the declaration engine.
     #[doc(hidden)]
     pub fn set_focused(&mut self, focused: Option<Entity>) {
+        if self.focused != focused {
+            self.bump_declaration_context();
+        }
         self.focused = focused;
     }
     /// Consume a one-shot native focus request. Invalid/unmounted targets are ignored.
@@ -255,16 +274,23 @@ impl Engine {
     /// Host feedback in logical pixels: vertical offset and viewport height.
     pub fn set_scroll_viewport(&mut self, entity: Entity, offset: f32, height: f32) {
         if self.nodes.get(entity).is_some() && offset.is_finite() && height.is_finite() {
-            self.scroll_viewports
-                .insert(entity, [offset.max(0.), height.max(0.)]);
+            let viewport = [offset.max(0.), height.max(0.)];
+            if self.scroll_viewports.get(&entity) != Some(&viewport) {
+                self.bump_declaration_context();
+                self.scroll_viewports.insert(entity, viewport);
+            }
         }
     }
     /// Portable host feedback for modules that reconstruct their engine per call.
     pub fn set_scroll_viewport_paths(&mut self, paths: Vec<(Vec<crate::PathKey>, [f32; 2])>) {
-        self.scroll_paths = paths
+        let paths: Vec<_> = paths
             .into_iter()
             .filter(|(_, v)| v.iter().all(|n| n.is_finite() && *n >= 0.))
             .collect();
+        if self.scroll_paths != paths {
+            self.bump_declaration_context();
+            self.scroll_paths = paths;
+        }
     }
     /// Backend query: did this container's declaration read its scroll geometry?
     #[doc(hidden)]
@@ -299,6 +325,7 @@ impl Engine {
         if self.layout_sizes.get(&entity) == Some(&size) {
             return false;
         }
+        self.bump_declaration_context();
         self.layout_sizes.insert(entity, size);
         true
     }
@@ -481,6 +508,139 @@ impl Engine {
             self.retain_exiting_children(child);
         }
     }
+    pub(crate) fn try_reuse_memo<D: PartialEq + 'static>(
+        &mut self,
+        key: crate::memo::MemoKey,
+        dependency: &D,
+    ) -> bool {
+        if self.rebuild_memos
+            || self.theme_dirty
+            || self.viewport_dirty
+            || self.has_pending_declaration_events()
+            || self.memo_deadline_due
+        {
+            return false;
+        }
+        let context_revision = self.declaration_context_revision.get();
+        let Some(hit) = self.memos.hit(key, dependency, context_revision) else {
+            return false;
+        };
+        if hit
+            .wake_at
+            .is_some_and(|deadline| deadline <= self.time.now)
+            || hit.roots.iter().any(|(parent, entity)| {
+                self.nodes.get(*parent).is_none() || self.nodes.get(*entity).is_none()
+            })
+        {
+            return false;
+        }
+        self.memos.touch(key, self.epoch);
+        self.locals.touch(&hit.locals, self.epoch);
+        self.stats.memo_hits += 1;
+        self.retain_memo_roots(hit.roots);
+        true
+    }
+    pub(crate) fn memo_mark(
+        &self,
+        parent: Entity,
+    ) -> (usize, usize, u64, Option<std::time::Duration>) {
+        (
+            self.declarations.len(),
+            self.locals.access_mark(),
+            self.animation_requests,
+            self.nodes.get(parent).and_then(|node| node.wake_at),
+        )
+    }
+    pub(crate) fn store_memo<D: 'static>(
+        &mut self,
+        key: crate::memo::MemoKey,
+        dependency: D,
+        mark: (usize, usize, u64, Option<std::time::Duration>),
+    ) {
+        let (declaration_mark, local_mark, animation_mark, parent_wake_before) = mark;
+        let declared: HashSet<_> = self.declarations[declaration_mark..]
+            .iter()
+            .map(|(_, entity)| *entity)
+            .collect();
+        let roots: Vec<(Entity, Entity)> = self.declarations[declaration_mark..]
+            .iter()
+            .copied()
+            .filter(|(parent, _)| !declared.contains(parent))
+            .collect();
+        let locals = self.locals.accesses_since(local_mark);
+        let parent_wake_after = self.nodes.get(key.parent).and_then(|node| node.wake_at);
+        let parent_wake = (parent_wake_after != parent_wake_before)
+            .then_some(parent_wake_after)
+            .flatten();
+        let wake_at = roots
+            .iter()
+            .filter_map(|(_, entity)| self.subtree_deadline(*entity))
+            .chain(parent_wake)
+            .min();
+        self.memos.insert(
+            key,
+            crate::memo::MemoSlot {
+                dependency: Box::new(dependency),
+                roots,
+                epoch: self.epoch,
+                context_revision: self.declaration_context_revision.get(),
+                animated: self.animation_requests != animation_mark,
+                locals,
+                wake_at,
+            },
+        );
+    }
+    fn has_pending_declaration_events(&self) -> bool {
+        !self.clicks.is_empty()
+            || !self.secondary_clicks.is_empty()
+            || !self.click_paths.is_empty()
+            || !self.values.is_empty()
+            || !self.high_values.is_empty()
+            || !self.value_paths.is_empty()
+    }
+    fn subtree_deadline(&self, entity: Entity) -> Option<std::time::Duration> {
+        let node = self.nodes.get(entity).unwrap();
+        node.children
+            .iter()
+            .filter_map(|child| self.subtree_deadline(*child))
+            .chain(node.wake_at)
+            .min()
+    }
+    fn retain_memo_roots(&mut self, roots: Vec<(Entity, Entity)>) {
+        let mut stack: Vec<_> = roots.into_iter().rev().collect();
+        while let Some((parent, entity)) = stack.pop() {
+            let duplicate = self.nodes.get(entity).unwrap().touched == self.epoch;
+            if duplicate {
+                self.error.get_or_insert(FrameError::DuplicateKey {
+                    parent,
+                    key: self.nodes.get(entity).unwrap().identity.key,
+                });
+                continue;
+            }
+            let expected = self.nodes.get(parent).unwrap().declared_children;
+            let ordered = self.nodes.get(parent).unwrap().children.get(expected) == Some(&entity);
+            let parent_node = self.nodes.get_mut(parent).unwrap();
+            parent_node.order_dirty |= !ordered;
+            parent_node.declared_children += 1;
+            self.declarations.push((parent, entity));
+
+            stack.extend(
+                self.nodes
+                    .get(entity)
+                    .unwrap()
+                    .children
+                    .iter()
+                    .rev()
+                    .map(|child| (entity, *child)),
+            );
+            let node = self.nodes.get_mut(entity).unwrap();
+            node.touched = self.epoch;
+            node.declared_children = 0;
+            node.order_dirty = false;
+            node.retained_exit = true;
+            self.stats.memo_nodes += 1;
+        }
+    }
     pub fn dirty_nodes(&self) -> &[Entity] {
         &self.dirty_nodes
     }
@@ -505,6 +665,7 @@ impl Engine {
                     )
                     .min()
             })
+            .chain(self.memos.wake_deadline())
             .min()
     }
     pub fn changes(&self) -> Changes {
@@ -637,11 +798,17 @@ impl Engine {
     }
     /// Host input snapshot. Hover is persistent state, not a consumed event.
     pub fn set_hovered(&mut self, entity: Option<Entity>) {
+        if self.hovered != entity || self.hovered_path.is_some() {
+            self.bump_declaration_context();
+        }
         self.hovered = entity;
         self.hovered_path = None;
     }
     /// Host primary-button snapshot: the entity the press started on.
     pub fn set_pressed(&mut self, entity: Option<Entity>) {
+        if self.pressed != entity {
+            self.bump_declaration_context();
+        }
         self.pressed = entity;
     }
     /// Whether the primary pointer press started on `entity`.
@@ -650,6 +817,9 @@ impl Engine {
     }
     /// Host pointer snapshot in window logical pixels; None clears it.
     pub fn set_pointer_position(&mut self, position: Option<(f64, f64)>) {
+        if self.pointer_position != position {
+            self.bump_declaration_context();
+        }
         self.pointer_position = position;
     }
     /// Current host pointer position in window logical pixels, when inside.
@@ -663,6 +833,9 @@ impl Engine {
     }
     /// Logical hover identity across module/host arenas. None clears the snapshot.
     pub fn set_hovered_path(&mut self, path: Option<Vec<crate::PathKey>>) {
+        if self.hovered.is_some() || self.hovered_path != path {
+            self.bump_declaration_context();
+        }
         self.hovered = None;
         self.hovered_path = path;
     }
@@ -715,6 +888,10 @@ impl Engine {
                 false
             }
         });
+        if changed {
+            self.declaration_context_revision
+                .set(self.declaration_context_revision.get().wrapping_add(1));
+        }
         changed
     }
     /// Last host-projected pointer position relative to an entity's layout
@@ -744,6 +921,10 @@ impl Engine {
                 *position = next;
                 true
             });
+        if changed {
+            self.declaration_context_revision
+                .set(self.declaration_context_revision.get().wrapping_add(1));
+        }
         changed
     }
     /// Queue a secondary-button activation. It never triggers primary activation.
@@ -1114,6 +1295,11 @@ impl Engine {
         view: impl FnOnce(&mut UiContext<'_>),
         measure: bool,
     ) -> Result<FrameStats, FrameError> {
+        self.rebuild_memos = self.changes.contains(Changes::VIEW);
+        self.memo_deadline_due = self
+            .memos
+            .wake_deadline()
+            .is_some_and(|deadline| deadline <= self.time.now);
         self.epoch = self
             .epoch
             .checked_add(1)
@@ -1154,6 +1340,7 @@ impl Engine {
         root.declared_children = 0;
         root.order_dirty = false;
         self.declarations.clear();
+        self.locals.clear_accesses();
         let parent = frame_root;
         view(&mut UiContext {
             engine: self,
@@ -1201,6 +1388,16 @@ impl Engine {
                 return true;
             }
             false
+        });
+        let nodes = &self.nodes;
+        let epoch = self.epoch;
+        self.memos.retain(|key, slot| {
+            nodes.get(key.parent).is_some()
+                && (slot.epoch == epoch
+                    || (!slot.roots.is_empty()
+                        && slot.roots.iter().all(|(parent, entity)| {
+                            nodes.get(*parent).is_some() && nodes.get(*entity).is_some()
+                        })))
         });
         self.removed_since_sync.extend(self.removed.iter().copied());
         // Keep the old hierarchy intact until declaration succeeds. A single

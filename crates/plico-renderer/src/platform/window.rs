@@ -111,14 +111,23 @@ pub struct WindowOptions {
     pub resizable: bool,
     /// Whether the OS draws its standard title bar and border.
     pub decorations: bool,
+    /// Ask the native window system to draw an outer window shadow.
+    /// Transparent overlays can disable this without changing their content.
+    #[serde(default = "default_window_shadow")]
+    pub has_shadow: bool,
+    /// Let the pure-Rust Linux host supply a shadow, continuous contour and
+    /// resize margin when native decorations are disabled. Ignored elsewhere.
+    #[serde(default)]
+    pub linux_csd: bool,
     /// Extend app content into the transparent macOS titlebar while retaining
     /// native traffic lights. Ignored on other platforms or without decorations.
     #[serde(default)]
     pub titlebar_overlay: bool,
     /// Client-area corner radius in logical pixels. macOS uses native continuous
-    /// content-layer corners and a system shadow. Linux decorated windows leave
-    /// their contour to the window system and ignore this radius. Other paths
-    /// use a visual GPU clip, which requires compositor alpha.
+    /// content-layer corners. Windows 11 maps any positive value to its system
+    /// rounded-corner preference. Linux uses this radius when `linux_csd` is
+    /// enabled for an undecorated window; decorated windows leave their contour
+    /// to the window system. Other paths use a visual GPU clip.
     #[serde(default)]
     pub corner_radius: u32,
     /// Whether to place the initial window in the center of the primary monitor.
@@ -139,6 +148,10 @@ fn default_activate_on_show() -> bool {
     true
 }
 
+fn default_window_shadow() -> bool {
+    true
+}
+
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
@@ -153,6 +166,8 @@ impl Default for WindowOptions {
             resize_edges: WindowResizeEdges::all(),
             resizable: true,
             decorations: true,
+            has_shadow: true,
+            linux_csd: false,
             titlebar_overlay: false,
             corner_radius: 0,
             centered: false,
@@ -179,6 +194,7 @@ impl WindowOptions {
     pub fn floating_overlay() -> Self {
         Self::new()
             .decorations(false)
+            .has_shadow(false)
             .background(WindowBackground::Transparent)
             .window_level(WindowLevel::AlwaysOnTop)
             .input_mode(WindowInputMode::Passthrough)
@@ -283,7 +299,8 @@ impl WindowOptions {
     }
 
     /// Clip client content to rounded corners on an alpha-capable native surface.
-    /// Ignored for Linux decorated windows. The OS input region remains separate.
+    /// Linux delegates the outer contour to its compositor/CSD because a client
+    /// clip cannot supply the matching native border and shadow.
     pub fn corner_radius(mut self, radius: u32) -> Self {
         self.corner_radius = radius;
         self
@@ -291,10 +308,24 @@ impl WindowOptions {
 
     /// Enable or disable native window-manager decorations.
     /// On Linux, decorated windows leave the outer contour to the window system;
-    /// `corner_radius` does not additionally clip their client area. A compositor
-    /// may choose square corners. Frameless windows retain renderer clipping.
+    /// `corner_radius` does not additionally clip their client area. Enable
+    /// `linux_csd` to give undecorated windows a Plico-drawn frame.
     pub fn decorations(mut self, decorations: bool) -> Self {
         self.decorations = decorations;
+        self
+    }
+
+    /// Enable or disable the native outer window shadow.
+    pub fn has_shadow(mut self, has_shadow: bool) -> Self {
+        self.has_shadow = has_shadow;
+        self
+    }
+
+    /// Enable the pure-Rust Linux client-side frame for undecorated windows.
+    /// The application remains responsible for its titlebar contents and drag
+    /// regions; the host supplies the outer contour, shadow and resize margin.
+    pub fn linux_csd(mut self, enabled: bool) -> Self {
+        self.linux_csd = enabled;
         self
     }
 
@@ -355,6 +386,8 @@ pub enum WindowCommand {
     ToggleFullscreen,
     /// Replace the native window title.
     SetTitle(String),
+    /// Enable or disable native window-manager decorations at runtime.
+    SetDecorations(bool),
     /// Begin an OS-managed window drag from the current pointer gesture.
     /// macOS titlebar double clicks follow the system action instead.
     StartDragging,
@@ -385,8 +418,12 @@ mod tests {
         let restored: WindowOptions = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(restored, options);
         json.as_object_mut().unwrap().remove("titlebarOverlay");
+        json.as_object_mut().unwrap().remove("linuxCsd");
+        json.as_object_mut().unwrap().remove("hasShadow");
         let legacy: WindowOptions = serde_json::from_value(json).unwrap();
         assert!(legacy.decorations && !legacy.titlebar_overlay);
+        assert!(legacy.has_shadow);
+        assert!(!legacy.linux_csd);
     }
 
     #[test]

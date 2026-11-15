@@ -153,6 +153,12 @@ impl VisitMut for Expand {
             && self.is_ui(&call.receiver)
         {
             let name = call.method.to_string();
+            if name == "memo" && call.args.len() == 2 {
+                let site = self.site();
+                call.method = Ident::new("memo_at", call.method.span());
+                call.args.insert(0, parse_quote!(#site));
+                return;
+            }
             if name == "add" && call.args.len() == 1 {
                 let site = self.site();
                 let runtime = &self.runtime;

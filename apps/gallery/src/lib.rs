@@ -10,8 +10,12 @@ pub mod images;
 mod legacy_icons;
 mod shader_playground;
 pub mod tree_view;
-use plico::{Align, Color, Justify, Motion, SpringOptions, Theme, UiContext, component};
+use plico::{
+    Align, Color, Easing, Justify, Motion, SpringOptions, Theme, TimelineOffset, TimelineOptions,
+    Tween, UiContext, after_previous, at_label, at_time, component, with_previous,
+};
 use plico_dev::App;
+use std::time::Duration;
 mod component_kit;
 mod components;
 pub mod game2048;
@@ -116,6 +120,9 @@ pub struct Gallery {
     pub dark: bool,
     pub large: bool,
     pub expanded: bool,
+    pub timeline_run: u64,
+    pub timeline_paused: bool,
+    pub timeline_reverse: bool,
     pub router: plico::Router<Page>,
     pub alignment: u8,
     pub wrapped: bool,
@@ -484,6 +491,91 @@ impl Gallery {
                     } else {
                         l.text("spring-in", "Sprung / in")
                     },
+                ).font_size(12).color(Color::Muted);
+            };
+            column(ui).padding(20).gap(16).radius(14.).background(Color::Panel) + |ui| {
+                row(ui).justify(Justify::SpaceBetween).align(Align::Center).gap(8) + |ui| {
+                    column(ui).gap(2).grow(1.) + |ui| {
+                        text(ui, "Timeline").font_size(17).weight(650);
+                        text(ui, "One playhead · labels · overlap · reverse").font_size(12)
+                            .color(Color::Muted);
+                    };
+                    if button(ui).text("Restart").font_size(12).clicked() {
+                        self.timeline_run = self.timeline_run.wrapping_add(1);
+                    }
+                    if button(ui).text(if self.timeline_paused { "Play" } else { "Pause" }).font_size(12)
+                        .clicked()
+                    {
+                        self.timeline_paused = !self.timeline_paused;
+                    }
+                    if button(ui).text("Reverse").font_size(12).clicked() {
+                        self.timeline_reverse = !self.timeline_reverse;
+                    }
+                };
+                let (slide, grow, fade, rows, bounce, elapsed, duration, settled) = {
+                    let mut timeline = ui.timeline(
+                        "motion.demo.timeline",
+                        TimelineOptions {
+                            run: self.timeline_run,
+                            paused: self.timeline_paused,
+                            reverse: self.timeline_reverse,
+                            ..Default::default()
+                        },
+                    );
+                    let slide =
+                        timeline.tween(Tween::new(-260., 0., Duration::from_millis(450)));
+                    let grow = timeline.tween_at(Tween::new(0.88, 1., Duration::from_millis(450)),
+                        with_previous(Duration::ZERO));
+                    let fade = timeline.tween_at(
+                        Tween::new(0., 1., Duration::from_millis(300)).easing(Easing::Linear),
+                        at_time(Duration::from_millis(150)));
+                    timeline.label("rows");
+                    let mut rows = [0.; 3];
+                    for (index, row) in rows.iter_mut().enumerate() {
+                        *row = timeline.tween_at(
+                            Tween::new(0., 1., Duration::from_millis(240)).easing(Easing::Linear),
+                            at_label("rows", Duration::from_millis(index as u64 * 90)));
+                    }
+                    let bounce = timeline.tween_at(Tween::new(10., 0., Duration::from_millis(360)),
+                        after_previous(TimelineOffset::before(Duration::from_millis(180))));
+                    (
+                        slide,
+                        grow,
+                        fade,
+                        rows,
+                        bounce,
+                        timeline.time(),
+                        timeline.duration(),
+                        timeline.settled(),
+                    )
+                };
+                column(ui).height(170.).justify(Justify::Center).align(Align::Center) + |ui| {
+                    column(ui).width(300.).padding(16).gap(8).radius(16.).background(Color::Surface)
+                        .border(1., Color::Border).translate(slide, bounce).scale(grow, grow) + |ui|
+                    {
+                        text(ui, "A shared playhead").font_size(20).weight(700).opacity(fade)
+                            .translate(0., (1. - fade) * 12.);
+                        for (index, label) in
+                            ["Plan", "Build", "Ship"].iter().enumerate()
+                        {
+                            ui.keyed(*label, |ui| {
+                                row(ui).gap(8).opacity(rows[index])
+                                    .translate(0., (1. - rows[index]) * 14.) + |ui|
+                                {
+                                    column(ui).width(8.).height(8.).radius(4.)
+                                        .background(Color::Accent);
+                                    text(ui, *label).color(Color::Muted);
+                                };
+                            });
+                        }
+                    };
+                };
+                plico::text!(
+                    ui,
+                    "{} / {} ms{}",
+                    elapsed.as_millis(),
+                    duration.as_millis(),
+                    if settled { " · settled" } else { "" }
                 ).font_size(12).color(Color::Muted);
             };
         };

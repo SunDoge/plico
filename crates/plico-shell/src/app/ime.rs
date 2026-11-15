@@ -64,8 +64,11 @@ impl App {
             .with_cursor_area()
             .with_hint_and_purpose()
             .with_surrounding_text();
-        let (position, size) =
+        let (mut position, size) =
             ime_cursor_rect(self.ime_state.as_ref().map(|state| state.cursor_area));
+        let [offset_x, offset_y] = shell.content_offset();
+        position.x += offset_x;
+        position.y += offset_y;
         let surrounding = self
             .ime_state
             .as_ref()
@@ -144,8 +147,11 @@ impl App {
             return;
         }
         if let Some(shell) = self.state.as_ref() {
-            let (position, size) =
+            let (mut position, size) =
                 ime_cursor_rect(self.ime_state.as_ref().map(|state| state.cursor_area));
+            let [offset_x, offset_y] = shell.content_offset();
+            position.x += offset_x;
+            position.y += offset_y;
             let mut data = ImeRequestData::default().with_cursor_area(position.into(), size.into());
             let (hint, purpose) = ime_hint_and_purpose(self.ime_state.as_ref());
             data = data.with_hint_and_purpose(hint, purpose);

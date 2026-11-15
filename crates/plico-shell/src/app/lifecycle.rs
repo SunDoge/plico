@@ -6,15 +6,20 @@ impl App {
             && !self.window_options.decorations
             && !self.window_metrics.maximized)
             .then(|| {
+                let shell = self.state.as_ref()?;
+                let [offset_x, offset_y] = shell.content_offset();
+                let (width, height) = shell.surface_logical_size();
                 resize_direction_at(
-                    self.pointer_position,
-                    f64::from(self.window_metrics.logical_width),
-                    f64::from(self.window_metrics.logical_height),
+                    Point {
+                        x: self.pointer_position.x + offset_x,
+                        y: self.pointer_position.y + offset_y,
+                    },
+                    f64::from(width),
+                    f64::from(height),
                     CUSTOM_DECORATION_RESIZE_BORDER,
                     self.window_options.effective_resize_edges(),
                 )
-            })
-            .flatten()
+            })?
     }
 
     pub(super) fn sync_pointer_cursor(&self) {
@@ -145,8 +150,13 @@ impl App {
         let Some(shell) = self.state.as_ref() else {
             return;
         };
-        let (physical_width, physical_height) = shell.size();
+        let (surface_width, surface_height) = shell.size();
         let (logical_width, logical_height) = shell.logical_size();
+        let inset = (shell.client_frame_inset() * shell.scale_factor()).round() as u32;
+        let physical_width = surface_width.saturating_sub(inset.saturating_mul(2)).max(1);
+        let physical_height = surface_height
+            .saturating_sub(inset.saturating_mul(2))
+            .max(1);
         let outer_position = shell.window().outer_position().ok();
         let next = WindowMetrics {
             window_key: self.window_key,

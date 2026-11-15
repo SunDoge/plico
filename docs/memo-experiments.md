@@ -1,6 +1,6 @@
 # 声明成本与 memo 实验
 
-2026-10-21 本机 release 实验。当前没有新增 memo API、依赖追踪或组件订阅系统。目的在于区分字符串构造、声明协调、解析缓存和宿主绘制的成本，再决定是否需要子树边界。
+2026-10-21 本机 release 实验。当时尚无 memo API、依赖追踪或组件订阅系统；目的在于区分字符串构造、声明协调、解析缓存和宿主绘制的成本，再决定是否需要子树边界。2026-11-14 已增加显式 `UiContext::memo`，见第 8 节；第 1–7 节继续保留实现前基线，不能解读成当前能力说明。
 
 ## 重现
 
@@ -138,3 +138,23 @@ PLICO_BASELINE_BIN_DIR=/tmp/plico-probes-before python3 scripts/check-memo-cost.
 | 宿主 opacity 动画 | 273.5 µs | 271.6 µs | 0 → 0 |
 
 这说明干净采样路径省掉了声明与后端提交；其他路径未见可确认的改善，小幅差异视作噪声。不能把重复绘制微基准的比值当作应用整体加速或 FPS 增益。原来完全空闲、不请求帧的应用不会凭空获得这些时间收益。后端 158 项测试（含 6 项新的调度回归）及严格 Clippy 通过。
+
+## 8. 显式 retained memo
+
+`cx.memo(dependency, |cx| { ... })` 现已作为渐进式声明原语实现。`#[component]` 为 memo
+调用注入与普通节点相同的编译期 site identity；动态列表仍在外层使用业务 `keyed`。依赖必须是
+`PartialEq + 'static` 的小型拥有值，推荐 revision 或标量 tuple，不引入自动依赖收集。
+
+依赖和声明环境不变时，闭包不执行；Engine 重新登记并保活已提交的根和子树。主题、viewport、
+焦点、hover、滚动／尺寸反馈、待消费点击或数值事件、上一轮 settle 请求都会保守地使 memo miss。
+声明期动画不会被缓存；memo 自身保存 rebuild deadline，包含嵌套 memo 的到期唤醒。memo 内访问过的
+component local state 会随命中刷新 epoch，卸载 memo 后仍按普通规则释放。
+
+确定性测试覆盖：依赖命中／变化、条件卸载后重建、业务 key 列表重排、按钮事件、local state、
+声明动画、直接和嵌套 deadline。`FrameStats::memo_hits` 与 `memo_nodes` 分别报告命中 scope 数和
+保活节点数，便于 recipe／probe 区分闭包跳过与 retained 遍历。
+
+当前版本跳过应用闭包、builder、属性写入和文字格式化，但为了兼容现有 epoch 删除协议，命中时仍
+递归登记 retained 节点，提交阶段也仍扫描 arena；因此它不是任意大子树的严格 O(1) 跳过。
+尚未在本节重跑 release timing，不宣称固定加速比例。下一轮应以原 memo probe 增加真正的 memo
+条件，分别测量闭包节省、保活遍历与全树提交成本，再决定是否引入 fragment generation 快路径。

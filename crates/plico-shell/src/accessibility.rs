@@ -24,25 +24,50 @@ struct PublicationKey {
     width: u32,
     height: u32,
     scale_bits: u64,
+    offset_x_bits: u64,
+    offset_y_bits: u64,
 }
 
+#[cfg(test)]
 fn publication_key(
     snapshot: Option<&SemanticSnapshot>,
     width: u32,
     height: u32,
     scale: f64,
 ) -> PublicationKey {
+    publication_key_with_offset(snapshot, width, height, scale, [0., 0.])
+}
+
+fn publication_key_with_offset(
+    snapshot: Option<&SemanticSnapshot>,
+    width: u32,
+    height: u32,
+    scale: f64,
+    offset: [f64; 2],
+) -> PublicationKey {
     PublicationKey {
         semantic_revision: snapshot.map_or(0, |snapshot| snapshot.revision),
         width,
         height,
         scale_bits: scale.to_bits(),
+        offset_x_bits: offset[0].to_bits(),
+        offset_y_bits: offset[1].to_bits(),
     }
 }
 
+#[cfg(test)]
 fn accesskit_node(
     semantic: &SemanticNode,
     scale: f64,
+    exposed: Option<&std::collections::HashSet<u64>>,
+) -> Node {
+    accesskit_node_with_offset(semantic, scale, [0., 0.], exposed)
+}
+
+fn accesskit_node_with_offset(
+    semantic: &SemanticNode,
+    scale: f64,
+    offset: [f64; 2],
     exposed: Option<&std::collections::HashSet<u64>>,
 ) -> Node {
     let role = match semantic.role {
@@ -111,7 +136,14 @@ fn accesskit_node(
     if let Some(value) = semantic.max_numeric_value {
         node.set_max_numeric_value(value);
     }
-    let [x0, y0, x1, y1] = semantic.bounds.map(|value| f64::from(value) * scale);
+    let [x0, y0, x1, y1] = semantic.bounds.map(f64::from);
+    let [offset_x, offset_y] = offset;
+    let [x0, y0, x1, y1] = [
+        (x0 + offset_x) * scale,
+        (y0 + offset_y) * scale,
+        (x1 + offset_x) * scale,
+        (y1 + offset_y) * scale,
+    ];
     node.set_bounds(Rect::new(x0, y0, x1, y1));
     node.set_children(
         semantic
@@ -231,11 +263,24 @@ fn accesskit_node(
     node
 }
 
+#[cfg(test)]
 fn root_update(
     title: String,
     width: f64,
     height: f64,
     scale: f64,
+    initialize: bool,
+    snapshot: Option<&SemanticSnapshot>,
+) -> TreeUpdate {
+    root_update_with_offset(title, width, height, scale, [0., 0.], initialize, snapshot)
+}
+
+fn root_update_with_offset(
+    title: String,
+    width: f64,
+    height: f64,
+    scale: f64,
+    offset: [f64; 2],
     initialize: bool,
     snapshot: Option<&SemanticSnapshot>,
 ) -> TreeUpdate {
@@ -261,7 +306,7 @@ fn root_update(
         nodes.extend(exposed.into_iter().map(|semantic| {
             (
                 NodeId(semantic.id),
-                accesskit_node(semantic, scale, Some(&exposed_ids)),
+                accesskit_node_with_offset(semantic, scale, offset, Some(&exposed_ids)),
             )
         }));
     }
@@ -293,6 +338,7 @@ pub struct AccessibilityState {
     events: Arc<Mutex<Vec<AccessKitEvent>>>,
     title: String,
     snapshot: Option<Arc<SemanticSnapshot>>,
+    content_offset: [f64; 2],
     active: bool,
     initialize_pending: bool,
     last_published: Option<PublicationKey>,
@@ -318,6 +364,7 @@ impl AccessibilityState {
             events,
             title,
             snapshot: None,
+            content_offset: [0., 0.],
             active: false,
             initialize_pending: false,
             last_published: None,
@@ -337,7 +384,16 @@ impl AccessibilityState {
 
     /// Replace the immutable semantic projection used by the next publication.
     pub fn set_snapshot(&mut self, snapshot: Option<Arc<SemanticSnapshot>>) {
+        self.set_snapshot_with_offset(snapshot, [0., 0.]);
+    }
+
+    pub(crate) fn set_snapshot_with_offset(
+        &mut self,
+        snapshot: Option<Arc<SemanticSnapshot>>,
+        content_offset: [f64; 2],
+    ) {
         self.snapshot = snapshot;
+        self.content_offset = content_offset;
     }
 
     /// Consume activation lifecycle events before a frame is built and report
@@ -411,22 +467,25 @@ impl AccessibilityState {
         let snapshot = self.snapshot.clone();
         let size = window.surface_size().cast::<f64>();
         let scale = window.scale_factor();
-        let key = publication_key(
+        let offset = self.content_offset;
+        let key = publication_key_with_offset(
             snapshot.as_deref(),
             size.width as u32,
             size.height as u32,
             scale,
+            offset,
         );
         if !requested && self.last_published == Some(key) {
             return;
         }
         self.last_published = Some(key);
         self.adapter.update_if_active(move || {
-            root_update(
+            root_update_with_offset(
                 title,
                 size.width,
                 size.height,
                 scale,
+                offset,
                 requested,
                 snapshot.as_deref(),
             )
@@ -517,6 +576,48 @@ mod tests {
         assert_eq!(update.nodes[1].1.value(), Some("complete"));
         assert_eq!(update.nodes[2].1.role(), Role::Alert);
         assert_eq!(update.nodes[2].1.label(), Some("Connection lost"));
+    }
+
+    #[test]
+    fn linux_csd_offsets_semantic_bounds_but_not_the_window_root() {
+        let snapshot = SemanticSnapshot {
+            revision: 1,
+            nodes: vec![crate::SemanticNode {
+                id: 2,
+                role: SemanticRole::Button,
+                label: Some("Save".into()),
+                value: None,
+                numeric_value: None,
+                min_numeric_value: None,
+                max_numeric_value: None,
+                bounds: [2., 3., 42., 23.],
+                children: Vec::new(),
+                controls: Vec::new(),
+                described_by: Vec::new(),
+                active_descendant: None,
+                disabled: false,
+                states: crate::SemanticStates::default(),
+            }],
+            root_children: vec![2],
+            ..SemanticSnapshot::default()
+        };
+        let update = root_update_with_offset(
+            "Gallery".into(),
+            200.,
+            100.,
+            2.,
+            [14., 14.],
+            true,
+            Some(&snapshot),
+        );
+        assert_eq!(
+            update.nodes[0].1.bounds(),
+            Some(Rect::new(0., 0., 200., 100.))
+        );
+        assert_eq!(
+            update.nodes[1].1.bounds(),
+            Some(Rect::new(32., 34., 112., 74.))
+        );
     }
 
     #[test]
