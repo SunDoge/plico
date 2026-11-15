@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/SunDoge/plico/compare/v0.4.0...v0.4.1) - 2026-11-13
+
+### Added
+
+- *(style)* default framework corners to continuous
+- *(renderer)* add fixed gaussian glass fast path
+- *(profiling)* expose backdrop sharing costs
+- *(profiling)* correlate complete frame work
+
+### Fixed
+
+- *(runtime)* decouple native simulations from paint frequency
+- *(style)* align scrollbars and glass corners
+- *(renderer)* sample blur beyond surface bounds
+- *(ci)* enforce workspace clippy before push
+
+### Other
+
+- *(renderer)* retire skia from mainline validation
+
 ## [0.4.0](https://github.com/SunDoge/plico/compare/v0.3.2...v0.4.0) - 2026-11-12
 
 ### Added
