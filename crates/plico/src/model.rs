@@ -753,6 +753,10 @@ pub struct Size {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FrameStats {
     pub visited: usize,
+    /// Memo scopes whose dependency and declaration context were unchanged.
+    pub memo_hits: usize,
+    /// Retained nodes kept alive without re-running their declaration closures.
+    pub memo_nodes: usize,
     pub created: usize,
     pub reused: usize,
     pub removed: usize,

@@ -15,6 +15,7 @@ pub use keyboard::{
 mod layout;
 mod local;
 mod localization;
+mod memo;
 pub use localization::Localizer;
 mod storage;
 pub use calendar::{CalendarDate, CalendarMode, CalendarState, WeekStart};
@@ -26,12 +27,17 @@ pub mod materials;
 mod modal;
 mod model;
 mod motion;
+mod timeline;
 pub use materials::{BackdropBlur, Elevation, GlassStyle, LiquidGlass, ScrollEdgeSide};
 mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
 pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
 pub use motion::{Animation, SpringOptions};
+pub use timeline::{
+    Placement, REPEAT_FOREVER, Timeline, TimelineOffset, TimelineOptions, Tween, after_previous,
+    at_label, at_time, with_previous,
+};
 mod visibility;
 pub use visibility::VisibleRegion;
 mod virtual_list;
@@ -182,12 +188,13 @@ pub mod prelude {
         DisplayPreferences, Edges, Elevation, FlexDirection, FlexWrap, FocusAxis, FontFamily,
         GlassStyle, GridFlow, GridLine, GridTemplate, ImplicitKey, InnerResponse, InputNavigation,
         InputResponse, Justify, KeyEvent, KeyLocation, KeyPhase, Length, LiquidGlass, Metrics,
-        ModalState, Modifiers, Motion, PopoverState, Position, Presentation, Response, Route,
-        Router, RouterTransition, ScrollEdgeSide, SelectOption, SelectResponse, ShaderAsset,
-        Shortcut, ShortcutMap, SliderResponse, SpringOptions, StandardShortcut, SvgAsset,
-        TextBuffer, Theme, TimeOfDay, ToggleResponse, Track, TrackSize, UiContext,
-        ValueControlResponse, VirtualList, VirtualListResponse, VisibleRegion, Widget, component,
-        fr, minmax, percent, px, text,
+        ModalState, Modifiers, Motion, Placement, PopoverState, Position, Presentation,
+        REPEAT_FOREVER, Response, Route, Router, RouterTransition, ScrollEdgeSide, SelectOption,
+        SelectResponse, ShaderAsset, Shortcut, ShortcutMap, SliderResponse, SpringOptions,
+        StandardShortcut, SvgAsset, TextBuffer, Theme, TimeOfDay, Timeline, TimelineOffset,
+        TimelineOptions, ToggleResponse, Track, TrackSize, Tween, UiContext, ValueControlResponse,
+        VirtualList, VirtualListResponse, VisibleRegion, Widget, after_previous, at_label, at_time,
+        component, fr, minmax, percent, px, text, with_previous,
     };
 }
 
