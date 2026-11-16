@@ -1346,7 +1346,6 @@ impl<'e> UiContext<'e> {
             params: crate::ShaderParams {
                 source_path: asset.source_path().map(str::to_owned),
                 module: asset.is_module(),
-                sksl: asset.sksl().map(str::to_owned),
                 reads_backdrop: asset.reads_backdrop(),
                 prefilter_backdrop: asset.backdrop_prefiltered(),
                 builtin: asset.builtin_kind(),

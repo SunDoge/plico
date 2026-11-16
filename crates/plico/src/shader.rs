@@ -13,7 +13,6 @@ pub struct ShaderAsset {
     source: &'static str,
     source_path: Option<&'static str>,
     module: bool,
-    sksl: Option<&'static str>,
     /// The effect samples what is painted behind it (mygo's scene.Effect
     /// Backdrop): the host binds the region's rendered content as an input.
     reads_backdrop: bool,
@@ -26,7 +25,6 @@ impl ShaderAsset {
             source,
             source_path: None,
             module: false,
-            sksl: None,
             reads_backdrop: false,
             prefilter_backdrop: None,
             builtin: None,
@@ -37,7 +35,6 @@ impl ShaderAsset {
             source,
             source_path: None,
             module: true,
-            sksl: None,
             reads_backdrop: false,
             prefilter_backdrop: None,
             builtin: None,
@@ -79,14 +76,6 @@ impl ShaderAsset {
     }
     pub const fn source_path(self) -> Option<&'static str> {
         self.source_path
-    }
-    /// Add a Skia implementation defining `half4 plico_effect(float2 uv)`.
-    pub const fn with_sksl(mut self, source: &'static str) -> Self {
-        self.sksl = Some(source);
-        self
-    }
-    pub const fn sksl(self) -> Option<&'static str> {
-        self.sksl
     }
     pub const fn source(self) -> &'static str {
         self.source
@@ -170,7 +159,6 @@ pub struct ShaderParams {
     /// Complete-module top-level f32/vector fields, resolved by WGSL name.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<(String, ShaderValue)>,
-    pub sksl: Option<String>,
     pub time: f32,
     pub speed: f32,
     pub animated: bool,
@@ -193,7 +181,6 @@ impl Default for ShaderParams {
             transitions: Vec::new(),
             paint_outset: [0.; 2],
             parameters: Vec::new(),
-            sksl: None,
             time: 0.,
             speed: 1.,
             animated: false,
@@ -321,7 +308,6 @@ mod tests {
         assert!(!EFFECT.is_module());
         assert!(MODULE.is_module());
         assert_eq!(ShaderAsset::new("inline").source_path(), None);
-        assert_eq!(MODULE.with_sksl("skia").source_path(), MODULE.source_path());
     }
 }
 

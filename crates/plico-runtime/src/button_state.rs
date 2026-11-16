@@ -156,17 +156,9 @@ impl ButtonStates {
         } else {
             style.background = None;
         }
-        // Press feedback is paint-only: layout and hit geometry stay stable.
-        // Wide rows move less than compact controls so their edges do not
-        // visibly lurch. Hover never changes scale.
-        let pressed_scale = if style.width_percent == Some(100.) {
-            0.98
-        } else {
-            0.97
-        };
-        let scale = 1. - (1. - pressed_scale) * weights[1];
-        style.scale[0] *= scale;
-        style.scale[1] *= scale;
+        // MyGO's button face changes color while pressed; it does not scale
+        // the node and its glyphs. Keeping the transform stable also avoids
+        // resampling text at fractional pixels during the press transition.
         style.opacity *= 1. - 0.55 * weights[3];
         (style, weights[2])
     }
@@ -282,21 +274,21 @@ mod tests {
         assert_eq!(paint.background, Some(Color::Literal(0)));
     }
     #[test]
-    fn press_scales_controls_without_moving_layout_and_wide_rows_move_less() {
+    fn press_keeps_control_and_text_scale_stable() {
         let (mut states, entity, style) = setup();
         let pressed = Interaction {
             pressed: true,
             ..Interaction::default()
         };
         let (compact, _) = states.style(entity, style, Theme::default(), pressed, false);
-        assert_eq!(compact.scale, [0.97, 0.97]);
+        assert_eq!(compact.scale, [1., 1.]);
 
         let wide = Style {
             width_percent: Some(100.),
             ..style
         };
         let (wide, _) = states.style(entity, wide, Theme::default(), pressed, false);
-        assert_eq!(wide.scale, [0.98, 0.98]);
+        assert_eq!(wide.scale, [1., 1.]);
     }
     #[test]
     fn reduced_motion_keeps_rested_targets_and_zero_duration_releases_entries() {

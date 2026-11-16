@@ -12,13 +12,6 @@ const NAMES: &[&str] = &[
     "backend.index",
     "backend.presentation",
     "backend.geometry_post",
-    "skia.wait_fence",
-    "skia.acquire",
-    "skia.damage",
-    "skia.draw",
-    "skia.replay",
-    "skia.flush_submit",
-    "skia.queue_present",
 ];
 struct Collector {
     start: Instant,

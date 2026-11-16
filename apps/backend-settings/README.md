@@ -4,7 +4,6 @@
 
 ```sh
 cargo run -p backend-settings --features wgpu
-cargo run -p backend-settings --features skia
 cargo run -p backend-settings --features fltk
 ```
 
@@ -20,5 +19,5 @@ PLICO_WGPU_DAMAGE=1 cargo run --locked -p backend-settings --features wgpu
 cargo test -p backend-settings --all-targets
 ```
 
-FLTK 和 Skia 的范围与限制分别见 [FLTK 实验](../../docs/fltk.md) 与
-[Skia 支持](../../docs/skia.md)。本地截图、日志和性能报告写入 `reports/`，不提交仓库。
+FLTK 的范围与限制见 [FLTK 实验](../../docs/fltk.md)。本地截图、日志和性能报告写入
+`reports/`，不提交仓库。

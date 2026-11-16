@@ -28,7 +28,6 @@ migrated_test_roots = {
     ("apps", "services-demo", "tests"),
     ("crates", "plico-desktop", "tests"),
     ("crates", "plico-runtime", "tests"),
-    ("crates", "plico-skia", "tests"),
     ("crates", "plico-wgpu", "tests"),
 }
 migrated_test_files = {

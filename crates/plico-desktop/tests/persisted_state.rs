@@ -2,7 +2,7 @@
 //! exactly as MyGO's WindowStateStore does for window geometry: one file
 //! under the app data directory, restored before the first frame, saved
 //! atomically at close and quit.
-#![cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+#![cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 use plico::Engine;
 use plico::prelude::*;
 use plico_renderer::FrameSource;

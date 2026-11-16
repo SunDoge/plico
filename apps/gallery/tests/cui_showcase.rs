@@ -1,6 +1,10 @@
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::{
+    Source,
+    testing::{Command, Driver},
+};
+use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 #[test]
 fn cui_showcase_exposes_dense_interactive_workspace() {
@@ -63,4 +67,27 @@ fn cui_showcase_exposes_dense_interactive_workspace() {
     ] {
         assert!(contains(&ui.declarations(), label), "missing {label}");
     }
+}
+
+#[test]
+fn selected_segment_click_keeps_text_metrics_and_layout() {
+    let mut source = Source::new(Gallery {
+        router: Router::new(Page::CuiShowcase),
+        ..Default::default()
+    });
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 1600, 1000);
+    let target = source
+        .semantics()
+        .node_by_role(SemanticRole::Button, "Team only", None)
+        .expect("Team only segment")
+        .id;
+
+    assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+    source.build_frame(&mut text, 1600, 1000);
+
+    let diagnostics = source.frame_diagnostics();
+    assert_eq!(diagnostics.declaration.measure_calls, 0);
+    assert_eq!(diagnostics.backend.text_measure_invalidations, 0);
+    assert_eq!(diagnostics.backend.layout_runs, 0);
 }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use image::ImageEncoder as _;
 use peniko::Color;
 use plico_renderer::Scene;
-#[cfg(any(feature = "skia", feature = "wgpu"))]
+#[cfg(feature = "wgpu")]
 use snafu::OptionExt;
 use snafu::ResultExt;
 
@@ -40,27 +40,7 @@ pub fn render_to_image(
         image::RgbaImage::from_raw(width, height, pixels)
             .context(crate::error::InvalidImageBufferSnafu { width, height })
     }
-    #[cfg(all(feature = "skia", not(feature = "wgpu")))]
-    {
-        let mut surface =
-            plico_skia::SkiaSurface::new(width, height).context(crate::error::SkiaSnafu)?;
-        let mut pixels = surface
-            .render_scene(scene, base_color)
-            .context(crate::error::SkiaSnafu)?;
-        // Skia readback is premultiplied; image::RgbaImage expects straight alpha.
-        for pixel in pixels.as_chunks_mut::<4>().0 {
-            let alpha = u32::from(pixel[3]);
-            for channel in &mut pixel[..3] {
-                *channel = (u32::from(*channel) * 255 + alpha / 2)
-                    .checked_div(alpha)
-                    .unwrap_or(0)
-                    .min(255) as u8;
-            }
-        }
-        image::RgbaImage::from_raw(width, height, pixels)
-            .context(crate::error::InvalidImageBufferSnafu { width, height })
-    }
-    #[cfg(not(any(feature = "skia", feature = "wgpu")))]
+    #[cfg(not(feature = "wgpu"))]
     {
         let _ = (scene, width, height, base_color);
         Err(crate::Error::Renderer {
@@ -178,25 +158,6 @@ mod tests {
     fn gpu_renderer_preserves_a_transparent_clear() {
         let image = render_to_image(&Scene::new(), 8, 8, Color::TRANSPARENT).unwrap();
         assert_eq!(image.get_pixel(4, 4).0, [0, 0, 0, 0]);
-    }
-
-    #[cfg(all(feature = "skia", not(feature = "wgpu")))]
-    #[test]
-    fn skia_readback_returns_straight_alpha() {
-        let mut scene = Scene::new();
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(200, 100, 50, 128),
-            None,
-            &Rect::new(0., 0., 4., 4.),
-        );
-        let image = render_to_image(&scene, 4, 4, Color::TRANSPARENT).unwrap();
-        let pixel = image.get_pixel(1, 1).0;
-        assert_eq!(pixel[3], 128);
-        for (actual, expected) in pixel[..3].iter().zip([200u8, 100, 50]) {
-            assert!(actual.abs_diff(expected) <= 1, "pixel: {pixel:?}");
-        }
     }
 
     #[test]

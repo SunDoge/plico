@@ -67,7 +67,6 @@ changelog_include = [
     "plico-renderer",
     "plico-runtime",
     "plico-shell",
-    "plico-skia",
     "plico-terminal",
     "plico-video",
     "plico-web-host",
@@ -132,11 +131,6 @@ git_only = true
 
 [[package]]
 name = "plico-shell"
-release = true
-git_only = true
-
-[[package]]
-name = "plico-skia"
 release = true
 git_only = true
 

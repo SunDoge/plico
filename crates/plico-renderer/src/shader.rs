@@ -214,7 +214,7 @@ impl Default for ShaderEffectId {
 /// New source defines `fn plico_effect(uv: vec2<f32>) -> vec4<f32>` and reads
 /// `plico.resolution_time_scale` and the 256 scalar values in `plico.values`.
 /// Surface outputs
-/// use premultiplied RGBA, matching the shared texture/SkSL compositing contract. Extra bind groups are deliberately rejected so renderer
+/// use premultiplied RGBA, matching the shared texture compositing contract. Extra bind groups are deliberately rejected so renderer
 /// resource ownership remains explicit.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ShaderEffectInterface {
@@ -233,7 +233,6 @@ struct ParameterSlot {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ShaderEffectSource {
     wgsl: Arc<str>,
-    sksl: Option<Arc<str>>,
     interface: ShaderEffectInterface,
     parameters: Arc<[ParameterSlot]>,
     /// The effect reads its backdrop through `plico.backdrop_at` (mygo's
@@ -262,14 +261,6 @@ impl ShaderEffectSource {
             }
         }
         self.builtin = builtin;
-        Ok(self)
-    }
-    /// Attach an optional SkSL implementation, compiled by the Skia backend.
-    pub fn with_sksl(mut self, source: &str) -> Result<Self, String> {
-        if source.trim().is_empty() || source.len() > MAX_SOURCE_BYTES {
-            return Err("SkSL source must be nonempty and within the shader source limit".into());
-        }
-        self.sksl = Some(source.into());
         Ok(self)
     }
     /// Request transient area-prefiltered backdrop levels from compatible hosts.
@@ -541,7 +532,6 @@ impl ShaderEffectSource {
         }
         Ok(Self {
             wgsl: complete.into(),
-            sksl: None,
             interface,
             parameters: parameters.into(),
             reads_backdrop,
@@ -685,10 +675,6 @@ impl ShaderEffect {
         uniforms
     }
 
-    /// Skia implementation, when supplied.
-    pub fn sksl(&self) -> Option<&str> {
-        self.source.sksl.as_deref()
-    }
     /// Whether the effect reads its backdrop (mygo's scene.Effect.Backdrop).
     pub fn reads_backdrop(&self) -> bool {
         self.source.reads_backdrop

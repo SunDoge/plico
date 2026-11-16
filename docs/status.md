@@ -14,7 +14,7 @@
 `plico::materials::LiquidGlass` 和 `Elevation` 已提供声明式液态玻璃、接触/环境双层阴影预设；
 容器自动定位材质背景，内容保持普通控件。Warden 与 Gallery 已消费公共 API，应用不维护玻璃 WGSL。
 框架测试覆盖参数、关闭材质、reduced motion、paint-only 更新和 wgpu 折射像素。
-启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。内置 Liquid Glass 已走 MyGO 风格固定 sigma、1／2／4／8 面积缩减与两轴 Gaussian 快路径；其他 backdrop shader 使用受最大 sigma 限制的通用预滤波金字塔。Skia 材质与原生系统玻璃尚未实现。
+启用玻璃当前需要 wgpu；关闭玻璃的纯色替代不依赖 shader。内置 Liquid Glass 已走 MyGO 风格固定 sigma、1／2／4／8 面积缩减与两轴 Gaussian 快路径；其他 backdrop shader 使用受最大 sigma 限制的通用预滤波金字塔。
 背景采样材质合成继承祖先矩形裁剪与圆角遮罩；滚动、透明分组和裁剪离屏目标均有 GPU 像素回归，覆盖 100%／150%／200% 缩放。
 wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有界纹理数组，批量生成 mip；
 普通 backdrop effect 已将 shader 与 clip/mask replacement 合为直接 framebuffer pass，不再为每个 pane
@@ -98,7 +98,7 @@ CPU 轮廓积分、1/1.5/2 倍缩放、中间平滑度、零 blur、裁剪与 da
 内置玻璃已接入固定 sigma、面积缩减和两轴 3σ Gaussian 快路径，workspace 跨帧复用；
 ScrollEdge、BackdropBlur 与通用回退继续使用预滤波金字塔＋残余 Gaussian 核。
 依赖范围按实际或声明的最大 sigma 与 DPI 截止，并有颜色／透明度／奇数尺寸／裁剪／LOD 连续性回归。
-后续特效质量与性能验证以 wgpu 为主，Skia 为可选对照。
+后续特效质量与性能验证统一以 wgpu 为准。
 
 ## 已退役 C# 实验迁入 Rust 的能力
 
@@ -150,10 +150,10 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 - 普通 Rust 函数、调用点身份、动态业务 key、受控输入和事件稳定化。
 - 保留节点、属性变化 journal、节点/结构删除与布局/绘制/语义失效。
 - Immediate dirty journal 贯通布局、flatten 与 Scene 失效；mount/unmount/reorder 由稳定 Entity 和业务 key 保持身份，大范围结构变化保守回退全量路径。
-- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；`HitTestDiagnostics` 提供只读 rebuild/check/pruned 计数，不公开 Adapter 缓存结构。动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。Skia 窗口默认开启局部 damage，原生消费 Fragment；Vello/Web 和全量 Skia redraw 保留展开路径。
+- 语义 `Arc` 快照与节点自身记录缓存、placed preorder 的 hit-testing 子树包围盒剔除；`HitTestDiagnostics` 提供只读 rebuild/check/pruned 计数，不公开 Adapter 缓存结构。动态 modal/tooltip/portal 上下文仍逐次计算，ButtonBase/ComboBox 不进入节点缓存。wgpu 窗口消费 retained Fragment 并跟踪局部 damage。
 - 声明父子关系使用引擎级连续日志，复用节点 children 容量；不为每个节点保留第二份 children Vec。`Engine::trim_declaration_buffers()` 可显式释放声明日志、格式化暂存和 children 多余容量，不改变 Entity 或清除待处理事件。
 - `plico` 的 allocations 示例验证 2 万节点场景第二次声明、预热后的无变化/颜色变化/同容量文本变化均无分配；这只覆盖核心声明路径，不代表整个应用或后端零分配。
-- Taffy 布局；Vello 普通文字使用 Parley，Skia 普通文字使用 SkParagraph；字体、选择复制、输入法和 SVG。
+- Taffy 布局、系统文字与 Parley 后备排版；字体、选择复制、输入法和 SVG。
 - 普通文字默认不额外几何加粗，保留 hint 与真实字重，避免淡边；显式扩张按实际扩张量收紧轮廓容差，避免直边变斜。Linux 默认优先 Noto 中英文字体栈，保留应用字体覆盖能力。
 - hinted 字形在轮廓缓存插入时精细离散化，减小小字号曲线的局部粗细误差；当前通过本地 Glifo 补丁实现，无 hint 与位图字体不受影响，仍存在亚像素采样导致的局部覆盖率变化。
 - Gallery 的布局、控件、动画、2048、[Mines 扫雷](../apps/gallery/docs/mines.md)、流式 Markdown 与应用内毛玻璃。
@@ -167,7 +167,7 @@ reduced motion 直接挂载／卸载，不增加应用侧动画状态。
 - plico icons add/check：应用拥有选择集合、生成 Rust、清单和许可证，核心仅内置四个控件图标。
 - launcher、terminal、services-demo；编辑器和 WASM 入口保留。
 
-- [Skia / Vello 对照实验](skia.md)：SkParagraph 普通文字、CPU / Vulkan Skia 回放和实验性 Vulkan 窗口；保留相同 Parley glyph 的多缩放对照。
+- [历史 Skia / Vello 对照实验](skia.md)：仅保留已完成实验的测量与结论，不再对应可构建 package。
 
 ## 同步组件的 local state 与宿主任务
 
@@ -231,15 +231,8 @@ Implemented static `Kind::capabilities()` without per-node storage. Focus, Tab n
 
 ## Damage tracking
 
-Skia windows enable command-stream damage and per-image history by default;
-`PLICO_SKIA_DAMAGE=0` restores full drawing. Multi-rectangle damage and Vulkan
-incremental-present hints remain opt-in. Tracked partial
-redraws consume retained Scene commands and cull unchanged damage regions;
-full redraws and Vello/Web retain the expanded replay path. Region-level damage is
-conservative rather than a minimal per-leaf rectangle. Normal windows skip an exactly
-unchanged presented Scene by default (`PLICO_SKIA_PRESENT_SKIP=0` disables this);
-the tracker expands partially intersected text, stroke and atomic Fragment commands
-to their complete bounds;
+wgpu 使用 retained Scene damage 与呈现缓存跳过不变工作；局部重绘范围保持保守，
+不会承诺每个 leaf 的最小矩形。文字、stroke 与 atomic Fragment 部分相交时扩展到完整边界；
 the strict Immediate 240-frame settings probe and repeated-input raster matrices
 match full redraws exactly, at a measured coverage/raster cost. Nested Fragment AA
 also passes CPU and Intel Vulkan pixel comparisons including resize. Explicitly
@@ -314,12 +307,11 @@ sessions and physical-display DPI transitions still need verification. See [expe
 
 ## Renderer maintenance policy
 
-The independent `plico-wgpu` backend is the maintained desktop renderer. Skia is
-deprecated, excluded from the main CI matrix, and retained only for historical comparisons.
+`plico-wgpu` 是唯一桌面 renderer；原 Skia package、feature、窗口与离屏路径已经删除，
+旧测量文档只保留历史结论。
 The shared `plico-renderer` crate no longer owns wgpu devices, textures, bind
 groups, pipelines or render passes. It retains the backend-neutral scene and
-validated shader-effect contract; concrete shader execution lives in
-`plico-wgpu`, so Skia and renderer-only builds do not pull in wgpu.
+validated shader-effect contract; concrete shader execution lives in `plico-wgpu`.
 `plico-shell` also no longer republishes renderer modules and scene/widget
 types as a parallel facade. Its public surface is limited to window hosting,
 extensions and desktop services; backend probes depend on `plico-renderer`
@@ -347,7 +339,7 @@ also migrated; scene assertions replace declaration-tree inspection where the
 test is about rendered shader presence.
 The Vello backend has been removed. `plico-vello`, the Vello WebGL2 browser
 path and the `vello-compare` tooling are deleted; wgpu is the maintained desktop
-renderer and Skia is being retired. The browser Gallery
+renderer. The browser Gallery
 uses wgpu (WebGPU adapter detection with WebGL2 fallback), with Canvas2D
 ordinary text and a render-pass Gaussian blur on WebGL2. WebGL2 interaction
 tests pass at 1×/2× DPI on Chrome SwiftShader; hardware WebGPU, rich text and
@@ -364,9 +356,7 @@ stdin pipe; native hardware-encoder textures, audio mixing and live preview
 are not implemented.
 
 The default Cargo features, automatic window/capture selection and new-app CLI
-template now use wgpu. Explicit Skia selection remains temporarily supported for
-historical comparisons, outside main CI. Changing the default does not
-imply full renderer parity or Windows/macOS runtime acceptance.
+template use wgpu. Windows/macOS runtime acceptance remains a separate platform concern.
 
 Shared Scene support in `plico-wgpu` is unconditional; the former `paint-scene`
 feature has been removed. `--no-default-features` disables system text but retains

@@ -35,27 +35,26 @@ def production_dependencies(manifest):
 forbidden = {
     "plico": {
         "plico-dev", "plico-renderer", "plico-runtime", "plico-app-host",
-        "plico-wgpu", "plico-skia", "plico-shell", "plico-desktop",
+        "plico-wgpu", "plico-shell", "plico-desktop",
     },
     "plico-motion": {
         "plico-dev", "plico-renderer", "plico-runtime", "plico-app-host",
-        "plico-wgpu", "plico-skia", "plico-shell", "plico-desktop",
+        "plico-wgpu", "plico-shell", "plico-desktop",
     },
     "plico-dev": {
         "plico-renderer", "plico-runtime", "plico-app-host", "plico-wgpu",
-        "plico-skia", "plico-shell", "plico-desktop",
+        "plico-shell", "plico-desktop",
     },
     "plico-renderer": {
         "plico-dev", "plico-runtime", "plico-app-host", "plico-wgpu",
-        "plico-skia", "plico-shell", "plico-desktop",
-    },
-    "plico-runtime": {
-        "plico-dev", "plico-app-host", "plico-wgpu", "plico-skia",
         "plico-shell", "plico-desktop",
     },
-    "plico-app-host": {"plico-wgpu", "plico-skia", "plico-shell", "plico-desktop"},
-    "plico-wgpu": {"plico-app-host", "plico-skia", "plico-shell", "plico-desktop"},
-    "plico-skia": {"plico-app-host", "plico-wgpu", "plico-shell", "plico-desktop"},
+    "plico-runtime": {
+        "plico-dev", "plico-app-host", "plico-wgpu",
+        "plico-shell", "plico-desktop",
+    },
+    "plico-app-host": {"plico-wgpu", "plico-shell", "plico-desktop"},
+    "plico-wgpu": {"plico-app-host", "plico-shell", "plico-desktop"},
     "plico-shell": {"plico-dev", "plico-runtime", "plico-app-host", "plico-desktop"},
 }
 packages = {package["name"]: package for package in metadata["packages"]}

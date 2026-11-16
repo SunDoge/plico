@@ -315,14 +315,11 @@ fn ime_gets_escape_before_tooltip_and_window_blur_hides_tip() {
         "Type a project name"
     ));
 }
-#[cfg(not(feature = "skia"))]
 #[derive(Default)]
 struct Shaded;
-#[cfg(not(feature = "skia"))]
 static EFFECT: ShaderAsset = ShaderAsset::new(
     "fn plico_effect(uv: vec2<f32>) -> vec4<f32> {return vec4<f32>(0.0,1.0,0.0,1.0);}",
 );
-#[cfg(not(feature = "skia"))]
 impl HostView for Shaded {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
@@ -334,7 +331,6 @@ impl HostView for Shaded {
         })
     }
 }
-#[cfg(not(feature = "skia"))]
 #[test]
 fn actual_gpu_tooltip_is_present_with_shader_and_scene_cache_removes_it_on_escape() {
     let clock = plico::VirtualClock::default();

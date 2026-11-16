@@ -1,5 +1,7 @@
 # Cranelift + prebuilt Skia：按 crate 混合编译实验
 
+> 历史记录：当前 workspace 已删除 `plico-skia`；本文保留当时的构建测量，不是现行配置指南。
+
 2026-11-03，基于 `874df83`，Linux x86_64，Intel Core Ultra 9 285K。
 本实验使用 rustc 的 Cranelift 后端，不是 Blaze，也不引入动态库、C ABI 或热重载。
 正式默认构建配置不变。

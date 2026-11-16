@@ -543,6 +543,32 @@ fn snap_quad_rect(q: &mut Quad) {
     let y1 = (q.rect[1] + q.rect[3]).round();
     q.rect = [x0, y0, x1 - x0, y1 - y0];
 }
+
+fn shadow_quad(
+    rect: Rect,
+    radius: f64,
+    std_dev: f64,
+    transform: Affine,
+    clip: Rect,
+    index: usize,
+) -> Result<Quad> {
+    let (scale, _) = uniform(transform, index)?;
+    // MyGO snaps the cast shape, then adds the blur margin. Snapping the
+    // already-inflated allocation instead changes the cast by up to one pixel
+    // and makes a circular knob's shadow visibly heavier on one side.
+    let mut q = quad(rect, [radius; 4], transform, clip, index)?;
+    snap_quad_rect(&mut q);
+    let sigma = (std_dev * scale) as f32;
+    let margin = 4. * sigma;
+    q.rect = [
+        q.rect[0] - margin,
+        q.rect[1] - margin,
+        q.rect[2] + 2. * margin,
+        q.rect[3] + 2. * margin,
+    ];
+    q.shadow_sigma = sigma;
+    Ok(q)
+}
 fn brush(q: &mut Quad, brush: &Brush, local: Rect, index: usize) -> Result<()> {
     match brush {
         Brush::Solid(color) => q.colors = [color.components; 2],
@@ -977,6 +1003,12 @@ impl Renderer {
                             ));
                         } else {
                             let mut q = quad(rect, radii, *transform, clip, index)?;
+                            // Match MyGO's Painter.snap for analytical UI
+                            // chrome. Text and arbitrary paths keep their
+                            // subpixel positions; rectangles, rounded
+                            // rectangles and their gradients get crisp,
+                            // independently rounded physical edges.
+                            snap_quad_rect(&mut q);
                             brush(&mut q, paint, rect, index)?;
                             draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
                         }
@@ -1321,15 +1353,7 @@ impl Renderer {
                         {
                             return Err(unsupported(index, "invalid shadow radius or sigma"));
                         }
-                        let (scale, _) = uniform(*transform, index)?;
-                        let mut q = quad(
-                            rect.inflate(4. * std_dev, 4. * std_dev),
-                            [*radius; 4],
-                            *transform,
-                            clip,
-                            index,
-                        )?;
-                        q.shadow_sigma = (std_dev * scale) as f32;
+                        let mut q = shadow_quad(*rect, *radius, *std_dev, *transform, clip, index)?;
                         q.shadow_smoothing = *corner_smoothing;
                         q.colors = [brush.components; 2];
                         draws.push(PreparedDraw::Quad(stash(&mut payloads.quads, q)));
@@ -1924,6 +1948,34 @@ mod storage_profile {
         let mut q = Quad::new([0.625, 1.25, 22.5, 22.5], [0.; 4]);
         snap_quad_rect(&mut q);
         assert_eq!(q.rect, [1., 1., 22., 23.]);
+    }
+
+    #[test]
+    fn analytical_chrome_snaps_each_edge_at_fractional_dpi() {
+        let rect = Rect::new(0.25, 0.4, 18.25, 10.4);
+        let clip = Rect::new(0., 0., 100., 100.);
+        let mut at_125 = quad(rect, [5.; 4], Affine::scale(1.25), clip, 0).unwrap();
+        snap_quad_rect(&mut at_125);
+        assert_eq!(at_125.rect, [0., 1., 23., 12.]);
+
+        let mut at_150 = quad(rect, [5.; 4], Affine::scale(1.5), clip, 0).unwrap();
+        snap_quad_rect(&mut at_150);
+        assert_eq!(at_150.rect, [0., 1., 27., 15.]);
+    }
+
+    #[test]
+    fn shadow_snaps_the_cast_before_adding_its_blur_margin() {
+        let q = shadow_quad(
+            Rect::new(0.25, 0.25, 16.25, 16.25),
+            8.,
+            1.5,
+            Affine::scale(1.25),
+            Rect::new(-100., -100., 100., 100.),
+            0,
+        )
+        .unwrap();
+        assert_eq!(q.shadow_sigma, 1.875);
+        assert_eq!(q.rect, [-7.5, -7.5, 35., 35.]);
     }
 
     #[test]

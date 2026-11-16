@@ -110,7 +110,6 @@ impl<V: HostView, W: plico_renderer::Widget> PreviewSource for plico_runtime::Su
 pub struct PreviewSession {
     backend: crate::RenderBackend,
     renderer: Option<crate::capture::CaptureRenderer>,
-    dimensions: (u32, u32),
     #[cfg(feature = "wgpu")]
     force_general_pipelines: bool,
     #[cfg(feature = "wgpu")]
@@ -123,7 +122,6 @@ impl PreviewSession {
         Self {
             backend,
             renderer: None,
-            dimensions: (0, 0),
             #[cfg(feature = "wgpu")]
             force_general_pipelines: false,
             #[cfg(feature = "wgpu")]
@@ -180,10 +178,7 @@ impl PreviewSession {
         width: u32,
         height: u32,
     ) -> Result<&mut crate::capture::CaptureRenderer, crate::CaptureError> {
-        // Skia surfaces have a fixed size; wgpu takes the size on every draw.
-        let fixed_size = matches!(self.backend, crate::RenderBackend::Skia)
-            || (matches!(self.backend, crate::RenderBackend::Auto) && !cfg!(feature = "wgpu"));
-        if self.renderer.is_none() || (fixed_size && self.dimensions != (width, height)) {
+        if self.renderer.is_none() {
             let renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
             #[cfg(feature = "wgpu")]
             let mut renderer = renderer;
@@ -194,7 +189,6 @@ impl PreviewSession {
             #[cfg(feature = "wgpu")]
             renderer.force_no_ring_splitting(self.force_no_ring_splitting);
             self.renderer = Some(renderer);
-            self.dimensions = (width, height);
         }
         Ok(self.renderer.as_mut().unwrap())
     }

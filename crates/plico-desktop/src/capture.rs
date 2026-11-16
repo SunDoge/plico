@@ -116,15 +116,6 @@ pub enum CaptureError {
     #[cfg(feature = "wgpu")]
     #[snafu(display("wgpu capture failed: {source}"))]
     Wgpu { source: plico_wgpu::Error },
-    #[cfg(feature = "skia")]
-    #[snafu(display("Skia capture failed: {source}"))]
-    Skia { source: plico_skia::Error },
-}
-#[cfg(feature = "skia")]
-impl From<plico_skia::Error> for CaptureError {
-    fn from(source: plico_skia::Error) -> Self {
-        Self::Skia { source }
-    }
 }
 
 #[cfg(feature = "wgpu")]
@@ -135,8 +126,6 @@ impl From<plico_wgpu::Error> for CaptureError {
 }
 
 pub(crate) enum CaptureRenderer {
-    #[cfg(feature = "skia")]
-    Skia(plico_skia::SkiaSurface),
     #[cfg(feature = "wgpu")]
     Wgpu(Box<plico_wgpu::Renderer>),
 }
@@ -173,8 +162,6 @@ impl CaptureRenderer {
     }
     pub(crate) fn adapter_name(&self) -> Option<&str> {
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(_) => None,
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => Some(renderer.adapter_info().name.as_str()),
         }
@@ -186,19 +173,11 @@ impl CaptureRenderer {
         height: u32,
     ) -> Result<Self, CaptureError> {
         let backend = if matches!(backend, crate::RenderBackend::Auto) {
-            if cfg!(feature = "wgpu") {
-                crate::RenderBackend::Wgpu
-            } else {
-                crate::RenderBackend::Skia
-            }
+            crate::RenderBackend::Wgpu
         } else {
             backend
         };
         match backend {
-            #[cfg(feature = "skia")]
-            crate::RenderBackend::Skia => {
-                Ok(Self::Skia(plico_skia::SkiaSurface::new(width, height)?))
-            }
             #[cfg(feature = "wgpu")]
             crate::RenderBackend::Wgpu => {
                 let _ = (width, height);
@@ -216,11 +195,6 @@ impl CaptureRenderer {
     ) -> Result<(), CaptureError> {
         let _ = scale;
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(surface) => {
-                surface.configure_text(text);
-                Ok(())
-            }
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -240,8 +214,6 @@ impl CaptureRenderer {
     /// Renderer stages and GPU time for the last drawn frame, when reported.
     pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(_) => None,
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 let budget = renderer.frame_budget();
@@ -278,8 +250,6 @@ impl CaptureRenderer {
     ) -> Result<Vec<u8>, CaptureError> {
         let _ = size;
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(surface) => Ok(surface.render_scene(scene, background)?),
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 Ok(renderer.render_scene(scene, size, background.components, false)?)
@@ -404,7 +374,7 @@ impl Capture<'_> {
         self.settle_passes = passes;
         self
     }
-    /// Auto prefers wgpu when enabled, otherwise Skia. An unavailable explicit backend errors.
+    /// Select the capture renderer. An unavailable explicit backend errors.
     pub fn renderer(mut self, backend: crate::RenderBackend) -> Self {
         self.backend = backend;
         self

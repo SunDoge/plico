@@ -35,8 +35,7 @@ use plico::widgets::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl")
-    .with_sksl(include_str!("../assets/shaders/aurora.sksl"));
+static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl");
 
 static LOGO: plico::SvgAsset = plico::svg_asset!("../assets/plico.svg");
 

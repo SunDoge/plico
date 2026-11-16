@@ -72,11 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("usage: player <file-or-url>")?;
     let player = Player::open(path, 1280, 720, false)?;
     let surface = player.surface();
-    let renderer = if cfg!(feature = "skia") {
-        plico_desktop::RenderBackend::Skia
-    } else {
-        plico_desktop::RenderBackend::Wgpu
-    };
+    let renderer = plico_desktop::RenderBackend::Wgpu;
     plico_desktop::run_source_with_options(
         SurfaceSource::new(
             Demo {

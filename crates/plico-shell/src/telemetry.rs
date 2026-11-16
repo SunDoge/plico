@@ -320,7 +320,7 @@ pub fn span(category: &str, name: &str) -> Span<'static> {
 /// Chrome layer exists at all (its default would create `trace-*.json` in the
 /// working directory). The fmt layer is filtered by `RUST_LOG` (default
 /// `info,plico=trace`); the Chrome layer is filtered by `PLICO_TRACE_FILTER`
-/// (default Plico perf/layout/Skia/cache targets and `plico=trace`) because
+/// (default Plico perf/layout/cache targets and `plico=trace`) because
 /// a trace file is a perf artifact —
 /// dependency TRACE noise such as winit or zbus would otherwise dominate it.
 /// Returns a guard that must live for the whole process: Chrome writes the
@@ -398,8 +398,7 @@ fn report_existing_subscriber() {
 pub const FMT_DEFAULT: &str = "info,plico=trace";
 /// Default filter directives for the Chrome trace layer: perf spans only.
 #[cfg(feature = "profiling")]
-pub const TRACE_DEFAULT: &str =
-    "plico::perf=trace,plico::layout=trace,plico::skia=trace,plico::cache=trace";
+pub const TRACE_DEFAULT: &str = "plico::perf=trace,plico::layout=trace,plico::cache=trace";
 /// Environment variable overriding the Chrome layer's filter directives.
 #[cfg(feature = "profiling")]
 const TRACE_FILTER_ENV: &str = "PLICO_TRACE_FILTER";
@@ -577,7 +576,6 @@ mod tracing_setup {
         probe!("plico::cache");
         probe!("plico::layout");
         probe!("plico::perf");
-        probe!("plico::skia");
         let mut targets = seen.span_targets.lock().unwrap().clone();
         targets.sort_unstable();
         targets
@@ -596,7 +594,6 @@ mod tracing_setup {
                 "plico::cache",
                 "plico::layout",
                 "plico::perf",
-                "plico::skia",
                 "plico::perf"
             ]
         );
