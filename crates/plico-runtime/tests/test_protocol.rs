@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::SemanticRole;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver, Error},
+    testing::{Command, Driver, Error, Tester},
 };
 use std::time::Duration;
 
@@ -87,6 +87,51 @@ fn semantic_queries_and_pointer_clicks_use_the_real_hit_test() {
         })
         .unwrap();
     assert_eq!(driver.view().count, 1);
+}
+
+#[test]
+fn tester_offers_mygo_style_name_based_interactions() {
+    let mut ui = Tester::new(Counter::default(), 400, 300).unwrap();
+    assert!(ui.has_text("Count:"));
+    assert!(ui.texts().iter().any(|text| text == "Increment"));
+    assert_eq!(ui.find("Increment").unwrap().role, SemanticRole::Button);
+
+    ui.move_to("Increment").unwrap();
+    ui.click("Increment").unwrap();
+    assert_eq!(ui.view().count, 1);
+
+    ui.key("Tab").unwrap();
+    assert!(matches!(
+        ui.find("Repeated"),
+        Err(Error::Target { matches: 2, .. })
+    ));
+}
+
+#[test]
+fn tester_drag_by_uses_pressed_pointer_frames() {
+    #[derive(Default)]
+    struct Draggable {
+        offset: (f64, f64),
+    }
+    impl HostView for Draggable {
+        fn show(&mut self, cx: &mut UiContext) {
+            let mut delta = (0., 0.);
+            drag_area_content(
+                cx,
+                "Move tile",
+                |cx| {
+                    text(cx, "Tile");
+                },
+                &mut |x, y| delta = (x, y),
+            );
+            self.offset.0 += delta.0;
+            self.offset.1 += delta.1;
+        }
+    }
+
+    let mut ui = Tester::new(Draggable::default(), 400, 300).unwrap();
+    ui.drag_by("Move tile", 24., 12.).unwrap();
+    assert_eq!(ui.view().offset, (24., 12.));
 }
 
 #[test]
