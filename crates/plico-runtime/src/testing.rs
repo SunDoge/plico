@@ -6,12 +6,36 @@ use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
     EventResponse, FrameSource, KeyEvent, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
-    PointerPhase, PointerProperties, SemanticAction, SemanticRole, SemanticSnapshot, TextContext,
-    UiEvent, layout::PlacedNode,
+    PointerPhase, PointerProperties, Scene, SemanticAction, SemanticRole, SemanticSnapshot,
+    TextContext, UiEvent, layout::PlacedNode,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use std::time::Duration;
+
+fn is_control_role(role: SemanticRole) -> bool {
+    matches!(
+        role,
+        SemanticRole::Button
+            | SemanticRole::TextInput
+            | SemanticRole::Link
+            | SemanticRole::CheckBox
+            | SemanticRole::RadioButton
+            | SemanticRole::Switch
+            | SemanticRole::ComboBox
+            | SemanticRole::Option
+            | SemanticRole::MenuItem
+            | SemanticRole::MenuItemCheckBox
+            | SemanticRole::MenuItemRadio
+            | SemanticRole::TreeItem
+            | SemanticRole::Separator
+            | SemanticRole::Slider
+            | SemanticRole::SpinButton
+            | SemanticRole::Tab
+            | SemanticRole::GridCell
+            | SemanticRole::ColorWell
+    )
+}
 
 /// Value-only commands for a test transport. They never contain arena handles.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +136,8 @@ pub enum Error {
     DidNotSettle { frames: usize },
     #[snafu(display("virtual clock overflow"))]
     Clock,
+    #[snafu(display("incremental/full-replay mismatch in {surface}: {detail}"))]
+    Mismatch { surface: String, detail: String },
 }
 
 fn find_target<V: HostView>(
@@ -346,6 +372,93 @@ pub struct Driver<V: HostView> {
     clock: VirtualClock,
     size: (u32, u32),
 }
+
+/// MyGO-style name for the deterministic high-level test driver.
+///
+/// `Driver` remains available for recipe/transport-oriented code. Application
+/// tests can use `Tester` and the concise name-based helpers on the same type.
+pub type Tester<V> = Driver<V>;
+
+/// Stable layout projection used by differential tests.
+///
+/// Renderer resource handles and cache identities are deliberately absent.
+/// Scene commands are compared separately through [`SceneSnapshot`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutSnapshot {
+    pub depth: usize,
+    pub transform: [f64; 6],
+    pub opacity: f32,
+    pub rect: [f32; 4],
+    pub content_origin: [f32; 2],
+    pub content_size: [f32; 2],
+    pub clip: Option<[f32; 4]>,
+    pub clip_radii: [f32; 4],
+    pub own_clip: Option<[f32; 4]>,
+    pub own_clip_radii: [f32; 4],
+    pub border_widths: [f32; 4],
+    pub scroll: plico_renderer::layout::ScrollMetrics,
+}
+
+impl From<&PlacedNode> for LayoutSnapshot {
+    fn from(node: &PlacedNode) -> Self {
+        let radii = |radii: plico_renderer::style::CornerRadii| {
+            [
+                radii.top_left,
+                radii.top_right,
+                radii.bottom_right,
+                radii.bottom_left,
+            ]
+        };
+        Self {
+            depth: node.depth,
+            transform: node.world_transform.as_coeffs(),
+            opacity: node.world_opacity,
+            rect: node.rect,
+            content_origin: node.content_origin,
+            content_size: node.content_size,
+            clip: node.clip,
+            clip_radii: radii(node.clip_radii),
+            own_clip: node.own_clip,
+            own_clip_radii: radii(node.own_clip_radii),
+            border_widths: node.border_widths,
+            scroll: node.scroll,
+        }
+    }
+}
+
+/// Pointer-independent logical signature of a rendered scene.
+///
+/// `PaintCommand` debug output intentionally omits allocation addresses and
+/// opaque SVG internals, while retaining command order, geometry and paint
+/// parameters. Pixel comparisons remain the stronger GPU-specific oracle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneSnapshot {
+    pub commands: Vec<String>,
+}
+
+#[derive(Clone)]
+enum ReplayStep {
+    Execute(Command),
+    Advance(Duration),
+    Resize(u32, u32),
+    Settle,
+}
+
+/// Compare a long-lived incremental runtime with a cold runtime that replays
+/// the same deterministic operations from the initial application state.
+///
+/// This catches stale declaration, layout, semantic, hit-test and Scene
+/// caches without requiring the application to serialize its state. Arbitrary
+/// `update_view` closures are intentionally excluded because they cannot be
+/// replayed; express those changes as UI commands or application-owned test
+/// actions instead.
+pub struct DifferentialTester<V: HostView + Clone> {
+    initial: V,
+    initial_size: (u32, u32),
+    live: Driver<V>,
+    steps: Vec<ReplayStep>,
+}
+
 impl<V: HostView> Driver<V> {
     pub fn new(view: V, width: u32, height: u32) -> Result<Self, Error> {
         if width == 0 || height == 0 {
@@ -361,7 +474,8 @@ impl<V: HostView> Driver<V> {
         driver.frame()?;
         Ok(driver)
     }
-    fn frame(&mut self) -> Result<(), Error> {
+    /// Build and settle one deterministic frame at the current virtual time.
+    pub fn frame(&mut self) -> Result<(), Error> {
         self.source
             .try_build_frame(&mut self.text, self.size.0, self.size.1)
             .map_err(|message| Error::Declaration {
@@ -384,6 +498,32 @@ impl<V: HostView> Driver<V> {
     /// Retained layout and paint projection for structural assertions.
     pub fn placed_nodes(&self) -> &[PlacedNode] {
         self.source.placed_nodes()
+    }
+
+    /// Stable geometry and scrolling projection for cache-oracle comparisons.
+    pub fn layout_snapshot(&self) -> Vec<LayoutSnapshot> {
+        self.placed_nodes()
+            .iter()
+            .map(LayoutSnapshot::from)
+            .collect()
+    }
+
+    /// Encode the retained frame without forcing another declaration and
+    /// return a resource-pointer-independent logical command signature.
+    pub fn scene_snapshot(&mut self) -> Result<SceneSnapshot, Error> {
+        let mut scene = Scene::new();
+        self.source
+            .try_render_retained_frame(&mut scene, &mut self.text, self.size, 1.)
+            .map_err(|error| Error::Declaration {
+                message: error.to_string(),
+            })?;
+        Ok(SceneSnapshot {
+            commands: scene
+                .commands
+                .iter()
+                .map(|command| normalize_scene_debug(format!("{command:?}")))
+                .collect(),
+        })
     }
 
     /// Drain host/service completions and settle the resulting UI frame.
@@ -439,6 +579,155 @@ impl<V: HostView> Driver<V> {
     pub fn snapshot(&self) -> SemanticSnapshot {
         self.source.semantics()
     }
+
+    /// Find one exposed element by accessible name, independent of its role.
+    ///
+    /// Names must be unique. Use [`Self::find_at`] when repeated names are
+    /// intentional, or [`Self::get_by_role`] when the role is part of the
+    /// assertion.
+    pub fn find(&self, label: &str) -> Result<plico_renderer::SemanticNode, Error> {
+        self.find_at(label, None)
+    }
+
+    /// Find a zero-based occurrence of an exposed accessible name.
+    pub fn find_at(
+        &self,
+        label: &str,
+        occurrence: Option<usize>,
+    ) -> Result<plico_renderer::SemanticNode, Error> {
+        let tree = self.snapshot();
+        let mut matches = tree
+            .exposed_nodes()
+            .into_iter()
+            .filter(|node| node.label.as_deref() == Some(label))
+            .collect::<Vec<_>>();
+        // A named control commonly owns a static-text child with the same
+        // accessible name. MyGO's Tester resolves that visible text to the
+        // receiver of input; do the same while preserving true ambiguity
+        // between two independently named controls.
+        if matches.iter().any(|node| is_control_role(node.role)) {
+            matches.retain(|node| is_control_role(node.role));
+        }
+        let node = match occurrence {
+            Some(index) => matches.get(index).copied(),
+            None if matches.len() == 1 => matches.first().copied(),
+            _ => None,
+        };
+        node.cloned().ok_or_else(|| Error::Target {
+            role: "element".into(),
+            label: label.into(),
+            matches: matches.len(),
+        })
+    }
+
+    /// Accessible names in exposed semantic source order.
+    pub fn texts(&self) -> Vec<String> {
+        self.snapshot()
+            .exposed_nodes()
+            .into_iter()
+            .filter_map(|node| node.label.clone())
+            .collect()
+    }
+
+    /// Whether any exposed accessible name or textual value contains `text`.
+    pub fn has_text(&self, text: &str) -> bool {
+        self.snapshot().exposed_nodes().into_iter().any(|node| {
+            node.label
+                .as_deref()
+                .is_some_and(|label| label.contains(text))
+                || node
+                    .value
+                    .as_deref()
+                    .is_some_and(|value| value.contains(text))
+        })
+    }
+
+    fn target_point(&self, node: &plico_renderer::SemanticNode) -> Result<Point, Error> {
+        let bounds = node.bounds;
+        let position = Point {
+            x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
+            y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
+        };
+        let valid_bounds = bounds.iter().all(|value| value.is_finite())
+            && bounds[2] > bounds[0]
+            && bounds[3] > bounds[1];
+        let hit = valid_bounds
+            .then(|| self.source.hit_test(position).map(plico::Entity::raw))
+            .flatten();
+        if hit != Some(node.id) {
+            return Err(Error::PointerTarget {
+                role: node.role.as_str().into(),
+                label: node.label.clone().unwrap_or_default(),
+                x: position.x,
+                y: position.y,
+                hit,
+            });
+        }
+        Ok(position)
+    }
+
+    /// Move the primary mouse pointer in logical window coordinates.
+    pub fn move_pointer(&mut self, x: f64, y: f64) -> Result<SemanticSnapshot, Error> {
+        self.execute(Command::PointerMove { x, y })
+    }
+
+    /// Move the pointer to the center of a uniquely named, hit-testable element.
+    pub fn move_to(&mut self, label: &str) -> Result<SemanticSnapshot, Error> {
+        let target = self.find(label)?;
+        let point = self.target_point(&target)?;
+        self.move_pointer(point.x, point.y)
+    }
+
+    /// Press the primary pointer without releasing it.
+    pub fn press_at(&mut self, x: f64, y: f64) -> Result<SemanticSnapshot, Error> {
+        self.execute(Command::PointerDown { x, y })
+    }
+
+    /// Release the primary pointer.
+    pub fn release_at(&mut self, x: f64, y: f64) -> Result<SemanticSnapshot, Error> {
+        self.execute(Command::PointerUp { x, y })
+    }
+
+    /// Click the center of a uniquely named element through real hit testing.
+    pub fn click(&mut self, label: &str) -> Result<SemanticSnapshot, Error> {
+        let target = self.find(label)?;
+        let point = self.target_point(&target)?;
+        self.move_pointer(point.x, point.y)?;
+        self.press_at(point.x, point.y)?;
+        self.release_at(point.x, point.y)
+    }
+
+    /// Drag a uniquely named element by a logical-pixel delta.
+    pub fn drag_by(
+        &mut self,
+        label: &str,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Result<SemanticSnapshot, Error> {
+        if !delta_x.is_finite() || !delta_y.is_finite() {
+            return Err(Error::PointerPosition);
+        }
+        let target = self.find(label)?;
+        let start = self.target_point(&target)?;
+        let end = Point {
+            x: start.x + delta_x,
+            y: start.y + delta_y,
+        };
+        self.move_pointer(start.x, start.y)?;
+        self.press_at(start.x, start.y)?;
+        self.move_pointer(end.x, end.y)?;
+        self.release_at(end.x, end.y)
+    }
+
+    /// Commit text to the currently focused input.
+    pub fn type_text(&mut self, text: impl Into<String>) -> Result<SemanticSnapshot, Error> {
+        self.execute(Command::Text { text: text.into() })
+    }
+
+    /// Send one logical key press to the current focus owner.
+    pub fn key(&mut self, key: impl Into<String>) -> Result<SemanticSnapshot, Error> {
+        self.execute(Command::Key { key: key.into() })
+    }
     /// Find one exposed node by semantic role and accessible name. Repeated
     /// names are rejected so tests cannot silently select the wrong control.
     pub fn get_by_role(
@@ -491,27 +780,11 @@ impl<V: HostView> Driver<V> {
             .exposed_nodes()
             .into_iter()
             .filter(|node| {
-                matches!(
-                    node.role,
-                    SemanticRole::Button
-                        | SemanticRole::TextInput
-                        | SemanticRole::Link
-                        | SemanticRole::CheckBox
-                        | SemanticRole::RadioButton
-                        | SemanticRole::Switch
-                        | SemanticRole::ComboBox
-                        | SemanticRole::MenuItem
-                        | SemanticRole::MenuItemCheckBox
-                        | SemanticRole::MenuItemRadio
-                        | SemanticRole::Slider
-                        | SemanticRole::SpinButton
-                        | SemanticRole::Tab
-                        | SemanticRole::TreeItem
-                        | SemanticRole::ColorWell
-                ) && node
-                    .label
-                    .as_deref()
-                    .is_none_or(|label| label.trim().is_empty())
+                is_control_role(node.role)
+                    && node
+                        .label
+                        .as_deref()
+                        .is_none_or(|label| label.trim().is_empty())
             })
             .cloned()
             .collect()
@@ -561,4 +834,223 @@ impl<V: HostView> Driver<V> {
         self.frame()?;
         Ok(self.snapshot())
     }
+}
+
+impl<V: HostView + Clone> DifferentialTester<V> {
+    pub fn new(view: V, width: u32, height: u32) -> Result<Self, Error> {
+        let mut verifier = Self {
+            initial: view.clone(),
+            initial_size: (width, height),
+            live: Driver::new(view, width, height)?,
+            steps: Vec::new(),
+        };
+        verifier.verify()?;
+        Ok(verifier)
+    }
+
+    /// Current application state from the long-lived incremental runtime.
+    pub fn view(&self) -> &V {
+        self.live.view()
+    }
+
+    pub fn snapshot(&self) -> SemanticSnapshot {
+        self.live.snapshot()
+    }
+
+    pub fn declarations(&self) -> Vec<ViewNode> {
+        self.live.declarations()
+    }
+
+    /// Execute one serializable recipe command, then compare every retained
+    /// projection with a freshly replayed runtime.
+    pub fn execute(&mut self, command: Command) -> Result<SemanticSnapshot, Error> {
+        self.live.execute(command.clone())?;
+        self.steps.push(ReplayStep::Execute(command));
+        self.verify()?;
+        Ok(self.snapshot())
+    }
+
+    pub fn advance(&mut self, duration: Duration) -> Result<SemanticSnapshot, Error> {
+        self.live.advance(duration)?;
+        self.steps.push(ReplayStep::Advance(duration));
+        self.verify()?;
+        Ok(self.snapshot())
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<SemanticSnapshot, Error> {
+        self.live.resize(width, height)?;
+        self.steps.push(ReplayStep::Resize(width, height));
+        self.verify()?;
+        Ok(self.snapshot())
+    }
+
+    pub fn settle(&mut self) -> Result<SemanticSnapshot, Error> {
+        self.live.settle()?;
+        self.steps.push(ReplayStep::Settle);
+        self.verify()?;
+        Ok(self.snapshot())
+    }
+
+    fn replay(&self) -> Result<Driver<V>, Error> {
+        let mut oracle = Driver::new(
+            self.initial.clone(),
+            self.initial_size.0,
+            self.initial_size.1,
+        )?;
+        for step in &self.steps {
+            match step {
+                ReplayStep::Execute(command) => {
+                    oracle.execute(command.clone())?;
+                }
+                ReplayStep::Advance(duration) => {
+                    oracle.advance(*duration)?;
+                }
+                ReplayStep::Resize(width, height) => {
+                    oracle.resize(*width, *height)?;
+                }
+                ReplayStep::Settle => {
+                    oracle.settle()?;
+                }
+            }
+        }
+        Ok(oracle)
+    }
+
+    /// Rebuild the oracle from the initial state and compare declarations,
+    /// semantics, layout, hit testing and logical Scene commands.
+    pub fn verify(&mut self) -> Result<(), Error> {
+        let mut oracle = self.replay()?;
+
+        let live_declarations = self.live.declarations();
+        let oracle_declarations = oracle.declarations();
+        if live_declarations != oracle_declarations {
+            return Err(Error::Mismatch {
+                surface: "declarations".into(),
+                detail: sequence_difference(&live_declarations, &oracle_declarations),
+            });
+        }
+
+        let live_semantics = self.live.snapshot();
+        let oracle_semantics = oracle.snapshot();
+        if live_semantics != oracle_semantics {
+            return Err(Error::Mismatch {
+                surface: "semantics".into(),
+                detail: sequence_difference(&live_semantics.nodes, &oracle_semantics.nodes),
+            });
+        }
+
+        let live_layout = self.live.layout_snapshot();
+        let oracle_layout = oracle.layout_snapshot();
+        if live_layout != oracle_layout {
+            return Err(Error::Mismatch {
+                surface: "layout".into(),
+                detail: sequence_difference(&live_layout, &oracle_layout),
+            });
+        }
+
+        let live_scene = self.live.scene_snapshot()?;
+        let oracle_scene = oracle.scene_snapshot()?;
+        if live_scene != oracle_scene {
+            return Err(Error::Mismatch {
+                surface: "scene".into(),
+                detail: sequence_difference(&live_scene.commands, &oracle_scene.commands),
+            });
+        }
+
+        let live_hits = hit_snapshot(&self.live);
+        let oracle_hits = hit_snapshot(&oracle);
+        if live_hits != oracle_hits {
+            return Err(Error::Mismatch {
+                surface: "hit-test".into(),
+                detail: sequence_difference(&live_hits, &oracle_hits),
+            });
+        }
+        Ok(())
+    }
+}
+
+fn sequence_difference<T: PartialEq + std::fmt::Debug>(live: &[T], oracle: &[T]) -> String {
+    let first = live
+        .iter()
+        .zip(oracle)
+        .position(|(live, oracle)| live != oracle);
+    match first {
+        Some(index) => {
+            let live_value = format!("{:?}", live[index]);
+            let oracle_value = format!("{:?}", oracle[index]);
+            let shorten = |value: String| {
+                const LIMIT: usize = 500;
+                if value.len() <= LIMIT {
+                    value
+                } else {
+                    format!("{}…", &value[..value.floor_char_boundary(LIMIT)])
+                }
+            };
+            format!(
+                "first difference at index {index}; incremental={}, replay={}; live={}; oracle={}",
+                live.len(),
+                oracle.len(),
+                shorten(live_value),
+                shorten(oracle_value)
+            )
+        }
+        None => format!(
+            "length differs; incremental={}, replay={}",
+            live.len(),
+            oracle.len()
+        ),
+    }
+}
+
+fn hit_snapshot<V: HostView>(driver: &Driver<V>) -> Vec<Option<u64>> {
+    let mut points = Vec::new();
+    let (width, height) = driver.size;
+    for y in 0..=4 {
+        for x in 0..=4 {
+            points.push(Point {
+                x: f64::from(width) * (f64::from(x) + 0.5) / 5.,
+                y: f64::from(height) * (f64::from(y) + 0.5) / 5.,
+            });
+        }
+    }
+    points.extend(
+        driver
+            .snapshot()
+            .exposed_nodes()
+            .into_iter()
+            .filter_map(|node| {
+                let [x0, y0, x1, y1] = node.bounds;
+                (x0.is_finite()
+                    && y0.is_finite()
+                    && x1.is_finite()
+                    && y1.is_finite()
+                    && x1 > x0
+                    && y1 > y0)
+                    .then_some(Point {
+                        x: f64::from(x0 + x1) * 0.5,
+                        y: f64::from(y0 + y1) * 0.5,
+                    })
+            }),
+    );
+    points
+        .into_iter()
+        .map(|point| driver.source.hit_test(point).map(plico::Entity::raw))
+        .collect()
+}
+
+fn normalize_scene_debug(mut command: String) -> String {
+    // FontData's Blob ID is a process-global cache identity, not part of the
+    // rendered command. Two fresh TextContexts intentionally assign different
+    // IDs to identical font bytes.
+    const PREFIX: &str = "Blob { id: ";
+    let mut offset = 0;
+    while let Some(found) = command[offset..].find(PREFIX) {
+        let start = offset + found + PREFIX.len();
+        let end = command[start..]
+            .find(|character: char| !character.is_ascii_digit())
+            .map_or(command.len(), |end| start + end);
+        command.replace_range(start..end, "_");
+        offset = start + 1;
+    }
+    command
 }

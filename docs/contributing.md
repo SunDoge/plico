@@ -129,9 +129,11 @@ git diff -- Cargo.toml Cargo.lock CHANGELOG.md
 
 ## 确定性的应用测试
 
-优先使用 [Rust 测试协议](testing.md)：`plico_runtime::testing::Driver` 驱动真实声明、布局和输入路径，
+优先使用 [Rust 测试协议](testing.md)：`plico_runtime::testing::Tester` 驱动真实声明、布局和输入路径，
 以角色和名称定位控件，用虚拟时钟推进动画，不依赖桌面坐标、系统焦点或 sleep。
 开发宿主的 headless 命令复用同一个 dispatcher，不另写一套事件逻辑。
+修改缓存、局部布局、Scene 编码或 hit-test 时，为最小场景增加 `DifferentialTester` 回归，
+让长期增量实例与冷启动完整重放实例保持一致；性能测试与该正确性 oracle 分开运行。
 
 普通 CI 不运行桌面自动化。这些 Python 窗口脚本只保留为本地验收工具，
 不提供额外的全量 CI 开关。

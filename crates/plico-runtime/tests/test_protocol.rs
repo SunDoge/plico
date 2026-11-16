@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::SemanticRole;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver, Error},
+    testing::{Command, DifferentialTester, Driver, Error, Tester},
 };
 use std::time::Duration;
 
@@ -87,6 +87,139 @@ fn semantic_queries_and_pointer_clicks_use_the_real_hit_test() {
         })
         .unwrap();
     assert_eq!(driver.view().count, 1);
+}
+
+#[test]
+fn tester_offers_mygo_style_name_based_interactions() {
+    let mut ui = Tester::new(Counter::default(), 400, 300).unwrap();
+    assert!(ui.has_text("Count:"));
+    assert!(ui.texts().iter().any(|text| text == "Increment"));
+    assert_eq!(ui.find("Increment").unwrap().role, SemanticRole::Button);
+
+    ui.move_to("Increment").unwrap();
+    ui.click("Increment").unwrap();
+    assert_eq!(ui.view().count, 1);
+
+    ui.key("Tab").unwrap();
+    assert!(matches!(
+        ui.find("Repeated"),
+        Err(Error::Target { matches: 2, .. })
+    ));
+}
+
+#[test]
+fn tester_drag_by_uses_pressed_pointer_frames() {
+    #[derive(Default)]
+    struct Draggable {
+        offset: (f64, f64),
+    }
+    impl HostView for Draggable {
+        fn show(&mut self, cx: &mut UiContext) {
+            let mut delta = (0., 0.);
+            drag_area_content(
+                cx,
+                "Move tile",
+                |cx| {
+                    text(cx, "Tile");
+                },
+                &mut |x, y| delta = (x, y),
+            );
+            self.offset.0 += delta.0;
+            self.offset.1 += delta.1;
+        }
+    }
+
+    let mut ui = Tester::new(Draggable::default(), 400, 300).unwrap();
+    ui.drag_by("Move tile", 24., 12.).unwrap();
+    assert_eq!(ui.view().offset, (24., 12.));
+}
+
+#[test]
+fn differential_tester_matches_cold_replay_across_structure_motion_and_resize() {
+    #[derive(Clone, Default)]
+    struct Changing {
+        rows: usize,
+        expanded: bool,
+        animated_width: f32,
+    }
+    impl HostView for Changing {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).gap(8).width_percent(100.)
+                + |cx| {
+                    if button(cx).text("Add row").clicked() {
+                        self.rows += 1;
+                    }
+                    if button(cx).text("Toggle panel").clicked() {
+                        self.expanded = !self.expanded;
+                    }
+                    for row in 0..self.rows {
+                        cx.keyed(row, |cx| {
+                            text!(cx, "Row {}", row + 1);
+                        });
+                    }
+                    self.animated_width = cx.animate(
+                        "panel-width",
+                        if self.expanded { 180. } else { 80. },
+                        Duration::from_millis(120),
+                    );
+                    column(cx)
+                        .width(self.animated_width)
+                        .height(24.)
+                        .background(Color::Accent)
+                        .children(|_| {});
+                };
+        }
+    }
+
+    let mut ui = DifferentialTester::new(Changing::default(), 400, 300).unwrap();
+    ui.execute(Command::PointerClick {
+        role: "button".into(),
+        label: "Add row".into(),
+        occurrence: None,
+    })
+    .unwrap();
+    ui.execute(Command::PointerClick {
+        role: "button".into(),
+        label: "Toggle panel".into(),
+        occurrence: None,
+    })
+    .unwrap();
+    ui.advance(Duration::from_millis(48)).unwrap();
+    ui.resize(640, 360).unwrap();
+    ui.settle().unwrap();
+
+    assert_eq!(ui.view().rows, 1);
+    assert_eq!(ui.view().animated_width, 180.);
+    assert!(
+        ui.snapshot()
+            .nodes
+            .iter()
+            .any(|node| { node.label.as_deref() == Some("Row 1") })
+    );
+}
+
+#[test]
+fn differential_tester_reports_nondeterministic_declarations() {
+    use std::{cell::Cell, rc::Rc};
+
+    #[derive(Clone)]
+    struct Nondeterministic(Rc<Cell<usize>>);
+    impl HostView for Nondeterministic {
+        fn show(&mut self, cx: &mut UiContext) {
+            let value = self.0.get() + 1;
+            self.0.set(value);
+            text!(cx, "Build {value}");
+        }
+    }
+
+    assert!(matches!(
+        DifferentialTester::new(Nondeterministic(Rc::new(Cell::new(0))), 200, 100),
+        Err(Error::Mismatch {
+            surface,
+            ..
+        }) if surface == "declarations"
+    ));
 }
 
 #[test]
