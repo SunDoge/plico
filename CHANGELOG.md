@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/SunDoge/plico/compare/v0.4.1...v0.4.2) - 2026-11-15
+
+### Added
+
+- *(core)* add memoized subtrees and timelines
+- *(backend)* use native desktop window frames
+- *(backend)* add pure Rust Linux client-side frames
+- *(backend)* support runtime window decorations
+
+### Fixed
+
+- *(backend)* delegate Linux window contours
+
 ## [0.4.1](https://github.com/SunDoge/plico/compare/v0.4.0...v0.4.1) - 2026-11-13
 
 ### Added
