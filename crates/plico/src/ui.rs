@@ -804,7 +804,10 @@ impl<'e> UiContext<'e> {
         inner.style.transition_ms = metrics.interaction_ms;
         inner.style.padding = 0.;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
-        inner.style.radius = metrics.radius as f32;
+        // The toggle row itself is transparent and must not clip its retained
+        // indicator at the left edge. The switch/checkbox fragment owns its
+        // own track/box radius.
+        inner.style.radius = 0.;
         inner.style.min_height =
             Some(metrics.space(if kind == Kind::Switch { 5 } else { 4 }) as f32);
         Toggle { inner, value }

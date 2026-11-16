@@ -39,6 +39,10 @@ fn configured_toggle_returns_final_value_consumes_once_and_respects_disabled() {
     assert!(response.changed() && response.checked() && response.enabled());
     assert!(value && engine.node(id).unwrap().style.checked);
     let style = engine.node(id).unwrap().style;
+    assert_eq!(
+        style.radius, 0.,
+        "the transparent row must not clip the checkbox"
+    );
     assert_eq!(style.hover_background, None);
     assert_eq!(style.pressed_background, None);
     assert_eq!(
