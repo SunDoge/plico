@@ -49,7 +49,7 @@ and `snapshot` instead of reaching into retained runtime storage.
 The virtual clock advances only when the test asks it to; `advance` uses one
 runtime frame, not a simulated series of OS vsync events.
 
-For CPU pixel assertions and offline screenshots, the native `skia` feature also
+For GPU pixel assertions and offline screenshots, the native `wgpu` feature
 provides a high-level capture helper. It owns the `Scene`/`TextContext` setup,
 uses retained frames when available, and performs a bounded number of settle
 passes before reading premultiplied RGBA or writing a PNG:

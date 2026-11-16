@@ -273,12 +273,12 @@ impl Elevation {
         ambient: Some(shadow(10., 24., -6., 0.16, 0x344d63)),
     };
     pub const FLOATING: Self = Self {
-        contact: Some(shadow(2., 5., -1., 0.10, 0)),
-        ambient: Some(shadow(8., 20., -4., 0.16, 0)),
+        contact: Some(shadow(1., 3., 0., 0.06, 0)),
+        ambient: Some(shadow(12., 32., -4., 0.12, 0)),
     };
     pub const OVERLAY: Self = Self {
-        contact: Some(shadow(2., 6., -2., 0.10, 0)),
-        ambient: Some(shadow(10., 28., -6., 0.18, 0)),
+        contact: Some(shadow(1., 3., 0., 0.07, 0)),
+        ambient: Some(shadow(16., 40., -6., 0.14, 0)),
     };
     pub(crate) fn apply(self, style: &mut Style) {
         style.shadow = self.contact;

@@ -18,6 +18,7 @@ use plico_dev::App;
 use std::time::Duration;
 mod component_kit;
 mod components;
+mod cui_showcase;
 pub mod game2048;
 pub mod glass;
 mod layout_demo;
@@ -34,8 +35,7 @@ use plico::widgets::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl")
-    .with_sksl(include_str!("../assets/shaders/aurora.sksl"));
+static AURORA: plico::ShaderAsset = plico::shader_asset!("../assets/shaders/aurora.wgsl");
 
 static LOGO: plico::SvgAsset = plico::svg_asset!("../assets/plico.svg");
 
@@ -82,6 +82,8 @@ pub enum Page {
     ShaderPlayground,
     #[route(label = "Component kit", icon = color_icons::DESIGN_IDEAS)]
     ComponentKit,
+    #[route(label = "CUI showcase", icon = color_icons::DESIGN_IDEAS)]
+    CuiShowcase,
     #[route(label = "Node editor", icon = color_icons::DESIGN_IDEAS)]
     NodeEditor,
 }
@@ -104,6 +106,7 @@ pub struct Gallery {
     pub effects: effects::Effects,
     pub shader_playground: shader_playground::Playground,
     pub component_kit: component_kit::ComponentKit,
+    pub cui_showcase: cui_showcase::CuiShowcase,
     pub node_editor: node_editor_demo::NodeEditorDemo,
     #[serde(skip)]
     pub spring: SpringDemo,
@@ -216,6 +219,7 @@ impl Gallery {
                         shader_playground::page(ui, &mut self.shader_playground)
                     }
                     Page::ComponentKit => component_kit::page(ui, &mut self.component_kit),
+                    Page::CuiShowcase => cui_showcase::page(ui, &mut self.cui_showcase),
                     Page::NodeEditor => node_editor_demo::page(ui, &mut self.node_editor),
                 });
             })

@@ -14,7 +14,6 @@ path = "src/lib.rs"
 peniko.workspace = true
 kurbo.workspace = true
 plico-renderer = { path = "../plico-renderer" }
-plico-skia = { path = "../plico-skia", optional = true, features = ["window"] }
 accesskit = "0.24.1"
 futures-util = "0.3"
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp"] }
@@ -34,8 +33,7 @@ default = ["wgpu"]
 wgpu = ["dep:plico-wgpu", "dep:pollster"]
 desktop-integration = ["dep:tray-icon"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
-skia = ["dep:plico-skia"]
-profiling = ["plico-skia?/profiling", "plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
+profiling = ["plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 plico-wgpu = { path = "../plico-wgpu", optional = true, features = ["window"] }
@@ -53,6 +51,7 @@ winit = { workspace = true }
 plico-native = { path = "../plico-native", optional = true }
 
 [dev-dependencies]
+accesskit_consumer = "=0.35.0"
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
 usage-rs.workspace = true
 taffy.workspace = true

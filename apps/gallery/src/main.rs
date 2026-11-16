@@ -21,11 +21,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         no_ring_splitting: bool,
     }
     let options = Options::parse();
-    #[cfg(not(any(feature = "desktop", feature = "wgpu", feature = "skia")))]
+    #[cfg(not(any(feature = "desktop", feature = "wgpu")))]
     if options.capture.is_some() || options.scenario.is_some() {
-        return Err("scenario capture requires the gallery desktop, wgpu or skia feature".into());
+        return Err("scenario capture requires the gallery desktop or wgpu feature".into());
     }
-    #[cfg(any(feature = "desktop", feature = "wgpu", feature = "skia"))]
+    #[cfg(any(feature = "desktop", feature = "wgpu"))]
     if let Some(output) = options.capture {
         let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Auto);
         #[cfg(feature = "wgpu")]

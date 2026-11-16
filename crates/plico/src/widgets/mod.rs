@@ -219,9 +219,9 @@ pub fn text_fmt<'u, 'e>(
     cx.text_fmt(args)
 }
 
-/// A theme-colored SVG icon with a default size matching the inherited text size.
+/// A theme-colored SVG icon sized for the active control density.
 pub fn icon<'u, 'e>(cx: &'u mut crate::UiContext<'e>, asset: &SvgAsset) -> crate::Svg<'u, 'e> {
-    let size = cx.inherited.font_size.saturating_add(2) as f32;
+    let size = cx.theme().metrics.control_icon() as f32;
     cx.svg(asset).size(size, size)
 }
 

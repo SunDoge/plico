@@ -7,10 +7,10 @@ use plico::Theme;
 
 use crate::{is_dark, mix_rgb};
 
-/// MyGO `Border.Mix(Text, 0.25)`: the quiet rim of unchecked boxes and
-/// hovered text fields.
+/// Quiet but legible rim of unchecked boxes. CUI treats checkbox edges as the
+/// control's primary silhouette, so it is stronger than a button hairline.
 pub(crate) fn quiet_border(theme: Theme) -> u32 {
-    mix_rgb(theme.border, theme.foreground, 0.25)
+    mix_rgb(theme.border, theme.foreground, 0.35)
 }
 /// A switch track: `Border.Mix(Text, 0.15)` when off, filling to accent.
 pub(crate) fn switch_track(theme: Theme, progress: f32) -> u32 {
@@ -43,14 +43,15 @@ pub(crate) fn thumb_face(theme: Theme) -> u32 {
 pub(crate) fn knob_rim_alpha(theme: Theme) -> f32 {
     if is_dark(theme) { 0.7 } else { 0.22 }
 }
-/// MyGO `inputBorder`: accent while focused, quiet border under the pointer,
-/// the theme border otherwise.
+/// Fields are identified by their edge, so their resting border is stronger
+/// than a button hairline and firms up under the pointer. Focus spends the
+/// accent, following CUI's control-edge hierarchy on top of MyGO's states.
 pub(crate) fn input_border(theme: Theme, focused: bool, hovered: bool) -> u32 {
     if focused {
         theme.accent
     } else if hovered {
-        quiet_border(theme)
+        mix_rgb(theme.border, theme.foreground, 0.45)
     } else {
-        theme.border
+        mix_rgb(theme.border, theme.foreground, 0.35)
     }
 }

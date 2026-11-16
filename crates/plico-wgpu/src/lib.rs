@@ -15,6 +15,9 @@ mod external;
 mod frame_pass;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod glyphs;
+#[cfg(all(not(target_os = "linux"), not(target_arch = "wasm32")))]
+#[path = "portable_glyphs.rs"]
+mod glyphs;
 #[cfg(all(target_os = "macos", feature = "window"))]
 mod macos_frame_pass;
 #[cfg(all(target_os = "macos", feature = "window"))]

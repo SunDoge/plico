@@ -106,10 +106,8 @@ PLICO_WGPU_DAMAGE=1 cargo run -p plico-desktop --no-default-features \
   --features wgpu --example wgpu-window
 ```
 
-Skia requires an explicitly supplied SkSL variant via `ShaderAsset::with_sksl`;
-WGSL is not translated automatically. This new native bridge does not implement
-browser-side effect compilation; WASM type checking passes, but attempting such a
-surface in that path returns an explicit unsupported error. Typed uniform
+The browser bridge does not yet implement every desktop effect path; WASM type
+checking passes, but an unsupported surface returns an explicit error. Typed uniform
 structures, texture inputs, resource file watching and backdrop/filter graphs are
 future work, not current capabilities.
 

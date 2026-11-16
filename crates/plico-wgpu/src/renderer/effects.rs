@@ -100,11 +100,11 @@ impl Renderer {
     /// raster entries and raster/position payload bytes. Source bytes may be
     /// shared file mappings; this is not process RSS or newly allocated memory.
     pub fn positioned_glyph_cache_stats(&self) -> (usize, usize, usize, usize) {
-        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             self.glyphs.stats()
         }
-        #[cfg(not(all(target_os = "linux", feature = "system-text")))]
+        #[cfg(target_arch = "wasm32")]
         {
             (0, 0, 0, 0)
         }
@@ -112,7 +112,7 @@ impl Renderer {
     /// Drop native positioned-font and bitmap caches; retained scenes can still
     /// own already prepared bitmap resources.
     pub fn trim_positioned_glyph_cache(&mut self) {
-        #[cfg(all(target_os = "linux", feature = "system-text"))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             self.glyphs = Default::default();
         }

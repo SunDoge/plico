@@ -8,7 +8,7 @@ machine. Linux was tested; Windows/macOS linking and playback remain unverified.
 ## Run
 
 ```sh
-cargo run -p plico-video --features mpv,skia --example player -- /path/to/video.mp4
+cargo run -p plico-video --features mpv --example player -- /path/to/video.mp4
 # Vello reference path (not yet visually validated):
 cargo run -p plico-video --features mpv --example player -- /path/to/video.mp4
 ```

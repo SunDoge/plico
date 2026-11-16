@@ -400,16 +400,6 @@ impl Adapter {
                         entry.used = generation;
                     }
                 }
-                Kind::Checkbox => {
-                    let color = Some(retained.paint_key.theme.on_accent);
-                    if let Some(entry) = self
-                        .svg_cache
-                        .get_mut(plico::icons::CHECK.source())
-                        .and_then(|variants| variants.get_mut(&color))
-                    {
-                        entry.used = generation;
-                    }
-                }
                 _ => {}
             }
         }

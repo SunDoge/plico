@@ -1,7 +1,7 @@
 # NSH 最小后端实验
 
 `crates/plico-nsh` 把普通 Plico immediate 声明投影到 [NSH](https://github.com/longbridge/nsh)
-0.3 的 element tree。应用仍实现 `plico::View`，使用普通 Rust 状态、
+0.5.1 的 element tree。应用仍实现 `plico::View`，使用普通 Rust 状态、
 `#[component]` 和 `+ |cx|`；不需要迁移到 NSH 的响应式组件 API。
 
 职责边界与 LVGL 实验相同：Plico 保留 `Engine` 和声明身份，NSH 负责 keyed
@@ -10,18 +10,20 @@ Scene，也不使用 Plico 的 Taffy、Parley、Vello/Skia 或桌面窗口层。
 
 ## 运行
 
-Linux 需要 GTK 4.14+ 及其开发文件。`native` feature 关闭 NSH 平台 crate 的默认
-JS feature，因此 Rust-only 示例不链接 QuickJS。
+Linux 需要 GTK 4.14+、GStreamer 1.0 base plugins 及其开发文件。`native` feature
+关闭 NSH 平台 crate 的默认 JS feature，因此 Rust-only 示例不链接 QuickJS。
 
 ```sh
 cargo run --locked -p plico-nsh --features native --example counter
+cargo run --locked -p backend-settings --no-default-features --features nsh -- --backend nsh
 cargo test --locked -p plico-nsh
 cargo test --locked -p plico-nsh --features native
 ```
 
-macOS 和 Windows 的宿主入口使用对应 `nsh-platform-*` crate；当前只在本机 Linux
-编译和验证。示例中的 Increment、条件按钮、列表反转和 disabled 都是普通 Plico
-声明，不是另一套 gallery。
+macOS 和 Windows 的宿主入口使用对应 `nsh-platform-*` crate。主 CI 编译 Linux 和
+Windows 的 `backend-settings` NSH 路径，手动 macOS native CI 也编译同一路径；实际
+窗口交互仍需各平台人工验收。示例中的 Increment、条件按钮、列表反转和 disabled
+都是普通 Plico 声明，不是另一套 gallery。
 
 ## 当前实现
 

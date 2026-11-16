@@ -47,13 +47,11 @@ pub enum WindowBackground {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RenderBackend {
-    /// Prefer wgpu, then Skia, among the compiled renderers.
+    /// Use the maintained renderer compiled by the host.
     #[default]
     Auto,
     /// Independent wgpu consumer; requires the shell's `wgpu` feature.
     Wgpu,
-    /// Default Skia Vulkan consumer; requires the shell's `skia` feature.
-    Skia,
 }
 
 bitflags::bitflags! {
@@ -445,17 +443,13 @@ mod tests {
 mod backend_tests {
     use super::*;
     #[test]
-    fn old_window_options_default_to_auto_and_skia_roundtrips() {
+    fn old_window_options_default_to_auto() {
         let mut value = serde_json::to_value(WindowOptions::new()).unwrap();
         value.as_object_mut().unwrap().remove("renderer");
         value.as_object_mut().unwrap().remove("activateOnShow");
         let old: WindowOptions = serde_json::from_value(value).unwrap();
         assert_eq!(old.renderer, RenderBackend::Auto);
         assert!(old.activate_on_show);
-        let options = WindowOptions::new().renderer(RenderBackend::Skia);
-        let restored: WindowOptions =
-            serde_json::from_str(&serde_json::to_string(&options).unwrap()).unwrap();
-        assert_eq!(restored.renderer, RenderBackend::Skia);
     }
 }
 

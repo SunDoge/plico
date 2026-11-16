@@ -26,7 +26,6 @@ default = ["desktop"]
 # Library-only integration lets backend tests choose their renderer explicitly.
 host = ["dep:plico-desktop", "dep:plico-renderer", "dep:ureq", "dep:directories"]
 desktop = ["wgpu"]
-skia = ["host", "plico-desktop/skia"]
 wgpu = ["host", "plico-desktop/wgpu", "dep:plico-wgpu", "dep:pollster"]
 profiling = ["plico-desktop/profiling"]
 

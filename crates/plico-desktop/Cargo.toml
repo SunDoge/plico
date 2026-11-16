@@ -29,11 +29,9 @@ plico-wgpu = { path = "../plico-wgpu", optional = true }
 pollster = { version = "1.0", optional = true }
 plico-shell = { workspace = true, default-features = false }
 image = { workspace = true, optional = true, features = ["png"] }
-plico-skia = { path = "../plico-skia", optional = true, features = ["raster"] }
 
 [features]
 desktop-integration = ["plico-shell/desktop-integration"]
-skia = ["plico-shell/skia", "dep:plico-skia", "dep:image"]
 wgpu = ["plico-shell/wgpu", "dep:plico-wgpu", "dep:pollster", "dep:image"]
 default = ["wgpu"]
 profiling = [
@@ -41,14 +39,6 @@ profiling = [
     "plico-renderer/profiling",
     "plico-shell/profiling",
 ]
-
-[[example]]
-name = "skia-window"
-required-features = ["skia"]
-
-[[example]]
-name = "local-animation"
-required-features = ["skia"]
 
 [[example]]
 name = "flatten_profile"

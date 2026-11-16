@@ -9,10 +9,10 @@ pub use plico_runtime::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_runtime::{SurfaceSource, ZoomController, ZoomSource};
 
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 mod capture;
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
-pub use capture::{Capture, CaptureError, CaptureProfile, CapturedFrame, capture};
+#[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
+pub use capture::{Capture, CaptureError, CaptureProfile, CaptureSession, CapturedFrame, capture};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::Error as DesktopError;
@@ -135,15 +135,15 @@ mod services_host {
 #[cfg(not(target_arch = "wasm32"))]
 pub use services_host::{ServiceDesktopError, run_service_app_with_options};
 
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 mod preview;
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 pub use preview::{
     PreviewError, PreviewScenario, PreviewSession, PreviewSource, PreviewStep, PreviewViewport,
 };
 
 /// Versioned recipe plans with assertions, fixture events and checkpoint captures.
-#[cfg(all(not(target_arch = "wasm32"), any(feature = "skia", feature = "wgpu")))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 pub mod recipe;
 
 /// Optional tray, native-menu and actionable-notification services.

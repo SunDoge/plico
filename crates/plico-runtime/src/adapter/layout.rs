@@ -370,17 +370,6 @@ impl Adapter {
         if placed.paint.widget.is_some() && retained.toggle_line_height == Some(line_height) {
             return;
         }
-        let check = if kind == Kind::Checkbox && progress > 0. {
-            cached_svg(
-                &mut self.svg_cache,
-                &mut self.stats,
-                self.resource_generation,
-                plico::icons::CHECK.source(),
-                Some(theme.on_accent),
-            )
-        } else {
-            None
-        };
         let widget = Arc::new(toggle::paint(
             kind,
             style,
@@ -388,7 +377,6 @@ impl Adapter {
             progress,
             line_height,
             hovered,
-            check.as_deref(),
         ));
         placed.paint.widget = Some(widget.clone());
         self.tree

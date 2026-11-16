@@ -1,5 +1,5 @@
 //! Shared geometry for toggle layout and paint; every size follows theme density.
-use kurbo::{Affine, Circle, Rect, RoundedRect, Stroke};
+use kurbo::{Affine, BezPath, Cap, Join, Rect, RoundedRect, Stroke};
 use peniko::{BlendMode, Fill};
 use plico::{Kind, Style, Theme};
 use plico_renderer::{PaintScene, Scene};
@@ -39,7 +39,6 @@ pub(crate) fn paint(
     progress: f32,
     line_height: f32,
     hovered: bool,
-    check: Option<&plico_renderer::svg::SvgImage>,
 ) -> Scene {
     let g = Geometry::new(kind, style, theme);
     let progress = progress.clamp(0., 1.) as f64;
@@ -101,15 +100,21 @@ pub(crate) fn paint(
             Affine::IDENTITY,
             super::rgb(face),
             None,
-            &Circle::new(
-                (x + center + (g.width - g.height) * progress, y + center),
-                center - g.unit / 2.,
-            ),
+            // MyGO paints the knob through the same analytical rounded-rect
+            // primitive as the track (`Rect` + `d/2`), even though it is a
+            // circle. Keeping both pieces on that fast path gives them the
+            // same edge coverage; a kurbo `Circle` would be flattened into an
+            // arbitrary path and rasterized by a different AA path.
+            &RoundedRect::new(cx - r, cy - r, cx + r, cy + r, r),
         );
-    } else if let Some(check) = check {
-        let inset = g.unit * 0.25;
-        let side = (g.width - 2. * inset) * (0.75 + 0.25 * progress);
-        let origin = (x + (g.width - side) / 2., y + (g.height - side) / 2.);
+    } else if progress > 0. {
+        // MyGO ui/widgets.go: checkPath uses these three proportional points
+        // and a half-spacing round stroke. Keep it as a vector path; checkbox
+        // marks do not need the SVG/image pipeline.
+        let mut path = BezPath::new();
+        path.move_to((x + g.width * 0.22, y + g.height * 0.52));
+        path.line_to((x + g.width * 0.42, y + g.height * 0.71));
+        path.line_to((x + g.width * 0.78, y + g.height * 0.31));
         scene.push_layer(
             BlendMode::default(),
             progress as f32,
@@ -118,11 +123,71 @@ pub(crate) fn paint(
             None,
             None,
         );
-        scene.draw_svg(
-            check.document().clone(),
-            Affine::translate(origin) * Affine::scale(side / check.size()[0] as f64),
+        scene.stroke(
+            &Stroke::new(g.unit * 0.5)
+                .with_caps(Cap::Round)
+                .with_join(Join::Round),
+            Affine::IDENTITY,
+            super::rgb(theme.on_accent),
+            None,
+            &path,
         );
         scene.pop_layer();
     }
     scene
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plico_renderer::{PaintCommand, PrimitiveShape};
+
+    #[test]
+    fn checkbox_mark_is_the_mygo_vector_path_not_an_svg() {
+        let scene = paint(
+            Kind::Checkbox,
+            Style::default(),
+            Theme::default(),
+            1.,
+            16.,
+            false,
+        );
+        assert!(
+            !scene
+                .commands
+                .iter()
+                .any(|command| matches!(command, PaintCommand::Svg { .. }))
+        );
+        assert_eq!(
+            scene
+                .commands
+                .iter()
+                .filter(|command| matches!(command, PaintCommand::Stroke { .. }))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn switch_track_and_knob_share_the_analytical_round_rect_path() {
+        let scene = paint(
+            Kind::Switch,
+            Style::default(),
+            Theme::default(),
+            0.5,
+            20.,
+            false,
+        );
+        let fills = scene.commands.iter().filter_map(|command| match command {
+            PaintCommand::Fill { shape, .. } => Some(shape),
+            _ => None,
+        });
+        let primitives = fills.map(|shape| shape.primitive()).collect::<Vec<_>>();
+        assert_eq!(primitives.len(), 2);
+        assert!(
+            primitives
+                .iter()
+                .all(|shape| matches!(shape, Some(PrimitiveShape::RoundedRect(_))))
+        );
+    }
 }

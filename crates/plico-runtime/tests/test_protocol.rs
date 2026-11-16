@@ -1,4 +1,5 @@
 use plico::prelude::*;
+use plico_renderer::SemanticRole;
 use plico_runtime::{
     HostView,
     testing::{Command, Driver, Error},
@@ -63,6 +64,110 @@ fn semantic_commands_drive_real_keyboard_input_without_a_window() {
             .iter()
             .any(|n| n.label.as_deref() == Some("Count: 7"))
     );
+}
+
+#[test]
+fn semantic_queries_and_pointer_clicks_use_the_real_hit_test() {
+    let mut driver = Driver::new(Counter::default(), 400, 300).unwrap();
+    assert_eq!(
+        driver
+            .get_by_role(SemanticRole::Button, "Increment")
+            .unwrap()
+            .label
+            .as_deref(),
+        Some("Increment")
+    );
+    assert_eq!(driver.all_by_role(SemanticRole::Button).len(), 5);
+    assert!(driver.unnamed_controls().is_empty());
+    driver
+        .execute(Command::PointerClick {
+            role: "button".into(),
+            label: "Increment".into(),
+            occurrence: None,
+        })
+        .unwrap();
+    assert_eq!(driver.view().count, 1);
+}
+
+#[test]
+fn pointer_click_reports_when_another_control_covers_the_target() {
+    #[derive(Default)]
+    struct Covered {
+        back: usize,
+        front: usize,
+    }
+    impl HostView for Covered {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx)
+                .position(Position::Relative)
+                .width(200.)
+                .height(100.)
+                + |cx| {
+                    if button(cx)
+                        .text("Back")
+                        .absolute(0., 0.)
+                        .width(120.)
+                        .height(60.)
+                        .clicked()
+                    {
+                        self.back += 1;
+                    }
+                    if button(cx)
+                        .text("Front")
+                        .absolute(0., 0.)
+                        .width(120.)
+                        .height(60.)
+                        .clicked()
+                    {
+                        self.front += 1;
+                    }
+                };
+        }
+    }
+    let mut driver = Driver::new(Covered::default(), 300, 200).unwrap();
+    assert!(matches!(
+        driver.execute(Command::PointerClick {
+            role: "button".into(),
+            label: "Back".into(),
+            occurrence: None,
+        }),
+        Err(Error::PointerTarget { hit: Some(_), .. })
+    ));
+    driver
+        .execute(Command::PointerClick {
+            role: "button".into(),
+            label: "Front".into(),
+            occurrence: None,
+        })
+        .unwrap();
+    assert_eq!(driver.view().front, 1);
+    assert_eq!(driver.view().back, 0);
+}
+
+#[test]
+fn settle_advances_animations_without_sleeping() {
+    #[derive(Default)]
+    struct Animated {
+        expanded: bool,
+        value: f32,
+    }
+    impl HostView for Animated {
+        fn show(&mut self, cx: &mut UiContext) {
+            self.value = cx.animate(
+                "width",
+                if self.expanded { 100. } else { 0. },
+                Duration::from_millis(100),
+            );
+            text!(cx, "{:.0}", self.value);
+        }
+    }
+    let mut driver = Driver::new(Animated::default(), 300, 200).unwrap();
+    driver.update_view(|view| view.expanded = true).unwrap();
+    assert!(driver.frame_pending());
+    driver.settle().unwrap();
+    assert!(!driver.frame_pending());
+    assert_eq!(driver.view().value, 100.);
 }
 #[test]
 fn bad_targets_are_diagnostic_instead_of_silent_noops() {

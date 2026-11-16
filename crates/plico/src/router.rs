@@ -446,24 +446,6 @@ impl<Route: Copy + Eq + 'static> RouterView<Route> {
                     }
                 }
 
-                // A fade drops the old pixels immediately, as MyGO does, but
-                // keeps the old page tree mounted for Back and focus restore.
-                if host.direction == 0
-                    && let Some(page) = leaving
-                {
-                    column(cx)
-                        .key(page.id)
-                        .display(Display::None)
-                        .children(|cx| {
-                            leaving_focus = cx.engine.focused_within_entity(cx.parent);
-                            cx.engine.retain_exiting_children(cx.parent);
-                        });
-                    remember_mounted(&mut host.mounted, page.id);
-                    if let Some(focused) = leaving_focus {
-                        remember_focus(&mut host.focus, page.id, focused);
-                    }
-                }
-
                 let width = cx.layout_size().map_or(cx.viewport_width(), |size| size[0]);
                 match (host.direction, leaving) {
                     // Back: the old page is the upper sheet moving right. The
@@ -520,18 +502,37 @@ impl<Route: Copy + Eq + 'static> RouterView<Route> {
                         );
                         remember_mounted(&mut host.mounted, leaving.id);
                     }
-                    // Across/fade: the outgoing page is already hidden; only
-                    // the destination fades over the stable surface.
-                    _ => {
-                        declare_page(
+                    // Across/fade: retain the outgoing pixels while the new
+                    // page fades over them. MyGO drops the old page at once,
+                    // but that exposes a full blank frame when a destination
+                    // is expensive to build or a compatibility surface is
+                    // slow to present its next frame.
+                    (0, Some(leaving)) => {
+                        leaving_focus = declare_page(
                             cx,
-                            current,
+                            leaving,
                             PageVisual {
-                                opacity: if leaving.is_some() { progress } else { 1. },
+                                opacity: 1. - progress,
+                                leaving: true,
                                 ..PageVisual::current()
                             },
                             &mut build,
                         );
+                        declare_page(
+                            cx,
+                            current,
+                            PageVisual {
+                                absolute: true,
+                                opacity: progress,
+                                upper: true,
+                                ..PageVisual::current()
+                            },
+                            &mut build,
+                        );
+                        remember_mounted(&mut host.mounted, leaving.id);
+                    }
+                    _ => {
+                        declare_page(cx, current, PageVisual::current(), &mut build);
                     }
                 }
                 remember_mounted(&mut host.mounted, current.id);

@@ -136,7 +136,7 @@ pub struct ParagraphError {
     /// Backend explanation, without logging document contents.
     pub message: String,
 }
-/// Installed by a host; renderer-neutral crates do not depend on Skia.
+/// Installed by a host; renderer-neutral crates do not depend on a platform text backend.
 pub trait ParagraphEngine {
     /// Opt into native single-line editing. Returned paragraphs must provide
     /// caret geometry at every valid UTF-8 insertion boundary.

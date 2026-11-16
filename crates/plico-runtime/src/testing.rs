@@ -41,6 +41,14 @@ pub enum Command {
         #[serde(default)]
         occurrence: Option<usize>,
     },
+    /// Primary mouse activation at the center of a named control. Unlike
+    /// [`Self::Click`], this validates that hit testing reaches that control.
+    PointerClick {
+        role: String,
+        label: String,
+        #[serde(default)]
+        occurrence: Option<usize>,
+    },
     /// Secondary mouse activation at the center of a named control. Uses the
     /// actual hit-testing route, never translates into a primary semantic click.
     SecondaryClick {
@@ -90,6 +98,18 @@ pub enum Error {
     Viewport,
     #[snafu(display("pointer coordinates must be finite"))]
     PointerPosition,
+    #[snafu(display(
+        "target {role} {label:?} is not hit-testable at ({x:.1}, {y:.1}); hit {hit:?}"
+    ))]
+    PointerTarget {
+        role: String,
+        label: String,
+        x: f64,
+        y: f64,
+        hit: Option<u64>,
+    },
+    #[snafu(display("UI did not settle after {frames} deterministic frames"))]
+    DidNotSettle { frames: usize },
     #[snafu(display("virtual clock overflow"))]
     Clock,
 }
@@ -119,6 +139,79 @@ fn find_target<V: HostView>(
         label: label.into(),
         matches: matches.len(),
     })
+}
+
+fn target_center<V: HostView>(
+    source: &Source<V>,
+    role: &str,
+    label: &str,
+    occurrence: Option<usize>,
+) -> Result<(u64, Point), Error> {
+    let target = find_target(source, role, label, occurrence)?;
+    let tree = source.semantics();
+    let bounds = tree
+        .nodes
+        .iter()
+        .find(|node| node.id == target)
+        .expect("resolved semantic target must remain in the snapshot")
+        .bounds;
+    let position = Point {
+        x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
+        y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
+    };
+    let valid_bounds = bounds.iter().all(|value| value.is_finite())
+        && bounds[2] > bounds[0]
+        && bounds[3] > bounds[1];
+    let hit = valid_bounds
+        .then(|| source.hit_test(position).map(plico::Entity::raw))
+        .flatten();
+    if hit != Some(target) {
+        return Err(Error::PointerTarget {
+            role: role.into(),
+            label: label.into(),
+            x: position.x,
+            y: position.y,
+            hit,
+        });
+    }
+    Ok((target, position))
+}
+
+fn pointer_click<V: HostView>(
+    source: &mut Source<V>,
+    role: &str,
+    label: &str,
+    occurrence: Option<usize>,
+    button: PointerButton,
+) -> Result<(), Error> {
+    let (_, position) = target_center(source, role, label, occurrence)?;
+    source.handle_event(UiEvent::Pointer(PointerEvent {
+        phase: PointerPhase::Move,
+        position,
+        button: None,
+        buttons: 0,
+        modifiers: Modifiers::empty(),
+        properties: PointerProperties::default(),
+    }));
+    for phase in [PointerPhase::Down, PointerPhase::Up] {
+        source.handle_event(UiEvent::Pointer(PointerEvent {
+            phase,
+            position,
+            button: Some(button),
+            buttons: if phase == PointerPhase::Down {
+                match button {
+                    PointerButton::Primary => 1,
+                    PointerButton::Secondary => 2,
+                    _ => 0,
+                }
+            } else {
+                0
+            },
+            modifiers: Modifiers::empty(),
+            properties: PointerProperties::default(),
+        }));
+    }
+    Ok(())
 }
 
 /// Apply a shared command to an existing source, including the development host.
@@ -186,28 +279,14 @@ pub fn dispatch<V: HostView>(
             label,
             occurrence,
         } => {
-            let target = find_target(source, role, label, *occurrence)?;
-            let tree = source.adapter.semantics(&source.engine, 0);
-            let bounds = tree
-                .nodes
-                .iter()
-                .find(|node| node.id == target)
-                .expect("resolved target")
-                .bounds;
-            let position = Point {
-                x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
-                y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
-            };
-            for phase in [PointerPhase::Down, PointerPhase::Up] {
-                source.handle_event(UiEvent::Pointer(PointerEvent {
-                    phase,
-                    position,
-                    button: Some(PointerButton::Secondary),
-                    buttons: if phase == PointerPhase::Down { 2 } else { 0 },
-                    modifiers: Modifiers::empty(),
-                    properties: PointerProperties::default(),
-                }));
-            }
+            pointer_click(source, role, label, *occurrence, PointerButton::Secondary)?;
+        }
+        Command::PointerClick {
+            role,
+            label,
+            occurrence,
+        } => {
+            pointer_click(source, role, label, *occurrence, PointerButton::Primary)?;
         }
         Command::Click {
             role,
@@ -359,6 +438,112 @@ impl<V: HostView> Driver<V> {
     }
     pub fn snapshot(&self) -> SemanticSnapshot {
         self.source.semantics()
+    }
+    /// Find one exposed node by semantic role and accessible name. Repeated
+    /// names are rejected so tests cannot silently select the wrong control.
+    pub fn get_by_role(
+        &self,
+        role: SemanticRole,
+        label: &str,
+    ) -> Result<plico_renderer::SemanticNode, Error> {
+        self.get_by_role_at(role, label, None)
+    }
+
+    /// Find a specific occurrence when repeated accessible names are intentional.
+    pub fn get_by_role_at(
+        &self,
+        role: SemanticRole,
+        label: &str,
+        occurrence: Option<usize>,
+    ) -> Result<plico_renderer::SemanticNode, Error> {
+        let tree = self.snapshot();
+        let matches = tree
+            .exposed_nodes()
+            .into_iter()
+            .filter(|node| node.role == role && node.label.as_deref() == Some(label))
+            .collect::<Vec<_>>();
+        let node = match occurrence {
+            Some(index) => matches.get(index).copied(),
+            None if matches.len() == 1 => matches.first().copied(),
+            _ => None,
+        };
+        node.cloned().ok_or_else(|| Error::Target {
+            role: role.as_str().into(),
+            label: label.into(),
+            matches: matches.len(),
+        })
+    }
+
+    /// All exposed nodes of a role, in semantic source order.
+    pub fn all_by_role(&self, role: SemanticRole) -> Vec<plico_renderer::SemanticNode> {
+        self.snapshot()
+            .exposed_nodes()
+            .into_iter()
+            .filter(|node| node.role == role)
+            .cloned()
+            .collect()
+    }
+
+    /// Interactive controls missing an accessible name. This is intentionally
+    /// an audit rather than a panic so callers can produce their own report.
+    pub fn unnamed_controls(&self) -> Vec<plico_renderer::SemanticNode> {
+        self.snapshot()
+            .exposed_nodes()
+            .into_iter()
+            .filter(|node| {
+                matches!(
+                    node.role,
+                    SemanticRole::Button
+                        | SemanticRole::TextInput
+                        | SemanticRole::Link
+                        | SemanticRole::CheckBox
+                        | SemanticRole::RadioButton
+                        | SemanticRole::Switch
+                        | SemanticRole::ComboBox
+                        | SemanticRole::MenuItem
+                        | SemanticRole::MenuItemCheckBox
+                        | SemanticRole::MenuItemRadio
+                        | SemanticRole::Slider
+                        | SemanticRole::SpinButton
+                        | SemanticRole::Tab
+                        | SemanticRole::TreeItem
+                        | SemanticRole::ColorWell
+                ) && node
+                    .label
+                    .as_deref()
+                    .is_none_or(|label| label.trim().is_empty())
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the runtime is asking the host for another immediate frame.
+    pub fn frame_pending(&self) -> bool {
+        self.has_animation()
+    }
+
+    /// Advance deterministic 60 Hz frames until active motion finishes.
+    pub fn settle(&mut self) -> Result<SemanticSnapshot, Error> {
+        self.settle_for(120, Duration::from_nanos(16_666_667))
+    }
+
+    /// Configurable variant for long animations and precise test frame rates.
+    pub fn settle_for(
+        &mut self,
+        max_frames: usize,
+        frame_interval: Duration,
+    ) -> Result<SemanticSnapshot, Error> {
+        for _ in 0..max_frames {
+            if !self.frame_pending() {
+                return Ok(self.snapshot());
+            }
+            self.advance(frame_interval)?;
+        }
+        if self.frame_pending() {
+            Err(Error::DidNotSettle { frames: max_frames })
+        } else {
+            Ok(self.snapshot())
+        }
     }
     pub fn declarations(&self) -> Vec<ViewNode> {
         self.source.engine.snapshot()

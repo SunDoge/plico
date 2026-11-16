@@ -1,4 +1,7 @@
-# Skia / Vello 绘制对照实验
+# Skia / Vello 历史绘制对照实验
+
+> 历史记录：`plico-skia` package、Cargo feature、窗口与离屏路径已从当前 workspace 删除。
+> 下列命令和实现说明只对应删除前的源码 revision，不再可直接运行。
 
 状态：`plico-skia` 已提供 CPU raster 和 Ganesh Vulkan 离屏 GPU consumer；
 另提供 Vulkan 桌面窗口后端，桌面默认使用 wgpu，Skia 作为主要渲染质量对照；Vello 仅保留最小兼容维护。

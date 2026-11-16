@@ -156,6 +156,9 @@ impl ButtonStates {
         } else {
             style.background = None;
         }
+        // MyGO's button face changes color while pressed; it does not scale
+        // the node and its glyphs. Keeping the transform stable also avoids
+        // resampling text at fractional pixels during the press transition.
         style.opacity *= 1. - 0.55 * weights[3];
         (style, weights[2])
     }
@@ -269,6 +272,23 @@ mod tests {
         assert_eq!(focus, 0.);
         assert!((paint.opacity - 0.45).abs() < 0.00001);
         assert_eq!(paint.background, Some(Color::Literal(0)));
+    }
+    #[test]
+    fn press_keeps_control_and_text_scale_stable() {
+        let (mut states, entity, style) = setup();
+        let pressed = Interaction {
+            pressed: true,
+            ..Interaction::default()
+        };
+        let (compact, _) = states.style(entity, style, Theme::default(), pressed, false);
+        assert_eq!(compact.scale, [1., 1.]);
+
+        let wide = Style {
+            width_percent: Some(100.),
+            ..style
+        };
+        let (wide, _) = states.style(entity, wide, Theme::default(), pressed, false);
+        assert_eq!(wide.scale, [1., 1.]);
     }
     #[test]
     fn reduced_motion_keeps_rested_targets_and_zero_duration_releases_entries() {

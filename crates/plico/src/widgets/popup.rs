@@ -302,7 +302,7 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
                                 Color::Foreground
                             };
                             text(cx, option.label).color(color).grow(1.).ellipsis(true);
-                            let side = cx.inherited.font_size.saturating_add(2) as f32;
+                            let side = cx.theme().metrics.control_icon() as f32;
                             if on {
                                 svg(cx, &crate::icons::CHECK).size(side, side).color(color);
                             } else {

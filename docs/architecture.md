@@ -5,7 +5,7 @@
 
 `plico-renderer` 定义布局、文字、paint scene 与经过验证的 shader effect 描述，不能依赖
 具体 GPU API。wgpu 的纹理、bind group、pipeline cache 和 render pass 执行归
-`plico-wgpu` 所有；Skia 与其他后端只消费同一份 effect 描述。CI 通过
+`plico-wgpu` 所有；其他实验后端只消费同一份 effect 描述。CI 通过
 `scripts/check-renderer-boundary.py` 守卫这条依赖方向。
 
 与 MyGO 的公开 `mygo`/`ui` 和私有 `internal/scene`/`internal/surface` 分界一致，
@@ -89,8 +89,8 @@ panel 的单一 entrance progress 通过 retained 层级和最终几何关联，
 spring 和错误恢复均只依赖稳定查询面。进度控件按 `ProgressBar.numeric_value` 验证，不要求视觉
 百分比文本重复进入可访问性树。至此 desktop 外部测试不再穿透 Source 字段。
 `Source` 的 Engine、Adapter 与 view 字段现为 `pub(crate)`：runtime 内部 surface/testing 可协作，
-外部 crate 无法访问。边界脚本同时守卫字段可见性、跨行链式穿透，并覆盖 desktop/runtime/Skia/
-wgpu 的完整测试目录；workspace all-targets 编译是第二道类型级检查。
+外部 crate 无法访问。边界脚本同时守卫字段可见性、跨行链式穿透，并覆盖 desktop/runtime/wgpu
+的完整测试目录；workspace all-targets 编译是第二道类型级检查。
 投影器 `Adapter` 本身也只在 runtime crate 内可见；应用与 desktop 后端通过 `Source` 工作，诊断只
 暴露不可变的 `BackendStats`。需要直接验证投影器代际身份的测试与实现放在同一内部模块。
 `plico-desktop` 不再通配重导出 runtime；它显式列出启动、测试和高级宿主所需 facade，避免 runtime
@@ -117,7 +117,7 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
                  plico-runtime Adapter
                  稳定 Entity → Taffy NodeId
                             ↓
-                 Taffy / Parley /（plico-desktop 选择 Vello 或 Skia）
+                 Taffy / Parley / plico-wgpu
 ```
 
 三个根接口按受众和宿主能力分层，不要求简单组件实现 trait：
@@ -143,7 +143,7 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
 重新导出它们。这样 `plico-runtime` 本身不依赖
 `plico-dev`，HostView/Source 层只面向 core 与 renderer。
 
-core 不依赖 Taffy、Parley、Vello、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 Vello/Skia 窗口后端选择，Skia 后端不再依赖 Vello crate 的运行时。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
+core 不依赖 Taffy、Parley、wgpu、Bevy 或平台窗口。声明运行时（adapter、Source、HostView、动效）已从窗口后端中拆出为 plico-runtime；plico-desktop 只保留桌面启动器、开发 CLI 与 wgpu 窗口宿主。当前尚未定义完整的、跨宿主的布局/场景运行时协议，不能把它当成已经完成的通用宿主协议。
 
 另有 [LVGL 后端实验](lvgl.md)：同一 Engine 的容器、文本和组合按钮投影为 LVGL 原生控件，
 布局、文字和绘制均交给 LVGL；点击以 Entity 回到普通声明。它验证 API 子集可跨后端，

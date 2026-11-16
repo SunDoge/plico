@@ -33,7 +33,7 @@ API with retained nodes, layout, text, and rendering caches underneath.
   and JSON scenarios with scripted input and a virtual clock for offscreen PNGs.
   App state needs no serialization unless the app chooses it for previews or storage.
   Async work stays in ordinary host tasks. See [preview development](docs/preview.md).
-- **A GPU-first renderer.** wgpu is the maintained desktop renderer, with system text and WGSL effects. The legacy Skia backend remains only for historical comparison. Optional
+- **A GPU-first renderer.** wgpu is the desktop renderer, with system text and WGSL effects. Optional
   FLTK + Taffy, LVGL, and browser/WASM paths explore the same declaration model.
   LVGL has been tested on an ESP32-P4 with ESP-IDF.
 
@@ -96,7 +96,6 @@ See [CLI usage](docs/cli.md), [icons](docs/icons.md), and
 | Path | Current scope |
 | --- | --- |
 | wgpu | Default desktop renderer, native system text, WGSL effects and adaptive damage redraw; still under active development |
-| Skia | Legacy comparison backend; deprecated and outside the main CI matrix |
 | FLTK + Taffy | Experimental native widgets and shared settings app; limited styling/platform coverage |
 | LVGL | Experimental native-widget mapping, SDL2/offscreen validation, ESP32-P4 / ESP-IDF hardware tests |
 | Bevy | Experimental primary-window UI plugin, shared wgpu device and 3D scene overlay; [usage](docs/bevy.md) |
@@ -108,16 +107,9 @@ Caching and host-side animation reduce repeated work without changing that model
 Native hot reload has been removed in favor of static rebuilds and scenario previews.
 Backends do not yet have feature parity; `no_std` is not integrated.
 
-Desktop windows and captures use wgpu by default. The deprecated `plico-desktop/skia`
-feature remains temporarily for historical comparisons; use
-`default-features = false` with `skia` for a
-single-renderer build. An explicit unavailable renderer returns an error. The
-current Skia window backend uses Vulkan and requires a working Vulkan device;
-it does not automatically fall back after initialization fails.
-
-
-Run the default gallery with `cargo run -p gallery`. For a legacy Skia-only comparison,
-use `cargo run -p gallery --no-default-features --features skia`.
+Desktop windows and captures use wgpu. Historical renderer experiments remain in
+the documentation, but no Skia package or Cargo feature is part of the workspace.
+Run the default gallery with `cargo run -p gallery`.
 
 ## Project map
 
@@ -129,7 +121,7 @@ in `apps/` without it.
 | Renderer-independent declarations | `plico`: Engine, UiContext, widgets, identity and local state; no window, layout engine or renderer dependency |
 | Runtime and desktop host | `plico-runtime`, `plico-desktop` |
 | Rendering and platform integration | `plico-renderer`, `plico-shell`, `plico-motion`, `plico-native` |
-| Alternative backends | `plico-skia`, `plico-fltk`, `plico-lvgl`, `plico-web-host` |
+| Alternative backends | `plico-fltk`, `plico-lvgl`, `plico-web-host` |
 | Development tools | `plico-cli`, `plico-dev`, `plico-macros` |
 | Rich content | `plico-markdown`, `plico-editor`, `plico-terminal` |
 | Applications | `apps/gallery`, `backend-settings`, `launcher`, `terminal`, `services-demo`, `web-demo`, `lvgl-esp32p4` |

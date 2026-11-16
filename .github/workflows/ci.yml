@@ -71,6 +71,8 @@ jobs:
           packages=(
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
+            libgtk-4-dev
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           )
 
           # Azure-backed Ubuntu mirrors occasionally stop resolving on hosted
@@ -118,8 +120,10 @@ jobs:
             fi
             sleep 5
           done
+      - name: Test the renderer application
+        run: cargo test --locked --profile ci -p plico-render --all-targets --all-features
       - name: Lint the mainline without optional backend SDKs
-        run: cargo clippy --locked --profile ci --workspace --exclude plico-skia --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
+        run: cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
       # The optional Bevy adapter is checked as a library. Do not pull its PBR
       # example/test dependency graph into every workspace Clippy invocation.
       - name: Check the Bevy plugin library
@@ -128,6 +132,10 @@ jobs:
         run: cargo clippy --locked --profile ci -p plico-web-host --features gallery,split --target wasm32-unknown-unknown -- -D warnings
       - name: Verify the semantic test protocol without a window
         run: cargo test --locked --profile ci -p plico-runtime --test test_protocol
+      - name: Validate AccessKit tree updates
+        run: cargo test --locked --profile ci -p plico-shell accessibility::tests
+      - name: Check the NSH native backend
+        run: cargo check --locked --profile ci -p backend-settings --no-default-features --features nsh --all-targets
 
   windows:
     name: Windows MSVC compile
@@ -147,6 +155,8 @@ jobs:
           cache-on-failure: false
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check Windows MSVC with wgpu
-        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-skia --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
+        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets
+      - name: Check the NSH native backend on Windows
+        run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p backend-settings --no-default-features --features nsh --all-targets
       - name: Check the Bevy plugin on Windows MSVC
         run: cargo check --locked --profile ci --target x86_64-pc-windows-msvc -p plico-bevy --lib

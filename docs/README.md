@@ -4,6 +4,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [默认视觉规范](design.md) | CUI 启发的尺寸、圆角、表面、阴影与动效纪律，以及和 MyGO 行为规格的分工 |
 | [历史 C# 改进迁移到 Rust](experiments/csharp-mygo-rust-migration.md) | 已退役前端中可复用能力的 Rust 迁移记录 |
 | [MyGo 对标方向](mygo-benchmark.md) | 完整界面的验收标准与下一条应用切片 |
 | [Launcher 与命令面板](launcher.md) | 搜索导航、自动聚焦、列表定位、原生窗口动作与演示边界 |
@@ -40,7 +41,8 @@
 | [Immediate diff CPU 测量](immediate-diff-cost.md) | 节点协调、属性比较与声明总成本的采样区分 |
 | [Scene 编码对照实验](scene-encoding-benchmark.md) | 增量编码移除依据、重声明成本与完整编码基准 |
 | [libmpv 视频实验](video.md) | 可选宿主播放器、软件帧 surface、暂停/跳转与 GPU 接入限制 |
-| [Skia / Vello 绘制对照](skia.md) | SkParagraph 普通文字、CPU / Vulkan Skia，以及相同 Parley glyph 的后端对照 |
+| [确定性 UI 视频渲染](render.md) | Frame/Sequence/插值/弹簧、复用 wgpu capture、PNG 序列与 FFmpeg sidecar 视频输出 |
+| [历史 Skia / Vello 绘制对照](skia.md) | 已删除后端的 SkParagraph、CPU / Vulkan 与 Parley glyph 实验记录 |
 | [Pango/Cairo 文字对照](pango-text-comparison.md) | 排版指标、相同 Parley glyph 的绘制对照与文字清晰度排查 |
 | [文字渲染排查结论](text-rendering-investigation.md) | 精确基线、Chrome 对照、字体回退与覆盖率策略的证据及限制 |
 | [Native 属性更新实验](native-property-work.md) | 复用布局样式、桌面 CPU 对照与收益限制 |
@@ -81,7 +83,7 @@
 | [Gallery 开发编译配置实验](experiments/dev-builds.md) | 应用 opt 0/1、调试信息、真实增量链接和 CPU 声明代价 |
 | [Cargo 构建性能指南实测](experiments/rust-build-latency.md) | wgpu Gallery 的调试信息、Cranelift、并行前端、Wild 与运行时代价 |
 | [Plicowarden](plicowarden.md) | 已迁出的独立 GPL 应用、开发位置与依赖边界 |
-| [Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 按 crate 混合后端、增量构建耗时和 Skia 符号边界 |
+| [历史 Cranelift + Skia 编译实验](experiments/cranelift-skia.md) | 删除前的混合后端、增量构建耗时和符号边界记录 |
 | [原生操作符 children 实验](experiments/operator-children.md) | + 闭包的编译、LSP、身份、借用与 formatter 验证 |
 | [API、宏与格式化](authoring.md) | chain、component、LSP、rustfmt 与专用 formatter |
 | [实现状态与验证](status.md) | 已迁入代码、实验来源、测试、性能结论的适用范围 |

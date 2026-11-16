@@ -79,6 +79,26 @@ impl CapturedFrame {
     pub fn into_rgba(self) -> Vec<u8> {
         self.rgba
     }
+
+    /// Construct a frame from renderer-native premultiplied RGBA8 pixels.
+    pub fn from_premultiplied_rgba(
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<Self, CaptureError> {
+        let expected = usize::try_from(width)
+            .ok()
+            .and_then(|width| usize::try_from(height).ok().map(|height| width * height))
+            .and_then(|pixels| pixels.checked_mul(4));
+        if width == 0 || height == 0 || expected != Some(rgba.len()) {
+            return Err(CaptureError::InvalidOptions);
+        }
+        Ok(Self {
+            width,
+            height,
+            rgba,
+        })
+    }
 }
 
 #[derive(Debug, Snafu)]
@@ -96,15 +116,6 @@ pub enum CaptureError {
     #[cfg(feature = "wgpu")]
     #[snafu(display("wgpu capture failed: {source}"))]
     Wgpu { source: plico_wgpu::Error },
-    #[cfg(feature = "skia")]
-    #[snafu(display("Skia capture failed: {source}"))]
-    Skia { source: plico_skia::Error },
-}
-#[cfg(feature = "skia")]
-impl From<plico_skia::Error> for CaptureError {
-    fn from(source: plico_skia::Error) -> Self {
-        Self::Skia { source }
-    }
 }
 
 #[cfg(feature = "wgpu")]
@@ -115,8 +126,6 @@ impl From<plico_wgpu::Error> for CaptureError {
 }
 
 pub(crate) enum CaptureRenderer {
-    #[cfg(feature = "skia")]
-    Skia(plico_skia::SkiaSurface),
     #[cfg(feature = "wgpu")]
     Wgpu(Box<plico_wgpu::Renderer>),
 }
@@ -153,8 +162,6 @@ impl CaptureRenderer {
     }
     pub(crate) fn adapter_name(&self) -> Option<&str> {
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(_) => None,
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => Some(renderer.adapter_info().name.as_str()),
         }
@@ -166,19 +173,11 @@ impl CaptureRenderer {
         height: u32,
     ) -> Result<Self, CaptureError> {
         let backend = if matches!(backend, crate::RenderBackend::Auto) {
-            if cfg!(feature = "wgpu") {
-                crate::RenderBackend::Wgpu
-            } else {
-                crate::RenderBackend::Skia
-            }
+            crate::RenderBackend::Wgpu
         } else {
             backend
         };
         match backend {
-            #[cfg(feature = "skia")]
-            crate::RenderBackend::Skia => {
-                Ok(Self::Skia(plico_skia::SkiaSurface::new(width, height)?))
-            }
             #[cfg(feature = "wgpu")]
             crate::RenderBackend::Wgpu => {
                 let _ = (width, height);
@@ -196,11 +195,6 @@ impl CaptureRenderer {
     ) -> Result<(), CaptureError> {
         let _ = scale;
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(surface) => {
-                surface.configure_text(text);
-                Ok(())
-            }
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -220,8 +214,6 @@ impl CaptureRenderer {
     /// Renderer stages and GPU time for the last drawn frame, when reported.
     pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(_) => None,
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 let budget = renderer.frame_budget();
@@ -258,8 +250,6 @@ impl CaptureRenderer {
     ) -> Result<Vec<u8>, CaptureError> {
         let _ = size;
         match self {
-            #[cfg(feature = "skia")]
-            Self::Skia(surface) => Ok(surface.render_scene(scene, background)?),
             #[cfg(feature = "wgpu")]
             Self::Wgpu(renderer) => {
                 Ok(renderer.render_scene(scene, size, background.components, false)?)
@@ -310,6 +300,66 @@ pub struct Capture<'a> {
     settle_passes: usize,
     backend: crate::RenderBackend,
 }
+
+/// Reusable renderer and text state for a fixed-size sequence of captures.
+///
+/// Unlike [`Capture::render`], a session keeps GPU pipelines, glyph caches and
+/// the retained offscreen target warm between frames. Video and image-sequence
+/// exporters use this path so frame N does not initialize a renderer again.
+pub struct CaptureSession {
+    renderer: CaptureRenderer,
+    text: TextContext,
+    width: u32,
+    height: u32,
+    scale: f64,
+    settle_passes: usize,
+}
+
+impl CaptureSession {
+    pub fn new(
+        backend: crate::RenderBackend,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Self, CaptureError> {
+        let (physical_width, physical_height) = dimensions(width, height, scale)?;
+        let mut renderer = CaptureRenderer::new(backend, physical_width, physical_height)?;
+        let mut text = TextContext::new();
+        renderer.configure_text(&mut text, scale)?;
+        Ok(Self {
+            renderer,
+            text,
+            width,
+            height,
+            scale,
+            settle_passes: 0,
+        })
+    }
+
+    pub fn settle_passes(mut self, passes: usize) -> Self {
+        self.settle_passes = passes;
+        self
+    }
+
+    pub fn renderer_name(&self) -> Option<&str> {
+        self.renderer.adapter_name()
+    }
+
+    pub fn render(&mut self, source: &mut dyn FrameSource) -> Result<CapturedFrame, CaptureError> {
+        self.render_profiled(source).map(|(frame, _)| frame)
+    }
+
+    pub fn render_profiled(
+        &mut self,
+        source: &mut dyn FrameSource,
+    ) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
+        capture(source)
+            .size(self.width, self.height)
+            .scale(self.scale)
+            .settle_passes(self.settle_passes)
+            .render_profiled_with_borrowed(&mut self.renderer, &mut self.text)
+    }
+}
 impl Capture<'_> {
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
@@ -324,7 +374,7 @@ impl Capture<'_> {
         self.settle_passes = passes;
         self
     }
-    /// Auto prefers wgpu when enabled, otherwise Skia. An unavailable explicit backend errors.
+    /// Select the capture renderer. An unavailable explicit backend errors.
     pub fn renderer(mut self, backend: crate::RenderBackend) -> Self {
         self.backend = backend;
         self

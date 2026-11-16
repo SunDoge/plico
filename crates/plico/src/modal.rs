@@ -265,17 +265,18 @@ impl<'s> Modal<'_, '_, 's> {
                     |_| {},
                 );
             }
+            let metrics = cx.theme().metrics;
             let mut panel = Style {
                 width_percent: anchor.is_none().then_some(100.),
                 width: anchor.map(|_| width),
                 max_width: Some(width),
                 shrink: 1.,
-                padding: if anchor.is_some() { 4. } else { 20. },
-                gap: if anchor.is_some() { 4. } else { 12. },
+                padding: if anchor.is_some() { 4. } else { 24. },
+                gap: if anchor.is_some() { 4. } else { 16. },
                 radius: if anchor.is_some() {
-                    cx.theme().metrics.radius as f32 + 2.
+                    metrics.panel_radius() as f32
                 } else {
-                    10.
+                    metrics.surface_radius() as f32
                 },
                 enter_from: anchor.is_none().then(|| crate::Presentation {
                     translate: [0., 8.],
@@ -293,14 +294,6 @@ impl<'s> Modal<'_, '_, 's> {
                 background: Some(Color::Panel),
                 border_width: if anchor.is_some() { 1. } else { 0. },
                 border_color: Color::Border,
-                shadow: Some(crate::BoxShadow {
-                    offset_y: if anchor.is_some() { 6. } else { 10. },
-                    blur: if anchor.is_some() { 20. } else { 30. },
-                    opacity: if anchor.is_some() { 0.18 } else { 0.3 },
-                    color: Color::Literal(0),
-                    offset_x: 0.,
-                    spread: 0.,
-                }),
                 scroll_y: true,
                 max_height,
                 role: panel_role,
@@ -308,6 +301,11 @@ impl<'s> Modal<'_, '_, 's> {
                 font_size: cx.theme().metrics.font_size,
                 ..Default::default()
             };
+            if anchor.is_some() {
+                crate::Elevation::FLOATING.apply(&mut panel);
+            } else {
+                crate::Elevation::OVERLAY.apply(&mut panel);
+            }
             if material.is_some() {
                 panel.padding = 0.;
                 panel.gap = 0.;
@@ -317,7 +315,6 @@ impl<'s> Modal<'_, '_, 's> {
                 panel.border_width = 0.;
                 panel.scroll_y = false;
                 panel.layout.position = crate::Position::Relative;
-                crate::Elevation::OVERLAY.apply(&mut panel);
             }
             let content = |cx: &mut UiContext<'_>| {
                 if anchor.is_none() && header {

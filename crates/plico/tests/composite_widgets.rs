@@ -184,7 +184,7 @@ fn accordion_frames_collapsible_sections() {
     let frame_style = e.node(frame).unwrap().style;
     assert_eq!(frame_style.background, None);
     assert_eq!(frame_style.border_width, 1.);
-    assert_eq!(frame_style.radius, 6.);
+    assert_eq!(frame_style.radius, e.theme().metrics.radius as f32);
     assert!(frame_style.clip);
     let trigger = e.node(named(&e, "General")).unwrap();
     let padding = trigger
@@ -249,4 +249,63 @@ fn quiet_navigation_appearance_owns_both_sides_of_selected_contrast() {
     assert_eq!(entry.style.background, Some(Color::Selection));
     assert_eq!(entry.style.foreground, Color::Accent);
     assert_ne!(entry.style.foreground, Color::OnAccent);
+}
+
+#[test]
+fn chips_are_compact_selection_pills_not_primary_buttons() {
+    let mut engine = Engine::default();
+    let mut selected = true;
+    let mut idle = false;
+    engine
+        .frame_declarations(|cx| {
+            cx.keyed("selected", |cx| {
+                chip(cx, "Selected", &mut selected);
+            });
+            cx.keyed("idle", |cx| {
+                chip(cx, "Idle", &mut idle);
+            });
+        })
+        .unwrap();
+
+    fn button(engine: &Engine, id: Entity, label: &str) -> Option<Entity> {
+        if engine.accessible_name(id).as_deref() == Some(label) {
+            return Some(id);
+        }
+        engine
+            .node(id)
+            .unwrap()
+            .children
+            .iter()
+            .find_map(|child| button(engine, *child, label))
+    }
+    let selected_id = button(&engine, engine.root(), "Selected").unwrap();
+    let selected_style = engine.node(selected_id).unwrap().style;
+    assert_eq!(selected_style.height, Some(30.));
+    assert_eq!(selected_style.padding_x, Some(12.));
+    assert_eq!(selected_style.gap, 6.);
+    assert_eq!(selected_style.radius, 15.);
+    assert_eq!(selected_style.corner_smoothing, 0.);
+    assert_eq!(selected_style.background, Some(Color::Selection));
+    assert_eq!(selected_style.foreground, Color::Accent);
+    assert_eq!(selected_style.border_color, Color::Focus);
+    assert_eq!(selected_style.selected, Some(true));
+
+    let idle_id = button(&engine, engine.root(), "Idle").unwrap();
+    let idle_style = engine.node(idle_id).unwrap().style;
+    assert_eq!(idle_style.background, Some(Color::Panel));
+    assert_eq!(idle_style.foreground, Color::Foreground);
+    assert_eq!(idle_style.border_color, Color::Border);
+
+    engine.queue_click(selected_id);
+    engine
+        .frame_declarations(|cx| {
+            cx.keyed("selected", |cx| {
+                chip(cx, "Selected", &mut selected);
+            });
+            cx.keyed("idle", |cx| {
+                chip(cx, "Idle", &mut idle);
+            });
+        })
+        .unwrap();
+    assert!(!selected);
 }
