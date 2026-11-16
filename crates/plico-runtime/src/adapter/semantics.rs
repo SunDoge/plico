@@ -241,12 +241,35 @@ impl Adapter {
             }
         }
         self.tooltip_semantics(engine, &mut nodes);
+        // Layout/presentation may omit an engine child while its parent remains
+        // projected (virtualization, clipping, or a conditional unmount in the
+        // same frame). Semantic trees must be closed: platform consumers such
+        // as AccessKit reject structural and relation IDs without a matching
+        // node in the snapshot.
+        let projected = nodes.iter().map(|node| node.id).collect::<HashSet<_>>();
+        for node in &mut nodes {
+            node.children.retain(|id| projected.contains(id));
+            node.controls.retain(|id| projected.contains(id));
+            node.described_by.retain(|id| projected.contains(id));
+            node.active_descendant = node.active_descendant.filter(|id| projected.contains(id));
+        }
+        let root = semantic_id(engine.root());
         plico_renderer::SemanticSnapshot {
             revision,
             nodes,
-            root_children: vec![semantic_id(engine.root())],
-            focus: self.focused.map(semantic_id),
-            modal_root: self.accessible_modal(engine).map(semantic_id),
+            root_children: projected
+                .contains(&root)
+                .then_some(root)
+                .into_iter()
+                .collect(),
+            focus: self
+                .focused
+                .map(semantic_id)
+                .filter(|id| projected.contains(id)),
+            modal_root: self
+                .accessible_modal(engine)
+                .map(semantic_id)
+                .filter(|id| projected.contains(id)),
         }
     }
     pub fn semantic_action(

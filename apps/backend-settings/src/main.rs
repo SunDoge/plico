@@ -6,20 +6,20 @@ use snafu::Snafu;
 #[derive(usage_rs::Cli)]
 #[usage(
     bin = "backend-settings",
-    about = "Shared settings UI for wgpu, Skia and FLTK"
+    about = "Shared settings UI for wgpu, Skia, NSH and FLTK"
 )]
 struct Options {
-    /// Renderer to use; defaults to the first enabled: wgpu, skia, fltk.
+    /// Renderer to use; defaults to the first enabled: wgpu, skia, nsh, fltk.
     #[usage(long)]
     backend: Option<String>,
 }
 
 #[derive(Debug, Snafu)]
 enum Error {
-    #[snafu(display("enable a backend with --features wgpu, skia or fltk"))]
+    #[snafu(display("enable a backend with --features wgpu, skia, nsh or fltk"))]
     NoBackend,
     #[snafu(display(
-        "backend {backend:?} is unavailable; enable its Cargo feature (choose wgpu, skia or fltk)"
+        "backend {backend:?} is unavailable; enable its Cargo feature (choose wgpu, skia, nsh or fltk)"
     ))]
     Backend { backend: String },
     #[cfg(feature = "wgpu")]
@@ -35,7 +35,7 @@ enum Error {
 
 fn main() -> std::process::ExitCode {
     match run() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("backend-settings: {error}");
             std::process::ExitCode::FAILURE
@@ -43,7 +43,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<std::process::ExitCode, Error> {
     let options = Options::parse();
     let backend = options
         .backend
@@ -52,6 +52,7 @@ fn run() -> Result<(), Error> {
             [
                 (cfg!(feature = "wgpu"), "wgpu"),
                 (cfg!(feature = "skia"), "skia"),
+                (cfg!(feature = "nsh"), "nsh"),
                 (cfg!(feature = "fltk"), "fltk"),
             ]
             .into_iter()
@@ -76,7 +77,8 @@ fn run() -> Result<(), Error> {
                     .initial_inner_size(1100, 820)
                     .renderer(plico_renderer::RenderBackend::Wgpu),
             )
-            .context(WgpuSnafu)
+            .context(WgpuSnafu)?;
+            Ok(std::process::ExitCode::SUCCESS)
         }
         #[cfg(feature = "skia")]
         "skia" => {
@@ -95,16 +97,38 @@ fn run() -> Result<(), Error> {
                     .initial_inner_size(1100, 820)
                     .renderer(plico_renderer::RenderBackend::Skia),
             )
-            .context(SkiaSnafu)
+            .context(SkiaSnafu)?;
+            Ok(std::process::ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "nsh")]
+        "nsh" => {
+            use plico_nsh::native::{platform, root_with_viewport};
+            Ok(platform::run_app(
+                platform::AppSource::Rust(root_with_viewport(
+                    backend_settings::ImmediateSettings::default,
+                    1100.,
+                    820.,
+                )),
+                platform::AppOptions {
+                    app_id: "dev.plico.backend-settings".to_owned(),
+                    title: "Plico settings — NSH".to_owned(),
+                    size: (1100, 820),
+                    ..Default::default()
+                },
+            )
+            .into())
         }
         #[cfg(feature = "fltk")]
-        "fltk" => plico_fltk::run(
-            backend_settings::ImmediateSettings::default(),
-            "Plico settings — FLTK",
-            1100,
-            820,
-        )
-        .context(FltkSnafu),
+        "fltk" => {
+            plico_fltk::run(
+                backend_settings::ImmediateSettings::default(),
+                "Plico settings — FLTK",
+                1100,
+                820,
+            )
+            .context(FltkSnafu)?;
+            Ok(std::process::ExitCode::SUCCESS)
+        }
         backend => Err(Error::Backend {
             backend: backend.to_owned(),
         }),

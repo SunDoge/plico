@@ -1,5 +1,4 @@
 use nsh_core::{
-    EllipsizeMode,
     element::{
         AccessibilityRole, Accessible, AdaptiveColor, AnyElement, Element, FontWeight, Interactive,
         IntoElement, ParentElement, Styled, Text, text, view,
@@ -315,9 +314,7 @@ fn apply_style<E: Styled + Interactive>(mut element: E, node: &NodeRef<'_>, them
 
 fn apply_text_ellipsis(mut element: Text, enabled: bool) -> Text {
     if enabled {
-        element = element
-            .number_of_lines(1u32)
-            .ellipsize_mode(EllipsizeMode::Tail);
+        element = element.truncate();
     }
     element
 }

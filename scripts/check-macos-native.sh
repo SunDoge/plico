@@ -67,6 +67,8 @@ run_tests() {
 run_tests coretext cargo test --color never --locked -p plico-native --no-default-features --features macos-text --lib macos_text:: -- --test-threads=1
 run_tests vertical cargo test --color never --locked -p plico-native --no-default-features --features vertical-text --lib vertical:: -- --test-threads=1
 run_tests bridge cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib macos_paragraph::tests:: -- --test-threads=1
+cargo check --color never --locked -p backend-settings --no-default-features --features nsh --all-targets 2>&1 | tee "$report_dir/nsh-native.log"
+printf '%s\n' 'PASS nsh-native (compile)' >> "$summary"
 run_tests surface-worker cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib surface_acquire:: -- --test-threads=1
 run_tests transaction-policy cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib transaction_policy:: -- --test-threads=1
 run_tests frame-pass cargo test --color never --locked -p plico-wgpu --no-default-features --features window,system-text --lib frame_pass:: -- --test-threads=1

@@ -1,6 +1,9 @@
 //! Window-level AccessKit adapter and retained accessibility tree publication.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use accesskit::{
     Action, ActionData, AriaCurrent, HasPopup, Node, NodeId, Rect, Role, Toggled, Tree, TreeId,
@@ -145,15 +148,16 @@ fn accesskit_node_with_offset(
         (y1 + offset_y) * scale,
     ];
     node.set_bounds(Rect::new(x0, y0, x1, y1));
+    let relation_is_exposed = |id: &u64| exposed.is_none_or(|ids| ids.contains(id));
     node.set_children(
         semantic
             .children
             .iter()
+            .filter(|id| relation_is_exposed(id))
             .copied()
             .map(NodeId)
             .collect::<Vec<_>>(),
     );
-    let relation_is_exposed = |id: &u64| exposed.is_none_or(|ids| ids.contains(id));
     node.set_controls(
         semantic
             .controls
@@ -287,29 +291,36 @@ fn root_update_with_offset(
     let mut root = Node::new(Role::Window);
     root.set_label(title);
     root.set_bounds(Rect::new(0.0, 0.0, width, height));
-    let children = snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.exposed_root_children())
+    // AccessKit requires every child ID in an update to resolve either in the
+    // current tree or in the same update. A semantic snapshot can transiently
+    // retain a child which is no longer projected (for example after
+    // virtualization or conditional unmounting), so close the tree at this
+    // platform boundary instead of allowing the consumer to panic.
+    let exposed = snapshot
+        .map(SemanticSnapshot::exposed_nodes)
         .unwrap_or_default();
+    let exposed_ids = exposed.iter().map(|node| node.id).collect::<HashSet<_>>();
+    let children = snapshot
+        .map(SemanticSnapshot::exposed_root_children)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|id| exposed_ids.contains(id))
+        .collect::<Vec<_>>();
     root.set_children(children.iter().copied().map(NodeId).collect::<Vec<_>>());
     let mut tree = Tree::new(ROOT_ID);
     tree.toolkit_name = Some("Wabou".into());
     let focus = snapshot
-        .as_ref()
         .and_then(|snapshot| snapshot.focus)
+        .filter(|id| exposed_ids.contains(id))
         .map(NodeId)
         .unwrap_or(ROOT_ID);
     let mut nodes = vec![(ROOT_ID, root)];
-    if let Some(snapshot) = snapshot {
-        let exposed = snapshot.exposed_nodes();
-        let exposed_ids = exposed.iter().map(|node| node.id).collect();
-        nodes.extend(exposed.into_iter().map(|semantic| {
-            (
-                NodeId(semantic.id),
-                accesskit_node_with_offset(semantic, scale, offset, Some(&exposed_ids)),
-            )
-        }));
-    }
+    nodes.extend(exposed.into_iter().map(|semantic| {
+        (
+            NodeId(semantic.id),
+            accesskit_node_with_offset(semantic, scale, offset, Some(&exposed_ids)),
+        )
+    }));
     TreeUpdate {
         nodes,
         tree: initialize.then_some(tree),
@@ -857,6 +868,71 @@ mod tests {
         assert!(control.described_by().is_empty());
         assert!(!closed.nodes.iter().any(|(id, _)| *id == NodeId(3)));
         assert_eq!(closed.focus, NodeId(2));
+    }
+
+    #[test]
+    fn publication_filters_dangling_structural_ids_before_accesskit() {
+        let semantic = |id, children| crate::SemanticNode {
+            id,
+            role: SemanticRole::Group,
+            label: Some(format!("node {id}")),
+            value: None,
+            numeric_value: None,
+            min_numeric_value: None,
+            max_numeric_value: None,
+            bounds: [0.0, 0.0, 100.0, 20.0],
+            children,
+            controls: Vec::new(),
+            described_by: Vec::new(),
+            active_descendant: None,
+            disabled: false,
+            states: Default::default(),
+        };
+        let stale = 4_294_967_682;
+        let initial = SemanticSnapshot {
+            revision: 1,
+            nodes: vec![semantic(2, vec![3]), semantic(3, Vec::new())],
+            root_children: vec![2],
+            focus: Some(3),
+            modal_root: None,
+        };
+        let mut consumer = accesskit_consumer::Tree::new(
+            root_update("Plico".into(), 600.0, 400.0, 1.0, true, Some(&initial)),
+            true,
+        );
+
+        let snapshot = SemanticSnapshot {
+            revision: 2,
+            nodes: vec![semantic(2, vec![stale])],
+            root_children: vec![2, stale],
+            focus: Some(stale),
+            modal_root: None,
+        };
+
+        let update = root_update("Plico".into(), 600.0, 400.0, 1.0, false, Some(&snapshot));
+        assert_eq!(update.focus, ROOT_ID);
+        assert_eq!(update.nodes[0].1.children(), &[NodeId(2)]);
+        assert!(update.nodes[1].1.children().is_empty());
+        assert!(update.nodes.iter().all(|(id, _)| *id != NodeId(stale)));
+
+        struct IgnoreChanges;
+        impl accesskit_consumer::TreeChangeHandler for IgnoreChanges {
+            fn node_added(&mut self, _: &accesskit_consumer::Node<'_>) {}
+            fn node_updated(
+                &mut self,
+                _: &accesskit_consumer::Node<'_>,
+                _: &accesskit_consumer::Node<'_>,
+            ) {
+            }
+            fn focus_moved(
+                &mut self,
+                _: Option<&accesskit_consumer::Node<'_>>,
+                _: Option<&accesskit_consumer::Node<'_>>,
+            ) {
+            }
+            fn node_removed(&mut self, _: &accesskit_consumer::Node<'_>) {}
+        }
+        consumer.update_and_process_changes(update, &mut IgnoreChanges);
     }
 
     #[test]
