@@ -65,7 +65,7 @@ jobs:
       - name: Guard runtime source boundaries
         run: python3 scripts/check-runtime-boundary.py
       - name: Test the renderer-independent packages
-        run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n -p plico-render --all-targets --all-features
+        run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
       - name: Install desktop compile dependencies
         run: |
           packages=(
@@ -119,6 +119,8 @@ jobs:
             fi
             sleep 5
           done
+      - name: Test the renderer application
+        run: cargo test --locked --profile ci -p plico-render --all-targets --all-features
       - name: Lint the mainline without optional backend SDKs
         run: cargo clippy --locked --profile ci --workspace --exclude plico-lvgl --exclude lvgl-esp32p4 --exclude plico-fltk --exclude plico-bevy --features backend-settings/wgpu,plico-shell/global-hotkeys --all-targets -- -D warnings
       # The optional Bevy adapter is checked as a library. Do not pull its PBR
