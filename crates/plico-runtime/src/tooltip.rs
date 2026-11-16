@@ -180,14 +180,19 @@ impl Adapter {
         });
         if missing || (self.stats.created > 0 && !self.tips.ids.is_empty()) {
             let mut occupied: HashSet<_> = self.nodes.keys().map(|e| semantic_id(*e)).collect();
-            let old_ids = std::mem::take(&mut self.tips.ids);
+            let mut old_ids = std::mem::take(&mut self.tips.ids)
+                .into_iter()
+                .collect::<Vec<_>>();
+            old_ids.sort_unstable_by_key(|(entity, _)| entity.raw());
             for (e, id) in old_ids {
                 if occupied.insert(id) {
                     self.tips.ids.insert(e, id);
                 }
             }
             let mut next = u64::MAX;
-            for &e in &self.tooltip_nodes {
+            let mut tooltip_nodes = self.tooltip_nodes.iter().copied().collect::<Vec<_>>();
+            tooltip_nodes.sort_unstable_by_key(|entity| entity.raw());
+            for e in tooltip_nodes {
                 self.stats.tooltip_visits += 1;
                 if self
                     .nodes

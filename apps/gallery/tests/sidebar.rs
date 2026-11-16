@@ -1,7 +1,7 @@
 #![cfg(feature = "host")]
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, DifferentialTester, Driver};
 use plico_renderer::SemanticRole;
 use std::time::Duration;
 
@@ -124,5 +124,26 @@ fn collapsing_animates_layout_without_replacing_navigation_targets() {
             .unwrap()
             .id,
         target
+    );
+}
+
+#[test]
+fn gallery_navigation_matches_a_cold_replay() {
+    let mut ui = DifferentialTester::new(Gallery::default(), 1120, 820).unwrap();
+    ui.execute(Command::Click {
+        role: "button".into(),
+        label: "Controls".into(),
+        occurrence: None,
+    })
+    .unwrap();
+    ui.advance(Duration::from_millis(80)).unwrap();
+    ui.resize(960, 720).unwrap();
+    ui.settle().unwrap();
+
+    assert_eq!(ui.view().router.current(), Page::Controls);
+    assert!(
+        ui.snapshot()
+            .node_by_role(SemanticRole::Button, "Increment", None)
+            .is_some()
     );
 }

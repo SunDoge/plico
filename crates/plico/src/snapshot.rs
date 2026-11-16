@@ -49,7 +49,7 @@ impl PathKey {
         }
     }
 }
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ViewNode {
     pub key: PathKey,
     pub kind: Kind,

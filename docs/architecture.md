@@ -13,9 +13,13 @@
 `plico-renderer` API。应用从 `plico`/`plico-runtime`/`plico-desktop` 使用声明与窗口
 接口；渲染探针和后端实现直接依赖 `plico-renderer`，依赖所有权因此保持显式。
 
-测试遵循 MyGO `ui.Tester` 的封装方式：`plico_runtime::testing::Driver` 不公开内部
+测试遵循 MyGO `ui.Tester` 的封装方式：`plico_runtime::testing::Tester`（与底层
+`Driver` 为同一类型）不公开内部
 `Source`/Engine/Adapter，只提供 view 断言、受控状态更新、语义快照、声明快照、retained
 layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
+需要验证缓存正确性时，`DifferentialTester` 以相同初始 view 冷启动并重放确定性操作，逐项
+比较长期增量实例与完整重放实例的声明、语义、布局、hit-test 和 Scene 投影；它不进入产品
+运行路径，也不把 Adapter 缓存公开为测试协议。
 
 测试、capture、recipe、Web 与 Bevy 等需要处理失败的调用方使用
 `try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和

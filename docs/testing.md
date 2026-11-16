@@ -1,7 +1,8 @@
 # Deterministic application testing
 
 `plico_runtime::testing` (also re-exported by `plico_desktop`) provides a shared
-command protocol and a renderer-independent `Driver<V: HostView>`.
+command protocol and a renderer-independent `Driver<V: HostView>`. `Tester` is
+the application-facing name for the same type and adds no second runtime.
 
 ```rust,ignore
 use plico_runtime::testing::{Command, Driver};
@@ -21,6 +22,23 @@ let semantics = ui.snapshot();
 let declarations = ui.declarations();
 let retained_layout = ui.placed_nodes();
 ```
+
+For ordinary interaction tests, the MyGO-style name-based helpers use the same
+semantic tree and real hit-testing path:
+
+```rust,ignore
+use plico_runtime::testing::Tester;
+let mut ui = Tester::new(MyView::default(), 820, 480)?;
+assert!(ui.has_text("Count:"));
+ui.click("Increment")?;
+ui.drag_by("Move tile", 24.0, 12.0)?;
+ui.type_text("hello")?;
+ui.key("Enter")?;
+```
+
+`find` and the pointer helpers reject ambiguous names. A control and its static
+text child sharing one accessible name resolve to the control; two independent
+controls with the same name still require a role/occurrence query.
 
 Commands serialize with Serde, for example:
 
@@ -48,6 +66,35 @@ Adapter private. Structural tests use `placed_nodes`, `theme`, `declarations`
 and `snapshot` instead of reaching into retained runtime storage.
 The virtual clock advances only when the test asks it to; `advance` uses one
 runtime frame, not a simulated series of OS vsync events.
+
+## Incremental cache oracle
+
+`DifferentialTester<V: HostView + Clone>` keeps one long-lived incremental
+runtime. After every command, resize, clock advance or settle operation it also
+creates a cold runtime from the initial view and replays the complete operation
+log. It compares declarations, semantics, retained layout, representative
+hit-tests and logical Scene commands:
+
+```rust,ignore
+use plico_runtime::testing::{Command, DifferentialTester};
+let mut ui = DifferentialTester::new(MyCloneableView::default(), 820, 480)?;
+ui.execute(Command::PointerClick {
+    role: "button".into(),
+    label: "Add row".into(),
+    occurrence: None,
+})?;
+ui.resize(1000, 640)?;
+ui.advance(std::time::Duration::from_millis(100))?;
+ui.settle()?;
+```
+
+This is deliberately an expensive correctness oracle for focused regression
+tests, not the default recipe runner or a benchmark. Arbitrary `update_view`
+closures are not accepted because a closure cannot be replayed; expose the
+state change as a deterministic UI command or application-owned test action.
+Scene comparison excludes process-global font blob IDs and other allocation
+identity. GPU pixel tests remain the stronger oracle for rasterization,
+backdrop effects and platform fonts.
 
 For GPU pixel assertions and offline screenshots, the native `wgpu` feature
 provides a high-level capture helper. It owns the `Scene`/`TextContext` setup,
