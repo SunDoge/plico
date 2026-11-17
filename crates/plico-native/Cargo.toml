@@ -7,7 +7,9 @@ publish = false
 
 [package.metadata.cargo-machete]
 # Referenced by code generated from windows::core #[interface]/#[implement].
-ignored = ["windows-core"]
+# freetype-rs is also a feature-unification dependency: enabling its bundled
+# feature keeps Linux release builds independent of the host FreeType version.
+ignored = ["freetype-rs", "windows-core"]
 
 [features]
 default = []
@@ -17,7 +19,7 @@ screen-capture = ["dep:ashpd", "ashpd/screenshot", "dep:tokio"]
 global-hotkeys = ["dep:global-hotkey", "dep:ashpd", "dep:tokio", "dep:futures-util", "dep:serde_json"]
 macos-text = ["dep:objc2", "dep:objc2-app-kit", "dep:unicode-bidi", "dep:objc2-core-foundation", "dep:objc2-core-text", "dep:objc2-core-graphics"]
 windows-text = ["dep:windows", "dep:windows-core", "dep:unicode-bidi"]
-linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:lru", "dep:fontconfig-sys", "dep:tempfile"]
+linux-text = ["dep:cairo-rs", "dep:pango", "dep:pangocairo", "dep:freetype-rs", "dep:lru", "dep:fontconfig-sys", "dep:tempfile"]
 
 [dependencies]
 snafu.workspace = true
@@ -34,6 +36,10 @@ serde_json = { workspace = true, optional = true }
 cairo-rs = { version = "0.22", optional = true, features = ["freetype"] }
 pango = { version = "0.22", optional = true, features = ["v1_50"] }
 pangocairo = { version = "0.22", optional = true }
+# cairo-rs exposes FreeType integration but does not forward freetype-rs's
+# bundled feature. Unify it here so old Linux builders do not need a newer
+# system FreeType than their distribution provides.
+freetype-rs = { version = "0.38", optional = true, features = ["bundled"] }
 lru = { version = "0.19.0", optional = true }
 fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6.0.1", optional = true }
 tempfile = { workspace = true, optional = true }

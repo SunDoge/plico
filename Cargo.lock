@@ -6903,6 +6903,7 @@ dependencies = [
  "bytemuck",
  "cairo-rs",
  "cosmic-text",
+ "freetype-rs",
  "futures-util",
  "global-hotkey",
  "image",
