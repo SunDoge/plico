@@ -289,6 +289,9 @@ fn revealing_a_secret_paints_real_bytes_without_losing_protections() {
     let revealed = buffer.presentation_with(true);
     assert_eq!(revealed.text, "s3cret!");
     assert_eq!(revealed.head, 7);
+    buffer.edit(InputEdit::SelectValue(3, false));
+    assert_eq!(buffer.presentation_with(true).head, 3);
+    assert_eq!(buffer.presentation().head, 9);
     buffer.edit(InputEdit::Left(false));
     // Hiding again returns to bullet offsets without losing the content,
     // and the no-op set_secret keeps the layout revision stable.

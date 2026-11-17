@@ -58,6 +58,24 @@ pub(super) struct Geometry {
     caret: [f64; 4],
 }
 impl Adapter {
+    fn select_input_position(
+        engine: &Engine,
+        entity: Entity,
+        buffer: &plico::TextBuffer,
+        byte: usize,
+        extend: bool,
+    ) {
+        let revealed = buffer.is_secret()
+            && engine
+                .node(entity)
+                .is_some_and(|node| node.style.input_password_visible);
+        buffer.edit(if revealed {
+            InputEdit::SelectValue(byte, extend)
+        } else {
+            InputEdit::Select(byte, extend)
+        });
+    }
+
     pub(super) fn align_input(&mut self, index: usize, tcx: &mut TextContext, engine: &Engine) {
         self.stats.input_align_checks += 1;
         let node = &self.placed[index];
@@ -344,7 +362,7 @@ impl Adapter {
                 visual_range,
                 extend_from: None,
             }),
-            _ => buffer.edit(InputEdit::Select(byte, p.modifiers.shift())),
+            _ => Self::select_input_position(engine, entity, buffer, byte, p.modifiers.shift()),
         }
         let (head, anchor) = buffer.selection_display_bytes();
         self.input_pointers.drag = Some(InputDrag {
@@ -423,7 +441,9 @@ impl Adapter {
                                 visual_range,
                                 extend_from: Some(drag.initial),
                             }),
-                            _ => buffer.edit(InputEdit::Select(byte, true)),
+                            _ => {
+                                Self::select_input_position(engine, drag.entity, buffer, byte, true)
+                            }
                         }
                         self.pointer_position = Some((p.position.x, p.position.y));
                         return Some(EventResponse {
@@ -734,8 +754,20 @@ mod multiline_tests {
                 .height(100.);
         }
     }
-    fn pointer(
-        source: &mut crate::Source<View>,
+    struct PasswordView {
+        buffer: plico::TextBuffer,
+        visible: bool,
+    }
+    impl crate::HostView for PasswordView {
+        fn show(&mut self, cx: &mut plico::UiContext) {
+            plico::widgets::text_input(cx, "Password", &self.buffer)
+                .password_visible(self.visible)
+                .key("password")
+                .width(180.);
+        }
+    }
+    fn pointer<V: crate::HostView>(
+        source: &mut crate::Source<V>,
         phase: plico_renderer::PointerPhase,
         position: Point,
     ) {
@@ -750,7 +782,7 @@ mod multiline_tests {
             properties: PointerProperties::default(),
         }));
     }
-    fn point(source: &crate::Source<View>, entity: Entity, byte: usize) -> Point {
+    fn point<V: crate::HostView>(source: &crate::Source<V>, entity: Entity, byte: usize) -> Point {
         let g = &source.adapter.input_layouts[&entity];
         let node = &source.adapter.placed
             [source.adapter.placed_indices[&source.adapter.nodes[&entity].id]];
@@ -758,6 +790,32 @@ mod multiline_tests {
         Point {
             x: f64::from(node.content_origin[0] + rect[0] - g.offset) + 0.1,
             y: f64::from(node.content_origin[1] + (rect[1] + rect[3]) * 0.5 + g.y),
+        }
+    }
+    #[test]
+    fn password_pointer_uses_the_coordinates_that_are_painted() {
+        use plico_renderer::PointerPhase::Down;
+        for visible in [false, true] {
+            let buffer = plico::TextBuffer::secret();
+            buffer.set("ab🌱cd".to_owned().into());
+            let mut source = crate::Source::new(PasswordView {
+                buffer: buffer.clone(),
+                visible,
+            });
+            source.build_frame(&mut TextContext::new(), 240, 100);
+            let entity = source
+                .engine
+                .find(source.engine.root(), "password")
+                .unwrap();
+            // The same caret after the third grapheme is byte 9 in the
+            // masked bullet string and byte 6 in the revealed UTF-8 value.
+            let at = point(&source, entity, if visible { 6 } else { 9 });
+            pointer(&mut source, Down, at);
+            assert_eq!(
+                buffer.selection_display_bytes(),
+                (9, 9),
+                "visible={visible}"
+            );
         }
     }
     #[test]
