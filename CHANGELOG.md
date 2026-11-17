@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/SunDoge/plico/compare/v0.4.2...v0.4.3) - 2026-11-17
+
+### Added
+
+- *(testing)* add incremental differential verifier
+- *(testing)* add high-level UI tester
+- *(backend)* upgrade NSH and harden accessibility
+- *(core)* expand rendering and UI test foundations
+
+### Fixed
+
+- *(linux)* bundle FreeType for native text
+- *(input)* map revealed password pointer positions
+- stop toggle clips from cutting checkbox corners
+
+### Other
+
+- *(linux)* make bundled FreeType opt-in
+- make wgpu the sole rendering backend
+
 ## [0.4.2](https://github.com/SunDoge/plico/compare/v0.4.1...v0.4.2) - 2026-11-15
 
 ### Added
