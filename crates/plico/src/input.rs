@@ -49,6 +49,10 @@ pub enum InputEdit {
     End(bool),
     SelectAll,
     Select(usize, bool),
+    /// Select a committed value byte position rather than a masked display
+    /// position. Hosts use this when a secret is explicitly revealed and its
+    /// painted layout therefore uses the real UTF-8 coordinates.
+    SelectValue(usize, bool),
     /// Select display-coordinate anchor/head positions, snapping to graphemes.
     SelectRange(usize, usize),
     /// Select a Unicode word, optionally extending an initial display range.
@@ -335,6 +339,11 @@ impl TextBuffer {
                 s.preedit.zeroize();
                 extend(&mut s, at, shift);
             }
+            InputEdit::SelectValue(value_byte, shift) => {
+                let at = s.value_position(value_byte);
+                s.preedit.zeroize();
+                extend(&mut s, at, shift);
+            }
             InputEdit::SelectRange(anchor, head) => {
                 s.anchor = s.display_position(anchor);
                 s.head = s.display_position(head);
@@ -417,7 +426,13 @@ impl State {
                 .grapheme_indices(true)
                 .nth(byte / 3)
                 .map_or(self.value.len(), |(i, _)| i)
-        } else if byte >= self.value.len() {
+        } else {
+            self.value_position(byte)
+        }
+    }
+
+    fn value_position(&self, byte: usize) -> usize {
+        if byte >= self.value.len() {
             self.value.len()
         } else {
             self.value
