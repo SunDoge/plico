@@ -1789,7 +1789,7 @@ impl Renderer {
     }
     /// Recognize a retained frame before waiting for a scarce drawable. This
     /// probe never advances history for a changed frame that may be abandoned.
-    #[cfg(any(feature = "window", test))]
+    #[cfg(any(feature = "surface", test))]
     pub(crate) fn prepared_frame_unchanged(&self, frame: &PreparedFrame, damage: bool) -> bool {
         damage
             && self.scene_background == Some(frame.background)

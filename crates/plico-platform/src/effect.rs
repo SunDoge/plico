@@ -9,11 +9,11 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::platform::AppDirectories;
-use crate::platform::{WindowCommand, WindowOptions};
+use crate::app_dirs::AppDirectories;
+use crate::window::{WindowCommand, WindowOptions};
 
 /// Wire schema version for serialized effect requests and completions.
-pub use crate::platform::effect_protocol::EFFECT_PROTOCOL_VERSION;
+pub use crate::effect_protocol::EFFECT_PROTOCOL_VERSION;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -63,7 +63,7 @@ impl EffectOp {
 
 /// Reserved operation identifiers implemented by the standard desktop host.
 pub mod builtin {
-    pub use crate::platform::effect_protocol::*;
+    pub use crate::effect_protocol::*;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,7 +133,7 @@ pub struct WindowCreateRequest {
 pub enum WindowResource {}
 
 /// Full-width generational identity of one native window resource.
-pub type WindowResourceKey = crate::platform::ResourceKey<WindowResource>;
+pub type WindowResourceKey = crate::ResourceKey<WindowResource>;
 
 /// Predict the initial SlotMap keys allocated by the shell before it starts
 /// the already-constructed root frame sources.

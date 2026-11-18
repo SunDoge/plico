@@ -1,0 +1,12 @@
+[package]
+name = "plico-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+kurbo.workspace = true
+jni = "0.22.4"
+plico-renderer.workspace = true
+plico-wgpu = { path = "../plico-wgpu", default-features = false, features = ["window"] }
+winit = { workspace = true, features = ["android-native-activity"] }

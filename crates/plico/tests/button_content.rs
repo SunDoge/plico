@@ -132,3 +132,26 @@ fn ghost_buttons_have_explicit_hover_and_pressed_colors() {
     assert_eq!(style.hover_background, Some(Color::ControlHover));
     assert_eq!(style.pressed_background, Some(Color::ControlPressed));
 }
+
+#[test]
+fn renaming_a_composed_button_only_invalidates_semantics() {
+    let mut engine = Engine::default();
+    for label in ["Previous", "Previous month", ""] {
+        engine
+            .frame_declarations(|cx| {
+                button(cx).aria_label(label).children(|cx| {
+                    text(cx, "Back");
+                });
+            })
+            .unwrap();
+        let button = root_child(&engine, 0);
+        assert_eq!(engine.node(button).unwrap().content, "");
+        assert_eq!(
+            engine.accessible_name(button).as_deref(),
+            Some(if label.is_empty() { "Back" } else { label })
+        );
+        if label != "Previous" {
+            assert_eq!(engine.changes(), plico::Changes::SEMANTICS);
+        }
+    }
+}

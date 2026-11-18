@@ -12,7 +12,8 @@ system-text = ["dep:plico-native"]
 linux-bundled-freetype = ["system-text", "plico-native/linux-bundled-freetype"]
 vulkan-dmabuf = ["dep:wgpu-dmabuf"]
 web = ["wgpu/webgl", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:unicode-segmentation"]
-window = ["dep:winit", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2", "dep:objc2-app-kit", "dep:objc2-quartz-core"]
+window = ["surface", "dep:winit"]
+surface = ["dep:dpi", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2", "dep:objc2-app-kit", "dep:objc2-quartz-core"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 plico-native = { path = "../plico-native", default-features = false, features = ["linux-text"], optional = true }
@@ -23,7 +24,7 @@ plico-native = { path = "../plico-native", default-features = false, features = 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSView"], optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView"], optional = true }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CATransaction"], optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFRunLoop", "block2"], optional = true }
 block2 = { version = "0.6", optional = true }
@@ -31,6 +32,7 @@ libc = "0.2"
 plico-native = { path = "../plico-native", default-features = false, features = ["macos-text"], optional = true }
 
 [dependencies]
+dpi = { version = "0.1", optional = true }
 resvg = { version = "0.48.1", default-features = false, features = ["raster-images"] }
 winit = {workspace=true,optional=true}
 raw-window-handle = {version="0.6",optional=true}

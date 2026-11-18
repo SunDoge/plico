@@ -3,18 +3,16 @@
 #![warn(missing_docs)]
 
 pub mod accessibility;
-pub mod app_dirs;
+pub use plico_platform::app_dirs;
 pub mod color;
-pub mod effect;
-mod effect_protocol;
+pub use plico_platform::effect;
 pub mod event;
 pub mod floating;
-mod resource;
 pub mod service;
 pub mod widget;
-pub use resource::ResourceKey;
-pub mod window;
-pub mod window_lifecycle;
+pub use plico_platform::ResourceKey;
+pub use plico_platform::allowed_external_url;
+pub use plico_platform::{window, window_lifecycle};
 
 pub use app_dirs::{AppDirectories, AppDirectoryConfig};
 pub use color::RgbaColor;

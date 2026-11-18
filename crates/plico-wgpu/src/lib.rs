@@ -11,37 +11,37 @@ mod backdrop_prefilter;
 mod blit;
 mod blur;
 mod external;
-#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+#[cfg(any(all(target_os = "macos", feature = "surface"), test))]
 mod frame_pass;
 #[cfg(all(target_os = "linux", feature = "system-text"))]
 mod glyphs;
 #[cfg(all(not(target_os = "linux"), not(target_arch = "wasm32")))]
 #[path = "portable_glyphs.rs"]
 mod glyphs;
-#[cfg(all(target_os = "macos", feature = "window"))]
+#[cfg(all(target_os = "macos", feature = "surface"))]
 mod macos_frame_pass;
-#[cfg(all(target_os = "macos", feature = "window"))]
+#[cfg(all(target_os = "macos", feature = "surface"))]
 mod macos_transaction;
 mod mipmap;
 mod renderer;
 mod shader;
 #[cfg(any(
-    all(target_os = "macos", feature = "window"),
+    all(target_os = "macos", feature = "surface"),
     all(test, not(target_arch = "wasm32"))
 ))]
 mod surface_acquire;
-#[cfg(any(all(target_os = "macos", feature = "window"), test))]
+#[cfg(any(all(target_os = "macos", feature = "surface"), test))]
 mod transaction_policy;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 pub mod web;
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 mod web_text;
-#[cfg(feature = "window")]
+#[cfg(feature = "surface")]
 mod window;
-#[cfg(feature = "window")]
-pub use window::WgpuWindow;
+#[cfg(feature = "surface")]
+pub use window::{SurfaceHost, WgpuWindow};
 /// An observed host display-link callback, in the host's monotonic clock domain.
-#[cfg(any(feature = "window", test))]
+#[cfg(any(feature = "surface", test))]
 #[derive(Clone, Copy, Debug)]
 pub struct PresentationTick {
     /// Changes only when a display callback is delivered.
@@ -257,5 +257,9 @@ pub(crate) fn instance_descriptor() -> wgpu::InstanceDescriptor {
     {
         descriptor.backends = wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL;
     }
+    // The x86_64 Android emulator's ranchu driver crashes while naming
+    // Vulkan objects through VK_EXT_debug_utils.
+    #[cfg(all(target_os = "android", target_arch = "x86_64"))]
+    descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
     descriptor.with_env()
 }

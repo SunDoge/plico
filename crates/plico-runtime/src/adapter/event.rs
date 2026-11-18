@@ -198,8 +198,8 @@ impl Adapter {
         (0..items.len()).find_map(|offset| {
             let entity = items[(start + offset) % items.len()];
             engine
-                .node(entity)
-                .filter(|node| node.text.to_lowercase().starts_with(&needle))
+                .accessible_name(entity)
+                .filter(|name| name.to_lowercase().starts_with(&needle))
                 .map(|_| entity)
         })
     }
