@@ -34,10 +34,7 @@ pub(super) const fn gesture_phase(phase: TouchPhase) -> GesturePhase {
     }
 }
 
-pub(super) fn allowed_external_url(raw: &str) -> Option<url::Url> {
-    let url = url::Url::parse(raw).ok()?;
-    matches!(url.scheme(), "http" | "https").then_some(url)
-}
+pub(super) use plico_renderer::platform::allowed_external_url;
 
 pub(super) fn update_present_retry(presented: bool, retry_pending: &mut bool) -> bool {
     if presented {

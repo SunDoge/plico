@@ -39,7 +39,7 @@ impl Renderer {
     }
     /// One startup frame, with no drawable held and no readback texture/buffer.
     /// Complete it before window exposure; regular frames never use this wait.
-    #[cfg(feature = "window")]
+    #[cfg(feature = "surface")]
     #[tracing::instrument(name = "wgpu.startup_prime", skip_all)]
     pub(crate) fn prime_scene_plan(
         &mut self,
@@ -78,7 +78,7 @@ impl Renderer {
     /// Drop unsubmitted draw commands after failed acquisition, while flushing
     /// pending write_buffer/write_texture staging. Otherwise repeated failures
     /// can retain upload staging until some future successful submission.
-    #[cfg(feature = "window")]
+    #[cfg(feature = "surface")]
     pub(crate) fn abandon_scene_frame(&mut self, encoder: wgpu::CommandEncoder) {
         self.cancel_gpu_budget();
         self.frame_prefix_commands.clear();

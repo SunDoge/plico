@@ -8,12 +8,12 @@ publish = false
 [features]
 profiling = []
 [dependencies]
+plico-platform = { path = "../plico-platform" }
 peniko.workspace = true
 kurbo.workspace = true
 gif = "0.14"
 plico.workspace = true
 web-time = "1.1"
-directories.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
 bytemuck.workspace = true
 image = { workspace = true, features = ["ico", "jpeg", "png", "webp", "gif"] }

@@ -8,7 +8,6 @@ use objc2_app_kit::NSView;
 use objc2_quartz_core::CATransaction;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::time::{Duration, Instant};
-use winit::window::Window;
 
 pub(crate) struct NativeTransaction {
     policy: TransactionPolicy,
@@ -44,7 +43,7 @@ impl NativeTransaction {
     }
     pub fn defer(
         &mut self,
-        window: &dyn Window,
+        window: &dyn HasWindowHandle,
         size: [u32; 2],
         pass_epoch: Option<PassBoundary>,
     ) -> bool {

@@ -6,6 +6,7 @@ use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, WindowHandle,
 };
 use std::sync::Arc;
+#[cfg(feature = "window")]
 use winit::window::Window;
 // Partial redraw is the normal policy; retain an explicit full-redraw escape hatch.
 fn damage_enabled(value: Option<&str>) -> bool {
@@ -60,7 +61,31 @@ impl IdleResources {
     }
 }
 
-struct SharedWindow(Arc<dyn Window>);
+/// Native surface ownership and notifications used during presentation.
+pub trait SurfaceHost: HasDisplayHandle + HasWindowHandle + Send + Sync {
+    fn surface_size(&self) -> dpi::PhysicalSize<u32>;
+    fn scale_factor(&self) -> f64;
+    fn show(&self);
+    fn pre_present_notify(&self);
+}
+
+#[cfg(feature = "window")]
+impl SurfaceHost for Arc<dyn Window> {
+    fn surface_size(&self) -> dpi::PhysicalSize<u32> {
+        self.as_ref().surface_size()
+    }
+    fn scale_factor(&self) -> f64 {
+        self.as_ref().scale_factor()
+    }
+    fn show(&self) {
+        self.set_visible(true);
+    }
+    fn pre_present_notify(&self) {
+        self.as_ref().pre_present_notify();
+    }
+}
+
+struct SharedWindow(Arc<dyn SurfaceHost>);
 impl HasWindowHandle for SharedWindow {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
         self.0.window_handle()
@@ -80,7 +105,7 @@ pub struct WgpuWindow {
     surface_acquire: Option<crate::surface_acquire::Acquire<wgpu::CurrentSurfaceTexture>>,
     #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
     surface_wake: Option<plico_renderer::WakeCallback>,
-    window: Arc<dyn Window>,
+    window: Arc<dyn SurfaceHost>,
     config: wgpu::SurfaceConfiguration,
     configured_size: [u32; 2],
     damage_enabled: bool,
@@ -106,7 +131,12 @@ pub struct WgpuWindow {
     text_scale: Option<u64>,
 }
 impl WgpuWindow {
+    #[cfg(feature = "window")]
     pub fn new(window: Arc<dyn Window>, transparent: bool) -> Result<Self> {
+        Self::from_host(Arc::new(window), transparent)
+    }
+
+    pub fn from_host(window: Arc<dyn SurfaceHost>, transparent: bool) -> Result<Self> {
         let instance = wgpu::Instance::new(crate::instance_descriptor());
         let surface = instance
             .create_surface(SharedWindow(window.clone()))
@@ -548,7 +578,7 @@ impl WgpuWindow {
                 .prime_scene_plan(plan.expect("initial frame has a plan"), self.config.format)?;
             self.retained_size = Some([size.width, size.height]);
             self.initial_frame_ready = true;
-            self.window.set_visible(true);
+            self.window.show();
             encoder
         } else if let Some(encoder) = self.pending_frame.take() {
             self.pending_frame_stats[1] += 1;
@@ -871,7 +901,7 @@ impl Drop for WgpuWindow {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "window"))]
     #[test]
     #[ignore = "requires an X11 display and working wgpu adapter (can run under Xvfb)"]
     fn native_surface_resize_waits_for_presentation_and_uses_live_extent() {

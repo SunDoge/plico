@@ -238,7 +238,7 @@ impl Renderer {
     }
 
     /// Drop a timing slot whose encoder will not be submitted.
-    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    #[cfg_attr(not(feature = "surface"), allow(dead_code))]
     pub(super) fn cancel_gpu_budget(&mut self) {
         if let Some(slot) = self.pending_gpu_slot.take()
             && let Some(timer) = self.gpu_timer.as_mut()

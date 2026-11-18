@@ -1,0 +1,14 @@
+[package]
+name = "plico-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+url.workspace = true
+directories.workspace = true
+bitflags = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json.workspace = true

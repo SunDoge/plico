@@ -35,6 +35,22 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  android:
+    name: Android host and platform boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          toolchain: stable
+          target: aarch64-linux-android,x86_64-linux-android
+          cache-key: android-ci-v1
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: bash scripts/check-android.sh
+
   quality:
     name: Lightweight Rust checks
     runs-on: ubuntu-24.04

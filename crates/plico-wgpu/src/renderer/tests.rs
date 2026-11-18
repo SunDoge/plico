@@ -1278,7 +1278,7 @@ fn encoded_frames_release_temporary_image_owners_on_success_and_failure() {
     );
 }
 
-#[cfg(feature = "window")]
+#[cfg(feature = "surface")]
 #[test]
 #[ignore = "requires a working wgpu adapter"]
 fn startup_frame_is_complete_before_exposure_without_readback_allocation() {
@@ -1322,7 +1322,7 @@ fn startup_frame_is_complete_before_exposure_without_readback_allocation() {
         "startup retains the complete target, not a duplicate image"
     );
 }
-#[cfg(feature = "window")]
+#[cfg(feature = "surface")]
 #[test]
 #[ignore = "requires a working wgpu adapter"]
 fn failed_acquisition_discards_encoded_work_and_requires_a_fresh_frame() {
