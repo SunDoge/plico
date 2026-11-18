@@ -57,8 +57,13 @@ impl Leaf<'_, '_, '_> {
             ui.scope,
             Kind::ButtonBase,
             style,
-            Cow::Borrowed(name),
+            Cow::Borrowed(""),
         );
+        ui.engine
+            .nodes
+            .get_mut(entity)
+            .unwrap()
+            .set_semantic_label(name);
         let response = Response {
             hovered: !style.disabled && ui.engine.hovered(entity),
             clicked: !style.disabled && ui.engine.clicked(entity),

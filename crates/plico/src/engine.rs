@@ -184,7 +184,13 @@ impl Engine {
     /// Accessible name: explicit text wins; composable buttons derive it from text descendants.
     pub fn accessible_name(&self, entity: Entity) -> Option<Cow<'_, str>> {
         let node = self.nodes.get(entity)?;
-        if matches!(node.kind, Kind::Svg | Kind::Shader | Kind::TooltipAnchor) {
+        if let Some(label) = node.semantic_label.as_deref() {
+            return Some(Cow::Borrowed(label));
+        }
+        if matches!(
+            node.kind,
+            Kind::Svg | Kind::Shader | Kind::Image | Kind::TooltipAnchor
+        ) {
             return None;
         }
         if !node.text.is_empty() {
@@ -432,7 +438,8 @@ impl Engine {
         Some(NodeRef {
             entity,
             kind: n.kind,
-            text: &n.text,
+            text: n.semantic_label.as_deref().unwrap_or(&n.text),
+            content: &n.text,
             spans: &n.spans,
             grid: n.grid.as_ref(),
             shader: n.shader.as_ref(),
@@ -993,7 +1000,7 @@ impl Engine {
                 key: crate::PathKey::scoped(n.identity.key, n.identity.scope),
                 kind: n.kind,
                 style: n.style,
-                text: n.text.clone(),
+                text: n.semantic_label.as_deref().unwrap_or(&n.text).to_owned(),
                 spans: n.spans.clone(),
                 grid: n.grid.clone(),
                 shader: n.shader.clone(),
@@ -1093,6 +1100,7 @@ impl Engine {
                 | Changes::SEMANTICS;
             node.pending_properties = StyleProperties::all();
             node.kind = kind;
+            node.semantic_label = None;
             node.grid = None;
             if kind != Kind::Text {
                 node.spans.clear();

@@ -36,7 +36,7 @@ impl Adapter {
             (&mut self.shader_nodes, n.kind == Kind::Shader),
             (
                 &mut self.tooltip_nodes,
-                n.kind == Kind::TooltipAnchor && !n.text.is_empty(),
+                n.kind == Kind::TooltipAnchor && !n.content.is_empty(),
             ),
         ] {
             if member {
@@ -119,8 +119,8 @@ impl Adapter {
                 &mut self.svg_cache,
                 &mut self.stats,
                 self.resource_generation,
-                n.text,
-                svg_color(n.text, visual_style, engine.theme()),
+                n.content,
+                svg_color(n.content, visual_style, engine.theme()),
             )
         } else {
             None
@@ -130,7 +130,7 @@ impl Adapter {
                 &mut self.image_cache,
                 &mut self.stats,
                 self.resource_generation,
-                n.text,
+                n.content,
             )
         } else {
             None
@@ -339,7 +339,7 @@ impl Adapter {
                     style: style.as_ref().expect("new node layout").clone(),
                     paint_key: key.clone(),
                     spans: n.spans.to_vec(),
-                    text: Arc::from(n.text),
+                    text: Arc::from(n.content),
                     children: Vec::new(),
                     layout: None,
                     toggle_line_height: None,
@@ -412,7 +412,7 @@ impl Adapter {
                 retained.paint_key.focused,
                 retained.paint_key.checked_progress,
             ) != (key.hovered, key.pressed, key.focused, key.checked_progress)
-            || retained.text.as_ref() != n.text
+            || retained.text.as_ref() != n.content
             || retained.spans != n.spans
             || self
                 .tree
@@ -426,8 +426,8 @@ impl Adapter {
             // This is the single retained paint mutation path: invalidate all
             // text-affecting values conservatively, including rich runs/theme.
             self.control_metrics.remove(&e);
-            if retained.text.as_ref() != n.text {
-                retained.text = Arc::from(n.text);
+            if retained.text.as_ref() != n.content {
+                retained.text = Arc::from(n.content);
             }
             let mut paint = make_paint(
                 n.kind,
@@ -548,18 +548,9 @@ pub(crate) fn make_paint(
     ];
     let mut p = Paint {
         text: (!text.is_empty()
-            && !matches!(
+            && matches!(
                 kind,
-                Kind::Svg
-                    | Kind::Shader
-                    | Kind::Image
-                    | Kind::Slider
-                    | Kind::ValueControl
-                    | Kind::ButtonBase
-                    | Kind::TextInput
-                    | Kind::Dialog
-                    | Kind::Overlay
-                    | Kind::TooltipAnchor
+                Kind::Text | Kind::Button | Kind::Switch | Kind::Checkbox
             ))
         .then_some(text),
         font_size: style.font_size as f32,
@@ -659,6 +650,24 @@ mod tests {
             (false, false, false, 0.),
             Arc::from("sans-serif"),
         )
+    }
+
+    #[test]
+    fn progress_container_label_is_only_drawn_by_its_text_child() {
+        for kind in [Kind::Column, Kind::Text] {
+            let paint = make_paint(
+                kind,
+                Default::default(),
+                Arc::from("Completion"),
+                Theme::default(),
+                (false, false, false, 0.),
+                Arc::from("sans-serif"),
+            );
+            assert_eq!(
+                paint.text.as_deref(),
+                (kind == Kind::Text).then_some("Completion")
+            );
+        }
     }
 
     #[test]

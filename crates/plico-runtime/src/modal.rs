@@ -245,9 +245,9 @@ impl Adapter {
                                     (at.unwrap_or(items.len() - 1) + offset) % items.len()
                                 })
                                 .find(|i| {
-                                    engine
-                                        .node(items[*i])
-                                        .is_some_and(|n| n.text.to_lowercase().starts_with(&prefix))
+                                    engine.accessible_name(items[*i]).is_some_and(|name| {
+                                        name.to_lowercase().starts_with(&prefix)
+                                    })
                                 })
                         }
                         _ => None,

@@ -824,6 +824,7 @@ pub(crate) struct Node {
     /// Cached validation result for the retained style, including rejected frames.
     pub style_valid: bool,
     pub text: String,
+    pub semantic_label: Option<Box<str>>,
     pub text_revision: u64,
     pub spans: Vec<TextSpan>,
     pub grid: Option<crate::GridTemplate>,
@@ -847,6 +848,13 @@ pub(crate) struct Node {
     pub size: Size,
 }
 impl Node {
+    pub(crate) fn set_semantic_label(&mut self, label: &str) {
+        if self.semantic_label.as_deref().unwrap_or("") != label {
+            self.semantic_label = (!label.is_empty()).then(|| label.into());
+            self.pending_changes |= Changes::SEMANTICS;
+        }
+    }
+
     pub fn new(identity: Identity, kind: Kind) -> Self {
         Self {
             identity,
@@ -854,6 +862,7 @@ impl Node {
             style: Style::default(),
             style_valid: true,
             text: String::new(),
+            semantic_label: None,
             text_revision: 0,
             spans: Vec::new(),
             grid: None,
@@ -884,7 +893,10 @@ impl Node {
 pub struct NodeRef<'a> {
     pub entity: Entity,
     pub kind: Kind,
+    /// Inspection text, including explicit names on composed controls.
     pub text: &'a str,
+    /// Declaration payload consumed by the renderer, excluding semantic-only names.
+    pub content: &'a str,
     pub spans: &'a [TextSpan],
     pub grid: Option<&'a crate::GridTemplate>,
     pub shader: Option<&'a crate::ShaderParams>,

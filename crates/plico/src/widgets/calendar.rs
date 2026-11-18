@@ -56,11 +56,14 @@ pub fn calendar_content(
 ) -> CalendarResponse {
     let mut day_selected = false;
     let m = cx.theme().metrics;
-    column(cx).gap(m.spacing as f32 * 0.5).children(|cx| {
-        header(cx, state);
-        weekday_row(cx, week_start);
-        day_selected = day_grid(cx, state, week_start, today);
-    });
+    column(cx)
+        .width(m.space(56) as f32)
+        .gap(m.space(2))
+        .children(|cx| {
+            header(cx, state);
+            weekday_row(cx, week_start);
+            day_selected = day_grid(cx, state, week_start, today);
+        });
     CalendarResponse { day_selected }
 }
 

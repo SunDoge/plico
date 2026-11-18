@@ -583,16 +583,16 @@ impl Layout<'_, '_> {
     /// inherited disabled state.
     #[inline(always)]
     pub fn children<R>(self, build: impl FnOnce(&mut UiContext<'_>) -> R) -> InnerResponse<R> {
-        let label = self.semantic_label.unwrap_or_default();
         let entity = self.ui.engine.declare(
             self.ui.parent,
             self.key,
             self.ui.scope,
             self.kind,
             self.style,
-            Cow::Owned(label),
+            Cow::Borrowed(""),
         );
         let node = self.ui.engine.nodes.get_mut(entity).unwrap();
+        node.set_semantic_label(self.semantic_label.as_deref().unwrap_or(""));
         if node.numeric != self.numeric {
             node.numeric = self.numeric;
             node.style.numeric_revision = node.style.numeric_revision.wrapping_add(1);
