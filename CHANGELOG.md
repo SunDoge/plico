@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/SunDoge/plico/compare/v0.4.3...v0.4.4) - 2026-11-20
+
+### Added
+
+- *(android)* add native host with IME support and shared platform contracts
+- *(android)* showcase widgets and shaders and fix duplicate labels
+
 ## [0.4.3](https://github.com/SunDoge/plico/compare/v0.4.2...v0.4.3) - 2026-11-17
 
 ### Added
