@@ -83,6 +83,7 @@ jobs:
       - name: Test the renderer-independent packages
         run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
       - name: Install desktop compile dependencies
+        timeout-minutes: 12
         run: |
           packages=(
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev
@@ -112,30 +113,17 @@ jobs:
             echo "${address} ${host}" | sudo tee -a /etc/hosts
           done
 
-          # Apt otherwise waits once per package, which can consume the whole
-          # job timeout. Require a complete index refresh and retry the operation
-          # as a unit with bounded network and process waits.
-          for attempt in 1 2 3; do
-            if timeout --kill-after=5s 90s sudo apt-get \
-              -o Acquire::Retries=0 \
-              -o Acquire::http::Timeout=10 \
-              -o Acquire::https::Timeout=10 \
-              update --error-on=any \
-              && timeout --kill-after=5s 120s sudo apt-get \
-                -o Acquire::Retries=0 \
-                -o Acquire::http::Timeout=10 \
-                -o Acquire::https::Timeout=10 \
-                install -y --no-install-recommends "${packages[@]}"
-            then
-              break
-            fi
-
-            if (( attempt == 3 )); then
-              echo "Desktop dependency installation failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            sleep 5
-          done
+          # Retry downloads before dpkg changes the runner. A slow mirror can
+          # consume the entire download budget without leaving time to unpack.
+          apt_options=(
+            -o Acquire::Retries=2
+            -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20
+          )
+          timeout --kill-after=5s 120s sudo apt-get "${apt_options[@]}" update --error-on=any
+          timeout --kill-after=5s 360s sudo apt-get "${apt_options[@]}" \
+            install --download-only -y --no-install-recommends "${packages[@]}"
+          sudo apt-get install --no-download -y --no-install-recommends "${packages[@]}"
       - name: Test the renderer application
         run: cargo test --locked --profile ci -p plico-render --all-targets --all-features
       - name: Lint the mainline without optional backend SDKs
