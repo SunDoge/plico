@@ -101,9 +101,13 @@ impl<V: HostView> WebHost<V> {
         self.renderer
             .render(&self.scene, size, self.source.base_color().components)
             .map_err(|e| error(e.to_string()))?;
-        // Browser scheduling currently uses rAF for deferred UI deadlines;
-        // native hosts can sleep with FrameSource::animation_deadline instead.
         Ok(self.source.has_anim() || self.source.animation_deadline().is_some())
+    }
+    pub fn next_frame_delay_ms(&self) -> f64 {
+        if self.source.has_anim() {
+            return 0.;
+        }
+        self.source.wake_delay().unwrap_or_default().as_secs_f64() * 1000.
     }
     /// Flush the previous discrete input before routing the next one.
     pub fn dispatch(
@@ -119,6 +123,22 @@ impl<V: HostView> WebHost<V> {
     }
     pub fn selected_text(&self) -> Option<String> {
         self.source.selected_text()
+    }
+    /// The browser owns clipboard access during its paste event.
+    pub fn paste(&mut self, time: f64, text: String) -> Result<bool, JsValue> {
+        if text.is_empty() {
+            return Ok(false);
+        }
+        Ok(self.dispatch(time, UiEvent::Paste(text))?.handled)
+    }
+    /// Called after a cut event has copied the editor selection to the clipboard.
+    pub fn cut_selection(&mut self, time: f64) -> Result<(), JsValue> {
+        if self.source.has_focused_text_input() {
+            let key =
+                plico::KeyEvent::logical(plico::KeyPhase::Down, "x", plico::Modifiers::CONTROL);
+            self.dispatch(time, UiEvent::Key(key))?;
+        }
+        Ok(())
     }
     pub fn pointer(&mut self, time: f64, event: &web_sys::PointerEvent) -> Result<(), JsValue> {
         use plico_renderer::*;
@@ -198,7 +218,24 @@ impl<V: HostView> WebHost<V> {
     }
     pub fn key(&mut self, time: f64, event: &web_sys::KeyboardEvent) -> Result<bool, JsValue> {
         use plico_renderer::*;
+        // Composing keydowns belong to the IME. Allow releases through in case
+        // a widget observed the press before composition started.
+        if event.type_() == "keydown" && (event.is_composing() || event.key_code() == 229) {
+            return Ok(false);
+        }
         let key = event.key();
+        // Let the browser deliver a trusted clipboard event with its DataTransfer.
+        // In particular, cutting here would remove the selection before that event.
+        if event.type_() == "keydown"
+            && (event.ctrl_key() || event.meta_key())
+            && !event.alt_key()
+            && (key.eq_ignore_ascii_case("v")
+                || (!event.shift_key() && matches!(key.as_str(), "c" | "C" | "x" | "X")))
+            && (self.source.has_focused_text_input()
+                || (key.eq_ignore_ascii_case("c") && self.selected_text().is_some()))
+        {
+            return Ok(false);
+        }
         let response = self.dispatch(
             time,
             UiEvent::Key(KeyEvent {
@@ -212,7 +249,12 @@ impl<V: HostView> WebHost<V> {
                 code: event.code(),
                 text: None,
                 text_with_all_modifiers: None,
-                location: KeyLocation::Standard,
+                location: match event.location() {
+                    1 => KeyLocation::Left,
+                    2 => KeyLocation::Right,
+                    3 => KeyLocation::Numpad,
+                    _ => KeyLocation::Standard,
+                },
                 modifiers: modifiers(
                     event.shift_key(),
                     event.ctrl_key(),
@@ -225,13 +267,27 @@ impl<V: HostView> WebHost<V> {
         )?;
         Ok(response.handled)
     }
+    pub fn focus(&mut self, time: f64, focused: bool) -> Result<(), JsValue> {
+        self.dispatch(time, UiEvent::Focus(focused))?;
+        Ok(())
+    }
     pub fn wheel(&mut self, time: f64, event: &web_sys::WheelEvent) -> Result<bool, JsValue> {
         use plico_renderer::*;
         let rect = self.canvas.get_bounding_client_rect();
-        let factor = match event.delta_mode() {
-            1 => WHEEL_LINE_DELTA,
-            2 => rect.height(),
-            _ => 1.,
+        // MyGO internal/web/surface.go uses 16 CSS pixels per DOM line.
+        // Pixel-mode notches already carry their distance. Only their motion
+        // policy differs from the continuous deltas of a trackpad.
+        let (x_scale, y_scale, delta_mode) = match event.delta_mode() {
+            1 => (16., 16., WheelDeltaMode::Line),
+            2 => (rect.width(), rect.height(), WheelDeltaMode::Line),
+            0 if js_sys::Reflect::get(event, &JsValue::from_str("wheelDeltaY"))
+                .ok()
+                .and_then(|value| value.as_f64())
+                .is_some_and(|delta| delta != 0. && delta % 120. == 0.) =>
+            {
+                (1., 1., WheelDeltaMode::Line)
+            }
+            _ => (1., 1., WheelDeltaMode::Pixel),
         };
         let response = self.dispatch(
             time,
@@ -240,9 +296,9 @@ impl<V: HostView> WebHost<V> {
                     x: event.client_x() as f64 - rect.left(),
                     y: event.client_y() as f64 - rect.top(),
                 },
-                delta_x: event.delta_x() * factor,
-                delta_y: event.delta_y() * factor,
-                delta_mode: WheelDeltaMode::Pixel,
+                delta_x: event.delta_x() * x_scale,
+                delta_y: event.delta_y() * y_scale,
+                delta_mode,
                 phase: GesturePhase::Changed,
                 modifiers: modifiers(
                     event.shift_key(),
@@ -274,6 +330,16 @@ fn modifiers(shift: bool, ctrl: bool, alt: bool, meta: bool) -> plico_renderer::
 }
 fn error(message: impl AsRef<str>) -> JsValue {
     JsValue::from_str(message.as_ref())
+}
+
+/// Browser candidate-window position in canvas CSS pixels.
+#[wasm_bindgen]
+pub struct InputAnchor {
+    pub client: u64,
+    pub x: f64,
+    pub y: f64,
+    pub height: f64,
+    pub secret: bool,
 }
 
 /// Optional gallery binding; applications can wrap WebHost with their own wasm-bindgen API.
@@ -324,22 +390,62 @@ impl Gallery {
     pub fn selected_text(&self) -> Option<String> {
         self.host.selected_text()
     }
+    pub fn next_frame_delay_ms(&self) -> f64 {
+        self.host.next_frame_delay_ms()
+    }
     pub fn pointer(&mut self, time: f64, event: web_sys::PointerEvent) -> Result<(), JsValue> {
         self.host.pointer(time, &event)
     }
     pub fn key(&mut self, time: f64, event: web_sys::KeyboardEvent) -> Result<bool, JsValue> {
         self.host.key(time, &event)
     }
+    pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.host.source.set_reduced_motion(reduced);
+    }
     pub fn wheel(&mut self, time: f64, event: web_sys::WheelEvent) -> Result<bool, JsValue> {
         self.host.wheel(time, &event)
+    }
+    pub fn input_anchor(&self) -> Option<InputAnchor> {
+        let (client, [x, y, _, bottom], secret) = self.host.source.input_anchor()?;
+        Some(InputAnchor {
+            client,
+            x,
+            y,
+            height: (bottom - y).max(1.),
+            secret,
+        })
+    }
+    pub fn composition(
+        &mut self,
+        time: f64,
+        client: u64,
+        text: String,
+        finished: bool,
+    ) -> Result<(), JsValue> {
+        use plico_renderer::ImeEvent;
+        if self.host.source.input_anchor().map(|(id, _, _)| id) != Some(client) {
+            return Ok(());
+        }
+        let event = match (finished, text.is_empty()) {
+            (true, true) => ImeEvent::Disabled,
+            (true, false) => ImeEvent::Commit(text),
+            (false, _) => ImeEvent::Preedit { text, cursor: None },
+        };
+        self.host.dispatch(time, UiEvent::Ime(event))?;
+        Ok(())
+    }
+    pub fn paste(&mut self, time: f64, text: String) -> Result<bool, JsValue> {
+        self.host.paste(time, text)
+    }
+    pub fn cut_selection(&mut self, time: f64) -> Result<(), JsValue> {
+        self.host.cut_selection(time)
     }
     pub fn text(&mut self, time: f64, text: String) -> Result<(), JsValue> {
         self.host.dispatch(time, UiEvent::TextInput(text))?;
         Ok(())
     }
     pub fn focus(&mut self, time: f64, focused: bool) -> Result<(), JsValue> {
-        self.host.dispatch(time, UiEvent::Focus(focused))?;
-        Ok(())
+        self.host.focus(time, focused)
     }
     pub fn debug_state(&self) -> String {
         serde_json::to_string(&self.host.source.view().0).unwrap()
@@ -352,7 +458,7 @@ impl Gallery {
             .map(|n| {
                 serde_json::json!({
                     "id":n.id, "role":format!("{:?}",n.role), "label":n.label,
-                    "bounds":n.bounds, "disabled":n.disabled
+                    "bounds":n.bounds, "disabled":n.disabled, "value":n.value
                 })
             })
             .collect();

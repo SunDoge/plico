@@ -8,6 +8,8 @@ use snafu::{ResultExt, Snafu};
 use zeroize::Zeroizing;
 pub mod services;
 pub mod tasks;
+#[cfg(feature = "archive")]
+pub mod tree_update;
 mod validation;
 pub use validation::validate_nodes;
 pub const PROTOCOL_VERSION: u32 = 3;

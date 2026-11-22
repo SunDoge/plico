@@ -1,16 +1,21 @@
 use crate::WebHost;
 use js_sys::Function;
 use plico::{FrameTime, Key, PathKey, Theme, UiContext, ViewNode};
-use plico_dev::{Frame, PROTOCOL_VERSION, Request};
 use plico_runtime::HostView;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
+use web_demo::protocol::{CAPACITY, Input as Request, Output as Frame, Reply, ServiceSnapshot};
+
+struct ReplayKey {
+    id: u64,
+    visited: bool,
+}
 
 struct RemoteView {
     module: Function,
     frame: Frame,
-    keys: HashMap<Vec<PathKey>, u64>,
+    keys: HashMap<Vec<PathKey>, ReplayKey>,
     next_key: u64,
     pending: Vec<Vec<PathKey>>,
     pending_values: Vec<(Vec<PathKey>, f64)>,
@@ -21,7 +26,7 @@ struct RemoteView {
     rendered_scrolls: Vec<(Vec<PathKey>, [f32; 2])>,
     hovered: Option<Vec<PathKey>>,
     rendered_hovered: Option<Vec<PathKey>>,
-    services: Value,
+    services: ServiceSnapshot,
     dirty: bool,
     reloads: u64,
     calls: u64,
@@ -31,7 +36,10 @@ struct RemoteView {
 }
 impl RemoteView {
     fn new(module: Function) -> Result<Self, JsValue> {
-        let services = json!({"instance":1,"progress":0});
+        let services = ServiceSnapshot {
+            instance: 1,
+            progress: 0,
+        };
         let (frame, initial_input, initial_output) = call(
             &module,
             &Request {
@@ -39,6 +47,7 @@ impl RemoteView {
                 ..Default::default()
             },
         )?;
+        let frame = frame.resolve(None, &mut Vec::new()).map_err(err)?;
         Ok(Self {
             module,
             frame,
@@ -75,7 +84,7 @@ impl RemoteView {
             ..Default::default()
         }
     }
-    fn invoke(&mut self, module: &Function, request: &Request) -> Result<Frame, JsValue> {
+    fn invoke(&mut self, module: &Function, request: &Request) -> Result<Reply, JsValue> {
         let (frame, input, output) = call(module, request)?;
         self.calls += 1;
         self.input_bytes += input as u64;
@@ -85,7 +94,10 @@ impl RemoteView {
     fn activate(&mut self, module: Function) -> Result<(), JsValue> {
         // No host/UI state changes until the whole candidate frame validates.
         let request = self.request(vec![], vec![]);
-        let frame = self.invoke(&module, &request)?;
+        let frame = self
+            .invoke(&module, &request)?
+            .resolve(None, &mut Vec::new())
+            .map_err(err)?;
         self.module = module;
         self.accept(frame);
         self.reloads += 1;
@@ -104,17 +116,28 @@ impl RemoteView {
         clicks: Vec<Vec<PathKey>>,
         values: Vec<(Vec<PathKey>, f64)>,
     ) -> Result<(), JsValue> {
-        let request = self.request(clicks, values);
-        let module = self.module.clone();
-        let frame = self.invoke(&module, &request)?;
-        self.accept(frame);
+        let mut request = self.request(clicks, values);
+        self.update(&mut request)?;
         Ok(())
+    }
+    fn update(&mut self, request: &mut Request) -> Result<bool, JsValue> {
+        request.base = Some(self.frame.revision);
+        let module = self.module.clone();
+        let reply = self.invoke(&module, request)?;
+        if !request.key_events.is_empty() && !reply.key_handled {
+            return Ok(false);
+        }
+        let frame = reply
+            .resolve(request.base, &mut self.frame.nodes)
+            .map_err(err)?;
+        self.accept(frame);
+        Ok(true)
     }
     fn replay(&mut self, ui: &mut UiContext<'_>) {
         let mut hovered = None;
         struct Replay<'a> {
             hovered: &'a mut Option<Vec<PathKey>>,
-            keys: &'a mut HashMap<Vec<PathKey>, u64>,
+            keys: &'a mut HashMap<Vec<PathKey>, ReplayKey>,
             next: &'a mut u64,
             clicks: &'a mut Vec<Vec<PathKey>>,
             values: &'a mut Vec<(Vec<PathKey>, f64)>,
@@ -129,10 +152,16 @@ impl RemoteView {
             ) {
                 for n in nodes {
                     path.push(n.key.clone());
-                    let key = *self.keys.entry(path.clone()).or_insert_with(|| {
+                    let key = if let Some(entry) = self.keys.get_mut(path.as_slice()) {
+                        entry.visited = true;
+                        entry.id
+                    } else {
                         *self.next += 1;
-                        *self.next
-                    });
+                        let id = *self.next;
+                        self.keys
+                            .insert(path.clone(), ReplayKey { id, visited: true });
+                        id
+                    };
                     if n.kind == plico::Kind::Shader {
                         if let Some(params) = &n.shader {
                             ui.shader_element(Key::Number(key), n.style, &n.text, params);
@@ -195,23 +224,9 @@ impl RemoteView {
         self.hovered = hovered;
         // Virtualized children are unmounted. Do not retain a path-to-ID entry
         // for every row ever visited during a long session.
-        fn active_paths(
-            nodes: &[ViewNode],
-            path: &mut Vec<PathKey>,
-            active: &mut std::collections::HashSet<Vec<PathKey>>,
-        ) {
-            for node in nodes {
-                path.push(node.key.clone());
-                active.insert(path.clone());
-                active_paths(&node.children, path, active);
-                path.pop();
-            }
-        }
-        let mut active = std::collections::HashSet::new();
-        active_paths(&self.frame.nodes, &mut Vec::new(), &mut active);
-        self.keys.retain(|path, _| active.contains(path));
+        self.keys.retain(|_, key| std::mem::take(&mut key.visited));
         self.scroll_viewports
-            .retain(|(path, _)| active.contains(path));
+            .retain(|(path, _)| self.keys.contains_key(path));
     }
 }
 impl HostView for RemoteView {
@@ -222,18 +237,10 @@ impl HostView for RemoteView {
         self.frame.theme
     }
     fn on_unhandled_key(&mut self, key: &plico_renderer::KeyEvent) -> bool {
-        if !key.modifiers.is_empty() {
-            return false;
-        }
         let mut request = self.request(vec![], vec![]);
-        request.keys.push(key.key.clone());
-        let module = self.module.clone();
-        match self.invoke(&module, &request) {
-            Ok(frame) if frame.key_handled => {
-                self.accept(frame);
-                true
-            }
-            Ok(_) => false,
+        request.key_events.push(key.clone());
+        match self.update(&mut request) {
+            Ok(handled) => handled,
             Err(e) => {
                 self.module_error = Some(format!("{e:?}"));
                 false
@@ -246,7 +253,7 @@ impl HostView for RemoteView {
         let clicks = std::mem::take(&mut self.pending);
         let values = std::mem::take(&mut self.pending_values);
         let input = !clicks.is_empty() || !values.is_empty();
-        let ticking = self.frame.requests.contains(plico::Changes::ANIMATE)
+        let ticking = (self.frame.requests & plico::Changes::ANIMATE.bits() != 0)
             && self.time != self.rendered_time;
         if (self.dirty
             || resized
@@ -258,14 +265,14 @@ impl HostView for RemoteView {
         {
             self.module_error = Some(format!("{e:?}"));
             self.dirty = false;
-            self.frame.requests.remove(plico::Changes::ANIMATE);
+            self.frame.requests &= !plico::Changes::ANIMATE.bits();
         }
         let previous_hover = self.hovered.clone();
         self.replay(ui);
         if previous_hover != self.hovered {
             ui.request_rebuild();
         }
-        if self.frame.requests.contains(plico::Changes::ANIMATE) {
+        if self.frame.requests & plico::Changes::ANIMATE.bits() != 0 {
             ui.request_animation_frame();
         }
         if input || !self.pending.is_empty() || !self.pending_values.is_empty() {
@@ -273,30 +280,21 @@ impl HostView for RemoteView {
         }
     }
 }
-fn call(module: &Function, request: &Request) -> Result<(Frame, usize, usize), JsValue> {
-    let input = serde_json::to_string(request).map_err(err)?;
-    let output = module
-        .call1(&JsValue::NULL, &JsValue::from_str(&input))?
-        .as_string()
-        .ok_or_else(|| err("UI module must return JSON text"))?;
-    let frame: Frame = serde_json::from_str(&output).map_err(err)?;
-    if frame.version != PROTOCOL_VERSION {
-        return Err(err("UI protocol version mismatch"));
+fn call(module: &Function, request: &Request) -> Result<(Reply, usize, usize), JsValue> {
+    let input = rkyv::to_bytes::<rkyv::rancor::Error>(request).map_err(err)?;
+    if input.len() > CAPACITY {
+        return Err(err("UI request exceeds buffer capacity"));
     }
-    if !frame.commands.is_empty() {
-        return Err(err("split experiment has no command executor"));
+    let value = module.call1(&JsValue::NULL, &js_sys::Uint8Array::from(input.as_slice()))?;
+    let output = value
+        .dyn_into::<js_sys::Uint8Array>()
+        .map_err(|_| err("UI module must return bytes"))?;
+    if output.length() as usize > CAPACITY {
+        return Err(err("UI reply exceeds buffer capacity"));
     }
-    plico_dev::validate_nodes(&frame.nodes).map_err(err)?;
-    fn web_nodes(nodes: &[ViewNode]) -> bool {
-        nodes.iter().all(|n| {
-            !matches!(n.kind, plico::Kind::Shader | plico::Kind::TextInput)
-                && web_nodes(&n.children)
-        })
-    }
-    if !web_nodes(&frame.nodes) {
-        return Err(err("unsupported portable web node"));
-    }
-    Ok((frame, input.len(), output.len()))
+    let bytes = output.to_vec();
+    let frame = rkyv::from_bytes::<Reply, rkyv::rancor::Error>(&bytes).map_err(err)?;
+    Ok((frame, input.len(), bytes.len()))
 }
 fn err(message: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&message.to_string())
@@ -311,6 +309,12 @@ pub struct SplitHost {
 }
 #[wasm_bindgen]
 impl SplitHost {
+    pub fn abi_version() -> u32 {
+        web_demo::protocol::ABI
+    }
+    pub fn buffer_capacity() -> usize {
+        CAPACITY
+    }
     pub async fn create(
         canvas: web_sys::HtmlCanvasElement,
         module: Function,
@@ -339,8 +343,29 @@ impl SplitHost {
     ) -> Result<bool, JsValue> {
         self.host.frame(time, width, height, scale)
     }
+    pub fn next_frame_delay_ms(&self) -> f64 {
+        self.host.next_frame_delay_ms()
+    }
     pub fn pointer(&mut self, time: f64, event: web_sys::PointerEvent) -> Result<(), JsValue> {
         self.host.pointer(time, &event)
+    }
+    pub fn selected_text(&self) -> Option<String> {
+        self.host.selected_text()
+    }
+    pub fn paste(&mut self, time: f64, text: String) -> Result<bool, JsValue> {
+        self.host.paste(time, text)
+    }
+    pub fn cut_selection(&mut self, time: f64) -> Result<(), JsValue> {
+        self.host.cut_selection(time)
+    }
+    pub fn focus(&mut self, time: f64, focused: bool) -> Result<(), JsValue> {
+        self.host.focus(time, focused)
+    }
+    pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.host.source.set_reduced_motion(reduced);
+    }
+    pub fn wheel(&mut self, time: f64, event: web_sys::WheelEvent) -> Result<bool, JsValue> {
+        self.host.wheel(time, &event)
     }
     pub fn key(&mut self, time: f64, event: web_sys::KeyboardEvent) -> Result<bool, JsValue> {
         self.host.key(time, &event)
@@ -356,7 +381,7 @@ impl SplitHost {
     pub fn advance_service(&mut self) {
         self.service_ticks += 1;
         self.host.source.update(|view| {
-            view.services = json!({"instance":1,"progress":self.service_ticks});
+            view.services.progress = self.service_ticks;
             view.dirty = true;
         });
     }

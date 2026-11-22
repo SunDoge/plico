@@ -14,6 +14,21 @@ bitflags::bitflags! {
     }
 }
 
+#[cfg(feature = "archive")]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[rkyv(remote = Modifiers)]
+pub struct ModifierBits {
+    #[rkyv(getter = Modifiers::bits)]
+    bits: u8,
+}
+
+#[cfg(feature = "archive")]
+impl From<ModifierBits> for Modifiers {
+    fn from(value: ModifierBits) -> Self {
+        Modifiers::from_bits_retain(value.bits)
+    }
+}
+
 impl Modifiers {
     /// Whether Shift is held.
     pub const fn shift(self) -> bool {
@@ -48,6 +63,10 @@ impl Modifiers {
     }
 }
 
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Physical key transition phase.
 pub enum KeyPhase {
@@ -57,6 +76,10 @@ pub enum KeyPhase {
     Up,
 }
 
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 /// Physical location of a key with duplicated legends.
 pub enum KeyLocation {
@@ -83,6 +106,10 @@ impl KeyLocation {
     }
 }
 
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Keyboard event retaining both logical and physical-key information.
 pub struct KeyEvent {
@@ -101,6 +128,7 @@ pub struct KeyEvent {
     /// Physical section containing the key.
     pub location: KeyLocation,
     /// Active keyboard modifiers.
+    #[cfg_attr(feature = "archive", rkyv(with = ModifierBits))]
     pub modifiers: Modifiers,
     /// Whether this is an automatic repeat rather than the initial press.
     pub repeat: bool,
@@ -299,6 +327,27 @@ mod tests {
         assert_eq!(event.modifiers, Modifiers::ALT);
         assert!(!event.repeat && !event.synthetic);
         assert!(event.text.is_none() && event.text_with_all_modifiers.is_none());
+    }
+    #[cfg(feature = "archive")]
+    #[test]
+    fn archived_key_preserves_physical_and_logical_fields() {
+        let original = KeyEvent {
+            phase: KeyPhase::Up,
+            key: ",".into(),
+            key_without_modifiers: ".".into(),
+            code: "NumpadDecimal".into(),
+            text: Some(",".into()),
+            text_with_all_modifiers: None,
+            location: KeyLocation::Numpad,
+            modifiers: Modifiers::ALT | Modifiers::SHIFT,
+            repeat: true,
+            synthetic: true,
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&original).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<KeyEvent, rkyv::rancor::Error>(&bytes).unwrap(),
+            original
+        );
     }
     #[test]
     fn exact_modifiers_physical_keys_repeat_and_recovery() {

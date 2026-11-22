@@ -1,6 +1,6 @@
 # 场景预览与开发循环
 
-当前开发路径是静态编译、自动重启与确定性离屏截图。桌面动态库加载、stabby ABI、模块状态迁移和对应 feature 已移除。重启会重建应用；需要保留的数据由应用正常持久化。
+默认开发路径是静态编译、自动重启与确定性离屏截图。桌面动态库加载、stabby ABI、模块状态迁移和对应 feature 已移除。重启会重建应用；需要保留的数据由应用正常持久化。
 
 ```sh
 cargo plico dev apps/gallery
@@ -13,6 +13,32 @@ cargo plico capture apps/gallery --scenario apps/gallery/scenarios/controls.json
 `capture` 运行应用自己的普通可执行文件，传入 `--scenario <绝对路径> --capture <绝对路径>`。应用需要实现这两个参数；`plico new` 模板和 gallery 已实现。任意应用不一定能截图，未实现该参数的应用应由自身参数解析器报错。`--watch` 会在源文件或场景文件改变后重新生成截图；只有场景 JSON 改动时复用已编译程序，不调用 Cargo。输出宜放在忽略的 `reports/`；生成的目标截图不会触发重新构建。
 
 直接运行 `plico dev <应用目录> -- --scenario ... --capture ...` 时，这两个路径相对于应用目录解析。原生模式下，修改 WGSL shader 或 Fluent 翻译文件（`.ftl`）也会触发增量构建。原生预览按上一次成功构建的依赖过滤其他 workspace 成员的编辑。跨成员的 `include_str!` 和 `include_bytes!` 资源由 Cargo 的依赖文件识别。Linux 在注册监听前跳过构建目录。
+
+## 保留窗口的 Rust UI 热重载
+
+安装编译目标后，在 Plico 根目录运行阅读器，将最后一个参数换成实际 PNG 的绝对路径。
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo plico dev benchmarks/wasm-ui --wasm -- /absolute/path/to/page.png
+```
+
+点击 **Analyze image**，然后修改阅读器的 `src/tree.rs`。CLI 会编译 guest 并原子替换模块。宿主在后台准备新版，窗口、图片资源和正在执行的任务继续使用同一进程。guest 的局部状态会随实例重建；需要跨版本保留的值由宿主持有。
+
+接入应用时，在同一 Cargo package 声明宿主和 guest 两个 bin，配置要监听的源码。路径相对于 package 根目录，可列文件或目录。
+
+```toml
+[package.metadata.plico.wasm]
+host = "reader-host"
+guest = "reader-ui"
+features = ["reader-service", "tree-patch"]
+host-features = ["wasm-host"]
+watch = ["src/ui.rs", "src/tree.rs", "src/service.rs", "src/bin/guest.rs"]
+```
+
+`features` 用于两次构建。guest 关闭默认 features；宿主保留默认 features，再加上 `host-features`。宿主从 `PLICO_WASM_MODULE` 读取模块路径。guest 用 `plico_wasm::export_ui!` 导出约定版本、缓冲区容量和处理函数；宿主通过 `Module::load` 校验并实例化，`Module::call` 返回借用的响应字节。双方使用 rkyv 的小端、32 位相对偏移和 unaligned 格式。处理函数接收已校验的归档引用；宿主用 `rkyv::access` 原地读取返回字段。借用只在下一次调用之前有效。`Reloads::watch` 在后台加载候选实例，并唤醒宿主应用更新。修改宿主代码、协议或 Cargo 配置后重启开发命令。
+
+发布时编译相同的 Rust UI 并直接调用，应用把 `plico-wasm/host` 放在可选的开发 feature 中。当前模块接口用于受信任的本地开发代码。加载外部插件的产品还需要定义服务权限、执行和内存预算、出错恢复及协议兼容策略。
 
 ## JSON 场景
 
@@ -44,7 +70,7 @@ frame.write_png(output)?;
 
 目前正式支持 JSON；尚未引入 RON。离屏预览默认使用 wgpu，也可显式选择 Skia CPU 对照；WGSL shader 由 wgpu 支持。真实窗口继续用于验证输入、剪贴板、IME、系统窗口行为与 GPU 显示。
 
-WASM 的 host/UI 拆分加载是独立能力，保留其值协议与检查点；这不表示桌面动态热重载仍存在。`plico-dev` 当前仍承载 App、服务、Task 和 WASM 值协议，包名暂不随本次迁移更改。
+浏览器的 host/UI 拆分路径继续使用现有值协议与检查点。`plico-dev` 当前仍承载 App、服务、Task 和 WASM 值协议，包名暂不随本次迁移更改。
 
 ## wgpu 离屏预览
 

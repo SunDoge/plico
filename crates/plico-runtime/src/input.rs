@@ -653,6 +653,19 @@ impl Adapter {
         }
         Some(response)
     }
+    pub(super) fn input_cursor_area(&self, entity: Entity) -> Option<[f64; 4]> {
+        let geometry = self.input_layouts.get(&entity)?;
+        let placed = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
+        self.visual_rect(
+            placed.node_id,
+            [
+                geometry.caret[0] + placed.content_origin[0] as f64,
+                geometry.caret[1] + placed.content_origin[1] as f64,
+                geometry.caret[2] + placed.content_origin[0] as f64,
+                geometry.caret[3] + placed.content_origin[1] as f64,
+            ],
+        )
+    }
     pub(super) fn input_ime_state(&self, engine: &Engine) -> Option<ImeState> {
         let entity = self.focused?;
         let (buffer, _) = engine.input(entity)?;
@@ -662,22 +675,12 @@ impl Adapter {
         // IME keeps the secret protections (surrounding text withheld,
         // Password purpose) even while the painted presentation reveals the
         // value: reveal is a display concern, not an input-method one.
-        let geometry = self.input_layouts.get(&entity)?;
-        let placed = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
         let (head, anchor) = buffer.selection_bytes();
         let text = buffer.text().unwrap_or_default();
         let secret = buffer.is_secret();
         Some(ImeState {
             client_id: super::semantic_id(entity),
-            cursor_area: self.visual_rect(
-                placed.node_id,
-                [
-                    geometry.caret[0] + placed.content_origin[0] as f64,
-                    geometry.caret[1] + placed.content_origin[1] as f64,
-                    geometry.caret[2] + placed.content_origin[0] as f64,
-                    geometry.caret[3] + placed.content_origin[1] as f64,
-                ],
-            )?,
+            cursor_area: self.input_cursor_area(entity)?,
             surrounding_cursor: if secret { 0 } else { head },
             surrounding_anchor: if secret { 0 } else { anchor },
             surrounding_text: text,

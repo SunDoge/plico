@@ -9,6 +9,10 @@ use std::{
 };
 use web_time::Instant;
 
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FrameTime {
     pub now: Duration,

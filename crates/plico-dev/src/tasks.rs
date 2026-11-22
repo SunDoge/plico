@@ -6,6 +6,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TaskStatus<T, E> {
     #[default]

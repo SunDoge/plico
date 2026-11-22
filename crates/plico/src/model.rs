@@ -74,6 +74,10 @@ pub(crate) struct Identity {
 /// classification. Append kinds at the end
 /// to preserve existing discriminant fast paths; the wire representation
 /// uses names, not these internal discriminant values.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, plico_macros::KindClass,
 )]
@@ -116,6 +120,10 @@ pub enum Kind {
     #[kind(interactive, leaf)]
     Checkbox,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Color {
     Literal(u32),
@@ -144,6 +152,10 @@ pub enum Color {
 }
 /// Initial presentation for a newly mounted group. Geometry is laid out at
 /// its target size; the host samples these paint-only channels as one timeline.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Presentation {
     pub opacity: f32,
@@ -227,6 +239,10 @@ impl Motion {
         }
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Align {
     Start,
@@ -235,6 +251,10 @@ pub enum Align {
     Stretch,
     Baseline,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Justify {
     Start,
@@ -247,6 +267,10 @@ pub enum Justify {
 }
 /// Keyboard traversal axis for a composed group whose accessibility role does
 /// not itself imply arrow-key navigation (for example an accordion).
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FocusAxis {
     Horizontal,
@@ -254,6 +278,10 @@ pub enum FocusAxis {
 }
 /// Specialized semantics for composed popup controls, independent of a backend.
 /// Portable generic font choice; Default uses the configured window family.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FontFamily {
     #[default]
@@ -267,6 +295,10 @@ impl FontFamily {
         *self == Self::Default
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidgetRole {
     /// A noninteractive semantic container for related controls.
@@ -316,11 +348,19 @@ pub enum WidgetRole {
     AlertDialog,
 }
 /// Logical thumb identity for a composed two-value slider.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SliderThumb {
     Minimum,
     Maximum,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SliderSpec {
     pub min: f64,
@@ -354,6 +394,10 @@ impl SliderSpec {
 }
 /// Box shadow parameters. Blur uses CSS/MyGO radius semantics (sigma = blur / 2).
 /// Outer shadows exclude the node interior; inset shadows stay inside its contour.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoxShadow {
     pub offset_x: f32,
@@ -374,6 +418,10 @@ impl BoxShadow {
             && (0. ..=1.).contains(&self.opacity)
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(
     Debug,
     Clone,
@@ -801,6 +849,10 @@ pub(crate) struct LayoutKey {
     pub padding_y: f32,
 }
 /// A styled UTF-8 range within one shaped paragraph. Later spans override earlier ones.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextSpan {
     pub range: std::ops::Range<usize>,

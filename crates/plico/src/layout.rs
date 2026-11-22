@@ -1,5 +1,9 @@
 //! Renderer-independent layout values. Percentages use 0–100 units.
 use serde::{Deserialize, Serialize};
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum Length {
     #[default]
@@ -24,6 +28,10 @@ impl Length {
         }
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Edges<T> {
     pub top: T,
@@ -52,6 +60,10 @@ impl<T: Copy> Edges<T> {
         [self.top, self.right, self.bottom, self.left]
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Display {
     #[default]
@@ -60,6 +72,10 @@ pub enum Display {
     Block,
     None,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FlexDirection {
     #[default]
@@ -68,6 +84,10 @@ pub enum FlexDirection {
     Column,
     ColumnReverse,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FlexWrap {
     #[default]
@@ -77,18 +97,30 @@ pub enum FlexWrap {
     Balance,
     BalanceReverse,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BoxSizing {
     #[default]
     BorderBox,
     ContentBox,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
     #[default]
     Ltr,
     Rtl,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Position {
     #[default]
@@ -96,6 +128,10 @@ pub enum Position {
     Relative,
     Absolute,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GridFlow {
     #[default]
@@ -104,6 +140,10 @@ pub enum GridFlow {
     RowDense,
     ColumnDense,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GridLine {
     #[default]
@@ -120,6 +160,10 @@ impl GridLine {
         }
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LayoutStyle {
@@ -180,6 +224,10 @@ impl LayoutStyle {
                 .all(GridLine::valid)
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TrackSize {
     Auto,
@@ -198,6 +246,10 @@ impl TrackSize {
         }
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Track {
     Auto,
@@ -240,6 +292,10 @@ impl Track {
     }
 }
 /// Variable-size grid data is retained separately from the Copy Style value.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GridTemplate {

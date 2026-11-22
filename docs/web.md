@@ -51,6 +51,8 @@ WebHost<V: HostView> 是可复用 Rust 宿主，不要求应用使用 gallery：
 应用可用 wasm-bindgen 包装自己的 WebHost。可选 gallery feature 只是这种包装的示例，
 不要求把业务应用接到 Gallery 类型上。
 
+Gallery 和 split host 在启动时读取浏览器的减少动画偏好，并跟随其变化。滚轮的行单位按每行 16 CSS 像素换算，页单位按画布宽高换算。触控板像素滚动直接跟随输入，检测到刻度的鼠标滚轮复用 Rust 平滑滚动。
+
 浏览器宿主通过 VirtualClock 注入 performance/rAF 时间。时间倒退时钳位到已观察时间，
 避免同一帧的 rAF 时间戳稍早于输入事件时间导致失败。核心 SystemClock 和后端性能/
 motion 时钟使用 web-time；原生目标上的 Instant 类型保持为标准库实现。
@@ -82,8 +84,9 @@ Glass 页的模糊与移动背景交互在 WebGL2 上实测通过；CPU path/cli
 
 - WebGL2 不执行 custom WGSL shader；gallery 的 Motion 页显示限制提示。
   其他应用发送 Shader paint command 时 renderer 明确报错。
-- JS 示例支持普通按键和基础字符输入，未接隐藏文本输入节点、完整 IME、
-  浏览器软键盘、剪贴板和原生无障碍 DOM 映射。诊断 semantics JSON 不是无障碍桥接。
+- 画布支持普通按键、基础字符输入和浏览器纯文本剪贴板事件。输入框复用 Rust 编辑选区，
+  粘贴可以一次替换选中的多字符文本。Gallery 的 DOM 输入框跟随 Rust 光标，转发 IME 组字、提交和取消。
+  Linux Chrome + Fcitx5 拼音已验证候选词提交。分离式插件协议的文本输入、移动软键盘和原生无障碍 DOM 映射仍待验证或接入。
 - 浏览器下载、文件选择、多窗口等平台服务未接入。ServiceView 可复用，
   具体网络/任务服务需使用浏览器异步 API，不能直接复制原生线程服务。
 - 不在浏览器中执行原生 dylib 热重载；当前修改后重建 WASM 并刷新页面。
@@ -104,6 +107,18 @@ NODE_PATH=/tmp/plico-web-host-qa/node_modules node crates/plico-web-host/web/smo
 Motion 页 fallback 和 resize，检查空闲 rAF 停止及 100 次唤醒只产生一帧。
 本机 Chromium 的 WebGL2 软件渲染验证通过，不代表跨浏览器/移动设备的完整兼容证明。
 
+## 保存 Rust UI 后在原页面查看改动
+
+准备好 wasm32-unknown-unknown 目标和匹配 Cargo.lock 的 wasm-bindgen CLI 后，从仓库根目录运行：
+
+```sh
+bash crates/plico-web-host/web/build-split.sh --dev
+```
+
+打开终端打印的本机地址，点击 Increment，再修改 `apps/web-demo/src/lib.rs` 里的标题。保存后浏览器会替换计数器的 WASM 模块，保留计数、画布和后台服务。编译失败时预览会展开 Rust 诊断，包括文件、行号和代码片段。可以选中复制或收起诊断，继续操作旧界面。修正并保存即可恢复。可通过 `PORT` 选择其他端口。
+
+开发服务器监听 `apps/web-demo/src/`，使用增量编译，单独将 guest 包的开发优化级别设为 0。首次启动会构建宿主和 guest 依赖。修改宿主、协议依赖或构建配置后需重新运行命令。完整 Gallery 使用独立的浏览器构建流程。
+
 ## Split host 的异步初始化
 
 删除旧 Vello 路径后，split host 同样通过 wgpu 创建 Canvas surface：
@@ -119,3 +134,29 @@ const host = await SplitHost.create(canvas, renderModule);
 `gallery` 和 `split` features 均会启用 `wgpu`；WASM 无默认 feature 的构建只提供空壳，
 不导出 Canvas host。Linux CI 对 gallery/split 组合做 WASM Clippy；浏览器交互
 测试保留为本地按需验证，不加入常规 CI。
+
+计数器的三个 UI 版本都是可由浏览器直接实例化的 WASM。宿主和 UI 使用
+`web-demo::protocol` 的 rkyv 请求和帧，交换上限为每方向 1 MiB。
+宿主保留画布、服务和 checkpoint，兼容模块接续计数，无法读取旧 checkpoint
+的模块报告重置原因。模块调用失败或返回无效树时，当前 UI 继续处理输入。
+`SplitHost.stats()` 和 `semantics()` 按需生成 JSON，供调试和测试读取。
+
+在仓库根目录运行 `bash crates/plico-web-host/web/build-split.sh`，按脚本提示启动
+HTTP 服务，随后用已安装 Playwright 的 Node 运行
+`node crates/plico-web-host/web/split-smoke.cjs`。可用 `CHROMIUM_PATH`
+指定浏览器，`PLICO_SPLIT_URL` 指定服务地址。
+
+同一构建目录可供 Wasmtime 验证，运行
+`cargo run --locked -p web-demo --features native-probe --example counter_session -- target/plico-web-host-split`
+会依次加载三个模块，检查点击计数、恢复计数和显式重置。
+
+
+计数器在首次加载、模块切换或上帧版本不匹配时回传完整组件树。宿主在常规输入中
+带回最近接收的版本号。节点结构、样式和其他属性一致时，模块只回传普通文字的
+变更位置和内容。宿主验证整批目标后才更新文字。这个路径减少模块间复制和宿主
+解码，模块内仍会运行声明并比较树。
+
+
+Gallery 和分离宿主共用指针、焦点和滚轮事件绑定。滚轮行增量沿用 Plico 的离散滚动动画，
+页增量按画布对应轴的 CSS 尺寸换算。两个宿主都在连续动画期间请求下一帧；
+滚动条等待淡出等延时工作由定时器唤醒，期间发生输入会立即请求一帧。

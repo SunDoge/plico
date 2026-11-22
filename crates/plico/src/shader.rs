@@ -1,6 +1,10 @@
 //! Portable authored shader parameters; GPU validation and resources belong to the host.
 /// Framework-owned shader whose host contract includes behavior beyond raw WGSL.
 /// Application shaders remain ordinary [`ShaderAsset`] values with no builtin tag.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ShaderBuiltin {
     /// Plico's MyGO-style liquid-glass material. The host resolves its fixed
@@ -97,6 +101,10 @@ macro_rules! shader_asset {
 }
 /// A named WGSL scalar/vector parameter. Layout is resolved by the host from
 /// WGSL; Rust struct memory and padding are never uploaded as uniforms.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ShaderValue {
     /// One WGSL f32 scalar.
@@ -140,11 +148,19 @@ impl From<[f32; 4]> for ShaderValue {
     }
 }
 /// A retained, clock-driven transition for one scalar shader value.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShaderTransition {
     pub index: usize,
     pub milliseconds: u16,
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ShaderParams {

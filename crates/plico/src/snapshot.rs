@@ -1,12 +1,25 @@
 use crate::{Key, Kind, Style};
 /// Portable logical identity; never serialize arena handles across reloads.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "archive", rkyv(
+ serialize_bounds(__S: rkyv::ser::Writer + rkyv::ser::Allocator, __S::Error: rkyv::rancor::Source),
+ deserialize_bounds(__D::Error: rkyv::rancor::Source),
+ bytecheck(bounds(__C: rkyv::validation::ArchiveContext, __C::Error: rkyv::rancor::Source))
+))]
 pub enum PathKey {
     Named(String),
     Number(u64),
     Auto(u32),
     Generated(u64),
-    Scoped { scope: u64, key: Box<PathKey> },
+    Scoped {
+        scope: u64,
+        #[cfg_attr(feature = "archive", rkyv(omit_bounds))]
+        key: Box<PathKey>,
+    },
 }
 impl From<Key> for PathKey {
     fn from(key: Key) -> Self {
@@ -49,7 +62,16 @@ impl PathKey {
         }
     }
 }
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "archive", rkyv(
+ serialize_bounds(__S: rkyv::ser::Writer + rkyv::ser::Allocator, __S::Error: rkyv::rancor::Source),
+ deserialize_bounds(__D::Error: rkyv::rancor::Source),
+ bytecheck(bounds(__C: rkyv::validation::ArchiveContext, __C::Error: rkyv::rancor::Source))
+))]
 pub struct ViewNode {
     pub key: PathKey,
     pub kind: Kind,
@@ -63,5 +85,6 @@ pub struct ViewNode {
     pub shader: Option<crate::ShaderParams>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub numeric: Option<crate::NumericRange>,
+    #[cfg_attr(feature = "archive", rkyv(omit_bounds))]
     pub children: Vec<ViewNode>,
 }

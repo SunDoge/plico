@@ -9,14 +9,24 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
+guest = ["dep:plico-wasm"]
+native-probe = ["dep:plico-wasm"]
 revised = []
 schema-reset = []
 
 [dependencies]
-plico.workspace = true
-plico-dev.workspace = true
+plico = { workspace = true, features = ["archive"] }
+plico-dev = { workspace = true, features = ["archive"] }
+rkyv.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
+plico-wasm = { path = "../../crates/plico-wasm", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+plico-wasm = { path = "../../crates/plico-wasm", optional = true, features = ["host"] }
+
+[[example]]
+name = "counter_session"
+required-features = ["native-probe"]

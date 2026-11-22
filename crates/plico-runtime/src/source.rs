@@ -176,6 +176,13 @@ impl<V: HostView> Source<V> {
         self.pending = true;
         self.target_scene = None;
     }
+    /// Delay until deferred UI work, measured on the source's injected clock.
+    pub fn wake_delay(&self) -> Option<std::time::Duration> {
+        Some(
+            self.animation_deadline()?
+                .saturating_duration_since(self.clock_instant()?),
+        )
+    }
     fn clock_instant(&self) -> Option<Instant> {
         self.clock_epoch.checked_add(self.clock.now())
     }
@@ -229,12 +236,41 @@ impl<V: HostView> Source<V> {
 
     /// Semantic projection of the latest successful frame.
     pub fn semantics(&self) -> plico_renderer::SemanticSnapshot {
-        self.adapter.semantics(&self.engine, self.revision)
+        (*self.shared_semantics()).clone()
     }
 
-    /// Text selected by the latest successful frame, if any.
+    pub(crate) fn shared_semantics(&self) -> Arc<plico_renderer::SemanticSnapshot> {
+        self.adapter.semantics_shared(&self.engine, self.revision)
+    }
+
+    fn focused_text_buffer(&self) -> Option<&plico::TextBuffer> {
+        self.engine.input(self.focused()?).map(|(buffer, _)| buffer)
+    }
+
+    /// Whether keyboard focus belongs to a mounted text editor.
+    pub fn has_focused_text_input(&self) -> bool {
+        self.focused_text_buffer().is_some()
+    }
+
+    /// Lightweight IME anchor for hosts that only need identity, caret geometry and purpose.
+    pub fn input_anchor(&self) -> Option<(u64, [f64; 4], bool)> {
+        let entity = self.focused()?;
+        if self.engine.node(entity)?.style.disabled {
+            return None;
+        }
+        Some((
+            crate::adapter::semantic_id(entity),
+            self.adapter.input_cursor_area(entity)?,
+            self.focused_text_buffer()?.is_secret(),
+        ))
+    }
+
+    /// Text selected in the focused editor or, outside an editor, in the document.
     pub fn selected_text(&self) -> Option<String> {
-        self.adapter.selected_text()
+        match self.focused_text_buffer() {
+            Some(buffer) => buffer.selected_text().filter(|text| !text.is_empty()),
+            None => self.adapter.selected_text(),
+        }
     }
 
     /// Diagnostics produced while validating application shader effects.

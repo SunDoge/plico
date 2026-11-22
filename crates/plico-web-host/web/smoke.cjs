@@ -36,16 +36,102 @@ const { chromium } = require("playwright");
       await click("Data table");
       await page.waitForFunction(() => window.plico.state.router.current === "DataTable");
       await click("Filter projects");
+      const inputValue = value => page.waitForFunction(value =>
+        window.plico.semantics().some(n=>n.label==="Filter projects" && n.value===value), value);
+      await page.waitForFunction(()=>document.activeElement?.matches('input[aria-label="Text input"]'));
+      const initialTop = await page.evaluate(() => {
+        const top = document.activeElement.getBoundingClientRect().top;
+        const spacer = document.createElement("div");
+        spacer.id = "scroll-fixture";
+        spacer.style.height = "200px";
+        document.body.append(spacer);
+        document.body.scrollTop = 60;
+        return top;
+      });
+      await page.waitForFunction(top => document.body.scrollTop === 60 &&
+        document.activeElement.getBoundingClientRect().top === top - 60, initialTop);
+      await page.evaluate(() => document.querySelector("#scroll-fixture").remove());
+      await page.waitForFunction(top => document.activeElement.getBoundingClientRect().top === top, initialTop);
+      const ime = await context.newCDPSession(page);
+      const compose = text => ime.send("Input.imeSetComposition", {
+        text, selectionStart:text.length, selectionEnd:text.length,
+      });
+      await compose("ni");
+      await inputValue("");
+      await compose("你好");
+      await ime.send("Input.insertText", {text:"你好"});
+      await inputValue("你好");
+      await compose("hao");
+      await compose("");
+      await inputValue("你好");
+      await ime.detach();
+      await page.keyboard.press("Control+a");
       await page.keyboard.type("Plico");
+      await inputValue("Plico");
       await page.waitForFunction(() => window.plico.semantics().some(n => n.label === "Clear filter"));
+      // Seed a DOM paste with mixed Unicode, then use Chromium's own cut/copy/paste events.
+      const payload = "漫画 · 第２卷 📚";
+      await page.keyboard.press("Control+a");
+      assert.equal(await page.locator("canvas").evaluate((canvas,text)=>{
+        const data=new DataTransfer();
+        data.setData("text/plain",text);
+        return canvas.dispatchEvent(new ClipboardEvent("paste",{clipboardData:data,cancelable:true,bubbles:true}));
+      },payload),false);
+      await inputValue(payload);
+      await page.keyboard.press("Control+a");
+      assert.equal(await page.locator("canvas").evaluate(canvas=>{
+        const data=new DataTransfer();
+        data.setData("text/html","<b>rich text</b>");
+        return canvas.dispatchEvent(new ClipboardEvent("paste",{clipboardData:data,cancelable:true,bubbles:true}));
+      }),true);
+      await inputValue(payload);
+      await page.keyboard.press("Control+x");
+      await inputValue("");
+      await page.keyboard.press("Control+v");
+      await inputValue(payload);
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Control+c");
+      await page.keyboard.press("End");
+      await page.keyboard.press("Control+v");
+      await inputValue(payload+payload);
       await click("Clear filter");
       await healthy();
+      // The experiments section sits below the fold of the sidebar.
+      const listPoint=await page.evaluate(()=>window.plico.semantics().find(n=>n.label==="Data table").bounds);
+      // DOM line deltas have a CSS distance independent of devicePixelRatio.
+      await page.evaluate(([x, y]) => document.querySelector("canvas").dispatchEvent(
+        new WheelEvent("wheel", {clientX:x+40, clientY:y+10, deltaMode:1, deltaY:2, cancelable:true})
+      ), listPoint);
+      await page.waitForFunction(y => Math.abs(
+        window.plico.semantics().find(n=>n.label==="Data table").bounds[1] - (y-32)
+      ) < 0.1, listPoint[1]);
+      await page.emulateMedia({reducedMotion:"reduce"});
+      // Allow the media-query change listener to run before the next notch.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      const firstMoved = await page.evaluate(async ([x,y]) => {
+        const top = () => window.plico.semantics().find(n => n.label === "Data table").bounds[1];
+        const start = top();
+        document.querySelector("canvas").dispatchEvent(new WheelEvent("wheel", {
+          clientX:x+40, clientY:y, deltaMode:1, deltaY:-1, cancelable:true,
+        }));
+        for (let i=0; i<20; i++) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          if (top() !== start) return top()-start;
+        }
+      }, listPoint);
+      assert.ok(Math.abs(firstMoved-16)<0.1, "reduced-motion wheel should move one full line immediately");
+      await page.emulateMedia({reducedMotion:"no-preference"});
+      await page.mouse.move(listPoint[0]+40,listPoint[1]+10);
+      await page.mouse.wheel(0,600);
+      await page.waitForFunction(()=>window.plico.semantics().find(n=>n.label==="2048").bounds[3]<innerHeight-90);
       await click("2048");
       await page.waitForFunction(() => window.plico.state.router.current === "Game2048");
       await page.keyboard.press("ArrowLeft");
       await page.keyboard.press("ArrowDown");
       await page.keyboard.press("ArrowRight");
       await page.waitForFunction(() => window.plico.state.game2048.tiles.length > 2);
+      await page.mouse.wheel(0,-600);
+      await page.waitForFunction(()=>window.plico.semantics().find(n=>n.label==="Layout").bounds[1]>50);
       await click("Lists");
       await page.waitForFunction(() => window.plico.state.router.current === "Lists");
       const row = await page.evaluate(() => window.plico.semantics().find(n => n.label === "Record 00001"));
@@ -97,7 +183,8 @@ const { chromium } = require("playwright");
         return c.width===900*scale && c.height===700*scale;
       }, scale);
       // Let transitions settle, then prove the host stops scheduling frames.
-      await page.waitForTimeout(800);
+      // Hover feedback and the delayed scrollbar fade have separate deadlines.
+      await page.waitForFunction(()=>window.plico.nextFrameDelay===undefined);
       const frames=await page.evaluate(()=>window.plico.frames);
       await page.waitForTimeout(200);
       assert.equal(await page.evaluate(()=>window.plico.frames), frames, "idle rAF");
@@ -108,7 +195,7 @@ const { chromium } = require("playwright");
       await page.waitForTimeout(200);
       assert.equal(await page.evaluate(()=>window.plico.frames), frames+1, "wake burst rAF");
       await healthy();
-      console.log(JSON.stringify({scale,backend,frames,page:"Controls",counter:3,checks:["pointer","theme","text-input","keyboard2048","virtual-scroll","shader-fallback",...(backend === "webgl2" ? ["backdrop-blur"] : []),"grid-layout","resize","idle"]}));
+      console.log(JSON.stringify({scale,backend,frames,page:"Controls",counter:3,checks:["pointer","theme","text-input","ime","clipboard","keyboard2048","virtual-scroll","shader-fallback",...(backend === "webgl2" ? ["backdrop-blur"] : []),"grid-layout","resize","idle"]}));
       await context.close();
     }
   } finally { await browser.close(); }

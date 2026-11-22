@@ -82,6 +82,10 @@ jobs:
         run: python3 scripts/check-runtime-boundary.py
       - name: Test the renderer-independent packages
         run: cargo test --locked --profile ci -p plico -p plico-macros -p plico-motion -p plico-dev -p plico-cli -p plico-markdown -p plico-i18n --all-targets --all-features
+      - name: Check native and WASM module interoperability
+        run: |
+          cargo build --locked --profile ci -p plico-wasm --example roundtrip --target wasm32-unknown-unknown
+          cargo run --locked --profile ci -p plico-wasm --features host --example roundtrip -- target/wasm32-unknown-unknown/ci/examples/roundtrip.wasm
       - name: Install desktop compile dependencies
         run: |
           packages=(
