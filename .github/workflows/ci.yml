@@ -88,7 +88,19 @@ jobs:
         run: |
           cargo build --locked --profile ci -p plico-wasm --example roundtrip --target wasm32-unknown-unknown
           cargo run --locked --profile ci -p plico-wasm --features host --example roundtrip -- target/wasm32-unknown-unknown/ci/examples/roundtrip.wasm
+      - name: Prepare apt archive cache
+        id: apt-cache-key
+        run: |
+          mkdir -p "$RUNNER_TEMP/plico-apt" "$RUNNER_TEMP/plico-apt-cache"
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore apt archives
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/plico-apt-cache/*.deb
+          key: apt-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.apt-cache-key.outputs.week }}
       - name: Install desktop compile dependencies
+        timeout-minutes: 12
         run: |
           packages=(
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev
@@ -118,30 +130,28 @@ jobs:
             echo "${address} ${host}" | sudo tee -a /etc/hosts
           done
 
-          # Apt otherwise waits once per package, which can consume the whole
-          # job timeout. Require a complete index refresh and retry the operation
-          # as a unit with bounded network and process waits.
-          for attempt in 1 2 3; do
-            if timeout --kill-after=5s 90s sudo apt-get \
-              -o Acquire::Retries=0 \
-              -o Acquire::http::Timeout=10 \
-              -o Acquire::https::Timeout=10 \
-              update --error-on=any \
-              && timeout --kill-after=5s 120s sudo apt-get \
-                -o Acquire::Retries=0 \
-                -o Acquire::http::Timeout=10 \
-                -o Acquire::https::Timeout=10 \
-                install -y --no-install-recommends "${packages[@]}"
-            then
-              break
-            fi
-
-            if (( attempt == 3 )); then
-              echo "Desktop dependency installation failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            sleep 5
-          done
+          # Retry downloads before dpkg changes the runner. A slow mirror can
+          # consume the entire download budget without leaving time to unpack.
+          find "$RUNNER_TEMP/plico-apt-cache" -maxdepth 1 -name '*.deb' \
+            -exec cp -t "$RUNNER_TEMP/plico-apt" -- {} +
+          apt_options=(
+            -o "Dir::Cache::archives=$RUNNER_TEMP/plico-apt"
+            -o Acquire::Retries=2
+            -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20
+          )
+          timeout --kill-after=5s 120s sudo apt-get "${apt_options[@]}" update --error-on=any
+          timeout --kill-after=5s 360s sudo apt-get "${apt_options[@]}" \
+            install --download-only -y --no-install-recommends "${packages[@]}"
+          find "$RUNNER_TEMP/plico-apt" -maxdepth 1 -name '*.deb' \
+            -exec cp -t "$RUNNER_TEMP/plico-apt-cache" -- {} +
+          sudo apt-get "${apt_options[@]}" install --no-download -y --no-install-recommends "${packages[@]}"
+      - name: Save apt archives
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/plico-apt-cache/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - name: Test the renderer application
         run: cargo test --locked --profile ci -p plico-render --all-targets --all-features
       - name: Lint the mainline without optional backend SDKs
