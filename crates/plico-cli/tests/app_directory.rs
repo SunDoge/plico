@@ -157,22 +157,54 @@ fn watch_keeps_old_process_on_build_failure_and_restarts_after_fix() {
     let record = root.path().join("process.txt");
     let stop = root.path().join("stop");
     let source = root.path().join("apps/one/src/main.rs");
+    let app = root.path().join("apps/one");
+    let manifest = app.join("Cargo.toml");
+    let mut config = fs::read_to_string(&manifest).unwrap();
+    config.push_str("\n[dependencies]\nhelper={path='../../helper'}\n");
+    fs::write(manifest, config).unwrap();
+    let helper = root.path().join("helper/src/lib.rs");
+    fs::write(&helper, "pub const LABEL: &str = \"label1\";").unwrap();
+    let shader = app.join("src/stamp.wgsl");
+    let locale = app.join("src/labels.ftl");
+    let shared = root.path().join("apps/two/src/shared.json");
+    fs::write(&shared, "asset").unwrap();
+    let scenarios = app.join("scenarios");
+    fs::create_dir(&scenarios).unwrap();
+    fs::write(&shader, "shader1").unwrap();
+    fs::write(&locale, "label1").unwrap();
+    fs::write(scenarios.join("current.json"), "1").unwrap();
     let code = |value: &str| {
         format!(
             r#"fn main() {{
         let args: Vec<_> = std::env::args().collect();
-        std::fs::write(&args[1], format!("{{}}:{value}", std::process::id())).unwrap();
+        let scenario = std::fs::read_to_string(&args[4]).unwrap();
+        std::fs::write(&args[6], b"capture").unwrap();
+        std::fs::write(&args[1], format!("{{}}:{{}}:{{}}:{{scenario}}:{value}", std::process::id(), include_str!("stamp.wgsl"), [include_str!("labels.ftl"), helper::LABEL, include_str!("../../two/src/shared.json")].join("+"))).unwrap();
         while !std::path::Path::new(&args[2]).exists() {{ std::thread::sleep(std::time::Duration::from_millis(20)); }}
     }}"#
         )
     };
     fs::write(&source, code("before")).unwrap();
+    assert!(
+        Command::new("cargo")
+            .arg("generate-lockfile")
+            .current_dir(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
     let log_path = root.path().join("dev.log");
     let mut command = command(root.path());
     command
         .args(["dev", "apps/one", "--"])
         .arg(&record)
         .arg(&stop)
+        .args([
+            "--scenario",
+            "scenarios/current.json",
+            "--capture",
+            "preview.png",
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(fs::File::create(&log_path).unwrap());
     struct Cleanup {
@@ -212,7 +244,43 @@ fn watch_keeps_old_process_on_build_failure_and_restarts_after_fix() {
             .unwrap_or_default()
             .ends_with(":before")
     });
-    let before = fs::read_to_string(&record).unwrap();
+    let read_record = || fs::read_to_string(&record).unwrap_or_default();
+    let first = read_record();
+    fs::write(app.join("preview.png"), "updated capture").unwrap();
+    fs::write(root.path().join("apps/two/src/main.rs"), "fn main() {}").unwrap();
+    thread::sleep(Duration::from_millis(450));
+    assert_eq!(
+        read_record(),
+        first,
+        "an unrelated workspace edit or capture restarted the app"
+    );
+    fs::write(scenarios.join("current.tmp"), "2").unwrap();
+    fs::rename(
+        scenarios.join("current.tmp"),
+        scenarios.join("current.json"),
+    )
+    .unwrap();
+    wait(&|| read_record().ends_with(":shader1:label1+label1+asset:2:before"));
+    assert!(
+        fs::read_to_string(&log_path)
+            .unwrap()
+            .contains("scenario changed; reusing executable")
+    );
+    fs::write(&shader, "shader2").unwrap();
+    wait(&|| read_record().ends_with(":shader2:label1+label1+asset:2:before"));
+    fs::write(&locale, "label2").unwrap();
+    wait(&|| read_record().ends_with(":shader2:label2+label1+asset:2:before"));
+    let nested = helper.parent().unwrap().join("added");
+    fs::create_dir(&nested).unwrap();
+    let nested_source = nested.join("mod.rs");
+    fs::write(&nested_source, "pub const LABEL: &str = \"dep2\";").unwrap();
+    fs::write(&helper, "mod added; pub use added::LABEL;").unwrap();
+    wait(&|| read_record().ends_with(":label2+dep2+asset:2:before"));
+    fs::write(&nested_source, "pub const LABEL: &str = \"dep3\";").unwrap();
+    wait(&|| read_record().ends_with(":label2+dep3+asset:2:before"));
+    fs::write(shared, "updated").unwrap();
+    wait(&|| read_record().ends_with(":label2+dep3+updated:2:before"));
+    let before = read_record();
     fs::write(&source, "fn main() { syntax error }").unwrap();
     wait(&|| {
         fs::read_to_string(&log_path)

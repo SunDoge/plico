@@ -71,6 +71,9 @@ enum Action {
         /// Build once, without watching source files.
         #[usage(long)]
         no_watch: bool,
+        /// Keep the host running and rebuild the configured WASM guest.
+        #[usage(long)]
+        wasm: bool,
         #[usage(double_dash = "required")]
         arguments: Vec<OsString>,
     },
@@ -241,6 +244,7 @@ fn run() -> Result<u8> {
             path: _,
             package,
             no_watch,
+            wasm,
             arguments,
         } => {
             return development::run(
@@ -248,6 +252,7 @@ fn run() -> Result<u8> {
                 &manifest,
                 package.as_deref(),
                 no_watch,
+                wasm,
                 arguments,
             );
         }
@@ -271,6 +276,7 @@ fn run() -> Result<u8> {
                 &manifest,
                 package.as_deref(),
                 !watch,
+                false,
                 vec![
                     "--scenario".into(),
                     scenario.into_os_string(),

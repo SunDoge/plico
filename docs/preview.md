@@ -12,6 +12,8 @@ cargo plico capture apps/gallery --scenario apps/gallery/scenarios/controls.json
 
 `capture` 运行应用自己的普通可执行文件，传入 `--scenario <绝对路径> --capture <绝对路径>`。应用需要实现这两个参数；`plico new` 模板和 gallery 已实现。任意应用不一定能截图，未实现该参数的应用应由自身参数解析器报错。`--watch` 会在源文件或场景文件改变后重新生成截图；只有场景 JSON 改动时复用已编译程序，不调用 Cargo。输出宜放在忽略的 `reports/`；生成的目标截图不会触发重新构建。
 
+直接运行 `plico dev <应用目录> -- --scenario ... --capture ...` 时，这两个路径相对于应用目录解析。原生模式下，修改 WGSL shader 或 Fluent 翻译文件（`.ftl`）也会触发增量构建。原生预览按上一次成功构建的依赖过滤其他 workspace 成员的编辑。跨成员的 `include_str!` 和 `include_bytes!` 资源由 Cargo 的依赖文件识别。Linux 在注册监听前跳过构建目录。
+
 ## JSON 场景
 
 ```json

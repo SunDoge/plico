@@ -7,7 +7,7 @@ local plicoFormat = new Step {
 
 local cargoManifest = new Step {
   glob = List("Cargo.toml", "Cargo.lock")
-  check = "CARGO_BUILD_WARNINGS=deny cargo metadata --locked --no-deps --format-version 1 >/dev/null"
+  check = "CARGO_BUILD_WARNINGS=deny cargo tree --locked -p plico --depth 0 >/dev/null"
 }
 
 hooks {
