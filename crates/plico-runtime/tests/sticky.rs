@@ -14,6 +14,7 @@ impl HostView for Demo {
             + |cx| {
                 let _ = column(cx)
                     .sticky(8.)
+                    .scale(1., 0.5)
                     .height(30.)
                     .shrink(0.)
                     .width_percent(100.)
@@ -77,6 +78,21 @@ fn header_sticks_to_the_port_top_within_its_parent() {
         (placed_y(&source, false) - text_before).abs() < 0.1,
         "the header's children move with it"
     );
+
+    // Scaling around the header's center must use its pinned position.
+    let header = source
+        .placed_nodes()
+        .iter()
+        .find(|p| p.paint.sticky_top.is_some())
+        .unwrap();
+    let transform = plico_renderer::scene::resolve_node_transform(header, kurbo::Affine::IDENTITY);
+    assert_eq!(header.world_transform, transform);
+    let label = source
+        .placed_nodes()
+        .iter()
+        .find(|p| p.paint.text.as_deref() == Some("Header"))
+        .unwrap();
+    assert_eq!(label.world_transform, transform);
 
     source.handle_event(wheel(100.));
     source.handle_event(wheel(100.));

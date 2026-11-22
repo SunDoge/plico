@@ -144,7 +144,7 @@ bun run --cwd tools/recipes test
 cargo test --locked -p plico-desktop --no-default-features --features wgpu --test recipes
 cargo test --locked -p plico-desktop --no-default-features --features wgpu \
   --test recipes --test preview_session --test capture_wgpu -- --ignored
-cargo test --locked -p plico-runtime --test focus_chrome --test regions_controls
+cargo test --locked -p plico-runtime --test text_fields focus_chrome
 # 在独立 Plicowarden 目录运行应用端到端检查
 cd ../plicowarden
 cargo build --locked -p plicowarden --example recipes

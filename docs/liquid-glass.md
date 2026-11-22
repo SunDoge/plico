@@ -142,7 +142,7 @@ Clarity 的尺寸响应对短边 100 DIP 以内的控件保持原材质，在 10
 默认 `LiquidGlass::default()` 仍为 `GlassStyle::Custom`，保留旧 Rust 材质的响应；新增参数
 使用第 3 组 uniform 的 y/z/w，分别是风格、clarity 和 surface 是否偏暗。
 
-主按钮使用更强的强调色 tint，高 tint 区间平滑增加覆盖；GPU 像素测试验证内置 Default／Light／Dark 三套主题的 on-accent 文字对比度至少 4.5:1。普通面板的 tint 响应保留。
+主按钮使用主题的 `AccentPressed` 为玻璃着色，给反射高光留出文字对比度余量。GPU 像素测试验证内置 Default／Light／Dark 三套主题的 on-accent 文字对比度至少 4.5:1。普通面板的 tint 响应保留。
 禁用的玻璃按钮使用 fallback，保留 disabled 语义与原本的透明度，不创建 shader。
 减少动态效果仍由原来的 reduce_motion 控制；这些静态 presets 本身不要求持续绘帧。
 

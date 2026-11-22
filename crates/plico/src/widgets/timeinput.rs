@@ -65,22 +65,13 @@ pub fn time_input(cx: &mut UiContext, label: &str, time: &mut TimeOfDay) -> bool
         .placeholder("HH:MM")
         .width(112.)
         .response();
-    let text = entry.buffer.text().unwrap_or_default();
-    if response.changed()
-        && let Some(parsed) = parse_time(&text)
-        && parsed != *time
-    {
-        *time = parsed;
-        entry.last = parsed;
-    }
-    if response.submitted() {
-        match parse_time(&text) {
-            Some(parsed) => {
-                *time = parsed;
-                entry.last = parsed;
-                entry.buffer.set(parsed.to_string().into());
-            }
-            None => entry.buffer.set(time.to_string().into()),
+    if response.changed() || response.submitted() {
+        if let Some(parsed) = entry.buffer.with_value(parse_time) {
+            *time = parsed;
+            entry.last = parsed;
+        }
+        if response.submitted() {
+            entry.buffer.set(time.to_string().into());
         }
     }
     state.set(entry);

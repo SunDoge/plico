@@ -7,10 +7,51 @@ use plico_renderer::PaintScene;
 /// MyGO's slider proportions: a 5x4-unit capsule knob on a 1.5-unit track.
 /// The 5-unit axis follows the track, so the knob's centre stops half that
 /// length from each end.
-fn metrics(theme: Theme) -> (f32, f32, f32) {
-    let unit = theme.metrics.spacing.max(1) as f32;
-    let (knob_w, knob_h) = (5. * unit, 4. * unit);
-    (knob_w / 2., knob_w, knob_h)
+struct SliderTrack {
+    knob_width: f32,
+    knob_height: f32,
+    margin: f32,
+    travel: f32,
+    vertical: bool,
+}
+
+impl SliderTrack {
+    fn new(theme: Theme, length: f32, vertical: bool) -> Self {
+        let unit = theme.metrics.spacing.max(1) as f32;
+        let knob_width = 5. * unit;
+        let margin = (knob_width / 2.).min(length / 2.);
+        Self {
+            knob_width,
+            knob_height: 4. * unit,
+            margin,
+            travel: (length - 2. * margin).max(0.),
+            vertical,
+        }
+    }
+
+    fn position(&self, fraction: f64) -> f32 {
+        let fraction = fraction as f32;
+        self.margin
+            + self.travel
+                * if self.vertical {
+                    1. - fraction
+                } else {
+                    fraction
+                }
+    }
+
+    fn fraction(&self, point: f64) -> f64 {
+        let fraction = if self.travel > 0. {
+            (point - f64::from(self.margin)) / f64::from(self.travel)
+        } else {
+            0.
+        };
+        if self.vertical {
+            1. - fraction
+        } else {
+            fraction
+        }
+    }
 }
 
 fn paint_color(rgb: u32, alpha: f32) -> PaintColor {
@@ -77,20 +118,9 @@ impl Adapter {
             let vertical = range.vertical;
             let length = if vertical { h } else { w };
             let cross = if vertical { w } else { h };
-            let (margin, knob_w, knob_h) = metrics(theme);
-            let margin = margin.min(length / 2.);
-            let available = (length - margin * 2.).max(0.);
-            let position = |value: f64| {
-                margin
-                    + available
-                        * (if vertical {
-                            1. - range.fraction_of(value) as f32
-                        } else {
-                            range.fraction_of(value) as f32
-                        })
-            };
-            let at = position(range.value);
-            let high_at = range.high.map(position);
+            let track = SliderTrack::new(theme, length, vertical);
+            let at = track.position(range.fraction());
+            let high_at = range.high.map(|v| track.position(range.fraction_of(v)));
             let center = cross / 2.;
             let thickness = (1.5 * theme.metrics.spacing.max(1) as f32).min(cross);
             let radius = thickness / 2.;
@@ -115,9 +145,9 @@ impl Adapter {
             };
             let knob_rect = |at: f32| {
                 let (nw, nh) = if vertical {
-                    (knob_h * grow, knob_w * grow)
+                    (track.knob_height * grow, track.knob_width * grow)
                 } else {
-                    (knob_w * grow, knob_h * grow)
+                    (track.knob_width * grow, track.knob_height * grow)
                 };
                 let (cx, cy) = if vertical { (center, at) } else { (at, center) };
                 Rect::new(
@@ -216,7 +246,7 @@ impl Adapter {
     /// final bounds to the painted knobs so hit testing and accessibility do
     /// not expose two full-track controls on top of each other.
     fn align_range_thumb_bounds(&mut self, engine: &Engine) {
-        let mut resolved = Vec::new();
+        let mut changed = false;
         for &owner in &self.slider_nodes {
             let Some(range) = engine.node(owner).and_then(|node| node.numeric) else {
                 continue;
@@ -234,9 +264,9 @@ impl Adapter {
             let owner_placed = &self.placed[owner_index];
             let [w, h] = owner_placed.content_size;
             let length = if range.vertical { h } else { w };
-            let (margin, knob_w, _) = metrics(engine.theme());
-            let margin = margin.min(length / 2.);
-            let available = (length - margin * 2.).max(0.);
+            let track = SliderTrack::new(engine.theme(), length, range.vertical);
+            let origin = owner_placed.content_origin;
+            let bounds = owner_placed.rect;
             for (thumb, value) in [
                 (plico::SliderThumb::Minimum, range.value),
                 (plico::SliderThumb::Maximum, high),
@@ -244,49 +274,38 @@ impl Adapter {
                 let Some(entity) = self.range_thumb(engine, owner, thumb) else {
                     continue;
                 };
-                let fraction = range.fraction_of(value) as f32;
-                let at = margin
-                    + available
-                        * if range.vertical {
-                            1. - fraction
-                        } else {
-                            fraction
-                        };
+                let at = track.position(range.fraction_of(value));
                 let rect = if range.vertical {
-                    let center = owner_placed.content_origin[1] + at;
+                    let center = origin[1] + at;
                     [
-                        owner_placed.rect[0],
-                        center - knob_w / 2.,
-                        owner_placed.rect[2],
-                        center + knob_w / 2.,
+                        bounds[0],
+                        center - track.knob_width / 2.,
+                        bounds[2],
+                        center + track.knob_width / 2.,
                     ]
                 } else {
-                    let center = owner_placed.content_origin[0] + at;
+                    let center = origin[0] + at;
                     [
-                        center - knob_w / 2.,
-                        owner_placed.rect[1],
-                        center + knob_w / 2.,
-                        owner_placed.rect[3],
+                        center - track.knob_width / 2.,
+                        bounds[1],
+                        center + track.knob_width / 2.,
+                        bounds[3],
                     ]
                 };
-                resolved.push((entity, rect));
+                let Some(index) = self
+                    .nodes
+                    .get(&entity)
+                    .and_then(|node| self.placed_indices.get(&node.id))
+                    .copied()
+                else {
+                    continue;
+                };
+                let placed = &mut self.placed[index];
+                changed |= placed.rect != rect;
+                placed.rect = rect;
+                placed.content_origin = [rect[0], rect[1]];
+                placed.content_size = [rect[2] - rect[0], rect[3] - rect[1]];
             }
-        }
-        let mut changed = false;
-        for (entity, rect) in resolved {
-            let Some(index) = self
-                .nodes
-                .get(&entity)
-                .and_then(|node| self.placed_indices.get(&node.id))
-                .copied()
-            else {
-                continue;
-            };
-            let placed = &mut self.placed[index];
-            changed |= placed.rect != rect;
-            placed.rect = rect;
-            placed.content_origin = [rect[0], rect[1]];
-            placed.content_size = [rect[2] - rect[0], rect[3] - rect[1]];
         }
         if changed {
             self.hit.get_mut().dirty = true;
@@ -377,9 +396,7 @@ impl Adapter {
                     } else {
                         placed.content_size[0]
                     };
-                    let (margin, _, _) = metrics(engine.theme());
-                    let margin = (margin as f64).min(length as f64 / 2.);
-                    let available = (length as f64 - margin * 2.).max(0.);
+                    let track = SliderTrack::new(engine.theme(), length, vertical);
                     let point =
                         self.layout_point(placed.node_id, pointer.position.x, pointer.position.y)?;
                     let point = if vertical {
@@ -387,14 +404,7 @@ impl Adapter {
                     } else {
                         point.x - placed.content_origin[0] as f64
                     };
-                    let mut t = if available > 0. {
-                        (point - margin) / available
-                    } else {
-                        0.
-                    };
-                    if vertical {
-                        t = 1. - t;
-                    }
+                    let t = track.fraction(point);
                     let value = range.min + t.clamp(0., 1.) * (range.max - range.min);
                     if let Some(high) = range.high {
                         let low = engine.pending_value(entity).unwrap_or(range.value);

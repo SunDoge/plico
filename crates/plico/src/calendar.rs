@@ -71,12 +71,12 @@ impl CalendarDate {
     }
     /// Zero-based day number; 0001-01-01 was a Monday.
     pub fn ordinal(self) -> i32 {
-        let y = i32::from(self.year) - 1;
-        let mut days = y * 365 + y / 4 - y / 100 + y / 400;
-        for month in 1..self.month {
-            days += i32::from(Self::days_in_month(self.year, month));
-        }
-        days + i32::from(self.day) - 1
+        // Count from March so February's leap day always ends a year.
+        let month = i32::from(self.month);
+        let year = i32::from(self.year) - i32::from(month <= 2);
+        let march_month = if month <= 2 { month + 9 } else { month - 3 };
+        let days_before_year = 365 * year + year / 4 - year / 100 + year / 400;
+        days_before_year + (153 * march_month + 2) / 5 + i32::from(self.day) - 1 - 306
     }
     /// Monday=0, Sunday=6.
     pub fn weekday(self) -> u8 {
@@ -87,37 +87,26 @@ impl CalendarDate {
         if !(0..=3_652_058).contains(&target) {
             return None;
         }
-        let (mut low, mut high) = (1_u16, 9999_u16);
-        while low < high {
-            let mid = low + (high - low).div_ceil(2);
-            if (Self {
-                year: mid,
-                month: 1,
-                day: 1,
-            })
-            .ordinal()
-                <= target
-            {
-                low = mid;
-            } else {
-                high = mid - 1;
-            }
-        }
-        let mut remaining = target
-            - Self {
-                year: low,
-                month: 1,
-                day: 1,
-            }
-            .ordinal();
-        for month in 1..=12 {
-            let length = i32::from(Self::days_in_month(low, month));
-            if remaining < length {
-                return Self::new(low, month, (remaining + 1) as u8);
-            }
-            remaining -= length;
-        }
-        None
+        // Invert the March-based ordinal within a 400-year Gregorian cycle.
+        let days = target + 306;
+        let cycle = days / 146_097;
+        let day_of_cycle = days % 146_097;
+        let year = (day_of_cycle - day_of_cycle / 1460 + day_of_cycle / 36_524
+            - day_of_cycle / 146_096)
+            / 365;
+        let day_of_year = day_of_cycle - (365 * year + year / 4 - year / 100);
+        let march_month = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * march_month + 2) / 5 + 1;
+        let month = if march_month < 10 {
+            march_month + 3
+        } else {
+            march_month - 9
+        };
+        Some(Self {
+            year: (400 * cycle + year + i32::from(month <= 2)) as u16,
+            month: month as u8,
+            day: day as u8,
+        })
     }
     /// Shift months, clamping the day (Jan 31 + 1 month becomes Feb 28/29).
     pub fn checked_add_months(self, months: i32) -> Option<Self> {

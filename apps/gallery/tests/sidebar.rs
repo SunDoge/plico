@@ -2,7 +2,7 @@
 use gallery::{Gallery, Page};
 use plico::Router;
 use plico_desktop::testing::{Command, DifferentialTester, Driver};
-use plico_renderer::SemanticRole;
+use plico_renderer::{SemanticRole, SemanticSnapshot};
 use std::time::Duration;
 
 fn click(driver: &mut Driver<Gallery>, label: &str) {
@@ -21,6 +21,46 @@ fn heading_x(driver: &Driver<Gallery>) -> f32 {
         .unwrap()
         .bounds[0]
 }
+fn heading_edge(frame: &SemanticSnapshot) -> Result<f32, String> {
+    frame
+        .node_by_role(SemanticRole::Label, "Workspace / Gallery", None)
+        .map(|node| node.bounds[0])
+        .ok_or_else(|| "Workspace / Gallery heading disappeared".into())
+}
+
+#[test]
+fn sidebar_moves_content_in_one_direction_per_toggle() {
+    let mut ui = Driver::new(Gallery::default(), 1120, 820).unwrap();
+    let expanded = heading_x(&ui);
+    for (direction, label) in [(-1., "collapse"), (1., "expand")] {
+        let start = heading_x(&ui);
+        ui.click("Toggle navigation").unwrap();
+        let mut moving_frames = 0;
+        ui.check_frames(label, 30, Duration::from_millis(10), |before, after| {
+            let previous = heading_edge(before)?;
+            let current = heading_edge(after)?;
+            let progress = direction * (current - previous);
+            if !progress.is_finite() || progress < -0.01 {
+                return Err(format!(
+                    "heading left edge moved from {previous} to {current} DIP"
+                ));
+            }
+            if progress > 0.01 {
+                moving_frames += 1;
+            }
+            Ok(())
+        })
+        .unwrap_or_else(|error| panic!("{error}"));
+        let end = heading_x(&ui);
+        assert!(
+            (direction * (end - start) - 160.).abs() < 1.,
+            "{label}: expected 160 DIP travel, got {start} to {end}"
+        );
+        assert!(moving_frames > 1, "{label}: jumped to the endpoint");
+    }
+    assert_eq!(heading_x(&ui), expanded);
+}
+
 #[test]
 fn expanding_never_squeezes_the_header_title() {
     let mut driver = Driver::new(Gallery::default(), 1120, 820).unwrap();

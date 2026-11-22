@@ -81,8 +81,7 @@ pub(crate) fn paint(
         );
     }
     if kind == Kind::Switch {
-        // A physical thumb stays light in both appearances (MyGO's white
-        // face, softened in the dark); `on_accent` is text, not the thumb.
+        // MyGO's switch knob stays white in both appearances.
         let face = 0xffffff;
         let center = g.height / 2.;
         let cx = x + center + (g.width - g.height) * progress;
@@ -115,14 +114,18 @@ pub(crate) fn paint(
         path.move_to((x + g.width * 0.22, y + g.height * 0.52));
         path.line_to((x + g.width * 0.42, y + g.height * 0.71));
         path.line_to((x + g.width * 0.78, y + g.height * 0.31));
-        scene.push_layer(
-            BlendMode::default(),
-            progress as f32,
-            Affine::IDENTITY,
-            &Rect::new(x, y, x + g.width, y + g.height),
-            None,
-            None,
-        );
+        // Keep one rasterized check throughout the fade. Once opaque, its
+        // inset geometry fits inside the face and needs no compositing layer.
+        if amount < 1. {
+            scene.push_layer(
+                BlendMode::default(),
+                progress as f32,
+                Affine::IDENTITY,
+                &Rect::new(x, y, x + g.width, y + g.height),
+                None,
+                None,
+            );
+        }
         scene.stroke(
             &Stroke::new(g.unit * 0.5)
                 .with_caps(Cap::Round)
@@ -132,7 +135,9 @@ pub(crate) fn paint(
             None,
             &path,
         );
-        scene.pop_layer();
+        if amount < 1. {
+            scene.pop_layer();
+        }
     }
     scene
 }
@@ -152,12 +157,10 @@ mod tests {
             16.,
             false,
         );
-        assert!(
-            !scene
-                .commands
-                .iter()
-                .any(|command| matches!(command, PaintCommand::Svg { .. }))
-        );
+        assert!(!scene.commands.iter().any(|command| matches!(
+            command,
+            PaintCommand::Svg { .. } | PaintCommand::PushLayer { .. }
+        )));
         assert_eq!(
             scene
                 .commands

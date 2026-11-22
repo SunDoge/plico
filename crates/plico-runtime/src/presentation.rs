@@ -31,13 +31,15 @@ impl Adapter {
             .and_then(|&index| self.placed[index].parent_node_id);
         self.placed_chain_from(start)
     }
-    pub(super) fn update_presentation(&mut self) {
+    pub(super) fn update_presentation(&mut self, composed: bool) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.presentation").entered();
         if self.geometry_dirty || self.stats.flatten_visits > 0 {
             self.hit.get_mut().dirty = true;
-            for index in 0..self.placed.len() {
-                self.update_presentation_node(index);
+            if !composed {
+                for index in 0..self.placed.len() {
+                    self.update_presentation_node(index);
+                }
             }
             self.presentation_roots.clear();
         } else {

@@ -49,6 +49,7 @@ impl HostView for Demo {
                             .text(format!("Row {i}"))
                             .key(i)
                             .height(24.)
+                            .min_height(24.)
                             .motion(Motion::None)
                             .clicked()
                         {
@@ -85,6 +86,10 @@ fn click(source: &mut Source<Demo>, text: &mut TextContext) {
         x: f64::from((rect[0] + rect[2]) * 0.5),
         y: f64::from((rect[1] + rect[3]) * 0.5),
     };
+    assert!(
+        (0.0..240.0).contains(&position.y),
+        "target row must be visible after scrolling"
+    );
     for phase in [PointerPhase::Down, PointerPhase::Up] {
         source.prepare_for_event(text).unwrap();
         assert!(
@@ -137,6 +142,7 @@ fn ordinary_scroll_moves_geometry_without_redeclaring_or_relayout() {
         assert_eq!(source.view().calls, calls);
         assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
         assert!(source.frame_diagnostics().backend.flatten_visits > 0);
+        assert_eq!(source.frame_diagnostics().backend.presentation_visits, 0);
     }
     assert_eq!(offset(&source), 480.);
     // The scrollbar hold keeps one deferred wake, not a vsync loop.

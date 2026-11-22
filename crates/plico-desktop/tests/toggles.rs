@@ -12,7 +12,7 @@ use std::time::Duration;
 struct Demo {
     checked: bool,
     locked: bool,
-    compact: bool,
+    metrics: Metrics,
     gap: Option<u16>,
     actions: usize,
 }
@@ -35,11 +35,10 @@ impl HostView for Demo {
         })
     }
     fn theme(&self) -> Theme {
-        let mut theme = Theme::light();
-        if self.compact {
-            theme.metrics = Metrics::compact();
+        Theme {
+            metrics: self.metrics,
+            ..Theme::light()
         }
-        theme
     }
 }
 fn placed<'a>(s: &'a Source<Demo>, label: &str) -> &'a PlacedNode {
@@ -117,7 +116,14 @@ fn density_changes_indicator_and_label_geometry_together() {
     );
     assert_eq!(full_switch.content_origin[0] - full_switch.rect[0], 42.);
     assert_eq!(indicator(placed(&s, "Locked")).width(), 16.);
-    s.update(|view| view.compact = true);
+    s.update(|view| view.metrics = Metrics::compact());
+    s.build_frame(&mut tcx, 400, 240);
+    assert_eq!(
+        indicator(placed(&s, "Editable")).size(),
+        full_indicator.size()
+    );
+    assert_eq!(indicator(placed(&s, "Locked")).width(), 16.);
+    s.update(|view| view.metrics.spacing = 3);
     s.build_frame(&mut tcx, 400, 240);
     let compact = placed(&s, "Editable");
     let compact_indicator = indicator(compact);
@@ -126,7 +132,7 @@ fn density_changes_indicator_and_label_geometry_together() {
         (27., 15.)
     );
     assert_eq!(compact.content_origin[0] - compact.rect[0], 32.);
-    assert!(compact.rect[3] - compact.rect[1] >= Metrics::compact().space(5) as f32);
+    assert!(compact.rect[3] - compact.rect[1] >= s.view().metrics.space(5) as f32);
     assert!(compact.rect[3] - compact.rect[1] < 36.);
     assert_eq!(indicator(placed(&s, "Locked")).width(), 12.);
     assert!(!s.has_anim());

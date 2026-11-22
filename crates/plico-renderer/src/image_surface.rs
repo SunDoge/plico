@@ -53,13 +53,20 @@ impl PartialEq for ImageSurfaceState {
     /// into a fresh surface still matches the live one. A poisoned lock
     /// compares unequal rather than panicking.
     fn eq(&self, other: &Self) -> bool {
-        let Ok(a) = self.0.lock() else { return false };
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return !self.0.is_poisoned();
+        }
+        // Capture the left state before locking the right. Concurrent a == b
+        // and b == a comparisons must never wait on each other's mutex.
+        let (status, paused, revision, image) = {
+            let Ok(a) = self.0.lock() else { return false };
+            (a.status.clone(), a.paused, a.revision, a.image.clone())
+        };
         let Ok(b) = other.0.lock() else { return false };
-        a.status == b.status
-            && a.paused == b.paused
-            && a.revision == b.revision
-            && a.image.as_ref().map(|image| Arc::as_ptr(image) as usize)
-                == b.image.as_ref().map(|image| Arc::as_ptr(image) as usize)
+        status == b.status
+            && paused == b.paused
+            && revision == b.revision
+            && image.as_ref().map(Arc::as_ptr) == b.image.as_ref().map(Arc::as_ptr)
     }
 }
 impl Default for ImageSurfaceState {

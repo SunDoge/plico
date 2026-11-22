@@ -379,6 +379,17 @@ impl<V: HostView> Source<V> {
         self.prepare_for_event_at(tcx, now)
     }
 
+    /// Settle declarations and layout without materializing an owned node list.
+    pub(crate) fn prepare_frame(
+        &mut self,
+        tcx: &mut TextContext,
+        size: (u32, u32),
+        force_declaration: bool,
+    ) -> Result<(), SourceError> {
+        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
+        self.prepare_frame_at(tcx, size.0, size.1, now, force_declaration)
+    }
+
     /// Build a frame and report declaration or clock failures to the caller.
     pub fn try_build_frame(
         &mut self,
@@ -386,8 +397,8 @@ impl<V: HostView> Source<V> {
         width: u32,
         height: u32,
     ) -> Result<Vec<PlacedNode>, SourceError> {
-        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
-        self.try_build_frame_at(tcx, width, height, now)
+        self.prepare_frame(tcx, (width, height), true)?;
+        Ok(self.adapter.presented())
     }
 
     /// Deterministic checked frame entry point for tests and non-window hosts.
@@ -410,19 +421,7 @@ impl<V: HostView> Source<V> {
         size: (u32, u32),
         scale: f64,
     ) -> Result<(usize, f64, f64), SourceError> {
-        tcx.set_native_paragraph_scale(scale);
-        let start = Instant::now();
-        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
-        self.prepare_frame_at(tcx, size.0, size.1, now, false)?;
-        let build_ms = start.elapsed().as_secs_f64() * 1000.;
-        let start = Instant::now();
-        self.paint_frame_scene(scene, None, tcx, size, scale);
-        self.paint_debug_overlay(scene, &[], tcx, scale);
-        Ok((
-            self.adapter.placed.len() + self.adapter.tips.layer().len(),
-            build_ms,
-            start.elapsed().as_secs_f64() * 1000.,
-        ))
+        self.sample_and_paint(scene, tcx, size, scale, false)
     }
 
     /// Force declaration and encode a frame, returning declaration failures directly.
@@ -434,13 +433,23 @@ impl<V: HostView> Source<V> {
         height: u32,
         scale: f64,
     ) -> Result<(usize, f64, f64), SourceError> {
+        self.sample_and_paint(scene, tcx, (width, height), scale, true)
+    }
+
+    fn sample_and_paint(
+        &mut self,
+        scene: &mut Scene,
+        tcx: &mut TextContext,
+        size: (u32, u32),
+        scale: f64,
+        force_declaration: bool,
+    ) -> Result<(usize, f64, f64), SourceError> {
         tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
-        let now = self.clock_instant().ok_or(SourceError::ClockRange)?;
-        self.prepare_frame_at(tcx, width, height, now, true)?;
+        self.prepare_frame(tcx, size, force_declaration)?;
         let build_ms = start.elapsed().as_secs_f64() * 1000.;
         let start = Instant::now();
-        self.paint_frame_scene(scene, None, tcx, (width, height), scale);
+        self.paint_frame_scene(scene, None, tcx, size, scale);
         self.paint_debug_overlay(scene, &[], tcx, scale);
         Ok((
             self.adapter.placed.len() + self.adapter.tips.layer().len(),
@@ -995,15 +1004,17 @@ impl<V: HostView> FrameSource for Source<V> {
         self.semantics_enabled = enabled;
     }
     fn semantic_snapshot(&self) -> Option<Arc<plico_renderer::SemanticSnapshot>> {
-        self.semantics_enabled
-            .then(|| self.adapter.semantics_shared(&self.engine, self.revision))
+        self.semantics_enabled.then(|| self.shared_semantics())
     }
     fn handle_semantic_action(&mut self, action: plico_renderer::SemanticAction) -> bool {
         self.adapter.tips.prefer_hover = false;
         if matches!(action, plico_renderer::SemanticAction::Click { .. }) {
             self.adapter.dismiss_tooltip();
         }
-        let handled = self.adapter.semantic_action(&mut self.engine, action);
+        let handled = self
+            .adapter
+            .semantic_action(&mut self.engine, action, self.revision);
+        self.adapter.invalidate_semantics();
         if handled {
             self.view.on_user_activity();
         }

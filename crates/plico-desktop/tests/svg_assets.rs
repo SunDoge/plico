@@ -84,4 +84,15 @@ fn malformed_assets_report_once_and_release_diagnostics_on_unmount() {
     s.update(|view| view.visible = false);
     s.build_frame(&mut tcx, 300, 100);
     assert_eq!(s.svg_diagnostics().count(), 0);
+    s.update(|view| view.visible = true);
+    s.build_frame(&mut tcx, 300, 100);
+    assert_eq!(s.svg_diagnostics().count(), 1);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
+    s.update(|view| view.invalid = false);
+    s.build_frame(&mut tcx, 300, 100);
+    assert_eq!(s.svg_diagnostics().count(), 0);
+    s.update(|view| view.invalid = true);
+    s.build_frame(&mut tcx, 300, 100);
+    assert_eq!(s.svg_diagnostics().count(), 1);
+    assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
 }

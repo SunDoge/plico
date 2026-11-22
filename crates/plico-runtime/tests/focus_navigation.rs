@@ -106,3 +106,69 @@ fn semantic_click_activates_an_unselected_roving_tab() {
     source.build_frame(&mut text, 720, 400);
     assert_eq!(source.view().tab, 1);
 }
+
+#[test]
+fn accessibility_reveals_an_offscreen_label_through_nested_ports_without_focusing_it() {
+    struct Scroller;
+    impl HostView for Scroller {
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).height(120.).scroll_y(true).children(|cx| {
+                button(cx).text("First").height(180.).shrink(0.);
+                column(cx)
+                    .height(100.)
+                    .shrink(0.)
+                    .scroll_y(true)
+                    .children(|cx| {
+                        text(cx, "Spacer").height(180.).shrink(0.);
+                        text(cx, "Last").height(40.).shrink(0.);
+                    });
+            });
+        }
+    }
+    let mut source = Source::new(Scroller);
+    let mut text = TextContext::new();
+    let mut scene = plico_renderer::Scene::new();
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .unwrap();
+    let before = source.semantics();
+    let first = before
+        .node_by_role(SemanticRole::Button, "First", None)
+        .unwrap()
+        .id;
+    let last = before
+        .node_by_role(SemanticRole::Label, "Last", None)
+        .unwrap();
+    assert!(last.bounds[1] >= 120.);
+    let target = last.id;
+    assert!(source.handle_semantic_action(SemanticAction::Focus { target: first }));
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .unwrap();
+    for _ in 0..2 {
+        assert!(source.handle_semantic_action(SemanticAction::ScrollIntoView { target }));
+        source
+            .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .unwrap();
+        let snapshot = source.semantics();
+        let last = snapshot
+            .node_by_role(SemanticRole::Label, "Last", None)
+            .unwrap();
+        assert_eq!([last.bounds[1], last.bounds[3]], [80., 120.]);
+        assert_eq!(snapshot.focus, Some(first));
+    }
+    for _ in 0..2 {
+        assert!(source.handle_semantic_action(SemanticAction::ScrollIntoView { target: first }));
+        source
+            .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .unwrap();
+        assert_eq!(
+            source
+                .semantics()
+                .node_by_role(SemanticRole::Button, "First", None)
+                .unwrap()
+                .bounds[1],
+            0.
+        );
+    }
+}

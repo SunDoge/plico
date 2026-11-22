@@ -7,15 +7,21 @@ impl Adapter {
         semantic.epoch = semantic.epoch.wrapping_add(1);
     }
 
-    /// Invalid SVG sources remain cached while referenced, avoiding parse retries every frame.
+    /// Report each mounted invalid SVG variant once. Its parse result can
+    /// remain cached after unmount so remounting it does not repeat the work.
     pub fn svg_diagnostics(&self) -> impl Iterator<Item = &str> {
-        self.svg_cache
-            .values()
-            .flat_map(|variants| variants.values())
-            .filter_map(|entry| entry.value.as_ref().err().map(|error| error.as_ref()))
-    }
-    pub fn semantics(&self, engine: &Engine, revision: u64) -> plico_renderer::SemanticSnapshot {
-        (*self.semantics_shared(engine, revision)).clone()
+        let mut seen = HashSet::new();
+        self.nodes.values().filter_map(move |node| {
+            let key = &node.paint_key;
+            if key.kind != Kind::Svg {
+                return None;
+            }
+            let source = node.text.as_ref();
+            let color = svg_color(source, key.style, key.theme);
+            let entry = self.svg_cache.get(source)?.get(&color)?;
+            let error = entry.value.as_ref().err()?;
+            seen.insert((source, color)).then_some(error.as_ref())
+        })
     }
     /// Share an immutable semantic projection until the next backend commit or input event.
     pub fn semantics_shared(
@@ -77,7 +83,7 @@ impl Adapter {
                     cached
                 } else {
                     self.semantic.borrow_mut().builds += 1;
-                    SemanticNode {
+                    let node = SemanticNode {
                         id: semantic_id(e),
                         role: match n.style.role {
                             Some(plico::WidgetRole::Group) => Role::Group,
@@ -131,16 +137,7 @@ impl Adapter {
                         min_numeric_value: semantic_numeric.map(|range| range.min),
                         max_numeric_value: semantic_numeric.map(|range| range.max),
                         bounds: p.rect,
-                        children: n
-                            .children
-                            .iter()
-                            .filter(|e| {
-                                engine
-                                    .node(**e)
-                                    .is_some_and(|node| !node.style.semantic_hidden)
-                            })
-                            .map(|e| semantic_id(*e))
-                            .collect(),
+                        children: Vec::new(),
                         controls: Vec::new(),
                         described_by: Vec::new(),
                         active_descendant: None,
@@ -160,11 +157,12 @@ impl Adapter {
                             }),
                             ..Default::default()
                         },
+                    };
+                    if cacheable {
+                        self.semantic.borrow_mut().nodes.insert(e, node.clone());
                     }
+                    node
                 };
-                if cacheable {
-                    self.semantic.borrow_mut().nodes.insert(e, semantic.clone());
-                }
                 semantic.children = n
                     .children
                     .iter()
@@ -276,23 +274,23 @@ impl Adapter {
         &mut self,
         engine: &mut Engine,
         action: plico_renderer::SemanticAction,
+        revision: u64,
     ) -> bool {
         use plico_renderer::SemanticAction;
-        self.invalidate_semantics();
         let target = match action {
             SemanticAction::Click { target }
             | SemanticAction::Focus { target }
             | SemanticAction::Blur { target }
             | SemanticAction::SetNumericValue { target, .. }
             | SemanticAction::Increment { target }
-            | SemanticAction::Decrement { target } => target,
-            _ => return false,
+            | SemanticAction::Decrement { target }
+            | SemanticAction::ScrollIntoView { target } => target,
         };
         // Semantic actions address the exposed accessibility tree, not the
         // keyboard Tab sequence. Roving containers intentionally keep only
         // the selected tab/radio/tree item in `tab_order`, but assistive
         // technology must still be able to activate any exposed peer.
-        let snapshot = self.build_semantics(engine, 0);
+        let snapshot = self.semantics_shared(engine, revision);
         if !snapshot
             .exposed_nodes()
             .into_iter()
@@ -310,6 +308,10 @@ impl Adapter {
         };
         if !self.modal_allows(engine, e) || !engine.node(e).is_some_and(|n| !n.style.disabled) {
             return false;
+        }
+        if matches!(action, SemanticAction::ScrollIntoView { .. }) {
+            self.reveal_target = Some(e);
+            return true;
         }
         let target_node = engine.node(e).unwrap();
         let caps = target_node.kind.capabilities();
@@ -406,6 +408,7 @@ impl Adapter {
                 engine.queue_click(e);
             }
             SemanticAction::Focus { .. } => {
+                self.reveal_target = None;
                 self.focused = Some(e);
                 self.focus_visible = true;
                 self.reveal_focus = true;

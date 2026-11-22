@@ -73,7 +73,9 @@ jobs:
           components: rustfmt,clippy
           target: wasm32-unknown-unknown
       - name: Check Rust and component formatting
-        run: cargo run --locked --profile ci -p plico-cli -- fmt --check
+        run: |
+          export RUSTFMT="$(rustup which rustfmt)"
+          cargo run --locked --profile ci -p plico-cli -- fmt --check
       - name: Guard application widget boundaries
         run: python3 scripts/check-widget-boundary.py
       - name: Guard renderer backend boundaries
@@ -91,7 +93,7 @@ jobs:
           packages=(
             pkg-config libfontconfig1-dev libpango1.0-dev libwayland-dev libxkbcommon-dev
             libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev
-            libgtk-4-dev
+            libgtk-4-dev libvulkan1 mesa-vulkan-drivers
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           )
 
@@ -151,7 +153,22 @@ jobs:
       - name: Check browser host and split UI with wgpu
         run: cargo clippy --locked --profile ci -p plico-web-host --features gallery,split --target wasm32-unknown-unknown -- -D warnings
       - name: Verify the semantic test protocol without a window
-        run: cargo test --locked --profile ci -p plico-runtime --test test_protocol
+        run: cargo test --locked --profile ci -p plico-runtime --lib --test test_protocol
+      - name: Check component interactions without a window
+        run: cargo test --locked --profile ci -p plico-runtime --test number_input --test text_fields --test focus_navigation
+      - name: Check desktop SVG lifetimes and toggle behavior
+        run: cargo test --locked --profile ci -p plico-desktop --test svg_assets --test toggles --test native_surface
+      - name: Verify offscreen pixels with Mesa software Vulkan
+        env:
+          WGPU_BACKEND: vulkan
+        run: |
+          driver=$(dpkg-query -L "mesa-vulkan-drivers:$(dpkg --print-architecture)" | grep -E '/lvp_icd[^/]*\.json$')
+          test -r "$driver"
+          export VK_DRIVER_FILES="$driver"
+          cargo test --locked --profile ci -p plico-wgpu --test pixel_snap --test analytic_clips --test shadows -- --ignored --skip profile_ --test-threads=1
+          cargo test --locked --profile ci -p plico-desktop --test materials -- --ignored --test-threads=1
+      - name: Check desktop gallery navigation and sidebar motion
+        run: cargo test --locked --profile ci -p gallery --test sidebar --test theme_transition
       - name: Validate AccessKit tree updates
         run: cargo test --locked --profile ci -p plico-shell accessibility::tests
       - name: Check the NSH native backend

@@ -15,6 +15,12 @@ Git hook 本身不会随 clone 自动安装，`hk.pkl` 中的共享配置会提�
 需要在提交前手动预览同一检查时运行 `mise exec -- hk check`；它只选择当前修改且
 匹配的文件。
 
+在使用 rustup 的 checkout 中，可以在全仓检查时指定当前工具链的 rustfmt。Plico 会为每个 Rust 文件调用格式化器，直接指定可执行文件可以省去每次启动 mise 或 rustup 代理的开销。下面的环境变量仅对这次命令生效。
+
+```sh
+RUSTFMT="$(rustup which rustfmt)" cargo run --locked --profile ci -p plico-cli -- fmt --check
+```
+
 ## 提交格式
 
 ```text

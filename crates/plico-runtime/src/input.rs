@@ -478,13 +478,18 @@ impl Adapter {
         if engine.node(entity)?.style.disabled {
             return None;
         }
-        // Caret math matches what is painted: a revealed secret navigates by
-        // its real bytes, a masked one by bullet offsets.
-        let reveal = buffer.is_secret()
-            && engine
-                .node(entity)
-                .is_some_and(|node| node.style.input_password_visible);
-        let presentation = buffer.presentation_with(reveal);
+        // Only visual line navigation needs a display-coordinate caret.
+        let caret_head = || {
+            if buffer.is_secret()
+                && engine
+                    .node(entity)
+                    .is_some_and(|n| n.style.input_password_visible)
+            {
+                buffer.presentation_with(true).head
+            } else {
+                buffer.selection_display_bytes().0
+            }
+        };
         let mut response = EventResponse {
             handled: true,
             request_redraw: true,
@@ -608,8 +613,7 @@ impl Adapter {
                     "ArrowRight" => buffer.edit(InputEdit::Right(shift)),
                     "Home" | "End" if buffer.is_multiline() && !command => {
                         if let Some(geometry) = self.input_layouts.get(&entity)
-                            && let Some([_, y0, _, y1]) =
-                                geometry.layout.caret_rect(presentation.head)
+                            && let Some([_, y0, _, y1]) = geometry.layout.caret_rect(caret_head())
                         {
                             let x = if editing_key == "Home" {
                                 -1.
@@ -627,7 +631,7 @@ impl Adapter {
                     }
                     "ArrowUp" | "ArrowDown" if buffer.is_multiline() => {
                         if let Some(geometry) = self.input_layouts.get(&entity) {
-                            let head = presentation.head;
+                            let head = caret_head();
                             if let Some([x0, y0, _, y1]) = geometry.layout.caret_rect(head) {
                                 let direction = if editing_key == "ArrowUp" { -1. } else { 1. };
                                 let line = geometry.layout.metrics().first_line_height;
@@ -692,7 +696,7 @@ impl Adapter {
             } else {
                 WidgetImePurpose::Normal
             },
-            multiline: false,
+            multiline: buffer.is_multiline(),
             completion: false,
             spellcheck: false,
         })
@@ -821,6 +825,21 @@ mod multiline_tests {
             );
         }
     }
+    #[test]
+    fn host_clipboard_withholds_selected_password_even_when_revealed() {
+        let buffer = plico::TextBuffer::secret();
+        buffer.set("sample".to_owned().into());
+        let mut source = crate::Source::new(PasswordView {
+            buffer: buffer.clone(),
+            visible: true,
+        });
+        source.build_frame(&mut TextContext::new(), 240, 100);
+        source.adapter.focused = source.engine.find(source.engine.root(), "password");
+        buffer.edit(InputEdit::SelectAll);
+        assert!(source.has_focused_text_input());
+        assert_eq!(source.selected_text(), None);
+    }
+
     #[test]
     fn editor_double_click_drag_reverses_and_survives_pointer_leave() {
         use plico_renderer::PointerPhase::*;

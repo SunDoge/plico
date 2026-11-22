@@ -294,9 +294,43 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
     assert_eq!(s.batch_stats().scroll_viewport_visits - before, 1);
     assert_eq!(stats(&s).scroll_visits, 1);
     assert_eq!(stats(&s).layout_runs, 0);
+    let port = s
+        .placed_nodes()
+        .iter()
+        .find(|p| p.scroll.scrollable[1])
+        .unwrap();
+    let port_id = port.node_id;
+    let [x, y, ..] = port.scroll.port;
+    assert!(
+        s.handle_event(UiEvent::Wheel(plico_renderer::WheelEvent {
+            position: plico_renderer::Point {
+                x: f64::from(x + 2.),
+                y: f64::from(y + 2.)
+            },
+            delta_x: 0.,
+            delta_y: 32.,
+            delta_mode: plico_renderer::WheelDeltaMode::Pixel,
+            phase: plico_renderer::GesturePhase::Changed,
+            modifiers: Default::default(),
+        }))
+        .handled
+    );
+    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+        .unwrap();
+    let offset = |source: &Source<Demo>| {
+        source
+            .placed_nodes()
+            .iter()
+            .find(|p| p.node_id == port_id)
+            .unwrap()
+            .scroll
+            .offset[1]
+    };
+    assert_eq!(offset(&s), 32.);
     s.update(|view| view.scroll = false);
     s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
+    assert_eq!(offset(&s), 0.);
     assert_eq!(stats(&s).scroll_visits, 0);
     let before = s.batch_stats().scroll_viewport_visits;
     s.request_rebuild();

@@ -22,8 +22,7 @@ use crate::{
 const ROOT_ID: NodeId = NodeId(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PublicationKey {
-    semantic_revision: u64,
+struct PublicationGeometry {
     width: u32,
     height: u32,
     scale_bits: u64,
@@ -31,25 +30,13 @@ struct PublicationKey {
     offset_y_bits: u64,
 }
 
-#[cfg(test)]
-fn publication_key(
-    snapshot: Option<&SemanticSnapshot>,
-    width: u32,
-    height: u32,
-    scale: f64,
-) -> PublicationKey {
-    publication_key_with_offset(snapshot, width, height, scale, [0., 0.])
-}
-
-fn publication_key_with_offset(
-    snapshot: Option<&SemanticSnapshot>,
+fn publication_geometry(
     width: u32,
     height: u32,
     scale: f64,
     offset: [f64; 2],
-) -> PublicationKey {
-    PublicationKey {
-        semantic_revision: snapshot.map_or(0, |snapshot| snapshot.revision),
+) -> PublicationGeometry {
+    PublicationGeometry {
         width,
         height,
         scale_bits: scale.to_bits(),
@@ -127,7 +114,12 @@ fn accesskit_node_with_offset(
     if let Some(label) = &semantic.label {
         node.set_label(label.clone());
     }
-    if let Some(value) = &semantic.value {
+    // AccessKit exposes the name of a static label through its value.
+    let value = match role {
+        Role::Label => semantic.value.as_ref().or(semantic.label.as_ref()),
+        _ => semantic.value.as_ref(),
+    };
+    if let Some(value) = value {
         node.set_value(value.clone());
     }
     if let Some(value) = semantic.numeric_value {
@@ -308,7 +300,7 @@ fn root_update_with_offset(
         .collect::<Vec<_>>();
     root.set_children(children.iter().copied().map(NodeId).collect::<Vec<_>>());
     let mut tree = Tree::new(ROOT_ID);
-    tree.toolkit_name = Some("Wabou".into());
+    tree.toolkit_name = Some("Plico".into());
     let focus = snapshot
         .and_then(|snapshot| snapshot.focus)
         .filter(|id| exposed_ids.contains(id))
@@ -329,6 +321,56 @@ fn root_update_with_offset(
     }
 }
 
+/// Reuse the platform tree when the exposed topology and window geometry
+/// are stable. A structural change goes through the full, closed-tree builder.
+fn update_stable_tree(
+    previous: &SemanticSnapshot,
+    current: &SemanticSnapshot,
+    scale: f64,
+    offset: [f64; 2],
+) -> Option<TreeUpdate> {
+    if previous.root_children != current.root_children
+        || previous.modal_root != current.modal_root
+        || previous.nodes.len() != current.nodes.len()
+    {
+        return None;
+    }
+    let mut changed = Vec::new();
+    for (old, new) in previous.nodes.iter().zip(&current.nodes) {
+        if old.id != new.id || old.children != new.children {
+            return None;
+        }
+        if old != new {
+            changed.push(new);
+        }
+    }
+    let exposed: HashSet<_> = current
+        .exposed_nodes()
+        .into_iter()
+        .map(|node| node.id)
+        .collect();
+    let nodes = changed
+        .into_iter()
+        .filter(|node| exposed.contains(&node.id))
+        .map(|node| {
+            (
+                NodeId(node.id),
+                accesskit_node_with_offset(node, scale, offset, Some(&exposed)),
+            )
+        })
+        .collect();
+    Some(TreeUpdate {
+        nodes,
+        tree: None,
+        tree_id: TreeId::ROOT,
+        focus: current
+            .focus
+            .filter(|id| exposed.contains(id))
+            .map(NodeId)
+            .unwrap_or(ROOT_ID),
+    })
+}
+
 struct Handler {
     window: Arc<dyn Window>,
     events: Arc<Mutex<Vec<AccessKitEvent>>>,
@@ -343,7 +385,7 @@ impl EventHandler for Handler {
     }
 }
 
-/// Owns the platform adapter for Wabou's deliberately small semantic contract.
+/// Owns the platform adapter for Plico's semantic tree.
 pub struct AccessibilityState {
     adapter: Adapter,
     events: Arc<Mutex<Vec<AccessKitEvent>>>,
@@ -352,7 +394,7 @@ pub struct AccessibilityState {
     content_offset: [f64; 2],
     active: bool,
     initialize_pending: bool,
-    last_published: Option<PublicationKey>,
+    last_published: Option<(PublicationGeometry, Option<Arc<SemanticSnapshot>>)>,
 }
 
 impl AccessibilityState {
@@ -467,39 +509,51 @@ impl AccessibilityState {
             .unwrap_or_default()
     }
 
-    /// Publish the current semantic tree when activation or its revision requires it.
+    /// Publish changes to the last active snapshot, including focus-only updates.
     pub fn publish_root(&mut self, window: &dyn Window) {
         self.update_window_bounds(window);
         if !self.active {
             return;
         }
         let requested = std::mem::take(&mut self.initialize_pending);
-        let title = self.title.clone();
+        let title = &self.title;
         let snapshot = self.snapshot.clone();
         let size = window.surface_size().cast::<f64>();
         let scale = window.scale_factor();
         let offset = self.content_offset;
-        let key = publication_key_with_offset(
-            snapshot.as_deref(),
-            size.width as u32,
-            size.height as u32,
-            scale,
-            offset,
-        );
-        if !requested && self.last_published == Some(key) {
+        let key = publication_geometry(size.width as u32, size.height as u32, scale, offset);
+        let published = &mut self.last_published;
+        if !requested
+            && let Some((last_key, previous)) = published.as_ref()
+            && *last_key == key
+            && match (previous, &snapshot) {
+                (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+                (None, None) => true,
+                _ => false,
+            }
+        {
             return;
         }
-        self.last_published = Some(key);
         self.adapter.update_if_active(move || {
-            root_update_with_offset(
-                title,
-                size.width,
-                size.height,
-                scale,
-                offset,
-                requested,
-                snapshot.as_deref(),
-            )
+            let incremental = published.as_ref().and_then(|(last_key, previous)| {
+                if requested || *last_key != key {
+                    return None;
+                }
+                update_stable_tree(previous.as_deref()?, snapshot.as_deref()?, scale, offset)
+            });
+            let update = incremental.unwrap_or_else(|| {
+                root_update_with_offset(
+                    title.clone(),
+                    size.width,
+                    size.height,
+                    scale,
+                    offset,
+                    requested,
+                    snapshot.as_deref(),
+                )
+            });
+            *published = Some((key, snapshot));
+            update
         });
     }
 
@@ -530,7 +584,7 @@ mod tests {
         assert_eq!(update.tree.as_ref().unwrap().root, ROOT_ID);
         assert_eq!(
             update.tree.as_ref().unwrap().toolkit_name.as_deref(),
-            Some("Wabou")
+            Some("Plico")
         );
         assert_eq!(update.nodes[0].1.role(), Role::Window);
         assert_eq!(update.nodes[0].1.label(), Some("Gallery"));
@@ -587,6 +641,35 @@ mod tests {
         assert_eq!(update.nodes[1].1.value(), Some("complete"));
         assert_eq!(update.nodes[2].1.role(), Role::Alert);
         assert_eq!(update.nodes[2].1.label(), Some("Connection lost"));
+    }
+
+    #[test]
+    fn static_label_text_reaches_the_accesskit_value() {
+        let mut label = SemanticNode {
+            id: 2,
+            role: SemanticRole::Label,
+            label: Some("最后一行".into()),
+            value: None,
+            numeric_value: None,
+            min_numeric_value: None,
+            max_numeric_value: None,
+            bounds: [0.; 4],
+            children: vec![],
+            controls: vec![],
+            described_by: vec![],
+            active_descendant: None,
+            disabled: false,
+            states: Default::default(),
+        };
+        assert_eq!(accesskit_node(&label, 1., None).value(), Some("最后一行"));
+        label.value = Some("explicit value".into());
+        assert_eq!(
+            accesskit_node(&label, 1., None).value(),
+            Some("explicit value")
+        );
+        label.role = SemanticRole::Button;
+        label.value = None;
+        assert_eq!(accesskit_node(&label, 1., None).value(), None);
     }
 
     #[test]
@@ -870,6 +953,76 @@ mod tests {
         assert_eq!(closed.focus, NodeId(2));
     }
 
+    struct IgnoreChanges;
+    impl accesskit_consumer::TreeChangeHandler for IgnoreChanges {
+        fn node_added(&mut self, _: &accesskit_consumer::Node<'_>) {}
+        fn node_updated(
+            &mut self,
+            _: &accesskit_consumer::Node<'_>,
+            _: &accesskit_consumer::Node<'_>,
+        ) {
+        }
+        fn focus_moved(
+            &mut self,
+            _: Option<&accesskit_consumer::Node<'_>>,
+            _: Option<&accesskit_consumer::Node<'_>>,
+        ) {
+        }
+        fn node_removed(&mut self, _: &accesskit_consumer::Node<'_>) {}
+    }
+
+    #[test]
+    fn focus_and_caption_updates_only_send_changed_nodes() {
+        let nodes = (1..=1024)
+            .map(|id| SemanticNode {
+                id,
+                role: SemanticRole::Button,
+                label: Some(format!("Row {id}")),
+                value: None,
+                numeric_value: None,
+                min_numeric_value: None,
+                max_numeric_value: None,
+                bounds: [0., id as f32, 100., id as f32 + 1.],
+                children: vec![],
+                controls: vec![],
+                described_by: vec![],
+                active_descendant: None,
+                disabled: false,
+                states: Default::default(),
+            })
+            .collect();
+        let before = SemanticSnapshot {
+            nodes,
+            root_children: (1..=1024).collect(),
+            ..Default::default()
+        };
+        let initial = root_update("Rows".into(), 100., 600., 1., true, Some(&before));
+        assert_eq!(initial.nodes.len(), 1025);
+        let mut consumer = accesskit_consumer::Tree::new(initial, true);
+        let mut focused = before.clone();
+        focused.focus = Some(800);
+        let update = update_stable_tree(&before, &focused, 1., [0.; 2]).unwrap();
+        assert!(update.nodes.is_empty());
+        consumer.update_and_process_changes(update, &mut IgnoreChanges);
+        assert_eq!(
+            consumer.state().focus().unwrap().label().as_deref(),
+            Some("Row 800")
+        );
+
+        let mut edited = focused.clone();
+        edited.nodes[799].label = Some("Changed".into());
+        let update = update_stable_tree(&focused, &edited, 1., [0.; 2]).unwrap();
+        assert_eq!(update.nodes.len(), 1);
+        assert_eq!(update.nodes[0].0, NodeId(800));
+        consumer.update_and_process_changes(update, &mut IgnoreChanges);
+        assert_eq!(
+            consumer.state().focus().unwrap().label().as_deref(),
+            Some("Changed")
+        );
+        edited.modal_root = Some(1);
+        assert!(update_stable_tree(&focused, &edited, 1., [0.; 2]).is_none());
+    }
+
     #[test]
     fn publication_filters_dangling_structural_ids_before_accesskit() {
         let semantic = |id, children| crate::SemanticNode {
@@ -915,23 +1068,6 @@ mod tests {
         assert!(update.nodes[1].1.children().is_empty());
         assert!(update.nodes.iter().all(|(id, _)| *id != NodeId(stale)));
 
-        struct IgnoreChanges;
-        impl accesskit_consumer::TreeChangeHandler for IgnoreChanges {
-            fn node_added(&mut self, _: &accesskit_consumer::Node<'_>) {}
-            fn node_updated(
-                &mut self,
-                _: &accesskit_consumer::Node<'_>,
-                _: &accesskit_consumer::Node<'_>,
-            ) {
-            }
-            fn focus_moved(
-                &mut self,
-                _: Option<&accesskit_consumer::Node<'_>>,
-                _: Option<&accesskit_consumer::Node<'_>>,
-            ) {
-            }
-            fn node_removed(&mut self, _: &accesskit_consumer::Node<'_>) {}
-        }
         consumer.update_and_process_changes(update, &mut IgnoreChanges);
     }
 
@@ -1065,17 +1201,10 @@ mod tests {
     }
 
     #[test]
-    fn publication_revision_changes_only_for_semantics_or_window_geometry() {
-        let snapshot = SemanticSnapshot {
-            revision: 7,
-            ..SemanticSnapshot::default()
-        };
-        let initial = publication_key(Some(&snapshot), 800, 600, 2.0);
-        assert_eq!(initial, publication_key(Some(&snapshot), 800, 600, 2.0));
-
-        let mut changed = snapshot;
-        changed.revision += 1;
-        assert_ne!(initial, publication_key(Some(&changed), 800, 600, 2.0));
-        assert_ne!(initial, publication_key(Some(&changed), 801, 600, 2.0));
+    fn publication_tracks_window_geometry() {
+        let base = publication_geometry(800, 600, 2., [0., 0.]);
+        assert_ne!(base, publication_geometry(801, 600, 2., [0., 0.]));
+        assert_ne!(base, publication_geometry(800, 600, 1., [0., 0.]));
+        assert_ne!(base, publication_geometry(800, 600, 2., [0., 32.]));
     }
 }

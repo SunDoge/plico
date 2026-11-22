@@ -206,7 +206,7 @@ struct LongList {
 impl HostView for LongList {
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
-        let labels: Vec<_> = (0..80).map(|i| format!("Option {i}")).collect();
+        let labels: Vec<_> = (0..120).map(|i| format!("Option {i}")).collect();
         let options: Vec<_> = labels
             .iter()
             .enumerate()
@@ -221,7 +221,7 @@ impl HostView for LongList {
 #[test]
 fn selected_option_and_keyboard_navigation_scroll_into_the_constrained_panel() {
     let mut s = Source::new(LongList {
-        value: 70,
+        value: 110,
         ..Default::default()
     });
     let mut tcx = TextContext::new();
@@ -241,7 +241,7 @@ fn selected_option_and_keyboard_navigation_scroll_into_the_constrained_panel() {
     s.build_frame(&mut tcx, 400, 260);
     let snapshot = s.semantics();
     let chosen = snapshot
-        .node_by_role(SemanticRole::Option, "Option 70", None)
+        .node_by_role(SemanticRole::Option, "Option 110", None)
         .unwrap();
     let panel = snapshot
         .node_by_role(SemanticRole::ListBox, "Long list", None)
@@ -357,4 +357,68 @@ fn popup_keyboard_highlights_use_mygo_accent_with_legible_text() {
         label.paint.text_color.to_rgba8(),
         peniko::Color::from_rgb8(255, 255, 255).to_rgba8()
     );
+}
+
+#[test]
+fn searchable_list_accepts_filtered_choices_from_the_keyboard_after_ime_commit() {
+    #[derive(Default)]
+    struct Search {
+        popup: PopoverState,
+        query: TextBuffer,
+        value: usize,
+        changes: usize,
+    }
+    impl HostView for Search {
+        fn show(&mut self, cx: &mut UiContext) {
+            let options = [
+                SelectOption::new(0usize, 0, "Other"),
+                SelectOption::new(1usize, 1, "中 Disabled").disabled(true),
+                SelectOption::new(2usize, 2, "中 First"),
+                SelectOption::new(3usize, 3, "中 Last"),
+            ];
+            if select(cx, &mut self.popup, "Language", &mut self.value, &options)
+                .searchable(&self.query)
+                .motion(Motion::None)
+                .changed()
+            {
+                self.changes += 1;
+            }
+        }
+    }
+
+    for (navigation, chosen) in [(None, 2), (Some("ArrowDown"), 2), (Some("ArrowUp"), 3)] {
+        let mut s = Source::new(Search::default());
+        let mut tcx = TextContext::new();
+        s.build_frame(&mut tcx, 440, 360);
+        s.update(|view| view.popup.open());
+        s.build_frame(&mut tcx, 440, 360);
+        let input = s
+            .semantics()
+            .node_by_role(SemanticRole::TextInput, "Search options", None)
+            .unwrap()
+            .id;
+        assert_eq!(s.semantics().focus, Some(input));
+        s.handle_event(UiEvent::Ime(plico_renderer::ImeEvent::Preedit {
+            text: "zhong".into(),
+            cursor: None,
+        }));
+        for composing_key in ["ArrowDown", "Enter"] {
+            s.handle_event(key(composing_key));
+            s.build_frame(&mut tcx, 440, 360);
+            assert_eq!(s.semantics().focus, Some(input));
+            assert!(s.view().query.is_composing());
+            assert!(s.view().popup.is_open());
+        }
+        s.handle_event(UiEvent::Ime(plico_renderer::ImeEvent::Commit("中".into())));
+        s.build_frame(&mut tcx, 440, 360);
+        if let Some(key_name) = navigation {
+            let response = s.handle_event(key(key_name));
+            assert_eq!(response.text_input, Some(false));
+        }
+        s.handle_event(key("Enter"));
+        s.build_frame(&mut tcx, 440, 360);
+        assert_eq!(s.view().value, chosen);
+        assert_eq!(s.view().changes, 1);
+        assert!(!s.view().popup.is_open());
+    }
 }

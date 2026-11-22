@@ -417,11 +417,11 @@ pub fn flatten_with_scroll_into(
         0.0,
         0.0,
         ClipState::default(),
+        Some((kurbo::Affine::IDENTITY, 1.)),
         scroll_offsets,
         &mut output,
     );
     output.nodes.truncate(output.used);
-    refresh_presentations(output.nodes);
 }
 
 /// Refresh composed transforms and opacity for a preorder placed-node list.
@@ -478,6 +478,7 @@ pub fn flatten_subtree_with_scroll(
             radii: previous.clip_radii,
             depth: previous.clip_depth,
         },
+        None, // The host composes a subtree patch after inserting it under its parent.
         scroll_offsets,
         &mut output,
     );
@@ -490,12 +491,6 @@ struct FlattenOutput<'a> {
     nodes: &'a mut Vec<PlacedNode>,
     used: usize,
 }
-impl FlattenOutput<'_> {
-    fn last_mut(&mut self) -> Option<&mut PlacedNode> {
-        self.nodes.get_mut(self.used.checked_sub(1)?)
-    }
-}
-
 /// Depth-first walk accumulating absolute positions. `x0`,`y0` is the absolute
 /// border-box origin of the *parent*. A node's own border-box origin is
 /// `(parent_x0 + node.location.x, parent_y0 + node.location.y)`.
@@ -600,6 +595,7 @@ fn walk(
     parent_x0: f32,
     parent_y0: f32,
     inherited_clip: ClipState,
+    mut presentation: Option<(kurbo::Affine, f32)>,
     scroll_offsets: &HashMap<NodeId, [f32; 2]>,
     out: &mut FlattenOutput<'_>,
 ) {
@@ -632,13 +628,57 @@ fn walk(
         style.overflow.x == taffy::Overflow::Scroll,
         style.overflow.y == taffy::Overflow::Scroll,
     ];
-    let scroll_range = [layout.scroll_width(), layout.scroll_height()];
+    // Compute the local boundary once. Its ancestor intersection is only a
+    // projection: presentation transforms still need the un-intersected clip.
+    let own_clip = node_clip(style, paint, layout, rect, depth);
+    let child_clip = own_clip.map_or(inherited_clip, |own| {
+        intersect_clip(
+            own,
+            inherited_clip,
+            style.overflow.x != taffy::Overflow::Visible
+                && style.overflow.y != taffy::Overflow::Visible,
+        )
+    });
 
     if let Some(paint) = paint
         && w > 0.0
         && h > 0.0
     {
-        if out.used == out.nodes.len() {
+        let own_radii = own_clip.map(|clip| clip.radii).unwrap_or_default();
+        let border = layout.border;
+        let border_widths = [border.top, border.right, border.bottom, border.left];
+        let metrics = ScrollMetrics {
+            port: [
+                x0 + border.left,
+                y0 + border.top,
+                x0 + w - border.right,
+                y0 + h - border.bottom,
+            ],
+            scrollable,
+            range: [layout.scroll_width(), layout.scroll_height()],
+            offset: scroll,
+            ..Default::default()
+        };
+        if let Some(slot) = out.nodes.get_mut(out.used) {
+            slot.node_id = node;
+            slot.parent_node_id = parent_node_id;
+            slot.depth = depth;
+            slot.world_transform = kurbo::Affine::IDENTITY;
+            slot.world_opacity = 1.0;
+            slot.rect = rect;
+            slot.content_origin = [cx, cy];
+            slot.content_size = [content_width, content_height];
+            slot.clip = inherited_clip.rect;
+            slot.clip_radius = inherited_clip.radii.max();
+            slot.clip_radii = inherited_clip.radii;
+            slot.clip_depth = inherited_clip.depth;
+            slot.own_clip = own_clip.and_then(|clip| clip.rect);
+            slot.own_clip_radius = own_radii.max();
+            slot.own_clip_radii = own_radii;
+            slot.border_widths = border_widths;
+            slot.scroll = metrics;
+            slot.paint.clone_from(paint);
+        } else {
             out.nodes.push(PlacedNode {
                 node_id: node,
                 parent_node_id,
@@ -652,108 +692,21 @@ fn walk(
                 clip_radius: inherited_clip.radii.max(),
                 clip_radii: inherited_clip.radii,
                 clip_depth: inherited_clip.depth,
-                own_clip: None,
-                own_clip_radius: 0.0,
-                own_clip_radii: CornerRadii::default(),
-                border_widths: [
-                    layout.border.top,
-                    layout.border.right,
-                    layout.border.bottom,
-                    layout.border.left,
-                ],
-                scroll: ScrollMetrics {
-                    port: [
-                        x0 + layout.border.left,
-                        y0 + layout.border.top,
-                        x0 + w - layout.border.right,
-                        y0 + h - layout.border.bottom,
-                    ],
-                    scrollable,
-                    range: scroll_range,
-                    offset: scroll,
-                    opacity: 0.0,
-                    interaction: 0,
-                },
+                own_clip: own_clip.and_then(|clip| clip.rect),
+                own_clip_radius: own_radii.max(),
+                own_clip_radii: own_radii,
+                border_widths,
+                scroll: metrics,
                 paint: paint.clone(),
             });
-        } else {
-            out.nodes[out.used].paint.clone_from(paint);
         }
-        let PlacedNode {
-            node_id: slot_node_id,
-            parent_node_id: slot_parent_node_id,
-            depth: slot_depth,
-            world_transform: slot_world_transform,
-            world_opacity: slot_world_opacity,
-            rect: slot_rect,
-            content_origin: slot_content_origin,
-            content_size: slot_content_size,
-            clip: slot_clip,
-            clip_radius: slot_clip_radius,
-            clip_radii: slot_clip_radii,
-            clip_depth: slot_clip_depth,
-            own_clip: slot_own_clip,
-            own_clip_radius: slot_own_clip_radius,
-            own_clip_radii: slot_own_clip_radii,
-            border_widths: slot_border_widths,
-            scroll: slot_scroll,
-            paint: _,
-        } = &mut out.nodes[out.used];
-        *slot_node_id = node;
-        *slot_parent_node_id = parent_node_id;
-        *slot_depth = depth;
-        *slot_world_transform = kurbo::Affine::IDENTITY;
-        *slot_world_opacity = 1.0;
-        *slot_rect = rect;
-        *slot_content_origin = [cx, cy];
-        *slot_content_size = [content_width, content_height];
-        *slot_clip = inherited_clip.rect;
-        *slot_clip_radius = inherited_clip.radii.max();
-        *slot_clip_radii = inherited_clip.radii;
-        *slot_clip_depth = inherited_clip.depth;
-        *slot_own_clip = None;
-        *slot_own_clip_radius = 0.0;
-        *slot_own_clip_radii = CornerRadii::default();
-        *slot_border_widths = [
-            layout.border.top,
-            layout.border.right,
-            layout.border.bottom,
-            layout.border.left,
-        ];
-        *slot_scroll = ScrollMetrics {
-            port: [
-                x0 + layout.border.left,
-                y0 + layout.border.top,
-                x0 + w - layout.border.right,
-                y0 + h - layout.border.bottom,
-            ],
-            scrollable,
-            range: scroll_range,
-            offset: scroll,
-            opacity: 0.0,
-            interaction: 0,
-        };
+        if let Some((parent_transform, parent_opacity)) = presentation {
+            let placed = &mut out.nodes[out.used];
+            placed.world_transform = crate::scene::resolve_node_transform(placed, parent_transform);
+            placed.world_opacity = parent_opacity * paint.opacity;
+            presentation = Some((placed.world_transform, placed.world_opacity));
+        }
         out.used += 1;
-    }
-
-    // Compute the local boundary once. Its ancestor intersection is only a
-    // projection: presentation transforms still need the un-intersected clip.
-    let own_clip = node_clip(style, paint, layout, rect, depth);
-    let child_clip = own_clip.map_or(inherited_clip, |own| {
-        intersect_clip(
-            own,
-            inherited_clip,
-            style.overflow.x != taffy::Overflow::Visible
-                && style.overflow.y != taffy::Overflow::Visible,
-        )
-    });
-    if let Some(clip) = own_clip
-        && let Some(placed) = out.last_mut()
-        && placed.node_id == node
-    {
-        placed.own_clip = clip.rect;
-        placed.own_clip_radius = clip.radii.max();
-        placed.own_clip_radii = clip.radii;
     }
     // Only an intrinsically empty clipping boundary can prune layout here.
     // Effective intersections are resolved after presentation transforms. The
@@ -776,6 +729,7 @@ fn walk(
                 x0 - scroll[0],
                 y0 - scroll[1],
                 child_clip,
+                presentation,
                 scroll_offsets,
                 out,
             );
@@ -806,6 +760,7 @@ fn walk(
             x0 - scroll[0],
             y0 - scroll[1],
             child_clip,
+            presentation,
             scroll_offsets,
             out,
         );
@@ -1275,7 +1230,15 @@ mod tests {
         let root = tree
             .new_with_children(root_style.clone(), &children)
             .unwrap();
-        tree.set_node_context(root, Some(Paint::default())).unwrap();
+        tree.set_node_context(
+            root,
+            Some(Paint {
+                opacity: 0.6,
+                runtime_transform: Some([1., 0., 0., 1., 3., 4.]),
+                ..Paint::default()
+            }),
+        )
+        .unwrap();
         let mut out = Vec::new();
         let mut text = TextContext::new();
         for frame in 0..18 {
@@ -1333,9 +1296,12 @@ mod tests {
             .unwrap();
             let offsets = HashMap::from([(root, [0., (frame * 2) as f32])]);
             flatten_with_scroll_into(&tree, root, &offsets, &mut out);
-            let fresh = flatten_with_scroll(&tree, root, &offsets);
+            let mut fresh = flatten_with_scroll(&tree, root, &offsets);
+            refresh_presentations(&mut fresh);
             assert_eq!(out.len(), fresh.len());
             for (a, b) in out.iter().zip(&fresh) {
+                assert_eq!(a.world_transform, b.world_transform);
+                assert_eq!(a.world_opacity, b.world_opacity);
                 assert_eq!(
                     (
                         a.node_id,

@@ -62,10 +62,7 @@ fn is_component(node: Node<'_>, source: &[u8]) -> bool {
         match attr.kind() {
             "attribute_item" => {
                 let text = compact(&source[attr.byte_range()]);
-                if text == b"#[component]"
-                    || text == b"#[plico::component]"
-                    || text == b"#[plico::component]"
-                {
+                if text == b"#[component]" || text == b"#[plico::component]" {
                     return true;
                 }
             }
@@ -88,9 +85,7 @@ fn components<'t>(tree: &'t Tree, source: &[u8], masked: bool) -> Vec<Component<
             match attr.kind() {
                 "attribute_item" => {
                     let text = compact(&source[attr.byte_range()]);
-                    component |= text == b"#[component]"
-                        || text == b"#[plico::component]"
-                        || text == b"#[plico::component]";
+                    component |= text == b"#[component]" || text == b"#[plico::component]";
                     if text == compact(if masked { MARKER } else { SKIP }) {
                         skip = Some(attr);
                     }
@@ -221,23 +216,13 @@ impl<'p> Formatter<'p> {
     fn pack_arguments(&mut self, mut source: Vec<u8>) -> Result<Vec<u8>> {
         loop {
             let tree = self.parse(&source)?;
-            let starts: Vec<usize> = nodes(tree.root_node())
-                .into_iter()
-                .filter(|n| n.kind() == "arguments")
-                .filter(|n| source[n.byte_range()].contains(&b'\n'))
-                .map(|n| n.start_byte())
-                .collect();
             let mut changed = false;
-            // Right to left, reparsing after each edit, so nested calls pack
-            // before the calls that contain them.
-            for start in starts.iter().rev() {
-                let tree = self.parse(&source)?;
-                let Some(args) = nodes(tree.root_node())
-                    .into_iter()
-                    .find(|n| n.kind() == "arguments" && n.start_byte() == *start)
-                else {
+            // Inspect the same tree until an edit changes its byte offsets.
+            // Right to left keeps nested calls ahead of their parents.
+            for args in nodes(tree.root_node()).into_iter().rev() {
+                if args.kind() != "arguments" || !source[args.byte_range()].contains(&b'\n') {
                     continue;
-                };
+                }
                 if let Some(replacement) = self.packed_arguments(&source, args)
                     && replacement.as_slice() != &source[args.byte_range()]
                 {
@@ -864,6 +849,11 @@ impl<'p> Formatter<'p> {
     }
     fn format(&mut self, source: &[u8]) -> Result<Vec<u8>> {
         let tree = self.parse(source)?;
+        // Ordinary modules need syntax validation and rustfmt only. Every
+        // supported component attribute contains this literal identifier.
+        if !std::str::from_utf8(source).is_ok_and(|text| text.contains("component")) {
+            return self.rustfmt(source);
+        }
         let selected = components(&tree, source, false);
         // Reject retired syntax before rustfmt can erase its empty statement.
         for (_, empty, _) in markers(&tree) {
@@ -1060,24 +1050,42 @@ pub fn run(directory: &Path, manifest: &Path, options: Options) -> Result<u8> {
             )
         })
         .collect();
-    let mut changed = Vec::new();
-    // Finish every parse/format before writing anything, including check mode.
-    for path in files {
-        let edition = roots
-            .iter()
-            .filter(|(root, _)| path.starts_with(root))
-            .max_by_key(|(root, _)| root.components().count())
-            .map_or("2024", |(_, edition)| *edition);
-        let original = fs::read(&path).context(IoSnafu)?;
-        let formatted = if path.extension().is_some_and(|ext| ext == "wgsl") {
-            format_wgsl(&path, &original, options.width)?
-        } else {
-            Formatter::new(&path, edition, options.width)?.format(&original)?
-        };
-        if original != formatted {
-            changed.push((path, original, formatted));
+    let format_chunk = |paths: &[PathBuf]| -> Result<Vec<_>> {
+        let mut changes = Vec::new();
+        for path in paths {
+            let edition = roots
+                .iter()
+                .filter(|(root, _)| path.starts_with(root))
+                .max_by_key(|(root, _)| root.components().count())
+                .map_or("2024", |(_, edition)| *edition);
+            let original = fs::read(path).context(IoSnafu)?;
+            let formatted = if path.extension().is_some_and(|ext| ext == "wgsl") {
+                format_wgsl(path, &original, options.width)?
+            } else {
+                Formatter::new(path, edition, options.width)?.format(&original)?
+            };
+            if original != formatted {
+                changes.push((path.clone(), original, formatted));
+            }
         }
-    }
+        Ok(changes)
+    };
+    // Files are independent until the write phase. Bound concurrent rustfmt
+    // processes and join sorted chunks in order for deterministic diagnostics.
+    let files: Vec<_> = files.into_iter().collect();
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+    let chunk_size = files.len().div_ceil(workers).max(1);
+    let changed = std::thread::scope(|scope| -> Result<Vec<_>> {
+        let jobs: Vec<_> = files
+            .chunks(chunk_size)
+            .map(|chunk| scope.spawn(move || format_chunk(chunk)))
+            .collect();
+        let mut changed = Vec::new();
+        for job in jobs {
+            changed.extend(job.join().expect("formatter worker panicked")?);
+        }
+        Ok(changed)
+    })?;
     if options.check {
         for (path, _, _) in &changed {
             eprintln!("would format {}", path.display());

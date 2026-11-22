@@ -53,7 +53,7 @@ fn header_above(
             cache.from = index;
             return cache.row;
         }
-        if index >= cache.stop && (cache.row.is_some() || cache.stop == 0) {
+        if (cache.stop..=cache.from).contains(&index) && (cache.row.is_some() || cache.stop == 0) {
             return cache.row;
         }
     }
@@ -95,7 +95,7 @@ impl Default for HeightBlock {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct VariableHeights {
     count: usize,
     ids: Vec<usize>,
@@ -104,15 +104,6 @@ struct VariableHeights {
     prefix_sum: Vec<f64>,
     prefix_count: Vec<usize>,
     dirty: bool,
-}
-
-impl PartialEq for VariableHeights {
-    fn eq(&self, other: &Self) -> bool {
-        self.count == other.count
-            && self.ids == other.ids
-            && self.blocks == other.blocks
-            && self.estimate == other.estimate
-    }
 }
 
 impl VariableHeights {
@@ -294,7 +285,7 @@ impl VariableHeights {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 struct VariableListState {
     heights: VariableHeights,
     anchor: usize,
@@ -858,7 +849,9 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
             .motion(Motion::None)
             .children(|cx| {
                 let state = cx.state(|| VariableListState::new(count, estimated_row_height));
-                let mut list = state.get();
+                // This private slot belongs to this list instance. Keep sparse height
+                // blocks and their prefix index in place as more rows are measured.
+                let list: &mut VariableListState = &mut state.value.borrow_mut();
                 list.heights.estimate = estimated_row_height;
                 let viewport_height = if fill {
                     cx.scroll_viewport()
@@ -1020,12 +1013,8 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                 );
                 list.follow.finish(measured_extent, viewport_height);
                 if measurements_changed {
-                    state.set(list);
-                } else {
-                    // Scroll observations, anchors and header-search cache were
-                    // already consumed by this declaration. Only new row
-                    // measurements require another settle pass.
-                    state.commit(list);
+                    // Only newly measured geometry needs a second declaration.
+                    state.changed.set(true);
                 }
 
                 VirtualListResponse {
@@ -1034,6 +1023,28 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                 }
             })
             .inner
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+
+    #[test]
+    fn jumping_past_the_cached_interval_uses_the_destination_section() {
+        let destination = HEADER_SEARCH + 100;
+        for initial in [None, Some(0)] {
+            let mut cache = HeaderCache::default();
+            let mut header = |i| initial == Some(i) || i == destination - 1;
+            assert_eq!(
+                header_above(&mut cache, &mut header, 0, destination + 1),
+                initial
+            );
+            assert_eq!(
+                header_above(&mut cache, &mut header, destination, destination + 1),
+                Some(destination - 1)
+            );
+        }
     }
 }
 

@@ -29,7 +29,7 @@ impl Format {
         }
     }
 }
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 struct Job {
     format: Format,
     ticket: u64,
@@ -56,16 +56,22 @@ impl PartialEq for Images {
     /// the live one (the persisted snapshot contract).
     /// A poisoned queue compares unequal rather than panicking.
     fn eq(&self, other: &Self) -> bool {
-        let Ok(a) = self.inner.lock() else {
+        if self.surface != other.surface {
             return false;
+        }
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            return !self.inner.is_poisoned();
+        }
+        let (format, jobs, running) = {
+            let Ok(a) = self.inner.lock() else {
+                return false;
+            };
+            (a.format, a.jobs.clone(), a.running)
         };
         let Ok(b) = other.inner.lock() else {
             return false;
         };
-        self.surface == other.surface
-            && a.format == b.format
-            && a.jobs == b.jobs
-            && a.running == b.running
+        format == b.format && jobs == b.jobs && running == b.running
     }
 }
 impl Default for Images {

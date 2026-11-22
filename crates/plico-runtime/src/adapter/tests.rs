@@ -15,6 +15,39 @@ fn layout(
 }
 
 #[test]
+fn semantic_action_reuses_presented_tree_then_publishes_new_focus() {
+    use crate::{HostView, Source};
+    use plico_renderer::{FrameSource, SemanticAction, SemanticRole};
+
+    struct Form(bool);
+    impl HostView for Form {
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            if self.0 {
+                plico::widgets::button(cx).text("Save");
+            }
+        }
+    }
+    let mut source = Source::new(Form(true));
+    let mut text = TextContext::new();
+    source.set_semantics_enabled(true);
+    source.try_build_frame(&mut text, 300, 200).unwrap();
+    let before = source.semantic_snapshot().unwrap();
+    let target = before
+        .node_by_role(SemanticRole::Button, "Save", None)
+        .unwrap()
+        .id;
+    let reuses = source.adapter.semantic.borrow().snapshot_reuses;
+    assert!(source.handle_semantic_action(SemanticAction::Focus { target }));
+    assert_eq!(source.adapter.semantic.borrow().snapshot_reuses, reuses + 1);
+    assert_eq!(source.semantic_snapshot().unwrap().focus, Some(target));
+    assert_ne!(before.focus, Some(target));
+
+    source.update(|view| view.0 = false);
+    source.try_build_frame(&mut text, 300, 200).unwrap();
+    assert!(!source.handle_semantic_action(SemanticAction::Click { target }));
+}
+
+#[test]
 fn retained_nodes_survive_reorder_and_are_recreated_after_remount() {
     let mut engine = Engine::default();
     let mut adapter = Adapter::default();

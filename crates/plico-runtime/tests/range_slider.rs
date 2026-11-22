@@ -232,3 +232,49 @@ fn unstyled_range_keeps_two_focusable_numeric_thumbs() {
             .is_some()
     );
 }
+
+#[test]
+fn compact_vertical_range_thumb_centers_select_the_displayed_values() {
+    struct Vertical(Demo);
+    impl HostView for Vertical {
+        fn show(&mut self, cx: &mut UiContext) {
+            cx.range_slider("Price", &mut self.0.low, &mut self.0.high, 0.0..=100.0)
+                .vertical(true)
+                .step(1.);
+        }
+        fn theme(&self) -> Theme {
+            Theme {
+                metrics: Metrics::compact(),
+                ..Theme::light()
+            }
+        }
+    }
+    let mut source = Source::new(Vertical(Demo {
+        low: 20.,
+        high: 80.,
+    }));
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 120, 240);
+    let tree = source.semantics();
+    let min = tree
+        .node_by_role(SemanticRole::Slider, "Price minimum", None)
+        .unwrap();
+    let max = tree
+        .node_by_role(SemanticRole::Slider, "Price maximum", None)
+        .unwrap();
+    assert!(
+        max.bounds[3] < min.bounds[1],
+        "the higher value is above the lower one"
+    );
+    for (thumb, expected) in [(max, (20., 81.)), (min, (21., 81.))] {
+        let [x0, y0, x1, y1] = thumb.bounds;
+        let (x, y) = (f64::from(x0 + x1) / 2., f64::from(y0 + y1) / 2.);
+        for phase in [PointerPhase::Down, PointerPhase::Up] {
+            source.handle_event(pointer(phase, x, y));
+        }
+        source.handle_event(key("ArrowUp"));
+        source.build_frame(&mut text, 120, 240);
+        assert_eq!(source.semantics().focus, Some(thumb.id));
+        assert_eq!((source.view().0.low, source.view().0.high), expected);
+    }
+}

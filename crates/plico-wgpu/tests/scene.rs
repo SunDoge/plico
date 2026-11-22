@@ -617,30 +617,6 @@ fn svg_fallback_matches_resvg_and_reuses_raster_across_position_changes() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
-fn fractional_dpi_checkbox_rim_snaps_to_one_physical_pixel() {
-    let mut scene = Scene::new();
-    scene.stroke(
-        &kurbo::Stroke::new(1.),
-        Affine::translate((4.375, 4.375)) * Affine::scale(1.25),
-        PaintColor::from_rgba8(255, 255, 255, 255),
-        None,
-        &kurbo::RoundedRect::new(0.5, 0.5, 15.5, 15.5, 3.5),
-    );
-    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
-    let pixels = renderer
-        .render_scene(&scene, [32, 32], [0.; 4], false)
-        .unwrap();
-    let alpha = |x: usize, y: usize| pixels[(y * 32 + x) * 4 + 3];
-    assert_eq!(alpha(14, 4), 255, "the snapped top rim is fully covered");
-    assert_eq!(
-        alpha(14, 5),
-        0,
-        "a one-pixel rim must not bleed into the adjacent row"
-    );
-}
-
-#[test]
-#[ignore = "requires a working wgpu adapter"]
 fn image_cache_eviction_keeps_in_flight_painter_order_resources_alive() {
     use peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();

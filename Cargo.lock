@@ -7306,14 +7306,11 @@ dependencies = [
 name = "plico-runtime"
 version = "0.4.3"
 dependencies = [
- "gallery",
  "kurbo",
  "peniko",
  "plico",
- "plico-dev",
  "plico-motion",
  "plico-renderer",
- "plico-shell",
  "serde",
  "serde_json",
  "snafu",
@@ -7482,6 +7479,7 @@ dependencies = [
  "unicode-segmentation",
  "wasm-bindgen",
  "web-sys",
+ "web-time",
  "wgpu",
  "wgpu-dmabuf",
  "winit 0.31.0-beta.3",

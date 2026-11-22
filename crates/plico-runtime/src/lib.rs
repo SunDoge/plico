@@ -4,7 +4,7 @@ use peniko::Color;
 use plico::{Capabilities, Color as Token, Engine, Entity, Kind, Theme};
 use plico_renderer::{
     EventResponse, KeyPhase, PointerButton, PointerPhase, Scene, TextContext, UiEvent,
-    layout::{PlacedNode, compute_and_walk_with_scroll, compute_and_walk_with_scroll_into},
+    layout::{PlacedNode, compute_and_walk_with_scroll},
 };
 use std::{
     collections::{HashMap, HashSet},

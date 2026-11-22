@@ -274,9 +274,14 @@ impl Default for TextContext {
 }
 
 impl TextContext {
-    /// Discover system fonts (parley default = "system" feature → fontique).
+    /// Use the system fonts discovered on the first text context on this thread.
     pub fn new() -> Self {
-        Self::with_font_context(FontContext::new())
+        // Fontique clones share the discovered system database. Keep the template
+        // unmodified so custom families and fallback overrides stay per context.
+        thread_local! {
+            static SYSTEM_FONTS: FontContext = FontContext::new();
+        }
+        Self::with_font_context(SYSTEM_FONTS.with(Clone::clone))
     }
 
     fn with_font_context(mut font_cx: FontContext) -> Self {
@@ -1235,7 +1240,15 @@ mod tests {
         assert!(entries.0 > 0);
         assert!(!context.register_font(&asset.clone()));
         assert_eq!(context.cache_entries(), entries);
-        assert!(TextContext::new().register_font(&asset));
+        let mut other = TextContext::new();
+        assert!(
+            other
+                .font_cx
+                .collection
+                .family_by_name("Plico font asset test")
+                .is_none()
+        );
+        assert!(other.register_font(&asset));
         assert!(!context.register_font(&FontAsset::new(vec![0, 1, 2])));
     }
 

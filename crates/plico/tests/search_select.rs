@@ -51,3 +51,43 @@ fn search_filters_without_mutating_choice_and_selection_closes_popup() {
     assert_eq!(selected, 2);
     assert!(!popup.is_open());
 }
+
+#[test]
+fn whitespace_and_unicode_queries_preserve_stable_prefix_priority() {
+    let options = [
+        SelectOption::new(1u64, 1, "Crème BRÛLÉE"),
+        SelectOption::new(2u64, 2, "Brûlée A"),
+        SelectOption::new(3u64, 3, "Crème brûlée B"),
+        SelectOption::new(4u64, 4, "BRÛLÉE C"),
+    ];
+    let mut engine = Engine::default();
+    let mut popup = PopoverState::default();
+    popup.open();
+    let query = TextBuffer::new();
+    let mut selected = 0;
+    for (input, order) in [("  bRûLéE ", [1, 3, 0, 2]), ("  ", [0, 1, 2, 3])] {
+        query.set(input.to_owned().into());
+        engine
+            .frame(|cx| {
+                plico::widgets::select(cx, &mut popup, "Dessert", &mut selected, &options)
+                    .searchable(&query)
+                    .motion(Motion::None);
+            })
+            .unwrap();
+        let labels = ["Crème BRÛLÉE", "Brûlée A", "Crème brûlée B", "BRÛLÉE C"];
+        let first = option(&engine, engine.root(), labels[order[0]]).unwrap();
+        let parent = engine.parent(first).unwrap();
+        let rows: Vec<_> = engine
+            .node(parent)
+            .unwrap()
+            .children
+            .iter()
+            .filter_map(|id| {
+                let node = engine.node(*id)?;
+                (node.style.role == Some(plico::WidgetRole::Option)).then_some(node.text)
+            })
+            .collect();
+        assert_eq!(rows, order.map(|index| labels[index]));
+        assert_eq!(selected, 0);
+    }
+}

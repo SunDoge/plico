@@ -51,6 +51,29 @@ fn day_and_month_arithmetic_round_trip_and_clamp() {
 }
 
 #[test]
+fn every_day_in_a_gregorian_cycle_matches_its_ordinal() {
+    let origin = date(1, 1, 1);
+    let mut ordinal = 0;
+    for year in 1..=400 {
+        for month in 1..=12 {
+            for day in 1..=CalendarDate::days_in_month(year, month) {
+                let expected = date(year, month, day);
+                assert_eq!(expected.ordinal(), ordinal);
+                assert_eq!(origin.checked_add_days(ordinal), Some(expected));
+                ordinal += 1;
+            }
+        }
+    }
+    let end = date(9999, 12, 31);
+    assert_eq!(origin.checked_add_days(3_652_058), Some(end));
+    assert_eq!(end.checked_add_days(-3_652_058), Some(origin));
+    assert_eq!(origin.checked_add_days(-1), None);
+    assert_eq!(end.checked_add_days(1), None);
+    assert_eq!(origin.checked_add_days(i32::MIN), None);
+    assert_eq!(end.checked_add_days(i32::MAX), None);
+}
+
+#[test]
 fn single_selection_replaces_and_range_selection_completes_then_restarts() {
     let mut single = CalendarState::new(date(2026, 10, 1));
     assert_eq!(single.mode(), CalendarMode::Single);

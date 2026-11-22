@@ -59,7 +59,7 @@ pub fn date_input_with<'s>(
     } else {
         CalendarState::new(*date).with_selected(*date)
     };
-    let shown = format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day());
+    let shown = date.to_string();
     let mut chosen = None;
     let _ = cx
         .popover(state, label)
@@ -74,6 +74,9 @@ pub fn date_input_with<'s>(
         });
     if let Some(chosen) = chosen {
         *date = chosen;
+    }
+    if !state.is_open() {
+        calendar_state = CalendarState::new(*date).with_selected(*date);
     }
     local.set(DateEntry {
         calendar: calendar_state,
