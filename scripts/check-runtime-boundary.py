@@ -7,10 +7,11 @@ through public retained state.
 Runnable examples and probes use the same stable surface. Integration tests are
 migrated separately to testing::Driver and diagnostics.
 
-This is intentionally a source-level guard, not a Rust name resolver.
+Cargo's resolved dependency graph also keeps runtime tests host-independent.
 """
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,83 +31,11 @@ migrated_test_roots = {
     ("crates", "plico-runtime", "tests"),
     ("crates", "plico-wgpu", "tests"),
 }
-migrated_test_files = {
-    Path("crates/plico-desktop/tests/absolute.rs"),
-    Path("crates/plico-desktop/tests/alignment.rs"),
-    Path("crates/plico-desktop/tests/backdrop.rs"),
-    Path("crates/plico-desktop/tests/batching.rs"),
-    Path("crates/plico-desktop/tests/button_content.rs"),
-    Path("crates/plico-desktop/tests/button_states.rs"),
-    Path("crates/plico-desktop/tests/calendar.rs"),
-    Path("crates/plico-desktop/tests/capabilities.rs"),
-    Path("crates/plico-desktop/tests/compact_flicker.rs"),
-    Path("crates/plico-desktop/tests/clock.rs"),
-    Path("crates/plico-desktop/tests/composable_widgets.rs"),
-    Path("crates/plico-desktop/tests/feedback_motion.rs"),
-    Path("crates/plico-desktop/tests/font_family.rs"),
-    Path("crates/plico-desktop/tests/gallery.rs"),
-    Path("crates/plico-desktop/tests/flex_layout.rs"),
-    Path("crates/plico-desktop/tests/glass_pixels.rs"),
-    Path("crates/plico-desktop/tests/interactive_glass.rs"),
-    Path("crates/plico-desktop/tests/icons.rs"),
-    Path("crates/plico-desktop/tests/incremental.rs"),
-    Path("crates/plico-desktop/tests/layout_features.rs"),
-    Path("crates/plico-desktop/tests/layout_reuse.rs"),
-    Path("crates/plico-desktop/tests/materials.rs"),
-    Path("crates/plico-desktop/tests/modal.rs"),
-    Path("crates/plico-desktop/tests/native_surface.rs"),
-    Path("crates/plico-desktop/tests/popover.rs"),
-    Path("crates/plico-desktop/tests/presentation_motion.rs"),
-    Path("crates/plico-desktop/tests/retained_frame.rs"),
-    Path("crates/plico-desktop/tests/retained_sampling.rs"),
-    Path("crates/plico-desktop/tests/rich_text.rs"),
-    Path("crates/plico-desktop/tests/route_nav.rs"),
-    Path("crates/plico-desktop/tests/save_button_flicker.rs"),
-    Path("crates/plico-desktop/tests/scene_layers.rs"),
-    Path("crates/plico-desktop/tests/scroll.rs"),
-    Path("crates/plico-desktop/tests/scroll_clip.rs"),
-    Path("crates/plico-desktop/tests/scroll_presentation.rs"),
-    Path("crates/plico-desktop/tests/select_menu.rs"),
-    Path("crates/plico-desktop/tests/search_input.rs"),
-    Path("crates/plico-desktop/tests/shader.rs"),
-    Path("crates/plico-desktop/tests/shader_transition.rs"),
-    Path("crates/plico-desktop/tests/slider.rs"),
-    Path("crates/plico-desktop/tests/smooth_scroll.rs"),
-    Path("crates/plico-desktop/tests/style_geometry.rs"),
-    Path("crates/plico-desktop/tests/style_motion.rs"),
-    Path("crates/plico-desktop/tests/structural_sync.rs"),
-    Path("crates/plico-desktop/tests/svg_assets.rs"),
-    Path("crates/plico-desktop/tests/text_input.rs"),
-    Path("crates/plico-desktop/tests/text_selection.rs"),
-    Path("crates/plico-desktop/tests/toggles.rs"),
-    Path("crates/plico-desktop/tests/tooltip.rs"),
-    Path("crates/plico-desktop/tests/tree_keyboard.rs"),
-    Path("crates/plico-desktop/tests/virtual_list.rs"),
-    Path("crates/plico-runtime/tests/adapter_work.rs"),
-    Path("crates/plico-runtime/tests/alert_dialog.rs"),
-    Path("crates/plico-runtime/tests/component_kit.rs"),
-    Path("crates/plico-runtime/tests/deadline.rs"),
-    Path("crates/plico-runtime/tests/display_preferences.rs"),
-    Path("crates/plico-runtime/tests/focus_navigation.rs"),
-    Path("crates/plico-runtime/tests/font_family.rs"),
-    Path("crates/plico-runtime/tests/hover.rs"),
-    Path("crates/plico-runtime/tests/indicator_semantics.rs"),
-    Path("crates/plico-runtime/tests/retained_frame.rs"),
-    Path("crates/plico-runtime/tests/range_slider.rs"),
-    Path("crates/plico-runtime/tests/scroll_layout_motion.rs"),
-    Path("crates/plico-runtime/tests/secondary_click.rs"),
-    Path("crates/plico-runtime/tests/test_protocol.rs"),
-    Path("crates/plico-runtime/tests/toast_motion.rs"),
-    Path("crates/plico-runtime/tests/user_activity.rs"),
-    Path("crates/plico-runtime/tests/variable_list.rs"),
-    Path("crates/plico-runtime/tests/virtual_table_width.rs"),
-}
 for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
     for path in sorted(root.rglob("*.rs")):
         relative = path.relative_to(ROOT)
         parts = relative.parts
-        migrated_test = parts[:3] in migrated_test_roots or relative in migrated_test_files
-        if "tests" in parts and not migrated_test:
+        if "tests" in parts and parts[:3] not in migrated_test_roots:
             continue
         if parts[:3] == ("crates", "plico-runtime", "src"):
             continue
@@ -117,6 +46,18 @@ for root in (ROOT / "apps", ROOT / "crates", ROOT / "examples"):
             violations.append(
                 f"{relative}:{number}: Source.{match.group(1)} field: {line}"
             )
+
+# A single application fixture used to pull the desktop and GPU stack into
+# every runtime test binary. Include build and dev edges in this check.
+packages = subprocess.check_output(
+    ["cargo", "tree", "--locked", "-p", "plico-runtime", "-e", "normal,build,dev",
+     "--prefix", "none", "--format", "{p}"],
+    cwd=ROOT, text=True,
+)
+host_packages = {"gallery", "plico-desktop", "plico-shell", "plico-wgpu", "wgpu", "winit"}
+resolved = {line.split()[0] for line in packages.splitlines() if line.strip()}
+for name in sorted(host_packages & resolved):
+    violations.append(f"plico-runtime tests depend on {name}; move host coverage to its owning package")
 
 source_definition = (ROOT / "crates/plico-runtime/src/source.rs").read_text()
 for field in ("engine", "adapter", "view"):

@@ -1,0 +1,16 @@
+[package]
+name = "plico-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Guest buffer ABI and optional native host for Plico development modules"
+
+[features]
+host = ["dep:wasmtime", "dep:notify"]
+
+[dependencies]
+rkyv.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+notify = { workspace = true, optional = true }
+wasmtime = { version = "=50.0.1", optional = true, default-features = false, features = ["cranelift", "runtime", "std"] }

@@ -158,6 +158,46 @@ impl<'a, T> SelectOption<'a, T> {
         self
     }
 }
+/// MyGO combobox.matching keeps equal-rank entries in source order.
+fn visit_matches<'a, T>(
+    options: &'a [SelectOption<'_, T>],
+    query: &str,
+    mut visit: impl FnMut(&'a SelectOption<'a, T>),
+) -> bool {
+    let query = query.trim();
+    if query.is_empty() {
+        options.iter().for_each(visit);
+        return !options.is_empty();
+    }
+    let query = query.to_lowercase();
+    let mut contains = Vec::new();
+    let mut found = false;
+    for option in options {
+        let label = option.label;
+        let position = if label.is_ascii() {
+            label
+                .as_bytes()
+                .windows(query.len())
+                .position(|part| part.eq_ignore_ascii_case(query.as_bytes()))
+        } else {
+            label.to_lowercase().find(&query)
+        };
+        match position {
+            Some(0) => {
+                visit(option);
+                found = true;
+            }
+            Some(_) => {
+                contains.push(option);
+                found = true;
+            }
+            None => {}
+        }
+    }
+    contains.into_iter().for_each(visit);
+    found
+}
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectResponse {
     changed: bool,
@@ -230,7 +270,8 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
         self
     }
     /// Add a filter field inside the listbox. The caller retains the query.
-    /// Filtering preserves business keys and never changes the selected value.
+    /// Case-insensitive prefix matches appear before other substring matches.
+    /// Within each group, options keep their source order and business keys.
     pub fn searchable(mut self, query: &'s crate::TextBuffer) -> Self {
         self.search = Some(query);
         self
@@ -270,24 +311,19 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
             .motion(motion)
             .role(WidgetRole::ListBox)
             .children(|cx| {
-                if let Some(query) = search {
+                let mut submit = search.is_some_and(|query| {
                     let label = cx.tr("select-search", "Search options");
                     let placeholder = cx.tr("select-search-placeholder", "Search…");
                     text_input(cx, label, query)
                         .placeholder(placeholder)
-                        .width_percent(100.);
-                }
-                let query = search
-                    .and_then(|buffer| buffer.text())
-                    .unwrap_or_default()
-                    .to_lowercase();
-                let mut shown_count = 0;
-                for option in options
-                    .iter()
-                    .filter(|option| option.label.to_lowercase().contains(&query))
-                    .take(80)
-                {
-                    shown_count += 1;
+                        .width_percent(100.)
+                        .autofocus(true)
+                        .navigation(true)
+                        .response()
+                        .submitted()
+                });
+                let query = search.and_then(|buffer| buffer.text()).unwrap_or_default();
+                let found = visit_matches(options, &query, |option| {
                     let on = option.value == *selected;
                     let (control, highlighted) =
                         popup_entry(cx, option.key, option.label, Some(on));
@@ -314,20 +350,15 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
                             }
                         })
                         .response;
-                    if response.clicked() {
+                    if response.clicked() || (!option.disabled && std::mem::take(&mut submit)) {
                         changed |= !on;
                         *selected = option.value.clone();
                         cx.close_popover();
                     }
-                }
-                if shown_count == 0 {
+                });
+                if !found {
                     let label = cx.tr("select-no-results", "No matching options");
                     text(cx, label).color(Color::Muted);
-                }
-                if options.len() > 80 {
-                    text(cx, "输入关键词筛选，最多显示 80 项")
-                        .font_size(13)
-                        .color(Color::Muted);
                 }
             });
         SelectResponse { changed }

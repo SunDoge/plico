@@ -456,7 +456,8 @@ impl Adapter {
                 let scrollbar_hit = if p.phase == PointerPhase::Down
                     && p.button == Some(PointerButton::Primary)
                 {
-                    self.placed.iter().rev().find_map(|node| {
+                    self.scroll_indices.iter().rev().find_map(|&index| {
+                        let node = &self.placed[index];
                         if !self.modal_allows(engine, self.reverse[&node.node_id]) {
                             return None;
                         }
@@ -493,7 +494,7 @@ impl Adapter {
                             .clamp(0., node.scroll.range[1]);
                         let smooth = self.smooth_scroll_enabled;
                         *declare = engine.observes_scroll(self.reverse[&id])
-                            && !(smooth && self.smooth_scroll_enabled)
+                            && !smooth
                             && next != node.scroll.offset[1];
                         self.scroll_to(id, next, smooth, engine.time().now);
                     }
@@ -602,35 +603,27 @@ impl Adapter {
                 // need declarations when the actual offset changes, not when
                 // a smooth-scroll destination is retargeted.
                 *declare = false;
-                let start = self
-                    .placed
-                    .iter()
-                    .rev()
-                    .find(|p| {
-                        p.scroll.scrollable[1]
-                            && self.visual_contains(p.node_id, w.position.x, w.position.y)
-                            && self.modal_allows(engine, self.reverse[&p.node_id])
-                    })
-                    .map(|p| p.node_id);
+                let start = self.scroll_indices.iter().rev().copied().find(|&index| {
+                    let id = self.placed[index].node_id;
+                    self.visual_contains(id, w.position.x, w.position.y)
+                        && self.modal_allows(engine, self.reverse[&id])
+                });
                 let mut remaining = w.delta_y.clamp(-1.0e6, 1.0e6) as f32;
                 if let Some(start) = start {
-                    self.scrollbars.reveal(start, engine.time().now);
-                    // Scrolling mutates offsets and motions; collect the chain
-                    // so the lazy ancestor iterator is not held across it.
-                    let chain: Vec<NodeId> = self.placed_chain(start).map(|p| p.node_id).collect();
-                    for id in chain {
-                        let Some(scroll) = self
-                            .placed_indices
-                            .get(&id)
-                            .map(|&index| &self.placed[index])
-                            .filter(|p| p.scroll.scrollable[1])
-                            .map(|p| p.scroll)
-                        else {
-                            if remaining.abs() < 0.01 {
-                                break;
-                            }
+                    self.scrollbars
+                        .reveal(self.placed[start].node_id, engine.time().now);
+                    let smooth = w.delta_mode == WheelDeltaMode::Line && self.smooth_scroll_enabled;
+                    let mut cursor = Some(start);
+                    while let Some(index) = cursor {
+                        let node = &self.placed[index];
+                        let id = node.node_id;
+                        let scroll = node.scroll;
+                        cursor = node
+                            .parent_node_id
+                            .and_then(|id| self.placed_indices.get(&id).copied());
+                        if !scroll.scrollable[1] {
                             continue;
-                        };
+                        }
                         let old = self
                             .scroll_offsets
                             .get(&id)
@@ -644,8 +637,6 @@ impl Adapter {
                         // Smooth is the only wheel scroll (MyGO has no
                         // per-container opt-out; reduced motion is the only
                         // exit, through smooth_scroll_enabled).
-                        let smooth =
-                            w.delta_mode == WheelDeltaMode::Line && self.smooth_scroll_enabled;
                         let destination = if smooth {
                             self.scroll_motions.get(&id).map_or(old[1], |m| m.target)
                         } else {
@@ -655,9 +646,7 @@ impl Adapter {
                         remaining -= next - destination;
                         if next != destination || (!smooth && self.scroll_motions.contains_key(&id))
                         {
-                            *declare |= engine.observes_scroll(entity)
-                                && !(smooth && self.smooth_scroll_enabled)
-                                && next != old[1];
+                            *declare |= engine.observes_scroll(entity) && !smooth && next != old[1];
                             self.scroll_to(id, next, smooth, engine.time().now);
                             handled = true;
                         }

@@ -117,3 +117,61 @@ fn desktop_host_downloads_decodes_and_schedules_both_formats() {
         assert!(source.animation_deadline().is_none());
     }
 }
+
+#[test]
+fn cloned_image_state_can_be_compared_without_blocking() {
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let images = gallery::images::Images::default();
+        let independent = gallery::images::Images::default();
+        assert_eq!(images, images.clone());
+        assert_eq!(images, independent);
+        images.surface.set_paused(true);
+        assert_ne!(images, independent);
+        done.send(()).unwrap();
+    });
+    result
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("image state comparison must complete");
+}
+
+#[test]
+fn background_failure_replaces_loading_text_without_user_input() {
+    use gallery::images::GalleryHost;
+    use plico_renderer::{FrameSource, TextContext, image_surface::ImageSurface};
+
+    let app = Gallery {
+        router: Router::new(Page::Images),
+        ..Default::default()
+    };
+    let state = app.images.surface.clone();
+    let ticket = state.begin_loading();
+    let widget = ImageSurface::with_clock(state.clone(), Arc::new(plico::VirtualClock::default()));
+    let mut source =
+        plico_desktop::SurfaceSource::new(GalleryHost { app }, widget, "image-preview");
+    let mut text = TextContext::new();
+    let build = |source: &mut plico_desktop::SurfaceSource<GalleryHost, ImageSurface>,
+                 text: &mut TextContext| {
+        source
+            .build_frame(text, 1120, 820)
+            .into_iter()
+            .filter_map(|node| node.paint.text.clone())
+            .collect::<Vec<_>>()
+    };
+    let loading = build(&mut source, &mut text);
+    assert!(
+        loading
+            .iter()
+            .any(|s| s.as_ref() == "Downloading and decoding…")
+    );
+    assert!(state.complete(ticket, Err("offline fixture".into())));
+    assert!(source.poll_async());
+    let failed = build(&mut source, &mut text);
+    assert!(failed.iter().any(|s| s.as_ref() == "offline fixture"));
+    assert!(
+        !failed
+            .iter()
+            .any(|s| s.as_ref() == "Downloading and decoding…")
+    );
+    assert!(!source.poll_async());
+}

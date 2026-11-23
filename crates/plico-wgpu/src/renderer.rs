@@ -1,6 +1,6 @@
 use crate::{DEFAULT_MATERIAL, Error, Quad, Result, scene::DrawSource};
 use snafu::ResultExt;
-use std::time::Instant;
+use web_time::Instant;
 use wgpu::util::DeviceExt;
 
 const INITIAL_INSTANCE_CAPACITY: usize = 64;

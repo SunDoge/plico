@@ -84,13 +84,79 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
         self
     }
     fn locate(engine: &Engine, parent: plico::Entity, key: &'static str) -> Option<plico::Entity> {
-        engine.find(parent, key).or_else(|| {
-            engine
-                .node(parent)?
-                .children
-                .iter()
-                .find_map(|child| Self::locate(engine, *child, key))
-        })
+        let node = engine.node(parent)?;
+        if node.style.layout.display == plico::Display::None {
+            return None;
+        }
+        engine
+            .find(parent, key)
+            .filter(|&entity| {
+                engine
+                    .node(entity)
+                    .is_some_and(|n| n.style.layout.display != plico::Display::None)
+            })
+            .or_else(|| {
+                node.children
+                    .iter()
+                    .find_map(|child| Self::locate(engine, *child, key))
+            })
+    }
+    fn paint_surface(
+        &mut self,
+        scene: &mut Scene,
+        nodes: &mut [PlacedNode],
+        text: &mut TextContext,
+        size: (u32, u32),
+        scale: f64,
+    ) {
+        self.scale = scale;
+        if self.source.update_shader_scale(text, scale) {
+            // The snapshot predates DPI-dependent shader rebuilding. Refresh only
+            // shader fragments, preserving this wrapper's hosted widget painting.
+            for entity in &self.source.adapter.shader_nodes {
+                let Some(logical) = self.source.adapter.nodes.get(entity) else {
+                    continue;
+                };
+                if let Some(&index) = self.source.adapter.placed_indices.get(&logical.id)
+                    && let Some(slot) = nodes.iter_mut().find(|node| node.node_id == logical.id)
+                {
+                    slot.paint.widget = self.source.adapter.placed[index].paint.widget.clone();
+                }
+            }
+        }
+        if let Some(slot) = self
+            .node
+            .filter(|_| self.visible)
+            .and_then(|id| nodes.iter_mut().find(|n| n.node_id == id))
+        {
+            let [w, h] = slot.content_size;
+            self.widget.layout_changed(WidgetGeometry {
+                content_size: [w, h],
+                device_scale: scale,
+                local_to_window: self.local_to_window,
+                window_to_local: self.window_to_local,
+            });
+            let mut paint = PaintContext::new_clipped_with_radii_at(
+                w,
+                h,
+                slot.paint.border_radii,
+                scale,
+                self.local_to_window,
+                text,
+            );
+            self.widget.paint(&mut paint);
+            slot.paint.widget = Some(Arc::new(paint.finish()));
+        }
+        plico_renderer::scene::build_scene_scaled(
+            scene,
+            nodes,
+            text,
+            size.0,
+            size.1,
+            self.base_color(),
+            scale,
+        );
+        self.drain();
     }
     fn focus(&mut self, focused: bool) {
         if self.focused != focused {
@@ -283,55 +349,24 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
         size: (u32, u32),
         scale: f64,
     ) {
-        self.scale = scale;
-        let mut nodes = nodes.to_vec();
-        if self.source.update_shader_scale(text, scale) {
-            // The snapshot predates DPI-dependent shader rebuilding. Refresh only
-            // shader fragments, preserving this wrapper's hosted widget painting.
-            for entity in &self.source.adapter.shader_nodes {
-                let Some(logical) = self.source.adapter.nodes.get(entity) else {
-                    continue;
-                };
-                if let Some(&index) = self.source.adapter.placed_indices.get(&logical.id)
-                    && let Some(slot) = nodes.iter_mut().find(|node| node.node_id == logical.id)
-                {
-                    slot.paint.widget = self.source.adapter.placed[index].paint.widget.clone();
-                }
-            }
-        }
-        if let Some(slot) = self
-            .node
-            .filter(|_| self.visible)
-            .and_then(|id| nodes.iter_mut().find(|n| n.node_id == id))
-        {
-            let [w, h] = slot.content_size;
-            self.widget.layout_changed(WidgetGeometry {
-                content_size: [w, h],
-                device_scale: scale,
-                local_to_window: self.local_to_window,
-                window_to_local: self.window_to_local,
-            });
-            let mut paint = PaintContext::new_clipped_with_radii_at(
-                w,
-                h,
-                slot.paint.border_radii,
-                scale,
-                self.local_to_window,
-                text,
-            );
-            self.widget.paint(&mut paint);
-            slot.paint.widget = Some(Arc::new(paint.finish()));
-        }
-        plico_renderer::scene::build_scene_scaled(
-            scene,
-            &nodes,
-            text,
-            size.0,
-            size.1,
-            self.base_color(),
-            scale,
-        );
-        self.drain();
+        self.paint_surface(scene, &mut nodes.to_vec(), text, size, scale);
+    }
+    fn build_and_paint(
+        &mut self,
+        scene: &mut Scene,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
+        text.set_native_paragraph_scale(scale);
+        let start = Instant::now();
+        let mut nodes = self.build_frame(text, width, height);
+        let build_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        self.paint_surface(scene, &mut nodes, text, (width, height), scale);
+        self.paint_debug_overlay(scene, &nodes, text, scale);
+        Ok((nodes.len(), build_ms, start.elapsed().as_secs_f64() * 1000.))
     }
     fn handle_event(&mut self, mut event: UiEvent) -> EventResponse {
         if self.focused

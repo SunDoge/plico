@@ -72,3 +72,24 @@ fn date_input_shows_iso_and_chooses_a_day_from_its_calendar() {
     });
     assert!(find(&engine, "2027-01-15").is_some());
 }
+
+#[test]
+fn reopening_after_picking_an_adjacent_day_tracks_the_field_date() {
+    let mut date = CalendarDate::new(2026, 11, 6).unwrap();
+    let mut popover = PopoverState::default();
+    let mut engine = Engine::default();
+    let show = |engine: &mut Engine, date: &mut CalendarDate, popover: &mut PopoverState| {
+        frame(engine, |cx| {
+            date_input(cx, "Birthday", date, popover);
+        });
+    };
+    popover.open();
+    show(&mut engine, &mut date, &mut popover);
+    // November starts on Sunday. Monday-first shows October 26 first.
+    engine.queue_click(named(&engine, "26"));
+    show(&mut engine, &mut date, &mut popover);
+    assert_eq!(date, CalendarDate::new(2026, 10, 26).unwrap());
+    popover.open();
+    show(&mut engine, &mut date, &mut popover);
+    assert!(find(&engine, "October 2026").is_some());
+}

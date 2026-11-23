@@ -1,12 +1,8 @@
 //! Modal focus scopes and event isolation, shared by native and replayed views.
 use super::*;
 pub(super) fn contains(engine: &Engine, root: Entity, target: Entity) -> bool {
-    root == target
-        || engine.node(root).is_some_and(|n| {
-            n.children
-                .iter()
-                .any(|child| contains(engine, *child, target))
-        })
+    std::iter::successors(Some(target), |entity| engine.parent(*entity))
+        .any(|entity| entity == root)
 }
 impl Adapter {
     pub(super) fn is_popup_panel(&self, engine: &Engine, entity: Entity) -> bool {
@@ -197,73 +193,78 @@ impl Adapter {
         };
         if let UiEvent::Key(key) = event {
             let panel = self.modal_dialog(engine);
-            let specialized = panel.and_then(|e| engine.node(e)).is_some_and(|n| {
-                matches!(
-                    n.style.role,
-                    Some(plico::WidgetRole::ListBox | plico::WidgetRole::Menu)
-                )
-            });
-            if specialized
-                && key.phase == KeyPhase::Down
-                && self.focused.and_then(|e| engine.input(e)).is_none()
-            {
-                let items: Vec<_> = self
-                    .tab_order
-                    .iter()
-                    .copied()
-                    .filter(|e| {
-                        self.modal_allows(engine, *e)
-                            && engine.node(*e).is_some_and(|n| {
-                                matches!(
-                                    n.style.role,
-                                    Some(plico::WidgetRole::Option | plico::WidgetRole::MenuItem)
-                                )
-                            })
-                    })
-                    .collect();
-                let at = self
+            let role = panel.and_then(|e| engine.node(e)?.style.role);
+            let input = self.focused.and_then(|e| engine.input(e));
+            let leave_filter = role == Some(plico::WidgetRole::ListBox)
+                && key.modifiers.is_empty()
+                && matches!(key.key.as_str(), "ArrowDown" | "ArrowUp")
+                && input
+                    .is_some_and(|(buffer, _)| !buffer.is_composing() && !buffer.is_multiline())
+                && self
                     .focused
-                    .and_then(|e| items.iter().position(|item| *item == e));
-                let next = if items.is_empty() {
-                    None
-                } else {
-                    match key.key.as_str() {
-                        "ArrowDown" => Some(at.map_or(0, |i| (i + 1) % items.len())),
-                        "ArrowUp" => Some(
-                            at.map_or(items.len() - 1, |i| (i + items.len() - 1) % items.len()),
-                        ),
-                        "Home" => Some(0),
-                        "End" => Some(items.len() - 1),
-                        value
-                            if value.chars().count() == 1
-                                && value != " "
-                                && key.modifiers.is_empty() =>
-                        {
-                            let prefix = value.to_lowercase();
-                            (1..=items.len())
-                                .map(|offset| {
-                                    (at.unwrap_or(items.len() - 1) + offset) % items.len()
-                                })
-                                .find(|i| {
-                                    engine.accessible_name(items[*i]).is_some_and(|name| {
-                                        name.to_lowercase().starts_with(&prefix)
-                                    })
-                                })
-                        }
-                        _ => None,
+                    .and_then(|e| engine.node(e))
+                    .is_some_and(|n| n.style.input_navigation);
+            if matches!(
+                role,
+                Some(plico::WidgetRole::ListBox | plico::WidgetRole::Menu)
+            ) && key.phase == KeyPhase::Down
+                && (input.is_none() || leave_filter)
+            {
+                let eligible = |e: &Entity| {
+                    engine.node(*e).is_some_and(|n| {
+                        matches!(
+                            n.style.role,
+                            Some(plico::WidgetRole::Option | plico::WidgetRole::MenuItem)
+                        )
+                    }) && self.modal_allows(engine, *e)
+                };
+                let order = &self.tab_order;
+                // Start just beyond the focused item, wrapping at either edge.
+                let split = || {
+                    self.focused
+                        .filter(eligible)
+                        .and_then(|focus| order.iter().position(|&e| e == focus))
+                };
+                let forward = || {
+                    let (before, after) = order.split_at(split().map_or(0, |i| i + 1));
+                    after.iter().chain(before).copied().filter(eligible)
+                };
+                let name = key.key.as_str();
+                let next = match name {
+                    "ArrowDown" => forward().next(),
+                    "ArrowUp" => {
+                        let (before, after) = order.split_at(split().unwrap_or(0));
+                        after.iter().chain(before).rev().copied().find(eligible)
                     }
+                    "Home" => order.iter().copied().find(eligible),
+                    "End" => order.iter().rev().copied().find(eligible),
+                    value
+                        if value.chars().count() == 1
+                            && value != " "
+                            && key.modifiers.is_empty() =>
+                    {
+                        let prefix = value.to_lowercase();
+                        forward().find(|&id| {
+                            engine
+                                .accessible_name(id)
+                                .is_some_and(|name| name.to_lowercase().starts_with(&prefix))
+                        })
+                    }
+                    _ => None,
                 };
                 if let Some(next) = next {
-                    self.focused = Some(items[next]);
+                    self.focused = Some(next);
                     self.focus_visible = true;
                     self.reveal_focus = true;
-                    return Some(consume());
+                    return Some(EventResponse {
+                        text_input: leave_filter.then_some(false),
+                        ..consume()
+                    });
                 }
-                if items.is_empty()
-                    && matches!(
-                        key.key.as_str(),
-                        "ArrowDown" | "ArrowUp" | "Home" | "End" | "Enter" | " " | "Space"
-                    )
+                if matches!(
+                    name,
+                    "ArrowDown" | "ArrowUp" | "Home" | "End" | "Enter" | " " | "Space"
+                ) && !order.iter().any(eligible)
                 {
                     return Some(consume());
                 }

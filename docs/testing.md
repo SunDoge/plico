@@ -40,6 +40,54 @@ ui.key("Enter")?;
 text child sharing one accessible name resolve to the control; two independent
 controls with the same name still require a role/occurrence query.
 
+### Feedback while developing a desktop component
+
+Express the reported failure as an observable rule before changing the implementation.
+For a state transition, send the real input through `Driver` and assert both the
+application value and its exposed control state. For a scrolling or animation
+bug, use `Driver::check_frames` to check a relationship between consecutive
+semantic snapshots. Return a message with the measured values when it fails.
+The driver reports the first failing frame and elapsed virtual time.
+
+For widget interaction regressions, put the test in `crates/plico-runtime/tests`.
+Running a runtime test builds the layout and text stack without the desktop shell,
+Gallery, or wgpu. Run a single interaction
+while editing, then the complete component test target for action sequences:
+
+```sh
+cargo test --locked -p plico-runtime --test number_input number_input_routes
+cargo test --locked -p plico-runtime --test number_input
+```
+
+A clean build of the keyboard interaction test took 9.70–9.84 s after moving
+the Gallery theme fixture out of the runtime. Restoring its old dev-dependencies
+on the same source took 19.55–19.56 s. Both runs used Linux x86-64, Rust 1.100,
+the CI profile and 16 build jobs. The timings include executing the assertion.
+Each trial used a fresh target and build directory, cached dependency sources,
+offline Cargo and no compiler wrapper. Reversing the trial order gave the
+second measurement. CI checks the runtime dependency graph to catch a desktop
+or GPU dependency returning through a test fixture.
+
+For a warm edit to a reader component, the targeted native test took 0.54 s
+from saving the change to checking the new caption after clicking. Rebuilding
+the desktop executable took 0.67 s for the same assertion, and rebuilding the
+WASM guest and checking it in a fresh host took 0.71 s. Use the native test for
+this loop. Use a resident WASM host when an edit needs to preserve a live session.
+The fixture, build settings and repeatable probe are in the
+[reader experiment](../benchmarks/wasm-ui/README.md#warm-edit-to-a-passing-interaction-assertion).
+
+The Gallery sidebar test clicks the toggle, checks the content edge every 10 ms
+in both directions, and checks total travel. Run just this contract while editing:
+
+```sh
+cargo test --locked -p gallery --test sidebar sidebar_moves_content
+```
+
+The Linux CI job runs the whole sidebar suite, including navigation and
+cold-replay comparisons. Frame checks sample at the chosen interval. Use
+renderer tests for pixels, clipping and shader output, and platform tests
+for OS input or window behavior.
+
 Commands serialize with Serde, for example:
 
 ```json
@@ -115,12 +163,18 @@ The settle limit prevents a source that continuously requests another pass from
 capturing forever. It is not a general timeout for application background jobs;
 wait for those through the application's own polling/snapshot contract first.
 
-This protocol tests UI behavior and layout, not OS input translation, GPU
-presentation, fonts installed on another platform or screenshot quality. Those
-remain local window smoke checks. CI does not run them or expose a full/window
-validation switch; it runs the focused Rust protocol test and checks the
-mainline with Clippy. A separate Windows job checks that the mainline compiles;
-it does not run tests or window automation. Optional backend SDK checks are local tasks.
+Linux CI runs offscreen pixel tests on Mesa Lavapipe. The assertions read the
+checkbox rim at fractional scale, rounded clips and Gaussian shadows directly
+from RGBA. To run the same tests on a machine with a Vulkan adapter:
+
+```sh
+WGPU_BACKEND=vulkan cargo test --locked --profile ci -p plico-wgpu \
+  --test pixel_snap --test analytic_clips --test shadows -- --ignored --skip profile_ --test-threads=1
+```
+
+OS input translation, swapchain presentation and platform-specific font
+appearance still require platform smoke tests. The Windows CI job checks
+compilation.
 
 For JSON fixture state, scripted commands and virtual-time screenshots, use [scenario previews](preview.md). Native hot reload has been removed; tests drive statically linked views.
 

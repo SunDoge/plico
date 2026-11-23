@@ -80,7 +80,8 @@ validated 方法对非有限值使用默认值，并钳位到支持范围。
 
 ```sh
 cargo test --locked -p plico --test materials
-cargo test --locked -p plico-runtime --test component_kit --test focus_chrome
+cargo test --locked -p plico-runtime --test component_kit
+cargo test --locked -p plico-runtime --test text_fields focus_chrome
 cargo test --locked -p plico-desktop --no-default-features --features wgpu --test materials -- --ignored
 cargo test --locked -p gallery --test component_kit --test sidebar
 cargo run --locked -p gallery -- --scenario apps/gallery/scenarios/component-kit.json --capture reports/component-kit.png

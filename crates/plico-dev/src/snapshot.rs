@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 /// changes to field types still require migration or an application reset.
 /// The outer JSON transport represents these bytes as an array, never as a
 /// JSON value representation of the application state.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct StateSnapshot(Vec<u8>);

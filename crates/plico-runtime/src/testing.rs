@@ -6,8 +6,8 @@ use crate::{HostView, Source};
 use plico::{ViewNode, VirtualClock};
 use plico_renderer::{
     EventResponse, FrameSource, KeyEvent, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
-    PointerPhase, PointerProperties, Scene, SemanticAction, SemanticRole, SemanticSnapshot,
-    TextContext, UiEvent, layout::PlacedNode,
+    PointerPhase, PointerProperties, Scene, SemanticAction, SemanticNode, SemanticRole,
+    SemanticSnapshot, TextContext, UiEvent, layout::PlacedNode,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
@@ -134,53 +134,50 @@ pub enum Error {
     },
     #[snafu(display("UI did not settle after {frames} deterministic frames"))]
     DidNotSettle { frames: usize },
+    #[snafu(display("{contract} failed at frame {frame} (+{elapsed:?}): {detail}"))]
+    FrameContract {
+        contract: String,
+        frame: usize,
+        elapsed: Duration,
+        detail: String,
+    },
     #[snafu(display("virtual clock overflow"))]
     Clock,
     #[snafu(display("incremental/full-replay mismatch in {surface}: {detail}"))]
     Mismatch { surface: String, detail: String },
 }
 
-fn find_target<V: HostView>(
-    source: &Source<V>,
+fn find_target<'a>(
+    tree: &'a SemanticSnapshot,
     role: &str,
     label: &str,
     occurrence: Option<usize>,
-) -> Result<u64, Error> {
-    let role_value =
+) -> Result<&'a SemanticNode, Error> {
+    let role =
         SemanticRole::from_name(role).ok_or_else(|| Error::UnknownRole { role: role.into() })?;
-    let tree = source.adapter.semantics(&source.engine, 0);
-    let matches: Vec<_> = tree
-        .exposed_nodes()
-        .into_iter()
-        .filter(|n| n.role == role_value && n.label.as_deref() == Some(label))
-        .collect();
-    match occurrence {
-        Some(index) => matches.get(index).copied(),
-        None if matches.len() == 1 => matches.first().copied(),
-        _ => None,
-    }
-    .map(|n| n.id)
-    .ok_or_else(|| Error::Target {
-        role: role.into(),
-        label: label.into(),
-        matches: matches.len(),
-    })
+    find_by_role(tree, role, label, occurrence)
 }
 
-fn target_center<V: HostView>(
-    source: &Source<V>,
-    role: &str,
+fn find_by_role<'a>(
+    tree: &'a SemanticSnapshot,
+    role: SemanticRole,
     label: &str,
     occurrence: Option<usize>,
-) -> Result<(u64, Point), Error> {
-    let target = find_target(source, role, label, occurrence)?;
-    let tree = source.semantics();
-    let bounds = tree
-        .nodes
-        .iter()
-        .find(|node| node.id == target)
-        .expect("resolved semantic target must remain in the snapshot")
-        .bounds;
+) -> Result<&'a SemanticNode, Error> {
+    tree.node_by_role(role, label, occurrence)
+        .ok_or_else(|| Error::Target {
+            role: role.as_str().into(),
+            label: label.into(),
+            matches: tree
+                .exposed_nodes()
+                .into_iter()
+                .filter(|node| node.role == role && node.label.as_deref() == Some(label))
+                .count(),
+        })
+}
+
+fn target_point<V: HostView>(source: &Source<V>, node: &SemanticNode) -> Result<Point, Error> {
+    let bounds = node.bounds;
     let position = Point {
         x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
         y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
@@ -191,16 +188,16 @@ fn target_center<V: HostView>(
     let hit = valid_bounds
         .then(|| source.hit_test(position).map(plico::Entity::raw))
         .flatten();
-    if hit != Some(target) {
+    if hit != Some(node.id) {
         return Err(Error::PointerTarget {
-            role: role.into(),
-            label: label.into(),
+            role: node.role.as_str().into(),
+            label: node.label.clone().unwrap_or_default(),
             x: position.x,
             y: position.y,
             hit,
         });
     }
-    Ok((target, position))
+    Ok(position)
 }
 
 fn pointer_click<V: HostView>(
@@ -210,7 +207,9 @@ fn pointer_click<V: HostView>(
     occurrence: Option<usize>,
     button: PointerButton,
 ) -> Result<(), Error> {
-    let (_, position) = target_center(source, role, label, occurrence)?;
+    let tree = source.shared_semantics();
+    let target = find_target(&tree, role, label, occurrence)?;
+    let position = target_point(source, target)?;
     source.handle_event(UiEvent::Pointer(PointerEvent {
         phase: PointerPhase::Move,
         position,
@@ -324,7 +323,7 @@ pub fn dispatch<V: HostView>(
             label,
             occurrence,
         } => {
-            let target = find_target(source, role, label, *occurrence)?;
+            let target = find_target(&source.shared_semantics(), role, label, *occurrence)?.id;
             let action = if matches!(command, Command::Click { .. }) {
                 SemanticAction::Click { target }
             } else {
@@ -337,7 +336,7 @@ pub fn dispatch<V: HostView>(
             }
         }
         Command::SetValue { label, value } => {
-            let target = find_target(source, "slider", label, None)?;
+            let target = find_target(&source.shared_semantics(), "slider", label, None)?.id;
             if !source.handle_semantic_action(SemanticAction::SetNumericValue {
                 target,
                 value: *value,
@@ -477,7 +476,7 @@ impl<V: HostView> Driver<V> {
     /// Build and settle one deterministic frame at the current virtual time.
     pub fn frame(&mut self) -> Result<(), Error> {
         self.source
-            .try_build_frame(&mut self.text, self.size.0, self.size.1)
+            .prepare_frame(&mut self.text, self.size, true)
             .map_err(|message| Error::Declaration {
                 message: message.to_string(),
             })?;
@@ -572,9 +571,12 @@ impl<V: HostView> Driver<V> {
         Ok(response)
     }
     pub fn execute(&mut self, command: Command) -> Result<SemanticSnapshot, Error> {
-        dispatch(&mut self.source, &mut self.text, &command)?;
-        self.frame()?;
+        self.apply_command(&command)?;
         Ok(self.snapshot())
+    }
+    fn apply_command(&mut self, command: &Command) -> Result<(), Error> {
+        dispatch(&mut self.source, &mut self.text, command)?;
+        self.frame()
     }
     pub fn snapshot(&self) -> SemanticSnapshot {
         self.source.semantics()
@@ -595,7 +597,7 @@ impl<V: HostView> Driver<V> {
         label: &str,
         occurrence: Option<usize>,
     ) -> Result<plico_renderer::SemanticNode, Error> {
-        let tree = self.snapshot();
+        let tree = self.source.shared_semantics();
         let mut matches = tree
             .exposed_nodes()
             .into_iter()
@@ -622,7 +624,8 @@ impl<V: HostView> Driver<V> {
 
     /// Accessible names in exposed semantic source order.
     pub fn texts(&self) -> Vec<String> {
-        self.snapshot()
+        self.source
+            .shared_semantics()
             .exposed_nodes()
             .into_iter()
             .filter_map(|node| node.label.clone())
@@ -631,39 +634,19 @@ impl<V: HostView> Driver<V> {
 
     /// Whether any exposed accessible name or textual value contains `text`.
     pub fn has_text(&self, text: &str) -> bool {
-        self.snapshot().exposed_nodes().into_iter().any(|node| {
-            node.label
-                .as_deref()
-                .is_some_and(|label| label.contains(text))
-                || node
-                    .value
+        self.source
+            .shared_semantics()
+            .exposed_nodes()
+            .into_iter()
+            .any(|node| {
+                node.label
                     .as_deref()
-                    .is_some_and(|value| value.contains(text))
-        })
-    }
-
-    fn target_point(&self, node: &plico_renderer::SemanticNode) -> Result<Point, Error> {
-        let bounds = node.bounds;
-        let position = Point {
-            x: (f64::from(bounds[0]) + f64::from(bounds[2])) / 2.,
-            y: (f64::from(bounds[1]) + f64::from(bounds[3])) / 2.,
-        };
-        let valid_bounds = bounds.iter().all(|value| value.is_finite())
-            && bounds[2] > bounds[0]
-            && bounds[3] > bounds[1];
-        let hit = valid_bounds
-            .then(|| self.source.hit_test(position).map(plico::Entity::raw))
-            .flatten();
-        if hit != Some(node.id) {
-            return Err(Error::PointerTarget {
-                role: node.role.as_str().into(),
-                label: node.label.clone().unwrap_or_default(),
-                x: position.x,
-                y: position.y,
-                hit,
-            });
-        }
-        Ok(position)
+                    .is_some_and(|label| label.contains(text))
+                    || node
+                        .value
+                        .as_deref()
+                        .is_some_and(|value| value.contains(text))
+            })
     }
 
     /// Move the primary mouse pointer in logical window coordinates.
@@ -674,7 +657,7 @@ impl<V: HostView> Driver<V> {
     /// Move the pointer to the center of a uniquely named, hit-testable element.
     pub fn move_to(&mut self, label: &str) -> Result<SemanticSnapshot, Error> {
         let target = self.find(label)?;
-        let point = self.target_point(&target)?;
+        let point = target_point(&self.source, &target)?;
         self.move_pointer(point.x, point.y)
     }
 
@@ -691,9 +674,15 @@ impl<V: HostView> Driver<V> {
     /// Click the center of a uniquely named element through real hit testing.
     pub fn click(&mut self, label: &str) -> Result<SemanticSnapshot, Error> {
         let target = self.find(label)?;
-        let point = self.target_point(&target)?;
-        self.move_pointer(point.x, point.y)?;
-        self.press_at(point.x, point.y)?;
+        let point = target_point(&self.source, &target)?;
+        self.apply_command(&Command::PointerMove {
+            x: point.x,
+            y: point.y,
+        })?;
+        self.apply_command(&Command::PointerDown {
+            x: point.x,
+            y: point.y,
+        })?;
         self.release_at(point.x, point.y)
     }
 
@@ -708,14 +697,20 @@ impl<V: HostView> Driver<V> {
             return Err(Error::PointerPosition);
         }
         let target = self.find(label)?;
-        let start = self.target_point(&target)?;
+        let start = target_point(&self.source, &target)?;
         let end = Point {
             x: start.x + delta_x,
             y: start.y + delta_y,
         };
-        self.move_pointer(start.x, start.y)?;
-        self.press_at(start.x, start.y)?;
-        self.move_pointer(end.x, end.y)?;
+        self.apply_command(&Command::PointerMove {
+            x: start.x,
+            y: start.y,
+        })?;
+        self.apply_command(&Command::PointerDown {
+            x: start.x,
+            y: start.y,
+        })?;
+        self.apply_command(&Command::PointerMove { x: end.x, y: end.y })?;
         self.release_at(end.x, end.y)
     }
 
@@ -745,27 +740,13 @@ impl<V: HostView> Driver<V> {
         label: &str,
         occurrence: Option<usize>,
     ) -> Result<plico_renderer::SemanticNode, Error> {
-        let tree = self.snapshot();
-        let matches = tree
-            .exposed_nodes()
-            .into_iter()
-            .filter(|node| node.role == role && node.label.as_deref() == Some(label))
-            .collect::<Vec<_>>();
-        let node = match occurrence {
-            Some(index) => matches.get(index).copied(),
-            None if matches.len() == 1 => matches.first().copied(),
-            _ => None,
-        };
-        node.cloned().ok_or_else(|| Error::Target {
-            role: role.as_str().into(),
-            label: label.into(),
-            matches: matches.len(),
-        })
+        find_by_role(&self.source.shared_semantics(), role, label, occurrence).cloned()
     }
 
     /// All exposed nodes of a role, in semantic source order.
     pub fn all_by_role(&self, role: SemanticRole) -> Vec<plico_renderer::SemanticNode> {
-        self.snapshot()
+        self.source
+            .shared_semantics()
             .exposed_nodes()
             .into_iter()
             .filter(|node| node.role == role)
@@ -776,7 +757,8 @@ impl<V: HostView> Driver<V> {
     /// Interactive controls missing an accessible name. This is intentionally
     /// an audit rather than a panic so callers can produce their own report.
     pub fn unnamed_controls(&self) -> Vec<plico_renderer::SemanticNode> {
-        self.snapshot()
+        self.source
+            .shared_semantics()
             .exposed_nodes()
             .into_iter()
             .filter(|node| {
@@ -795,6 +777,33 @@ impl<V: HostView> Driver<V> {
         self.has_animation()
     }
 
+    /// Check a transition against each consecutive pair of presented semantic
+    /// snapshots. The first pair starts at the current frame, immediately after
+    /// the triggering action. Failure leaves the driver at the offending frame.
+    pub fn check_frames(
+        &mut self,
+        contract: &str,
+        frames: usize,
+        interval: Duration,
+        mut check: impl FnMut(&SemanticSnapshot, &SemanticSnapshot) -> Result<(), String>,
+    ) -> Result<(), Error> {
+        let mut previous = self.source.shared_semantics();
+        let mut elapsed = Duration::ZERO;
+        for frame in 1..=frames {
+            self.advance_frame(interval)?;
+            let current = self.source.shared_semantics();
+            elapsed += interval;
+            check(&previous, &current).map_err(|detail| Error::FrameContract {
+                contract: contract.into(),
+                frame,
+                elapsed,
+                detail,
+            })?;
+            previous = current;
+        }
+        Ok(())
+    }
+
     /// Advance deterministic 60 Hz frames until active motion finishes.
     pub fn settle(&mut self) -> Result<SemanticSnapshot, Error> {
         self.settle_for(120, Duration::from_nanos(16_666_667))
@@ -810,7 +819,7 @@ impl<V: HostView> Driver<V> {
             if !self.frame_pending() {
                 return Ok(self.snapshot());
             }
-            self.advance(frame_interval)?;
+            self.advance_frame(frame_interval)?;
         }
         if self.frame_pending() {
             Err(Error::DidNotSettle { frames: max_frames })
@@ -822,9 +831,12 @@ impl<V: HostView> Driver<V> {
         self.source.engine.snapshot()
     }
     pub fn advance(&mut self, duration: Duration) -> Result<SemanticSnapshot, Error> {
-        self.clock.advance(duration).map_err(|_| Error::Clock)?;
-        self.frame()?;
+        self.advance_frame(duration)?;
         Ok(self.snapshot())
+    }
+    fn advance_frame(&mut self, duration: Duration) -> Result<(), Error> {
+        self.clock.advance(duration).map_err(|_| Error::Clock)?;
+        self.frame()
     }
     pub fn resize(&mut self, width: u32, height: u32) -> Result<SemanticSnapshot, Error> {
         if width == 0 || height == 0 {
@@ -864,14 +876,14 @@ impl<V: HostView + Clone> DifferentialTester<V> {
     /// Execute one serializable recipe command, then compare every retained
     /// projection with a freshly replayed runtime.
     pub fn execute(&mut self, command: Command) -> Result<SemanticSnapshot, Error> {
-        self.live.execute(command.clone())?;
+        self.live.apply_command(&command)?;
         self.steps.push(ReplayStep::Execute(command));
         self.verify()?;
         Ok(self.snapshot())
     }
 
     pub fn advance(&mut self, duration: Duration) -> Result<SemanticSnapshot, Error> {
-        self.live.advance(duration)?;
+        self.live.advance_frame(duration)?;
         self.steps.push(ReplayStep::Advance(duration));
         self.verify()?;
         Ok(self.snapshot())
@@ -900,10 +912,10 @@ impl<V: HostView + Clone> DifferentialTester<V> {
         for step in &self.steps {
             match step {
                 ReplayStep::Execute(command) => {
-                    oracle.execute(command.clone())?;
+                    oracle.apply_command(command)?;
                 }
                 ReplayStep::Advance(duration) => {
-                    oracle.advance(*duration)?;
+                    oracle.advance_frame(*duration)?;
                 }
                 ReplayStep::Resize(width, height) => {
                     oracle.resize(*width, *height)?;
@@ -930,8 +942,8 @@ impl<V: HostView + Clone> DifferentialTester<V> {
             });
         }
 
-        let live_semantics = self.live.snapshot();
-        let oracle_semantics = oracle.snapshot();
+        let live_semantics = self.live.source.shared_semantics();
+        let oracle_semantics = oracle.source.shared_semantics();
         if live_semantics != oracle_semantics {
             return Err(Error::Mismatch {
                 surface: "semantics".into(),
@@ -1015,7 +1027,8 @@ fn hit_snapshot<V: HostView>(driver: &Driver<V>) -> Vec<Option<u64>> {
     }
     points.extend(
         driver
-            .snapshot()
+            .source
+            .shared_semantics()
             .exposed_nodes()
             .into_iter()
             .filter_map(|node| {
@@ -1053,4 +1066,31 @@ fn normalize_scene_debug(mut command: String) -> String {
         offset = start + 1;
     }
     command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn headless_frames_settle_layout_without_cloning_placements() {
+        struct Label;
+        impl HostView for Label {
+            fn show(&mut self, cx: &mut plico::UiContext) {
+                cx.text("Ready");
+            }
+        }
+        let mut driver = Driver::new(Label, 320, 240).unwrap();
+        assert!(driver.has_text("Ready"));
+        assert!(!driver.placed_nodes().is_empty());
+        assert_eq!(
+            driver.source.frame_diagnostics().backend.placed_node_clones,
+            0
+        );
+        driver.advance(Duration::from_millis(16)).unwrap();
+        assert_eq!(
+            driver.source.frame_diagnostics().backend.placed_node_clones,
+            0
+        );
+    }
 }

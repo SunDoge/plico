@@ -4,7 +4,7 @@ mod icons;
 use plico::{VirtualClock, prelude::*};
 use plico_desktop::{HostView, Source};
 use plico_renderer::svg::{SvgImage, usvg};
-use plico_renderer::{FrameSource, PaintCommand, SvgDocument, TextContext};
+use plico_renderer::{FrameSource, PaintCommand, TextContext};
 use std::{sync::Arc, time::Duration};
 fn stroke(group: &usvg::Group) -> Option<u32> {
     for node in group.children() {
@@ -58,7 +58,7 @@ impl HostView for Demo {
         theme
     }
 }
-fn check(s: &Source<Demo>) -> Option<&SvgDocument> {
+fn check_color(s: &Source<Demo>) -> Option<u32> {
     let scene = s
         .placed_nodes()
         .iter()
@@ -67,11 +67,17 @@ fn check(s: &Source<Demo>) -> Option<&SvgDocument> {
         .widget
         .as_ref()?;
     scene.commands.iter().find_map(|c| {
-        if let PaintCommand::Svg { document, .. } = c {
-            Some(document)
-        } else {
-            None
+        if let PaintCommand::Stroke {
+            shape,
+            brush: peniko::Brush::Solid(color),
+            ..
+        } = c
+            && shape.primitive().is_none()
+        {
+            let [r, g, b, _] = color.to_rgba8().to_u8_array();
+            return Some(u32::from_be_bytes([0, r, g, b]));
         }
+        None
     })
 }
 #[test]
@@ -137,7 +143,7 @@ fn icons_inherit_primary_foreground_and_share_only_matching_color_variants() {
     );
 }
 #[test]
-fn checkbox_uses_animated_svg_check_with_cached_theme_color_and_keeps_layout() {
+fn checkbox_animates_vector_check_with_theme_color_and_keeps_layout() {
     let clock = VirtualClock::default();
     let mut s = Source::with_clock(
         Demo {
@@ -150,32 +156,26 @@ fn checkbox_uses_animated_svg_check_with_cached_theme_color_and_keeps_layout() {
     let mut tcx = TextContext::new();
     s.set_theme_transition_duration(Duration::ZERO);
     s.build_frame(&mut tcx, 480, 400);
-    assert!(check(&s).is_none());
+    assert!(check_color(&s).is_none());
     s.update(|view| view.checked = true);
     s.build_frame(&mut tcx, 480, 400);
     clock.set(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
-    let mark = check(&s)
-        .expect("checked indicator must draw an SVG check")
-        .clone();
-    assert_eq!(stroke(mark.0.root()), Some(Theme::light().on_accent));
+    assert_eq!(check_color(&s), Some(Theme::light().on_accent));
     assert_eq!(s.frame_diagnostics().backend.layout_runs, 0);
     clock.set(Duration::from_millis(140)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
-    assert!(Arc::ptr_eq(&mark.0, &check(&s).unwrap().0));
+    assert_eq!(check_color(&s), Some(Theme::light().on_accent));
     assert_eq!(s.frame_diagnostics().backend.svg_parses, 0);
     assert!(!s.has_anim());
     s.update(|view| view.dark = true);
     s.build_frame(&mut tcx, 480, 400);
-    assert_eq!(
-        stroke(check(&s).unwrap().0.root()),
-        Some(Theme::dark().on_accent)
-    );
+    assert_eq!(check_color(&s), Some(Theme::dark().on_accent));
     s.update(|view| view.checked = false);
     s.build_frame(&mut tcx, 480, 400);
     clock.set(Duration::from_millis(280)).unwrap();
     s.build_frame(&mut tcx, 480, 400);
-    assert!(check(&s).is_none());
+    assert!(check_color(&s).is_none());
     s.update(|view| view.visible = false);
     s.build_frame(&mut tcx, 480, 400);
     assert!(s.svg_diagnostics().next().is_none());

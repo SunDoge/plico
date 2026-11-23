@@ -185,7 +185,7 @@ UI 可用 services.task().status() 匹配状态并发送 start/cancel/reset。�
 局部声明闭包，但当前仍递归保活该 retained 子树并扫描提交状态，因此增量后端不等于整条链路 O(Δ)。
 依赖布局约束的变化可能扩大重排范围。图标、文字、场景等缓存分别由对应层管理。
 布局、Scene、语义和 hit-testing 已有多层缓存，跨层失效规则是当前主要维护风险；typing、reverse 和部分 Skia 动画仍有实测回退。不计划增加 Region 独立布局求解；继续扩大缓存前应先补充全量差分和真实窗口验收。
-WASM、分离 host/UI 是已存在的入口和实验，不等于浏览器端编译 Rust。
+桌面 CLI 支持可选的 `plico dev --wasm`。已在 Linux 阅读器样例验证 Rust UI 热替换、后台任务连续性和静态 native 发布。`plico-wasm` 提供受信任模块的调用与后台加载接口。第三方插件权限和分发仍是后续设计。[开发与验证方式](preview.md#保留窗口的-rust-ui-热重载)
 [LVGL 后端实验](lvgl.md) 使用 lightvgl-sys，提供原生控件映射、对象复用与事件回传，
 不是完整后端。ESP32-P4 / ESP-IDF 已有上板验证，范围见 [P4 实验记录](p4-counter-measurements.md)。
 Bevy 已有实验性 primary window 覆盖层插件，见 [Bevy 接入](bevy.md)；FLTK 保留实验性适配。尚未支持 no_std，也不承诺其他 ESP32 型号。

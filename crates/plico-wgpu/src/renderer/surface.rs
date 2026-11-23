@@ -49,12 +49,12 @@ impl Renderer {
         let result = (|| {
             self.prepare_present(format)?;
             let mut encoder = self.encode_scene_plan(plan)?;
-            let submit_started = std::time::Instant::now();
+            let submit_started = Instant::now();
             let slot = self.end_gpu_budget(&mut encoder);
             let submission = self.submit_frame_commands(encoder);
             self.arm_gpu_budget(slot);
             self.frame_budget.submit_ms += submit_started.elapsed().as_secs_f64() * 1e3;
-            let wait_started = std::time::Instant::now();
+            let wait_started = Instant::now();
             self.device
                 .poll(wgpu::PollType::Wait {
                     submission_index: Some(submission),

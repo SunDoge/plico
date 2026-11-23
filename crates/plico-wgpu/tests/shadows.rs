@@ -28,8 +28,17 @@ fn gaussian_edges_round_corners_and_zero_sigma_are_well_defined() {
         .render_scene(&shadow(0., 0., 4.), [128, 128], [0.; 4], false)
         .unwrap();
     let alpha = |x: usize, y: usize| pixels[(y * 128 + x) * 4 + 3];
-    assert!(alpha(32, 64).abs_diff(128) <= 1, "straight edge");
-    assert!(alpha(32, 32).abs_diff(64) <= 1, "square corner");
+    // The cast starts at 33 after pixel snapping. Pixel 32 samples at 32.5,
+    // half a pixel outside; at a square corner both axes contribute.
+    let coverage = cdf(-0.5 / 4.);
+    assert!(
+        alpha(32, 64).abs_diff((255. * coverage).round() as u8) <= 1,
+        "straight edge"
+    );
+    assert!(
+        alpha(32, 32).abs_diff((255. * coverage * coverage).round() as u8) <= 1,
+        "square corner"
+    );
     assert_eq!(alpha(64, 64), 255);
     assert_eq!(alpha(8, 64), 0);
     let rounded = renderer
@@ -113,7 +122,7 @@ fn rounded_shadow_matches_high_resolution_gaussian_convolution() {
                 (30, 64),
                 (64, 64),
             ] {
-                let expected = reference(x as f64 - 32., y as f64 - 32., r, sigma);
+                let expected = reference(x as f64 + 0.5 - 33., y as f64 + 0.5 - 33., r, sigma);
                 let actual = pixels[(y * 128 + x) * 4 + 3];
                 assert!(
                     actual.abs_diff(expected) <= 2,

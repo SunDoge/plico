@@ -1,0 +1,62 @@
+[package]
+name = "wasm-ui-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autobins = false
+
+[workspace]
+
+[[bin]]
+name = "reader-host"
+path = "src/bin/host.rs"
+
+[[bin]]
+name = "reader-ui"
+path = "src/bin/guest.rs"
+
+[features]
+wasm-host = ["plico-wasm/host", "dep:rkyv", "plico/archive", "plico-dev?/archive"]
+tree = ["dep:plico-dev"]
+tree-patch = ["tree"]
+reader-service = ["tree", "dep:image", "dep:pollster"]
+reader-service-revised = ["reader-service"]
+frame-rate = ["tree", "dep:plico-renderer", "dep:plico-wgpu", "dep:pollster", "dep:wgpu"]
+
+[package.metadata.plico.wasm]
+host = "reader-host"
+guest = "reader-ui"
+features = ["reader-service", "tree-patch"]
+host-features = ["wasm-host"]
+watch = ["src/ui.rs", "src/tree.rs", "src/service.rs", "src/bin/guest.rs"]
+
+[dependencies]
+
+plico = { path = "../../crates/plico" }
+plico-dev = { path = "../../crates/plico-dev", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rkyv = { version = "=0.8.18", features = ["little_endian", "pointer_width_32", "unaligned"] }
+plico-wasm = { path = "../../crates/plico-wasm" }
+plico = { path = "../../crates/plico", features = ["archive"] }
+plico-dev = { path = "../../crates/plico-dev", features = ["archive"], optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rkyv = { version = "=0.8.18", features = ["little_endian", "pointer_width_32", "unaligned"], optional = true }
+plico-wasm = { path = "../../crates/plico-wasm", optional = true }
+plico-runtime = { path = "../../crates/plico-runtime" }
+plico-renderer = { path = "../../crates/plico-renderer", optional = true }
+plico-wgpu = { path = "../../crates/plico-wgpu", default-features = false, optional = true }
+pollster = { version = "1", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+wgpu = { version = "30", optional = true }
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false, features = ["wgpu"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false

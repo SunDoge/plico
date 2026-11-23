@@ -2,6 +2,8 @@ use super::*;
 use cargo_metadata::Message;
 use notify::{Event, RecursiveMode, Watcher};
 use std::{
+    cell::OnceCell,
+    collections::HashSet,
     process::{Child, Stdio},
     sync::{
         Arc,
@@ -10,25 +12,77 @@ use std::{
     },
     time::{Duration, Instant},
 };
-fn relevant(event: &Event) -> bool {
-    if matches!(
-        event.kind,
-        notify::EventKind::Access(_) | notify::EventKind::Other
-    ) {
-        return false;
+fn ignored_dir(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some("target" | ".git" | "node_modules" | "dist" | "reports")
+    )
+}
+
+fn source_file(path: &Path) -> bool {
+    !path.components().any(|c| ignored_dir(c.as_os_str()))
+        && (matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("rs" | "json" | "png" | "svg" | "wgsl" | "ftl")
+        ) || path
+            .file_name()
+            .is_some_and(|n| n == "Cargo.toml" || n == "Cargo.lock"))
+}
+
+#[cfg(target_os = "linux")]
+// Subscribe before enumerating children so a directory created during the walk
+// also arrives as an event. Never descend into Cargo output or symlink cycles.
+fn watch_tree(watcher: &mut notify::RecommendedWatcher, root: &Path, target: &Path) -> Result<()> {
+    let mut pending = vec![root.to_owned()];
+    while let Some(dir) = pending.pop() {
+        if dir == target || dir.join(".rustc_info.json").is_file() {
+            continue;
+        }
+        match watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            Err(_) if !dir.exists() => continue,
+            result => result.context(WatchSnafu)?,
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            result => result.context(IoSnafu)?,
+        };
+        for entry in entries {
+            let entry = entry.context(IoSnafu)?;
+            if ignored_dir(&entry.file_name()) {
+                continue;
+            }
+            let kind = match entry.file_type() {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                result => result.context(IoSnafu)?,
+            };
+            if kind.is_dir() {
+                pending.push(entry.path());
+            }
+        }
     }
-    event.paths.iter().any(|p| {
-        !p.components().any(|c| {
-            matches!(
-                c.as_os_str().to_str(),
-                Some("target" | ".git" | "node_modules" | "dist" | "reports")
-            )
-        }) && (p.extension().is_some_and(|e| e == "rs")
-            || p.extension()
-                .is_some_and(|e| e == "json" || e == "png" || e == "svg")
-            || p.file_name()
-                .is_some_and(|n| n == "Cargo.toml" || n == "Cargo.lock"))
-    })
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn watch_tree(watcher: &mut notify::RecommendedWatcher, root: &Path, _: &Path) -> Result<()> {
+    watcher
+        .watch(root, RecursiveMode::Recursive)
+        .context(WatchSnafu)
+}
+
+// Notify reports absolute paths, while application arguments are relative to
+// the launched process. Resolve the parent even when the output does not exist.
+fn argument_path(arguments: &[OsString], flag: &str, directory: &Path) -> Option<PathBuf> {
+    let path = directory.join(&arguments.windows(2).find(|a| a[0] == flag)?[1]);
+    Some(
+        match (
+            path.parent().and_then(|p| p.canonicalize().ok()),
+            path.file_name(),
+        ) {
+            (Some(parent), Some(name)) => parent.join(name),
+            _ => path,
+        },
+    )
 }
 #[derive(Clone, Copy)]
 pub(super) enum Mode {
@@ -189,11 +243,53 @@ impl Drop for Host {
         let _ = self.0.wait();
     }
 }
+// Cargo also records include_bytes!/include_str! inputs owned by other
+// packages. If dep-info is unavailable, keep the conservative rebuild.
+fn cargo_inputs(dep_info: &Path) -> Option<HashSet<PathBuf>> {
+    let contents = std::fs::read_to_string(dep_info).ok()?;
+    let (_, dependencies) = contents.trim_end().split_once(": ")?;
+    let mut paths = HashSet::new();
+    let mut word = String::new();
+    for part in dependencies.split_inclusive(' ') {
+        if let Some(prefix) = part.strip_suffix("\\ ") {
+            word.push_str(prefix);
+            word.push(' ');
+            continue;
+        }
+        word.push_str(part.trim_end_matches(' '));
+        let path = Path::new(&word);
+        if !path.is_absolute() {
+            return None;
+        }
+        // Keep normalized paths even when an editor temporarily removes a file.
+        let mut normalized = PathBuf::new();
+        for component in path.components() {
+            if component == std::path::Component::ParentDir {
+                normalized.pop();
+            } else {
+                normalized.push(component.as_os_str());
+            }
+        }
+        paths.insert(normalized);
+        word.clear();
+    }
+    Some(paths)
+}
+
 struct Build {
+    packages: HashSet<cargo_metadata::PackageId>,
+    dep_info: PathBuf,
+    inputs: OnceCell<Option<HashSet<PathBuf>>>,
     executable: PathBuf,
     _directory: tempfile::TempDir,
 }
-fn build(directory: &Path, manifest: &Path, package: &str, binary: &str) -> Result<Build> {
+fn build(
+    directory: &Path,
+    manifest: &Path,
+    package: &str,
+    binary: &str,
+    flags: &[String],
+) -> Result<Build> {
     let start = Instant::now();
     let output = Command::new(cargo())
         .current_dir(directory)
@@ -206,14 +302,19 @@ fn build(directory: &Path, manifest: &Path, package: &str, binary: &str) -> Resu
             binary,
             "--message-format=json-render-diagnostics",
         ])
+        .args(flags)
         .stderr(Stdio::inherit())
         .output()
         .context(IoSnafu)?;
     let mut executable = None;
+    let mut packages = HashSet::new();
     for message in Message::parse_stream(output.stdout.as_slice()) {
         match message.context(IoSnafu)? {
-            Message::CompilerArtifact(a) if a.target.name == binary => {
-                if let Some(path) = a.executable {
+            Message::CompilerArtifact(a) => {
+                packages.insert(a.package_id);
+                if a.target.name == binary
+                    && let Some(path) = a.executable
+                {
                     executable = Some(path.into_std_path_buf());
                 }
             }
@@ -239,15 +340,72 @@ fn build(directory: &Path, manifest: &Path, package: &str, binary: &str) -> Resu
         start.elapsed().as_millis()
     );
     Ok(Build {
+        packages,
+        dep_info: original.with_extension("d"),
+        inputs: OnceCell::new(),
         executable,
         _directory: staging,
     })
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+struct WasmDev {
+    host: String,
+    guest: String,
+    #[serde(default)]
+    features: Vec<String>,
+    #[serde(default)]
+    host_features: Vec<String>,
+    watch: Vec<PathBuf>,
+}
+impl WasmDev {
+    fn build_flags(&self, guest: bool) -> Vec<String> {
+        let mut flags = Vec::new();
+        let mut features = self.features.clone();
+        if guest {
+            flags.extend([
+                "--target".into(),
+                "wasm32-unknown-unknown".into(),
+                "--no-default-features".into(),
+            ]);
+        } else {
+            features.extend_from_slice(&self.host_features);
+        }
+        if !features.is_empty() {
+            flags.extend(["--features".into(), features.join(",")]);
+        }
+        flags
+    }
+
+    fn publish(
+        &self,
+        directory: &Path,
+        manifest: &Path,
+        package: &str,
+        module: &Path,
+    ) -> Result<()> {
+        let built = build(
+            directory,
+            manifest,
+            package,
+            &self.guest,
+            &self.build_flags(true),
+        )?;
+        let pending = tempfile::NamedTempFile::new_in(module.parent().unwrap()).context(IoSnafu)?;
+        std::fs::copy(built.executable, pending.path()).context(IoSnafu)?;
+        pending
+            .persist(module)
+            .map_err(|e| Error::Io { source: e.error })?;
+        eprintln!("[plico] published {}", self.guest);
+        Ok(())
+    }
 }
 pub fn run(
     directory: &Path,
     manifest: &Path,
     package: Option<&str>,
     no_watch: bool,
+    wasm: bool,
     arguments: Vec<OsString>,
 ) -> Result<u8> {
     let metadata = cargo_metadata::MetadataCommand::new()
@@ -258,10 +416,39 @@ pub fn run(
         .context(MetadataSnafu)?;
     let directory = directory.canonicalize().context(IoSnafu)?;
     let selected = select_package(&metadata, &directory, package, Mode::Dev)?;
+    let wasm: Option<WasmDev> = if wasm {
+        let config = selected
+            .metadata
+            .pointer("/plico/wasm")
+            .ok_or_else(|| Error::Workspace {
+                message: format!(
+                    "{} needs [package.metadata.plico.wasm] for dev --wasm",
+                    selected.name
+                ),
+            })?;
+        Some(serde_json::from_value(config.clone()).context(JsonSnafu)?)
+    } else {
+        None
+    };
+    let root = selected.manifest_path.parent().unwrap().as_std_path();
+    let watch_paths: Vec<_> = wasm
+        .iter()
+        .flat_map(|w| &w.watch)
+        .map(|p| root.join(p))
+        .collect();
+    if wasm.is_some()
+        && !no_watch
+        && (watch_paths.is_empty() || watch_paths.iter().any(|p| !p.exists()))
+    {
+        return Err(Error::Workspace {
+            message: "wasm.watch must name existing guest source files or directories".into(),
+        });
+    }
     let binaries: Vec<_> = selected.targets.iter().filter(|t| t.is_bin()).collect();
-    let binary = selected
-        .default_run
-        .as_deref()
+    let binary = wasm
+        .as_ref()
+        .map(|w| w.host.as_str())
+        .or(selected.default_run.as_deref())
         .or_else(|| (binaries.len() == 1).then(|| binaries[0].name.as_str()))
         .ok_or_else(|| Error::Workspace {
             message: format!(
@@ -270,49 +457,58 @@ pub fn run(
             ),
         })?;
     let (tx, rx) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(tx).context(WatchSnafu)?;
-    if !no_watch {
-        watcher
-            .watch(
-                metadata.workspace_root.as_std_path(),
-                RecursiveMode::Recursive,
-            )
-            .context(WatchSnafu)?;
-        for dependency in &selected.dependencies {
-            if let Some(path) = &dependency.path
-                && !path.starts_with(&metadata.workspace_root)
-            {
-                watcher
-                    .watch(path.as_std_path(), RecursiveMode::Recursive)
-                    .context(WatchSnafu)?;
+    let scenario_path = argument_path(&arguments, "--scenario", &directory);
+    let output_path = argument_path(&arguments, "--capture", &directory);
+    let mut source_roots = vec![metadata.workspace_root.as_std_path()];
+    source_roots.extend(
+        selected
+            .dependencies
+            .iter()
+            .filter_map(|d| d.path.as_ref())
+            .filter(|p| !p.starts_with(&metadata.workspace_root))
+            .map(|p| p.as_std_path()),
+    );
+    let workspace = metadata.workspace_root.as_std_path();
+    let target = metadata.target_directory.as_std_path();
+    let mut members: Vec<_> = metadata
+        .packages
+        .iter()
+        .filter_map(|pkg| {
+            let dir = pkg.manifest_path.parent()?.as_std_path();
+            (dir != workspace).then_some((dir, &pkg.id))
+        })
+        .collect();
+    members.sort_unstable_by_key(|(dir, _)| std::cmp::Reverse(dir.as_os_str().len()));
+    let mut watcher = if no_watch {
+        None
+    } else {
+        Some(notify::recommended_watcher(tx.clone()).context(WatchSnafu)?)
+    };
+    if let Some(watcher) = &mut watcher {
+        if wasm.is_some() {
+            for path in &watch_paths {
+                let (dir, mode) = if path.is_dir() {
+                    (path.as_path(), RecursiveMode::Recursive)
+                } else {
+                    (path.parent().unwrap(), RecursiveMode::NonRecursive)
+                };
+                watcher.watch(dir, mode).context(WatchSnafu)?;
+            }
+        } else {
+            for root in &source_roots {
+                watch_tree(watcher, root, target)?;
             }
         }
+        if let Some(path) = &scenario_path
+            && (cfg!(target_os = "linux") && wasm.is_none()
+                || !source_roots.iter().any(|root| path.starts_with(root))
+                || wasm.is_some() && !watch_paths.iter().any(|w| path.starts_with(w)))
+        {
+            watcher
+                .watch(path.parent().unwrap_or(path), RecursiveMode::NonRecursive)
+                .context(WatchSnafu)?;
+        }
     }
-    if !no_watch
-        && let Some(path) = arguments
-            .windows(2)
-            .find(|a| a[0] == "--scenario")
-            .map(|a| Path::new(&a[1]))
-        && !path.starts_with(metadata.workspace_root.as_std_path())
-    {
-        watcher
-            .watch(path.parent().unwrap_or(path), RecursiveMode::NonRecursive)
-            .context(WatchSnafu)?;
-    }
-    let scenario_path = arguments
-        .windows(2)
-        .find(|a| a[0] == "--scenario")
-        .map(|a| PathBuf::from(&a[1]));
-    let needs_build = |event: &Event| {
-        event
-            .paths
-            .iter()
-            .any(|path| scenario_path.as_ref() != Some(path))
-    };
-    let output_path = arguments
-        .windows(2)
-        .find(|a| a[0] == "--capture")
-        .map(|a| PathBuf::from(&a[1]));
     let stopped = Arc::new(AtomicBool::new(false));
     let stop = stopped.clone();
     ctrlc::set_handler(move || {
@@ -321,20 +517,101 @@ pub fn run(
     .map_err(|e| Error::Workspace {
         message: e.to_string(),
     })?;
+    let module_dir = wasm
+        .as_ref()
+        .map(|_| tempfile::tempdir())
+        .transpose()
+        .context(IoSnafu)?;
+    let module = module_dir.as_ref().map(|dir| dir.path().join("ui.wasm"));
+    let mut change = |event: &Event, build: Option<&Build>| -> Result<Option<bool>> {
+        if matches!(
+            event.kind,
+            notify::EventKind::Access(_) | notify::EventKind::Other
+        ) {
+            return Ok(None);
+        }
+        // Some(false) restarts the last successful build for a scenario edit.
+        // Consider both sides of an atomic rename independently.
+        let mut change = None;
+        for path in &event.paths {
+            if output_path.as_ref() == Some(path) {
+                continue;
+            }
+            if scenario_path.as_ref() == Some(path) {
+                change = change.max(Some(false));
+                continue;
+            }
+            if wasm.is_some() {
+                if watch_paths.iter().any(|w| path.starts_with(w)) {
+                    change = Some(true);
+                }
+                continue;
+            }
+            let Some(relative) = source_roots
+                .iter()
+                .find_map(|root| path.strip_prefix(root).ok())
+            else {
+                continue;
+            };
+            if path.starts_with(target) || relative.components().any(|c| ignored_dir(c.as_os_str()))
+            {
+                continue;
+            }
+            let new_dir = matches!(
+                event.kind,
+                notify::EventKind::Create(_)
+                    | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+            ) && path.symlink_metadata().is_ok_and(|m| m.is_dir());
+            if cfg!(target_os = "linux")
+                && new_dir
+                && let Some(watcher) = &mut watcher
+            {
+                watch_tree(watcher, path, target)?;
+            }
+            if !(new_dir || source_file(relative)) {
+                continue;
+            }
+            if let Some(build) = build
+                && let Some((_, owner)) = members.iter().find(|(dir, _)| path.starts_with(dir))
+                && !build.packages.contains(owner)
+                && let Some(inputs) = build.inputs.get_or_init(|| cargo_inputs(&build.dep_info))
+                && !inputs.contains(path)
+            {
+                continue;
+            }
+            change = Some(true);
+        }
+        Ok(change)
+    };
     let launch = |built: &Build| -> Result<Host> {
-        let child = Command::new(&built.executable)
+        let mut command = Command::new(&built.executable);
+        if let Some(module) = &module {
+            command.env("PLICO_WASM_MODULE", module);
+        }
+        let child = command
             .current_dir(&directory)
             .args(&arguments)
             .spawn()
             .context(IoSnafu)?;
-        eprintln!(
-            "[plico] started PID {} (state resets on rebuild)",
-            child.id()
-        );
+        eprintln!("[plico] started PID {}", child.id());
         Ok(Host(child))
     };
-    let mut built = build(&directory, manifest, selected.name.as_str(), binary)?;
+    let host_flags = wasm
+        .as_ref()
+        .map(|w| w.build_flags(false))
+        .unwrap_or_default();
+    let mut built = build(
+        &directory,
+        manifest,
+        selected.name.as_str(),
+        binary,
+        &host_flags,
+    )?;
+    if let (Some(wasm), Some(module)) = (&wasm, &module) {
+        wasm.publish(&directory, manifest, selected.name.as_str(), module)?;
+    }
     let mut child = launch(&built)?;
+    let mut build_failed = false;
     while !stopped.load(Ordering::Acquire) {
         if let Some(status) = child.0.try_wait().context(IoSnafu)?
             && (no_watch || !arguments.iter().any(|a| a == "--capture"))
@@ -345,35 +622,47 @@ pub fn run(
                 .unwrap_or(1));
         }
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(event))
-                if !no_watch
-                    && relevant(&event)
-                    && event.paths.iter().any(|p| output_path.as_ref() != Some(p)) =>
-            {
-                let mut rebuild = needs_build(&event);
+            Ok(Ok(event)) => {
+                let active = (!build_failed).then_some(&built);
+                let Some(mut rebuild) = change(&event, active)? else {
+                    continue;
+                };
                 let mut deadline = Instant::now() + Duration::from_millis(120);
                 while let Ok(event) =
                     rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 {
                     match event {
-                        Ok(event)
-                            if relevant(&event)
-                                && event.paths.iter().any(|p| output_path.as_ref() != Some(p)) =>
-                        {
-                            rebuild |= needs_build(&event);
-                            deadline = Instant::now() + Duration::from_millis(120);
+                        Ok(event) => {
+                            if let Some(build) = change(&event, active)? {
+                                rebuild |= build;
+                                deadline = Instant::now() + Duration::from_millis(120);
+                            }
                         }
                         Err(error) => eprintln!("[plico] watcher: {error}"),
-                        _ => {}
                     }
                     if Instant::now() >= deadline {
                         break;
                     }
                 }
+                if rebuild && let (Some(wasm), Some(module)) = (&wasm, &module) {
+                    if let Err(error) =
+                        wasm.publish(&directory, manifest, selected.name.as_str(), module)
+                    {
+                        eprintln!("[plico] {error}");
+                    }
+                    continue;
+                }
                 let next = if rebuild {
-                    match build(&directory, manifest, selected.name.as_str(), binary) {
+                    match build(
+                        &directory,
+                        manifest,
+                        selected.name.as_str(),
+                        binary,
+                        &host_flags,
+                    ) {
                         Ok(next) => Some(next),
                         Err(error) => {
+                            build_failed = true;
                             eprintln!("[plico] {error}");
                             continue;
                         }
@@ -388,6 +677,7 @@ pub fn run(
                 child.0.wait().context(IoSnafu)?;
                 child = launch(next.as_ref().unwrap_or(&built))?;
                 if let Some(next) = next {
+                    build_failed = false;
                     built = next;
                 }
             }
@@ -546,8 +836,9 @@ mod tests {
     }
     #[test]
     fn source_filter_ignores_generated_files() {
-        let event = |p: &str| notify::Event::new(notify::EventKind::Any).add_path(p.into());
-        assert!(relevant(&event("/repo/src/lib.rs")));
-        assert!(!relevant(&event("/repo/target/generated.rs")));
+        for input in ["src/lib.rs", "shaders/blur.wgsl", "locales/zh.ftl"] {
+            assert!(source_file(Path::new(input)));
+        }
+        assert!(!source_file(Path::new("target/generated.rs")));
     }
 }

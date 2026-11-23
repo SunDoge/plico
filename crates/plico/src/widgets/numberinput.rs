@@ -116,23 +116,18 @@ pub fn number_input(
         response
     });
     let response = response.inner;
-    let text = entry.buffer.text().unwrap_or_default();
-    if response.changed()
-        && let Some(parsed) = parse_number(&text)
-        && (min..=max).contains(&parsed)
-        && parsed != *value
-    {
-        *value = parsed;
-        entry.last = parsed;
-    }
-    if response.submitted() {
-        match parse_number(&text).filter(|parsed| (min..=max).contains(parsed)) {
-            Some(parsed) => {
-                *value = parsed;
-                entry.last = parsed;
-                entry.buffer.set(format_number(parsed, decimals).into());
-            }
-            None => entry.buffer.set(format_number(*value, decimals).into()),
+    if response.changed() || response.submitted() {
+        if let Some(parsed) = entry
+            .buffer
+            .with_value(parse_number)
+            .filter(|v| (min..=max).contains(v))
+            && (response.submitted() || parsed != *value)
+        {
+            *value = parsed;
+            entry.last = parsed;
+        }
+        if response.submitted() {
+            entry.buffer.set(format_number(*value, decimals).into());
         }
     }
     match response.navigation() {

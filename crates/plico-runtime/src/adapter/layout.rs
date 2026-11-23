@@ -179,10 +179,21 @@ impl Adapter {
         Some(true)
     }
 
+    pub(crate) fn rebuild_placed(&mut self, root: NodeId) -> bool {
+        flatten_with_scroll_into(&self.tree, root, &self.scroll_offsets, &mut self.placed);
+        self.stats.flatten_visits += self.placed.len();
+        self.reindex_placed();
+        // With every parent placed, flatten's composed transforms exactly
+        // match the runtime parent chain. Sticky shifts can move a pivot.
+        let shifted = self.apply_sticky();
+        !shifted && self.placed.len() == self.nodes.len()
+    }
+
     /// Shift sticky nodes within their scroll port after each fresh flatten.
     /// Taffy lays them out in normal flow; this pass applies the CSS sticky
     /// top constraint and its containing-block limit.
-    pub(super) fn apply_sticky(&mut self) {
+    fn apply_sticky(&mut self) -> bool {
+        let mut shifted = false;
         let mut index = 0;
         while index < self.placed.len() {
             let Some(top) = self.placed[index].paint.sticky_top else {
@@ -237,6 +248,7 @@ impl Adapter {
             }
             let delta = (port_top + top - natural).clamp(0., maximum);
             if delta > 0.01 {
+                shifted = true;
                 for node in &mut self.placed[index..end] {
                     node.rect[1] += delta;
                     node.rect[3] += delta;
@@ -251,8 +263,9 @@ impl Adapter {
             }
             index = end;
         }
+        shifted
     }
-    pub(super) fn reindex_placed(&mut self) {
+    pub(crate) fn reindex_placed(&mut self) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "plico::layout", "backend.index").entered();
         self.hit.get_mut().dirty = true;

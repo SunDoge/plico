@@ -1,28 +1,29 @@
+import { bindTextInput } from "./text-input.js";
+import { frameScheduler } from "./frames.js";
+import { bindCanvasInput } from "./input.js";
 import init, { Gallery } from "./pkg/plico_web_host.js";
 
 const canvas = document.querySelector("canvas");
 const error = document.querySelector("#error");
-let app, queued = false, failed = false;
+let app, editor, failed = false;
 function fail(e) {
   failed = true;
   error.hidden = false;
   error.textContent = String(e?.stack ?? e);
   console.error(e);
 }
-function schedule() {
-  if (queued || failed) return;
-  queued = true;
-  requestAnimationFrame(time => {
-    queued = false;
-    try {
-      const rect = canvas.getBoundingClientRect();
-      if (app.frame(time, Math.max(1, Math.floor(rect.width)),
-          Math.max(1, Math.floor(rect.height)), devicePixelRatio)) schedule();
-      window.plico.frames++;
-      window.plico.state = JSON.parse(app.debug_state());
-    } catch (e) { fail(e); }
-  });
-}
+const schedule = frameScheduler(time => {
+  if (failed) return;
+  try {
+    const rect = canvas.getBoundingClientRect();
+    const pending = app.frame(time, Math.max(1, Math.floor(rect.width)),
+      Math.max(1, Math.floor(rect.height)), devicePixelRatio);
+    editor.sync(rect);
+    window.plico.frames++;
+    window.plico.nextFrameDelay = pending ? app.next_frame_delay_ms() : undefined;
+    return window.plico.nextFrameDelay;
+  } catch (e) { fail(e); }
+});
 function invoke(fn) { try { fn(); schedule(); } catch(e) { fail(e); } }
 try {
   await init();
@@ -30,36 +31,18 @@ try {
   const renderer = new URL(location.href).searchParams.get("renderer") || "auto";
   await document.fonts.ready;
   app = await Gallery.create_wgpu(canvas, renderer);
-  window.plico = { backend: app.renderer_name(), frames: 0, state: null, semantics: () => JSON.parse(app.semantics()), schedule };
-  for (const type of ["pointerdown", "pointerup", "pointermove", "pointercancel", "pointerleave"]) {
-    canvas.addEventListener(type, e => invoke(() => {
-      if (type === "pointerdown") { canvas.focus(); canvas.setPointerCapture(e.pointerId); }
-      app.pointer(performance.now(), e);
+  window.plico = { backend: app.renderer_name(), frames: 0,
+    get state() { return this.frames ? JSON.parse(app.debug_state()) : null; },
+    semantics: () => JSON.parse(app.semantics()), schedule };
+  editor = bindTextInput(canvas, app, invoke);
+  bindCanvasInput(canvas, app, invoke, editor);
+  for (const target of [canvas, editor.element]) {
+    for (const type of ["keydown", "keyup"]) target.addEventListener(type, e => invoke(() => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (app.key(performance.now(), e)) e.preventDefault();
+      editor.sync();
     }));
   }
-  canvas.addEventListener("wheel", e => invoke(() => {
-    if (app.wheel(performance.now(), e)) e.preventDefault();
-  }), {passive:false});
-  for (const type of ["keydown", "keyup"]) canvas.addEventListener(type, e => invoke(() => {
-    if (e.isComposing) return;
-    const handled = app.key(performance.now(), e);
-    const copy = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && app.selected_text();
-    if (handled && !copy) e.preventDefault();
-    if (type === "keydown" && !handled && !e.ctrlKey && !e.metaKey && !e.altKey &&
-        [...e.key].length === 1) {
-      app.text(performance.now(), e.key);
-      e.preventDefault();
-    }
-  }));
-  canvas.addEventListener("copy", e => {
-    const text = app.selected_text();
-    if (text && e.clipboardData) {
-      e.clipboardData.setData("text/plain", text);
-      e.preventDefault();
-    }
-  });
-  canvas.addEventListener("focus", () => invoke(() => app.focus(performance.now(), true)));
-  canvas.addEventListener("blur", () => invoke(() => app.focus(performance.now(), false)));
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   new ResizeObserver(schedule).observe(canvas);
   window.addEventListener("resize", schedule);

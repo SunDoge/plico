@@ -8,7 +8,11 @@ publish = false
 [package.metadata.cargo-machete]
 ignored = ["serde_bytes"]
 
+[features]
+archive = ["dep:rkyv", "plico/archive"]
+
 [dependencies]
+rkyv = { workspace = true, optional = true }
 zeroize = { workspace = true }
 plico.workspace = true
 serde = { workspace = true, features = ["derive"] }

@@ -194,3 +194,32 @@ fn non_text_surface_declined_key_reaches_window_fallback() {
     assert!(source.source.view().0);
     assert!(result.handled && result.consume_key_text && result.request_redraw);
 }
+
+#[test]
+fn hidden_history_slot_cannot_capture_the_visible_pages_widget() {
+    struct Pages(bool);
+    impl HostView for Pages {
+        fn show(&mut self, cx: &mut UiContext) {
+            for (key, active, width) in [("first", !self.0, 100.), ("second", self.0, 150.)] {
+                column(cx)
+                    .key(key)
+                    .display(if active { Display::Flex } else { Display::None })
+                    .children(|cx| {
+                        column(cx)
+                            .key("surface")
+                            .width(width)
+                            .height(80.)
+                            .children(|_| {});
+                    });
+            }
+        }
+    }
+    let mut source = SurfaceSource::new(Pages(false), Native::default(), "surface");
+    let mut text = TextContext::new();
+    for (second, expected_width) in [(false, 100.), (true, 150.), (false, 100.)] {
+        source.source.update(|pages| pages.0 = second);
+        source.build_frame(&mut text, 320, 200);
+        assert_eq!(source.viewport_rect().unwrap()[2], expected_width);
+        assert_eq!(source.widget.mounts, 1);
+    }
+}

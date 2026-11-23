@@ -80,8 +80,9 @@ if checkbox(cx, "Save automatically", &mut settings.autosave)
 
 Context 首参的 switch/checkbox 从旧的直接 bool 返回值改为 builder；原来 `if switch(...)` 应改为 `if switch(...).changed()`，原来的 `switch(...);` 不需要改。独立值 Switch/Checkbox.show 仍返回 bool，供 immediate 辅助类型使用。
 
-默认指示器尺寸跟随 Metrics.spacing：默认 spacing=4 的 switch 是 36×20、checkbox 是 18×18；compact spacing=3 分别是 27×15 和 13.5×13.5。布局预留与绘制使用同一个几何定义，gap 动画会移动文字并保持指示器靠近 padding，位置受 Taffy 的像素取整影响。颜色参照 MyGO：switch 关闭轨道为 border 向 foreground 混合 15%，checkbox 未选中面为 panel、描边为 border 向 foreground 混合 25%（悬停时描边转为 accent），选中面混合到 accent；thumb 在亮色下为白色、暗色下为 #e0e1e1，SVG 勾选标记使用 on_accent。
+指示器尺寸随 `Metrics.spacing` 缩放。默认间距为 4 DIP，switch 为 36×20，checkbox 为 16×16。内置紧凑主题保留 4 DIP 间距。显式将间距设为 3 DIP 时，两者分别为 27×15 和 12×12。布局和绘制共用这些尺寸。
 
+switch 关闭时的轨道颜色由 `border` 向 `foreground` 混合 15%，旋钮在亮色和暗色主题下都为白色。checkbox 未选中时使用 `panel` 填充，边框由 `border` 向 `foreground` 混合 35%，悬停时使用 `accent`。勾选时框面过渡到 `accent`，两段圆头描边组成的勾以 `on_accent` 淡入。
 
 ## 图标与文字对齐
 
@@ -90,7 +91,7 @@ switch/checkbox 的指示器按 Parley 实际排版的首行行高居中，多�
 文字测量将 Taffy 的 border-box known dimensions 转为内容尺寸，绘制约束也使用扣除 padding/border 后的 content width，因此窄控件和长标签不会使用两套换行宽度。对齐在布局完成或相关 paint patch 后更新；未变的行高复用指示器 scene，纯 checked 动画不强制重排。真实截图和回归范围见 reports/alignment。
 
 
-Lucide 图标可用 icon(cx, &plico::icons::SAVE) 添加；默认大小跟随继承字号，颜色继承当前前景色，也可 .color 显式覆盖。SVG 仍为装饰子内容，不制造独立交互节点。checkbox 选中态现在绘制 Lucide CHECK SVG，不再以小方块代替勾选，过渡不改变布局。
+Lucide 图标可用 icon(cx, &plico::icons::SAVE) 添加；默认大小跟随继承字号，颜色继承当前前景色，也可 .color 显式覆盖。SVG 仍为装饰子内容，不制造独立交互节点。
 
 ### Composed controls
 

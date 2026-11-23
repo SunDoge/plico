@@ -254,6 +254,7 @@ pub struct Adapter {
     pub(super) scroll_motions: HashMap<NodeId, scroll_motion::ScrollMotion>,
     pub(super) smooth_scroll_enabled: bool,
     pub(super) reveal_focus: bool,
+    pub(super) reveal_target: Option<Entity>,
     pub(super) scrollbars: scrollbar_visibility::Scrollbars,
     pub(super) scrollbar_drag: Option<(NodeId, f64, f32)>,
     pub(super) input_layouts: HashMap<Entity, input::Geometry>,
@@ -331,6 +332,7 @@ impl Default for Adapter {
             scroll_motions: HashMap::new(),
             smooth_scroll_enabled: true,
             reveal_focus: false,
+            reveal_target: None,
             scrollbars: Default::default(),
             scrollbar_drag: None,
             input_layouts: HashMap::new(),
@@ -661,6 +663,7 @@ impl Adapter {
             }
         }
         let start = Instant::now();
+        let mut presentation_composed = false;
         if self.geometry_dirty {
             let root = self.nodes[&engine.root()].id;
             compute_layout_with_widgets(
@@ -688,11 +691,8 @@ impl Adapter {
             let incremental = patch == Some(Some(true));
             if !incremental {
                 self.scene_full_dirty = full || patch.flatten().is_none();
-                flatten_with_scroll_into(&self.tree, root, &self.scroll_offsets, &mut self.placed);
-                self.stats.flatten_visits = self.placed.len();
+                presentation_composed = self.rebuild_placed(root);
                 self.cache_all_layouts();
-                self.reindex_placed();
-                self.apply_sticky();
             } else {
                 if self.stats.flatten_patches > 0 {
                     self.reindex_placed();
@@ -713,15 +713,7 @@ impl Adapter {
             // those frames once nothing new sets it. Observers must not read
             // it as "this frame did layout work" - check stats instead.
         } else if self.scroll_dirty {
-            flatten_with_scroll_into(
-                &self.tree,
-                self.nodes[&engine.root()].id,
-                &self.scroll_offsets,
-                &mut self.placed,
-            );
-            self.stats.flatten_visits = self.placed.len();
-            self.reindex_placed();
-            self.apply_sticky();
+            presentation_composed = self.rebuild_placed(self.nodes[&engine.root()].id);
         } else {
             for id in &self.paint_dirty {
                 if let Some(index) = self.placed_indices.get(id) {
@@ -739,40 +731,35 @@ impl Adapter {
                 tracing::trace_span!(target: "plico::layout", "backend.geometry_post").entered();
             self.position_popovers(engine, tcx, width, height);
             let mut clamped = false;
-            for p in &self.placed {
-                if !p.scroll.scrollable[1]
-                    || self
-                        .scroll_motions
-                        .get(&p.node_id)
-                        .is_some_and(|m| m.target > p.scroll.range[1])
+            // An omitted node keeps its offset until it is placed again. When
+            // a visible port becomes a plain container, drop its old offset
+            // and re-flatten if its children still carry that translation.
+            self.scroll_offsets.retain(|id, _| {
+                let Some(&index) = self.placed_indices.get(id) else {
+                    return true;
+                };
+                let node = &self.placed[index];
+                if !node.scroll.scrollable[1] {
+                    clamped |= node.scroll.offset != [0., 0.];
+                    return false;
+                }
+                true
+            });
+            for &index in &self.scroll_indices {
+                let p = &self.placed[index];
+                if self
+                    .scroll_motions
+                    .get(&p.node_id)
+                    .is_some_and(|m| m.target > p.scroll.range[1])
                 {
                     self.scroll_motions.remove(&p.node_id);
                 }
-                let offset = [
-                    0.,
-                    if p.scroll.scrollable[1] {
-                        p.scroll.offset[1].clamp(0., p.scroll.range[1])
-                    } else {
-                        0.
-                    },
-                ];
+                let offset = [0., p.scroll.offset[1].clamp(0., p.scroll.range[1])];
                 clamped |= offset != p.scroll.offset;
-                if p.scroll.scrollable[1] {
-                    self.scroll_offsets.insert(p.node_id, offset);
-                } else {
-                    self.scroll_offsets.remove(&p.node_id);
-                }
+                self.scroll_offsets.insert(p.node_id, offset);
             }
             if clamped {
-                flatten_with_scroll_into(
-                    &self.tree,
-                    self.nodes[&engine.root()].id,
-                    &self.scroll_offsets,
-                    &mut self.placed,
-                );
-                self.stats.flatten_visits += self.placed.len();
-                self.reindex_placed();
-                self.apply_sticky();
+                presentation_composed = self.rebuild_placed(self.nodes[&engine.root()].id);
             }
             self.scroll_dirty = false;
             {
@@ -811,13 +798,23 @@ impl Adapter {
         }) {
             self.focused = None;
         }
-        let mut focus_scrolled = false;
-        if std::mem::take(&mut self.reveal_focus)
-            && let Some(focused) = self.focused.and_then(|e| self.nodes.get(&e)).map(|n| n.id)
+        let mut revealed = false;
+        let focus = std::mem::take(&mut self.reveal_focus)
+            .then_some(self.focused)
+            .flatten();
+        if let Some(target_id) = self
+            .reveal_target
+            .take()
+            .or(focus)
+            .and_then(|e| self.backend_id(e))
+            && self.placed_indices.contains_key(&target_id)
         {
             // The chain is collected first: revealing may re-flatten and
             // reindex `placed`, which the lazy iterator borrows.
-            let chain: Vec<NodeId> = self.placed_ancestors(focused).map(|p| p.node_id).collect();
+            let chain: Vec<NodeId> = self
+                .placed_ancestors(target_id)
+                .map(|p| p.node_id)
+                .collect();
             for id in chain {
                 let Some(scroll) = self
                     .placed_indices
@@ -829,37 +826,30 @@ impl Adapter {
                     continue;
                 };
                 self.scroll_motions.remove(&id);
-                let target = self.placed[self.placed_indices[&focused]].rect;
+                let target = self.placed[self.placed_indices[&target_id]].rect;
                 let delta = if target[1] < scroll.port[1] {
                     target[1] - scroll.port[1]
                 } else if target[3] > scroll.port[3] {
-                    target[3] - scroll.port[3]
+                    // MyGO scroll.go nearest: anchor an oversized item at its start.
+                    (target[3] - scroll.port[3]).min(target[1] - scroll.port[1])
                 } else {
                     0.
                 };
                 let next = (scroll.offset[1] + delta).clamp(0., scroll.range[1]);
                 if next != scroll.offset[1] {
-                    focus_scrolled = true;
+                    revealed = true;
                     self.scroll_offsets.insert(id, [scroll.offset[0], next]);
-                    flatten_with_scroll_into(
-                        &self.tree,
-                        self.nodes[&engine.root()].id,
-                        &self.scroll_offsets,
-                        &mut self.placed,
-                    );
-                    self.stats.flatten_visits += self.placed.len();
-                    self.reindex_placed();
-                    self.apply_sticky();
+                    presentation_composed = self.rebuild_placed(self.nodes[&engine.root()].id);
                 }
             }
         }
-        if focus_scrolled {
+        if revealed {
+            self.scene_full_dirty = true;
             self.position_popovers(engine, tcx, width, height);
             #[cfg(feature = "profiling")]
             let _span = tracing::trace_span!(target: "plico::layout", "backend.align").entered();
             self.align_controls(tcx, engine);
         }
-        self.update_scrollbars(engine);
         let moved_anchor = self.anchor_motion_dirty && !self.geometry_dirty;
         if self.presentation_dirty {
             // Transform/opacity motion changes Scene output without necessarily
@@ -869,13 +859,14 @@ impl Adapter {
                 .extend(self.presentation_roots.iter().copied());
         }
         if self.geometry_dirty || self.stats.flatten_visits > 0 || self.presentation_dirty {
-            self.update_presentation();
+            self.update_presentation(presentation_composed);
         }
         self.scene_dirty_nodes
             .extend(self.paint_dirty.iter().copied());
         if moved_anchor {
             self.position_popovers(engine, tcx, width, height);
         }
+        self.update_scrollbars(engine);
         // Layout/structure can move selection geometry. Paint-only leaf
         // controls must not rebuild unrelated read-only paragraphs.
         let selection_geometry_changed = self.stats.flatten_visits > 0

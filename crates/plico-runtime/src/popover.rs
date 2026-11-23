@@ -114,19 +114,17 @@ impl Adapter {
         width: u32,
         height: u32,
     ) {
-        compute_and_walk_with_scroll_into(
+        let root = self.nodes[&engine.root()].id;
+        plico_renderer::layout::compute_layout_with_widgets(
             &mut self.tree,
-            self.nodes[&engine.root()].id,
+            root,
             [width as f32, height as f32],
             tcx,
-            &self.scroll_offsets,
-            &mut self.placed,
+            1.,
+            |_, _| None,
         );
         self.stats.layout_runs += 1;
-        self.stats.flatten_visits += self.placed.len();
-        self.placed_indices.clear();
-        self.placed_indices
-            .extend(self.placed.iter().enumerate().map(|(i, p)| (p.node_id, i)));
-        self.update_presentation();
+        let composed = self.rebuild_placed(root);
+        self.update_presentation(composed);
     }
 }

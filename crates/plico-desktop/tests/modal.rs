@@ -381,9 +381,10 @@ fn dialog_uses_one_entrance_progress_and_freezes_content_during_exit() {
             .placed_nodes()
             .iter()
             .find(|p| p.depth == 2 && p.rect != [0., 0., 600., 500.])
-            .and_then(|p| p.paint.runtime_transform)
-            .map(|transform| transform[5])
-            .unwrap();
+            .expect("dialog panel stays mounted throughout entrance")
+            .paint
+            .runtime_transform
+            .map_or(0., |transform| transform[5]);
         assert!(
             (y - 8. * (1. - progress)).abs() < 0.001,
             "overlay and panel desynchronised at {ms}: progress={progress} y={y}"

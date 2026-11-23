@@ -5,6 +5,10 @@
 use crate::Color;
 
 /// Shared component measurements. A copy belongs to the theme, not to each widget.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Metrics {
@@ -89,6 +93,10 @@ impl Metrics {
 }
 
 /// Semantic colors and measurements shared by default and application components.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Theme {

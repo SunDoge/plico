@@ -38,7 +38,9 @@ impl Leaf<'_, '_, '_> {
                 glass.enabled = false;
             }
             if style.background == Some(Color::Accent) {
-                glass.tint = Color::Accent;
+                // Reflections lighten the glass interior. Use the deeper accent
+                // variant underneath to keep the on-accent label readable.
+                glass.tint = Color::AccentPressed;
                 glass.tint_opacity = 1.;
                 glass.fallback = Color::Accent;
             }

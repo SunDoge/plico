@@ -255,7 +255,14 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         source
             .source
             .update(|view| view.app.router.go(Page::Workspace));
+        // The outgoing image remains visible while the router crossfades.
+        frame(&mut source, &mut partial);
+        clock.advance(Duration::from_millis(250)).unwrap();
         let hidden = frame(&mut source, &mut partial);
+        assert!(
+            source.viewport_rect().is_none(),
+            "the outgoing image slot is still placed"
+        );
         assert!(source.animation_deadline().is_none());
         assert!(
             count_color(&hidden, [255, 0, 0, 255]) < 1000
@@ -275,6 +282,8 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         source
             .source
             .update(|view| view.app.router.go(Page::Images));
+        frame(&mut source, &mut partial);
+        clock.advance(Duration::from_millis(250)).unwrap();
         let failed = frame(&mut source, &mut partial);
         assert!(source.animation_deadline().is_none());
         assert!(

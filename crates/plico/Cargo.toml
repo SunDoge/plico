@@ -9,7 +9,10 @@ publish = false
 # Optional portable layout adapter for native-widget backends.
 taffy = ["dep:taffy"]
 
+archive = ["dep:rkyv"]
+
 [dependencies]
+rkyv = { workspace = true, optional = true }
 taffy = { workspace = true, optional = true }
 rmp-serde.workspace = true
 web-time = "1.1"

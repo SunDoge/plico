@@ -1,4 +1,8 @@
 //! Controlled scalar input shared by sliders and future numeric editors.
+#[cfg_attr(
+    feature = "archive",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NumericRange {
     pub min: f64,
