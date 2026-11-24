@@ -1,6 +1,10 @@
 //! Build a retained Wabou paint scene from the flattened layout list.
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use taffy::NodeId;
 
 use crate::corner_shape::corner_shape;
 use crate::{PaintScene, Scene};
@@ -225,6 +229,27 @@ struct SubtreeInk {
 pub struct SceneScratch {
     subtree_ink: Vec<SubtreeInk>,
     subtree_stack: Vec<usize>,
+}
+
+/// Paint fragments for layout-stable frames. Each entry is balanced on its own
+/// and shares command storage with its parent fragment and previously emitted scenes.
+#[doc(hidden)]
+#[derive(Default)]
+pub struct SceneParts {
+    by_node: HashMap<NodeId, ScenePart>,
+    viewport: Option<(u32, u32, u64)>,
+    pub rebuilt: usize,
+    pub reused: usize,
+}
+
+#[derive(Clone)]
+struct ScenePart {
+    scene: Scene,
+    end: usize,
+    clip: Rect,
+    raster_factor: f64,
+    transform: Affine,
+    world_opacity: f32,
 }
 
 fn prepare_subtree_ink(nodes: &[PlacedNode], out: &mut Vec<SubtreeInk>, stack: &mut Vec<usize>) {
@@ -1056,6 +1081,54 @@ pub fn build_presented_scene_scaled_layers_with_scratch(
     );
 }
 
+/// Update only dirty paint fragments. The host supplies dirty IDs including
+/// their ancestors, or requests a reset if the preorder changed.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn patch_presented_scene(
+    scene: &mut Scene,
+    nodes: &[PlacedNode],
+    overlays: &[PlacedNode],
+    tcx: &mut TextContext,
+    size: (u32, u32),
+    base_color: Color,
+    scale: f64,
+    parts: &mut SceneParts,
+    dirty: Option<&HashSet<NodeId>>,
+) {
+    let viewport = (size.0, size.1, scale.to_bits());
+    let dirty = dirty.filter(|_| parts.viewport == Some(viewport));
+    if let Some(dirty) = dirty {
+        for id in dirty {
+            parts.by_node.remove(id);
+        }
+    } else {
+        parts.by_node.clear();
+    }
+    parts.viewport = Some(viewport);
+    parts.rebuilt = 0;
+    parts.reused = 0;
+
+    let device = Affine::scale(scale);
+    let bg = Rect::new(0., 0., size.0 as f64, size.1 as f64);
+    scene.reset();
+    if base_color != Color::TRANSPARENT {
+        scene.fill(Fill::NonZero, device, base_color, None, &bg);
+    }
+    let mut encoder = Encoder {
+        tcx,
+        device,
+        bg,
+        viewport: bg,
+        device_scale: scale,
+        use_presentations: true,
+        parts: Some(parts),
+    };
+    encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, 1.);
+    encoder.parts = None;
+    encoder.encode_nodes::<false>(scene, overlays, &[], Affine::IDENTITY, bg, 1.);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_scene_scaled_layers_impl(
     scene: &mut Scene,
@@ -1081,6 +1154,7 @@ fn build_scene_scaled_layers_impl(
         viewport: bg,
         device_scale,
         use_presentations,
+        parts: None,
     };
     let mut local_scratch = SceneScratch::default();
     let scratch = scratch.unwrap_or(&mut local_scratch);
@@ -1106,6 +1180,7 @@ struct Encoder<'a> {
     viewport: Rect,
     device_scale: f64,
     use_presentations: bool,
+    parts: Option<&'a mut SceneParts>,
 }
 
 #[derive(Clone, Copy)]
@@ -1145,6 +1220,67 @@ impl Encoder<'_> {
     /// therefore revisited the tail at every level. The cursor consumes each
     /// entry once, matching the single DFS used by MyGO's linked node tree.
     fn encode_subtree<const SUBTREE_CULL: bool>(
+        &mut self,
+        scene: &mut Scene,
+        batch: NodeBatch<'_>,
+        cursor: &mut usize,
+        parent_transform: Affine,
+        inherited_clip: Rect,
+        raster_factor: f64,
+    ) {
+        if let Some(parts) = self.parts.as_mut() {
+            let n = &batch.nodes[*cursor];
+            let id = n.node_id;
+            let transform = n.world_transform;
+            let world_opacity = n.world_opacity;
+            if let Some(part) = parts.by_node.get(&id)
+                && part.clip == inherited_clip
+                && part.raster_factor == raster_factor
+                && part.transform == transform
+                && part.world_opacity == world_opacity
+            {
+                *cursor = part.end;
+                scene.append_cached_scene(part.scene.clone(), Affine::IDENTITY);
+                parts.reused += 1;
+                return;
+            }
+
+            let mut fragment = Scene::new();
+            self.encode_subtree_inner::<SUBTREE_CULL>(
+                &mut fragment,
+                batch,
+                cursor,
+                parent_transform,
+                inherited_clip,
+                raster_factor,
+            );
+            let parts = self.parts.as_mut().unwrap();
+            parts.by_node.insert(
+                id,
+                ScenePart {
+                    scene: fragment.clone(),
+                    end: *cursor,
+                    clip: inherited_clip,
+                    raster_factor,
+                    transform,
+                    world_opacity,
+                },
+            );
+            parts.rebuilt += 1;
+            scene.append_cached_scene(fragment, Affine::IDENTITY);
+        } else {
+            self.encode_subtree_inner::<SUBTREE_CULL>(
+                scene,
+                batch,
+                cursor,
+                parent_transform,
+                inherited_clip,
+                raster_factor,
+            );
+        }
+    }
+
+    fn encode_subtree_inner<const SUBTREE_CULL: bool>(
         &mut self,
         scene: &mut Scene,
         batch: NodeBatch<'_>,
@@ -1906,6 +2042,7 @@ mod tests {
                 viewport,
                 device_scale: 1.,
                 use_presentations: true,
+                parts: None,
             }
             .encode_nodes::<SUBTREE_CULL>(
                 scene,

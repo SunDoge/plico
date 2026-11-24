@@ -39,6 +39,8 @@ impl Renderer {
         instances: &mut Vec<Instance>,
     ) -> Result<()> {
         if !run.scale.is_finite()
+            || !run.vertical_ratio.is_finite()
+            || run.vertical_ratio <= 0.
             || run.scale <= 0.
             || !run.origin.iter().all(|v| v.is_finite() && v.abs() < 1e9)
             || !run
@@ -61,7 +63,7 @@ impl Renderer {
         let side = plico_native::text::atlas::ATLAS_SIZE as f32;
         for glyph in &run.layout.glyphs {
             let x = glyph.x * run.scale + run.origin[0];
-            let y = glyph.y * run.scale + run.origin[1];
+            let y = glyph.y * run.scale * run.vertical_ratio + run.origin[1];
             let quantized = (x * 4.).round() as i64;
             let (x, y, phase) = if run.continuous || run.scale != 1. {
                 (x, y, 0)
@@ -77,9 +79,9 @@ impl Renderer {
             if iw <= 0.
                 || ih <= 0.
                 || x + (ix + iw) * run.scale + 3. < f64::from(clip[0])
-                || y + (iy + ih) * run.scale + 3. < f64::from(clip[1])
+                || y + (iy + ih) * run.scale * run.vertical_ratio + 3. < f64::from(clip[1])
                 || x + ix * run.scale - 3. > f64::from(clip[0] + clip[2])
-                || y + iy * run.scale - 3. > f64::from(clip[1] + clip[3])
+                || y + iy * run.scale * run.vertical_ratio - 3. > f64::from(clip[1] + clip[3])
             {
                 continue;
             }
@@ -87,9 +89,9 @@ impl Renderer {
             let [ax, ay, w, h] = entry.rect;
             let rect = [
                 (x + entry.origin[0] as f64 * run.scale) as f32,
-                (y + entry.origin[1] as f64 * run.scale) as f32,
+                (y + entry.origin[1] as f64 * run.scale * run.vertical_ratio) as f32,
                 w as f32 * run.scale as f32,
-                h as f32 * run.scale as f32,
+                h as f32 * (run.scale * run.vertical_ratio) as f32,
             ];
             if rect[0] + rect[2] < clip[0]
                 || rect[1] + rect[3] < clip[1]

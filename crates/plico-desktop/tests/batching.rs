@@ -238,3 +238,35 @@ fn conditional_async_load_settles_and_native_frame_observes_completion() {
             .any(|n| n.paint.text.as_deref() == Some("Loaded 42"))
     );
 }
+
+#[test]
+fn failed_declarations_discard_commands_from_earlier_passes() {
+    struct Invalid {
+        pass: usize,
+    }
+    impl ServiceApp for Invalid {
+        type Snapshot = u64;
+        type Command = u64;
+        fn show(&mut self, cx: &mut UiContext, services: &mut Services<u64, u64>) {
+            self.pass += 1;
+            match self.pass {
+                1 => {
+                    services.send(7);
+                    cx.request_rebuild();
+                }
+                2 => {
+                    services.send(8);
+                    cx.text("one").key("duplicate");
+                    cx.text("two").key("duplicate");
+                }
+                _ => services.send(9),
+            }
+        }
+    }
+    let mut source = Source::new(ServiceView::new(Invalid { pass: 0 }, Actor::default()));
+    let mut text = TextContext::new();
+    assert!(source.try_build_frame(&mut text, 400, 300).is_err());
+    assert!(source.view().services.commands.is_empty());
+    source.try_build_frame(&mut text, 400, 300).unwrap();
+    assert_eq!(source.view().services.commands, [9]);
+}

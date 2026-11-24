@@ -63,3 +63,11 @@ Plico-specific. The native target is retained across the local autorelease pool.
 `internal/darwin/surface.go::RequestFrame`'s immediate first frame after a pause
 longer than two refresh intervals. Plico uses injected monotonic timing for the
 handshake and CADisplayLink.duration for the current display interval.
+
+The desktop context menu backends reference MyGO revision `f651b106`,
+`internal/{darwin,windows,linux}/menu.go` and `internal/linux/flyout.go`
+(MIT, see `mygo-LICENSE`). AppKit tracks an NSMenu relative to its owning
+view. Plico draws Windows and Linux popup contents with its own renderer.
+
+The custom popup translates the item spacing, mark columns and opaque light
+and dark palettes from `internal/windows/menudraw.go` at the same revision.

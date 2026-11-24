@@ -224,3 +224,5 @@ saving = Saving
 sidebar-workspace = Workspace
 sidebar-components = Components
 sidebar-experiments = Experiments
+
+sidebar-demos = Demos

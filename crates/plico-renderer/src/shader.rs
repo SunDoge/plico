@@ -723,6 +723,12 @@ impl ShaderEffect {
         let short_side = (self.logical_size[0] - 2. * inset_x)
             .min(self.logical_size[1] - 2. * inset_y)
             .max(0.);
+        if (4.5..5.5).contains(&style) || value(39, 0.).abs() > 0.5 {
+            return 5.;
+        }
+        if style > 3.5 {
+            return 0.;
+        }
         if style > 1.5 {
             return frost / 0.42;
         }

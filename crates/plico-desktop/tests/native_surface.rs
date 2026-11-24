@@ -223,3 +223,37 @@ fn hidden_history_slot_cannot_capture_the_visible_pages_widget() {
         assert_eq!(source.widget.mounts, 1);
     }
 }
+
+#[test]
+fn headless_profiler_preserves_last_sample_when_declaration_fails() {
+    struct Label(bool);
+    impl HostView for Label {
+        fn show(&mut self, cx: &mut UiContext) {
+            cx.text("first").key("label");
+            if self.0 {
+                cx.text("second").key("label");
+            }
+        }
+    }
+    let mut source = plico_desktop::Source::new(Label(false));
+    let mut text = TextContext::new();
+    let mut profiler = plico_shell::headless::HeadlessFrameProfiler::default();
+    let background = source.base_color();
+    profiler
+        .build(&mut source, &mut text, 320, 200, 1., background)
+        .unwrap();
+    let previous = profiler.stats();
+    source.update(|label| label.0 = true);
+    let result = profiler.build(&mut source, &mut text, 320, 200, 1., background);
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("duplicate UI key")
+    );
+    assert_eq!(
+        profiler.stats().sample_build_frame_ms,
+        previous.sample_build_frame_ms
+    );
+}

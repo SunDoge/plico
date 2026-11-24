@@ -101,6 +101,57 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
                     .find_map(|child| Self::locate(engine, *child, key))
             })
     }
+    fn layout_surface(&mut self, text: &mut TextContext, nodes: &[PlacedNode]) {
+        self.widget.set_frame_time(self.source.engine.time());
+        self.entity = Self::locate(&self.source.engine, self.source.engine.root(), self.slot);
+        self.node = self.entity.and_then(|e| self.source.adapter.backend_id(e));
+        let slot = self
+            .node
+            .and_then(|id| nodes.iter().find(|n| n.node_id == id));
+        if let Some(slot) = slot {
+            let [w, h] = slot.content_size;
+            let visible = w > 0. && h > 0.;
+            if visible != self.visible {
+                self.widget.visibility_changed(visible);
+                if visible && !self.mounted {
+                    self.widget.mounted();
+                    self.mounted = true;
+                }
+                self.visible = visible;
+            }
+            // This first embedding API supports ordinary layout slots;
+            // transformed native surfaces need a separate geometry contract.
+            let origin = slot.content_origin;
+            self.rect = [origin[0], origin[1], w, h];
+            self.local_to_window = [1., 0., 0., 1., origin[0] as f64, origin[1] as f64];
+            self.window_to_local = [1., 0., 0., 1., -origin[0] as f64, -origin[1] as f64];
+            let mut measure = MeasureContext::new(
+                [Some(w), Some(h)],
+                [
+                    WidgetAvailableSpace::Definite(w),
+                    WidgetAvailableSpace::Definite(h),
+                ],
+                self.scale,
+                text,
+            );
+            self.widget.measure(&mut measure);
+            self.widget.layout_changed(WidgetGeometry {
+                content_size: [w, h],
+                device_scale: self.scale,
+                local_to_window: self.local_to_window,
+                window_to_local: self.window_to_local,
+            });
+            // Actual device scale is supplied by paint_scene, below.
+        } else {
+            if self.visible {
+                self.widget.visibility_changed(false);
+            }
+            self.visible = false;
+            self.focus(false);
+            self.captured = false;
+        }
+    }
+
     fn paint_surface(
         &mut self,
         scene: &mut Scene,
@@ -290,56 +341,20 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     }
     fn build_frame(&mut self, text: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode> {
         self.event_dirty = false;
-        let mut nodes = self.source.build_frame(text, width, height);
-        self.widget.set_frame_time(self.source.engine.time());
-        self.entity = Self::locate(&self.source.engine, self.source.engine.root(), self.slot);
-        self.node = self.entity.and_then(|e| self.source.adapter.backend_id(e));
-        let slot = self
-            .node
-            .and_then(|id| nodes.iter_mut().find(|n| n.node_id == id));
-        if let Some(slot) = slot {
-            let [w, h] = slot.content_size;
-            let visible = w > 0. && h > 0.;
-            if visible != self.visible {
-                self.widget.visibility_changed(visible);
-                if visible && !self.mounted {
-                    self.widget.mounted();
-                    self.mounted = true;
-                }
-                self.visible = visible;
-            }
-            // This first embedding API supports ordinary layout slots;
-            // transformed native surfaces need a separate geometry contract.
-            let origin = slot.content_origin;
-            self.rect = [origin[0], origin[1], w, h];
-            self.local_to_window = [1., 0., 0., 1., origin[0] as f64, origin[1] as f64];
-            self.window_to_local = [1., 0., 0., 1., -origin[0] as f64, -origin[1] as f64];
-            let mut measure = MeasureContext::new(
-                [Some(w), Some(h)],
-                [
-                    WidgetAvailableSpace::Definite(w),
-                    WidgetAvailableSpace::Definite(h),
-                ],
-                self.scale,
-                text,
-            );
-            self.widget.measure(&mut measure);
-            self.widget.layout_changed(WidgetGeometry {
-                content_size: [w, h],
-                device_scale: self.scale,
-                local_to_window: self.local_to_window,
-                window_to_local: self.window_to_local,
-            });
-            // Actual device scale is supplied by paint_scene, below.
-        } else {
-            if self.visible {
-                self.widget.visibility_changed(false);
-            }
-            self.visible = false;
-            self.focus(false);
-            self.captured = false;
-        }
+        let nodes = self.source.build_frame(text, width, height);
+        self.layout_surface(text, &nodes);
         nodes
+    }
+    fn try_build_frame(
+        &mut self,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PlacedNode>, plico_renderer::FrameSourceError> {
+        let nodes = FrameSource::try_build_frame(&mut self.source, text, width, height)?;
+        self.event_dirty = false;
+        self.layout_surface(text, &nodes);
+        Ok(nodes)
     }
     fn paint_scene(
         &mut self,
@@ -361,7 +376,7 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
         text.set_native_paragraph_scale(scale);
         let start = Instant::now();
-        let mut nodes = self.build_frame(text, width, height);
+        let mut nodes = self.try_build_frame(text, width, height)?;
         let build_ms = start.elapsed().as_secs_f64() * 1000.;
         let start = Instant::now();
         self.paint_surface(scene, &mut nodes, text, (width, height), scale);
@@ -506,6 +521,22 @@ mod tests {
     impl plico_renderer::Widget for EmptyWidget {
         fn paint(&mut self, _: &mut PaintContext<'_>) {}
     }
+    #[test]
+    fn surface_paint_propagates_declaration_errors() {
+        struct DuplicateKeys;
+        impl HostView for DuplicateKeys {
+            fn show(&mut self, ui: &mut UiContext) {
+                ui.text("first").key("duplicate");
+                ui.text("second").key("duplicate");
+            }
+        }
+        let mut source = SurfaceSource::new(DuplicateKeys, EmptyWidget, "unused-slot");
+        let error = source
+            .build_and_paint(&mut Scene::new(), &mut TextContext::new(), 320, 200, 1.)
+            .unwrap_err();
+        assert!(error.to_string().contains("duplicate UI key"));
+    }
+
     struct ShaderView;
     impl HostView for ShaderView {
         fn show(&mut self, cx: &mut UiContext) {

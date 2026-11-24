@@ -124,9 +124,10 @@ fn draw_info(draw: crate::Draw<'_>, mask: Option<[f32; 4]>) -> OcclusionInfo {
                 }
                 let glyph = [
                     (run.origin[0] + (glyph.x + x) * run.scale - 4.) as f32,
-                    (run.origin[1] + (glyph.y + y) * run.scale - 4.) as f32,
+                    (run.origin[1] + (glyph.y + y) * run.scale * run.vertical_ratio - 4.) as f32,
                     (run.origin[0] + (glyph.x + x + width) * run.scale + 4.) as f32,
-                    (run.origin[1] + (glyph.y + y + height) * run.scale + 4.) as f32,
+                    (run.origin[1] + (glyph.y + y + height) * run.scale * run.vertical_ratio + 4.)
+                        as f32,
                 ];
                 if !glyph.iter().all(|value| value.is_finite()) {
                     return OcclusionInfo::default();
@@ -182,6 +183,8 @@ fn validate_culled_draw(renderer: &Renderer, draw: crate::Draw<'_>, _size: [u32;
         #[cfg(all(target_os = "linux", feature = "system-text"))]
         crate::Draw::Text(run) => {
             if !run.scale.is_finite()
+                || !run.vertical_ratio.is_finite()
+                || run.vertical_ratio <= 0.
                 || run.scale <= 0.
                 || !run
                     .origin

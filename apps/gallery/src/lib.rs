@@ -22,6 +22,7 @@ mod cui_showcase;
 pub mod game2048;
 pub mod glass;
 mod layout_demo;
+mod liquid_showcase;
 pub mod markdown_chat;
 pub mod mines;
 mod node_editor_demo;
@@ -76,6 +77,8 @@ pub enum Page {
     BlackHole,
     #[route(label = "Patterns", icon = color_icons::SETTINGS)]
     Patterns,
+    #[route(label = "Liquid Glass", icon = color_icons::DESIGN_IDEAS)]
+    LiquidGlass,
     #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
     Effects,
     #[route(label = "Shader playground", icon = color_icons::DESIGN_IDEAS)]
@@ -104,6 +107,8 @@ pub struct Gallery {
     /// The desktop-patterns page's local demo state.
     pub patterns: patterns::Patterns,
     pub effects: effects::Effects,
+    #[serde(default)]
+    pub liquid_showcase: liquid_showcase::Showcase,
     pub shader_playground: shader_playground::Playground,
     pub component_kit: component_kit::ComponentKit,
     pub cui_showcase: cui_showcase::CuiShowcase,
@@ -214,6 +219,8 @@ impl Gallery {
                     Page::Patterns => {
                         patterns::page(ui, &mut self.patterns, &mut self.router)
                     }
+                    Page::LiquidGlass => liquid_showcase::page(ui, &mut self.liquid_showcase, self.dark,
+                        self.sidebar_collapsed),
                     Page::Effects => effects::page(ui, &mut self.effects),
                     Page::ShaderPlayground => {
                         shader_playground::page(ui, &mut self.shader_playground)

@@ -2,6 +2,9 @@
 use crate::{Align, Color, Justify, Key, Kind, Motion, Style, UiContext};
 use std::borrow::Cow;
 
+static POPUP_NECK: crate::ShaderAsset =
+    crate::shader_asset!("../assets/materials/popup_neck.wgsl").read_backdrop();
+
 #[derive(Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ModalState {
@@ -40,6 +43,7 @@ pub struct Modal<'u, 'e, 's> {
     escape: bool,
     anchor: Option<u64>,
     panel_role: Option<crate::WidgetRole>,
+    over_anchor: bool,
     max_height: Option<f32>,
     header: bool,
     material: Option<crate::LiquidGlass>,
@@ -59,6 +63,7 @@ impl<'e> UiContext<'e> {
             escape: true,
             anchor: None,
             panel_role: None,
+            over_anchor: false,
             max_height: None,
             header: true,
             material: None,
@@ -158,6 +163,7 @@ impl<'s> Modal<'_, '_, 's> {
             escape,
             anchor,
             panel_role,
+            over_anchor,
             max_height,
             header,
             material,
@@ -172,6 +178,15 @@ impl<'s> Modal<'_, '_, 's> {
         } else {
             motion
         };
+        let animate_list = anchor.is_some()
+            && (over_anchor
+                || matches!(
+                    panel_role,
+                    Some(crate::WidgetRole::Menu | crate::WidgetRole::ListBox)
+                ))
+            && material.is_some_and(|glass| glass.enabled)
+            && motion != Motion::None;
+        let animate_morph = animate_list && over_anchor;
         let now = ui.now().as_millis().min(u64::MAX as u128) as u64;
         if ui.inherited.disabled {
             state.close();
@@ -182,14 +197,37 @@ impl<'s> Modal<'_, '_, 's> {
             state.mounted = true;
             state.closing_until_ms = None;
         } else if state.mounted {
-            let until = *state
-                .closing_until_ms
-                .get_or_insert_with(|| now.saturating_add(motion.duration_ms() as u64));
+            let until = *state.closing_until_ms.get_or_insert_with(|| {
+                now.saturating_add(if animate_list {
+                    if over_anchor { 700 } else { 348 }
+                } else {
+                    u64::from(motion.duration_ms())
+                })
+            });
             if now >= until {
                 state.mounted = false;
                 state.closing_until_ms = None;
             }
         }
+        let glass_popup = anchor.is_some() && material.is_some_and(|glass| glass.enabled);
+        let liquid_list = material.is_some()
+            && (over_anchor
+                || matches!(
+                    panel_role,
+                    Some(crate::WidgetRole::Menu | crate::WidgetRole::ListBox)
+                ));
+        let over_center = anchor.is_some() && over_anchor;
+        let opening = if glass_popup && !animate_list && motion != Motion::None {
+            ui.keyed(key, |cx| {
+                cx.animate(
+                    "glass-popup-opening",
+                    f32::from(state.open),
+                    std::time::Duration::from_millis(u64::from(motion.duration_ms())),
+                )
+            })
+        } else {
+            1.
+        };
         if !state.mounted {
             return ModalResponse {
                 inner: None,
@@ -211,11 +249,14 @@ impl<'s> Modal<'_, '_, 's> {
         let style = Style {
             overlay: true,
             popup_anchor: anchor,
+            liquid_popup: liquid_list,
+            popup_over_anchor: over_center,
+            popup_motion: animate_list,
             modal_open: state.open,
             dismiss_on_backdrop: backdrop,
             dismiss_on_escape: escape,
             presence_until_ms: state.closing_until_ms,
-            opacity: if state.open { 1. } else { 0. },
+            opacity: if state.open || animate_list { 1. } else { 0. },
             transition_ms: motion.duration_ms(),
             font_size: ui.theme().metrics.font_size,
             padding: if anchor.is_some() { 0. } else { 20. },
@@ -265,6 +306,13 @@ impl<'s> Modal<'_, '_, 's> {
                     |_| {},
                 );
             }
+            if glass_popup && !over_center && !animate_list && opening > 0. && opening < 1. {
+                crate::widgets::shader(cx, &POPUP_NECK)
+                    .absolute(0., 0.)
+                    .width(1.)
+                    .height(1.)
+                    .values(&[opening, -1.]);
+            }
             let metrics = cx.theme().metrics;
             let mut panel = Style {
                 width_percent: anchor.is_none().then_some(100.),
@@ -301,16 +349,30 @@ impl<'s> Modal<'_, '_, 's> {
                 font_size: cx.theme().metrics.font_size,
                 ..Default::default()
             };
-            if anchor.is_some() {
+            if liquid_list {
+                crate::Elevation::LIQUID_POPUP.apply(&mut panel);
+            } else if anchor.is_some() {
                 crate::Elevation::FLOATING.apply(&mut panel);
             } else {
                 crate::Elevation::OVERLAY.apply(&mut panel);
             }
+            if animate_morph {
+                panel.shadow = None;
+                panel.ambient_shadow = None;
+            }
             if material.is_some() {
+                if glass_popup && !animate_list {
+                    // Scale the content uniformly so text and shadows keep their proportions.
+                    panel.scale = [0.88 + 0.12 * opening; 2];
+                }
                 panel.padding = 0.;
                 panel.gap = 0.;
-                panel.radius = 24.;
-                panel.corner_smoothing = 1.;
+                panel.radius = if over_anchor && panel_role.is_none() {
+                    26.
+                } else {
+                    24.
+                };
+                panel.corner_smoothing = if liquid_list { 0. } else { 1. };
                 panel.background = None;
                 panel.border_width = 0.;
                 panel.scroll_y = false;
@@ -353,19 +415,51 @@ impl<'s> Modal<'_, '_, 's> {
                 build(cx)
             };
             cx.element(Key::Static("dialog"), Kind::Dialog, panel, &title, |cx| {
-                if !state.open {
+                if !state.open && !animate_list {
                     cx.engine.retain_exiting_children(cx.parent);
                     return None;
                 }
                 Some(if let Some(material) = material {
-                    material.show(cx, panel.radius, panel.corner_smoothing);
+                    if animate_morph {
+                        material.show_face(
+                            cx,
+                            panel.radius,
+                            crate::materials::GlassFace::MorphPanel,
+                        );
+                    } else if animate_list {
+                        material.show_face(
+                            cx,
+                            panel.radius,
+                            crate::materials::GlassFace::SelectPanel,
+                        );
+                    } else if liquid_list {
+                        material.show_face(cx, panel.radius, crate::materials::GlassFace::Panel);
+                    } else {
+                        material.show(cx, panel.radius, panel.corner_smoothing);
+                    }
                     let content_style = Style {
                         width_percent: Some(100.),
-                        padding: if anchor.is_some() { 4. } else { 20. },
-                        gap: if anchor.is_some() { 4. } else { 12. },
+                        padding: if over_center && panel_role.is_none() {
+                            16.
+                        } else if liquid_list {
+                            6.
+                        } else if anchor.is_some() {
+                            4.
+                        } else {
+                            20.
+                        },
+                        gap: if over_center && panel_role.is_none() {
+                            8.
+                        } else if liquid_list {
+                            0.
+                        } else if anchor.is_some() {
+                            4.
+                        } else {
+                            12.
+                        },
                         scroll_y: true,
                         max_height,
-                        radius: panel.radius,
+                        radius: if liquid_list { 18. } else { panel.radius },
                         corner_smoothing: panel.corner_smoothing,
                         font_size: cx.theme().metrics.font_size,
                         ..Default::default()
@@ -400,6 +494,7 @@ pub struct Popover<'u, 'e, 's> {
     modal: Modal<'u, 'e, 's>,
     disabled: bool,
     trigger_text: Option<Cow<'s, str>>,
+    trigger_icon: Option<(crate::SvgAsset, bool)>,
 }
 impl<'e> UiContext<'e> {
     pub fn popover<'u, 's>(
@@ -411,6 +506,7 @@ impl<'e> UiContext<'e> {
             modal: self.modal(state).title(label).width(240.),
             disabled: false,
             trigger_text: None,
+            trigger_icon: None,
         }
     }
 }
@@ -426,6 +522,20 @@ impl<'s> crate::ImplicitKey for Popover<'_, '_, 's> {
     }
 }
 impl<'s> Popover<'_, '_, 's> {
+    pub fn trigger_icon(mut self, icon: &crate::SvgAsset, icon_only: bool) -> Self {
+        self.trigger_icon = Some((*icon, icon_only));
+        self
+    }
+    /// Center the popup over its trigger, clamping the result to the viewport.
+    pub fn over_anchor(mut self, enabled: bool) -> Self {
+        self.modal.over_anchor = enabled;
+        self
+    }
+    /// Render the anchor and its popup with the same scene-backed glass.
+    pub fn material(mut self, glass: crate::LiquidGlass) -> Self {
+        self.modal.material = Some(glass);
+        self
+    }
     pub fn width(mut self, width: f32) -> Self {
         self.modal = self.modal.width(width);
         self
@@ -470,7 +580,12 @@ impl<'s> Popover<'_, '_, 's> {
         }
         let metrics = ui.theme().metrics;
         let trigger_text = self.trigger_text.take();
-        let style = Style {
+        let glass = self.modal.material;
+        let trigger_icon = self.trigger_icon;
+        let icon_only = trigger_icon.is_some_and(|(_, only)| only);
+        let tinted_icon_trigger =
+            icon_only && glass.is_some_and(|material| material.tint_opacity > 0.);
+        let mut style = Style {
             anchor_id: Some(anchor),
             width: trigger_text.as_ref().map(|_| self.modal.width),
             gap: 8.,
@@ -489,9 +604,48 @@ impl<'s> Popover<'_, '_, 's> {
             background: Some(Color::Control),
             ..Default::default()
         };
+        let liquid_list = glass.is_some()
+            && (self.modal.over_anchor
+                || matches!(
+                    self.modal.panel_role,
+                    Some(crate::WidgetRole::Menu | crate::WidgetRole::ListBox)
+                ));
+        let covered = self.modal.over_anchor
+            && liquid_list
+            && (self.modal.state.open || self.modal.state.mounted);
+        let preferences = ui.display_preferences();
+        let animate_morph = self.modal.over_anchor
+            && glass.is_some_and(|glass| glass.enabled && !glass.reduce_motion)
+            && !preferences.reduce_transparency
+            && !preferences.reduce_motion
+            && self.modal.motion != Motion::None;
+        let label_opacity = f32::from(animate_morph || !covered);
+        let trigger_glass = animate_morph || !covered;
+        if liquid_list {
+            style.gap = 8.;
+            style.height = Some(48.);
+            style.radius = 24.;
+            style.corner_smoothing = 0.;
+            style.font_size = 15;
+            style.align = Some(Align::Center);
+            style.justify = Some(Justify::Center);
+            style.padding_x = Some(if trigger_text.is_some() { 20. } else { 24. });
+            style.padding_y = Some(0.);
+        }
+        if icon_only {
+            style.width = Some(40.);
+            style.height = Some(40.);
+            style.radius = 20.;
+            style.padding_x = Some(0.);
+        }
+        if glass.is_some() {
+            style.background = None;
+            style.border_width = 0.;
+            style.layout.position = crate::Position::Relative;
+        }
         let (_, clicked) = ui.element(
             self.modal.key,
-            if trigger_text.is_some() {
+            if trigger_text.is_some() || glass.is_some() {
                 Kind::ButtonBase
             } else {
                 Kind::Button
@@ -499,6 +653,54 @@ impl<'s> Popover<'_, '_, 's> {
             style,
             self.modal.title.as_ref(),
             |cx| {
+                if let Some(glass) = glass {
+                    if trigger_glass && liquid_list {
+                        let face = if tinted_icon_trigger {
+                            crate::materials::GlassFace::Group(false)
+                        } else {
+                            crate::materials::GlassFace::Trigger
+                        };
+                        glass.show_face(cx, style.radius, face);
+                    } else if !covered {
+                        glass.show_interactive(
+                            cx,
+                            style.radius,
+                            style.corner_smoothing,
+                            cx.hovered(),
+                            cx.pressed(),
+                        );
+                    }
+                    if trigger_text.is_none() {
+                        if let Some((icon, _)) = trigger_icon {
+                            crate::widgets::svg(cx, &icon)
+                                .size(16., 16.)
+                                .color(if tinted_icon_trigger {
+                                    Color::Literal(0x171717)
+                                } else {
+                                    Color::Foreground
+                                })
+                                .opacity(label_opacity);
+                        }
+                        if !icon_only {
+                            crate::widgets::text(cx, self.modal.title.as_ref())
+                                .opacity(label_opacity)
+                                .weight(
+                                    if self.modal.panel_role == Some(crate::WidgetRole::Menu) {
+                                        600
+                                    } else if liquid_list {
+                                        500
+                                    } else {
+                                        400
+                                    },
+                                );
+                        }
+                        if liquid_list && trigger_icon.is_none() {
+                            crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN)
+                                .size(16., 16.)
+                                .opacity(label_opacity * 0.6);
+                        }
+                    }
+                }
                 if let Some(shown) = trigger_text.as_deref() {
                     crate::widgets::text(cx, shown).grow(1.);
                     crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN).size(16., 16.);

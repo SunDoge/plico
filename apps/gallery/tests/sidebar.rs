@@ -5,10 +5,10 @@ use plico_desktop::testing::{Command, DifferentialTester, Driver};
 use plico_renderer::{SemanticRole, SemanticSnapshot};
 use std::time::Duration;
 
-fn click(driver: &mut Driver<Gallery>, label: &str) {
+fn click(driver: &mut Driver<Gallery>, role: &str, label: &str) {
     driver
         .execute(Command::Click {
-            role: "button".into(),
+            role: role.into(),
             label: label.into(),
             occurrence: None,
         })
@@ -64,9 +64,9 @@ fn sidebar_moves_content_in_one_direction_per_toggle() {
 #[test]
 fn expanding_never_squeezes_the_header_title() {
     let mut driver = Driver::new(Gallery::default(), 1120, 820).unwrap();
-    click(&mut driver, "Toggle navigation");
+    click(&mut driver, "button", "Toggle navigation");
     driver.advance(Duration::from_millis(400)).unwrap();
-    click(&mut driver, "Toggle navigation");
+    click(&mut driver, "button", "Toggle navigation");
     for _ in 0..25 {
         driver.advance(Duration::from_millis(10)).unwrap();
         if let Some(node) = driver
@@ -102,19 +102,19 @@ fn collapsing_animates_layout_without_replacing_navigation_targets() {
     .unwrap();
     let target = driver
         .snapshot()
-        .node_by_role(SemanticRole::Button, "Motion", None)
+        .node_by_role(SemanticRole::TreeItem, "Motion", None)
         .unwrap()
         .id;
     let expanded = heading_x(&driver);
     assert!(
         driver
             .snapshot()
-            .node_by_role(SemanticRole::Button, "Pause shader", None)
+            .node_by_role(SemanticRole::Button, "Toast", None)
             .unwrap()
             .bounds[2]
             <= 1120.
     );
-    click(&mut driver, "Toggle navigation");
+    click(&mut driver, "button", "Toggle navigation");
     driver.advance(Duration::from_millis(100)).unwrap();
     let intermediate = heading_x(&driver);
     driver.advance(Duration::from_millis(250)).unwrap();
@@ -122,7 +122,7 @@ fn collapsing_animates_layout_without_replacing_navigation_targets() {
     assert!(
         driver
             .snapshot()
-            .node_by_role(SemanticRole::Button, "Pause shader", None)
+            .node_by_role(SemanticRole::Button, "Toast", None)
             .unwrap()
             .bounds[2]
             <= 1120.
@@ -143,24 +143,24 @@ fn collapsing_animates_layout_without_replacing_navigation_targets() {
     assert_eq!(
         driver
             .snapshot()
-            .node_by_role(SemanticRole::Button, "Motion", None)
+            .node_by_role(SemanticRole::TreeItem, "Motion", None)
             .unwrap()
             .id,
         target
     );
-    click(&mut driver, "Motion");
+    click(&mut driver, "treeitem", "Motion");
     assert!(
         driver
             .snapshot()
             .node_by_role(SemanticRole::Label, "Motion studies", None)
             .is_some()
     );
-    click(&mut driver, "Toggle navigation");
+    click(&mut driver, "button", "Toggle navigation");
     driver.advance(Duration::from_millis(400)).unwrap();
     assert_eq!(
         driver
             .snapshot()
-            .node_by_role(SemanticRole::Button, "Motion", None)
+            .node_by_role(SemanticRole::TreeItem, "Motion", None)
             .unwrap()
             .id,
         target
@@ -171,7 +171,7 @@ fn collapsing_animates_layout_without_replacing_navigation_targets() {
 fn gallery_navigation_matches_a_cold_replay() {
     let mut ui = DifferentialTester::new(Gallery::default(), 1120, 820).unwrap();
     ui.execute(Command::Click {
-        role: "button".into(),
+        role: "treeitem".into(),
         label: "Controls".into(),
         occurrence: None,
     })

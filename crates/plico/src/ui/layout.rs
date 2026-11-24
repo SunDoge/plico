@@ -11,6 +11,7 @@ pub struct Layout<'u, 'e> {
     pub(super) toolbar_buttons: bool,
     pub(super) accordion_items: bool,
     pub(super) material: Option<crate::LiquidGlass>,
+    pub(super) glass_group: bool,
 }
 impl Layout<'_, '_> {
     /// Attach a read-only numeric range and its accessible name to a composed
@@ -56,6 +57,11 @@ impl Layout<'_, '_> {
     }
     pub(crate) fn toolbar_buttons(mut self) -> Self {
         self.toolbar_buttons = true;
+        self
+    }
+
+    pub(crate) fn glass_group(mut self) -> Self {
+        self.glass_group = true;
         self
     }
 
@@ -601,7 +607,15 @@ impl Layout<'_, '_> {
         self.ui.engine.set_grid(entity, self.grid.as_ref());
         let inner = self.ui.with_parent(entity, self.style, false, |cx| {
             if let Some(material) = self.material {
-                material.show(cx, self.style.radius, self.style.corner_smoothing);
+                if self.glass_group {
+                    material.show_face(
+                        cx,
+                        self.style.radius,
+                        crate::materials::GlassFace::Group(self.kind == Kind::Column),
+                    );
+                } else {
+                    material.show(cx, self.style.radius, self.style.corner_smoothing);
+                }
             }
             let previous_accordion = cx.accordion_items;
             let previous_accordion_index = cx.accordion_index;

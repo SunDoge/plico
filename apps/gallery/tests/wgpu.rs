@@ -457,3 +457,51 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     );
     assert!(!source.has_anim());
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn liquid_controls_present_while_the_lenses_are_deforming() {
+    use plico::{UiContext, widgets::liquid};
+    struct Controls {
+        action: liquid::ActionState,
+        level: f64,
+    }
+    impl plico_desktop::HostView for Controls {
+        fn show(&mut self, cx: &mut UiContext) {
+            liquid::action_button(cx, "Deploy", self.action);
+            liquid::range_slider(cx, "Brightness", &mut self.level, 0.0..=100., 1., 200.);
+        }
+    }
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(
+        Controls {
+            action: liquid::ActionState::Idle,
+            level: 40.,
+        },
+        clock.clone(),
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    for (action, level) in [
+        (liquid::ActionState::Idle, 40.),
+        (liquid::ActionState::Idle, 90.),
+        (liquid::ActionState::Pending, 90.),
+        (liquid::ActionState::Success, 90.),
+    ] {
+        source.update(|view| {
+            view.action = action;
+            view.level = level;
+        });
+        for delta in [0, 12, 24, 48, 300] {
+            clock.advance(Duration::from_millis(delta)).unwrap();
+            source
+                .try_render_retained_frame(&mut scene, &mut text, (320, 160), 1.)
+                .unwrap();
+            renderer
+                .render_scene(&scene, [320, 160], [1.; 4], true)
+                .unwrap();
+        }
+    }
+}

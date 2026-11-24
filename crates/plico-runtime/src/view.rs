@@ -50,6 +50,12 @@ pub trait HostView {
     fn snapshot_changed(&self) -> bool {
         false
     }
+    /// Flush effects from a stable declaration and report a synchronous projection change.
+    fn commit_declaration(&mut self) -> bool {
+        false
+    }
+    /// Discard effects accumulated by a failed declaration batch.
+    fn discard_declaration(&mut self) {}
     fn show(&mut self, ui: &mut plico::UiContext<'_>);
     fn theme(&self) -> Theme {
         Theme::default()

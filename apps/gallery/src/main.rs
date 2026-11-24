@@ -6,6 +6,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scenario: Option<std::path::PathBuf>,
         #[usage(long)]
         capture: Option<std::path::PathBuf>,
+        /// Export scripted virtual-time frames to H.264 MP4.
+        #[usage(long)]
+        record: Option<std::path::PathBuf>,
+        #[usage(long, default = "60")]
+        fps: u32,
         /// Capture the scenario repeatedly and keep the last frame, so caches
         /// and pipelines are warm when `PLICO_FRAME_BUDGET` is printed.
         #[usage(long)]
@@ -21,9 +26,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         no_ring_splitting: bool,
     }
     let options = Options::parse();
+    if options.capture.is_some() && options.record.is_some() {
+        return Err("--capture and --record are mutually exclusive".into());
+    }
     #[cfg(not(any(feature = "desktop", feature = "wgpu")))]
-    if options.capture.is_some() || options.scenario.is_some() {
+    if options.record.is_some() || options.capture.is_some() || options.scenario.is_some() {
         return Err("scenario capture requires the gallery desktop or wgpu feature".into());
+    }
+    #[cfg(any(feature = "desktop", feature = "wgpu"))]
+    if let Some(output) = options.record {
+        let scenario = if let Some(path) = &options.scenario {
+            plico_desktop::PreviewScenario::<gallery::Gallery>::load(path)?
+        } else {
+            Default::default()
+        };
+        scenario.record_mp4(output, options.fps, plico_desktop::NativeApp)?;
+        return Ok(());
     }
     #[cfg(any(feature = "desktop", feature = "wgpu"))]
     if let Some(output) = options.capture {

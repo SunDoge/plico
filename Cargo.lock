@@ -3662,6 +3662,7 @@ dependencies = [
 name = "gallery"
 version = "0.4.5"
 dependencies = [
+ "chrono",
  "directories",
  "image",
  "plico",
@@ -7364,6 +7365,7 @@ dependencies = [
  "url",
  "usage-rs",
  "winit 0.31.0-beta.3",
+ "x11rb",
  "zbus",
 ]
 

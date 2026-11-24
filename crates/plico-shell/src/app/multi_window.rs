@@ -16,6 +16,8 @@ impl MultiWindowApp {
         }
         let startup_errors = apps.iter().map(|app| app.startup_error.clone()).collect();
         Self {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            popup: None,
             pending: apps,
             windows: HashMap::new(),
             hidden_windows: HashMap::new(),
@@ -124,6 +126,11 @@ impl MultiWindowApp {
                 .iter_mut()
                 .any(|extension| extension.submit_effect(&request, &mut context));
             if !handled {
+                #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+                if let crate::EffectPayload::ContextMenuShow(menu) = &request.payload {
+                    self.show_context_menu(event_loop, window_key, request.id, menu);
+                    continue;
+                }
                 context.complete_effect(
                     window_key,
                     crate::EffectCompletion {
@@ -138,6 +145,73 @@ impl MultiWindowApp {
                         },
                     },
                 );
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    fn show_context_menu(
+        &mut self,
+        _event_loop: &dyn ActiveEventLoop,
+        requester: WindowResourceKey,
+        id: crate::EffectId,
+        menu: &crate::ContextMenuRequest,
+    ) {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        self.dismiss_popup(None, false);
+        let result = (|| {
+            let app = find_window_by_key(self.windows.values_mut(), menu.window_id)
+                .ok_or("menu owner is not visible")?;
+            let shell = app.state.as_mut().ok_or("menu owner has no surface")?;
+            let offset = shell.content_offset();
+            let x = menu
+                .position
+                .as_ref()
+                .map_or(app.pointer_position.x, |p| f64::from(p.x))
+                + offset[0];
+            let y = menu
+                .position
+                .as_ref()
+                .map_or(app.pointer_position.y, |p| f64::from(p.y))
+                + offset[1];
+            if menu.items.is_empty() {
+                return Ok(Some(crate::EffectResult::ContextMenuSelection(None)));
+            }
+            #[cfg(target_os = "macos")]
+            {
+                appkit_menu::show(shell.window(), &menu.items, x, y)
+                    .map(|value| Some(crate::EffectResult::ContextMenuSelection(value)))
+            }
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                self.popup = Some(popup_window::Popup::open(
+                    _event_loop,
+                    shell,
+                    menu,
+                    requester,
+                    id,
+                    x,
+                    y,
+                )?);
+                Ok(None)
+            }
+        })();
+        let result = match result {
+            Ok(None) => return,
+            Ok(Some(result)) => result,
+            Err(message) => crate::EffectResult::Error {
+                code: crate::EffectErrorCode::PlatformFailure,
+                message,
+            },
+        };
+        if let Some(app) = find_window_by_key(self.windows.values_mut(), requester) {
+            app.source.complete_effect(crate::EffectCompletion {
+                id,
+                op: crate::effect::builtin::CONTEXT_MENU_SHOW,
+                result,
+            });
+            if let Some(shell) = &app.state {
+                shell.window().request_redraw();
             }
         }
     }
@@ -395,6 +469,10 @@ impl ApplicationHandler for MultiWindowApp {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        if self.popup_event(window_id, &event) {
+            return;
+        }
         if matches!(event, WindowEvent::CloseRequested) {
             let Some(window_key) = self.windows.get(&window_id).map(|app| app.window_key) else {
                 return;
@@ -500,6 +578,14 @@ impl ApplicationHandler for MultiWindowApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        if self
+            .popup
+            .as_ref()
+            .is_some_and(|p| !self.windows.contains_key(&p.owner_id()))
+        {
+            self.dismiss_popup(None, false);
+        }
         let now = Instant::now();
         let mut earliest = None;
         for app in self.windows.values_mut() {

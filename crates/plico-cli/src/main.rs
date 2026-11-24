@@ -105,6 +105,18 @@ enum Action {
         #[usage(long)]
         watch: bool,
     },
+    /// Replay a JSON scenario and encode a fixed-rate MP4 using FFmpeg.
+    Record {
+        path: Option<PathBuf>,
+        #[usage(short = 'p', long)]
+        package: Option<String>,
+        #[usage(long)]
+        scenario: PathBuf,
+        #[usage(long)]
+        output: PathBuf,
+        #[usage(long, default = "60")]
+        fps: u32,
+    },
     /// Build a release application directory with resources and a Linux desktop entry.
     Bundle {
         path: Option<PathBuf>,
@@ -218,6 +230,9 @@ fn run() -> Result<u8> {
         }
         | Action::Capture {
             path: Some(path), ..
+        }
+        | Action::Record {
+            path: Some(path), ..
         } => base_directory.join(path),
         _ => base_directory.clone(),
     };
@@ -282,6 +297,37 @@ fn run() -> Result<u8> {
                     scenario.into_os_string(),
                     "--capture".into(),
                     output.into_os_string(),
+                ],
+            );
+        }
+        Action::Record {
+            package,
+            scenario,
+            output,
+            fps,
+            ..
+        } => {
+            let scenario = base_directory
+                .join(scenario)
+                .canonicalize()
+                .context(IoSnafu)?;
+            let output = base_directory.join(output);
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent).context(IoSnafu)?;
+            }
+            return development::run(
+                &directory,
+                &manifest,
+                package.as_deref(),
+                true,
+                false,
+                vec![
+                    "--scenario".into(),
+                    scenario.into_os_string(),
+                    "--record".into(),
+                    output.into_os_string(),
+                    "--fps".into(),
+                    fps.to_string().into(),
                 ],
             );
         }

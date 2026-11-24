@@ -271,9 +271,9 @@ fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
                 && intersects(
                     [
                         run.origin[0] + (glyph.x + x) * run.scale - 4.,
-                        run.origin[1] + (glyph.y + y) * run.scale - 4.,
+                        run.origin[1] + (glyph.y + y) * run.scale * run.vertical_ratio - 4.,
                         run.origin[0] + (glyph.x + x + w) * run.scale + 4.,
-                        run.origin[1] + (glyph.y + y + h) * run.scale + 4.,
+                        run.origin[1] + (glyph.y + y + h) * run.scale * run.vertical_ratio + 4.,
                     ],
                     run.clip,
                 )

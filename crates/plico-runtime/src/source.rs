@@ -98,6 +98,7 @@ pub struct Source<V: HostView> {
     display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
     scene_scratch: plico_renderer::scene::SceneScratch,
+    scene_parts: plico_renderer::scene::SceneParts,
     background: Option<Color>,
     /// Work accumulated across the current host batch.
     batch_stats: BatchStats,
@@ -138,6 +139,7 @@ impl<V: HostView> Source<V> {
             display_preferences_dirty: false,
             target_scene: None,
             scene_scratch: Default::default(),
+            scene_parts: Default::default(),
             background: None,
             batch_stats: BatchStats::default(),
             wake_batch: Arc::default(),
@@ -513,7 +515,7 @@ impl<V: HostView> Source<V> {
             // chooses between local replay and a full synchronized declaration.
             self.pending = true;
         }
-        let motion_dirty = self.adapter.motions.advance(now);
+        let motion_dirty = self.adapter.motions.advance(now) || self.adapter.popup_motion_active;
         let scroll = self
             .adapter
             .advance_scroll(self.engine.time().now, &self.engine);
@@ -605,7 +607,7 @@ impl<V: HostView> Source<V> {
             })
         {
             self.pending = true;
-            self.requests.insert(plico::Changes::ANIMATE);
+            self.requests.insert(plico::Changes::VIEW);
         }
         Ok(())
     }
@@ -645,7 +647,8 @@ impl<V: HostView> Source<V> {
         let stats = self.adapter.stats;
         self.batch_stats.backend_commits += 1;
         self.batch_stats.layout_runs += stats.layout_runs;
-        if stats.paint_writes > 0
+        if stats.changes.contains(plico::Changes::TRANSFORM)
+            || stats.paint_writes > 0
             || stats.layout_runs > 0
             || stats.flatten_visits > 0
             || stats.created > 0
@@ -697,16 +700,51 @@ impl<V: HostView> Source<V> {
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
         let base_color = self.base_color();
-        plico_renderer::scene::build_presented_scene_scaled_layers_with_scratch(
-            scene,
-            &layers,
-            tcx,
-            size.0,
-            size.1,
-            base_color,
-            scale,
-            &mut self.scene_scratch,
-        );
+        if snapshot.is_none() && !self.adapter.popup_motions.is_empty() {
+            let stats = self.adapter.stats;
+            let can_patch = self.declarations_reused
+                && !self.adapter.scene_full_dirty
+                && stats.layout_runs == 0
+                && stats.flatten_visits == 0
+                && stats.created == 0
+                && stats.removed == 0
+                && self
+                    .target_scene
+                    .as_ref()
+                    .is_some_and(|(_, _, previous)| previous.checked_add(1) == Some(self.revision));
+            let dirty = can_patch.then(|| {
+                self.adapter
+                    .scene_dirty_nodes
+                    .iter()
+                    .flat_map(|&id| self.adapter.placed_chain(id).map(|node| node.node_id))
+                    .collect()
+            });
+            plico_renderer::scene::patch_presented_scene(
+                scene,
+                layers[0],
+                layers[1],
+                tcx,
+                size,
+                base_color,
+                scale,
+                &mut self.scene_parts,
+                dirty.as_ref(),
+            );
+            self.adapter.stats.scene_parts_rebuilt = self.scene_parts.rebuilt;
+            self.adapter.stats.scene_parts_reused = self.scene_parts.reused;
+        } else {
+            self.scene_parts = Default::default();
+            plico_renderer::scene::build_presented_scene_scaled_layers_with_scratch(
+                scene,
+                &layers,
+                tcx,
+                size.0,
+                size.1,
+                base_color,
+                scale,
+                &mut self.scene_scratch,
+            );
+        }
         self.target_scene = Some((scene.clone(), scale.to_bits(), self.revision));
         #[cfg(feature = "profiling")]
         {
@@ -746,8 +784,11 @@ impl<V: HostView> Source<V> {
         let _guard = span.enter();
         let passes = self
             .engine
-            .declare_until_settled(&mut HostViewChild(&mut self.view))
+            .declare_until_settled_with(&mut HostViewChild(&mut self.view), |view| {
+                view.0.commit_declaration()
+            })
             .map_err(|source| {
+                self.view.discard_declaration();
                 self.pending = true;
                 self.declared_changes.insert(plico::Changes::STRUCTURE);
                 self.declared_dirty.clear();
@@ -829,6 +870,15 @@ impl<V: HostView> FrameSource for Source<V> {
             }
         }
     }
+    fn try_build_frame(
+        &mut self,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PlacedNode>, plico_renderer::FrameSourceError> {
+        Source::try_build_frame(self, text, width, height)
+            .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
+    }
     fn paint_scene(
         &mut self,
         scene: &mut Scene,
@@ -871,9 +921,12 @@ impl<V: HostView> FrameSource for Source<V> {
     fn has_anim(&self) -> bool {
         self.transition.active()
             || self.adapter.motions.active()
+            || self.adapter.popup_motion_active
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
-            || self.requests.contains(plico::Changes::ANIMATE)
+            || self
+                .requests
+                .intersects(plico::Changes::ANIMATE | plico::Changes::VIEW)
             || self.adapter.tips.needs_frame(self.engine.time().now)
             || self.adapter.scrollbars.needs_frame(self.engine.time().now)
     }

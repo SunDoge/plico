@@ -25,6 +25,20 @@ impl ScalarTransition {
         }
     }
 }
+/// Override a retained shader's canvas for this frame in window coordinates.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(super) struct SurfacePose {
+    pub bounds: Option<[f32; 4]>,
+    pub popup_geometry: Option<[f32; 12]>,
+    pub popup_optics: Option<PopupOptics>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum PopupOptics {
+    Morph { frost: f32, visible: bool },
+    List { opening: f32, radius: f32 },
+}
+
 pub(super) struct Surface {
     id: ShaderEffectId,
     authored: String,
@@ -35,7 +49,8 @@ pub(super) struct Surface {
     elapsed: f32,
     transitions: HashMap<usize, ScalarTransition>,
     sampled: Duration,
-    painted: Option<([f32; 4], f32)>,
+    painted: Option<([f32; 4], [f32; 2], f32)>,
+    popup_pose: SurfacePose,
 }
 impl Surface {
     fn sample_values(&mut self, now: Duration, enabled: bool) {
@@ -113,6 +128,7 @@ impl Adapter {
                 transitions: HashMap::new(),
                 sampled: now,
                 painted: None,
+                popup_pose: SurfacePose::default(),
             });
             if self.shader_motion_enabled && !self.shader_reset_time && surface.running() {
                 surface.elapsed +=
@@ -217,21 +233,34 @@ impl Adapter {
                 surface.params.clone_from(params);
                 surface.painted = None;
             }
-            // The shader owns its expanded local clip; retain every ancestor clip.
-            // Derive from the stable scroll port so repeated paint-only samples do not accumulate.
+            // Resolve the animated effect canvas in presentation space.
+            // Keep the node's layout bounds and the ancestor clip chain intact.
+            let [outset_x, outset_y] = params.paint_outset;
+            let pose = self.effect_poses.get(&entity).copied().unwrap_or_default();
+            let rect = pose.bounds;
+            let [x0, y0, x1, y1] = rect.unwrap_or(node.scroll.port);
             if logical.style.clip && node.own_clip.is_some() {
-                let [x0, y0, x1, y1] = node.scroll.port;
-                let [x, y] = params.paint_outset;
-                node.own_clip = Some([x0 - x, y0 - y, x1 + x, y1 + y]);
+                node.own_clip = Some([x0 - outset_x, y0 - outset_y, x1 + outset_x, y1 + outset_y]);
             }
+            let (size, origin) = rect.map_or((node.content_size, node.content_origin), |_| {
+                ([x1 - x0, y1 - y0], [x0, y0])
+            });
+            let offset = [
+                origin[0] - node.content_origin[0] - outset_x,
+                origin[1] - node.content_origin[1] - outset_y,
+            ];
             let time = params.time + surface.elapsed;
             let geometry = [
-                node.content_size[0] + params.paint_outset[0] * 2.,
-                node.content_size[1] + params.paint_outset[1] * 2.,
+                size[0] + outset_x * 2.,
+                size[1] + outset_y * 2.,
                 logical.style.radius,
                 self.shader_scale as f32,
             ];
-            if surface.painted == Some((geometry, time)) && node.paint.widget.is_some() {
+            if pose != surface.popup_pose {
+                surface.popup_pose = pose;
+                surface.painted = None;
+            }
+            if surface.painted == Some((geometry, offset, time)) && node.paint.widget.is_some() {
                 continue;
             }
             let mut paint = PaintContext::new_clipped(
@@ -242,25 +271,45 @@ impl Adapter {
                 tcx,
             );
             if let Some(source) = &surface.source {
-                paint.draw_shader_effect(surface.id, source.clone(), time, surface.values.clone());
+                let values = if pose.popup_geometry.is_some() || pose.popup_optics.is_some() {
+                    let mut values = surface.values.to_vec();
+                    if let Some(optics) = pose.popup_optics {
+                        match optics {
+                            PopupOptics::Morph { frost, visible } => {
+                                values[14] = frost;
+                                values[23] = f32::from(visible);
+                            }
+                            PopupOptics::List { opening, radius } => {
+                                values[0] = radius;
+                                values[14] = opening;
+                            }
+                        }
+                    }
+                    if let Some(geometry) = pose.popup_geometry {
+                        values.resize(28, 0.);
+                        values.extend_from_slice(&geometry);
+                    }
+                    values.into()
+                } else {
+                    surface.values.clone()
+                };
+                paint.draw_shader_effect(surface.id, source.clone(), time, values);
             }
             let painted = paint.finish();
-            let fragment = if params.paint_outset == [0.; 2] {
+            let fragment = if offset == [0.; 2] {
                 Arc::new(painted)
             } else {
                 let mut fragment = Scene::new();
                 fragment.append_scene(
                     painted,
-                    kurbo::Affine::translate((
-                        -f64::from(params.paint_outset[0]),
-                        -f64::from(params.paint_outset[1]),
-                    )),
+                    kurbo::Affine::translate((f64::from(offset[0]), f64::from(offset[1]))),
                 );
                 Arc::new(fragment)
             };
             node.paint.widget = Some(fragment.clone());
             self.tree.get_node_context_mut(node.node_id).unwrap().widget = Some(fragment);
-            surface.painted = Some((geometry, time));
+            surface.painted = Some((geometry, offset, time));
+            self.scene_dirty_nodes.insert(node.node_id);
             self.stats.paint_writes += 1;
             changed = true;
         }

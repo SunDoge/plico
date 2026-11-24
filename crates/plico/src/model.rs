@@ -531,6 +531,17 @@ pub struct Style {
     /// Position this overlay beside the corresponding trigger.
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub popup_anchor: Option<u64>,
+    /// Use the liquid menu or listbox placement and item treatment.
+    #[serde(default)]
+    #[invalidates(LAYOUT, PAINT, HIT_TEST)]
+    pub liquid_popup: bool,
+    #[serde(default)]
+    #[invalidates(LAYOUT, HIT_TEST)]
+    pub popup_over_anchor: bool,
+    /// Animate an anchored glass surface in the host's retained presentation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[invalidates(PAINT)]
+    pub popup_motion: bool,
     #[invalidates(SEMANTICS, HIT_TEST)]
     pub modal_open: bool,
     #[invalidates(HIT_TEST)]
@@ -613,6 +624,10 @@ pub struct Style {
     #[serde(default = "control_chrome_default")]
     #[invalidates(PAINT)]
     pub control_chrome: bool,
+    /// Width of a custom thumb that preserves its grab offset. The track spans the full control.
+    #[serde(default)]
+    #[invalidates(HIT_TEST)]
+    pub slider_grab_width: Option<f32>,
     #[invalidates(PAINT, SEMANTICS)]
     pub checked: bool,
     #[invalidates(PAINT, SEMANTICS)]
@@ -680,6 +695,9 @@ impl Default for Style {
             focus_axis: None,
             selection_follows_focus: false,
             popup_anchor: None,
+            liquid_popup: false,
+            popup_over_anchor: false,
+            popup_motion: false,
             modal_open: false,
             dismiss_on_escape: true,
             dismiss_on_backdrop: true,
@@ -714,6 +732,7 @@ impl Default for Style {
             styled_button: false,
             material_background: false,
             control_chrome: true,
+            slider_grab_width: None,
             checked: false,
             input_revision: 0,
             input_navigation: false,
@@ -748,6 +767,7 @@ impl Style {
                 self.max_height,
                 self.padding_x,
                 self.padding_y,
+                self.slider_grab_width,
             ]
             .into_iter()
             .all(|v| v.is_none_or(|v| v.is_finite() && v >= 0.))

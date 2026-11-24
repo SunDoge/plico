@@ -49,6 +49,7 @@ pub struct Engine {
     click_paths: Vec<Vec<crate::PathKey>>,
     values: Vec<(Entity, f64)>,
     high_values: Vec<(Entity, f64)>,
+    pub(crate) range_thumbs: HashMap<Entity, [Entity; 2]>,
     value_paths: Vec<(Vec<crate::PathKey>, f64)>,
     pub(crate) inputs: HashMap<Entity, (crate::TextBuffer, String, (u64, u64))>,
     pub(crate) focus_request: Option<Entity>,
@@ -119,6 +120,7 @@ impl Default for Engine {
             click_paths: Vec::new(),
             values: Vec::new(),
             high_values: Vec::new(),
+            range_thumbs: HashMap::new(),
             value_paths: Vec::new(),
             inputs: HashMap::new(),
             focus_request: None,
@@ -358,6 +360,9 @@ impl Engine {
             .and_then(|e| self.nodes.get(*e))
             .map(|n| n.style.shader_revision)
     }
+    pub(crate) fn pressed_identity(&self, identity: Identity) -> bool {
+        self.pressed.is_some() && self.lookup.get(&identity).copied() == self.pressed
+    }
     pub(crate) fn lookup_numeric(&self, identity: Identity) -> Option<u64> {
         self.lookup
             .get(&identity)
@@ -463,6 +468,31 @@ impl Engine {
         } else {
             self.nodes.get(entity).map(|node| node.identity.parent)
         }
+    }
+
+    /// Resolve the semantic thumb registered by a range slider declaration.
+    #[doc(hidden)]
+    pub fn range_thumb(&self, owner: Entity, thumb: SliderThumb) -> Option<Entity> {
+        let thumbs = self.range_thumbs.get(&owner)?;
+        let entity = thumbs[usize::from(thumb == SliderThumb::Maximum)];
+        self.nodes
+            .get(entity)
+            .filter(|node| node.style.slider_thumb == Some(thumb))?;
+        Some(entity)
+    }
+
+    /// Find the declaring range slider through any intervening layout containers.
+    #[doc(hidden)]
+    pub fn range_owner(&self, entity: Entity) -> Option<(Entity, SliderThumb)> {
+        let thumb = self.nodes.get(entity)?.style.slider_thumb?;
+        let mut ancestor = self.parent(entity);
+        while let Some(owner) = ancestor {
+            if self.range_thumb(owner, thumb) == Some(entity) {
+                return Some((owner, thumb));
+            }
+            ancestor = self.parent(owner);
+        }
+        None
     }
 
     /// FrameStats of the most recent declaration pass.
@@ -822,6 +852,24 @@ impl Engine {
     pub fn pressed(&self, entity: Entity) -> bool {
         self.pressed == Some(entity)
     }
+    pub(crate) fn pressed_within(&self, entity: Entity) -> bool {
+        let mut pressed = self.pressed;
+        while let Some(current) = pressed {
+            if current == entity {
+                return self
+                    .nodes
+                    .get(entity)
+                    .is_some_and(|node| !node.style.disabled);
+            }
+            pressed = self
+                .nodes
+                .get(current)
+                .map(|node| node.identity.parent)
+                .filter(|parent| *parent != current);
+        }
+        false
+    }
+
     /// Host pointer snapshot in window logical pixels; None clears it.
     pub fn set_pointer_position(&mut self, position: Option<(f64, f64)>) {
         if self.pointer_position != position {
@@ -1083,6 +1131,9 @@ impl Engine {
                 .get_or_insert(FrameError::DuplicateKey { parent, key });
             return entity;
         }
+        if node.numeric.is_some_and(|range| range.high.is_some()) {
+            self.range_thumbs.remove(&entity);
+        }
         node.declared_children = 0;
         node.order_dirty = false;
         node.scroll_observed.set(false);
@@ -1198,6 +1249,17 @@ impl Engine {
     /// flags across passes. Native and reload hosts both drive this; the
     /// semantics can no longer drift between them.
     pub fn declare_until_settled(&mut self, view: &mut dyn View) -> Result<u8, FrameError> {
+        self.declare_until_settled_with(view, |_| false)
+    }
+
+    /// Run a host commit after each stable declaration. Return true from
+    /// the callback to project a synchronous host change within the same frame.
+    #[doc(hidden)]
+    pub fn declare_until_settled_with<V: View + ?Sized>(
+        &mut self,
+        view: &mut V,
+        mut commit: impl FnMut(&mut V) -> bool,
+    ) -> Result<u8, FrameError> {
         self.settle_dirty.clear();
         self.settle_node_changes.clear();
         self.settle_changes = Changes::empty();
@@ -1223,7 +1285,7 @@ impl Engine {
                 }
             }
             self.settle_changes |= self.changes();
-            if !self.changes().contains(Changes::VIEW) {
+            if !self.changes().contains(Changes::VIEW) && !commit(view) {
                 return Ok(pass + 1);
             }
         }
@@ -1386,6 +1448,7 @@ impl Engine {
             let node = self.nodes.remove(id).unwrap();
             self.lookup.remove(&node.identity);
             self.inputs.remove(&id);
+            self.range_thumbs.remove(&id);
             self.stats.removed += 1;
         }
         self.locals.retain(|parent, epoch| {
@@ -1698,5 +1761,51 @@ mod declaration_storage_tests {
         assert!(clicked);
         assert_eq!(stats.created, 0);
         assert_eq!(stats.order_changes, 0);
+    }
+}
+
+#[cfg(test)]
+mod range_relation_tests {
+    use super::*;
+
+    #[test]
+    fn wrapped_thumbs_resolve_to_the_registered_group_and_expire_on_unmount() {
+        let mut engine = Engine::default();
+        engine
+            .frame_declarations(|ui| {
+                ui.column().key("group").children(|ui| {
+                    ui.column().key("wrapper").children(|ui| {
+                        for (key, thumb) in [
+                            ("low", SliderThumb::Minimum),
+                            ("high", SliderThumb::Maximum),
+                        ] {
+                            ui.element_with_grid(
+                                Key::Static(key),
+                                Kind::ValueControl,
+                                Style {
+                                    slider_thumb: Some(thumb),
+                                    ..Default::default()
+                                },
+                                "",
+                                None,
+                                |_| {},
+                            );
+                        }
+                    });
+                });
+            })
+            .unwrap();
+        let group = engine.find(engine.root(), "group").unwrap();
+        let wrapper = engine.find(group, "wrapper").unwrap();
+        let low = engine.find(wrapper, "low").unwrap();
+        let high = engine.find(wrapper, "high").unwrap();
+        engine.range_thumbs.insert(group, [low, high]);
+        for (entity, thumb) in [(low, SliderThumb::Minimum), (high, SliderThumb::Maximum)] {
+            assert_eq!(engine.range_owner(entity), Some((group, thumb)));
+            assert_eq!(engine.range_thumb(group, thumb), Some(entity));
+        }
+        engine.frame_declarations(|_| {}).unwrap();
+        assert!(engine.range_thumbs.is_empty());
+        assert_eq!(engine.range_owner(low), None);
     }
 }

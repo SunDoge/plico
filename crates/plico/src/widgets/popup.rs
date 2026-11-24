@@ -9,13 +9,25 @@ fn popup_entry<'u, 'e, 't>(
     key: Key,
     label: impl Into<Cow<'t, str>>,
     selected: Option<bool>,
-) -> (crate::ButtonBase<'u, 'e, 't>, bool) {
+) -> (crate::ButtonBase<'u, 'e, 't>, bool, bool) {
     let m = cx.theme().metrics;
     let highlighted = cx.engine.focus_within(crate::model::Identity {
         parent: cx.parent,
         key,
         scope: cx.scope,
     });
+    let mut parent = cx.parent;
+    let mut glass = false;
+    while let Some(node) = cx.engine.nodes.get(parent) {
+        if node.kind == crate::Kind::Overlay {
+            glass = node.style.liquid_popup;
+            break;
+        }
+        if parent == cx.engine.root {
+            break;
+        }
+        parent = node.identity.parent;
+    }
     let control = button_base(cx, label)
         .key(key)
         .semantic_role(if selected.is_some() {
@@ -32,7 +44,26 @@ fn popup_entry<'u, 'e, 't>(
         .radius(m.radius as f32)
         .hover_background(Color::Accent)
         .pressed_background(Color::Accent);
-    let control = if highlighted {
+    let highlight = Color::ControlHover;
+    let control = if glass {
+        let item = control
+            .height(40.)
+            .min_height(40.)
+            .padding_x(14.)
+            .padding_y(0.)
+            .gap(10)
+            .radius(16.)
+            .corner_smoothing(0.)
+            .font_size(15)
+            .weight(if selected == Some(true) { 600 } else { 500 })
+            .hover_background(highlight)
+            .pressed_background(highlight);
+        if highlighted {
+            item.background(highlight)
+        } else {
+            item
+        }
+    } else if highlighted {
         control.background(Color::Accent)
     } else if selected == Some(true) {
         control.background(Color::Control)
@@ -44,7 +75,7 @@ fn popup_entry<'u, 'e, 't>(
     } else {
         control
     };
-    (control, highlighted)
+    (control, highlighted, glass)
 }
 
 pub fn menu<'u, 'e, 's>(
@@ -63,6 +94,7 @@ pub struct MenuItem<'u, 'e, 's> {
     key: Key,
     disabled: bool,
     icon: Option<&'s crate::SvgAsset>,
+    destructive: bool,
 }
 pub fn menu_item<'u, 'e, 's>(
     cx: &'u mut UiContext<'e>,
@@ -75,6 +107,7 @@ pub fn menu_item<'u, 'e, 's>(
         key,
         disabled: false,
         icon: None,
+        destructive: false,
     }
 }
 impl<'s> crate::ImplicitKey for MenuItem<'_, '_, 's> {
@@ -91,6 +124,10 @@ impl<'s> MenuItem<'_, '_, 's> {
         self.disabled = disabled;
         self
     }
+    pub fn destructive(mut self, enabled: bool) -> Self {
+        self.destructive = enabled;
+        self
+    }
     pub fn icon(mut self, icon: &'s crate::SvgAsset) -> Self {
         self.icon = Some(icon);
         self
@@ -104,13 +141,15 @@ impl<'s> MenuItem<'_, '_, 's> {
     fn finish(&mut self) -> Response {
         let cx = self.cx.take().expect("one declaration");
         let disabled = self.disabled || cx.inherited.disabled;
-        let (control, highlighted) = popup_entry(cx, self.key, self.label.as_ref(), None);
+        let (control, highlighted, glass) = popup_entry(cx, self.key, self.label.as_ref(), None);
         let response = control
             .disabled(disabled)
             .opacity(if disabled { 0.45 } else { 1. })
             .children(|cx| {
-                let color = if highlighted || cx.hovered() {
+                let color = if !glass && (highlighted || cx.hovered()) {
                     Color::OnAccent
+                } else if self.destructive {
+                    Color::Danger
                 } else {
                     Color::Foreground
                 };
@@ -219,6 +258,8 @@ pub struct Select<'u, 'e, 's, T: Clone + PartialEq> {
     max_height: f32,
     disabled: bool,
     motion: Motion,
+    material: Option<crate::LiquidGlass>,
+    placeholder: Option<&'s str>,
     search: Option<&'s crate::TextBuffer>,
 }
 pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
@@ -240,7 +281,9 @@ pub fn select<'u, 'e, 's, T: Clone + PartialEq>(
         max_height: 280.,
         disabled: false,
         motion: Motion::Quick,
+        placeholder: None,
         search: None,
+        material: None,
     }
 }
 impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
@@ -253,6 +296,11 @@ impl<T: Clone + PartialEq> crate::ImplicitKey for Select<'_, '_, '_, T> {
     }
 }
 impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
+    /// Text shown while the controlled value has no matching option.
+    pub fn placeholder(mut self, text: &'s str) -> Self {
+        self.placeholder = Some(text);
+        self
+    }
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
@@ -274,6 +322,10 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
     /// Within each group, options keep their source order and business keys.
     pub fn searchable(mut self, query: &'s crate::TextBuffer) -> Self {
         self.search = Some(query);
+        self
+    }
+    pub fn material(mut self, glass: crate::LiquidGlass) -> Self {
+        self.material = Some(glass);
         self
     }
     pub fn response(mut self) -> SelectResponse {
@@ -298,11 +350,17 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
         let shown = options
             .iter()
             .find(|option| option.value == *selected)
-            .map_or(label, |option| option.label);
+            .map_or(self.placeholder.unwrap_or(label), |option| option.label);
         let max_height = self.max_height;
         let search = self.search;
         let mut changed = false;
-        cx.popover(state, label)
+        let popup = cx.popover(state, label);
+        let popup = if let Some(glass) = self.material {
+            popup.material(glass)
+        } else {
+            popup
+        };
+        popup
             .display_text(shown)
             .key(key)
             .width(width)
@@ -323,22 +381,41 @@ impl<'s, T: Clone + PartialEq> Select<'_, '_, 's, T> {
                         .submitted()
                 });
                 let query = search.and_then(|buffer| buffer.text()).unwrap_or_default();
+                let mut ancestor = cx.parent;
+                let mut animate_rows = false;
+                while let Some(node) = cx.engine.nodes.get(ancestor) {
+                    if node.kind == crate::Kind::Overlay {
+                        animate_rows = node.style.popup_motion;
+                        break;
+                    }
+                    if ancestor == cx.engine.root {
+                        break;
+                    }
+                    ancestor = node.identity.parent;
+                }
                 let found = visit_matches(options, &query, |option| {
                     let on = option.value == *selected;
-                    let (control, highlighted) =
+                    let (control, highlighted, glass) =
                         popup_entry(cx, option.key, option.label, Some(on));
                     let response = control
                         .disabled(option.disabled)
-                        .opacity(if option.disabled { 0.45 } else { 1. })
-                        .motion(motion)
+                        .opacity(if option.disabled {
+                            if glass { 0.4 } else { 0.45 }
+                        } else {
+                            1.
+                        })
+                        .motion(if animate_rows { Motion::None } else { motion })
                         .children(|cx| {
-                            let color = if highlighted || cx.hovered() {
+                            let color = if !glass && (highlighted || cx.hovered()) {
                                 Color::OnAccent
                             } else {
                                 Color::Foreground
                             };
                             text(cx, option.label).color(color).grow(1.).ellipsis(true);
                             let side = cx.theme().metrics.control_icon() as f32;
+                            if glass {
+                                return;
+                            }
                             if on {
                                 svg(cx, &crate::icons::CHECK).size(side, side).color(color);
                             } else {

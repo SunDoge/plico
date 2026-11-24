@@ -165,6 +165,17 @@ pub fn sidebar_section(
     });
 }
 
+/// A focus-aware sidebar row for custom icon and label content.
+pub fn sidebar_entry<'u, 'e, 't>(
+    cx: &'u mut UiContext<'e>,
+    label: impl Into<std::borrow::Cow<'t, str>>,
+    selected: bool,
+) -> crate::ButtonBase<'u, 'e, 't> {
+    super::nav_entry(cx, label, selected)
+        .min_width(0.)
+        .semantic_role(WidgetRole::TreeItem)
+}
+
 /// One item of a [`sidebar`] (MyGO `SidebarItem`): an icon (optional) and a
 /// single-line label. The chosen row is gray outside the sidebar's focus scope
 /// and uses the accent face while its scope holds focus, following MyGO.
@@ -177,9 +188,7 @@ pub fn sidebar_item(
     icon: Option<&crate::SvgAsset>,
 ) -> crate::Response {
     let m = cx.theme().metrics;
-    super::nav_entry(cx, label, selected)
-        .min_width(0.)
-        .semantic_role(WidgetRole::TreeItem)
+    sidebar_entry(cx, label, selected)
         .children(|cx| {
             if let Some(asset) = icon {
                 let glyph = svg(cx, asset).size(16., 16.);
@@ -217,6 +226,14 @@ pub fn link(cx: &mut UiContext, label: &str) -> crate::Response {
             let _ = text(cx, label).font_size(m.font_size).color(Color::Accent);
         })
         .response
+}
+
+/// Pointer and keyboard activation for a link with custom contents.
+pub fn link_base<'u, 'e, 's>(
+    cx: &'u mut UiContext<'e>,
+    label: &'s str,
+) -> crate::ButtonBase<'u, 'e, 's> {
+    button_base(cx, label).semantic_role(WidgetRole::Link)
 }
 
 /// A "Back" button for a [`crate::Router`] (MyGO `BackButton`), disabled at

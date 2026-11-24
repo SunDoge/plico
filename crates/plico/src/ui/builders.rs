@@ -1062,6 +1062,11 @@ impl ButtonBase<'_, '_, '_> {
         self.inner.style.expanded = Some(value);
         self
     }
+    /// Set the accessible state of a composed checkbox or switch.
+    pub fn checked(mut self, value: bool) -> Self {
+        self.inner.style.checked = value;
+        self
+    }
     #[inline(always)]
     pub fn selected(mut self, value: bool) -> Self {
         self.inner.style.selected = Some(value);
@@ -1776,8 +1781,8 @@ impl<'e> UiContext<'e> {
         let min = range.min;
         let max = range.max;
         let step = range.step;
-        self.with_parent(entity, style, false, |cx| {
-            for (key, thumb, suffix, value) in [
+        let thumbs = self.with_parent(entity, style, false, |cx| {
+            [
                 (
                     Key::Static("__range_minimum"),
                     crate::SliderThumb::Minimum,
@@ -1790,7 +1795,8 @@ impl<'e> UiContext<'e> {
                     "maximum",
                     high,
                 ),
-            ] {
+            ]
+            .map(|(key, thumb, suffix, value)| {
                 let mut thumb_style = cx.inherited_style();
                 thumb_style.role = Some(crate::WidgetRole::Slider);
                 thumb_style.control_chrome = false;
@@ -1832,8 +1838,10 @@ impl<'e> UiContext<'e> {
                     thumb_node.pending_changes |= Changes::PAINT | Changes::SEMANTICS;
                 }
                 cx.engine.set_grid(thumb_entity, None);
-            }
+                thumb_entity
+            })
         });
+        self.engine.range_thumbs.insert(entity, thumbs);
         input.map(|_| range.value)
     }
 }
@@ -1855,6 +1863,11 @@ impl Slider<'_, '_, '_> {
         self.inner.style.control_chrome = false;
         self.inner.style.background = None;
         self.inner.style.border_width = 0.;
+        self
+    }
+
+    pub(crate) fn grab_width(mut self, width: f32) -> Self {
+        self.inner.style.slider_grab_width = Some(width);
         self
     }
 
@@ -1932,7 +1945,12 @@ impl Slider<'_, '_, '_> {
         if before != *self.value {
             ui.request_rebuild();
         }
-        crate::SliderResponse::new(changed, *self.value, self.range.high)
+        let pressed = ui.engine.pressed_identity(Identity {
+            parent: ui.parent,
+            key: self.inner.key,
+            scope: ui.scope,
+        });
+        crate::SliderResponse::new(changed, *self.value, self.range.high, pressed)
     }
     pub fn response(mut self) -> crate::SliderResponse {
         self.finish()

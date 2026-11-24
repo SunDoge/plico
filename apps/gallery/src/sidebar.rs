@@ -30,11 +30,21 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
             };
             // Let the scrollbar's hit lane reach the panel edge while keeping
             // source-list content aligned to the sidebar's ten-DIP inset.
-            column(cx).height(0.).grow(1.).scroll_y(true).gap(16).min_width(0.).margin_left(-10)
-                .margin_right(-10).padding_left(10).padding_right(10) + |cx|
+            plico::widgets::sidebar(cx).padding(0).background(Color::Panel).height(0.).grow(1.).scroll_y(true)
+                .gap(16).min_width(0.).margin_left(-10).margin_right(-10).padding_left(10).padding_right(10) + |cx|
             {
                 for (section, title, routes) in [
                     ("sidebar-workspace", "Workspace", &[Page::Workspace][..]),
+                    (
+                        "sidebar-experiments",
+                        "Experiments",
+                        &[
+                            Page::LiquidGlass,
+                            Page::Effects,
+                            Page::Glass,
+                            Page::ShaderPlayground,
+                        ][..],
+                    ),
                     (
                         "sidebar-components",
                         "Components",
@@ -53,14 +63,11 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                         ][..],
                     ),
                     (
-                        "sidebar-experiments",
-                        "Experiments",
+                        "sidebar-demos",
+                        "Demos",
                         &[
                             Page::Motion,
-                            Page::Glass,
                             Page::BlackHole,
-                            Page::Effects,
-                            Page::ShaderPlayground,
                             Page::Images,
                             Page::Markdown,
                             Page::Game2048,
@@ -80,6 +87,8 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                                     if entry(cx, &label, app.router.show(route), route_icon(route),
                                         labelled.then_some(reveal)).clicked()
                                     {
+                                        app.router.transition =
+                                            RouterTransition::None;
                                         app.router.go(route);
                                     }
                                 });
@@ -126,12 +135,11 @@ fn entry(
     reveal: Option<f32>,
 ) -> Response {
     let m = cx.theme().metrics;
-    nav_entry_with_appearance(cx, label, selected, NavEntryAppearance::Quiet).height(m.control_height as f32)
-        .min_width(0.).padding_x(8).gap(8).radius(6.).transition(0).children(|cx| {
-        icon(cx, icon_asset).size(18., 18.);
+    plico::widgets::sidebar_entry(cx, label, selected).height(m.control_height as f32).min_width(0.).padding_x(8).gap(8)
+        .radius(6.).transition(0).children(|cx| {
+        icon(cx, icon_asset).size(16., 16.);
         if let Some(reveal) = reveal {
-            text(cx, label).font_size(m.font_size).weight(if selected { 600 } else { 400 }).ellipsis(true)
-                .min_width(0.).opacity(reveal);
+            text(cx, label).font_size(m.font_size).weight(400).ellipsis(true).min_width(0.).opacity(reveal);
         }
     }).response
 }
@@ -146,7 +154,7 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Patterns | Page::ComponentKit | Page::CuiShowcase | Page::NodeEditor => {
             &icons::LAYERS
         }
-        Page::Effects | Page::ShaderPlayground => &icons::SPARKLES,
+        Page::LiquidGlass | Page::Effects | Page::ShaderPlayground => &icons::SPARKLES,
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,
         Page::Markdown => &icons::MESSAGE_SQUARE,

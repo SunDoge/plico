@@ -33,6 +33,8 @@ mod router;
 pub use input::{InputEdit, InputNavigation, InputPresentation, TextBuffer};
 pub use layout::*;
 pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
+#[doc(hidden)]
+pub use motion::OpticalSpring;
 pub use motion::{Animation, SpringOptions};
 pub use timeline::{
     Placement, REPEAT_FOREVER, Timeline, TimelineOffset, TimelineOptions, Tween, after_previous,

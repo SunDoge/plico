@@ -343,7 +343,7 @@ impl Adapter {
             action
         };
         let old_focus = self.focused;
-        if let Some((owner, thumb)) = self.range_owner(engine, e)
+        if let Some((owner, thumb)) = engine.range_owner(e)
             && let Some(range) = engine.node(owner).and_then(|node| node.numeric)
         {
             let low = engine.pending_value(owner).unwrap_or(range.value);

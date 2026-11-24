@@ -384,6 +384,8 @@ impl Adapter {
         }
         let visual_changes = visual_style.changes_from(retained.paint_key.style);
         self.stats.changes |= visual_changes;
+        self.anchor_motion_dirty |=
+            visual_style.popup_motion != retained.paint_key.style.popup_motion;
         if visual_changes.contains(plico::Changes::TRANSFORM) {
             fn has_anchor(engine: &Engine, entity: Entity) -> bool {
                 engine.node(entity).is_some_and(|n| {
@@ -627,7 +629,10 @@ pub(crate) fn make_paint(
         }
         // MyGO paint.go explicitly excludes kindInput from the generic
         // keyboard ring: inputBorder already provides its focus indicator.
-        if focus && style.control_chrome && kind != Kind::TextInput {
+        if focus
+            && (style.control_chrome || style.slider_grab_width.is_some())
+            && kind != Kind::TextInput
+        {
             p.outline_width = 2.;
             p.outline_offset = 1.;
             p.outline_color = Some(resolve(Token::Focus, theme));

@@ -1,6 +1,6 @@
 //! Repeatable application previews: typed fixture state, scripted input, virtual time.
 use crate::{CapturedFrame, HostView, Source};
-use plico::VirtualClock;
+use plico::{ClockError, VirtualClock};
 use plico_renderer::{FrameSource, TextContext};
 use plico_runtime::testing::{Command, dispatch};
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,12 @@ pub enum PreviewError {
     },
     #[snafu(display("preview capture failed: {source}"))]
     Capture { source: crate::CaptureError },
+    #[snafu(display("recording FPS must be between 1 and 120, got {fps}"))]
+    RecordingFps { fps: u32 },
+    #[snafu(display("recording output failed: {source}"))]
+    RecordingIo { source: std::io::Error },
+    #[snafu(display("FFmpeg recording failed with {status}"))]
+    Encoder { status: std::process::ExitStatus },
 }
 /// App-defined fixture data. `S` can be the app itself or a small configuration
 /// used to construct it; runtime handles and credentials need not be serialized.
@@ -240,6 +246,187 @@ impl<S> PreviewScenario<S> {
         session: &mut PreviewSession,
         create: impl FnOnce(S, VirtualClock) -> F,
     ) -> Result<CapturedFrame, PreviewError> {
+        let (width, height) = self.physical_size()?;
+        let v = self.viewport;
+        let clock = VirtualClock::default();
+        let mut source = create(self.state, clock.clone());
+        let mut text = TextContext::new();
+        let renderer = session
+            .renderer(width, height)
+            .map_err(|source| PreviewError::Capture { source })?;
+        renderer
+            .configure_text(&mut text, v.scale)
+            .map_err(|source| PreviewError::Capture { source })?;
+        build_input_frame(&mut source, &mut text, v)?;
+        for step in self.steps {
+            clock
+                .advance(Duration::from_millis(step.after_ms))
+                .map_err(clock_error)?;
+            apply_step(&mut source, &mut text, v, &step.command)?;
+        }
+        clock
+            .advance(Duration::from_millis(self.time_ms))
+            .map_err(clock_error)?;
+        build_input_frame(&mut source, &mut text, v)?;
+        let image = crate::capture(&mut source)
+            .size(v.width, v.height)
+            .scale(v.scale)
+            .render_with_borrowed(renderer, &mut text)
+            .map_err(|source| PreviewError::Capture { source })?;
+        Ok(image)
+    }
+    /// Sample a script at a fixed frame rate and send its premultiplied frames
+    /// to a caller-owned sink. Commands run on their exact virtual timestamps.
+    pub fn record_frames<V: HostView>(
+        self,
+        fps: u32,
+        create: impl FnOnce(S) -> V,
+        emit: impl FnMut(Duration, CapturedFrame) -> Result<(), PreviewError>,
+    ) -> Result<(), PreviewError> {
+        self.record_source_frames_in(
+            &mut PreviewSession::new(crate::RenderBackend::Auto),
+            fps,
+            |state, clock| Source::with_clock(create(state), clock),
+            emit,
+        )
+    }
+
+    /// The fixed-rate recorder for callers that own a renderer session or native surface.
+    pub fn record_source_frames_in<F: PreviewSource>(
+        self,
+        session: &mut PreviewSession,
+        fps: u32,
+        create: impl FnOnce(S, VirtualClock) -> F,
+        mut emit: impl FnMut(Duration, CapturedFrame) -> Result<(), PreviewError>,
+    ) -> Result<(), PreviewError> {
+        validate_fps(fps)?;
+        let (width, height) = self.physical_size()?;
+        let viewport = self.viewport;
+        let end_ms = self
+            .steps
+            .iter()
+            .try_fold(self.time_ms, |elapsed, step| {
+                elapsed.checked_add(step.after_ms)
+            })
+            .ok_or_else(timeline_overflow)?;
+        let last_frame = (u128::from(end_ms) * u128::from(fps)).div_ceil(1000);
+        let clock = VirtualClock::default();
+        let mut source = create(self.state, clock.clone());
+        let mut text = TextContext::new();
+        let renderer = session
+            .renderer(width, height)
+            .map_err(|source| PreviewError::Capture { source })?;
+        renderer
+            .configure_text(&mut text, viewport.scale)
+            .map_err(|source| PreviewError::Capture { source })?;
+        let mut steps = self.steps.into_iter().peekable();
+        let mut step_time_ms = 0;
+        for index in 0..=last_frame {
+            let ns = index * 1_000_000_000 / u128::from(fps);
+            let timestamp = Duration::new((ns / 1_000_000_000) as u64, (ns % 1_000_000_000) as u32);
+            while let Some(step) = steps.peek() {
+                let next = step_time_ms + step.after_ms;
+                let action_time = Duration::from_millis(next);
+                if action_time > timestamp {
+                    break;
+                }
+                clock.set(action_time).map_err(clock_error)?;
+                let step = steps.next().unwrap();
+                apply_step(&mut source, &mut text, viewport, &step.command)?;
+                step_time_ms = next;
+            }
+            // Keep the final frame exactly at the scenario's end, even if
+            // the encoder's final frame index falls just beyond it.
+            let time = timestamp.min(Duration::from_millis(end_ms));
+            clock.set(time).map_err(clock_error)?;
+            let image = crate::capture(&mut source)
+                .size(viewport.width, viewport.height)
+                .scale(viewport.scale)
+                .render_with_borrowed(renderer, &mut text)
+                .map_err(|source| PreviewError::Capture { source })?;
+            emit(time, image)?;
+        }
+        Ok(())
+    }
+
+    /// Encode a scripted recording to H.264 MP4 with the installed FFmpeg.
+    /// A failed script or encoder leaves an existing destination intact.
+    pub fn record_mp4<V: HostView>(
+        self,
+        output: impl AsRef<Path>,
+        fps: u32,
+        create: impl FnOnce(S) -> V,
+    ) -> Result<(), PreviewError> {
+        use std::io::Write;
+        use std::process::{Command as Process, Stdio};
+        validate_fps(fps)?;
+        let (width, height) = self.physical_size()?;
+        let output = output.as_ref();
+        let directory = output
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let temporary = tempfile::Builder::new()
+            .suffix(".mp4")
+            .tempfile_in(directory)
+            .map_err(recording_io)?;
+        let mut encoder = Process::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "rawvideo",
+                "-pixel_format",
+                "rgba",
+            ])
+            .arg("-video_size")
+            .arg(format!("{width}x{height}"))
+            .arg("-framerate")
+            .arg(fps.to_string())
+            .args([
+                "-i",
+                "pipe:0",
+                "-vf",
+                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(temporary.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .map_err(recording_io)?;
+        let mut stdin = encoder.stdin.take().expect("FFmpeg has piped stdin");
+        let result = self.record_frames(fps, create, |_, frame| {
+            stdin.write_all(frame.rgba()).map_err(recording_io)
+        });
+        drop(stdin);
+        if let Err(error) = result {
+            let _ = encoder.kill();
+            let _ = encoder.wait();
+            return Err(error);
+        }
+        let status = encoder.wait().map_err(recording_io)?;
+        if !status.success() {
+            return Err(PreviewError::Encoder { status });
+        }
+        temporary
+            .persist(output)
+            .map_err(|error| recording_io(error.error))?;
+        Ok(())
+    }
+
+    fn physical_size(&self) -> Result<(u32, u32), PreviewError> {
         if self.version != 1 {
             return Err(PreviewError::Version {
                 version: self.version,
@@ -257,51 +444,55 @@ impl<S> PreviewScenario<S> {
                 source: crate::CaptureError::InvalidOptions,
             });
         }
-        let clock = VirtualClock::default();
-        let mut source = create(self.state, clock.clone());
-        let mut text = TextContext::new();
-        let (width, height) = crate::capture::dimensions(v.width, v.height, v.scale)
-            .map_err(|source| PreviewError::Capture { source })?;
-        let renderer = session
-            .renderer(width, height)
-            .map_err(|source| PreviewError::Capture { source })?;
-        renderer
-            .configure_text(&mut text, v.scale)
-            .map_err(|source| PreviewError::Capture { source })?;
-        let frame = |source: &mut F, text: &mut TextContext| -> Result<(), PreviewError> {
-            source
-                .ui_source()
-                .try_build_frame(text, v.width, v.height)
-                .map_err(|error| PreviewError::Input {
-                    source: plico_runtime::testing::Error::Declaration {
-                        message: error.to_string(),
-                    },
-                })?;
-            Ok(())
-        };
-        frame(&mut source, &mut text)?;
-        for step in self.steps {
-            clock
-                .advance(Duration::from_millis(step.after_ms))
-                .map_err(|_| PreviewError::Input {
-                    source: plico_runtime::testing::Error::Clock,
-                })?;
-            frame(&mut source, &mut text)?;
-            dispatch(source.ui_source(), &mut text, &step.command)
-                .map_err(|source| PreviewError::Input { source })?;
-            frame(&mut source, &mut text)?;
-        }
-        clock
-            .advance(Duration::from_millis(self.time_ms))
-            .map_err(|_| PreviewError::Input {
-                source: plico_runtime::testing::Error::Clock,
-            })?;
-        frame(&mut source, &mut text)?;
-        let image = crate::capture(&mut source)
-            .size(v.width, v.height)
-            .scale(v.scale)
-            .render_with_borrowed(renderer, &mut text)
-            .map_err(|source| PreviewError::Capture { source })?;
-        Ok(image)
+        crate::capture::dimensions(v.width, v.height, v.scale)
+            .map_err(|source| PreviewError::Capture { source })
     }
+}
+
+fn validate_fps(fps: u32) -> Result<(), PreviewError> {
+    if !(1..=120).contains(&fps) {
+        return Err(PreviewError::RecordingFps { fps });
+    }
+    Ok(())
+}
+
+fn recording_io(source: std::io::Error) -> PreviewError {
+    PreviewError::RecordingIo { source }
+}
+
+fn clock_error(_: ClockError) -> PreviewError {
+    timeline_overflow()
+}
+
+fn timeline_overflow() -> PreviewError {
+    PreviewError::Input {
+        source: plico_runtime::testing::Error::Clock,
+    }
+}
+
+fn build_input_frame<F: PreviewSource>(
+    source: &mut F,
+    text: &mut TextContext,
+    viewport: PreviewViewport,
+) -> Result<(), PreviewError> {
+    source
+        .ui_source()
+        .try_build_frame(text, viewport.width, viewport.height)
+        .map_err(|error| PreviewError::Input {
+            source: plico_runtime::testing::Error::Declaration {
+                message: error.to_string(),
+            },
+        })?;
+    Ok(())
+}
+
+fn apply_step<F: PreviewSource>(
+    source: &mut F,
+    text: &mut TextContext,
+    viewport: PreviewViewport,
+    command: &Command,
+) -> Result<(), PreviewError> {
+    build_input_frame(source, text, viewport)?;
+    dispatch(source.ui_source(), text, command).map_err(|source| PreviewError::Input { source })?;
+    build_input_frame(source, text, viewport)
 }

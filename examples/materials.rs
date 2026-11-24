@@ -22,17 +22,19 @@ impl plico_dev::App for Demo {
                         .background(Color::Literal(color)).end();
                 });
             }
-            column(cx).width(500.).padding(28).gap(18).radius(24.).material(LiquidGlass {
+            let glass = LiquidGlass {
                 enabled: !self.opaque,
                 reduce_motion: self.reduce_motion,
-                ..Default::default()
-            }).elevation(Elevation::OVERLAY) + |cx|
+                ..LiquidGlass::lens()
+            };
+            column(cx).width(500.).padding(28).gap(18).radius(24.).material(glass).elevation(Elevation::OVERLAY)
+            + |cx|
             {
                 text(cx, "Plico materials").font_size(30).weight(700);
                 text(cx, "Curved glass, sharp foreground and layered shadows.");
                 switch(cx, "Opaque fallback", &mut self.opaque);
                 switch(cx, "Reduce motion", &mut self.reduce_motion);
-                button(cx).text("A native control");
+                button(cx).text("Glass button").material(glass);
             };
         };
     }

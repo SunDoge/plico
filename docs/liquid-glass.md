@@ -342,3 +342,23 @@ tracker 按绘制顺序传播背景变化到后续玻璃；重放时将相交玻
 `backdrop_copies` 仍是 copy 次数，`backdrop_mip_passes` 统计实际 render/compute pass。
 最大 sigma 预算已按 device scale 转成物理值，含 1.5/2x 验证。
 详情、测量限制及复跑命令见 [实验记录](experiments/wgpu-backdrop-architecture.md)。
+
+## Native component family
+
+Import `plico::widgets::liquid`. The Effects page in Gallery exercises the
+controls with the desktop wgpu renderer.
+
+| Component | Native API |
+| --- | --- |
+| Layer, lens and card | `.material(LiquidGlass { .. })`, `liquid::lens`, `liquid::card` |
+| Button and action button | `button`, `action_button` with app-owned Idle, Pending or Success |
+| Button group | `button_group`, `group_item`, `group_separator`, `group_text` |
+| Badge and tabs | `badge_with_speed`, `tabs` with a travelling selection lens |
+| Slide to confirm | `slide_to_confirm_with` with threshold, mirror and fill options |
+| Popup, popover and dropdown | `Popover::material`, `liquid::popover`, `dropdown_menu` and standard menu items |
+| Select | `liquid::select` with shared listbox navigation and focus restoration |
+| Checkbox, switch and range slider | `glass_checkbox`, `glass_switch`, `range_slider` |
+
+Action and confirmation controls emit an activation. The host owns asynchronous
+work, error reporting, retry and reset timing. The native controls follow the
+host's reduced-motion and reduced-transparency preferences.
