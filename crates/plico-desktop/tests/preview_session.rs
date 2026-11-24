@@ -17,6 +17,7 @@ impl HostView for Demo {
     }
     #[component]
     fn show(&mut self, cx: &mut UiContext) {
+        cx.request_animation_frame();
         column(cx)
             .width_percent(100.)
             .height_percent(100.)
@@ -71,4 +72,47 @@ fn shared_renderer_resets_app_input_clock_viewport_and_survives_recipe_errors() 
             expected[0]
         );
     }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn recording_samples_in_order_and_matches_the_exact_end_snapshot() {
+    fn scenario() -> PreviewScenario<Fixture> {
+        serde_json::from_value(serde_json::json!({
+            "viewport": {"width": 320, "height": 240, "scale": 1.25},
+            "steps": [
+                {"after_ms": 35, "command": {"action":"click", "role":"button", "label":"Increment"}},
+                {"after_ms": 0, "command": {"action":"click", "role":"button", "label":"Increment"}}
+            ],
+            "time_ms": 78
+        })).unwrap()
+    }
+    let mut frames = Vec::new();
+    scenario()
+        .record_frames(20, create, |time, pixels| {
+            frames.push((time.as_millis(), pixels));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        frames.iter().map(|(time, _)| *time).collect::<Vec<_>>(),
+        [0, 50, 100, 113]
+    );
+    assert_eq!((frames[0].1.width(), frames[0].1.height()), (400, 300));
+    assert_ne!(frames[0].1, frames[1].1);
+    assert!(
+        frames[3].1 == scenario().render(create).unwrap(),
+        "last frame differs from the exact-time screenshot"
+    );
+}
+
+#[test]
+fn recording_rejects_invalid_fps_before_initializing_a_renderer() {
+    let result = PreviewScenario::<Fixture>::default().record_frames(0, create, |_, _| {
+        unreachable!("invalid FPS cannot emit frames")
+    });
+    assert!(matches!(
+        result,
+        Err(plico_desktop::PreviewError::RecordingFps { fps: 0 })
+    ));
 }

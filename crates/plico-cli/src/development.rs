@@ -792,9 +792,23 @@ struct Options {{
     scenario: Option<std::path::PathBuf>,
     #[usage(long)]
     capture: Option<std::path::PathBuf>,
+    #[usage(long)]
+    record: Option<std::path::PathBuf>,
+    #[usage(long, default = "60")]
+    fps: u32,
 }}
 fn main() -> Result<(), Box<dyn std::error::Error>> {{
     let options = Options::parse();
+    if options.capture.is_some() && options.record.is_some() {{
+        return Err("--capture and --record are mutually exclusive".into());
+    }}
+    if let Some(output) = options.record {{
+        let scenario = if let Some(path) = options.scenario {{
+            plico_desktop::PreviewScenario::<{crate_name}::Application>::load(path)?
+        }} else {{ Default::default() }};
+        scenario.record_mp4(output, options.fps, plico_desktop::NativeApp)?;
+        return Ok(());
+    }}
     if let Some(output) = options.capture {{
         let scenario = if let Some(path) = options.scenario {{
             plico_desktop::PreviewScenario::<{crate_name}::Application>::load(path)?

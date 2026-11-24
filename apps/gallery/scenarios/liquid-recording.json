@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1280,
+    "height": 800,
+    "scale": 1
+  },
+  "state": {
+    "router": {
+      "current": "LiquidGlass"
+    }
+  },
+  "steps": [
+    { "after_ms": 650, "command": { "action": "pointer_move", "x": 768, "y": 492 } },
+    { "after_ms": 250, "command": { "action": "pointer_down", "x": 768, "y": 492 } },
+    { "after_ms": 250, "command": { "action": "pointer_up", "x": 768, "y": 492 } },
+    { "after_ms": 1200, "command": { "action": "pointer_click", "role": "button", "label": "Pause" } },
+    { "after_ms": 700, "command": { "action": "pointer_leave" } },
+    { "after_ms": 300, "command": { "action": "pointer_click", "role": "button", "label": "Play" } },
+    { "after_ms": 1500, "command": { "action": "pointer_click", "role": "button", "label": "Pause" } },
+    { "after_ms": 100, "command": { "action": "pointer_leave" } }
+  ],
+  "time_ms": 2650
+}

@@ -72,6 +72,27 @@ frame.write_png(output)?;
 
 浏览器的 host/UI 拆分路径继续使用现有值协议与检查点。`plico-dev` 当前仍承载 App、服务、Task 和 WASM 值协议，包名暂不随本次迁移更改。
 
+## 程序化录制
+
+`plico record` 重放同一个 `PreviewScenario`，在虚拟时钟上以固定帧率离屏采样。
+场景的 `after_ms` 决定精确的输入时刻，最后一步后的 `time_ms` 决定尾部停留时间。
+分辨率和 DPI 由 `viewport` 控制，采样范围包括终态。录制复用一个 GPU 和文字会话。
+
+```sh
+cargo plico record apps/gallery \
+  --scenario apps/gallery/scenarios/liquid-recording.json \
+  --output reports/liquid-glass.mp4 --fps 60
+```
+
+MP4 输出依赖 PATH 中带 `libx264` 的 FFmpeg。`--fps` 默认 60，支持 1 到 120。
+Gallery 与 `plico new` 的应用模板已接入 `--scenario`、`--record`、`--fps` 参数。
+脚本或编码失败时保留已有输出。视频使用 H.264 与 4:2:0，奇数像素边缘补一列或一行。
+
+Rust 测试可以用 `PreviewScenario::record_frames` 接收每帧的虚拟时间和原始 RGBA，
+直接断言关键帧，或交给自定义编码器。这个接口不需要 FFmpeg。无窗口的录制覆盖 Plico
+绘制内容，原生系统菜单等窗口宿主表面仍由真实窗口测试覆盖。带语义断言的 `RecipePlan`
+仍从自己的入口执行，`plico record` 接收 PreviewScenario 格式。
+
 ## wgpu 离屏预览
 
 `plico-desktop/wgpu` 现在也提供同一套 `capture` 与 `PreviewScenario`，不需要
